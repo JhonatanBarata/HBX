@@ -6,12 +6,12 @@ export type MobileCallMode = "mobile" | "local";
 
 const KEY = "hbx:mobile-call-mode";
 const EVENT = "hbx:mobile-call-mode-changed";
-const DEFAULT: MobileCallMode = "mobile";
+const DEFAULT: MobileCallMode = "local";
 
 export function getMobileCallMode(): MobileCallMode {
   if (typeof window === "undefined") return DEFAULT;
   try {
-    return localStorage.getItem(KEY) === "local" ? "local" : "mobile";
+    return localStorage.getItem(KEY) === "mobile" ? "mobile" : "local";
   } catch {
     return DEFAULT;
   }

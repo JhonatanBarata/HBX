@@ -61,3 +61,7 @@
     bottom: 82px;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}

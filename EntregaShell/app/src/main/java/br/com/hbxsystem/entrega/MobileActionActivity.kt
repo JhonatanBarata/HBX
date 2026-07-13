@@ -15,6 +15,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -29,6 +30,13 @@ class MobileActionActivity : AppCompatActivity() {
         private const val PRIMARY = "#2E5BFF"
         private const val TEXT_SECONDARY = "#AAB5CA"
         private const val DANGER = "#FFB4AB"
+        private const val STATE_EXTERNAL_STARTED_AT = "external_started_at"
+        private const val STATE_WAITING_FOR_RETURN = "waiting_for_return"
+        private const val STATE_LEFT_FOR_EXTERNAL = "left_for_external"
+        private const val STATE_RETURNED_REPORTED = "returned_reported"
+        private const val STATE_RESULT_ELAPSED_SECONDS = "result_elapsed_seconds"
+        private const val STATE_TERMINAL_EVENT_RECORDED = "terminal_event_recorded"
+        private const val STATE_TERMINAL_ERROR_MESSAGE = "terminal_error_message"
     }
 
     private var actionId = ""
@@ -40,6 +48,9 @@ class MobileActionActivity : AppCompatActivity() {
     private var waitingForReturn = false
     private var leftForExternal = false
     private var returnedReported = false
+    private var resultElapsedSeconds: Int? = null
+    private var terminalEventRecorded = false
+    private var terminalErrorMessage: String? = null
     private lateinit var root: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,6 +60,15 @@ class MobileActionActivity : AppCompatActivity() {
         phone = intent.getStringExtra(HbxMobileBridge.EXTRA_PHONE).orEmpty().filter(Char::isDigit)
         contactName = intent.getStringExtra(HbxMobileBridge.EXTRA_CONTACT_NAME).orEmpty().trim().ifBlank { "Lead" }
         message = intent.getStringExtra(HbxMobileBridge.EXTRA_MESSAGE).orEmpty()
+        externalStartedAt = savedInstanceState?.getLong(STATE_EXTERNAL_STARTED_AT) ?: 0L
+        waitingForReturn = savedInstanceState?.getBoolean(STATE_WAITING_FOR_RETURN) ?: false
+        leftForExternal = savedInstanceState?.getBoolean(STATE_LEFT_FOR_EXTERNAL) ?: false
+        returnedReported = savedInstanceState?.getBoolean(STATE_RETURNED_REPORTED) ?: false
+        resultElapsedSeconds = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_RESULT_ELAPSED_SECONDS) }
+            ?.getInt(STATE_RESULT_ELAPSED_SECONDS)
+        terminalEventRecorded = savedInstanceState?.getBoolean(STATE_TERMINAL_EVENT_RECORDED) ?: false
+        terminalErrorMessage = savedInstanceState?.getString(STATE_TERMINAL_ERROR_MESSAGE)
 
         if (actionId.isBlank() || kind !in setOf("call", "whatsapp") || phone.length < 8) {
             finish()
@@ -63,8 +83,42 @@ class MobileActionActivity : AppCompatActivity() {
         }
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
-        showActionScreen()
-        HbxMobileBridge.recordEvent(this, actionId, "opened")
+        when {
+            resultElapsedSeconds != null -> showResultScreen(resultElapsedSeconds ?: 0)
+            !terminalErrorMessage.isNullOrBlank() -> showError(terminalErrorMessage.orEmpty())
+            else -> showActionScreen()
+        }
+        if (savedInstanceState == null) HbxMobileBridge.recordEvent(this, actionId, "opened")
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (!terminalEventRecorded) {
+                    terminalEventRecorded = true
+                    HbxMobileBridge.recordEvent(this@MobileActionActivity, actionId, "canceled")
+                }
+                finish()
+            }
+        })
+    }
+
+    override fun onStart() {
+        super.onStart()
+        HbxMobileBridge.onActionScreenChanged(true)
+    }
+
+    override fun onStop() {
+        HbxMobileBridge.onActionScreenChanged(false)
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putLong(STATE_EXTERNAL_STARTED_AT, externalStartedAt)
+        outState.putBoolean(STATE_WAITING_FOR_RETURN, waitingForReturn)
+        outState.putBoolean(STATE_LEFT_FOR_EXTERNAL, leftForExternal)
+        outState.putBoolean(STATE_RETURNED_REPORTED, returnedReported)
+        resultElapsedSeconds?.let { outState.putInt(STATE_RESULT_ELAPSED_SECONDS, it) }
+        outState.putBoolean(STATE_TERMINAL_EVENT_RECORDED, terminalEventRecorded)
+        terminalErrorMessage?.let { outState.putString(STATE_TERMINAL_ERROR_MESSAGE, it) }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onPause() {
@@ -83,6 +137,7 @@ class MobileActionActivity : AppCompatActivity() {
             returnedReported = true
             HbxMobileBridge.recordEvent(this, actionId, "returned", elapsedSeconds = seconds)
         }
+        resultElapsedSeconds = seconds
         showResultScreen(seconds)
     }
 
@@ -118,6 +173,7 @@ class MobileActionActivity : AppCompatActivity() {
             layoutParams = margin(top = 14)
         })
         root.addView(ghostButton("Cancelar") {
+            terminalEventRecorded = true
             HbxMobileBridge.recordEvent(this, actionId, "canceled")
             finish()
         }.apply { layoutParams = margin(top = 18, height = 50) })
@@ -151,11 +207,13 @@ class MobileActionActivity : AppCompatActivity() {
         } catch (error: ActivityNotFoundException) {
             waitingForReturn = false
             leftForExternal = false
+            terminalEventRecorded = true
             HbxMobileBridge.recordEvent(this, actionId, "failed", note = "Nenhum aplicativo compatível encontrado.")
             showError("Não foi encontrado um aplicativo compatível neste celular.")
         } catch (error: Exception) {
             waitingForReturn = false
             leftForExternal = false
+            terminalEventRecorded = true
             HbxMobileBridge.recordEvent(this, actionId, "failed", note = error.message)
             showError("Não foi possível abrir a ação agora.")
         }
@@ -202,6 +260,7 @@ class MobileActionActivity : AppCompatActivity() {
     }
 
     private fun complete(result: String, elapsedSeconds: Int) {
+        terminalEventRecorded = true
         HbxMobileBridge.recordEvent(
             this,
             actionId,
@@ -213,10 +272,14 @@ class MobileActionActivity : AppCompatActivity() {
     }
 
     private fun showError(text: String) {
-        root.addView(label(text, 14f, DANGER).apply {
+        terminalErrorMessage = text
+        root.removeAllViews()
+        root.addView(label("AÇÃO NÃO INICIADA", 13f, DANGER, bold = true).apply { letterSpacing = 0.12f })
+        root.addView(label(text, 16f, "#FFFFFF", bold = true).apply {
             gravity = Gravity.CENTER
-            layoutParams = margin(top = 16)
+            layoutParams = margin(top = 22)
         })
+        root.addView(ghostButton("Fechar") { finish() }.apply { layoutParams = margin(top = 24, height = 50) })
     }
 
     private fun label(text: String, size: Float, color: String, bold: Boolean = false) = TextView(this).apply {

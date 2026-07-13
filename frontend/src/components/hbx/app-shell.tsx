@@ -60,6 +60,7 @@ const META: Record<string, Meta> = {
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
   "/dashboard/website": { active: "website", title: "Website", crumbs: crumb("Website") },
   "/configuracoes": { active: "config", title: "Configurações", crumbs: crumb("Configurações") },
+  "/configuracoes/aplicativo": { active: "config", title: "Aplicativo móvel", crumbs: crumb("Aplicativo móvel", "Configurações") },
   "/gerencial": { active: "gerencial", title: "Gerencial", crumbs: crumb("Gerencial") },
   "/tutorial": { active: "dash", title: "Tutorial", crumbs: crumb("Tutorial") },
 };

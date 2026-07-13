@@ -11,9 +11,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
-import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -22,14 +19,18 @@ import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 
 /**
- * Ponte nativa HBX web -> aparelho. Push é a via rápida; o pull em foreground é
- * fallback obrigatório para APK de teste, Firebase indisponível ou push atrasado.
+ * Ponte nativa HBX web -> aparelho. O APK consulta a fila do VPS enquanto está
+ * em primeiro plano e interrompe o polling ao ir para segundo plano.
  */
 object HbxMobileBridge {
     const val CHANNEL_ID = "hbx_sales_actions"
+    private const val PREFS = "hbx_mobile_bridge"
+    private const val PENDING_EVENTS = "pending_events"
+    private const val REJECTED_EVENTS = "rejected_events"
+    private const val MAX_REJECTED_EVENTS = 50
 
     const val EXTRA_ACTION_ID = "hbx_action_id"
     const val EXTRA_KIND = "hbx_action_kind"
@@ -39,21 +40,18 @@ object HbxMobileBridge {
     const val EXTRA_LEAD_ID = "hbx_action_lead_id"
 
     private val executor = Executors.newSingleThreadScheduledExecutor()
-    private val syncing = AtomicBoolean(false)
-    @Volatile private var firebaseReady = false
-    @Volatile private var lastPushRegistrationAt = 0L
+    @Volatile private var appInForeground = false
+    @Volatile private var activeActionScreens = 0
     @Volatile private var foregroundTask: ScheduledFuture<*>? = null
 
     fun initialize(context: Context) {
         ensureNotificationChannel(context.applicationContext)
-        firebaseReady = initializeFirebase(context.applicationContext)
-        if (firebaseReady) requestAndRegisterPushToken(context.applicationContext, force = true)
     }
 
     @Synchronized
     fun onAppForeground(context: Context) {
         val app = context.applicationContext
-        if (firebaseReady) requestAndRegisterPushToken(app, force = false)
+        appInForeground = true
         val existing = foregroundTask
         if (existing != null && !existing.isCancelled && !existing.isDone) return
         foregroundTask = executor.scheduleAtFixedRate(
@@ -66,32 +64,18 @@ object HbxMobileBridge {
 
     @Synchronized
     fun onAppBackground() {
+        appInForeground = false
         foregroundTask?.cancel(false)
         foregroundTask = null
     }
 
-    fun onNewPushToken(context: Context, token: String) {
-        if (token.isBlank()) return
-        registerPushToken(context.applicationContext, token)
-    }
-
-    fun onRemoteAction(context: Context, data: Map<String, String>) {
-        val actionId = data["actionId"].orEmpty().trim()
-        val kind = data["kind"].orEmpty().trim()
-        val phone = data["phone"].orEmpty().filter(Char::isDigit)
-        if (actionId.isBlank() || kind !in setOf("call", "whatsapp") || phone.length < 8) return
-
-        showActionNotification(
-            context.applicationContext,
-            MobileActionPayload(
-                id = actionId,
-                kind = kind,
-                phone = phone,
-                contactName = data["contactName"].orEmpty().ifBlank { "Lead" },
-                message = data["message"].orEmpty(),
-                leadId = data["leadId"].orEmpty(),
-            )
-        )
+    @Synchronized
+    fun onActionScreenChanged(visible: Boolean) {
+        activeActionScreens = if (visible) {
+            activeActionScreens + 1
+        } else {
+            (activeActionScreens - 1).coerceAtLeast(0)
+        }
     }
 
     fun recordEvent(
@@ -104,55 +88,159 @@ object HbxMobileBridge {
     ) {
         if (actionId.isBlank()) return
         val app = context.applicationContext
-        executor.execute {
-            val credentials = credentialPayload(app) ?: return@execute
-            credentials.put("event", event)
-            elapsedSeconds?.let { credentials.put("elapsedSeconds", it.coerceAtLeast(0)) }
-            result?.takeIf { it.isNotBlank() }?.let { credentials.put("result", it.take(80)) }
-            note?.takeIf { it.isNotBlank() }?.let { credentials.put("note", it.take(500)) }
-            runCatching { postJson("/mobile/actions/${actionId}/event", credentials) }
-        }
+        enqueueEvent(app, actionId, event, elapsedSeconds, result, note)
+        executor.execute { flushPendingEvents(app) }
     }
 
     private fun syncNow(context: Context) {
-        if (!syncing.compareAndSet(false, true)) return
-        executor.execute {
-            try {
-                val credentials = credentialPayload(context) ?: return@execute
-                runCatching { postJson("/mobile/devices/heartbeat", JSONObject(credentials.toString())) }
+        if (!appInForeground || activeActionScreens > 0) return
+        // Não reserva novas ações enquanto um ack anterior estiver bloqueado por
+        // rede, rate limit ou credencial. Isso preserva a ordem da outbox.
+        if (!flushPendingEvents(context)) return
+        val credentials = credentialPayload(context) ?: return
+        val heartbeatError = runCatching {
+            postJson("/mobile/devices/heartbeat", JSONObject(credentials.toString()))
+        }.exceptionOrNull()
+        if (heartbeatError is MobileBridgeHttpException && heartbeatError.statusCode == 401) {
+            DeviceCredentialStore(context).clearDeviceToken()
+            return
+        }
+        if (!appInForeground || activeActionScreens > 0) return
 
-                val pullPayload = JSONObject(credentials.toString()).put("take", 10)
-                val response = runCatching { postJson("/mobile/actions/pull", pullPayload) }.getOrNull()
-                val actions = response?.optJSONArray("actions") ?: JSONArray()
-                for (index in 0 until actions.length()) {
-                    val item = actions.optJSONObject(index) ?: continue
-                    val action = MobileActionPayload.fromJson(item) ?: continue
-                    showActionNotification(context, action)
-                }
-            } finally {
-                syncing.set(false)
+        val take = if (notificationsAvailable(context)) 10 else 1
+        val pullPayload = JSONObject(credentials.toString()).put("take", take)
+        val response = runCatching { postJson("/mobile/actions/pull", pullPayload) }.getOrNull()
+        val actions = response?.optJSONArray("actions") ?: JSONArray()
+        for (index in 0 until actions.length()) {
+            if (!appInForeground || activeActionScreens > 0) break
+            val item = actions.optJSONObject(index) ?: continue
+            val action = MobileActionPayload.fromJson(item) ?: continue
+            // Persiste o ack antes de expor a Activity/notificação. Assim um toque
+            // muito rápido nunca coloca "opened" antes de "delivered" na outbox.
+            val deliveryEventId = enqueueEvent(context, action.id, "delivered", null, null, null)
+            if (showActionNotification(context, action)) {
+                executor.execute { flushPendingEvents(context) }
+            } else {
+                removePendingEvent(context, deliveryEventId)
             }
         }
     }
 
-    private fun requestAndRegisterPushToken(context: Context, force: Boolean) {
-        val now = System.currentTimeMillis()
-        if (!force && now - lastPushRegistrationAt < 6 * 60 * 60 * 1000L) return
-        lastPushRegistrationAt = now
-        runCatching {
-            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                if (!token.isNullOrBlank()) registerPushToken(context, token)
+    @Synchronized
+    private fun enqueueEvent(
+        context: Context,
+        actionId: String,
+        event: String,
+        elapsedSeconds: Int?,
+        result: String?,
+        note: String?,
+    ): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val pending = runCatching { JSONArray(prefs.getString(PENDING_EVENTS, "[]")) }.getOrElse { JSONArray() }
+        val eventId = UUID.randomUUID().toString()
+        val item = JSONObject()
+            .put("eventId", eventId)
+            .put("actionId", actionId)
+            .put("event", event)
+        elapsedSeconds?.let { item.put("elapsedSeconds", it.coerceAtLeast(0)) }
+        result?.takeIf { it.isNotBlank() }?.let { item.put("result", it.take(80)) }
+        note?.takeIf { it.isNotBlank() }?.let { item.put("note", it.take(500)) }
+        pending.put(item)
+        prefs.edit().putString(PENDING_EVENTS, pending.toString()).commit()
+        return eventId
+    }
+
+    private fun flushPendingEvents(context: Context): Boolean {
+        while (true) {
+            val item = firstPendingEvent(context) ?: return true
+            val actionId = item.optString("actionId").trim()
+            if (actionId.isBlank()) {
+                quarantinePendingEvent(context, item, null, "Ação local sem identificador.")
+                continue
             }
+            val payload = credentialPayload(context) ?: return false
+            payload.put("eventId", item.optString("eventId"))
+            payload.put("event", item.optString("event"))
+            if (item.has("elapsedSeconds")) payload.put("elapsedSeconds", item.optInt("elapsedSeconds"))
+            if (item.has("result")) payload.put("result", item.optString("result"))
+            if (item.has("note")) payload.put("note", item.optString("note"))
+            val error = runCatching {
+                postJson("/mobile/actions/${actionId}/event", payload)
+            }.exceptionOrNull()
+            if (error == null) {
+                removePendingEvent(context, item.optString("eventId"))
+                continue
+            }
+
+            val status = (error as? MobileBridgeHttpException)?.statusCode
+            if (status == 401) {
+                DeviceCredentialStore(context).clearDeviceToken()
+                return false
+            }
+            if (status != null && isPermanentEventRejection(status)) {
+                quarantinePendingEvent(context, item, status, error.message)
+                continue
+            }
+            // 403 pode ser uma política/empresa temporariamente bloqueada; 408,
+            // 425, 429 e 5xx também são recuperáveis. Mantém o primeiro item.
+            return false
         }
     }
 
-    private fun registerPushToken(context: Context, pushToken: String) {
-        executor.execute {
-            val payload = credentialPayload(context) ?: return@execute
-            payload.put("pushToken", pushToken)
-            payload.put("appVersion", BuildConfig.VERSION_NAME)
-            runCatching { postJson("/mobile/actions/register-push", payload) }
+    private fun isPermanentEventRejection(statusCode: Int): Boolean =
+        statusCode in 400..499 && statusCode !in setOf(401, 403, 408, 425, 429)
+
+    @Synchronized
+    private fun firstPendingEvent(context: Context): JSONObject? {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PENDING_EVENTS, "[]")
+        val pending = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        return pending.optJSONObject(0)?.let { JSONObject(it.toString()) }
+    }
+
+    @Synchronized
+    private fun removePendingEvent(context: Context, eventId: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val pending = runCatching { JSONArray(prefs.getString(PENDING_EVENTS, "[]")) }.getOrElse { JSONArray() }
+        val remaining = JSONArray()
+        for (index in 0 until pending.length()) {
+            val item = pending.optJSONObject(index) ?: continue
+            if (item.optString("eventId") != eventId) remaining.put(item)
         }
+        prefs.edit().putString(PENDING_EVENTS, remaining.toString()).commit()
+    }
+
+    @Synchronized
+    private fun quarantinePendingEvent(
+        context: Context,
+        item: JSONObject,
+        statusCode: Int?,
+        reason: String?,
+    ) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val current = runCatching { JSONArray(prefs.getString(REJECTED_EVENTS, "[]")) }.getOrElse { JSONArray() }
+        val rejected = JSONObject(item.toString())
+            .put("rejectedAt", System.currentTimeMillis())
+        statusCode?.let { rejected.put("httpStatus", it) }
+        reason?.takeIf { it.isNotBlank() }?.let { rejected.put("reason", it.take(240)) }
+
+        val retained = JSONArray()
+        val first = (current.length() - (MAX_REJECTED_EVENTS - 1)).coerceAtLeast(0)
+        for (index in first until current.length()) {
+            current.optJSONObject(index)?.let { retained.put(it) }
+        }
+        retained.put(rejected)
+
+        val eventId = item.optString("eventId")
+        val pending = runCatching { JSONArray(prefs.getString(PENDING_EVENTS, "[]")) }.getOrElse { JSONArray() }
+        val remaining = JSONArray()
+        for (index in 0 until pending.length()) {
+            val pendingItem = pending.optJSONObject(index) ?: continue
+            if (pendingItem.optString("eventId") != eventId) remaining.put(pendingItem)
+        }
+        prefs.edit()
+            .putString(PENDING_EVENTS, remaining.toString())
+            .putString(REJECTED_EVENTS, retained.toString())
+            .commit()
     }
 
     private fun credentialPayload(context: Context): JSONObject? {
@@ -162,26 +250,6 @@ object HbxMobileBridge {
         return JSONObject()
             .put("deviceToken", token)
             .put("installationId", store.installationId())
-    }
-
-    private fun initializeFirebase(context: Context): Boolean {
-        if (runCatching { FirebaseApp.getInstance() }.isSuccess) return true
-        val projectId = BuildConfig.FIREBASE_PROJECT_ID.trim()
-        val applicationId = BuildConfig.FIREBASE_APPLICATION_ID.trim()
-        val apiKey = BuildConfig.FIREBASE_API_KEY.trim()
-        val senderId = BuildConfig.FIREBASE_SENDER_ID.trim()
-        if (projectId.isBlank() || applicationId.isBlank() || apiKey.isBlank() || senderId.isBlank()) {
-            return false
-        }
-        return runCatching {
-            val options = FirebaseOptions.Builder()
-                .setProjectId(projectId)
-                .setApplicationId(applicationId)
-                .setApiKey(apiKey)
-                .setGcmSenderId(senderId)
-                .build()
-            FirebaseApp.initializeApp(context, options) != null
-        }.getOrDefault(false)
     }
 
     private fun ensureNotificationChannel(context: Context) {
@@ -198,12 +266,20 @@ object HbxMobileBridge {
         manager.createNotificationChannel(channel)
     }
 
-    private fun showActionNotification(context: Context, action: MobileActionPayload) {
-        ensureNotificationChannel(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+    private fun notificationsAvailable(context: Context): Boolean {
+        val notificationManager = NotificationManagerCompat.from(context)
+        val permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!permissionGranted || !notificationManager.areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        }
+        return true
+    }
 
+    private fun showActionNotification(context: Context, action: MobileActionPayload): Boolean {
+        ensureNotificationChannel(context)
         val intent = Intent(context, MobileActionActivity::class.java).apply {
             putExtra(EXTRA_ACTION_ID, action.id)
             putExtra(EXTRA_KIND, action.kind)
@@ -211,8 +287,13 @@ object HbxMobileBridge {
             putExtra(EXTRA_CONTACT_NAME, action.contactName)
             putExtra(EXTRA_MESSAGE, action.message)
             putExtra(EXTRA_LEAD_ID, action.leadId)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        val notificationManager = NotificationManagerCompat.from(context)
+        if (!notificationsAvailable(context)) {
+            return appInForeground && runCatching { context.startActivity(intent) }.isSuccess
+        }
+
         val pending = PendingIntent.getActivity(
             context,
             action.id.hashCode(),
@@ -227,16 +308,20 @@ object HbxMobileBridge {
             "Toque para abrir a conversa com a mensagem preparada."
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.sym_action_call)
+            .setSmallIcon(if (call) android.R.drawable.sym_action_call else android.R.drawable.sym_action_email)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setCategory(if (call) NotificationCompat.CATEGORY_CALL else NotificationCompat.CATEGORY_MESSAGE)
             .build()
-        runCatching { NotificationManagerCompat.from(context).notify(action.id.hashCode(), notification) }
+        val notified = runCatching {
+            notificationManager.notify(action.id.hashCode(), notification)
+        }.isSuccess
+        if (notified) return true
+        return appInForeground && runCatching { context.startActivity(intent) }.isSuccess
     }
 
     private fun postJson(path: String, payload: JSONObject): JSONObject {
@@ -255,12 +340,19 @@ object HbxMobileBridge {
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use(BufferedReader::readText).orEmpty()
             val json = if (body.isBlank()) JSONObject() else runCatching { JSONObject(body) }.getOrElse { JSONObject() }
-            if (status !in 200..299) throw IllegalStateException(json.optString("message", "HTTP $status"))
+            if (status !in 200..299) {
+                throw MobileBridgeHttpException(status, json.optString("message", "HTTP $status"))
+            }
             json
         } finally {
             connection.disconnect()
         }
     }
+
+    private class MobileBridgeHttpException(
+        val statusCode: Int,
+        message: String,
+    ) : IllegalStateException(message)
 
     data class MobileActionPayload(
         val id: String,

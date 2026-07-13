@@ -13,7 +13,17 @@ import androidx.core.content.ContextCompat
 class NotificationPermissionActivity : AppCompatActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { finish() }
+    ) {
+        markPrompted()
+        finish()
+    }
+
+    private fun markPrompted() {
+        getSharedPreferences("hbx_mobile_bridge", MODE_PRIVATE)
+            .edit()
+            .putBoolean("notification_permission_prompted", true)
+            .apply()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,13 +37,13 @@ class NotificationPermissionActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Ações do HBX no celular")
             .setMessage(
-                "Permita notificações para receber ligações, leads e conversas preparadas pelo HBX web, mesmo com o aplicativo em segundo plano."
+                "Permita notificações para ver ligações, leads e conversas preparadas pelo HBX web enquanto o aplicativo estiver aberto."
             )
             .setPositiveButton("Permitir") { _, _ ->
                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
-            .setNegativeButton("Agora não") { _, _ -> finish() }
-            .setOnCancelListener { finish() }
+            .setNegativeButton("Agora não") { _, _ -> markPrompted(); finish() }
+            .setOnCancelListener { markPrompted(); finish() }
             .show()
     }
 }

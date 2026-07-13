@@ -92,7 +92,7 @@
 }
 
 .onlineText {
-  color: var(--hbx-brand);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
   font-weight: 700;
 }
 
@@ -165,11 +165,11 @@
 .preferenceOn {
   border-color: color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
   background: var(--hbx-brand-soft);
-  color: var(--hbx-brand);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
 }
 
 .preferenceOn b {
-  color: var(--hbx-brand);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
 }
 
 .preferenceNote {

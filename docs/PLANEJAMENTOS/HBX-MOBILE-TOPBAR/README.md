@@ -20,9 +20,9 @@
 Ao clicar no telefone de um lead no desktop, com **Ligações → Celular**:
 
 1. o frontend cria uma ação em `POST /mobile/actions`;
-2. o backend salva a ação e tenta enviar push FCM;
-3. sem Firebase/token, a ação permanece na fila e é recebida quando o APK volta ao primeiro plano;
-4. o APK mostra **Ligar para [lead]**;
+2. o backend no VPS salva a ação na fila do aparelho vinculado;
+3. o APK consulta essa fila a cada 30 segundos enquanto está em primeiro plano;
+4. ao receber a ação, o APK mostra **Ligar para [lead]**;
 5. ao tocar, abre `ACTION_DIAL` com o número preenchido;
 6. quando a pessoa volta ao HBX, o app calcula o tempo aproximado fora do aplicativo;
 7. pergunta o resultado: atendeu, não atendeu, retornar ou sem interesse;
@@ -51,6 +51,7 @@ Exemplo:
 
 ```json
 {
+  "requestId": "9d192d5d-dbc1-41ad-a3ce-752ffc2fe389",
   "kind": "call",
   "phone": "5519999999999",
   "leadId": "opcional",
@@ -62,6 +63,7 @@ WhatsApp:
 
 ```json
 {
+  "requestId": "12196233-f64b-4b2b-a6a1-fe40ec055d3a",
   "kind": "whatsapp",
   "phone": "5519999999999",
   "contactName": "Oficina Silva",
@@ -73,7 +75,6 @@ WhatsApp:
 
 ```http
 POST /mobile/devices/heartbeat
-POST /mobile/actions/register-push
 POST /mobile/actions/pull
 POST /mobile/actions/:actionId/event
 ```
@@ -90,10 +91,11 @@ backend/prisma/migrations/20260713213000_mobile_action_bridge/migration.sql
 
 A migration:
 
-- adiciona token FCM e versão do APK em `MobileDevice`;
 - cria `MobileAction`;
 - cria `MobileActionEvent`;
-- adiciona índices por empresa, usuário, aparelho, lead e data.
+- adiciona índices por empresa, usuário, aparelho, lead e data;
+- preserva o histórico quando um usuário é excluído;
+- torna criação e eventos idempotentes para suportar retries de rede.
 
 ## Download do APK
 
@@ -105,43 +107,18 @@ NEXT_PUBLIC_ANDROID_APK_URL=https://www.hbxsystem.com.br/download/android
 
 Use uma URL estável que redirecione para o APK atual. Como a variável é `NEXT_PUBLIC_*`, trocar seu valor exige novo build do frontend; trocar apenas o destino do redirecionamento não exige.
 
-## Firebase Cloud Messaging
+## Entrega pelo VPS
 
-Push é opcional para o funcionamento básico: sem ele, a fila é puxada a cada 30 segundos enquanto o APK está aberto. Para receber com o aplicativo em segundo plano, configurar Firebase.
-
-### Backend/VPS
-
-```env
-HBX_FIREBASE_PROJECT_ID=seu-project-id
-HBX_FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
-```
-
-`HBX_FIREBASE_SERVICE_ACCOUNT_JSON` deve permanecer somente no backend. Nunca colocar a chave privada dentro do APK ou do frontend.
-
-### Build Android
-
-Em `~/.gradle/gradle.properties`, CI secret ou argumentos `-P`:
-
-```properties
-hbxFirebaseProjectId=seu-project-id
-hbxFirebaseApplicationId=1:000000000000:android:0000000000000000
-hbxFirebaseApiKey=AIza...
-hbxFirebaseSenderId=000000000000
-```
-
-Esses dados identificam o app Firebase e não incluem a chave privada da service account.
-
-O Android inicializa Firebase programaticamente; não é necessário versionar `google-services.json`.
+A ponte não usa Firebase/FCM. A ação fica persistida no PostgreSQL do HBX e é entregue por `POST /mobile/actions/pull`, autenticado pela credencial revogável do aparelho. O polling roda somente enquanto o APK está em primeiro plano e para quando o aplicativo vai para segundo plano.
 
 ## Comportamento do APK 1.2.0
 
 - `versionCode = 5`;
 - solicita permissão de notificações uma vez após o vínculo;
-- registra/renova token FCM;
 - envia heartbeat e consulta fila a cada 30 segundos somente em primeiro plano;
 - para o polling quando o aplicativo vai para segundo plano;
-- recebe push data-only em `HbxFirebaseMessagingService`;
 - cria notificação com `PendingIntent` para `MobileActionActivity`;
+- persiste eventos localmente até o VPS confirmar o recebimento;
 - abre discador ou WhatsApp;
 - detecta o retorno ao HBX;
 - registra duração aproximada e resultado.
@@ -176,7 +153,7 @@ cd backend
 npm ci
 npx prisma validate
 npm run build
-npm test -- --runInBand
+node --test
 ```
 
 Aplicar a migration em banco descartável e validar:
@@ -184,9 +161,9 @@ Aplicar a migration em banco descartável e validar:
 - isolamento por `companyId` e `userId`;
 - aparelho revogado não puxa ações nem registra eventos;
 - código/token de outro aparelho falha;
-- ação sem push permanece na fila;
-- push enviado muda para `notified`;
-- pull muda para `delivered`;
+- ação permanece em `queued` até o aparelho reservar a fila;
+- pull muda para `delivering` e uma resposta perdida volta à fila após o lease;
+- o APK confirma `delivered` somente depois de expor a notificação/tela;
 - retorno e conclusão gravam duração/resultado;
 - histórico não expõe ação de outro usuário ou tenant;
 - nomes reais das tabelas/colunas usados no SQL raw;
@@ -197,6 +174,7 @@ Aplicar a migration em banco descartável e validar:
 ```bash
 cd EntregaShell
 ./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease :app:bundleRelease
 ```
 
 Validar em aparelho real:
@@ -209,8 +187,7 @@ Validar em aparelho real:
 6. voltar e marcar resultado;
 7. confirmar duração aproximada no histórico;
 8. repetir com WhatsApp normal e Business;
-9. remover Firebase e confirmar fallback por fila com o app aberto;
-10. revogar aparelho e confirmar bloqueio imediato.
+9. revogar aparelho e confirmar bloqueio imediato.
 
 ## Fora deste PR
 
@@ -220,4 +197,4 @@ Validar em aparelho real:
 - tornar o HBX o aplicativo de telefone padrão;
 - publicação na Play Store.
 
-**HBX CHECKPOINT: implementação concluída na branch; merge bloqueado até os testes do Codex e aparelho real.**
+**HBX CHECKPOINT: implementação concluída com fila no VPS, sem Firebase. Build, migration e testes automatizados são obrigatórios antes do merge; o roteiro em aparelho real permanece como aceite operacional do APK.**

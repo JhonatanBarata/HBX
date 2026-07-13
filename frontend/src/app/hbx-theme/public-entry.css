@@ -333,7 +333,9 @@ html[data-hbx-authed] .public-entry { display: none; }
   inset: 82px 0 0;
   z-index: 4;
   display: grid;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   opacity: 0;
   transform: translate3d(7vw, 0, 0);
   clip-path: inset(0 100% 0 0 round var(--f1-radius-lg));
@@ -352,12 +354,12 @@ html[data-hbx-authed] .public-entry { display: none; }
   --login-accent: var(--f1-accent);
   position: relative;
   display: grid;
-  min-height: 0;
-  height: 100%;
+  min-height: 100%;
+  height: auto;
   padding: clamp(18px, 3vh, 34px) clamp(20px, 5vw, 72px);
   grid-template-columns: minmax(0, 420px);
   align-items: center;
-  place-content: center;
+  place-content: safe center;
   justify-items: center;
   background: transparent;
 }

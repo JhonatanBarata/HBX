@@ -54,7 +54,6 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
 
         val prefs = getSharedPreferences("hbx_mobile_bridge", MODE_PRIVATE)
         if (prefs.getBoolean("notification_permission_prompted", false)) return
-        prefs.edit().putBoolean("notification_permission_prompted", true).apply()
         activity.startActivity(Intent(activity, NotificationPermissionActivity::class.java))
     }
 

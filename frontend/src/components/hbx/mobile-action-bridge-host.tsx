@@ -14,7 +14,7 @@ type MobileActionKind = "call" | "whatsapp";
 type MobileActionResponse = {
   ok?: boolean;
   device?: { name?: string | null };
-  delivery?: "push" | "queue";
+  delivery?: "queue";
 };
 
 type ToastState = {
@@ -75,7 +75,7 @@ function fallbackOpen(kind: MobileActionKind, phone: string, message: string, or
     window.location.href = originalHref?.startsWith("tel:") ? originalHref : `tel:${phone}`;
     return;
   }
-  window.open(originalHref || directWhatsappUrl(phone, message), "_blank", "noopener,noreferrer");
+  window.location.assign(originalHref || directWhatsappUrl(phone, message));
 }
 
 /**
@@ -106,10 +106,12 @@ export function MobileActionBridgeHost() {
         detail: contactName || phone,
       });
       try {
+        const requestId = window.crypto?.randomUUID?.();
         const result = await apiFetch<MobileActionResponse>("/mobile/actions", {
           method: "POST",
           body: JSON.stringify({
             kind,
+            requestId,
             phone,
             contactName: contactName || undefined,
             message: kind === "whatsapp" ? (message || "Olá, tudo bem?") : undefined,
@@ -120,9 +122,7 @@ export function MobileActionBridgeHost() {
         show({
           kind,
           title: kind === "call" ? "Ligação enviada" : "WhatsApp preparado",
-          detail: result?.delivery === "push"
-            ? `${device} recebeu uma notificação.`
-            : `${device} receberá ao abrir o HBX Mobile.`,
+          detail: `${device} receberá enquanto o HBX Mobile estiver aberto.`,
         });
       } catch (error) {
         show({

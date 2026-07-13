@@ -16,6 +16,7 @@
 
 import React from "react";
 
+import { MobileDevicePanel } from "@/app/(app)/configuracoes/aplicativo/mobile-device-panel";
 import { ConfiguracoesMobile } from "./screens/configuracoes";
 import { ConversasMobile } from "./screens/conversas";
 import { EmpresasMobile } from "./screens/empresas";
@@ -44,6 +45,7 @@ export const CASCA_SCREENS: Record<string, CascaScreen> = {
   "/atendimento": ConversasMobile,
   "/empresas": EmpresasMobile,
   "/configuracoes": ConfiguracoesMobile,
+  "/configuracoes/aplicativo": MobileDevicePanel,
 };
 
 // Título do topo por rota (1 linha). Sem entrada = usa o title do AppShell META
@@ -55,6 +57,7 @@ export const CASCA_TITLES: Record<string, string> = {
   "/atendimento": "Conversas",
   "/empresas": "Empresas",
   "/configuracoes": "Configurações",
+  "/configuracoes/aplicativo": "Aplicativo móvel",
 };
 
 /** Devolve a tela mobile registrada para a rota, ou null (→ fallback central). */

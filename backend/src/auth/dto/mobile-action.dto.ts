@@ -3,6 +3,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Length,
   Matches,
   Max,
@@ -12,6 +13,7 @@ import {
 
 export const MOBILE_ACTION_KINDS = ['call', 'whatsapp'] as const;
 export const MOBILE_ACTION_EVENTS = [
+  'delivered',
   'opened',
   'external_started',
   'returned',
@@ -21,6 +23,10 @@ export const MOBILE_ACTION_EVENTS = [
 ] as const;
 
 export class CreateMobileActionDto {
+  @IsOptional()
+  @IsUUID()
+  requestId?: string;
+
   @IsIn([...MOBILE_ACTION_KINDS])
   kind!: (typeof MOBILE_ACTION_KINDS)[number];
 
@@ -60,17 +66,6 @@ export class MobileDeviceCredentialDto {
   installationId!: string;
 }
 
-export class RegisterMobilePushDto extends MobileDeviceCredentialDto {
-  @IsString()
-  @Length(20, 4096)
-  pushToken!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  appVersion?: string;
-}
-
 export class PullMobileActionsDto extends MobileDeviceCredentialDto {
   @IsOptional()
   @IsInt()
@@ -80,6 +75,10 @@ export class PullMobileActionsDto extends MobileDeviceCredentialDto {
 }
 
 export class MobileActionEventDto extends MobileDeviceCredentialDto {
+  @IsOptional()
+  @IsUUID()
+  eventId?: string;
+
   @IsIn([...MOBILE_ACTION_EVENTS])
   event!: (typeof MOBILE_ACTION_EVENTS)[number];
 

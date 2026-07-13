@@ -43,7 +43,7 @@ const TENANT_MODELS = new Set(
     'CompanyConversation', 'AtendimentoAppointment', 'InboxTrashMeticulousPurgeJob', 'CompanyMessage',
     'AtendimentoCustomer', 'AtendimentoQuickReply', 'CustomerProfile', 'DebtCase', 'IntegrationConnection',
     'IntegrationSyncRun', 'ExternalWebhookEvent', 'MetaLeadConnection', 'AuvoExternalRecord', 'Conversation',
-    'ConversationSession', 'OrderDraft', 'User', 'TeamPolicyPreset', 'UserTeamPolicy', 'TeamPolicyAuditLog',
+    'ConversationSession', 'OrderDraft', 'MobileDevice', 'MobilePairingCode', 'MobileAction', 'User', 'TeamPolicyPreset', 'UserTeamPolicy', 'TeamPolicyAuditLog',
     'HbxPartnerReferralCandidate', 'SellerOnboarding', 'CompanyBillableSeatUsage', 'MasterNotice',
     'MasterPaymentNotificationLog', 'VendasCardComplaint', 'WebscrapingSearchHistory', 'WebscrapingSearchRun',
     'WebscrapingSearchRunItem', 'WebscrapingUsageLog', 'RadarLeadPool', 'RadarLeadCompanyState',

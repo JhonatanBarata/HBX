@@ -1,7 +1,14 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { PrismaService } from '../prisma/prisma.service';
 import { withoutTenantScope } from '../prisma/tenant-context';
+import { assertOperationalCapability } from '../team/operational-capabilities';
+import {
+  loadUserTeamPolicyRuntime,
+  resolveTeamPolicyAccessAllowed,
+  resolveTeamPolicyModuleAllowed,
+} from '../team/team-policy-persistence';
 import { OpenMobileDeviceSessionDto } from './dto/mobile-device.dto';
 
 type PresenceDeviceRow = {
@@ -10,14 +17,13 @@ type PresenceDeviceRow = {
   companyId: number;
   name: string | null;
   platform: string | null;
-  pushToken: string | null;
   revokedAt: Date | null;
   expiresAt: Date | null;
 };
 
 export type AuthenticatedMobileDevice = Pick<
   PresenceDeviceRow,
-  'id' | 'userId' | 'companyId' | 'name' | 'platform' | 'pushToken'
+  'id' | 'userId' | 'companyId' | 'name' | 'platform'
 >;
 
 @Injectable()
@@ -30,9 +36,68 @@ export class MobileDevicePresenceService {
     return crypto.createHash('sha256').update(value).digest('hex');
   }
 
+  async assertUserCanUseBridge(userId: number, companyId: number) {
+    return withoutTenantScope('mobile presence: validar acesso comercial da conta', async () => {
+      const user: any = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { company: true },
+      });
+      if (
+        !user ||
+        user.isActive === false ||
+        user.isSystemMaster ||
+        Number(user.companyId || 0) !== companyId
+      ) {
+        throw new UnauthorizedException('A conta deste aparelho não está disponível.');
+      }
+
+      const access = resolveCompanyAccessState(user.company);
+      if (!access.canUse) {
+        throw new ForbiddenException('O acesso da empresa está pausado.');
+      }
+
+      await assertOperationalCapability(
+        this.prisma,
+        user,
+        'SELLER',
+        'A ponte de ligações e WhatsApp exige acesso ao workspace de Vendas.',
+      );
+      const policy = await loadUserTeamPolicyRuntime(this.prisma, user.id, { failOnReadError: true });
+      if (
+        resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false ||
+        resolveTeamPolicyModuleAllowed(policy, 'vendas') === false
+      ) {
+        throw new ForbiddenException('O acesso a Vendas está bloqueado pela política da equipe.');
+      }
+
+      const vendasModule = await this.prisma.systemModule.findUnique({
+        where: { key: 'vendas' },
+        select: {
+          companyAssignable: true,
+          defaultEnabled: true,
+          companyModules: {
+            where: { companyId },
+            select: { enabled: true, masterEnabled: true },
+            take: 1,
+          },
+        },
+      });
+      const override = vendasModule?.companyModules?.[0] || null;
+      const moduleEnabled = Boolean(
+        vendasModule?.companyAssignable &&
+        override?.masterEnabled !== false &&
+        (override ? override.enabled === true : vendasModule.defaultEnabled === true),
+      );
+      if (!moduleEnabled) {
+        throw new ForbiddenException('O módulo Vendas não está habilitado para esta empresa.');
+      }
+      return user;
+    });
+  }
+
   /**
    * Valida a credencial duradoura do APK sem emitir JWT web. É a porta única para
-   * heartbeat, push e fila de ações móveis. Nunca confia em deviceId vindo do cliente.
+   * heartbeat e fila de ações móveis. Nunca confia em deviceId vindo do cliente.
    */
   async authenticateDevice(
     dto: OpenMobileDeviceSessionDto,
@@ -47,8 +112,7 @@ export class MobileDevicePresenceService {
       // a empresa é validada antes de qualquer leitura ou escrita de ação móvel.
       const rows = await this.prisma.$queryRaw<PresenceDeviceRow[]>`
         SELECT
-          "id", "userId", "companyId", "name", "platform", "pushToken",
-          "revokedAt", "expiresAt"
+          "id", "userId", "companyId", "name", "platform", "revokedAt", "expiresAt"
         FROM "MobileDevice"
         WHERE "tokenHash" = ${tokenHash}
           AND "installationId" = ${installationId}
@@ -59,13 +123,7 @@ export class MobileDevicePresenceService {
         throw new UnauthorizedException('Aparelho não vinculado ou acesso revogado.');
       }
 
-      const user = await this.prisma.user.findUnique({
-        where: { id: row.userId },
-        select: { id: true, companyId: true, isActive: true },
-      });
-      if (!user || user.isActive === false || Number(user.companyId || 0) !== row.companyId) {
-        throw new UnauthorizedException('A conta deste aparelho não está disponível.');
-      }
+      await this.assertUserCanUseBridge(row.userId, row.companyId);
 
       if (options.touch !== false) {
         await this.prisma.$executeRaw`
@@ -83,7 +141,6 @@ export class MobileDevicePresenceService {
         companyId: row.companyId,
         name: row.name,
         platform: row.platform,
-        pushToken: row.pushToken,
       };
     });
   }

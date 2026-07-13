@@ -20,7 +20,6 @@ import { MobileDevicePresenceController } from './mobile-device-presence.control
 import { MobileDevicePresenceService } from './mobile-device-presence.service';
 import { MobileActionController } from './mobile-action.controller';
 import { MobileActionService } from './mobile-action.service';
-import { MobilePushService } from './mobile-push.service';
 
 const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 
@@ -44,7 +43,6 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
     MobileDeviceService,
     MobileDevicePresenceService,
     MobileActionService,
-    MobilePushService,
   ],
   controllers: [
     AuthController,

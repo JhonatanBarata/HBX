@@ -12,10 +12,15 @@ import {
   CreateMobileActionDto,
   MobileActionEventDto,
   PullMobileActionsDto,
-  RegisterMobilePushDto,
 } from './dto/mobile-action.dto';
+import {
+  canApplyMobileActionEvent,
+  isValidMobileActionResult,
+  mobileActionStatusForEvent,
+  type MobileActionEvent,
+  type MobileActionKind,
+} from './mobile-action-state';
 import { MobileDevicePresenceService } from './mobile-device-presence.service';
-import { MobilePushService } from './mobile-push.service';
 
 type WebOwner = { userId: number; companyId: number };
 type DeviceChoice = {
@@ -23,13 +28,12 @@ type DeviceChoice = {
   name: string | null;
   platform: string | null;
   lastUsedAt: Date | null;
-  pushToken: string | null;
 };
 
 type MobileActionRow = {
   id: string;
   companyId: number;
-  userId: number;
+  userId: number | null;
   deviceId: string | null;
   leadId: string | null;
   kind: 'call' | 'whatsapp';
@@ -38,7 +42,7 @@ type MobileActionRow = {
   message: string | null;
   status: string;
   requestedAt: Date;
-  pushSentAt: Date | null;
+  deliveryAttemptedAt: Date | null;
   deliveredAt: Date | null;
   openedAt: Date | null;
   externalStartedAt: Date | null;
@@ -70,7 +74,6 @@ export class MobileActionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly devices: MobileDevicePresenceService,
-    private readonly push: MobilePushService,
   ) {}
 
   private normalizePhone(value: unknown) {
@@ -96,6 +99,7 @@ export class MobileActionService {
     if (!user || user.isActive === false || user.isSystemMaster || !user.companyId) {
       throw new UnauthorizedException('Conta indisponível para ações móveis.');
     }
+    await this.devices.assertUserCanUseBridge(user.id, Number(user.companyId));
     return { userId: user.id, companyId: Number(user.companyId) };
   }
 
@@ -116,21 +120,15 @@ export class MobileActionService {
     }
   }
 
-  private async appendEvent(
-    actionId: string,
-    event: string,
-    values: { elapsedSeconds?: number | null; result?: string | null; note?: string | null } = {},
-  ) {
-    await this.prisma.$executeRaw`
-      INSERT INTO "MobileActionEvent"
-        ("id", "actionId", "event", "elapsedSeconds", "result", "note", "createdAt")
-      VALUES
-        (
-          ${crypto.randomUUID()}, ${actionId}, ${event},
-          ${values.elapsedSeconds ?? null}, ${values.result ?? null}, ${values.note ?? null},
-          CURRENT_TIMESTAMP
-        )
+  private async findLeadById(companyId: number, leadId: string) {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; name: string | null }>>`
+      SELECT "id", "name"
+      FROM "VendasLead"
+      WHERE "id" = ${leadId}
+        AND "companyId" = ${companyId}
+      LIMIT 1
     `;
+    return rows[0] || null;
   }
 
   async create(userIdInput: unknown, dto: CreateMobileActionDto) {
@@ -138,103 +136,140 @@ export class MobileActionService {
     const phone = this.normalizePhone(dto.phone);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.actionTtlMs);
+    const onlineAfter = new Date(now.getTime() - 90_000);
+    const requestedDeviceId = String(dto.deviceId || '').trim();
 
-    const inferredLead = dto.leadId ? null : await this.findLeadByPhone(owner.companyId, phone);
-    const leadId = String(dto.leadId || inferredLead?.id || '').trim() || null;
-    const contactName = String(dto.contactName || inferredLead?.name || 'Lead').trim().slice(0, 160) || 'Lead';
+    const requestedLeadId = String(dto.leadId || '').trim();
+    const matchedLead = requestedLeadId
+      ? await this.findLeadById(owner.companyId, requestedLeadId)
+      : await this.findLeadByPhone(owner.companyId, phone);
+    if (requestedLeadId && !matchedLead) {
+      throw new BadRequestException('Lead não encontrado nesta empresa.');
+    }
+    const leadId = String(matchedLead?.id || '').trim() || null;
+    const contactName = String(dto.contactName || matchedLead?.name || 'Lead').trim().slice(0, 160) || 'Lead';
     const message = dto.kind === 'whatsapp'
       ? String(dto.message || 'Olá, tudo bem?').trim().slice(0, 2000)
       : null;
+    const requestKey = String(dto.requestId || '').trim() || null;
 
     const deviceRows = await withoutTenantScope('mobile action: escolher aparelho do usuário', () =>
-      dto.deviceId
+      requestedDeviceId
         ? this.prisma.$queryRaw<DeviceChoice[]>`
-            SELECT "id", "name", "platform", "lastUsedAt", "pushToken"
+            SELECT "id", "name", "platform", "lastUsedAt"
             FROM "MobileDevice"
-            WHERE "id" = ${String(dto.deviceId).trim()}
+            WHERE "id" = ${requestedDeviceId}
               AND "userId" = ${owner.userId}
               AND "companyId" = ${owner.companyId}
               AND "revokedAt" IS NULL
+              AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+              AND "lastUsedAt" >= ${onlineAfter}
             LIMIT 1
           `
         : this.prisma.$queryRaw<DeviceChoice[]>`
-            SELECT "id", "name", "platform", "lastUsedAt", "pushToken"
+            SELECT "id", "name", "platform", "lastUsedAt"
             FROM "MobileDevice"
             WHERE "userId" = ${owner.userId}
               AND "companyId" = ${owner.companyId}
               AND "revokedAt" IS NULL
-            ORDER BY
-              CASE WHEN "pushToken" IS NULL THEN 1 ELSE 0 END,
-              "lastUsedAt" DESC NULLS LAST,
-              "createdAt" DESC
+              AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+              AND "lastUsedAt" >= ${onlineAfter}
+            ORDER BY "lastUsedAt" DESC NULLS LAST, "createdAt" DESC
             LIMIT 1
           `,
     );
     const device = deviceRows[0];
     if (!device) {
+      const linkedRows = await withoutTenantScope('mobile action: conferir vínculo offline', () =>
+        requestedDeviceId
+          ? this.prisma.$queryRaw<Array<{ id: string }>>`
+              SELECT "id"
+              FROM "MobileDevice"
+              WHERE "id" = ${requestedDeviceId}
+                AND "userId" = ${owner.userId}
+                AND "companyId" = ${owner.companyId}
+                AND "revokedAt" IS NULL
+                AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+              LIMIT 1
+            `
+          : this.prisma.$queryRaw<Array<{ id: string }>>`
+              SELECT "id"
+              FROM "MobileDevice"
+              WHERE "userId" = ${owner.userId}
+                AND "companyId" = ${owner.companyId}
+                AND "revokedAt" IS NULL
+                AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+              LIMIT 1
+            `,
+      );
+      if (linkedRows[0]) {
+        throw new ConflictException({
+          code: 'MOBILE_DEVICE_OFFLINE',
+          message: 'Abra o HBX Mobile no celular para receber esta ação.',
+        });
+      }
       throw new ConflictException({
         code: 'MOBILE_DEVICE_NOT_LINKED',
         message: 'Vincule um celular ao HBX antes de enviar ligações ou mensagens.',
       });
     }
 
-    const id = crypto.randomUUID();
-    await withoutTenantScope('mobile action: criar comando para aparelho vinculado', async () => {
-      await this.prisma.$executeRaw`
-        INSERT INTO "MobileAction"
-          (
-            "id", "companyId", "userId", "deviceId", "leadId", "kind", "phone",
-            "contactName", "message", "status", "requestedAt", "expiresAt",
-            "createdAt", "updatedAt"
-          )
-        VALUES
-          (
-            ${id}, ${owner.companyId}, ${owner.userId}, ${device.id}, ${leadId}, ${dto.kind},
-            ${phone}, ${contactName}, ${message}, 'queued', ${now}, ${expiresAt}, ${now}, ${now}
-          )
-      `;
-      await this.appendEvent(id, 'queued');
-    });
-
-    const pushResult = await this.push.sendAction(device.pushToken, {
-      id,
-      kind: dto.kind,
-      phone,
-      contactName,
-      message,
-      leadId,
-    });
-
-    if (pushResult.sent) {
-      await withoutTenantScope('mobile action: marcar push enviado', async () => {
-        await this.prisma.$executeRaw`
-          UPDATE "MobileAction"
-          SET "status" = 'notified', "pushSentAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "id" = ${id} AND "companyId" = ${owner.companyId}
+    const generatedId = crypto.randomUUID();
+    const persisted = await withoutTenantScope('mobile action: criar comando idempotente para aparelho', () =>
+      this.prisma.$transaction(async (tx) => {
+        const inserted = await tx.$queryRaw<MobileActionRow[]>`
+          INSERT INTO "MobileAction"
+            (
+              "id", "companyId", "userId", "deviceId", "requestKey", "leadId", "kind", "phone",
+              "contactName", "message", "status", "requestedAt", "expiresAt",
+              "createdAt", "updatedAt"
+            )
+          VALUES
+            (
+              ${generatedId}, ${owner.companyId}, ${owner.userId}, ${device.id}, ${requestKey}, ${leadId}, ${dto.kind},
+              ${phone}, ${contactName}, ${message}, 'queued', ${now}, ${expiresAt}, ${now}, ${now}
+            )
+          ON CONFLICT ("companyId", "userId", "requestKey") DO NOTHING
+          RETURNING *
         `;
-        await this.appendEvent(id, 'push_sent');
-      });
-    } else if (pushResult.unregistered) {
-      await withoutTenantScope('mobile action: limpar token push inválido', () =>
-        this.prisma.$executeRaw`
-          UPDATE "MobileDevice"
-          SET "pushToken" = NULL, "pushUpdatedAt" = NULL, "updatedAt" = CURRENT_TIMESTAMP
-          WHERE "id" = ${device.id} AND "companyId" = ${owner.companyId}
-        `,
-      );
-    }
+        const action = inserted[0] || (requestKey
+          ? (await tx.$queryRaw<MobileActionRow[]>`
+              SELECT * FROM "MobileAction"
+              WHERE "requestKey" = ${requestKey}
+                AND "companyId" = ${owner.companyId}
+                AND "userId" = ${owner.userId}
+              LIMIT 1
+            `)[0]
+          : null);
+        if (!action) throw new ConflictException('Não foi possível criar a ação móvel.');
+        if (!inserted[0] && (action.kind !== dto.kind || action.phone !== phone)) {
+          throw new ConflictException('Esta tentativa já foi usada por outra ação móvel.');
+        }
+        if (inserted[0]) {
+          await tx.$executeRaw`
+            INSERT INTO "MobileActionEvent" ("id", "actionId", "event", "createdAt")
+            SELECT ${crypto.randomUUID()}, item."id", 'queued', CURRENT_TIMESTAMP
+            FROM "MobileAction" item
+            WHERE item."id" = ${action.id}
+              AND item."companyId" = ${owner.companyId}
+              AND item."userId" = ${owner.userId}
+          `;
+        }
+        return action;
+      }),
+    );
 
     return {
       ok: true,
       action: {
-        id,
-        kind: dto.kind,
-        phone,
-        contactName,
-        message,
-        leadId,
-        status: pushResult.sent ? 'notified' : 'queued',
-        requestedAt: now.toISOString(),
+        id: persisted.id,
+        kind: persisted.kind,
+        phone: persisted.phone,
+        contactName: persisted.contactName,
+        message: persisted.message,
+        leadId: persisted.leadId,
+        status: persisted.status,
+        requestedAt: persisted.requestedAt.toISOString(),
       },
       device: {
         id: device.id,
@@ -242,74 +277,85 @@ export class MobileActionService {
         platform: device.platform || 'android',
         lastUsedAt: device.lastUsedAt?.toISOString() || null,
       },
-      delivery: pushResult.sent ? 'push' : 'queue',
-      pushReason: pushResult.sent ? null : pushResult.reason || null,
+      delivery: 'queue',
     };
-  }
-
-  async registerPush(dto: RegisterMobilePushDto) {
-    const device = await this.devices.authenticateDevice(dto);
-    const pushToken = String(dto.pushToken || '').trim();
-    const appVersion = String(dto.appVersion || '').trim().slice(0, 80) || null;
-
-    await withoutTenantScope('mobile action: registrar token push do aparelho', async () => {
-      // Um token FCM pertence a uma instalação. Remove associação antiga antes de gravar.
-      await this.prisma.$executeRaw`
-        UPDATE "MobileDevice"
-        SET "pushToken" = NULL, "pushUpdatedAt" = NULL, "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "pushToken" = ${pushToken}
-          AND "id" <> ${device.id}
-      `;
-      await this.prisma.$executeRaw`
-        UPDATE "MobileDevice"
-        SET
-          "pushToken" = ${pushToken},
-          "pushPlatform" = 'fcm',
-          "pushUpdatedAt" = CURRENT_TIMESTAMP,
-          "appVersion" = ${appVersion},
-          "lastUsedAt" = CURRENT_TIMESTAMP,
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "id" = ${device.id}
-          AND "companyId" = ${device.companyId}
-          AND "revokedAt" IS NULL
-      `;
-    });
-
-    return { ok: true, deviceId: device.id };
   }
 
   async pull(dto: PullMobileActionsDto) {
     const device = await this.devices.authenticateDevice(dto);
-    const take = Math.max(1, Math.min(20, Number(dto.take || 10)));
+    const take = Math.max(1, Math.min(20, Math.trunc(Number(dto.take || 10))));
     const now = new Date();
+    const retryBefore = new Date(now.getTime() - 2 * 60 * 1000);
 
-    const actions = await withoutTenantScope('mobile action: puxar fila do próprio aparelho', async () => {
-      const rows = await this.prisma.$queryRaw<MobileActionRow[]>`
-        SELECT *
-        FROM "MobileAction"
-        WHERE "companyId" = ${device.companyId}
-          AND "userId" = ${device.userId}
-          AND ("deviceId" IS NULL OR "deviceId" = ${device.id})
-          AND "status" IN ('queued', 'notified')
-          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
-        ORDER BY "requestedAt" ASC
-        LIMIT ${take}
-      `;
-
-      for (const row of rows) {
-        if (!row.deliveredAt) {
-          await this.prisma.$executeRaw`
-            UPDATE "MobileAction"
-            SET "status" = 'delivered', "deliveredAt" = CURRENT_TIMESTAMP, "updatedAt" = CURRENT_TIMESTAMP
-            WHERE "id" = ${row.id}
-              AND "companyId" = ${device.companyId}
-              AND "deliveredAt" IS NULL
+    const actions = await withoutTenantScope('mobile action: reservar fila do próprio aparelho', () =>
+      this.prisma.$transaction(async (tx) => {
+        const expired = await tx.$queryRaw<Array<{ id: string }>>`
+          UPDATE "MobileAction"
+          SET "status" = 'expired', "updatedAt" = ${now}
+          WHERE "companyId" = ${device.companyId}
+            AND "userId" = ${device.userId}
+            AND ("deviceId" IS NULL OR "deviceId" = ${device.id})
+            AND "status" IN ('queued', 'delivering')
+            AND "expiresAt" IS NOT NULL
+            AND "expiresAt" <= ${now}
+          RETURNING "id"
+        `;
+        for (const row of expired) {
+          await tx.$executeRaw`
+            INSERT INTO "MobileActionEvent" ("id", "actionId", "event", "createdAt")
+            SELECT ${crypto.randomUUID()}, action."id", 'expired', CURRENT_TIMESTAMP
+            FROM "MobileAction" action
+            WHERE action."id" = ${row.id}
+              AND action."companyId" = ${device.companyId}
+              AND action."userId" = ${device.userId}
           `;
-          await this.appendEvent(row.id, 'delivered');
         }
-      }
-      return rows;
-    });
+
+        const rows = await tx.$queryRaw<MobileActionRow[]>`
+          WITH candidates AS (
+            SELECT "id"
+            FROM "MobileAction"
+            WHERE "companyId" = ${device.companyId}
+              AND "userId" = ${device.userId}
+              AND ("deviceId" IS NULL OR "deviceId" = ${device.id})
+              AND (
+                "status" = 'queued'
+                OR (
+                  "status" = 'delivering'
+                  AND ("deliveryAttemptedAt" IS NULL OR "deliveryAttemptedAt" <= ${retryBefore})
+                )
+              )
+              AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+            ORDER BY "requestedAt" ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT ${take}
+          )
+          UPDATE "MobileAction" action
+          SET
+            "status" = 'delivering',
+            "deliveryAttemptedAt" = ${now},
+            "updatedAt" = ${now}
+          FROM candidates
+          WHERE action."id" = candidates."id"
+            AND action."companyId" = ${device.companyId}
+            AND action."userId" = ${device.userId}
+          RETURNING action.*
+        `;
+
+        for (const row of rows) {
+          await tx.$executeRaw`
+            INSERT INTO "MobileActionEvent"
+              ("id", "actionId", "event", "createdAt")
+            SELECT ${crypto.randomUUID()}, action."id", 'delivery_attempted', CURRENT_TIMESTAMP
+            FROM "MobileAction" action
+            WHERE action."id" = ${row.id}
+              AND action."companyId" = ${device.companyId}
+              AND action."userId" = ${device.userId}
+          `;
+        }
+        return rows;
+      }),
+    );
 
     return {
       ok: true,
@@ -335,61 +381,118 @@ export class MobileActionService {
       : Math.max(0, Math.min(24 * 60 * 60, Math.trunc(dto.elapsedSeconds)));
     const result = String(dto.result || '').trim().slice(0, 80) || null;
     const note = String(dto.note || '').trim().slice(0, 500) || null;
+    const eventId = dto.eventId || crypto.randomUUID();
+    const event = dto.event as MobileActionEvent;
+    const status = mobileActionStatusForEvent(event);
 
-    const rows = await withoutTenantScope('mobile action: validar ação do aparelho', () =>
-      this.prisma.$queryRaw<Array<{ id: string }>>`
-        SELECT "id"
-        FROM "MobileAction"
-        WHERE "id" = ${actionId}
-          AND "companyId" = ${device.companyId}
-          AND "userId" = ${device.userId}
-          AND ("deviceId" IS NULL OR "deviceId" = ${device.id})
-        LIMIT 1
-      `,
+    const finalStatus = await withoutTenantScope('mobile action: registrar retorno idempotente do aparelho', () =>
+      this.prisma.$transaction(async (tx) => {
+        const rows = await tx.$queryRaw<Array<{ id: string; status: string; kind: MobileActionKind }>>`
+          SELECT "id", "status", "kind"
+          FROM "MobileAction"
+          WHERE "id" = ${actionId}
+            AND "companyId" = ${device.companyId}
+            AND "userId" = ${device.userId}
+            AND ("deviceId" IS NULL OR "deviceId" = ${device.id})
+          FOR UPDATE
+        `;
+        const action = rows[0];
+        if (!action) throw new NotFoundException('Ação móvel não encontrada.');
+
+        const duplicateRows = await tx.$queryRaw<Array<{ actionId: string }>>`
+          SELECT event."actionId"
+          FROM "MobileActionEvent" event
+          INNER JOIN "MobileAction" action ON action."id" = event."actionId"
+          WHERE event."id" = ${eventId}
+            AND action."companyId" = ${device.companyId}
+            AND action."userId" = ${device.userId}
+          LIMIT 1
+        `;
+        if (duplicateRows[0]) {
+          if (duplicateRows[0].actionId !== actionId) {
+            throw new BadRequestException('Identificador de evento já utilizado em outra ação.');
+          }
+          return action.status;
+        }
+
+        if (!canApplyMobileActionEvent(action.status, event)) {
+          throw new BadRequestException(
+            `Evento ${event} não pode ser aplicado a uma ação no estado ${action.status}.`,
+          );
+        }
+        if (!isValidMobileActionResult(action.kind, event, result)) {
+          throw new BadRequestException(
+            event === 'completed'
+              ? 'Resultado inválido para este tipo de ação móvel.'
+              : 'Resultado só pode ser informado ao concluir a ação móvel.',
+          );
+        }
+
+        await tx.$executeRaw`
+          UPDATE "MobileAction"
+          SET
+            "status" = ${status},
+            "deliveredAt" = CASE WHEN ${event} = 'delivered' THEN COALESCE("deliveredAt", CURRENT_TIMESTAMP) ELSE "deliveredAt" END,
+            "openedAt" = CASE WHEN ${event} = 'opened' THEN COALESCE("openedAt", CURRENT_TIMESTAMP) ELSE "openedAt" END,
+            "externalStartedAt" = CASE WHEN ${event} = 'external_started' THEN COALESCE("externalStartedAt", CURRENT_TIMESTAMP) ELSE "externalStartedAt" END,
+            "returnedAt" = CASE WHEN ${event} = 'returned' THEN COALESCE("returnedAt", CURRENT_TIMESTAMP) ELSE "returnedAt" END,
+            "completedAt" = CASE WHEN ${event} = 'completed' THEN COALESCE("completedAt", CURRENT_TIMESTAMP) ELSE "completedAt" END,
+            "estimatedDurationSeconds" = COALESCE(${elapsed}, "estimatedDurationSeconds"),
+            "result" = COALESCE(${result}, "result"),
+            "note" = COALESCE(${note}, "note"),
+            "errorMessage" = CASE WHEN ${event} = 'failed' THEN COALESCE(${note}, 'Falha informada pelo aplicativo') ELSE "errorMessage" END,
+            "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${actionId}
+            AND "companyId" = ${device.companyId}
+            AND "userId" = ${device.userId}
+        `;
+        await tx.$executeRaw`
+          INSERT INTO "MobileActionEvent"
+            ("id", "actionId", "event", "elapsedSeconds", "result", "note", "createdAt")
+          SELECT
+            ${eventId}, action."id", ${event}, ${elapsed}, ${result}, ${note}, CURRENT_TIMESTAMP
+          FROM "MobileAction" action
+          WHERE action."id" = ${actionId}
+            AND action."companyId" = ${device.companyId}
+            AND action."userId" = ${device.userId}
+        `;
+        return status;
+      }),
     );
-    if (!rows[0]) throw new NotFoundException('Ação móvel não encontrada.');
 
-    const statusByEvent: Record<string, string> = {
-      opened: 'opened',
-      external_started: 'started',
-      returned: 'returned',
-      completed: 'completed',
-      canceled: 'canceled',
-      failed: 'failed',
-    };
-    const status = statusByEvent[dto.event];
-
-    await withoutTenantScope('mobile action: registrar retorno do aparelho', async () => {
-      await this.prisma.$executeRaw`
-        UPDATE "MobileAction"
-        SET
-          "status" = ${status},
-          "openedAt" = CASE WHEN ${dto.event} = 'opened' THEN COALESCE("openedAt", CURRENT_TIMESTAMP) ELSE "openedAt" END,
-          "externalStartedAt" = CASE WHEN ${dto.event} = 'external_started' THEN COALESCE("externalStartedAt", CURRENT_TIMESTAMP) ELSE "externalStartedAt" END,
-          "returnedAt" = CASE WHEN ${dto.event} = 'returned' THEN COALESCE("returnedAt", CURRENT_TIMESTAMP) ELSE "returnedAt" END,
-          "completedAt" = CASE WHEN ${dto.event} = 'completed' THEN COALESCE("completedAt", CURRENT_TIMESTAMP) ELSE "completedAt" END,
-          "estimatedDurationSeconds" = COALESCE(${elapsed}, "estimatedDurationSeconds"),
-          "result" = COALESCE(${result}, "result"),
-          "note" = COALESCE(${note}, "note"),
-          "errorMessage" = CASE WHEN ${dto.event} = 'failed' THEN COALESCE(${note}, 'Falha informada pelo aplicativo') ELSE "errorMessage" END,
-          "updatedAt" = CURRENT_TIMESTAMP
-        WHERE "id" = ${actionId}
-          AND "companyId" = ${device.companyId}
-      `;
-      await this.appendEvent(actionId, dto.event, {
-        elapsedSeconds: elapsed,
-        result,
-        note,
-      });
-    });
-
-    return { ok: true, actionId, status, elapsedSeconds: elapsed, result };
+    return { ok: true, actionId, status: finalStatus, elapsedSeconds: elapsed, result };
   }
 
   async history(userIdInput: unknown, options: { leadId?: string; take?: number }) {
     const owner = await this.resolveWebOwner(userIdInput);
     const leadId = String(options.leadId || '').trim() || null;
-    const take = Math.max(1, Math.min(100, Number(options.take || 20)));
+    const take = Math.max(1, Math.min(100, Math.trunc(Number(options.take || 20))));
+
+    await withoutTenantScope('mobile action: expirar fila antes do histórico', () =>
+      this.prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const expired = await tx.$queryRaw<Array<{ id: string }>>`
+          UPDATE "MobileAction"
+          SET "status" = 'expired', "updatedAt" = ${now}
+          WHERE "companyId" = ${owner.companyId}
+            AND "userId" = ${owner.userId}
+            AND "status" IN ('queued', 'delivering')
+            AND "expiresAt" IS NOT NULL
+            AND "expiresAt" <= ${now}
+          RETURNING "id"
+        `;
+        for (const row of expired) {
+          await tx.$executeRaw`
+            INSERT INTO "MobileActionEvent" ("id", "actionId", "event", "createdAt")
+            SELECT ${crypto.randomUUID()}, action."id", 'expired', CURRENT_TIMESTAMP
+            FROM "MobileAction" action
+            WHERE action."id" = ${row.id}
+              AND action."companyId" = ${owner.companyId}
+              AND action."userId" = ${owner.userId}
+          `;
+        }
+      }),
+    );
 
     const actions = await withoutTenantScope('mobile action: histórico do usuário', () =>
       leadId
@@ -414,10 +517,13 @@ export class MobileActionService {
     const ids = actions.map((row) => row.id);
     const events = await withoutTenantScope('mobile action: eventos do histórico', () =>
       this.prisma.$queryRaw<MobileActionEventRow[]>`
-        SELECT "id", "actionId", "event", "elapsedSeconds", "result", "note", "createdAt"
-        FROM "MobileActionEvent"
-        WHERE "actionId" = ANY(${ids}::text[])
-        ORDER BY "createdAt" ASC
+        SELECT event."id", event."actionId", event."event", event."elapsedSeconds", event."result", event."note", event."createdAt"
+        FROM "MobileActionEvent" event
+        INNER JOIN "MobileAction" action ON action."id" = event."actionId"
+        WHERE event."actionId" = ANY(${ids}::text[])
+          AND action."companyId" = ${owner.companyId}
+          AND action."userId" = ${owner.userId}
+        ORDER BY event."createdAt" ASC
       `,
     );
     const byAction = new Map<string, MobileActionEventRow[]>();
@@ -437,7 +543,6 @@ export class MobileActionService {
         message: row.message,
         status: row.status,
         requestedAt: row.requestedAt.toISOString(),
-        pushSentAt: row.pushSentAt?.toISOString() || null,
         deliveredAt: row.deliveredAt?.toISOString() || null,
         openedAt: row.openedAt?.toISOString() || null,
         externalStartedAt: row.externalStartedAt?.toISOString() || null,

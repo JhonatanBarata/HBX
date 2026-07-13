@@ -62,7 +62,7 @@ function actionStatus(action: MobileAction) {
   if (action.result) return action.result.replaceAll("_", " ");
   const labels: Record<string, string> = {
     queued: "aguardando celular",
-    notified: "notificação enviada",
+    delivering: "enviando ao celular",
     delivered: "recebido no celular",
     opened: "aberto",
     started: "ação iniciada",
@@ -70,6 +70,7 @@ function actionStatus(action: MobileAction) {
     completed: "concluído",
     canceled: "cancelado",
     failed: "falhou",
+    expired: "expirada",
   };
   return labels[action.status] || action.status;
 }
@@ -111,9 +112,12 @@ function MobileDeviceAction() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const initial = window.setTimeout(() => void load(), 0);
     const interval = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -132,7 +136,13 @@ function MobileDeviceAction() {
     };
   }, [open]);
 
-  const activeDevices = useMemo(() => devices.filter(device => device.active), [devices]);
+  const activeDevices = useMemo(() => devices
+    .filter(device => device.active)
+    .sort((left, right) => {
+      const leftAt = left.lastUsedAt ? new Date(left.lastUsedAt).getTime() : 0;
+      const rightAt = right.lastUsedAt ? new Date(right.lastUsedAt).getTime() : 0;
+      return rightAt - leftAt;
+    }), [devices]);
   const primary = activeDevices[0];
   const online = isOnline(primary, now);
   const linked = activeDevices.length > 0;
@@ -154,6 +164,8 @@ function MobileDeviceAction() {
         className={buttonClass}
         title={title}
         aria-label={title}
+        aria-expanded={open}
+        aria-haspopup="dialog"
         onClick={() => setOpen(value => !value)}
       >
         <I d={MOBILE_ICON} size={17} />
@@ -161,7 +173,7 @@ function MobileDeviceAction() {
         {!loading && linked && <span className={`${styles.statusDot} ${online ? styles.statusDotOnline : ""}`} />}
       </button>
       {open && (
-        <div className={`hbx-pop ${styles.popover}`}>
+        <div className={`hbx-pop ${styles.popover}`} role="dialog" aria-label="HBX Mobile">
           <div className={styles.heading}>
             <span className={styles.deviceGlyph}><I d={MOBILE_ICON} size={18} /></span>
             <div>
