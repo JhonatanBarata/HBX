@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { I } from "@/components/hbx/shell";
+import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch, getToken } from "@/lib/api";
+import { setMobileCallMode, useMobileCallMode } from "@/lib/mobile-call-mode";
+import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
 import styles from "./mobile-device-topbar.module.css";
 
@@ -26,6 +28,19 @@ type MobileDevice = {
   active: boolean;
 };
 
+type MobileAction = {
+  id: string;
+  kind: "call" | "whatsapp";
+  phone: string;
+  contactName?: string | null;
+  status: string;
+  requestedAt: string;
+  estimatedDurationSeconds?: number | null;
+  result?: string | null;
+};
+
+type MobileHistoryResponse = { actions?: MobileAction[] };
+
 function formatDate(value?: string | null) {
   if (!value) return "Ainda não conectado";
   const date = new Date(value);
@@ -36,6 +51,29 @@ function formatDate(value?: string | null) {
   }).format(date);
 }
 
+function formatDuration(value?: number | null) {
+  if (value == null || value < 0) return null;
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function actionStatus(action: MobileAction) {
+  if (action.result) return action.result.replaceAll("_", " ");
+  const labels: Record<string, string> = {
+    queued: "aguardando celular",
+    notified: "notificação enviada",
+    delivered: "recebido no celular",
+    opened: "aberto",
+    started: "ação iniciada",
+    returned: "voltou ao HBX",
+    completed: "concluído",
+    canceled: "cancelado",
+    failed: "falhou",
+  };
+  return labels[action.status] || action.status;
+}
+
 function isOnline(device: MobileDevice | undefined, now: number) {
   if (!device?.active || !device.lastUsedAt) return false;
   const last = new Date(device.lastUsedAt).getTime();
@@ -44,7 +82,10 @@ function isOnline(device: MobileDevice | undefined, now: number) {
 
 function MobileDeviceAction() {
   const router = useRouter();
+  const callMode = useMobileCallMode();
+  const waMode = useWaOpenMode();
   const [devices, setDevices] = useState<MobileDevice[]>([]);
+  const [history, setHistory] = useState<MobileAction[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [open, setOpen] = useState(false);
@@ -54,8 +95,12 @@ function MobileDeviceAction() {
   const load = useCallback(async () => {
     if (!getToken()) return;
     try {
-      const result = await apiFetch<MobileDevice[]>("/mobile/devices");
-      setDevices(Array.isArray(result) ? result : []);
+      const [deviceResult, historyResult] = await Promise.all([
+        apiFetch<MobileDevice[]>("/mobile/devices"),
+        apiFetch<MobileHistoryResponse>("/mobile/actions/history?take=5").catch(() => ({ actions: [] })),
+      ]);
+      setDevices(Array.isArray(deviceResult) ? deviceResult : []);
+      setHistory(Array.isArray(historyResult?.actions) ? historyResult.actions : []);
       setFailed(false);
       setNow(Date.now());
     } catch {
@@ -132,6 +177,52 @@ function MobileDeviceAction() {
               <strong>{primary.name || "Aparelho Android"}</strong>
               <span>{primary.platform || "android"}</span>
               <small>Último acesso: {formatDate(primary.lastUsedAt)}</small>
+            </div>
+          )}
+
+          {linked && (
+            <div className={styles.preferences}>
+              <span className={styles.sectionLabel}>Usar o celular para</span>
+              <button
+                type="button"
+                className={`${styles.preference} ${callMode === "mobile" ? styles.preferenceOn : ""}`}
+                onClick={() => setMobileCallMode(callMode === "mobile" ? "local" : "mobile")}
+              >
+                <span><I d={ICONS.phone} size={15} /> Ligações</span>
+                <b>{callMode === "mobile" ? "Celular" : "Neste dispositivo"}</b>
+              </button>
+              <button
+                type="button"
+                className={`${styles.preference} ${waMode === "mobile" ? styles.preferenceOn : ""}`}
+                onClick={() => setWaOpenMode(waMode === "mobile" ? "external" : "mobile")}
+              >
+                <span><I d={ICONS.msg} size={15} /> WhatsApp pessoal</span>
+                <b>{waMode === "mobile" ? "Celular" : "Direto daqui"}</b>
+              </button>
+              <small className={styles.preferenceNote}>
+                O HBX prepara a ação. A ligação e o envio da mensagem ainda são confirmados pela pessoa no celular.
+              </small>
+            </div>
+          )}
+
+          {history.length > 0 && (
+            <div className={styles.history}>
+              <span className={styles.sectionLabel}>Histórico recente</span>
+              {history.map(action => {
+                const duration = formatDuration(action.estimatedDurationSeconds);
+                return (
+                  <div className={styles.historyItem} key={action.id}>
+                    <span className={styles.historyIcon}>
+                      <I d={action.kind === "call" ? ICONS.phone : ICONS.msg} size={13} />
+                    </span>
+                    <span className={styles.historyCopy}>
+                      <strong>{action.contactName || action.phone}</strong>
+                      <small>{actionStatus(action)}{duration ? ` · ${duration}` : ""}</small>
+                    </span>
+                    <time>{new Date(action.requestedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time>
+                  </div>
+                );
+              })}
             </div>
           )}
 
