@@ -148,7 +148,7 @@ object HbxMobileBridge {
     }
 
     private fun initializeFirebase(context: Context): Boolean {
-        if (FirebaseApp.getApps(context).isNotEmpty()) return true
+        if (runCatching { FirebaseApp.getInstance() }.isSuccess) return true
         val projectId = BuildConfig.FIREBASE_PROJECT_ID.trim()
         val applicationId = BuildConfig.FIREBASE_APPLICATION_ID.trim()
         val apiKey = BuildConfig.FIREBASE_API_KEY.trim()
@@ -163,8 +163,7 @@ object HbxMobileBridge {
                 .setApiKey(apiKey)
                 .setGcmSenderId(senderId)
                 .build()
-            FirebaseApp.initializeApp(context, options, "hbx-mobile")
-            true
+            FirebaseApp.initializeApp(context, options) != null
         }.getOrDefault(false)
     }
 
