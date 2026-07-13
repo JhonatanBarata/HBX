@@ -147,6 +147,10 @@ model Company {
   // dono. Vira filtro padrão do Radar/Leads e desempata o que cada empresa vê
   // primeiro — a lagoa é COMPARTILHADA, o "não repetir" é por empresa. JSON de strings.
   prospectingSegmentsJson String?
+  // Localização escolhida junto do ramo no OOBE. Nullable para preservar empresas
+  // existentes e o editor de nicho que atualiza somente os segmentos.
+  prospectingEstado       String?
+  prospectingCidade       String?
   // OOBE POR CATEGORIA (PR10072026/02, 10/07): categorias de módulo que o DONO escolheu no
   // primeiro acesso (ex.: ["radar","vendas"]). null/vazio = ainda não escolheu (portão
   // pergunta). O mapa categoria→módulos vive em modules/module-categories.ts (fonte única);

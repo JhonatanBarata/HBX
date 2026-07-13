@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, HttpStatus, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 import * as bcrypt from 'bcryptjs';
@@ -322,6 +322,7 @@ export class ProfileController {
   // que a empresa quer prospectar. Só o DONO (ADMIN com cobrança, não master/gerente/
   // vendedor) define — vira filtro padrão do Radar/Leads.
   @Post('prospecting-segments')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   async saveProspectingSegments(@Req() req: any, @Body() body: { segments?: string[]; estado?: string; cidade?: string }) {
     const user = await this.usersService.findById(req.user.id);
