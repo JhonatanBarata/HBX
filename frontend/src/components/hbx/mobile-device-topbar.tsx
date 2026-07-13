@@ -176,10 +176,10 @@ export function MobileDeviceTopbarBridge() {
     const accountButton = actions.querySelector<HTMLElement>('[aria-label="Conta"]');
     const accountWrapper = accountButton?.parentElement || null;
     actions.insertBefore(host, accountWrapper);
-    setTarget(host);
 
+    const frame = window.requestAnimationFrame(() => setTarget(host));
     return () => {
-      setTarget(null);
+      window.cancelAnimationFrame(frame);
       host.remove();
     };
   }, []);
