@@ -15,6 +15,7 @@ const HBX_DEFAULT_ENGINE_CAPACITY = 20;
 const HBX_DEFAULT_PUBLISH_WARM_ENGINE_COUNT = 1;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
 const isDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
+const explicitServicesArg = rawArgs.find((arg) => arg.toLowerCase().startsWith('--services='));
 
 const serviceOrder = ['backend', 'webscraping', 'hbx-scraping-engine', 'frontend', 'webwhats'];
 const serviceLabels = {
@@ -25,6 +26,20 @@ const serviceLabels = {
   webwhats: 'webwhats',
 };
 const composeManagedServices = new Set(['webscraping']);
+
+function getExplicitServices() {
+  if (!explicitServicesArg) return null;
+  const requested = explicitServicesArg
+    .slice('--services='.length)
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = requested.filter((service) => !serviceOrder.includes(service));
+  if (invalid.length) {
+    throw new Error(`Servico(s) invalido(s) em --services: ${invalid.join(', ')}`);
+  }
+  return [...new Set(requested)];
+}
 
 function logStage(title) {
   console.log(`\n=== ${title} ===`);
@@ -730,6 +745,12 @@ async function main() {
   const changedFiles = listFilesAheadOfRemote();
   const commitsAhead = listCommitsAheadOfRemote();
   const releasePlan = classifyChangedFiles(changedFiles);
+  const explicitServices = getExplicitServices();
+  if (explicitServices) {
+    releasePlan.services = explicitServices;
+    releasePlan.mode = explicitServices.length ? 'partial' : 'none';
+    console.log(`Escopo manual solicitado: ${explicitServices.join(', ') || 'nenhum servico'}`);
+  }
   console.log(`Commits pendentes: ${commitsAhead.length}`);
   console.log(`Arquivos alterados: ${changedFiles.length}`);
   console.log(`Plano: ${releasePlan.mode === 'none' ? 'Sem servicos para rebuild' : releasePlan.services.join(', ')}`);
