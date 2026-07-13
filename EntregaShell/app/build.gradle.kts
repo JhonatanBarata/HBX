@@ -17,6 +17,20 @@ val keystoreProps = Properties().apply {
     }
 }
 
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val productionApiBaseUrl = "https://api.hbxsystem.com.br"
+val productionWebBaseUrl = "https://www.hbxsystem.com.br"
+val debugApiBaseUrl = providers.gradleProperty("hbxApiBaseUrl")
+    .orElse(productionApiBaseUrl)
+    .get()
+    .trimEnd('/')
+val debugWebBaseUrl = providers.gradleProperty("hbxWebBaseUrl")
+    .orElse(productionWebBaseUrl)
+    .get()
+    .trimEnd('/')
+
 android {
     namespace = "br.com.hbxsystem.entrega"
     compileSdk = 35
@@ -29,8 +43,11 @@ android {
         applicationId = "br.com.hbxsystem"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.1.0"
+        buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
+        buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
+        manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
     }
 
     signingConfigs {
@@ -45,6 +62,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "API_BASE_URL", buildConfigString(debugApiBaseUrl))
+            buildConfigField("String", "WEB_BASE_URL", buildConfigString(debugWebBaseUrl))
+            manifestPlaceholders["hbxUsesCleartextTraffic"] =
+                (debugApiBaseUrl.startsWith("http://") || debugWebBaseUrl.startsWith("http://")).toString()
+        }
         release {
             isMinifyEnabled = false
             if (keystorePropsFile.exists()) {
@@ -72,6 +95,10 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 }
 

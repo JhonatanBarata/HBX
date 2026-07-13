@@ -43,10 +43,38 @@ export default async function Home({
   // como alias do fluxo antigo.
   const openCriar = params.criar !== undefined;
   const openLogin = params.entrar !== undefined || view === "entrar";
+  const androidApkUrl = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
+
   return (
     <>
       <script dangerouslySetInnerHTML={{ __html: AUTH_BOOT }} />
       <PublicEntry initialScreen={openCriar ? "criar" : openLogin ? "login" : "home"} />
+      {openLogin && androidApkUrl && (
+        <a
+          href={androidApkUrl}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            position: "fixed",
+            left: "50%",
+            bottom: 20,
+            zIndex: 80,
+            transform: "translateX(-50%)",
+            border: "1px solid rgba(255,255,255,.18)",
+            borderRadius: 999,
+            padding: "10px 16px",
+            background: "rgba(11,16,32,.84)",
+            color: "white",
+            fontSize: 13,
+            fontWeight: 800,
+            textDecoration: "none",
+            boxShadow: "0 12px 34px rgba(0,0,0,.28)",
+            backdropFilter: "blur(16px)",
+          }}
+        >
+          Baixar aplicativo Android (teste)
+        </a>
+      )}
     </>
   );
 }

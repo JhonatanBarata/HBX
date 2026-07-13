@@ -52,9 +52,6 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        private const val ENTREGA_URL = "https://www.hbxsystem.com.br/"
-        private const val ALLOWED_HOST = "www.hbxsystem.com.br"
-        private const val ALLOWED_HOST_ROOT = "hbxsystem.com.br"
         private const val REQ_FILE_CHOOSER = 4001
 
         // Fundo da casca = navy da marca (mesmo do manifest.webmanifest do web).
@@ -142,8 +139,8 @@ class MainActivity : AppCompatActivity() {
                 ) {
                     // Mesmo gate do áudio: geolocation só pro NOSSO host — um
                     // iframe de terceiro nunca ganha a posição do motorista.
-                    val host = origin?.let { runCatching { Uri.parse(it).host }.getOrNull() }
-                    val confiavel = host == ALLOWED_HOST || host == ALLOWED_HOST_ROOT
+                    val confiavel = origin?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                        ?.let(::uriPermitida) == true
                     callback?.invoke(origin, confiavel, false)
                 }
 
@@ -201,9 +198,8 @@ class MainActivity : AppCompatActivity() {
                     request: WebResourceRequest
                 ): Boolean {
                     val uri = request.url
-                    val host = uri.host
                     val schemeHttp = uri.scheme == "http" || uri.scheme == "https"
-                    if (schemeHttp && (host == ALLOWED_HOST || host == ALLOWED_HOST_ROOT)) {
+                    if (schemeHttp && uriPermitida(uri)) {
                         return false // mantém a navegação dentro do WebView
                     }
                     // Qualquer outro destino (google.com/maps, geo:, wa.me, tel: etc.)
@@ -275,15 +271,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(root)
-        webView.loadUrl(urlPermitidaDoIntent(intent) ?: ENTREGA_URL)
+        webView.loadUrl(urlPermitidaDoIntent(intent) ?: webBaseUrl())
+    }
+
+    private fun webBaseUrl(): String = BuildConfig.WEB_BASE_URL.trimEnd('/') + "/"
+
+    private fun uriPermitida(uri: Uri): Boolean {
+        val expected = runCatching { Uri.parse(BuildConfig.WEB_BASE_URL) }.getOrNull() ?: return false
+        if (BuildConfig.DEBUG) {
+            val schemeAllowed = uri.scheme == "https" || uri.scheme == "http"
+            return schemeAllowed && uri.scheme == expected.scheme && uri.host == expected.host && uri.port == expected.port
+        }
+        val productionHosts = setOf(expected.host, expected.host?.removePrefix("www.")).filterNotNull()
+        return uri.scheme == "https" && uri.host in productionHosts && uri.port == expected.port
     }
 
     /** Deep link VIEW: só navega se o destino é do nosso host (mesma allowlist). */
     private fun urlPermitidaDoIntent(intent: Intent?): String? {
         val uri = intent?.data ?: return null
         val schemeHttp = uri.scheme == "http" || uri.scheme == "https"
-        val host = uri.host
-        return if (schemeHttp && (host == ALLOWED_HOST || host == ALLOWED_HOST_ROOT)) {
+        return if (schemeHttp && uriPermitida(uri)) {
             uri.toString()
         } else {
             null
@@ -399,7 +406,7 @@ class MainActivity : AppCompatActivity() {
                 // A tela offline só sai quando uma carga TERMINA sem erro
                 // (onPageFinished) — clique repetido sem rede não pisca nada.
                 if (webView.url == null) {
-                    webView.loadUrl(ENTREGA_URL)
+                    webView.loadUrl(webBaseUrl())
                 } else {
                     webView.reload()
                 }

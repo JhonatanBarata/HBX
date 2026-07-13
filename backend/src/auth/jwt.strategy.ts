@@ -5,6 +5,7 @@ import { UsersService } from '../users/users.service';
 import { MasterContextService } from '../master-context/master-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SESSION_IDLE_TTL_MS } from './session-ttl';
+import { withoutTenantScope } from '../prisma/tenant-context';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -28,6 +29,60 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sessão revogada');
     }
 
+    // Token do APP pareado: coexiste com a sessão web do mesmo usuário. A validade
+    // não depende de currentSessionId/sessionVersion (trava humana de login único),
+    // mas da linha MobileDevice revogável e da versão gravada no próprio aparelho.
+    if (payload?.mobile === true) {
+      const deviceId = String(payload?.did || '').trim();
+      const deviceVersion = Number(payload?.dv);
+      if (!deviceId || !Number.isInteger(deviceVersion)) {
+        throw new UnauthorizedException('Sessão móvel inválida');
+      }
+
+      const devices = await withoutTenantScope(
+        'jwt mobile: validar aparelho pareado fora da sessão web única',
+        () => this.prisma.$queryRaw<Array<{
+          id: string;
+          userId: number;
+          companyId: number;
+          tokenVersion: number;
+          lastUsedAt: Date | null;
+          expiresAt: Date | null;
+          revokedAt: Date | null;
+        }>>`
+          SELECT "id", "userId", "companyId", "tokenVersion", "lastUsedAt", "expiresAt", "revokedAt"
+          FROM "MobileDevice"
+          WHERE "id" = ${deviceId}
+          LIMIT 1
+        `,
+      );
+      const device = devices[0];
+      const now = new Date();
+      if (
+        !device ||
+        device.userId !== Number(user.id) ||
+        device.companyId !== Number(user.companyId || 0) ||
+        device.tokenVersion !== deviceVersion ||
+        device.revokedAt ||
+        (device.expiresAt && device.expiresAt.getTime() <= now.getTime())
+      ) {
+        throw new UnauthorizedException('Sessão móvel revogada');
+      }
+
+      if (!device.lastUsedAt || device.lastUsedAt.getTime() <= now.getTime() - 60_000) {
+        await withoutTenantScope(
+          'jwt mobile: atualizar último uso do aparelho validado',
+          () => this.prisma.$executeRaw`
+            UPDATE "MobileDevice"
+            SET "lastUsedAt" = ${now}, "updatedAt" = ${now}
+            WHERE "id" = ${device.id}
+              AND "revokedAt" IS NULL
+          `,
+        );
+      }
+
+      user.sessionId = `mobile:${device.id}`;
+      user.sessionVersion = device.tokenVersion;
     // Token de MÁQUINA do Ops Control (claim ops=true no master): autentica SEM
     // entrar na trava de sessão-única humana — não exige AuthSession nem casa
     // currentSessionId/sessionVersion. Forjar esse claim exige o JWT_SECRET (que
@@ -36,7 +91,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // AuthSession do dono e o DERRUBAVA do /master a cada ~2min (era a máquina do
     // "fica caindo"/409 SESSION_ALREADY_ACTIVE). O mint do ops-control agora não
     // toca em sessão nenhuma (ops:true), e o dono coexiste com o painel.
-    if (payload?.ops === true && Boolean(user.isSystemMaster)) {
+    } else if (payload?.ops === true && Boolean(user.isSystemMaster)) {
       user.sessionId = 'ops-control';
       user.sessionVersion = Number(payload?.sv) || 0;
     } else {
