@@ -36,7 +36,6 @@ import java.util.concurrent.Executors
  */
 class PairingActivity : AppCompatActivity() {
     companion object {
-        private const val API_BASE_URL = "https://api.hbxsystem.com.br"
         private const val COR_FUNDO = "#0B1020"
         private const val COR_CARD = "#121A2D"
         private const val COR_BOTAO = "#2E5BFF"
@@ -155,7 +154,7 @@ class PairingActivity : AppCompatActivity() {
     }
 
     private fun postJson(path: String, payload: JSONObject): JSONObject {
-        val connection = (URL(API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
+        val connection = (URL(BuildConfig.API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000
             readTimeout = 20_000
@@ -199,7 +198,16 @@ class PairingActivity : AppCompatActivity() {
 
     private fun openEntryUrl(entryUrl: String) {
         val uri = runCatching { Uri.parse(entryUrl) }.getOrNull()
-        if (uri?.scheme != "https" || uri.host !in setOf("www.hbxsystem.com.br", "hbxsystem.com.br")) {
+        val expected = runCatching { Uri.parse(BuildConfig.WEB_BASE_URL) }.getOrNull()
+        val productionHosts = setOf(expected?.host, expected?.host?.removePrefix("www.")).filterNotNull()
+        val allowed = if (BuildConfig.DEBUG) {
+            uri != null && expected != null && uri.scheme == expected.scheme &&
+                uri.host == expected.host && uri.port == expected.port &&
+                (uri.scheme == "https" || uri.scheme == "http")
+        } else {
+            uri != null && uri.scheme == "https" && uri.host in productionHosts && uri.port == expected?.port
+        }
+        if (!allowed) {
             showPairingScreen("O HBX devolveu uma entrada inválida. Atualize o aplicativo.")
             return
         }
