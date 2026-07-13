@@ -17,7 +17,6 @@ export default function ConfiguracoesPage() {
           bottom: 22,
           zIndex: 30,
           textDecoration: "none",
-          boxShadow: "0 14px 36px rgba(0,0,0,.28)",
         }}
       >
         Aplicativo móvel

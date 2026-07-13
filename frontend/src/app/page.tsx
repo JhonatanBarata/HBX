@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { PublicEntry } from "@/components/hbx/public-entry";
+import mobileStyles from "./mobile/mobile-ui.module.css";
 
 export const metadata: Metadata = {
   title: "HBX System — Prospecção conectada",
@@ -54,23 +55,7 @@ export default async function Home({
           href={androidApkUrl}
           target="_blank"
           rel="noreferrer"
-          style={{
-            position: "fixed",
-            left: "50%",
-            bottom: 20,
-            zIndex: 80,
-            transform: "translateX(-50%)",
-            border: "1px solid rgba(255,255,255,.18)",
-            borderRadius: 999,
-            padding: "10px 16px",
-            background: "rgba(11,16,32,.84)",
-            color: "white",
-            fontSize: 13,
-            fontWeight: 800,
-            textDecoration: "none",
-            boxShadow: "0 12px 34px rgba(0,0,0,.28)",
-            backdropFilter: "blur(16px)",
-          }}
+          className={mobileStyles.downloadLink}
         >
           Baixar aplicativo Android (teste)
         </a>

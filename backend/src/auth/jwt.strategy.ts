@@ -53,6 +53,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           SELECT "id", "userId", "companyId", "tokenVersion", "lastUsedAt", "expiresAt", "revokedAt"
           FROM "MobileDevice"
           WHERE "id" = ${deviceId}
+            AND "companyId" = ${Number(user.companyId || 0)}
           LIMIT 1
         `,
       );
@@ -76,6 +77,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             UPDATE "MobileDevice"
             SET "lastUsedAt" = ${now}, "updatedAt" = ${now}
             WHERE "id" = ${device.id}
+              AND "companyId" = ${device.companyId}
               AND "revokedAt" IS NULL
           `,
         );

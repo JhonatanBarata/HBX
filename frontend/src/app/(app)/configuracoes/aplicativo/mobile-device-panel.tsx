@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import styles from "./mobile-device-panel.module.css";
 
 type PairingCodeResponse = {
   code: string;
@@ -63,7 +64,10 @@ export function MobileDevicePanel() {
   }, []);
 
   useEffect(() => {
-    void loadDevices();
+    const timer = window.setTimeout(() => {
+      void loadDevices();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadDevices]);
 
   useEffect(() => {
@@ -137,7 +141,7 @@ export function MobileDevicePanel() {
             <h2 style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <I d={ICONS.phone} size={18} /> Aplicativo móvel
             </h2>
-            <p style={{ margin: "5px 0 0", color: "var(--text-muted)", fontSize: ".78rem" }}>
+            <p className={styles.description} style={{ margin: "5px 0 0" }}>
               Este aparelho será ligado à mesma conta que você já usa no HBX web.
             </p>
           </div>
@@ -147,10 +151,10 @@ export function MobileDevicePanel() {
         </div>
 
         <div style={{ padding: 18, display: "grid", gap: 18 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
-            <article style={{ border: "1px solid var(--line)", borderRadius: 16, padding: 16, display: "grid", gap: 10, background: "var(--panel-2, transparent)" }}>
+          <div className={styles.setupGrid}>
+            <article className={styles.setupCard}>
               <strong>1. Instale o aplicativo</strong>
-              <p style={{ margin: 0, color: "var(--text-muted)", lineHeight: 1.5, fontSize: ".78rem" }}>
+              <p className={styles.description}>
                 Use o APK de testes do HBX. O aplicativo não exibirá a página pública nem pedirá e-mail e senha.
               </p>
               {APK_URL ? (
@@ -158,15 +162,15 @@ export function MobileDevicePanel() {
                   Baixar aplicativo Android
                 </a>
               ) : (
-                <small style={{ color: "var(--text-muted)" }}>
+                <small className={styles.muted}>
                   O link de download será exibido aqui quando NEXT_PUBLIC_ANDROID_APK_URL estiver configurada.
                 </small>
               )}
             </article>
 
-            <article style={{ border: "1px solid var(--line)", borderRadius: 16, padding: 16, display: "grid", gap: 10, background: "var(--panel-2, transparent)" }}>
+            <article className={styles.setupCard}>
               <strong>2. Gere o código deste usuário</strong>
-              <p style={{ margin: 0, color: "var(--text-muted)", lineHeight: 1.5, fontSize: ".78rem" }}>
+              <p className={styles.description}>
                 O código vale por 10 minutos, funciona uma única vez e vincula o celular à sua própria conta.
               </p>
               <button className="btn-teal" onClick={generateCode} disabled={busy}>
@@ -176,32 +180,32 @@ export function MobileDevicePanel() {
           </div>
 
           {pairing && remainingSeconds > 0 && (
-            <article style={{ border: "1px solid var(--hbx-brand)", borderRadius: 18, padding: 20, textAlign: "center", display: "grid", gap: 10, background: "color-mix(in srgb, var(--hbx-brand) 9%, transparent)" }}>
-              <span style={{ color: "var(--text-muted)", fontSize: ".75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em" }}>
+            <article className={styles.pairingCard}>
+              <span className={styles.pairingLabel}>
                 Digite no aplicativo
               </span>
               <button
                 type="button"
                 onClick={copyCode}
                 title="Copiar código"
-                style={{ border: 0, background: "transparent", color: "var(--text)", fontSize: "clamp(2rem, 8vw, 3.8rem)", fontWeight: 900, letterSpacing: ".15em", cursor: "pointer" }}
+                className={styles.pairingCode}
               >
                 {groupedCode}
               </button>
-              <span style={{ color: remainingSeconds <= 60 ? "var(--hbx-danger)" : "var(--text-muted)", fontWeight: 800 }}>
+              <span className={`${styles.countdown} ${remainingSeconds <= 60 ? styles.countdownUrgent : ""}`}>
                 Expira em {formatCountdown(remainingSeconds)}
               </span>
             </article>
           )}
 
           {pairing && remainingSeconds <= 0 && (
-            <div style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 14, color: "var(--text-muted)" }}>
+            <div className={styles.expired}>
               O código expirou. Gere outro para vincular o aparelho.
             </div>
           )}
 
           {(message || error) && (
-            <div style={{ borderRadius: 12, padding: "10px 12px", fontWeight: 700, color: error ? "var(--hbx-danger)" : "var(--hbx-brand-strong)", background: error ? "color-mix(in srgb, var(--hbx-danger) 9%, transparent)" : "color-mix(in srgb, var(--hbx-brand) 9%, transparent)" }}>
+            <div className={`${styles.message} ${error ? styles.messageError : ""}`}>
               {error || message}
             </div>
           )}
@@ -212,7 +216,7 @@ export function MobileDevicePanel() {
         <div className="panel-head">
           <div>
             <h2>Aparelhos vinculados</h2>
-            <p style={{ margin: "5px 0 0", color: "var(--text-muted)", fontSize: ".78rem" }}>
+            <p className={styles.description} style={{ margin: "5px 0 0" }}>
               Cada usuário pode manter até 3 aparelhos ativos. Desconectar corta o acesso imediatamente.
             </p>
           </div>
@@ -222,27 +226,26 @@ export function MobileDevicePanel() {
         </div>
 
         <div style={{ padding: 18, display: "grid", gap: 10 }}>
-          {loading && <p style={{ margin: 0, color: "var(--text-muted)" }}>Carregando aparelhos…</p>}
+          {loading && <p className={styles.loading} style={{ margin: 0 }}>Carregando aparelhos…</p>}
           {!loading && devices.length === 0 && (
-            <div style={{ border: "1px dashed var(--line)", borderRadius: 14, padding: 18, color: "var(--text-muted)" }}>
+            <div className={styles.empty}>
               Nenhum aparelho foi vinculado a esta conta.
             </div>
           )}
           {devices.map(device => (
-            <article key={device.id} style={{ border: "1px solid var(--line)", borderRadius: 14, padding: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap", opacity: device.active ? 1 : .62 }}>
+            <article key={device.id} className={`${styles.device} ${device.active ? "" : styles.deviceInactive}`}>
               <div style={{ display: "grid", gap: 4 }}>
                 <strong>{device.name || "Aparelho Android"}</strong>
-                <span style={{ color: "var(--text-muted)", fontSize: ".74rem" }}>
+                <span className={styles.deviceMeta}>
                   {device.active ? "Ativo" : "Desconectado"} · Último acesso: {formatDate(device.lastUsedAt)}
                 </span>
-                <span style={{ color: "var(--text-muted)", fontSize: ".7rem" }}>
+                <span className={styles.deviceCreated}>
                   Vinculado em {formatDate(device.createdAt)}
                 </span>
               </div>
               {device.active && (
                 <button
-                  className="btn-ghost"
-                  style={{ color: "var(--hbx-danger)" }}
+                  className={`btn-ghost ${styles.revoke}`}
                   disabled={revokingId === device.id}
                   onClick={() => void revokeDevice(device)}
                 >

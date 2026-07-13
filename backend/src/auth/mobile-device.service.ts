@@ -50,6 +50,7 @@ type MobileDeviceRow = {
 type ExistingInstallationRow = {
   id: string;
   userId: number;
+  companyId: number;
   revokedAt: Date | null;
 };
 
@@ -134,8 +135,10 @@ export class MobileDeviceService {
       await this.prisma.$executeRaw`
         DELETE FROM "MobilePairingCode"
         WHERE "userId" = ${owner.userId}
-           OR "expiresAt" <= ${now}
-           OR "consumedAt" IS NOT NULL
+           OR (
+             "companyId" = ${owner.companyId}
+             AND ("expiresAt" <= ${now} OR "consumedAt" IS NOT NULL)
+           )
       `;
 
       for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -176,6 +179,7 @@ export class MobileDeviceService {
         SELECT "id", "name", "platform", "lastUsedAt", "revokedAt", "createdAt"
         FROM "MobileDevice"
         WHERE "userId" = ${owner.userId}
+          AND "companyId" = ${owner.companyId}
         ORDER BY "createdAt" DESC
       `;
       return rows.map((row) => ({
@@ -201,6 +205,7 @@ export class MobileDeviceService {
           "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${id}
           AND "userId" = ${owner.userId}
+          AND "companyId" = ${owner.companyId}
           AND "revokedAt" IS NULL
       `,
     );
@@ -222,6 +227,7 @@ export class MobileDeviceService {
 
     const device = await withoutTenantScope('mobile pairing: consumir código e vincular instalação', () =>
       this.prisma.$transaction(async (tx) => {
+        // tenant-raw-allow: codeHash é segredo opaco de uso único; a empresa só é conhecida após encontrar o código.
         const codes = await tx.$queryRaw<PairingCodeRow[]>`
           SELECT "id", "userId", "companyId", "expiresAt", "consumedAt"
           FROM "MobilePairingCode"
@@ -246,8 +252,9 @@ export class MobileDeviceService {
           throw new UnauthorizedException('A conta vinculada ao código não está disponível.');
         }
 
+        // tenant-raw-allow: installationId é chave global do hardware; o pareamento autorizado pode transferi-lo entre contas.
         const existingRows = await tx.$queryRaw<ExistingInstallationRow[]>`
-          SELECT "id", "userId", "revokedAt"
+          SELECT "id", "userId", "companyId", "revokedAt"
           FROM "MobileDevice"
           WHERE "installationId" = ${installationId}
           FOR UPDATE
@@ -261,6 +268,7 @@ export class MobileDeviceService {
           SELECT COUNT(*)::bigint AS "count"
           FROM "MobileDevice"
           WHERE "userId" = ${user.id}
+            AND "companyId" = ${Number(user.companyId)}
             AND "revokedAt" IS NULL
             AND (${existing?.id || null}::text IS NULL OR "id" <> ${existing?.id || null})
         `;
@@ -293,19 +301,21 @@ export class MobileDeviceService {
           UPDATE "MobilePairingCode"
           SET "consumedAt" = ${now}
           WHERE "id" = ${pairing.id}
+            AND "companyId" = ${pairing.companyId}
         `;
 
         const rows = await tx.$queryRaw<MobileDeviceRow[]>`
           SELECT *
           FROM "MobileDevice"
           WHERE "id" = ${deviceId}
+            AND "companyId" = ${Number(user.companyId)}
         `;
         return rows[0];
       }),
     );
 
     if (!device) throw new UnauthorizedException('Não foi possível vincular este aparelho.');
-    const entry = await this.issueWebTicket(device.id);
+    const entry = await this.issueWebTicket(device.id, device.companyId);
     return {
       ok: true,
       deviceToken: rawDeviceToken,
@@ -324,6 +334,7 @@ export class MobileDeviceService {
     const now = new Date();
 
     const device = await withoutTenantScope('mobile pairing: validar credencial persistente do aparelho', async () => {
+      // tenant-raw-allow: tokenHash é a credencial opaca do aparelho; a empresa é validada na linha retornada antes de liberar sessão.
       const rows = await this.prisma.$queryRaw<MobileDeviceRow[]>`
         SELECT *
         FROM "MobileDevice"
@@ -348,15 +359,16 @@ export class MobileDeviceService {
         UPDATE "MobileDevice"
         SET "lastUsedAt" = ${now}, "updatedAt" = ${now}
         WHERE "id" = ${row.id}
+          AND "companyId" = ${row.companyId}
       `;
       return row;
     });
 
-    const entry = await this.issueWebTicket(device.id);
+    const entry = await this.issueWebTicket(device.id, device.companyId);
     return { ok: true, entryUrl: entry.entryUrl };
   }
 
-  private async issueWebTicket(deviceId: string) {
+  private async issueWebTicket(deviceId: string, companyId: number) {
     const rawTicket = `hbx_mobile_entry_${crypto.randomBytes(32).toString('base64url')}`;
     const ticketHash = this.hashOpaqueSecret(rawTicket);
     const expiresAt = new Date(Date.now() + this.webTicketTtlMs);
@@ -369,6 +381,7 @@ export class MobileDeviceService {
           "webTicketExpiresAt" = ${expiresAt},
           "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${deviceId}
+          AND "companyId" = ${companyId}
           AND "revokedAt" IS NULL
       `,
     );
@@ -388,6 +401,7 @@ export class MobileDeviceService {
 
     const device = await withoutTenantScope('mobile pairing: consumir ticket web de uso único', () =>
       this.prisma.$transaction(async (tx) => {
+        // tenant-raw-allow: webTicketHash é segredo opaco de uso único; a empresa só é conhecida após consumir o ticket.
         const rows = await tx.$queryRaw<MobileDeviceRow[]>`
           SELECT *
           FROM "MobileDevice"
@@ -412,6 +426,7 @@ export class MobileDeviceService {
             "lastUsedAt" = ${now},
             "updatedAt" = ${now}
           WHERE "id" = ${row.id}
+            AND "companyId" = ${row.companyId}
         `;
         return row;
       }),

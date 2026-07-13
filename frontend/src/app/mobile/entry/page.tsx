@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { getApiBase, setToken } from "@/lib/api";
+import styles from "../mobile-ui.module.css";
 
 type MobileEntryResponse = {
   access_token?: string;
@@ -58,23 +59,22 @@ export default function MobileEntryPage() {
   }, []);
 
   return (
-    <main style={{ minHeight: "100dvh", display: "grid", placeItems: "center", background: "#0B1020", color: "white", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      <section style={{ width: "min(420px, 100%)", padding: 28, borderRadius: 22, background: "#121A2D", textAlign: "center", boxShadow: "0 24px 70px rgba(0,0,0,.35)" }}>
+    <main className={styles.entry}>
+      <section className={styles.entryCard}>
         <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: ".04em" }}>HBX</div>
         {error ? (
           <>
             <h1 style={{ margin: "20px 0 10px", fontSize: 21 }}>Não foi possível entrar</h1>
-            <p style={{ margin: 0, color: "#FFB4AB", lineHeight: 1.5 }}>{error}</p>
+            <p className={styles.entryError}>{error}</p>
           </>
         ) : (
           <>
-            <div aria-label="Carregando" style={{ width: 34, height: 34, margin: "24px auto", borderRadius: "50%", border: "3px solid #31415F", borderTopColor: "#2E5BFF", animation: "hbx-mobile-spin .8s linear infinite" }} />
+            <div aria-label="Carregando" className={styles.spinner} />
             <h1 style={{ margin: "0 0 8px", fontSize: 21 }}>Entrando no HBX…</h1>
-            <p style={{ margin: 0, color: "#AAB5CA" }}>Validando este aparelho.</p>
+            <p className={styles.entryHint}>Validando este aparelho.</p>
           </>
         )}
       </section>
-      <style>{`@keyframes hbx-mobile-spin { to { transform: rotate(360deg); } }`}</style>
     </main>
   );
 }
