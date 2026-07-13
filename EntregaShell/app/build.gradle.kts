@@ -31,6 +31,14 @@ val debugWebBaseUrl = providers.gradleProperty("hbxWebBaseUrl")
     .get()
     .trimEnd('/')
 
+// FCM sem google-services.json no repositório. As quatro propriedades podem viver
+// em ~/.gradle/gradle.properties ou ser passadas por -P no build. Sem elas o APK
+// continua funcionando por fila/poll em primeiro plano, apenas sem push em background.
+val firebaseProjectId = providers.gradleProperty("hbxFirebaseProjectId").orElse("").get().trim()
+val firebaseApplicationId = providers.gradleProperty("hbxFirebaseApplicationId").orElse("").get().trim()
+val firebaseApiKey = providers.gradleProperty("hbxFirebaseApiKey").orElse("").get().trim()
+val firebaseSenderId = providers.gradleProperty("hbxFirebaseSenderId").orElse("").get().trim()
+
 android {
     namespace = "br.com.hbxsystem.entrega"
     compileSdk = 35
@@ -43,10 +51,14 @@ android {
         applicationId = "br.com.hbxsystem"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.2.0"
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
+        buildConfigField("String", "FIREBASE_PROJECT_ID", buildConfigString(firebaseProjectId))
+        buildConfigField("String", "FIREBASE_APPLICATION_ID", buildConfigString(firebaseApplicationId))
+        buildConfigField("String", "FIREBASE_API_KEY", buildConfigString(firebaseApiKey))
+        buildConfigField("String", "FIREBASE_SENDER_ID", buildConfigString(firebaseSenderId))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
     }
 
@@ -106,4 +118,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.11.0")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 }
