@@ -271,6 +271,19 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     setSaveMsg(null);
     try {
       await apiFetch(`/vendas/automation/prospecting/${path}`, { method: "POST", body: JSON.stringify({}) });
+
+      // A campanha e a chave de ativação são estados separados no backend. Antes,
+      // o botão Iniciar alterava apenas a campanha para `running`, mas o worker
+      // continuava bloqueado por `prospectingBotLiveAt = null`. Sincroniza os dois
+      // estados para que Iniciar/Retomar realmente liberem os disparos e
+      // Pausar/Cancelar desliguem a chave ao vivo.
+      const shouldBeLive = path === "start" || path === "resume";
+      await apiFetch("/bot/activation", {
+        method: "PUT",
+        body: JSON.stringify({ type: "prospeccao", live: shouldBeLive }),
+      });
+
+      setSaveMsg(shouldBeLive ? "✓ Prospecção ligada." : "✓ Prospecção pausada.");
       await loadLive();
     } catch (err) {
       const e = err as ApiError;
