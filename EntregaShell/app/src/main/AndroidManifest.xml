@@ -65,6 +65,12 @@
             android:screenOrientation="portrait"
             android:theme="@style/Theme.EntregaShell.NoActionBar" />
 
+        <activity
+            android:name=".NotificationPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.EntregaShell.NoActionBar" />
+
         <!-- Ação operacional enviada pelo HBX web: discador ou WhatsApp pessoal.
              Tela privada; só PendingIntent/fluxo interno do app pode abri-la. -->
         <activity
