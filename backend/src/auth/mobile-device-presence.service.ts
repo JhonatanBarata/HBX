@@ -8,9 +8,17 @@ type PresenceDeviceRow = {
   id: string;
   userId: number;
   companyId: number;
+  name: string | null;
+  platform: string | null;
+  pushToken: string | null;
   revokedAt: Date | null;
   expiresAt: Date | null;
 };
+
+export type AuthenticatedMobileDevice = Pick<
+  PresenceDeviceRow,
+  'id' | 'userId' | 'companyId' | 'name' | 'platform' | 'pushToken'
+>;
 
 @Injectable()
 export class MobileDevicePresenceService {
@@ -22,16 +30,25 @@ export class MobileDevicePresenceService {
     return crypto.createHash('sha256').update(value).digest('hex');
   }
 
-  async heartbeat(dto: OpenMobileDeviceSessionDto) {
+  /**
+   * Valida a credencial duradoura do APK sem emitir JWT web. É a porta única para
+   * heartbeat, push e fila de ações móveis. Nunca confia em deviceId vindo do cliente.
+   */
+  async authenticateDevice(
+    dto: OpenMobileDeviceSessionDto,
+    options: { touch?: boolean } = {},
+  ): Promise<AuthenticatedMobileDevice> {
     const tokenHash = this.hashOpaqueSecret(String(dto.deviceToken || '').trim());
     const installationId = String(dto.installationId || '').trim();
     const now = new Date();
 
-    const device = await withoutTenantScope('mobile presence: registrar heartbeat do aparelho', async () => {
+    return withoutTenantScope('mobile presence: autenticar credencial do aparelho', async () => {
       // tenant-raw-allow: tokenHash + installationId formam a credencial opaca do aparelho;
-      // a empresa é validada antes de atualizar a presença.
+      // a empresa é validada antes de qualquer leitura ou escrita de ação móvel.
       const rows = await this.prisma.$queryRaw<PresenceDeviceRow[]>`
-        SELECT "id", "userId", "companyId", "revokedAt", "expiresAt"
+        SELECT
+          "id", "userId", "companyId", "name", "platform", "pushToken",
+          "revokedAt", "expiresAt"
         FROM "MobileDevice"
         WHERE "tokenHash" = ${tokenHash}
           AND "installationId" = ${installationId}
@@ -50,15 +67,30 @@ export class MobileDevicePresenceService {
         throw new UnauthorizedException('A conta deste aparelho não está disponível.');
       }
 
-      await this.prisma.$executeRaw`
-        UPDATE "MobileDevice"
-        SET "lastUsedAt" = ${now}, "updatedAt" = ${now}
-        WHERE "id" = ${row.id}
-          AND "companyId" = ${row.companyId}
-          AND "revokedAt" IS NULL
-      `;
-      return row;
+      if (options.touch !== false) {
+        await this.prisma.$executeRaw`
+          UPDATE "MobileDevice"
+          SET "lastUsedAt" = ${now}, "updatedAt" = ${now}
+          WHERE "id" = ${row.id}
+            AND "companyId" = ${row.companyId}
+            AND "revokedAt" IS NULL
+        `;
+      }
+
+      return {
+        id: row.id,
+        userId: row.userId,
+        companyId: row.companyId,
+        name: row.name,
+        platform: row.platform,
+        pushToken: row.pushToken,
+      };
     });
+  }
+
+  async heartbeat(dto: OpenMobileDeviceSessionDto) {
+    const now = new Date();
+    const device = await this.authenticateDevice(dto);
 
     return {
       ok: true,
