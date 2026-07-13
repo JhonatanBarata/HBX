@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+import { apiFetch } from "@/lib/api";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Contrato público
@@ -61,6 +62,8 @@ export function BotOnboarding(props: {
   const [phase, setPhase] = useState(PHASE_SPLASH);
   const [activeFieldIdx, setActiveFieldIdx] = useState(0);
   const [animating, setAnimating] = useState(false);   // fade do textarea
+  const [finishing, setFinishing] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const prevOpenRef = useRef(false);
 
@@ -93,6 +96,8 @@ export function BotOnboarding(props: {
       setPhase(PHASE_SPLASH);
       setActiveFieldIdx(0);
       setAnimating(false);
+      setFinishing(false);
+      setSaveError(null);
     }, 0);
     return () => clearTimeout(t);
   }, [open]);
@@ -118,6 +123,44 @@ export function BotOnboarding(props: {
     return () => clearTimeout(timer);
   }, []);
 
+  // O PATCH comum da tela não aguardava o salvamento e também não marcava `setup.completed`.
+  // No Atendimento, o onboarding agora lê a configuração atual, preserva botões/regras e
+  // grava as mensagens editadas + conclusão do tutorial em uma única operação atômica.
+  async function saveCompletedSetup() {
+    if (botType !== "atendimento") {
+      await onSave();
+      return;
+    }
+
+    const current = await apiFetch<Record<string, unknown>>("/inbox/bot-config");
+    if (!current || typeof current !== "object") {
+      throw new Error("Não foi possível carregar a configuração atual do bot.");
+    }
+
+    const currentSetup =
+      current.setup && typeof current.setup === "object" && !Array.isArray(current.setup)
+        ? (current.setup as Record<string, unknown>)
+        : {};
+    const editedFields = Object.fromEntries(
+      fields.map(field => [field.key, value(field.key)]),
+    );
+
+    await apiFetch("/inbox/bot-config", {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...current,
+        ...editedFields,
+        setup: {
+          ...currentSetup,
+          completed: true,
+          completedAt: new Date().toISOString(),
+          botType: "atendimento",
+          configuredFrom: "bot_onboarding",
+        },
+      }),
+    });
+  }
+
   function handleNext() {
     if (phase === PHASE_SPLASH) { goTo(PHASE_CONN); return; }
     if (phase === PHASE_CONN) { goTo(PHASE_FIELDS_START, 0); return; }
@@ -126,12 +169,21 @@ export function BotOnboarding(props: {
       if (nextIdx < fields.length) {
         goTo(phase + 1, nextIdx);
       } else {
-        // salvar e ir pra celebração
+        // salvar e ir pra celebração somente depois de o backend confirmar
         const doSave = async () => {
-          await onSave();
-          goTo(PHASE_DONE);
+          if (saving || finishing) return;
+          setFinishing(true);
+          setSaveError(null);
+          try {
+            await saveCompletedSetup();
+            goTo(PHASE_DONE);
+          } catch (error) {
+            setSaveError(error instanceof Error ? error.message : "Não foi possível concluir a configuração.");
+          } finally {
+            setFinishing(false);
+          }
         };
-        doSave();
+        void doSave();
       }
       return;
     }
@@ -396,13 +448,19 @@ export function BotOnboarding(props: {
               </>
             ) : null}
 
+            {saveError && (
+              <div className="bot-onb-conn__status is-pending" role="alert">
+                {saveError}
+              </div>
+            )}
+
             {/* Rodapé de navegação */}
             <footer className="bot-onb-mid__foot">
               <button
                 type="button"
                 className="btn-ghost"
                 onClick={handleBack}
-                disabled={phase === PHASE_SPLASH}
+                disabled={phase === PHASE_SPLASH || finishing}
               >
                 <span className="bot-onb-back-ico" aria-hidden="true"><I d={ICONS.arrow} size={12} /></span> Voltar
               </button>
@@ -412,13 +470,13 @@ export function BotOnboarding(props: {
                   type="button"
                   className="btn-teal"
                   onClick={handleNext}
-                  disabled={saving}
+                  disabled={saving || finishing}
                 >
                   <I d={ICONS.check} size={13} />
-                  {saving ? "Salvando…" : "Concluir"}
+                  {saving || finishing ? "Salvando…" : "Concluir"}
                 </button>
               ) : (
-                <button type="button" className="btn-teal" onClick={handleNext}>
+                <button type="button" className="btn-teal" onClick={handleNext} disabled={finishing}>
                   Próximo <I d={ICONS.arrow} size={12} />
                 </button>
               )}
