@@ -25,11 +25,12 @@ export class MobileActionController {
   history(
     @Req() req: any,
     @Query('leadId') leadId?: string,
-    @Query('take') take?: string,
+    @Query('take') takeInput?: string,
   ) {
+    const parsedTake = Number(takeInput || 20);
     return this.mobileActions.history(req?.user?.id, {
       leadId,
-      take: take ? Number(take) : undefined,
+      take: Number.isFinite(parsedTake) ? parsedTake : 20,
     });
   }
 
