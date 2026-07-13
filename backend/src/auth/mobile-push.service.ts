@@ -83,7 +83,9 @@ export class MobilePushService {
         {
           message: {
             token,
-            notification: { title, body },
+            // Data-only é intencional: HbxFirebaseMessagingService recebe também em
+            // background e cria PendingIntent para MobileActionActivity. Com o bloco
+            // `notification`, o Android abriria só o launcher e perderia a ação.
             data: {
               actionId: action.id,
               kind: action.kind,
@@ -91,13 +93,12 @@ export class MobilePushService {
               contactName,
               message: String(action.message || ''),
               leadId: String(action.leadId || ''),
+              title,
+              body,
             },
             android: {
               priority: 'high',
-              notification: {
-                channel_id: 'hbx_sales_actions',
-                sound: 'default',
-              },
+              ttl: '86400s',
             },
           },
         },
