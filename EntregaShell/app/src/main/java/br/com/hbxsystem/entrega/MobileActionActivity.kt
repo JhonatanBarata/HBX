@@ -38,6 +38,7 @@ class MobileActionActivity : AppCompatActivity() {
     private var message = ""
     private var externalStartedAt = 0L
     private var waitingForReturn = false
+    private var leftForExternal = false
     private var returnedReported = false
     private lateinit var root: LinearLayout
 
@@ -66,13 +67,17 @@ class MobileActionActivity : AppCompatActivity() {
         HbxMobileBridge.recordEvent(this, actionId, "opened")
     }
 
+    override fun onPause() {
+        if (waitingForReturn) leftForExternal = true
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
-        if (!waitingForReturn || externalStartedAt <= 0L) return
-        val elapsedMs = SystemClock.elapsedRealtime() - externalStartedAt
-        // Evita tratar o onResume imediatamente anterior ao lançamento como retorno.
-        if (elapsedMs < 700L) return
+        if (!waitingForReturn || !leftForExternal || externalStartedAt <= 0L) return
         waitingForReturn = false
+        leftForExternal = false
+        val elapsedMs = SystemClock.elapsedRealtime() - externalStartedAt
         val seconds = (elapsedMs / 1000L).toInt().coerceAtLeast(0)
         if (!returnedReported) {
             returnedReported = true
@@ -119,7 +124,7 @@ class MobileActionActivity : AppCompatActivity() {
     }
 
     private fun openExternalAction() {
-        val intent = if (kind == "call") {
+        val externalIntent = if (kind == "call") {
             Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
         } else {
             val normalized = if (phone.length in 10..11) "55$phone" else phone
@@ -135,19 +140,22 @@ class MobileActionActivity : AppCompatActivity() {
                         true
                     }.getOrDefault(false)
                 }
-                if (packageName != null) intent.setPackage(packageName)
+                if (packageName != null) externalIntent.setPackage(packageName)
             }
             externalStartedAt = SystemClock.elapsedRealtime()
             waitingForReturn = true
+            leftForExternal = false
             returnedReported = false
             HbxMobileBridge.recordEvent(this, actionId, "external_started")
-            startActivity(intent)
+            startActivity(externalIntent)
         } catch (error: ActivityNotFoundException) {
             waitingForReturn = false
+            leftForExternal = false
             HbxMobileBridge.recordEvent(this, actionId, "failed", note = "Nenhum aplicativo compatível encontrado.")
             showError("Não foi encontrado um aplicativo compatível neste celular.")
         } catch (error: Exception) {
             waitingForReturn = false
+            leftForExternal = false
             HbxMobileBridge.recordEvent(this, actionId, "failed", note = error.message)
             showError("Não foi possível abrir a ação agora.")
         }
