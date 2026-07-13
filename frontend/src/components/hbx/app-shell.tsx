@@ -17,6 +17,7 @@ import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 import { ConquistaHost } from "@/components/hbx/conquista-host";
 import { ActivationChecklist } from "@/components/hbx/activation-checklist";
 import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-banner";
+import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
 import { MobileShell } from "@/components/casca/mobile-shell";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
@@ -91,6 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
           <div className="main">
             <Topbar title={meta.title} crumbs={meta.crumbs} />
+            <MobileDeviceTopbarBridge />
             {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
                 /dashboard e rota de módulo desligado voltam pro /entrega; rotas
                 neutras ganham título de documento = nome da empresa. Fica FORA
