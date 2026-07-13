@@ -136,6 +136,9 @@ export function fmtWhen(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
+  // O primeiro job pode ser criado como imediatamente elegível (scheduledAt <= agora).
+  // Não apresente esse estado técnico como um horário "no passado" para o usuário.
+  if (d.getTime() <= Date.now() + 15_000) return "Pronto para enviar agora";
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
