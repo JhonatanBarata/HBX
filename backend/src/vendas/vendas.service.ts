@@ -38,6 +38,15 @@ import {
 } from '../webscraping/radar/shared/radar-disposition-rules';
 import { cleanRfbLegalName } from '../webscraping/radar/providers/cnpj-public/cnpj-public-types';
 import {
+  buildRfbNameTokens,
+  buildRfbPhoneCandidates,
+  extractRfbAddressNumber,
+  normalizeRfbMatchText,
+  parseRfbJsonObject,
+  selectVendasRfbMatch,
+  type VendasRfbMatch,
+} from './vendas-cnpj-fallback';
+import {
   BulkDeleteVendasLeadsDto,
   CancelCommissionPayoutDto,
   CreateCommissionPayoutDto,
@@ -5350,19 +5359,29 @@ export class VendasService {
     }
 
     // CNPJ server-side: mesma fonte do board (hidratação RadarLeadPool → intelligence);
-    // fallback: CNPJ da ficha do cliente (NÚCLEO-CRM).
+    // fallback: CNPJ da ficha do cliente (NÚCLEO-CRM). Quando ambas falham, tenta reconciliar
+    // com a base RFB local por telefone → nome+cidade → endereço, sempre fail-soft e sem rede.
     await this.hydrateRowsWithRadarPoolEnrichment([lead]);
     const intelligence = buildVendasLeadIntelligence({ lead });
-    const cnpjDigits = String(
+    let cnpjDigits = String(
       (intelligence as any)?.cnpj || (lead as any)?.customerProfile?.cnpj || '',
     ).replace(/\D/g, '');
+    let fallbackMatch: VendasRfbMatch<any> | null = null;
+    if (cnpjDigits.length !== 14) {
+      fallbackMatch = await this.findCockpitCompanyByLead(lead);
+      cnpjDigits = String(fallbackMatch?.company?.cnpj || '').replace(/\D/g, '');
+      if (cnpjDigits.length === 14 && fallbackMatch) {
+        await this.persistCockpitCompanyMatch(lead, fallbackMatch);
+      }
+    }
     if (cnpjDigits.length !== 14) {
       return { company: { found: false, locked: false, cnpj: null } };
     }
 
     // Fail-soft: leitura da base pública NUNCA derruba a rota — loga e devolve found:false.
     try {
-      const row = await this.prisma.cnpjPublicCompany.findUnique({ where: { cnpj: cnpjDigits } });
+      const row = fallbackMatch?.company
+        || await this.prisma.cnpjPublicCompany.findUnique({ where: { cnpj: cnpjDigits } });
       if (!row) {
         return { company: { found: false, locked: false, cnpj: cnpjDigits } };
       }
@@ -5395,6 +5414,185 @@ export class VendasService {
       return { company: { found: false, locked: false, cnpj: cnpjDigits } };
     }
   }
+
+  /**
+   * Reconciliação local do card sem CNPJ.
+   *
+   * Ordem de busca:
+   * 1) telefone atual + variante legada sem nono dígito;
+   * 2) token distintivo do nome dentro da mesma cidade/UF;
+   * 3) número do endereço dentro da mesma cidade/UF.
+   *
+   * O seletor exige vencedor claro. Empate ou baixa confiança devolvem null.
+   */
+  private async findCockpitCompanyByLead(lead: any): Promise<VendasRfbMatch<any> | null> {
+    const delegate = (this.prisma as any)?.cnpjPublicCompany;
+    if (!delegate?.findMany) return null;
+
+    const phoneCandidates = buildRfbPhoneCandidates(lead?.phoneNormalized, lead?.phone);
+    const city = normalizeRfbMatchText(lead?.city);
+    const state = String(lead?.state || '').trim().toUpperCase();
+    const nameTokens = buildRfbNameTokens(lead?.name, lead?.segment);
+    const addressNumber = extractRfbAddressNumber(lead?.address);
+    const byCnpj = new Map<string, any>();
+
+    const collect = async (where: Record<string, any>, take = 40) => {
+      try {
+        const rows = await delegate.findMany({ where, take });
+        for (const row of Array.isArray(rows) ? rows : []) {
+          const cnpj = String(row?.cnpj || '').replace(/\D/g, '');
+          if (cnpj.length === 14) byCnpj.set(cnpj, row);
+        }
+      } catch {
+        // Cada lane é best-effort; uma query incompatível/índice ausente não derruba o cockpit.
+      }
+    };
+
+    if (phoneCandidates.length) {
+      await collect({ phoneDigits: { in: phoneCandidates } }, 30);
+    }
+
+    const email = String(lead?.email || '').trim().toLowerCase();
+    if (email) {
+      await collect({ email }, 20);
+    }
+
+    if (city && nameTokens.length) {
+      await collect({
+        normalizedCity: city,
+        ...(state ? { state } : {}),
+        OR: nameTokens.slice(0, 4).map((token) => ({
+          searchText: { contains: token },
+        })),
+      });
+    }
+
+    if (city && addressNumber) {
+      await collect({
+        normalizedCity: city,
+        ...(state ? { state } : {}),
+        address: { contains: addressNumber },
+      }, 30);
+    }
+
+    return selectVendasRfbMatch(lead || {}, Array.from(byCnpj.values()));
+  }
+
+  /**
+   * Persiste a reconciliação em dois pontos:
+   * - timeline `radar_enrichment` do Vendas, que alimenta o board/cockpit;
+   * - metadataJson do RadarLeadPool quando o telefone aponta para uma única linha.
+   *
+   * Tudo aditivo e best-effort; nunca sobrescreve o contato principal do lead.
+   */
+  private async persistCockpitCompanyMatch(lead: any, match: VendasRfbMatch<any>): Promise<void> {
+    const row = match?.company || {};
+    const cnpj = String(row?.cnpj || '').replace(/\D/g, '');
+    if (cnpj.length !== 14 || !lead?.id) return;
+
+    const matchedAt = new Date().toISOString();
+    const companyPatch = {
+      cnpj,
+      razaoSocial: cleanRfbLegalName(row?.razaoSocial, cnpj) || null,
+      cnae: row?.cnae || null,
+      cnaeDescription: row?.cnaeDescription || null,
+      companySituation: row?.situacao || null,
+      ownerName: row?.ownerName || null,
+      enrichmentStatus: 'completed',
+      enrichedAt: matchedAt,
+      rfbFallback: {
+        matchedAt,
+        score: match.score,
+        runnerUpScore: match.runnerUpScore,
+        reasons: match.reasons,
+        source: 'cnpj_public_local',
+      },
+    };
+
+    try {
+      const latestEvent = [...(Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [])]
+        .sort((left: any, right: any) =>
+          new Date(right?.createdAt || 0).getTime() - new Date(left?.createdAt || 0).getTime())
+        .find((event: any) =>
+          String(event?.sourceType || '').trim().toLowerCase() === 'radar_enrichment');
+
+      const existingPayload = parseRfbJsonObject(latestEvent?.description);
+      const description = JSON.stringify({
+        ...existingPayload,
+        ...companyPatch,
+        sourceConfidence: {
+          ...(existingPayload?.sourceConfidence && typeof existingPayload.sourceConfidence === 'object'
+            ? existingPayload.sourceConfidence
+            : {}),
+          rfbFallback: match.score,
+        },
+      });
+
+      if (latestEvent?.id) {
+        await this.prisma.vendasLeadTimelineEvent.update({
+          where: { id: latestEvent.id },
+          data: {
+            description,
+            title: latestEvent.title || 'Empresa localizada na base da Receita',
+            resultLabel: 'rfb_local_fallback',
+          },
+        });
+      } else {
+        await this.prisma.vendasLeadTimelineEvent.create({
+          data: {
+            leadId: lead.id,
+            ...this.buildTimelineEvent({
+              eventType: 'radar_enrichment',
+              title: 'Empresa localizada na base da Receita',
+              description,
+              sourceType: 'radar_enrichment',
+              resultLabel: 'rfb_local_fallback',
+              createdByUserId: null,
+            }),
+          },
+        });
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `[vendas-cockpit-rfb] Falha ao persistir timeline lead=${lead.id}: ${String(error?.message || error)}`,
+      );
+    }
+
+    try {
+      const phoneCandidates = buildRfbPhoneCandidates(lead?.phoneNormalized, lead?.phone);
+      if (!phoneCandidates.length) return;
+
+      const poolRows = await (this.prisma as any).radarLeadPool.findMany({
+        where: { phoneDigits: { in: phoneCandidates } },
+        take: 2,
+      });
+      // Telefone compartilhado/duplicado: não arrisca escrever na linha errada.
+      if (!Array.isArray(poolRows) || poolRows.length !== 1) return;
+
+      const poolRow = poolRows[0];
+      const metadata = parseRfbJsonObject(poolRow?.metadataJson);
+      await (this.prisma as any).radarLeadPool.update({
+        where: { id: poolRow.id },
+        data: {
+          metadataJson: JSON.stringify({
+            ...metadata,
+            ...companyPatch,
+          }),
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(
+        `[vendas-cockpit-rfb] Falha ao persistir RadarLeadPool lead=${lead.id}: ${String(error?.message || error)}`,
+      );
+    }
+
+    this.logger.log(
+      `[vendas-cockpit-rfb] match local lead=${lead.id} cnpj=${cnpj.slice(0, 8)}*** score=${match.score}`,
+    );
+  }
+
+
+ 
 
   // Ranking do "dono" — MESMA ordem do L4 (radar-cnpj-l4-enrichment.service.ts):
   // Sócio-Administrador(49) > Administrador(05) > Titular PF(65) > Diretor(10) > Presidente(16)
