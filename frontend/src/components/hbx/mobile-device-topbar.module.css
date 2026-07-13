@@ -43,7 +43,9 @@
   right: 0;
   top: calc(100% + 8px);
   z-index: 35;
-  width: min(310px, calc(100vw - 24px));
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(680px, calc(100dvh - 90px));
+  overflow-y: auto;
   padding: 10px;
   display: grid;
   gap: 10px;
@@ -83,7 +85,8 @@
 .mutedText,
 .deviceCard span,
 .deviceCard small,
-.errorText {
+.errorText,
+.preferenceNote {
   font-size: 0.66rem;
   line-height: 1.4;
 }
@@ -95,7 +98,8 @@
 
 .mutedText,
 .deviceCard span,
-.deviceCard small {
+.deviceCard small,
+.preferenceNote {
   color: var(--text-muted);
 }
 
@@ -111,6 +115,111 @@
 .deviceCard strong {
   color: var(--text-title);
   font-size: 0.74rem;
+}
+
+.sectionLabel {
+  color: var(--text-muted);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.preferences,
+.history {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.preference {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+  color: var(--text-body);
+  cursor: pointer;
+  text-align: left;
+}
+
+.preference span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.preference b {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.preferenceOn {
+  border-color: color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand);
+}
+
+.preferenceOn b {
+  color: var(--hbx-brand);
+}
+
+.preferenceNote {
+  padding: 0 2px;
+}
+
+.historyItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+}
+
+.historyIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--hbx-surface);
+  color: var(--hbx-brand);
+}
+
+.historyCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.historyCopy strong {
+  overflow: hidden;
+  color: var(--text-title);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyCopy small,
+.historyItem time {
+  color: var(--text-muted);
+  font-size: 0.59rem;
+}
+
+.historyItem time {
+  font-family: var(--font-mono);
 }
 
 .errorText {
