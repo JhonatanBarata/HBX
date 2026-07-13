@@ -1549,6 +1549,11 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                 <WhatsAppMark size={16} /> Abrir no WhatsApp externo
                 {waMode === "external" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
               </button>
+              <button className={"nav-item" + (waMode === "mobile" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8 }}
+                onClick={() => { setWaOpenMode("mobile"); setWaMenuOpen(false); }}>
+                <I d={ICONS.phone} size={16} /> Enviar ao HBX Mobile
+                {waMode === "mobile" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
+              </button>
               <small className="text-ink-muted" style={{ padding: "4px 6px 2px", fontSize: "0.62rem" }}>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>
             </div>
           )}

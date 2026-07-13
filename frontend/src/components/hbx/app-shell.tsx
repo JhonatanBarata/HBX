@@ -17,6 +17,8 @@ import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 import { ConquistaHost } from "@/components/hbx/conquista-host";
 import { ActivationChecklist } from "@/components/hbx/activation-checklist";
 import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-banner";
+import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
+import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
 import { MobileShell } from "@/components/casca/mobile-shell";
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
@@ -58,6 +60,7 @@ const META: Record<string, Meta> = {
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
   "/dashboard/website": { active: "website", title: "Website", crumbs: crumb("Website") },
   "/configuracoes": { active: "config", title: "Configurações", crumbs: crumb("Configurações") },
+  "/configuracoes/aplicativo": { active: "config", title: "Aplicativo móvel", crumbs: crumb("Aplicativo móvel", "Configurações") },
   "/gerencial": { active: "gerencial", title: "Gerencial", crumbs: crumb("Gerencial") },
   "/tutorial": { active: "dash", title: "Tutorial", crumbs: crumb("Tutorial") },
 };
@@ -91,6 +94,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
           <div className="main">
             <Topbar title={meta.title} crumbs={meta.crumbs} />
+            <MobileDeviceTopbarBridge />
             {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
                 /dashboard e rota de módulo desligado voltam pro /entrega; rotas
                 neutras ganham título de documento = nome da empresa. Fica FORA
@@ -108,6 +112,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               Dormant por default (só renderiza com o gate ON no backend). */}
           <WelcomeCreditPhoneBanner />
           <ConquistaHost />
+          <MobileActionBridgeHost />
         </div>
       </MobileShell>
       {/* Fica fora da substituição da MobileShell: o mesmo concierge de

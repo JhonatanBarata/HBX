@@ -7,15 +7,28 @@ plugins {
 }
 
 // Assinatura de release FORA do git: EntregaShell/keystore.properties (gitignored)
-// aponta pro upload keystore em EntregaShell/keystore-release/ (gitignored).
-// Sem o arquivo, qualquer task de release FALHA explicando — nunca sai .aab sem
-// assinatura "por acidente" (a Play recusa bundle não assinado).
+// ou HBX_ANDROID_STORE_FILE/HBX_ANDROID_STORE_PASSWORD/HBX_ANDROID_KEY_ALIAS/
+// HBX_ANDROID_KEY_PASSWORD no ambiente de CI. Sem uma das duas fontes completas,
+// qualquer task de release falha — nunca sai .aab sem assinatura por acidente.
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) {
         FileInputStream(keystorePropsFile).use { load(it) }
     }
 }
+
+fun releaseSigningValue(propertyName: String, environmentName: String): String =
+    keystoreProps.getProperty(propertyName).orEmpty().trim().ifBlank {
+        providers.environmentVariable(environmentName).orNull.orEmpty().trim()
+    }
+
+val releaseStoreFileValue = releaseSigningValue("storeFile", "HBX_ANDROID_STORE_FILE")
+val releaseStorePassword = releaseSigningValue("storePassword", "HBX_ANDROID_STORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("keyAlias", "HBX_ANDROID_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("keyPassword", "HBX_ANDROID_KEY_PASSWORD")
+val releaseStoreFile = releaseStoreFileValue.takeIf(String::isNotBlank)?.let(rootProject::file)
+val releaseSigningReady = releaseStoreFile?.isFile == true &&
+    releaseStorePassword.isNotBlank() && releaseKeyAlias.isNotBlank() && releaseKeyPassword.isNotBlank()
 
 fun buildConfigString(value: String): String =
     "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -43,20 +56,20 @@ android {
         applicationId = "br.com.hbxsystem"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.0"
+        versionCode = 5
+        versionName = "1.2.0"
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
     }
 
     signingConfigs {
-        if (keystorePropsFile.exists()) {
+        if (releaseSigningReady) {
             create("release") {
-                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
-                storePassword = keystoreProps.getProperty("storePassword")
-                keyAlias = keystoreProps.getProperty("keyAlias")
-                keyPassword = keystoreProps.getProperty("keyPassword")
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -70,7 +83,7 @@ android {
         }
         release {
             isMinifyEnabled = false
-            if (keystorePropsFile.exists()) {
+            if (releaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
                 val querRelease = gradle.startParameter.taskNames.any {
@@ -78,10 +91,12 @@ android {
                 }
                 if (querRelease) {
                     throw GradleException(
-                        "EntregaShell/keystore.properties não encontrado — a assinatura de release " +
-                            "vive FORA do git. Crie o arquivo com storeFile/storePassword/keyAlias/" +
-                            "keyPassword apontando pro upload keystore (EntregaShell/keystore-release/). " +
-                            "Sem ele não sai .aab de release."
+                        "Assinatura Android de release não configurada. Use EntregaShell/keystore.properties " +
+                            "com storeFile/storePassword/keyAlias/keyPassword ou as variáveis " +
+                            "HBX_ANDROID_STORE_FILE/HBX_ANDROID_STORE_PASSWORD/HBX_ANDROID_KEY_ALIAS/" +
+                            "HBX_ANDROID_KEY_PASSWORD. Diagnóstico: storeFile=${releaseStoreFile?.isFile == true}, " +
+                            "storePassword=${releaseStorePassword.isNotBlank()}, keyAlias=${releaseKeyAlias.isNotBlank()}, " +
+                            "keyPassword=${releaseKeyPassword.isNotBlank()}. Sem ela não sai .aab de release."
                     )
                 }
             }

@@ -1,0 +1,57 @@
+"use client";
+
+import { useState } from "react";
+
+import { requestMobileLinkAfterLogin } from "@/lib/mobile-link-intent";
+
+import styles from "./mobile-app-login-card.module.css";
+
+const APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
+
+const MOBILE_ICON = [
+  "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
+  "M10 18h4",
+];
+
+export function MobileAppLoginCard() {
+  const [linkRequested, setLinkRequested] = useState(false);
+
+  function prepareLinking() {
+    requestMobileLinkAfterLogin();
+    setLinkRequested(true);
+    window.requestAnimationFrame(() => {
+      const field = document.getElementById("em") as HTMLInputElement | null;
+      field?.focus();
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  return (
+    <section className={styles.card} aria-label="Aplicativo móvel HBX">
+      <span className={styles.icon} aria-hidden="true">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          {MOBILE_ICON.map((path, index) => <path key={index} d={path} />)}
+        </svg>
+      </span>
+      <div className={styles.copy}>
+        <strong>HBX no celular</strong>
+        <span>Baixe o APK de testes e vincule este aparelho à mesma conta do HBX.</span>
+      </div>
+      <div className={styles.actions}>
+        {APK_URL ? (
+          <a className={styles.download} href={APK_URL} target="_blank" rel="noreferrer">
+            Baixar Android
+          </a>
+        ) : (
+          <span className={styles.unavailable}>Download aguardando configuração</span>
+        )}
+        <button type="button" className={styles.linkButton} onClick={prepareLinking}>
+          {linkRequested ? "Vínculo preparado" : "Entrar e vincular"}
+        </button>
+      </div>
+      {linkRequested && (
+        <small className={styles.note}>Depois do login, o HBX abrirá direto na tela de vinculação.</small>
+      )}
+    </section>
+  );
+}

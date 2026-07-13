@@ -11,7 +11,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { MobileAppLoginCard } from "@/components/hbx/mobile-app-login-card";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
+import { consumeMobileLinkDestination } from "@/lib/mobile-link-intent";
 
 type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
 type LoginResume = { step?: string; planKey?: string | null; email?: string | null; resendAvailableAt?: string | null };
@@ -53,8 +55,9 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
       setToken(res.access_token);
       setOk(true);
       setConflict(false);
+      const destination = consumeMobileLinkDestination() || res.next || "/dashboard";
       // Deixa o "✓ Autenticado" respirar antes de entrar no app.
-      window.setTimeout(() => router.replace(res.next || "/dashboard"), 750);
+      window.setTimeout(() => router.replace(destination), 750);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar com Google. Tente novamente.");
       loginInFlightRef.current = false;
@@ -117,7 +120,8 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
       setToken(res.access_token, manterConectado);
       setOk(true);
       setConflict(false);
-      window.setTimeout(() => router.replace(res.next || "/dashboard"), 750);
+      const destination = consumeMobileLinkDestination() || res.next || "/dashboard";
+      window.setTimeout(() => router.replace(destination), 750);
     } catch (err) {
       const apiErr = err as ApiError;
       const payload = (apiErr?.payload ?? {}) as LoginErrorPayload;
@@ -224,6 +228,7 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
             ? <button type="button" className="link" onClick={onCriarConta}>Criar Conta</button>
             : <Link href="/?criar" className="link" style={{ textDecoration: "none" }}>Criar Conta</Link>}</div>
         </form>
+        <MobileAppLoginCard />
       </main>
     </div>
   );

@@ -210,6 +210,9 @@ model Company {
   createdAt               DateTime  @default(now())
   products                Product[]
   users                   User[]
+  mobileDevices           MobileDevice[]
+  mobilePairingCodes      MobilePairingCode[]
+  mobileActions           MobileAction[]
   metaLeadConnections     MetaLeadConnection[]
   sellerOnboardings       SellerOnboarding[]
   hbxPartnerReferralCandidates HbxPartnerReferralCandidate[]
@@ -1687,6 +1690,9 @@ model User {
   retentionUntil  DateTime?
   createdAt       DateTime         @default(now())
   authSessions    AuthSession[]    @relation("UserAuthSessions")
+  mobileDevices   MobileDevice[]
+  mobilePairingCodes MobilePairingCode[]
+  mobileActions   MobileAction[]
   productVersions ProductVersion[]
   createdProducts Product[] @relation("ProductCreatedBy")
   updatedProducts Product[] @relation("ProductUpdatedBy")
@@ -1730,6 +1736,96 @@ model User {
 
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
+}
+
+model MobileDevice {
+  id                 String   @id
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId             Int
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId          Int
+  installationId     String   @unique
+  name               String?
+  platform           String   @default("android")
+  tokenHash          String   @unique
+  tokenVersion       Int      @default(1)
+  lastUsedAt         DateTime?
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  webTicketHash      String?  @unique
+  webTicketExpiresAt DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now()) @updatedAt
+  actions            MobileAction[]
+
+  @@index([userId, revokedAt])
+  @@index([companyId, revokedAt])
+}
+
+model MobilePairingCode {
+  id         String   @id
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     Int
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  Int
+  codeHash   String   @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt, consumedAt])
+}
+
+model MobileAction {
+  id                       String   @id
+  company                  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId                Int
+  user                     User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId                   Int?
+  device                   MobileDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  deviceId                 String?
+  requestKey               String?
+  leadId                   String?
+  kind                     String
+  phone                    String
+  contactName              String?
+  message                  String?
+  status                   String   @default("queued")
+  requestedAt              DateTime @default(now())
+  deliveryAttemptedAt      DateTime?
+  deliveredAt              DateTime?
+  openedAt                 DateTime?
+  externalStartedAt        DateTime?
+  returnedAt               DateTime?
+  completedAt              DateTime?
+  estimatedDurationSeconds Int?
+  result                   String?
+  note                     String?
+  errorMessage             String?
+  expiresAt                DateTime?
+  metadataJson             String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @default(now()) @updatedAt
+  events                   MobileActionEvent[]
+
+  @@index([companyId, userId, status, requestedAt], map: "MobileAction_user_status_requested_idx")
+  @@index([deviceId, status, requestedAt], map: "MobileAction_device_status_requested_idx")
+  @@index([companyId, leadId, requestedAt], map: "MobileAction_lead_requested_idx")
+  @@unique([companyId, userId, requestKey], map: "MobileAction_requestKey_key")
+}
+
+model MobileActionEvent {
+  id             String       @id
+  action         MobileAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  actionId       String
+  event          String
+  elapsedSeconds Int?
+  result         String?
+  note           String?
+  createdAt      DateTime     @default(now())
+
+  @@index([actionId, createdAt], map: "MobileActionEvent_action_created_idx")
 }
 
 model TeamPolicyPreset {

@@ -16,6 +16,10 @@ import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { SESSION_IDLE_TTL_DAYS } from './session-ttl';
 import { MobileDeviceController } from './mobile-device.controller';
 import { MobileDeviceService } from './mobile-device.service';
+import { MobileDevicePresenceController } from './mobile-device-presence.controller';
+import { MobileDevicePresenceService } from './mobile-device-presence.service';
+import { MobileActionController } from './mobile-action.controller';
+import { MobileActionService } from './mobile-action.service';
 
 const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 
@@ -30,8 +34,25 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
   // expiresIn segue a janela única de sessão (session-ttl.ts) — teto absoluto do
   // access_token; tokens de propósito (poll de e-mail, WhatsApp) têm validade própria.
   imports: [UsersModule, MailModule, MasterContextModule, CommissionsModule, CreditsModule, JwtModule.register({ secret: jwtSecret, signOptions: { expiresIn: `${SESSION_IDLE_TTL_DAYS}d` } })],
-  providers: [AuthService, JwtStrategy, RolesGuard, ThemePreferencesService, WebwhatsBridgeService, MobileDeviceService],
-  controllers: [AuthController, ProfileController, InternalController, OnboardingController, MobileDeviceController],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    RolesGuard,
+    ThemePreferencesService,
+    WebwhatsBridgeService,
+    MobileDeviceService,
+    MobileDevicePresenceService,
+    MobileActionService,
+  ],
+  controllers: [
+    AuthController,
+    ProfileController,
+    InternalController,
+    OnboardingController,
+    MobileDeviceController,
+    MobileDevicePresenceController,
+    MobileActionController,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}

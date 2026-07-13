@@ -1,0 +1,240 @@
+.portalHost,
+.actionRoot {
+  position: relative;
+  display: inline-flex;
+}
+
+.plusBadge {
+  position: absolute;
+  right: -2px;
+  top: -3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--hbx-brand);
+  color: var(--hbx-action-ink);
+  border: 2px solid var(--hbx-surface);
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.statusDot {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  border: 2px solid var(--hbx-surface);
+}
+
+.statusDotOnline {
+  background: var(--hbx-brand);
+}
+
+.popover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 35;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(680px, calc(100dvh - 90px));
+  overflow-y: auto;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.heading > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.heading strong {
+  font-family: var(--font-display);
+  font-size: 0.82rem;
+  color: var(--text-title);
+}
+
+.deviceGlyph {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--hbx-surface-soft);
+  color: var(--hbx-brand);
+}
+
+.onlineText,
+.mutedText,
+.deviceCard span,
+.deviceCard small,
+.errorText,
+.preferenceNote {
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
+.onlineText {
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+  font-weight: 700;
+}
+
+.mutedText,
+.deviceCard span,
+.deviceCard small,
+.preferenceNote {
+  color: var(--text-muted);
+}
+
+.deviceCard {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+}
+
+.deviceCard strong {
+  color: var(--text-title);
+  font-size: 0.74rem;
+}
+
+.sectionLabel {
+  color: var(--text-muted);
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.preferences,
+.history {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.preference {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+  color: var(--text-body);
+  cursor: pointer;
+  text-align: left;
+}
+
+.preference span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.preference b {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.preferenceOn {
+  border-color: color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+}
+
+.preferenceOn b {
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+}
+
+.preferenceNote {
+  padding: 0 2px;
+}
+
+.historyItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+}
+
+.historyIcon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--hbx-surface);
+  color: var(--hbx-brand);
+}
+
+.historyCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.historyCopy strong {
+  overflow: hidden;
+  color: var(--text-title);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyCopy small,
+.historyItem time {
+  color: var(--text-muted);
+  font-size: 0.59rem;
+}
+
+.historyItem time {
+  font-family: var(--font-mono);
+}
+
+.errorText {
+  color: var(--hbx-danger);
+}
+
+.actions {
+  display: grid;
+  gap: 6px;
+}
+
+.actions :global(.btn-ghost) {
+  width: 100%;
+  min-height: 32px;
+  justify-content: center;
+  text-decoration: none;
+  font-size: 0.7rem;
+}

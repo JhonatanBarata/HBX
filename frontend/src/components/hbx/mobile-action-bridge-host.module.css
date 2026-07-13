@@ -1,0 +1,67 @@
+.toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 10020;
+  width: min(360px, calc(100vw - 28px));
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+  color: var(--text-title);
+  box-shadow: var(--shadow-md);
+  animation: mobileBridgeIn var(--motion-base) var(--ease-out-quint);
+}
+
+.icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand);
+}
+
+.copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.copy strong {
+  font-family: var(--font-display);
+  font-size: 0.76rem;
+}
+
+.copy span {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
+.error .icon {
+  color: var(--hbx-danger);
+  background: var(--hbx-danger-soft);
+}
+
+@keyframes mobileBridgeIn {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 640px) {
+  .toast {
+    right: 14px;
+    bottom: 82px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}

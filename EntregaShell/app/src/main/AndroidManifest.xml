@@ -15,11 +15,14 @@
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
     </queries>
 
     <!-- Backup/transfer DESLIGADOS: a credencial pareada, a sessão do WebView e
          os dados locais não podem ir para a nuvem nem migrar para outro aparelho. -->
     <application
+        android:name=".HbxApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -59,6 +62,20 @@
             android:name=".MainActivity"
             android:exported="false"
             android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.EntregaShell.NoActionBar" />
+
+        <activity
+            android:name=".NotificationPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.EntregaShell.NoActionBar" />
+
+        <!-- Ação operacional enviada pelo HBX web: discador ou WhatsApp pessoal.
+             Tela privada; cada notificação abre a própria ação e mantém o histórico certo. -->
+        <activity
+            android:name=".MobileActionActivity"
+            android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.EntregaShell.NoActionBar" />
 

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { PublicEntry } from "@/components/hbx/public-entry";
-import mobileStyles from "./mobile/mobile-ui.module.css";
 
 export const metadata: Metadata = {
   title: "HBX System — Prospecção conectada",
@@ -44,22 +43,10 @@ export default async function Home({
   // como alias do fluxo antigo.
   const openCriar = params.criar !== undefined;
   const openLogin = params.entrar !== undefined || view === "entrar";
-  const androidApkUrl = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
-
   return (
     <>
       <script dangerouslySetInnerHTML={{ __html: AUTH_BOOT }} />
       <PublicEntry initialScreen={openCriar ? "criar" : openLogin ? "login" : "home"} />
-      {openLogin && androidApkUrl && (
-        <a
-          href={androidApkUrl}
-          target="_blank"
-          rel="noreferrer"
-          className={mobileStyles.downloadLink}
-        >
-          Baixar aplicativo Android (teste)
-        </a>
-      )}
     </>
   );
 }
