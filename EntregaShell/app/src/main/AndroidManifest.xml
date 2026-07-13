@@ -72,11 +72,10 @@
             android:theme="@style/Theme.EntregaShell.NoActionBar" />
 
         <!-- Ação operacional enviada pelo HBX web: discador ou WhatsApp pessoal.
-             Tela privada; só PendingIntent/fluxo interno do app pode abri-la. -->
+             Tela privada; cada notificação abre a própria ação e mantém o histórico certo. -->
         <activity
             android:name=".MobileActionActivity"
             android:exported="false"
-            android:launchMode="singleTask"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.EntregaShell.NoActionBar" />
 
