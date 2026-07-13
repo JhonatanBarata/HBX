@@ -11,9 +11,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { withoutTenantScope } from '../prisma/tenant-context';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
-import {
-  resolveOperationalAccessProjection,
-} from '../team/operational-capabilities';
+import { resolveOperationalAccessProjection } from '../team/operational-capabilities';
 import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyAccessAllowed,
@@ -49,6 +47,12 @@ type MobileDeviceRow = {
   updatedAt: Date;
 };
 
+type ExistingInstallationRow = {
+  id: string;
+  userId: number;
+  revokedAt: Date | null;
+};
+
 @Injectable()
 export class MobileDeviceService {
   private readonly pairingTtlMs = 10 * 60 * 1000;
@@ -60,8 +64,25 @@ export class MobileDeviceService {
     private readonly jwtService: JwtService,
   ) {}
 
-  private sha256(value: string) {
+  /** Hash para segredos aleatórios de alta entropia (token do aparelho/ticket). */
+  private hashOpaqueSecret(value: string) {
     return crypto.createHash('sha256').update(value).digest('hex');
+  }
+
+  /**
+   * O código tem apenas 6 dígitos; SHA puro seria quebrável offline em segundos
+   * por quem obtivesse uma cópia do banco. HMAC usa o JWT_SECRET com separação de
+   * domínio, permitindo busca por igualdade sem guardar o código recuperável.
+   */
+  private hashPairingCode(code: string) {
+    const serverSecret = String(process.env.JWT_SECRET || '').trim();
+    if (!serverSecret) {
+      throw new Error('JWT_SECRET is required for mobile device pairing');
+    }
+    return crypto
+      .createHmac('sha256', `${serverSecret}:hbx-mobile-pairing:v1`)
+      .update(code)
+      .digest('hex');
   }
 
   private frontendBaseUrl() {
@@ -119,7 +140,7 @@ export class MobileDeviceService {
 
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
-        const codeHash = this.sha256(code);
+        const codeHash = this.hashPairingCode(code);
         try {
           await this.prisma.$executeRaw`
             INSERT INTO "MobilePairingCode"
@@ -191,10 +212,10 @@ export class MobileDeviceService {
   }
 
   async pairDevice(dto: PairMobileDeviceDto) {
-    const codeHash = this.sha256(String(dto.code || '').trim());
+    const codeHash = this.hashPairingCode(String(dto.code || '').trim());
     const now = new Date();
     const rawDeviceToken = `hbx_device_${crypto.randomBytes(32).toString('base64url')}`;
-    const tokenHash = this.sha256(rawDeviceToken);
+    const tokenHash = this.hashOpaqueSecret(rawDeviceToken);
     const installationId = String(dto.installationId || '').trim();
     const deviceName = String(dto.deviceName || 'Aparelho Android').trim().slice(0, 120) || 'Aparelho Android';
     const platform = this.normalizePlatform(dto.platform);
@@ -225,24 +246,26 @@ export class MobileDeviceService {
           throw new UnauthorizedException('A conta vinculada ao código não está disponível.');
         }
 
-        const existingRows = await tx.$queryRaw<Array<{ id: string; userId: number }>>`
-          SELECT "id", "userId"
+        const existingRows = await tx.$queryRaw<ExistingInstallationRow[]>`
+          SELECT "id", "userId", "revokedAt"
           FROM "MobileDevice"
           WHERE "installationId" = ${installationId}
           FOR UPDATE
         `;
         const existing = existingRows[0];
 
-        if (!existing) {
-          const counts = await tx.$queryRaw<Array<{ count: bigint }>>`
-            SELECT COUNT(*)::bigint AS "count"
-            FROM "MobileDevice"
-            WHERE "userId" = ${user.id}
-              AND "revokedAt" IS NULL
-          `;
-          if (Number(counts[0]?.count || 0) >= this.maxDevicesPerUser) {
-            throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
-          }
+        // Conta todos os OUTROS aparelhos ativos do usuário. Assim reemitir a
+        // credencial para o mesmo aparelho não consome vaga, mas transferir uma
+        // instalação de outra conta não permite contornar o limite.
+        const counts = await tx.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*)::bigint AS "count"
+          FROM "MobileDevice"
+          WHERE "userId" = ${user.id}
+            AND "revokedAt" IS NULL
+            AND (${existing?.id || null}::text IS NULL OR "id" <> ${existing?.id || null})
+        `;
+        if (Number(counts[0]?.count || 0) >= this.maxDevicesPerUser) {
+          throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
         }
 
         const deviceId = existing?.id || crypto.randomUUID();
@@ -296,7 +319,7 @@ export class MobileDeviceService {
   }
 
   async openDeviceSession(dto: OpenMobileDeviceSessionDto) {
-    const tokenHash = this.sha256(String(dto.deviceToken || '').trim());
+    const tokenHash = this.hashOpaqueSecret(String(dto.deviceToken || '').trim());
     const installationId = String(dto.installationId || '').trim();
     const now = new Date();
 
@@ -335,7 +358,7 @@ export class MobileDeviceService {
 
   private async issueWebTicket(deviceId: string) {
     const rawTicket = `hbx_mobile_entry_${crypto.randomBytes(32).toString('base64url')}`;
-    const ticketHash = this.sha256(rawTicket);
+    const ticketHash = this.hashOpaqueSecret(rawTicket);
     const expiresAt = new Date(Date.now() + this.webTicketTtlMs);
 
     const changed = await withoutTenantScope('mobile pairing: emitir ticket web descartável', () =>
@@ -360,7 +383,7 @@ export class MobileDeviceService {
   }
 
   async consumeWebTicket(dto: ConsumeMobileWebTicketDto) {
-    const ticketHash = this.sha256(String(dto.ticket || '').trim());
+    const ticketHash = this.hashOpaqueSecret(String(dto.ticket || '').trim());
     const now = new Date();
 
     const device = await withoutTenantScope('mobile pairing: consumir ticket web de uso único', () =>
@@ -422,8 +445,13 @@ export class MobileDeviceService {
       });
     }
 
-    const operational = await resolveOperationalAccessProjection(this.prisma, user);
-    const policy = await loadUserTeamPolicyRuntime(this.prisma, user.id).catch(() => null);
+    const { operational, policy } = await withoutTenantScope(
+      'mobile pairing: projetar capacidades da conta vinculada',
+      async () => ({
+        operational: await resolveOperationalAccessProjection(this.prisma, user),
+        policy: await loadUserTeamPolicyRuntime(this.prisma, user.id).catch(() => null),
+      }),
+    );
     const vendasDenied = resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false;
     const canSell = operational.operationalCapabilities.includes('SELLER') && !vendasDenied;
     const canDeliver = operational.operationalCapabilities.includes('DRIVER');
