@@ -18,6 +18,7 @@ type LoginResume = { step?: string; planKey?: string | null; email?: string | nu
 type LoginErrorPayload = { code?: string; message?: string; forceAvailable?: boolean; email?: string | null; needsEmailConfirmation?: boolean; activeSession?: { lastSeenAt?: string | null; userAgent?: string | null }; next?: string; resume?: LoginResume; confirmationPollToken?: string | null };
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+const ANDROID_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
 type GisApi = { initialize: (cfg: object) => void; renderButton: (el: HTMLElement, cfg: object) => void };
 type WinG = typeof window & { google?: { accounts?: { id?: GisApi } } };
 
@@ -32,9 +33,8 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
   const [notice, setNotice] = useState<string | null>(null);
   const [confirmPending, setConfirmPending] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
-  // Destino de retomada devolvido pelo backend quando a conta ainda não foi confirmada.
   const [resumeHref, setResumeHref] = useState<string>("/?criar&resume=1");
-  const [manterConectado, setManterConectado] = useState(true); // checkbox "Manter conectado" (default = marcado)
+  const [manterConectado, setManterConectado] = useState(true);
   const googleBtnRef = useRef<HTMLDivElement>(null);
   const loginInFlightRef = useRef(false);
 
@@ -53,7 +53,6 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
       setToken(res.access_token);
       setOk(true);
       setConflict(false);
-      // Deixa o "✓ Autenticado" respirar antes de entrar no app.
       window.setTimeout(() => router.replace(res.next || "/dashboard"), 750);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar com Google. Tente novamente.");
@@ -126,10 +125,6 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
         setConflict(true);
         setError(payload?.message || "Já existe uma sessão ativa para este usuário.");
       } else if (payload?.code === "EMAIL_CONFIRMATION_REQUIRED" || payload?.needsEmailConfirmation) {
-        // Login não é mais beco (F4): cadastro não confirmado vira "continue seu
-        // cadastro" — reenvio + volta pro funil NO PASSO EXATO, em vez da string
-        // morta (anexo2). O token/plano vêm no payload (só após a senha provar
-        // posse) → guardamos a dica pra retomada reidratar a tela de espera.
         setConflict(false);
         setError(null);
         setConfirmPending(payload?.email || email);
@@ -180,7 +175,6 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
           <p className="sub">Acesse sua conta com segurança e continue de onde parou.</p>
           <div className="f">
             <label htmlFor="em">E-mail</label>
-            {/* type=text: o backend autentica por username OU e-mail */}
             <input id="em" className="field-dark" type="text" placeholder="seu@email.com.br" required autoComplete="username"
               value={email} onChange={e => setEmail(e.target.value)} />
           </div>
@@ -219,6 +213,17 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
               <div className="login-or"><span>ou</span></div>
               <div ref={googleBtnRef} style={{ display: "flex", justifyContent: "center" }} />
             </>
+          )}
+          {ANDROID_APK_URL && (
+            <div style={{ marginTop: 10, padding: 12, border: "1px solid rgba(127,127,127,.22)", borderRadius: 14, display: "grid", gap: 7, background: "rgba(127,127,127,.06)" }}>
+              <strong style={{ fontSize: "0.76rem" }}>HBX no Android</strong>
+              <span style={{ fontSize: "0.66rem", lineHeight: 1.45, opacity: 0.78 }}>
+                Baixe o aplicativo agora. Depois de entrar, use o ícone de celular no topo para gerar o código de vínculo.
+              </span>
+              <a className="btn-ghost" href={ANDROID_APK_URL} target="_blank" rel="noreferrer" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                Baixar aplicativo Android
+              </a>
+            </div>
           )}
           <div className="alt">Ainda não tem conta? {onCriarConta
             ? <button type="button" className="link" onClick={onCriarConta}>Criar Conta</button>
