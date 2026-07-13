@@ -219,3 +219,5 @@ Validar em aparelho real:
 - duração oficial da chamada da operadora;
 - tornar o HBX o aplicativo de telefone padrão;
 - publicação na Play Store.
+
+**HBX CHECKPOINT: implementação concluída na branch; merge bloqueado até os testes do Codex e aparelho real.**
