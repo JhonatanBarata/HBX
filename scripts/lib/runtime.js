@@ -188,6 +188,8 @@ function run(command, args, options = {}) {
   };
 
   if (hasStdin) spawnOpts.input = options.stdin;
+  if (options.timeout != null) spawnOpts.timeout = options.timeout;
+  if (options.killSignal) spawnOpts.killSignal = options.killSignal;
 
   const result = spawnSync(spawnCommand, spawnArgs, spawnOpts);
 

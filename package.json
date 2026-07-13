@@ -19,6 +19,7 @@
 		"publish:dry": "node ./scripts/release.js d",
 		"diffs:watch": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/watch-diffs.ps1",
 		"cleanup:hbx-extra": "node ./scripts/cleanup-hbx-extra-engines-vps.js",
+		"docker:clean:vps": "node ./scripts/ops/docker-clean-vps.js",
 		"radar:elastic:validate": "node ./scripts/validate-radar-elastic-governor.js",
 		"engines:up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-hbx-engines.ps1",
 		"engines:down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-hbx-engines.ps1",
