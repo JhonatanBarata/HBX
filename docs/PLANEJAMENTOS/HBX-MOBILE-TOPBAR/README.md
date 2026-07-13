@@ -107,6 +107,10 @@ NEXT_PUBLIC_ANDROID_APK_URL=https://www.hbxsystem.com.br/download/android
 
 Use uma URL estável que redirecione para o APK atual. Como a variável é `NEXT_PUBLIC_*`, trocar seu valor exige novo build do frontend; trocar apenas o destino do redirecionamento não exige.
 
+No deploy da Hostinger, a URL assume `https://www.hbxsystem.com.br/download/android` por padrão e é passada ao build Docker do frontend. O APK continua fora do Git e deve ser publicado no destino estável com a assinatura oficial.
+
+Na VPS atual, o Nginx atende essa rota pelo link `/var/www/hbx-downloads/hbx-mobile.apk`. Cada release deve enviar o APK com nome versionado, conferir o SHA-256 remoto e só então atualizar esse link; o AAB continua reservado à Play depois do aceite em aparelho físico.
+
 ## Entrega pelo VPS
 
 A ponte não usa Firebase/FCM. A ação fica persistida no PostgreSQL do HBX e é entregue por `POST /mobile/actions/pull`, autenticado pela credencial revogável do aparelho. O polling roda somente enquanto o APK está em primeiro plano e para quando o aplicativo vai para segundo plano.
