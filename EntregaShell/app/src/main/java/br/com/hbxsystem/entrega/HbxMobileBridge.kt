@@ -20,6 +20,8 @@ import java.io.BufferedReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -36,10 +38,11 @@ object HbxMobileBridge {
     const val EXTRA_MESSAGE = "hbx_action_message"
     const val EXTRA_LEAD_ID = "hbx_action_lead_id"
 
-    private val executor = Executors.newSingleThreadExecutor()
+    private val executor = Executors.newSingleThreadScheduledExecutor()
     private val syncing = AtomicBoolean(false)
     @Volatile private var firebaseReady = false
     @Volatile private var lastPushRegistrationAt = 0L
+    @Volatile private var foregroundTask: ScheduledFuture<*>? = null
 
     fun initialize(context: Context) {
         ensureNotificationChannel(context.applicationContext)
@@ -47,10 +50,24 @@ object HbxMobileBridge {
         if (firebaseReady) requestAndRegisterPushToken(context.applicationContext, force = true)
     }
 
+    @Synchronized
     fun onAppForeground(context: Context) {
         val app = context.applicationContext
         if (firebaseReady) requestAndRegisterPushToken(app, force = false)
-        syncNow(app)
+        val existing = foregroundTask
+        if (existing != null && !existing.isCancelled && !existing.isDone) return
+        foregroundTask = executor.scheduleAtFixedRate(
+            { syncNow(app) },
+            0,
+            30,
+            TimeUnit.SECONDS,
+        )
+    }
+
+    @Synchronized
+    fun onAppBackground() {
+        foregroundTask?.cancel(false)
+        foregroundTask = null
     }
 
     fun onNewPushToken(context: Context, token: String) {
