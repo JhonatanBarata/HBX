@@ -17,9 +17,8 @@
         </intent>
     </queries>
 
-    <!-- Backup/transfer DESLIGADOS: a sessão do WebView (localStorage/cookies =
-         token de login) não pode vazar pra nuvem nem pra outro device. Os XMLs
-         de regras excluem tudo (cinto e suspensório pra API 31+ e legado). -->
+    <!-- Backup/transfer DESLIGADOS: a credencial pareada, a sessão do WebView e
+         os dados locais não podem ir para a nuvem nem migrar para outro aparelho. -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -40,8 +39,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Única porta pública do APK: código de vinculação no primeiro acesso
+             e reentrada automática pelo aparelho pareado nas próximas aberturas. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".PairingActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
@@ -50,16 +51,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Deep link básico (SEM autoVerify por enquanto: o assetlinks.json
-                 depende do SHA256 da chave de assinatura da Play, que só existe
-                 após o 1º upload — passo futuro documentado no relatório). -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="www.hbxsystem.com.br" />
-            </intent-filter>
         </activity>
+
+        <!-- WebView interna: só a PairingActivity abre esta tela com um ticket
+             descartável do nosso domínio. Não recebe mais launcher/deep link externo. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.EntregaShell.NoActionBar" />
 
         <activity
             android:name=".ChegadaActivity"
