@@ -15,12 +15,26 @@ import { IntentEngineModule } from '../bot/intent/intent-engine.module';
 import { VendasController } from './vendas.controller';
 import { VendasPublicController } from './vendas-public.controller';
 import { VendasAutomationService } from './vendas-automation.service';
+import { VendasConversationService } from './vendas-conversation.service';
+import { VendasCockpitProjectionBridge } from './vendas-cockpit-projection.bridge';
+import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
 import { VendasService } from './vendas.service';
 
 @Module({
   imports: [PrismaModule, CadastrosModule, CustomerProfileModule, ModulesAccessModule, MessagingModule, InboxModule, CommercialPlansModule, CommissionsModule, MailModule, AuthModule, MasterAlertModule, IntentEngineModule, forwardRef(() => WebscrapingModule)],
   controllers: [VendasController, VendasPublicController],
-  providers: [VendasService, VendasAutomationService],
-  exports: [VendasService, VendasAutomationService],
+  providers: [
+    VendasService,
+    VendasAutomationService,
+    VendasConversationService,
+    VendasLeadCockpitProjectorService,
+    VendasCockpitProjectionBridge,
+  ],
+  exports: [
+    VendasService,
+    VendasAutomationService,
+    VendasConversationService,
+    VendasLeadCockpitProjectorService,
+  ],
 })
 export class VendasModule {}

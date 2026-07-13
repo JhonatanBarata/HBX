@@ -109,6 +109,8 @@ function createService(overrides?: {
   const queueCalls: Array<Record<string, any>> = [];
   const jobUpdates: Array<Record<string, any>> = [];
   const jobUpdateManyCalls: Array<Record<string, any>> = [];
+  const leadUpdates: Array<Record<string, any>> = [];
+  const timelineEvents: Array<Record<string, any>> = [];
   const stateCalls: Array<Record<string, any>> = [];
   const campaignStageUpdates: Array<Record<string, any>> = [];
   const events: Array<Record<string, any>> = [];
@@ -157,6 +159,9 @@ function createService(overrides?: {
         return [];
       },
       findFirst: async ({ where }: any = {}) => {
+        if (where?.id && where?.companyId && where?.leadId && !where?.OR) {
+          return overrides?.inboundJob || { status: 'sending', classification: null };
+        }
         if ((where?.id || where?.OR) && overrides?.inboundJob) return overrides.inboundJob;
         if (where?.sentAt) {
           return latestSentAt ? { sentAt: latestSentAt } : overrides?.latestSentJob || null;
@@ -184,13 +189,20 @@ function createService(overrides?: {
         if (data?.status === 'sending' && overrides?.claimReturnsCount !== undefined) {
           return { count: overrides.claimReturnsCount };
         }
+        if (data?.status === 'sent' && data?.sentAt instanceof Date) {
+          successfulSendsToday += 1;
+          latestSentAt = data.sentAt;
+        }
         return { count: 1 };
       },
       createMany: async ({ data }: any) => {
         createdJobBatches.push(data);
         return { count: data.length };
       },
-      create: async ({ data }: any) => ({ id: 'review-job-1', ...data }),
+      create: async ({ data }: any) => {
+        if (data?.status === 'scheduled') createdJobBatches.push([data]);
+        return { id: 'review-job-1', ...data };
+      },
     },
     vendasLead: {
       findMany: async () => {
@@ -201,11 +213,17 @@ function createService(overrides?: {
         }
         return overrides?.scheduleLeads || [];
       },
-      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      update: async ({ where, data }: any) => {
+        leadUpdates.push({ where, data });
+        return { id: where.id, ...data };
+      },
       updateMany: async () => ({ count: 0 }),
     },
     vendasLeadTimelineEvent: {
-      create: async ({ data }: any) => ({ id: 'event-1', ...data }),
+      create: async ({ data }: any) => {
+        timelineEvents.push(data);
+        return { id: 'event-1', ...data };
+      },
     },
     companyConversation: {
       findMany: async ({ select }: any = {}) => {
@@ -326,17 +344,32 @@ function createService(overrides?: {
     return originalScheduleJobsForCampaign(campaignId);
   };
 
-  return { service, queueCalls, jobUpdates, jobUpdateManyCalls, stateCalls, campaignStageUpdates, events, createdJobBatches, scheduleCalls, searchCalls, importCalls };
+  return {
+    service,
+    queueCalls,
+    jobUpdates,
+    jobUpdateManyCalls,
+    leadUpdates,
+    timelineEvents,
+    stateCalls,
+    campaignStageUpdates,
+    events,
+    createdJobBatches,
+    scheduleCalls,
+    searchCalls,
+    importCalls,
+  };
 }
 
 test('cancelQueuedJobsAfterSearchChange archives stale pending automation jobs', async () => {
   const { service, jobUpdateManyCalls } = createService();
 
-  await service.cancelQueuedJobsAfterSearchChange('campaign-1');
+  await service.cancelQueuedJobsAfterSearchChange('campaign-1', 7);
 
   assert.equal(jobUpdateManyCalls.length, 1);
   assert.deepEqual(jobUpdateManyCalls[0].where, {
     campaignId: 'campaign-1',
+    companyId: 7,
     status: { in: ['pending', 'scheduled', 'sending'] },
   });
   assert.equal(jobUpdateManyCalls[0].data.status, 'canceled');
@@ -345,18 +378,32 @@ test('cancelQueuedJobsAfterSearchChange archives stale pending automation jobs',
 });
 
 test('processDueJob sends segment mismatch lead with safe generic fallback when first contact was never sent', async () => {
-  const { service, queueCalls, jobUpdates, stateCalls, events } = createService({ conversationMetadata: {} });
+  const { service, queueCalls, jobUpdateManyCalls, stateCalls, events } = createService({ conversationMetadata: {} });
 
   await service.processDueJob(buildJob());
 
   assert.equal(queueCalls.length, 1);
   assert.equal(queueCalls[0].payload.body, FALLBACK_MESSAGE);
-  assert.ok(jobUpdates.some((call) => call.data.status === 'sent' && call.data.classification === 'segment_mismatch_fallback'));
+  assert.ok(jobUpdateManyCalls.some((call) => call.data.status === 'sent' && call.data.classification === 'segment_mismatch_fallback'));
   const finalMetadata = stateCalls.at(-1)?.payload.metadata;
   assert.equal(finalMetadata.vendasProspeccao.stage, 'sent_waiting');
   assert.equal(finalMetadata.vendasProspeccao.mismatchReason, 'segment_mismatch_fallback');
   assert.equal(finalMetadata.vendasAgendaQueue.draftMessage, FALLBACK_MESSAGE);
   assert.ok(events.some((event) => event.automation?.text === 'Segmento divergente: usando mensagem genérica segura.'));
+});
+
+test('enqueue comercial nao move pipeline nem grava contato antes da confirmacao do provedor', async () => {
+  const { service, queueCalls, leadUpdates, timelineEvents, jobUpdateManyCalls } = createService({ conversationMetadata: {} });
+  const campaign = buildCampaign();
+  const lead = buildLead({ segment: campaign.segment });
+
+  const result = await service.processDueJob(buildJob({ campaign, lead, leadId: lead.id }));
+
+  assert.equal(result.outcome, 'sent_success');
+  assert.equal(queueCalls.length, 1);
+  assert.equal(leadUpdates.length, 0);
+  assert.equal(timelineEvents.length, 0);
+  assert.ok(jobUpdateManyCalls.some((call) => call.data.status === 'sent'));
 });
 
 test('processDueJob does not repeat first contact for segment mismatch lead with outbound history', async () => {
@@ -375,7 +422,7 @@ test('processDueJob does not repeat first contact for segment mismatch lead with
 });
 
 test('processDueJob does not send segment mismatch lead with negative reply or opt-out', async () => {
-  const { service, queueCalls, jobUpdates } = createService({
+  const { service, queueCalls, jobUpdates, jobUpdateManyCalls } = createService({
     conversationMetadata: {
       optOut: true,
       doNotContact: true,
@@ -516,7 +563,7 @@ test('runWorkerCycle skips needs_review job and sends the next valid lead in the
     buildJob({ id: 'job-review', campaign, lead: reviewLead, leadId: reviewLead.id }),
     buildJob({ id: 'job-valid', campaign, lead: validLead, leadId: validLead.id }),
   ];
-  const { service, queueCalls, jobUpdates } = createService({
+  const { service, queueCalls, jobUpdates, jobUpdateManyCalls } = createService({
     conversationMetadataByPhone: {
       '551100000001': {
         vendasProspeccao: { stage: 'needs_review' },
@@ -536,7 +583,7 @@ test('runWorkerCycle skips needs_review job and sends the next valid lead in the
   assert.equal(queueCalls.length, 1);
   assert.equal(queueCalls[0].payload.variables.leadId, 'lead-valid');
   assert.ok(jobUpdates.some((call) => call.where.id === 'job-review' && call.data.status === 'skipped' && call.data.classification === 'needs_review'));
-  assert.ok(jobUpdates.some((call) => call.where.id === 'job-valid' && call.data.status === 'sent'));
+  assert.ok(jobUpdateManyCalls.some((call) => call.where.id === 'job-valid' && call.data.status === 'sent'));
 });
 
 test('lead without scriptText uses campaign messageTemplate', async () => {
@@ -870,7 +917,7 @@ test('opt-out or negative lead is skipped without credit and next eligible lead 
 
 test('provider failure does not count as dailyLimit success', async () => {
   const campaign = buildCampaign({ dailyLimit: 1 });
-  const { service, queueCalls, jobUpdates } = createService({ conversationMetadata: null, providerError: 'provider offline' });
+  const { service, queueCalls, jobUpdateManyCalls } = createService({ conversationMetadata: null, providerError: 'provider offline' });
   service.getNextAllowedSendAt = async () => null;
   const lead = buildLead({ segment: campaign.segment });
 
@@ -880,7 +927,7 @@ test('provider failure does not count as dailyLimit success', async () => {
   assert.equal(result.outcome, 'failed_no_credit');
   assert.equal(queueCalls.length, 0);
   assert.equal(sentToday, 0);
-  assert.ok(jobUpdates.some((call) => call.data.status === 'failed'));
+  assert.ok(jobUpdateManyCalls.some((call) => call.data.status === 'failed'));
 });
 
 test('intervalMinutes uses only successful sentAt jobs and ignores skipped or failed jobs', async () => {
@@ -1025,7 +1072,12 @@ function createRecoveryService(opts: { orphans: any[]; message: any }) {
 test('S2 recovery: orphan sending WITH outbound message is marked sent, never resent', async () => {
   const { service, jobUpdateManyCalls, msgFindFirstCalls } = createRecoveryService({
     orphans: [{ id: 'job-orphan', companyId: 7, leadId: 'lead-1', campaignId: 'camp-1' }],
-    message: { conversationId: 555, timestamp: new Date('2026-07-03T02:00:00Z') },
+    message: {
+      conversationId: 555,
+      status: 'SENT',
+      timestamp: new Date('2026-07-03T02:00:00Z'),
+      outboundMessage: { status: 'SENT', sentAt: new Date('2026-07-03T02:01:00Z') },
+    },
   });
 
   const result = await service.recoverOrphanedSendingJobs();
@@ -1040,6 +1092,27 @@ test('S2 recovery: orphan sending WITH outbound message is marked sent, never re
   assert.equal(upd.data.status, 'sent');
   assert.equal(upd.data.conversationId, 555);
   assert.equal(upd.data.classification, 'recovered_sent_after_restart');
+  assert.equal(upd.data.sentAt.toISOString(), '2026-07-03T02:01:00.000Z');
+});
+
+test('S2 recovery: registro QUEUED nao prova envio e nao vira sent nem e reenviado', async () => {
+  const { service, jobUpdateManyCalls } = createRecoveryService({
+    orphans: [{ id: 'job-orphan-queued', companyId: 7, leadId: 'lead-1', campaignId: 'camp-1' }],
+    message: {
+      conversationId: 555,
+      status: 'QUEUED',
+      timestamp: new Date('2026-07-03T02:00:00Z'),
+      outboundMessage: { status: 'PENDING', sentAt: null, deliveryStatus: null },
+    },
+  });
+
+  const result = await service.recoverOrphanedSendingJobs();
+
+  assert.equal(result.resent, 0);
+  assert.equal(result.rescheduled, 0, 'outbox existente nao pode gerar duplicata');
+  const upd = jobUpdateManyCalls.find((call) => call.where.id === 'job-orphan-queued');
+  assert.equal(upd.data.status, undefined, 'job nao pode mentir sent');
+  assert.equal(upd.data.classification, 'recovered_waiting_outbox_after_restart');
 });
 
 test('S2 recovery: orphan sending WITHOUT outbound message is rescheduled (safe retry)', async () => {
@@ -1057,6 +1130,54 @@ test('S2 recovery: orphan sending WITHOUT outbound message is rescheduled (safe 
   assert.equal(upd.where.status, 'sending');
   assert.equal(upd.data.status, 'scheduled');
   assert.equal(upd.data.classification, 'recovered_rescheduled_after_restart');
+});
+
+test('sem resposta nao arquiva lead com outbox QUEUED nem antes de 24h do envio real', async () => {
+  const transactionCalls: any[] = [];
+  let message: any = {
+    status: 'QUEUED',
+    timestamp: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    outboundMessage: { status: 'PENDING', sentAt: null, deliveryStatus: null },
+  };
+  const prisma: any = {
+    companyMessage: { findFirst: async () => message },
+    $transaction: async (callback: any) => {
+      transactionCalls.push(callback);
+      throw new Error('nao deveria iniciar arquivamento');
+    },
+  };
+  const service = new VendasAutomationService(
+    prisma,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    new AiIntentClassifierService() as any,
+  ) as any;
+  const job = {
+    id: 'job-no-response',
+    companyId: 7,
+    leadId: 'lead-1',
+    status: 'sent',
+    sentAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+  };
+
+  assert.equal(await service.archiveNoResponseJob(job), false);
+  assert.equal(transactionCalls.length, 0);
+
+  message = {
+    status: 'SENT',
+    timestamp: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    outboundMessage: {
+      status: 'SENT',
+      sentAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      deliveryStatus: 'sent',
+    },
+  };
+  assert.equal(await service.archiveNoResponseJob(job), false, 'prazo conta do envio real, nao do enqueue legado');
+  assert.equal(transactionCalls.length, 0);
 });
 
 test('S2 atomic claim: job already claimed by another cycle is skipped without sending', async () => {

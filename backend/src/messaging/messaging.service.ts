@@ -43,6 +43,7 @@ import {
   isTenantOwnedMpSource,
 } from '../modules/master-global-integrations.util';
 import {
+  classifyProspectingAutoReply,
   sanitizeFirstContactMessage,
   type ProspectingAutoReplyClassification,
 } from '../vendas/prospecting-safety';
@@ -83,6 +84,7 @@ import {
   normalizeHbxEmail,
   type HbxPresentationEmailIntent,
 } from '../mail/hbx-email-intent.util';
+import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -254,6 +256,7 @@ type VendasAgendaQueueMetadata = {
 @Injectable()
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
+  private readonly commercialContactControl: CommercialContactControlService;
   private pollHandle: NodeJS.Timeout | null = null;
   private readonly startedAtMs = Date.now();
   // INTENTENGINE S4: reaper roda no boot e depois a cada N ciclos do poll de 5s existente
@@ -288,15 +291,29 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // CRÉDITO UNIVERSAL (PR10072026): medidor de uso — track (nunca débito) das mensagens
     // AUTOMÁTICAS enviadas com sucesso. @Optional() pelo mesmo motivo; ausente = não mede.
     @Optional() private readonly creditMeter?: CreditMeterService,
-  ) {}
+  ) {
+    // Guarda transitoria local: evita ampliar o grafo de DI antes do modelo canonico.
+    this.commercialContactControl = new CommercialContactControlService(this.prisma, this.conversations);
+  }
 
   onModuleInit() {
     this.webwhatsBridge.setInboundRelay(async (input) => {
       await this.handleWebwhatsSyncedInbound(input);
     });
+    this.webwhatsBridge.setOutboundPersistedRelay(async (input) => {
+      const normalizedStatus = String(input.status || '').trim().toUpperCase();
+      await this.conversations.dispatchVendasCockpitProjection({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        event: normalizedStatus === 'FAILED' ? 'failed' : normalizedStatus === 'SENT' ? 'sent' : 'delivery',
+        messageId: input.companyMessageId,
+      });
+    });
     // INTENTENGINE S4: reaper de SENDING órfão roda 1x no boot (cobre o caso mais comum —
     // processo reiniciado com mensagens travadas de antes) antes do primeiro poll.
-    this.reapStuckSendingMessages().catch((e) => this.logger.error(e?.message || e));
+    setImmediate(() => {
+      this.reapStuckSendingMessages().catch((e) => this.logger.error(e?.message || e));
+    });
     // lightweight worker; avoids extra infra
     this.pollHandle = setInterval(() => {
       this.processDueMessages().catch((e) => this.logger.error(e?.message || e));
@@ -311,6 +328,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
     this.webwhatsBridge.setInboundRelay(null);
+    this.webwhatsBridge.setOutboundPersistedRelay(null);
   }
 
   private get cloudApiBaseUrl(): string {
@@ -419,6 +437,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     outboundMessageId: number;
     attemptId: number;
     companyId: number;
+    companyMessageId?: number | null;
     conversationId: number | null;
     to: string;
     messageType: string;
@@ -439,15 +458,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.outboundMessage.update({
       where: { id: input.outboundMessageId },
       data: {
-        status: 'CANCELLED',
-        failedAt: now,
+        status: 'CANCELED',
+        failedAt: null,
         lastError: error,
-        deliveryStatus: 'failed',
+        deliveryStatus: 'canceled',
       },
     });
     await this.prisma.companyMessage.updateMany({
       where: { outboundMessageId: input.outboundMessageId },
-      data: { status: 'CANCELLED', error },
+      data: { status: 'CANCELED', error },
     });
     await this.logWhatsAppEvent({
       companyId: input.companyId,
@@ -465,6 +484,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         sourceModule: input.sourceModule || null,
       },
     });
+    if (input.conversationId) {
+      await this.conversations.dispatchVendasCockpitProjection?.({
+        companyId: input.companyId,
+        conversationId: input.conversationId,
+        event: 'canceled',
+        messageId: input.companyMessageId || null,
+      });
+    }
   }
 
   private async supportsWhatsAppEndpointTable() {
@@ -2120,6 +2147,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       sourceModule: 'vendas_prospeccao_bot',
       senderType: 'bot',
       variables: {
+        purpose: 'conversation_reply',
         botType: 'prospeccao',
         campaignId: job.campaignId,
         jobId: job.id,
@@ -2466,10 +2494,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           conversationId: input.conversationId,
         },
       });
-      await tx.vendasLead.update({
-        where: { id: job.leadId },
+      await tx.vendasLead.updateMany({
+        where: {
+          id: job.leadId,
+          companyId: input.companyId,
+          OR: [
+            { pipelineStage: { in: ['prospeccao', 'qualificacao'] } },
+            { pipelineStage: null, status: { in: ['novo', 'contato'] } },
+          ],
+        },
         data: {
-          status: 'retorno',
+          pipelineStage: 'qualificacao',
+          status: 'contato',
           lastResult: 'Ligação agendada pelo WhatsApp',
           nextAction: `Ligar/retornar ${label}`,
           returnAt: parsed.scheduledAt,
@@ -2482,7 +2518,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           title: 'Ligação agendada pelo WhatsApp',
           description: `Cliente combinou retorno ${label}.`,
           sourceType: 'vendas_prospeccao_bot',
-          statusTo: 'retorno',
+          statusTo: 'contato',
           resultLabel: 'Retorno agendado',
           returnAt: parsed.scheduledAt,
         },
@@ -2553,6 +2589,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       sourceModule: 'vendas_prospeccao_bot',
       senderType: 'bot',
       variables: {
+        purpose: 'conversation_reply',
         botType: 'prospeccao',
         campaignId: job.campaignId,
         jobId: job.id,
@@ -3251,6 +3288,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (awaitingPreMessageHumanReply) {
       // A pré-mensagem só filtra bot: qualquer resposta humana libera o pitch.
       await input.setInboundMeta('vendas_prospeccao_pre_mensagem_humana', false);
+      await this.prisma.$transaction((tx) => this.advanceVendasLeadFromProspectingOnHumanInbound(tx, {
+        companyId: input.companyId,
+        leadId: job.leadId,
+        inboundMessageId: input.inboundMessageId,
+        jobId: job.id,
+        now: input.timestamp instanceof Date ? input.timestamp : new Date(),
+        lastResult: 'Resposta humana recebida',
+      }));
       await this.sendVendasPitchAfterPreMessage(input, job);
       return { handled: true, classification: 'pre_message_human_reply' };
     }
@@ -3292,11 +3337,60 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return { handled: true, classification: intent.reasons.includes('low_confidence') ? 'low_confidence' : 'neutral' };
   }
 
+  private async advanceVendasLeadFromProspectingOnHumanInbound(
+    tx: any,
+    input: {
+      companyId: number;
+      leadId: string;
+      inboundMessageId?: number | null;
+      jobId: string;
+      now: Date;
+      lastResult: string;
+    },
+  ) {
+    const moved = await tx.vendasLead.updateMany({
+      where: {
+        id: input.leadId,
+        companyId: input.companyId,
+        OR: [
+          { pipelineStage: 'prospeccao' },
+          { pipelineStage: null, status: 'novo' },
+        ],
+      },
+      data: {
+        pipelineStage: 'qualificacao',
+        // Compatibilidade do Kanban legado: `contato` representa Qualificacao.
+        status: 'contato',
+        lastResult: input.lastResult,
+        returnAt: input.now,
+      },
+    });
+    if (Number(moved?.count || 0) !== 1) return false;
+
+    if (typeof tx?.vendasLeadTimelineEvent?.createMany === 'function') {
+      await tx.vendasLeadTimelineEvent.createMany({
+        data: [{
+          leadId: input.leadId,
+          eventType: 'stage_changed',
+          title: 'Lead avançou para Qualificação',
+          description: 'Resposta humana válida recebida na prospecção pelo WhatsApp.',
+          sourceType: 'vendas_prospeccao_bot',
+          statusFrom: 'novo',
+          statusTo: 'contato',
+          resultLabel: input.lastResult,
+          idempotencyKey: `vendas-prospeccao:human-qualified:${input.jobId}:${Number(input.inboundMessageId || 0)}`,
+        }],
+        skipDuplicates: true,
+      });
+    }
+    return true;
+  }
+
   private async markVendasAutomationInterested(input: any, job: any) {
     const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vendasAutomationJob.update({
-        where: { id: job.id },
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.vendasAutomationJob.updateMany({
+        where: { id: job.id, companyId: input.companyId, status: 'sent' },
         data: {
           status: 'replied_positive',
           repliedAt: now,
@@ -3304,6 +3398,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           conversationId: input.conversationId,
         },
       });
+      if (Number(updated?.count || 0) !== 1) return false;
       await tx.vendasAutomationJob.updateMany({
         where: {
           companyId: input.companyId,
@@ -3313,22 +3408,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
         data: { status: 'canceled', archivedAt: now, errorMessage: 'Lead respondeu com interesse.' },
       });
-      await tx.vendasLead.update({
-        where: { id: job.leadId },
-        data: { status: 'qualificado', lastResult: 'Interessado', returnAt: now },
+      await this.advanceVendasLeadFromProspectingOnHumanInbound(tx, {
+        companyId: input.companyId,
+        leadId: job.leadId,
+        inboundMessageId: input.inboundMessageId,
+        jobId: job.id,
+        now,
+        lastResult: 'Interessado',
       });
-      await tx.vendasLeadTimelineEvent.create({
-        data: {
-          leadId: job.leadId,
-          eventType: 'result_recorded',
-          title: 'Interessado encontrado',
-          description: 'Resposta positiva detectada pela prospecção automática.',
-          sourceType: 'vendas_prospeccao_bot',
-          statusTo: 'qualificado',
-          resultLabel: 'Interessado',
-        },
-      });
+      return true;
     });
+    if (!claimed) return;
 
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
@@ -3382,7 +3472,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         leadId: job.leadId,
         queueTarget: 'prospeccao',
         routeTarget: 'prospeccao',
-        status: 'qualificado',
+        status: 'contato',
         nextAction: followUpMessage
           ? 'Prospecção: resposta automática enviada, aguardando retorno'
           : 'Prospecção: interessado aguardando operador',
@@ -3426,6 +3516,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           sourceModule: 'vendas_prospeccao_bot',
           senderType: 'bot',
           variables: {
+            purpose: 'conversation_reply',
             botType: 'prospeccao',
             campaignId: job.campaignId,
             jobId: job.id,
@@ -3481,9 +3572,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private async markVendasAutomationNegative(input: any, job: any) {
     const now = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vendasAutomationJob.update({
-        where: { id: job.id },
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.vendasAutomationJob.updateMany({
+        where: { id: job.id, companyId: input.companyId, status: 'sent' },
         data: {
           status: 'replied_negative',
           repliedAt: now,
@@ -3492,6 +3583,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           conversationId: input.conversationId,
         },
       });
+      if (Number(updated?.count || 0) !== 1) return false;
       await tx.vendasAutomationJob.updateMany({
         where: {
           companyId: input.companyId,
@@ -3501,12 +3593,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
         data: { status: 'canceled', archivedAt: now, errorMessage: 'Lead respondeu negativamente.' },
       });
-      await tx.vendasLead.update({
-        where: { id: job.leadId },
-        data: { status: 'encerrado', wasClosedBefore: true, closedAt: now, lastResult: 'Resposta negativa' },
-      });
-      await tx.vendasLeadTimelineEvent.create({
+      await tx.vendasLead.updateMany({
+        where: { id: job.leadId, companyId: input.companyId },
         data: {
+          status: 'encerrado',
+          outcome: input.optOut ? 'opt_out' : 'no_interest',
+          wasClosedBefore: true,
+          closedAt: now,
+          lastResult: input.optOut ? 'Opt-out' : 'Sem interesse',
+        },
+      });
+      await tx.vendasLeadTimelineEvent.createMany({
+        data: [{
           leadId: job.leadId,
           eventType: 'lead_closed',
           title: 'Resposta negativa',
@@ -3520,10 +3618,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           }),
           sourceType: 'vendas_prospeccao_bot',
           statusTo: 'encerrado',
-          resultLabel: 'Negativo',
-        },
+          resultLabel: input.optOut ? 'Opt-out' : 'Sem interesse',
+          idempotencyKey: `vendas-prospeccao:negative:${job.id}:${Number(input.inboundMessageId || 0)}`,
+        }],
+        skipDuplicates: true,
       });
+      return true;
     });
+    if (!claimed) return;
 
     const optOutMessage = this.pickVendasVariant(
       job.campaign,
@@ -3547,11 +3649,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           sourceModule: 'vendas_prospeccao_bot',
           senderType: 'bot',
           variables: {
+            purpose: 'conversation_reply',
             botType: 'prospeccao',
             campaignId: job.campaignId,
             jobId: job.id,
             leadId: job.leadId,
-            optOut: true,
+            optOut: input.optOut === true,
           },
           flowState: { botActive: false, humanAssigned: false, flowResult: 'prospection_negative' },
         });
@@ -3575,18 +3678,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
       {
         ...input.metadata,
-        optOut: true,
+        optOut: input.optOut === true,
         doNotContact: true,
-        blacklisted: true,
+        blacklisted: input.optOut === true,
         vendasAutomation: {
           ...automation,
           campaignId: job.campaignId,
           jobId: job.id,
           leadId: job.leadId,
           status: input.optOut ? 'opt_out' : 'negative',
-          optOut: true,
+          outcome: input.optOut ? 'opt_out' : 'no_interest',
+          optOut: input.optOut === true,
           doNotContact: true,
-          blacklisted: true,
+          blacklisted: input.optOut === true,
           negativeAt: now.toISOString(),
         },
         vendasAgendaQueue: {
@@ -3594,12 +3698,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           active: false,
           leadId: job.leadId,
           status: 'encerrado',
+          outcome: input.optOut ? 'opt_out' : 'no_interest',
           draftPending: false,
           botEligible: false,
           botEntryPending: false,
-          optOut: true,
+          optOut: input.optOut === true,
           doNotContact: true,
-          blacklisted: true,
+          blacklisted: input.optOut === true,
           syncedAt: now.toISOString(),
           deactivatedAt: now.toISOString(),
         },
@@ -3725,15 +3830,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
       data: { status: 'canceled', archivedAt: now, errorMessage: 'Autoatendimento detectado. Aguardando humano.' },
     });
-    await this.prisma.vendasLead.update({
-      where: { id: job.leadId },
-      data: {
-        status: 'retorno',
-        lastResult: classification === 'out_of_hours_auto_reply' ? 'Fora de horário; aguardando humano' : 'Autoatendimento detectado; aguardando humano',
-        returnAt: new Date(now.getTime() + 4 * 60 * 60 * 1000),
-      },
-    }).catch(() => null);
-
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
@@ -3785,7 +3881,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         },
         vendasProspeccao: {
           ...prospeccao,
-          stage: 'reply_received',
+          // Auto-resposta e sinal tecnico, nao resposta humana e nao muda etapa.
+          stage: prospeccao.stage || 'sent_waiting',
           lastInboundAt: input.timestamp instanceof Date ? input.timestamp.toISOString() : now.toISOString(),
           leadSegment: job.lead?.segment || prospeccao.leadSegment || null,
           campaignSegment: job.campaign?.segment || prospeccao.campaignSegment || null,
@@ -3827,14 +3924,30 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       : intentReview?.confidence < 0.5
         ? 'low_confidence'
         : 'neutral';
-    await this.prisma.vendasAutomationJob.update({
-      where: { id: job.id },
-      data: {
-        classification: jobClassification,
-        repliedAt: now,
-        conversationId: input.conversationId,
-      },
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.vendasAutomationJob.updateMany({
+        where: { id: job.id, companyId: input.companyId, status: 'sent' },
+        data: {
+          status: 'canceled',
+          classification: jobClassification,
+          repliedAt: now,
+          archivedAt: now,
+          conversationId: input.conversationId,
+          errorMessage: 'Resposta humana recebida; automação encerrada.',
+        },
+      });
+      if (Number(updated?.count || 0) !== 1) return false;
+      await this.advanceVendasLeadFromProspectingOnHumanInbound(tx, {
+        companyId: input.companyId,
+        leadId: job.leadId,
+        inboundMessageId: input.inboundMessageId,
+        jobId: job.id,
+        now,
+        lastResult: input.humanRequested ? 'Solicitou atendimento humano' : 'Resposta recebida',
+      });
+      return true;
     });
+    if (!claimed) return;
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
@@ -3880,6 +3993,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           queueTarget: 'prospeccao',
           routeTarget: 'prospeccao',
+          status: 'contato',
           nextAction: jobClassification === 'ambiguous_intent'
             ? 'Prospecção: resposta ambígua, bot pausado para revisão'
             : 'Prospecção: resposta não encaixou no fluxo, bot pausado',
@@ -5842,7 +5956,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (status === 'failed') {
       outboundUpdate.failedAt = input.timestamp;
       outboundUpdate.status = 'FAILED';
-      outboundUpdate.lastError = String(input.rawPayload?.error || input.rawPayload?.reason || 'Falha no envio via WhatsApp').trim();
+      outboundUpdate.lastError = String(
+        input.rawPayload?.error
+          || input.rawPayload?.reason
+          || input.rawPayload?.errors?.[0]?.title
+          || 'Falha no envio via WhatsApp',
+      ).trim();
     }
     if (status === 'sent') {
       outboundUpdate.status = 'SENT';
@@ -5859,9 +5978,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (status === 'sent') messageUpdate.status = 'SENT';
     if (status === 'sent' || status === 'delivered' || status === 'read') messageUpdate.error = null;
 
+    if (status === 'sent' || status === 'delivered' || status === 'read') {
+      outboundUpdate.failedAt = null;
+      outboundUpdate.lastError = null;
+    }
+
+    const protectedStatuses = status === 'sent'
+      ? ['DELIVERED', 'READ', 'FAILED']
+      : status === 'delivered'
+        ? ['READ', 'FAILED']
+        : status === 'failed'
+          ? ['DELIVERED', 'READ']
+          : [];
+    const providerWhere: any = {
+      companyId: input.companyId,
+      providerMessageId: { in: providerIds },
+      ...(protectedStatuses.length > 0 ? { status: { notIn: protectedStatuses } } : {}),
+    };
+
     const touchedMessages = Object.keys(messageUpdate).length
       ? await this.prisma.companyMessage.findMany({
-          where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
+          where: providerWhere,
           select: { conversationId: true },
         })
       : [];
@@ -5875,12 +6012,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
     const [outboundResult, messageResult] = await Promise.all([
       this.prisma.outboundMessage.updateMany({
-        where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
+        where: providerWhere,
         data: outboundUpdate,
       }),
       Object.keys(messageUpdate).length
         ? this.prisma.companyMessage.updateMany({
-            where: { companyId: input.companyId, providerMessageId: { in: providerIds } },
+            where: providerWhere,
             data: messageUpdate,
           })
         : Promise.resolve({ count: 0 }),
@@ -5890,7 +6027,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       companyId: input.companyId,
       scope: input.scope,
       event: 'status_received',
-      message: `Status ${status} recebido do WebWhats`,
+      message: `Status ${status} recebido do provedor WhatsApp`,
       messageType: 'status',
       result: status,
       extra: {
@@ -5900,6 +6037,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         companyMessageRows: messageResult.count,
       },
     });
+
+    for (const conversationId of conversationIds) {
+      await this.conversations.dispatchVendasCockpitProjection?.({
+        companyId: input.companyId,
+        conversationId,
+        event: status === 'failed' ? 'failed' : status === 'sent' ? 'sent' : 'delivery',
+      });
+    }
 
     return {
       updatedOutbound: outboundResult.count,
@@ -8007,6 +8152,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         createdAt: true,
         message: {
           select: {
+            id: true,
             conversationId: true,
           },
         },
@@ -8127,9 +8273,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       where: { status: 'SENDING' },
       select: {
         id: true,
+        companyId: true,
         createdAt: true,
         attemptCount: true,
         attempts: { orderBy: { id: 'desc' }, take: 1 },
+        message: { select: { id: true, conversationId: true } },
       },
     });
 
@@ -8163,6 +8311,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           where: { outboundMessageId: msg.id },
           data: { status: 'QUEUED' },
         });
+        if (Number(msg.message?.conversationId || 0) > 0) {
+          await this.conversations.dispatchVendasCockpitProjection({
+            companyId: msg.companyId,
+            conversationId: Number(msg.message?.conversationId),
+            event: 'queued',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
         this.logger.warn(
           `Outbox reaper: messageId=${msg.id} SENDING travada sem nenhum attempt registrado — reenfileirada (PENDING)`,
         );
@@ -8183,6 +8339,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         where: { outboundMessageId: msg.id },
         data: { status: 'FAILED', error: 'stuck_unknown_outcome' },
       });
+      if (Number(msg.message?.conversationId || 0) > 0) {
+        await this.conversations.dispatchVendasCockpitProjection({
+          companyId: msg.companyId,
+          conversationId: Number(msg.message?.conversationId),
+          event: 'failed',
+          messageId: Number(msg.message?.id || 0) || null,
+        });
+      }
       this.logger.warn(
         `Outbox reaper: messageId=${msg.id} SENDING travada com desfecho desconhecido — marcada FAILED (stuck_unknown_outcome) para revisão humana`,
       );
@@ -8425,6 +8589,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         createdAt: true,
         message: {
           select: {
+            id: true,
             conversationId: true,
             senderType: true,
             variablesJson: true,
@@ -8437,6 +8602,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (!msg) return;
+    const conversationId = Number(msg.message?.conversationId || 0) || null;
     const company = await this.findCompanyWithOptionalEndpoints(msg.companyId);
     if (!company) return;
 
@@ -8446,11 +8612,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
 
     const startedAtMs = Date.now();
+    if (conversationId) {
+      await this.conversations.dispatchVendasCockpitProjection?.({
+        companyId: msg.companyId,
+        conversationId,
+        event: 'sending',
+        messageId: Number(msg.message?.id || 0) || null,
+      });
+    }
 
     try {
       let messageType = String(msg.messageType || 'text').toLowerCase();
       let dispatchBody = String(msg.body || '');
-      const conversationId = Number(msg.message?.conversationId || 0) || null;
       // POR USUÁRIO: o envio mira a SESSÃO dona desta mensagem (gravada na criação do
       // companyMessage), não o ponteiro genérico da empresa — senão a resposta de um vendedor
       // sairia pelo número de outro. Sem sessão (automação/legado) cai no ponteiro da empresa.
@@ -8459,6 +8632,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         tenantKey: msg.message?.sourceTenantKey ?? null,
       };
       const dispatchVariables = this.parseJsonPayload<Record<string, any>>(msg.message?.variablesJson, {});
+      const commercialDispatchDecision = await this.commercialContactControl.validateBeforeCommercialDispatch({
+        companyId: msg.companyId,
+        conversationId,
+        sourceModule: msg.sourceModule,
+        senderType: msg.message?.senderType,
+        variablesJson: msg.message?.variablesJson,
+        outboundCreatedAt: msg.createdAt,
+      });
+      if (commercialDispatchDecision.allowed === false) {
+        await this.cancelOutboundBeforeDispatch({
+          outboundMessageId: msg.id,
+          attemptId: attempt.id,
+          companyId: msg.companyId,
+          conversationId,
+          to: msg.to,
+          messageType,
+          sourceModule: msg.sourceModule,
+          reason: commercialDispatchDecision.reason,
+          companyMessageId: Number(msg.message?.id || 0) || null,
+        });
+        this.logger.warn(
+          `WhatsApp commercial send suppressed messageId=${msg.id} reason=${commercialDispatchDecision.reason}`,
+        );
+        return;
+      }
       const suppressionReason = await this.resolveDispatchBotSuppression({
         companyId: msg.companyId,
         conversationId,
@@ -8476,6 +8674,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           messageType,
           sourceModule: msg.sourceModule,
           reason: suppressionReason,
+          companyMessageId: Number(msg.message?.id || 0) || null,
         });
         this.logger.warn(`WhatsApp automatic send suppressed messageId=${msg.id} reason=${suppressionReason}`);
         return;
@@ -8509,6 +8708,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           where: { outboundMessageId: msg.id },
           data: { status: 'QUEUED' },
         });
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'queued',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -8613,6 +8820,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             providerResponse: input.response ?? null,
           },
         });
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'sent',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
       };
 
       if (attachment) {
@@ -8744,6 +8959,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'SENT', error: null } });
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'sent',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
         return;
       }
 
@@ -8850,6 +9073,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             providerResponse: res.data ?? null,
           },
         });
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'sent',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
         this.logger.log(
           `WhatsApp sent messageId=${msg.id} providerMessageId=${providerMessageId || '(missing)'} in ${Date.now() - startedAtMs}ms`,
         );
@@ -8898,6 +9129,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             requestBody,
           },
         });
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'failed',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
         return;
       }
 
@@ -8951,6 +9190,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             sourceModule: msg.sourceModule || null,
           },
         });
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'failed',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
         this.logger.warn(`WhatsApp FAILED messageId=${msg.id} after ${attemptNo} attempts: ${errorMessage}`);
         return;
       }
@@ -8959,6 +9206,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       const next = new Date(Date.now() + delayMs);
       await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'PENDING', nextAttemptAt: next } });
       await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'QUEUED', error: errorMessage } });
+      if (conversationId) {
+        await this.conversations.dispatchVendasCockpitProjection?.({
+          companyId: msg.companyId,
+          conversationId,
+          event: 'queued',
+          messageId: Number(msg.message?.id || 0) || null,
+        });
+      }
       await this.logWhatsAppEvent({
         companyId: msg.companyId,
         scope: 'dispatch',
@@ -9275,38 +9530,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             });
           }
 
-          if (providerMessageId) {
-            const update: any = {
-              deliveryStatus: status || undefined,
-              lastWebhookAt: new Date(),
-              lastWebhookPayload: JSON.stringify(st ?? null),
-            };
-            if (status === 'delivered') update.deliveredAt = at;
-            if (status === 'read') update.readAt = at;
-            if (status === 'failed') {
-              update.failedAt = at;
-              update.status = 'FAILED';
-              const errorTitle = st?.errors?.[0]?.title ? String(st.errors[0].title) : 'WhatsApp delivery failed';
-              update.lastError = errorTitle;
-            }
-            if (status === 'delivered' || status === 'read') {
-              // keep queue status as SENT; optionally surface final states
-              update.status = status === 'read' ? 'READ' : 'DELIVERED';
-            }
-            await this.prisma.outboundMessage.updateMany({ where: { providerMessageId }, data: update });
-
-            const msgUpdate: any = {};
-            if (status === 'delivered') msgUpdate.status = 'DELIVERED';
-            if (status === 'read') msgUpdate.status = 'READ';
-            if (status === 'failed') {
-              msgUpdate.status = 'FAILED';
-              msgUpdate.error = st?.errors?.[0]?.title ? String(st.errors[0].title) : 'WhatsApp delivery failed';
-            }
-            if (status === 'sent') msgUpdate.status = 'SENT';
-            if (status === 'sent' || status === 'delivered' || status === 'read') msgUpdate.error = null;
-            if (Object.keys(msgUpdate).length) {
-              await this.prisma.companyMessage.updateMany({ where: { providerMessageId }, data: msgUpdate });
-            }
+          if (providerMessageId && company) {
+            const statusResult = await this.applyProviderDeliveryStatus({
+              companyId: company.id,
+              providerMessageId,
+              status,
+              timestamp: at,
+              rawPayload: st,
+              scope: 'webhook',
+            });
             if (status === 'failed' || status === 'delivered' || status === 'read') {
               await this.updateRecoveryTemplateLastContactByProviderMessage(
                 providerMessageId,
@@ -9314,8 +9546,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
                 at,
               );
             }
+            for (const conversationId of statusResult.conversationIds) {
+              this.inboxRealtime.publish({
+                companyId: company.id,
+                kind: 'status',
+                conversationId,
+                at: new Date().toISOString(),
+              });
+            }
             await this.logWhatsAppEvent({
-              companyId: company?.id,
+              companyId: company.id,
               scope: 'webhook',
               event: 'status_received',
               message: `Status ${status || 'unknown'} recebido da Meta`,
@@ -9631,17 +9871,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    // WORM-13 (13b) — gatilho reativo "lead respondeu WhatsApp". Best-effort, sem
-    // bloquear o inbound; nao dispara WhatsApp automatico (so move funil / cria
-    // atividade / notifica vendedor). O detector e este mesmo inbound (nao criamos
-    // outro). O relay so faz algo se a empresa tiver gatilho ativo pro telefone.
-    void this.conversations.dispatchCadenciaInbound({
-      companyId,
-      fromPhone: from,
-      conversationId: inboundConversationId || null,
-      text,
-    });
-
     const isHistoricalWebwhatsSync =
       String(input.scope || '').trim().toLowerCase() === 'webwhats_sync' &&
       input.timestamp instanceof Date &&
@@ -9664,6 +9893,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           messageTimestamp: input.timestamp.toISOString(),
         },
       });
+      if (inboundConversationId > 0 && Number(input.inboundRow?.id || 0) > 0) {
+        await this.conversations.dispatchVendasCockpitProjection({
+          companyId,
+          conversationId: inboundConversationId,
+          event: 'inbound',
+          messageId: Number(input.inboundRow.id),
+          validHumanInbound: false,
+        });
+      }
       return { matched: false, source: 'webwhats_sync_historical', botSuppressed: true };
     }
 
@@ -9687,7 +9925,50 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           startupGuardMs: this.startupBotDispatchGuardMs,
         },
       });
+      if (inboundConversationId > 0 && Number(input.inboundRow?.id || 0) > 0) {
+        await this.conversations.dispatchVendasCockpitProjection({
+          companyId,
+          conversationId: inboundConversationId,
+          event: 'inbound',
+          messageId: Number(input.inboundRow.id),
+          validHumanInbound: false,
+        });
+      }
       return { matched: false, source: 'webwhats_sync_startup', botSuppressed: true };
+    }
+
+    const isValidHumanInbound = ['text', 'button', 'interactive', 'image', 'video', 'document', 'audio']
+      .includes(input.inboundType) && classifyProspectingAutoReply(text) === null;
+    if (isValidHumanInbound && inboundConversationId > 0 && Number(input.inboundRow?.id || 0) > 0) {
+      // Barreira obrigatoria antes de IA e gatilhos: um inbound real invalida os
+      // proximos contatos comerciais. O metodo e idempotente pelo id da mensagem.
+      await this.commercialContactControl.interruptForInbound({
+        companyId,
+        conversationId: inboundConversationId,
+        inboundMessageId: Number(input.inboundRow.id),
+        from,
+        timestamp: input.timestamp,
+      });
+    }
+    if (inboundConversationId > 0 && Number(input.inboundRow?.id || 0) > 0) {
+      await this.conversations.dispatchVendasCockpitProjection?.({
+        companyId,
+        conversationId: inboundConversationId,
+        event: 'inbound',
+        messageId: Number(input.inboundRow.id),
+        validHumanInbound: isValidHumanInbound,
+      });
+    }
+
+    // WORM-13 (13b) — apenas resposta humana valida aciona a cadencia. Recibo,
+    // sincronizacao historica e auto-reply nao podem mover estado comercial.
+    if (isValidHumanInbound) {
+      void this.conversations.dispatchCadenciaInbound({
+        companyId,
+        fromPhone: from,
+        conversationId: inboundConversationId || null,
+        text,
+      });
     }
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
@@ -9848,6 +10129,31 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       receivedOnModuleKey: String(input.receivedOnModuleKey || '').trim().toLowerCase() || null,
       receivedOnEndpointLabel: String(input.receivedOnEndpointLabel || '').trim() || null,
     });
+
+    if (inboundRow?.isNew === false) {
+      const conversationId = Number(inboundRow?.conversationId || 0);
+      if (conversationId > 0) {
+        await this.conversations.dispatchVendasCockpitProjection({
+          companyId,
+          conversationId,
+          event: 'inbound',
+          messageId: Number(inboundRow?.id || 0) || null,
+          validHumanInbound: false,
+        });
+      }
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'webhook',
+        event: 'inbound_duplicate_suppressed',
+        message: 'Replay de mensagem inbound ignorado apos persistencia idempotente.',
+        conversationId: conversationId || null,
+        phone: from,
+        messageType: inboundType,
+        result: 'duplicate',
+        extra: { providerMessageId: input.externalMessageId || null },
+      });
+      return { matched: false, source: 'webhook_duplicate', duplicate: true };
+    }
 
     return this.processPersistedInbound({
       company: {

@@ -1060,6 +1060,7 @@ test('sendMessage resolves quoted by the numeric Message id when the front sends
 test('retryConversationMessage reopens failed outbound in the dispatch queue', async () => {
   const outboundUpdates: Array<Record<string, any>> = [];
   const messageUpdates: Array<Record<string, any>> = [];
+  const projectionCalls: Array<Record<string, any>> = [];
   const { service, auditCalls } = createService({
     prisma: {
       outboundMessage: {
@@ -1093,6 +1094,11 @@ test('retryConversationMessage reopens failed outbound in the dispatch queue', a
         },
       },
     },
+    conversations: {
+      dispatchVendasCockpitProjection: async (input: Record<string, any>) => {
+        projectionCalls.push(input);
+      },
+    },
   });
   (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [{ id: '901', status: 'QUEUED' }] });
 
@@ -1119,6 +1125,12 @@ test('retryConversationMessage reopens failed outbound in the dispatch queue', a
   assert.equal(auditCalls.length, 1);
   assert.equal(auditCalls[0].event, 'manual_outbound_retry_queued');
   assert.equal((auditCalls[0].metadata as any).outboundMessageId, 777);
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 7,
+    conversationId: 42,
+    event: 'queued',
+    messageId: 901,
+  });
 });
 
 test('reactToConversationMessage resolves by DB id and sends provider key from rawPayload.key.id', async () => {

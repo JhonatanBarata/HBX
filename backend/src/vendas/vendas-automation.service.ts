@@ -26,6 +26,11 @@ import {
 } from './prospecting-safety';
 import { VendasService } from './vendas.service';
 import { IntentEngineService } from '../bot/intent/intent-engine.service';
+import {
+  COMMERCIAL_INBOUND_STOP_REASON,
+  COMMERCIAL_WHATSAPP_SOURCE_MODULES,
+  CommercialContactControlService,
+} from './commercial-contact-control.service';
 
 type LiveAutomationStatus =
   | 'parado'
@@ -192,6 +197,8 @@ const NEGATIVE_OR_OPT_OUT_STATUS_KEYS = [
   'no_whatsapp',
 ] as const;
 const NO_RESPONSE_ARCHIVE_MS = 24 * 60 * 60 * 1000;
+const CONFIRMED_COMPANY_MESSAGE_STATUSES = ['SENT', 'DELIVERED', 'READ'] as const;
+const CONFIRMED_OUTBOX_DELIVERY_STATUSES = ['sent', 'delivered', 'read'] as const;
 const BUSINESS_TIME_ZONE = 'America/Sao_Paulo';
 const COMPANY_LEGAL_SUFFIXES = new Set(['ltda', 'me', 'mei', 'eireli', 'epp', 'sa', 's/a', 'ss']);
 const COMPANY_LEADING_GENERIC = new Set(['empresa', 'empresas', 'companhia', 'cia']);
@@ -509,6 +516,7 @@ function normalizeWebsiteKey(value: unknown) {
 @Injectable()
 export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VendasAutomationService.name);
+  private readonly commercialContactControl: CommercialContactControlService;
   private workerTimer: NodeJS.Timeout | null = null;
   private workerRunning = false;
   // Restart-safe (ARQ4 S2): job que ficou preso em 'sending' apos restart/crash
@@ -527,7 +535,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
     private readonly intentEngine: IntentEngineService,
-  ) {}
+  ) {
+    this.commercialContactControl = new CommercialContactControlService(this.prisma);
+  }
 
   onModuleInit() {
     // Reconcilia jobs orfaos ANTES de ligar o timer: um restart no meio do
@@ -543,12 +553,72 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }, 15000);
   }
 
+  private async findCommercialOutboundStateForJob(job: {
+    id: string;
+    companyId: number;
+  }): Promise<{
+    message: any | null;
+    confirmed: boolean;
+    sentAt: Date | null;
+  }> {
+    const message = await this.prisma.companyMessage.findFirst({
+      where: {
+        companyId: job.companyId,
+        direction: 'OUTBOUND',
+        sourceModule: { in: [...COMMERCIAL_WHATSAPP_SOURCE_MODULES] },
+        variablesJson: { contains: `"jobId":"${job.id}"` },
+      },
+      select: {
+        id: true,
+        conversationId: true,
+        status: true,
+        timestamp: true,
+        outboundMessageId: true,
+        outboundMessage: {
+          select: {
+            status: true,
+            deliveryStatus: true,
+            sentAt: true,
+            deliveredAt: true,
+            readAt: true,
+          },
+        },
+      },
+      orderBy: { id: 'desc' },
+    });
+    if (!message) return { message: null, confirmed: false, sentAt: null };
+
+    const companyMessageStatus = String(message.status || '').trim().toUpperCase();
+    const outboxStatus = String(message.outboundMessage?.status || '').trim().toUpperCase();
+    const deliveryStatus = String(message.outboundMessage?.deliveryStatus || '').trim().toLowerCase();
+    const confirmed =
+      (CONFIRMED_COMPANY_MESSAGE_STATUSES as readonly string[]).includes(companyMessageStatus) ||
+      outboxStatus === 'SENT' ||
+      (CONFIRMED_OUTBOX_DELIVERY_STATUSES as readonly string[]).includes(deliveryStatus);
+    if (!confirmed) return { message, confirmed: false, sentAt: null };
+
+    // O timestamp do job legado e o momento do enqueue. Para prazo comercial,
+    // usa primeiro o sentAt do outbox; fallbacks so existem para mensagens
+    // espelhadas/importadas que ja chegaram com estado confirmado.
+    const candidates = [
+      message.outboundMessage?.sentAt,
+      message.outboundMessage?.deliveredAt,
+      message.outboundMessage?.readAt,
+      (CONFIRMED_COMPANY_MESSAGE_STATUSES as readonly string[]).includes(companyMessageStatus)
+        ? message.timestamp
+        : null,
+    ];
+    const sentAt = candidates
+      .map((value) => value instanceof Date ? value : value ? new Date(value) : null)
+      .find((value): value is Date => Boolean(value && Number.isFinite(value.getTime()))) || null;
+    return { message, confirmed: Boolean(sentAt), sentAt };
+  }
+
   // Restart-safe (ARQ4 S2). Reconcilia jobs presos em 'sending' apos restart/crash.
   // REGRA DE OURO: na duvida, NAO reenviar (reenvio de 1o contato = risco de ban).
-  // Fonte da verdade de "ja enviou?": o companyMessage OUTBOUND que
-  // queueOutboundForCompany grava com o jobId no variablesJson, na MESMA transacao
-  // que retorna o envio. Presente = envio aconteceu (marca sent, nunca reenvia).
-  // Ausente = morreu antes do envio (volta pra scheduled, a fila reespaça).
+  // Fonte da verdade de "ja enviou?": CompanyMessage/OutboundMessage com estado
+  // confirmado. A mera existencia do registro QUEUED/SENDING/FAILED/CANCELED nao
+  // comprova envio e nao inicia o relogio de 24h.
   private async recoverOrphanedSendingJobs(graceMs = VendasAutomationService.ORPHAN_SENDING_GRACE_MS) {
     this.lastRecoverySweepAt = Date.now();
     const cutoff = new Date(Date.now() - graceMs);
@@ -561,33 +631,35 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     let rescheduled = 0;
     for (const job of orphans) {
       try {
-        const alreadySent = await this.prisma.companyMessage.findFirst({
-          where: {
-            companyId: job.companyId,
-            direction: 'OUTBOUND',
-            sourceModule: 'vendas_prospeccao_bot',
-            variablesJson: { contains: `"jobId":"${job.id}"` },
-          },
-          select: { conversationId: true, timestamp: true },
-        });
-        if (alreadySent) {
+        const outboundState = await this.findCommercialOutboundStateForJob(job);
+        if (outboundState.confirmed && outboundState.sentAt) {
           const result = await this.prisma.vendasAutomationJob.updateMany({
             where: { id: job.id, status: 'sending' },
             data: {
               status: 'sent',
-              sentAt: alreadySent.timestamp || new Date(),
-              conversationId: alreadySent.conversationId ?? undefined,
+              sentAt: outboundState.sentAt,
+              conversationId: outboundState.message?.conversationId ?? undefined,
               classification: 'recovered_sent_after_restart',
               errorMessage: null,
             },
           });
           if (result.count) markedSent += 1;
-        } else {
+        } else if (!outboundState.message) {
           const result = await this.prisma.vendasAutomationJob.updateMany({
             where: { id: job.id, status: 'sending' },
             data: { status: 'scheduled', classification: 'recovered_rescheduled_after_restart' },
           });
           if (result.count) rescheduled += 1;
+        } else {
+          // Ha outbox: reenfileirar o job criaria duplicata. Mantem o claim ate o
+          // dispatcher/manual retry produzir um estado confirmado ou definitivo.
+          await this.prisma.vendasAutomationJob.updateMany({
+            where: { id: job.id, status: 'sending' },
+            data: {
+              classification: 'recovered_waiting_outbox_after_restart',
+              errorMessage: null,
+            },
+          });
         }
       } catch (error: any) {
         this.logger.warn(`[vendas-automation] recovery de job orfao falhou job=${job.id}: ${String(error?.message || error)}`);
@@ -2883,9 +2955,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         ...(fallbackLeadIds.has(String(lead.id)) ? { classification: 'segment_mismatch_fallback' } : {}),
       });
     }
+    const createdData: any[] = [];
     if (data.length) {
-      await this.prisma.vendasAutomationJob.createMany({ data, skipDuplicates: true });
       for (const item of data) {
+        const slot = await this.commercialContactControl.createVendasAutomationJob({
+          companyId: campaign.companyId,
+          leadId: String(item.leadId),
+          campaignId: campaign.id,
+          data: item,
+        });
+        if (slot.created) createdData.push(item);
+      }
+      for (const item of createdData) {
         const lead = leads.find((candidate) => candidate.id === item.leadId);
         if (!lead) continue;
         const usesFallback = fallbackLeadIds.has(String(lead.id));
@@ -2923,8 +3004,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       campaign.id,
       campaign.companyId,
       'aguardando',
-      data.length
-        ? `${pendingCount + data.length} contatos na fila.`
+      createdData.length
+        ? `${pendingCount + createdData.length} contatos na fila.`
         : pendingCount > 0
           ? `${pendingCount} contatos na fila.`
         : draftOnlyCount
@@ -3082,9 +3163,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
+      const createdData: any[] = [];
       if (data.length) {
-        await this.prisma.vendasAutomationJob.createMany({ data });
         for (const item of data) {
+          const slot = await this.commercialContactControl.createVendasAutomationJob({
+            companyId: campaign.companyId,
+            leadId: String(item.leadId),
+            campaignId: campaign.id,
+            data: item,
+          });
+          if (slot.created) createdData.push(item);
+        }
+        for (const item of createdData) {
           const lead = leads.find((candidate) => candidate.id === item.leadId);
           if (!lead) continue;
           const usesFallback = fallbackLeadIds.has(String(lead.id));
@@ -3121,7 +3211,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           campaign.id,
           campaign.companyId,
           'aguardando',
-          `${data.length} card(s) adicionados manualmente na fila automática.`,
+          `${createdData.length} card(s) adicionados manualmente na fila automática.`,
           { type: 'manual_leads_queued' },
         );
         void this.runWorkerCycle().catch(() => null);
@@ -3138,8 +3228,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return {
         ok: true,
         campaignId: campaign.id,
-        queuedCount: data.length,
-        skippedCount: Math.max(0, requestedLeadIds.length - data.length - draftOnlyCount),
+        queuedCount: createdData.length,
+        skippedCount: Math.max(0, requestedLeadIds.length - createdData.length - draftOnlyCount),
         reason: 'queued',
       };
     } catch (error: any) {
@@ -3352,36 +3442,62 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       take: 40,
     });
     for (const job of jobs) {
-      await this.archiveNoResponseJob(job as any).catch((error) => {
+      const outboundState = await this.findCommercialOutboundStateForJob(job as any);
+      if (!outboundState.confirmed || !outboundState.sentAt || outboundState.sentAt > cutoff) continue;
+      await this.archiveNoResponseJob(job as any, outboundState.sentAt).catch((error) => {
         this.logger.warn(`Arquivamento sem resposta falhou job=${job.id}: ${String(error?.message || error)}`);
       });
     }
   }
 
-  private async archiveNoResponseJob(job: any) {
+  private async archiveNoResponseJob(job: any, confirmedSentAt?: Date | null) {
     const now = new Date();
+    const outboundState = confirmedSentAt
+      ? { confirmed: true, sentAt: confirmedSentAt }
+      : await this.findCommercialOutboundStateForJob(job);
+    const realSentAt = outboundState.sentAt instanceof Date ? outboundState.sentAt : null;
+    if (!outboundState.confirmed || !realSentAt || now.getTime() - realSentAt.getTime() < NO_RESPONSE_ARCHIVE_MS) {
+      return false;
+    }
     this.logger.log(`[prospeccao] 24h sem resposta, encerrando lead sem mover fila conversation=${job.conversationId || '-'} job=${job.id}`);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vendasAutomationJob.update({
-        where: { id: job.id },
-        data: { status: 'no_response_archived', archivedAt: now, classification: 'no_response' },
+    const archived = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.vendasAutomationJob.updateMany({
+        where: {
+          id: job.id,
+          status: 'sent',
+          OR: [
+            { classification: null },
+            { classification: { not: COMMERCIAL_INBOUND_STOP_REASON } },
+          ],
+        },
+        data: {
+          status: 'no_response_archived',
+          sentAt: realSentAt,
+          archivedAt: now,
+          classification: 'no_response',
+        },
       });
-      await tx.vendasLead.updateMany({
+      if (claimed.count !== 1) return false;
+      const leadUpdate = await tx.vendasLead.updateMany({
         where: { id: job.leadId, companyId: job.companyId, status: { not: 'encerrado' } },
         data: { status: 'encerrado', wasClosedBefore: true, closedAt: now, lastResult: 'Sem resposta em 24h' },
       });
-      await tx.vendasLeadTimelineEvent.create({
-        data: {
-          leadId: job.leadId,
-          eventType: 'lead_closed',
-          title: 'Lead arquivado sem resposta',
-          description: 'Sem resposta em 24h. Prospecção fria encerrada sem nova insistência automática.',
-          sourceType: 'vendas_prospeccao_bot',
-          statusTo: 'encerrado',
-          resultLabel: 'Sem resposta',
-        },
-      });
+      if (leadUpdate.count) {
+        await tx.vendasLeadTimelineEvent.create({
+          data: {
+            leadId: job.leadId,
+            eventType: 'lead_closed',
+            title: 'Lead arquivado sem resposta',
+            description: 'Sem resposta em 24h. Prospecção fria encerrada sem nova insistência automática.',
+            sourceType: 'vendas_prospeccao_bot',
+            statusTo: 'encerrado',
+            resultLabel: 'Sem resposta',
+          },
+        });
+      }
+      return true;
     });
+    if (!archived) return false;
     if (job.conversationId) {
       const conversation = await this.prisma.companyConversation.findFirst({
         where: { id: Number(job.conversationId), companyId: job.companyId },
@@ -3409,8 +3525,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             current: prospeccao,
             lead: job.lead,
             campaign: job.campaign,
-            firstOutboundAt: job.sentAt || prospeccao.firstOutboundAt || null,
-            replyDeadlineAt: this.addHoursIso(job.sentAt || prospeccao.firstOutboundAt || null, 24),
+            firstOutboundAt: realSentAt,
+            replyDeadlineAt: this.addHoursIso(realSentAt, 24),
             mismatchReason: null,
           }),
         },
@@ -3426,6 +3542,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       text: 'Lead sem resposta arquivado.',
       type: 'lead_archived',
     });
+    return true;
   }
 
   private isInsideWorkingHours(date: Date, campaign: any) {
@@ -4133,6 +4250,23 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
+    if (!(await this.commercialContactControl.canVendasJobQueue({
+      companyId: campaign.companyId,
+      leadId,
+      jobId,
+    }))) {
+      this.logger.log(
+        `[vendas-automation] envio invalidado antes da fila campaignId=${campaignId} jobId=${jobId} leadId=${leadId} reason=${COMMERCIAL_INBOUND_STOP_REASON}`,
+      );
+      return {
+        outcome: 'skipped',
+        campaignId,
+        leadId,
+        jobId,
+        classification: COMMERCIAL_INBOUND_STOP_REASON,
+        shouldContinue: true,
+      };
+    }
     try {
       const queued = await this.conversations.queueOutboundForCompany(campaign.companyId, {
         to: contact,
@@ -4156,10 +4290,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         },
       });
       const sentAt = new Date();
-      await this.prisma.$transaction(async (tx) => {
-        await tx.vendasAutomationJob.update({
-          where: { id: job.id },
+      const sentCommitted = await this.prisma.$transaction(async (tx) => {
+        const jobUpdate = await tx.vendasAutomationJob.updateMany({
+          where: {
+            id: job.id,
+            status: 'sending',
+            OR: [
+              { classification: null },
+              { classification: { not: COMMERCIAL_INBOUND_STOP_REASON } },
+            ],
+          },
           data: {
+            // LEGADO RESIDUAL: neste motor, "sent" significa aceito pelo outbox,
+            // nao confirmado pelo provedor. Mantemos o token para nao reprocessar
+            // o job; o cockpit usa a projecao canonica do OutboundMessage.
             status: 'sent',
             sentAt,
             conversationId: Number(queued.conversationId),
@@ -4167,30 +4311,22 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             ...(mismatchReason ? { classification: mismatchReason } : {}),
           },
         });
-        await tx.vendasLead.update({
-          where: { id: lead.id },
-          data: {
-            status: 'contato',
-            lastContactAt: sentAt,
-            attemptCount: { increment: 1 },
-            lastResult: preMessageEnabled ? 'Pré-mensagem automática' : 'Primeiro contato automático',
-          },
-        });
-        await tx.vendasLeadTimelineEvent.create({
-          data: {
-            leadId: lead.id,
-            eventType: 'contact_made',
-            title: preMessageEnabled ? 'Pré-mensagem automática enviada' : 'Primeiro contato automático enviado',
-            description: preMessageEnabled
-              ? 'Filtro inicial da prospecção automática enfileirado pelo backend.'
-              : 'Mensagem inicial da prospecção automática enfileirada pelo backend.',
-            sourceType: 'vendas_prospeccao_bot',
-            statusTo: 'contato',
-            resultLabel: 'Automação',
-            createdByUserId: campaign.createdByUserId || null,
-          },
-        });
+        if (jobUpdate.count !== 1) return false;
+        return true;
       });
+      if (!sentCommitted) {
+        this.logger.warn(
+          `[vendas-automation] fila criada, mas job invalidado por inbound antes do commit campaignId=${campaignId} jobId=${jobId}`,
+        );
+        return {
+          outcome: 'skipped',
+          campaignId,
+          leadId,
+          jobId,
+          classification: COMMERCIAL_INBOUND_STOP_REASON,
+          shouldContinue: true,
+        };
+      }
       await this.attachAutomationMetadata({
         companyId: campaign.companyId,
         conversationId: Number(queued.conversationId),
@@ -4202,7 +4338,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         mismatchReason,
         preMessageSent: preMessageEnabled,
       });
-      this.logger.log(`[prospeccao] outbound automatico enviado, mantendo em prospeccao conversation=${Number(queued.conversationId)} job=${job.id}`);
+      this.logger.log(`[prospeccao] outbound automatico enfileirado, mantendo pipeline inalterado conversation=${Number(queued.conversationId)} job=${job.id}`);
       const sentTodayAfter = sentToday + 1;
       const nextAllowedAfterSend = this.moveToWorkingWindow(new Date(sentAt.getTime() + this.getCampaignIntervalMs(campaign)), campaign);
       this.logger.log(
@@ -4215,8 +4351,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         leadId: lead.id,
         conversationId: Number(queued.conversationId),
         status: 'aguardando',
-        text: preMessageEnabled ? 'Pré-mensagem enviada. Aguardando resposta humana.' : 'Contato enviado. Aguardando resposta.',
-        type: 'message_sent',
+        text: preMessageEnabled ? 'Pré-mensagem enfileirada.' : 'Contato enfileirado.',
+        type: 'message_queued',
       });
       await this.scheduleJobsForCampaign(campaign.id).catch((error) => {
         this.logger.warn(`Falha ao repor fila apos envio campaign=${campaign.id}: ${String(error?.message || error)}`);
@@ -4224,8 +4360,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return { outcome: 'sent_success', campaignId, leadId, jobId, sentAt };
     } catch (error: any) {
       const errorMessage = String(error?.message || error);
-      await this.prisma.vendasAutomationJob.update({
-        where: { id: job.id },
+      await this.prisma.vendasAutomationJob.updateMany({
+        where: { id: job.id, status: 'sending' },
         data: { status: 'failed', archivedAt: new Date(), errorMessage },
       });
       this.logger.warn(

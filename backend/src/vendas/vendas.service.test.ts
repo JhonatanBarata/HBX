@@ -169,6 +169,11 @@ function createService(overrides?: Partial<Record<string, any>>) {
     ...(overrides?.masterAlert || {}),
   } as any;
 
+  const cockpitProjector = {
+    getCockpitStatesForLeads: async () => new Map(),
+    ...(overrides?.cockpitProjector || {}),
+  } as any;
+
   const service = new VendasService(
     prisma,
     cadastrosService,
@@ -182,6 +187,7 @@ function createService(overrides?: Partial<Record<string, any>>) {
     hbxCommissionSync,
     authService,
     masterAlert,
+    cockpitProjector,
   );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }

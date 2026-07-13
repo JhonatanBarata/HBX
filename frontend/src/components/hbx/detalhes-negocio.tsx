@@ -140,6 +140,84 @@ export type NegocioSale = {
   commissionNote?: string | null;        // nota da comissão
 };
 
+// Fachada canônica Vendas ↔ conversa. Estes tipos são compartilhados pelo
+// board, pelo cockpit e pela casca mobile para que todos mostrem o MESMO estado
+// comercial sem inferir resposta a partir de `isInInbox`.
+export type VendasConversationRef = {
+  id?: string | null;
+  exists?: boolean | null;
+  contact?: string | null;
+  channel?: string | null;
+  linkedAt?: string | null;
+};
+
+export type VendasEngagementState =
+  | "no_conversation"
+  | "no_messages"
+  | "queued"
+  | "sending"
+  | "awaiting_reply"
+  | "replied"
+  | "failed"
+  | "canceled";
+
+export type VendasEngagementSnapshot = {
+  state?: VendasEngagementState | null;
+  hasSuccessfulOutbound?: boolean | null;
+  hasInboundMessage?: boolean | null;
+  hasInboundReply?: boolean | null;
+  firstSuccessfulOutboundAt?: string | null;
+  lastOutboundAt?: string | null;
+  lastOutboundStatus?: string | null;
+  lastInboundAt?: string | null;
+  lastMessageAt?: string | null;
+  lastMessageDirection?: string | null;
+  lastMessageStatus?: string | null;
+  lastMessagePreview?: string | null;
+  failureReason?: string | null;
+};
+
+export type VendasConversationSnapshot = {
+  conversation?: VendasConversationRef | null;
+  engagement?: VendasEngagementSnapshot | null;
+};
+
+const VENDAS_ENGAGEMENT_META: Record<VendasEngagementState, { label: string; className: string }> = {
+  no_conversation: { label: "Sem conversa", className: "tag" },
+  no_messages: { label: "Sem mensagens", className: "tag" },
+  queued: { label: "Na fila", className: "tag warn" },
+  sending: { label: "Enviando", className: "tag warn" },
+  awaiting_reply: { label: "Aguardando resposta", className: "tag warn" },
+  replied: { label: "Cliente respondeu", className: "tag teal" },
+  failed: { label: "Falha no envio", className: "tag red" },
+  canceled: { label: "Envio cancelado", className: "tag red" },
+};
+
+function normalizeEngagementState(
+  engagement?: VendasEngagementSnapshot | null,
+  conversation?: VendasConversationRef | null,
+): VendasEngagementState {
+  const raw = String(engagement?.state || "").trim().toLowerCase() as VendasEngagementState;
+  if (Object.prototype.hasOwnProperty.call(VENDAS_ENGAGEMENT_META, raw)) return raw;
+
+  const status = String(engagement?.lastMessageStatus || engagement?.lastOutboundStatus || "").trim().toUpperCase();
+  if (status === "FAILED") return "failed";
+  if (status === "CANCELED" || status === "CANCELLED") return "canceled";
+  if (engagement?.hasInboundReply) return "replied";
+  if (status === "QUEUED" || status === "PENDING") return "queued";
+  if (status === "SENDING" || status === "PROCESSING") return "sending";
+  if (engagement?.hasSuccessfulOutbound) return "awaiting_reply";
+  return conversation?.exists || conversation?.id ? "no_messages" : "no_conversation";
+}
+
+export function vendasEngagementMeta(
+  engagement?: VendasEngagementSnapshot | null,
+  conversation?: VendasConversationRef | null,
+): { state: VendasEngagementState; label: string; className: string } {
+  const state = normalizeEngagementState(engagement, conversation);
+  return { state, ...VENDAS_ENGAGEMENT_META[state] };
+}
+
 export type NegocioDetail = {
   id: string;
   name?: string | null;
@@ -198,6 +276,8 @@ export type NegocioDetail = {
   botActive?: boolean | null;
   humanAssigned?: boolean | null;
   isInInbox?: boolean | null;
+  conversation?: VendasConversationRef | null;
+  engagement?: VendasEngagementSnapshot | null;
 
   // enriquecimento
   enriched?: boolean;
@@ -326,6 +406,14 @@ export type DetalhesNegocioProps = {
    * thread cheio (Atendimento) pode passar `showConversation={false}` para suprimir.
    */
   showConversation?: boolean;
+
+  /**
+   * Opt-in exclusivo do módulo Vendas. Quando presente, ConversationPanel usa
+   * a fachada `/vendas/lead/:leadId/conversation*`; consumidores antigos sem a
+   * prop continuam no fluxo legado do Atendimento.
+   */
+  conversationLeadId?: string | null;
+  onConversationChanged?: (snapshot?: VendasConversationSnapshot) => void | Promise<void>;
 
   /**
    * Agenda embutida do lead (pedido do dono, item 2 da revisão — "mover
@@ -774,12 +862,11 @@ function ChannelRow({
 // Núcleo do aceite: ler o thread da conversa do lead SEM sair da tela, responder
 // pela rotina NORMAL do Atendimento e ligar/desligar a IA por conversa.
 //
-// REGRA DURA (Webwhats): envio usa EXATAMENTE `/inbox/conversations/:id/message`
-// (mesma sessão, mesmo disjuntor/outbox do Atendimento). NUNCA API crua do motor,
-// NUNCA socket novo. A resolução da conversa é `/inbox/conversations/start`, o
-// mesmo caminho que o botão "WhatsApp interno" do Vendas já usa (valida QR/número
-// no motor). Handoff da IA: enviar humano já derruba o bot no backend (a rotina
-// grava humanAssigned:true/botActive:false); "devolver pra IA" religa via bulk-bot.
+// REGRA DURA (Webwhats): nunca chamar API crua do motor nem abrir socket novo.
+// Em Vendas (`leadId` presente), toda leitura/criação/envio passa pela fachada
+// `/vendas/lead/:leadId/conversation*`, que preserva vínculo e projeção do cockpit.
+// Consumidores antigos sem `leadId` continuam exatamente em `/inbox/conversations/*`.
+// Handoff da IA segue na rotina existente; "devolver pra IA" religa via bulk-bot.
 
 type ConvoMessage = {
   id: string;
@@ -792,7 +879,97 @@ type ConvoMessage = {
 };
 
 type ConvoStart = { id?: number | string; botActive?: boolean | null; humanAssigned?: boolean | null };
-type ConvoMessagesResponse = { messages?: ConvoMessage[]; hasMore?: boolean; nextBefore?: string | null };
+type ConvoMessagesResponse = VendasConversationSnapshot & {
+  messages?: unknown[];
+  hasMore?: boolean;
+  nextBefore?: string | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function normalizeConvoMessage(value: unknown, index: number): ConvoMessage {
+  const raw = asRecord(value);
+  const createdAtRaw = raw.createdAt ?? raw.timestamp ?? null;
+  return {
+    id: String(raw.id ?? `message-${index}`),
+    direction: String(raw.direction || "").trim().toLowerCase(),
+    content: String(raw.content ?? raw.body ?? ""),
+    createdAt: createdAtRaw == null ? null : String(createdAtRaw),
+    messageType: String(raw.messageType || "text").trim().toLowerCase(),
+    status: String(raw.status || "").trim().toUpperCase(),
+    error: raw.error == null ? null : String(raw.error),
+  };
+}
+
+function normalizeConvoMessages(value: unknown): ConvoMessage[] {
+  return Array.isArray(value) ? value.map(normalizeConvoMessage) : [];
+}
+
+function parseVendasSnapshot(value: unknown): VendasConversationSnapshot {
+  const root = asRecord(value);
+  const nested = asRecord(root.data);
+  const source = ("conversation" in nested || "engagement" in nested || "messages" in nested) ? nested : root;
+
+  if ("conversation" in source || "engagement" in source) {
+    const conversationRaw = source.conversation;
+    const engagementRaw = source.engagement;
+    return {
+      ...("conversation" in source
+        ? { conversation: conversationRaw == null ? null : asRecord(conversationRaw) as VendasConversationRef }
+        : {}),
+      ...("engagement" in source
+        ? { engagement: engagementRaw == null ? null : asRecord(engagementRaw) as VendasEngagementSnapshot }
+        : {}),
+    };
+  }
+
+  // Compatibilidade defensiva com respostas diretas (`{id, exists}` ou o
+  // próprio engagement), sem enfraquecer o contrato canônico em envelope.
+  if ("id" in source || "exists" in source) {
+    return { conversation: source as VendasConversationRef };
+  }
+  if ("state" in source || "hasInboundReply" in source || "lastMessageStatus" in source) {
+    return { engagement: source as VendasEngagementSnapshot };
+  }
+  return {};
+}
+
+function snapshotSignature(snapshot: VendasConversationSnapshot): string {
+  return JSON.stringify({
+    conversation: snapshot.conversation ?? null,
+    engagement: snapshot.engagement ?? null,
+  });
+}
+
+function mergeVendasSnapshot(
+  current: VendasConversationSnapshot,
+  incoming: VendasConversationSnapshot,
+): VendasConversationSnapshot {
+  return {
+    conversation: Object.prototype.hasOwnProperty.call(incoming, "conversation")
+      ? incoming.conversation ?? null
+      : current.conversation,
+    engagement: Object.prototype.hasOwnProperty.call(incoming, "engagement")
+      ? incoming.engagement ?? null
+      : current.engagement,
+  };
+}
+
+function messageDeliveryLabel(statusRaw: string | null | undefined): string | null {
+  const status = String(statusRaw || "").trim().toUpperCase();
+  if (status === "QUEUED" || status === "PENDING") return "Na fila";
+  if (status === "SENDING" || status === "PROCESSING") return "Enviando";
+  if (status === "SENT") return "Enviado";
+  if (status === "DELIVERED") return "Entregue";
+  if (status === "READ") return "Lida";
+  if (status === "FAILED") return "Falha no envio";
+  if (status === "CANCELED" || status === "CANCELLED") return "Envio cancelado";
+  return null;
+}
 
 function fmtMsgTime(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -803,24 +980,46 @@ function fmtMsgTime(iso: string | null | undefined): string {
 
 // Exportado (LEADS-FINAL/02, 06/07): a página /leads/[id] reusa este painel
 // SOZINHO (sem o card inteiro do DetalhesNegocio) na aba central "WhatsApp" —
-// mesma rotina de sempre (/inbox/conversations/start + .../:id/message), zero
-// mudança no motor Webwhats. O <DetalhesNegocio> da coluna esquerda passa
-// showConversation={false} pra não duplicar o painel nas duas colunas.
+// mesma rotina de sempre quando não recebe `leadId`, zero mudança no motor
+// Webwhats. O <DetalhesNegocio> da coluna esquerda passa showConversation={false}
+// pra não duplicar o painel nas duas colunas.
 export function ConversationPanel({
   phone,
   name,
   draftSignal,
+  leadId,
+  conversationId,
+  conversationSnapshot,
+  onConversationChanged,
 }: {
   phone: string;
   name?: string | null;
   // LEADS-FINAL/05 — Copiloto: injeta um RASCUNHO no campo de digitação (só
   // preenche, NUNCA envia). `seq` muda a cada clique pra re-disparar o efeito.
   draftSignal?: { text: string; seq: number };
+  leadId?: string | null;
+  conversationId?: string | number | null;
+  conversationSnapshot?: VendasConversationSnapshot | null;
+  onConversationChanged?: (snapshot?: VendasConversationSnapshot) => void | Promise<void>;
 }) {
+  const vendasMode = Boolean(leadId);
+  const initialConversationId = conversationId != null
+    ? String(conversationId)
+    : conversationSnapshot?.conversation?.id != null
+      ? String(conversationSnapshot.conversation.id)
+      : null;
+  const initialSnapshot: VendasConversationSnapshot = vendasMode
+    ? {
+        conversation: conversationSnapshot?.conversation
+          ?? (initialConversationId ? { id: initialConversationId, exists: true } : null),
+        engagement: conversationSnapshot?.engagement ?? null,
+      }
+    : {};
   const [tab, setTab] = useState<"whatsapp" | "email">("whatsapp");
   const tabPill = useGlassPill<HTMLButtonElement>(tab);
   const [opened, setOpened] = useState(false); // só bate no motor após clique explícito
-  const [convoId, setConvoId] = useState<number | null>(null);
+  const [convoId, setConvoId] = useState<string | null>(initialConversationId);
+  const [snapshot, setSnapshot] = useState<VendasConversationSnapshot>(initialSnapshot);
   const [messages, setMessages] = useState<ConvoMessage[]>([]);
   const [botActive, setBotActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -834,21 +1033,122 @@ export function ConversationPanel({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiHint, setAiHint] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const snapshotRef = useRef<VendasConversationSnapshot>(initialSnapshot);
+  const onConversationChangedRef = useRef(onConversationChanged);
+  const lastNotifiedSnapshotRef = useRef(snapshotSignature(initialSnapshot));
+  const pollBusyRef = useRef(false);
+  const postSendTimerRef = useRef<number | null>(null);
 
-  // Resolve a conversa (find-or-create) pela rotina do Atendimento e carrega o thread.
-  // SÓ é chamado após o usuário clicar "Abrir conversa" — nunca no simples abrir do card
-  // (evita bater no motor a cada card aberto; respeita a cautela Webwhats).
+  useEffect(() => {
+    onConversationChangedRef.current = onConversationChanged;
+  }, [onConversationChanged]);
+
+  const applyVendasSnapshot = useCallback((payload: unknown, notify: boolean) => {
+    const parsed = parseVendasSnapshot(payload);
+    const next = mergeVendasSnapshot(snapshotRef.current, parsed);
+    const previousSignature = snapshotSignature(snapshotRef.current);
+    const nextSignature = snapshotSignature(next);
+    snapshotRef.current = next;
+    if (nextSignature !== previousSignature) setSnapshot(next);
+
+    const nextId = next.conversation?.id != null ? String(next.conversation.id) : null;
+    setConvoId(current => current === nextId ? current : nextId);
+
+    if (notify && nextSignature !== lastNotifiedSnapshotRef.current) {
+      lastNotifiedSnapshotRef.current = nextSignature;
+      void onConversationChangedRef.current?.(next);
+    } else if (!notify) {
+      lastNotifiedSnapshotRef.current = nextSignature;
+    }
+    return next;
+  }, []);
+
+  const applyMessagePayload = useCallback((payload: unknown, options?: { prepend?: boolean; notify?: boolean }) => {
+    const root = Array.isArray(payload) ? { messages: payload } : asRecord(payload);
+    const nested = asRecord(root.data);
+    const source = ("messages" in nested || "conversation" in nested || "engagement" in nested) ? nested : root;
+    const hasMessagesField = "messages" in source;
+    if (hasMessagesField) {
+      const nextMessages = normalizeConvoMessages(source.messages);
+      if (options?.prepend) setMessages(current => [...nextMessages, ...current]);
+      else setMessages(nextMessages);
+      const fallbackBefore = Boolean(source.hasMore) ? nextMessages[0]?.createdAt ?? null : null;
+      setNextBefore(source.nextBefore == null ? fallbackBefore : String(source.nextBefore));
+    }
+    if ("hasMore" in source) setHasMore(Boolean(source.hasMore));
+    if (!hasMessagesField && "nextBefore" in source) {
+      setNextBefore(source.nextBefore == null ? null : String(source.nextBefore));
+    }
+    return applyVendasSnapshot(source, Boolean(options?.notify));
+  }, [applyVendasSnapshot]);
+
+  // O board pode ser invalidado após envio/poll e entregar uma projeção mais
+  // nova sem remontar o painel. Sincroniza só a projeção; nunca abre a conversa.
+  const incomingSnapshotSignature = vendasMode
+    ? snapshotSignature({
+        conversation: conversationSnapshot?.conversation
+          ?? (conversationId != null ? { id: String(conversationId), exists: true } : null),
+        engagement: conversationSnapshot?.engagement ?? null,
+      })
+    : "legacy";
+  useEffect(() => {
+    if (!vendasMode) return;
+    const incoming = JSON.parse(incomingSnapshotSignature) as VendasConversationSnapshot;
+    queueMicrotask(() => applyVendasSnapshot(incoming, false));
+  }, [applyVendasSnapshot, incomingSnapshotSignature, vendasMode]);
+
+  const refreshVendasThread = useCallback(async (notify = true) => {
+    if (!leadId || pollBusyRef.current) return;
+    pollBusyRef.current = true;
+    try {
+      const response = await apiFetch<unknown>(
+        `/vendas/lead/${encodeURIComponent(leadId)}/conversation/messages?limit=30`,
+      );
+      applyMessagePayload(response, { notify });
+    } catch {
+      // Poll fail-soft: conserva o thread visível e tenta novamente no próximo ciclo.
+    } finally {
+      pollBusyRef.current = false;
+    }
+  }, [applyMessagePayload, leadId]);
+
+  // Clique explícito: em Vendas primeiro faz leitura pura da fachada. Só cria ou
+  // vincula quando a leitura confirma que não há conversa. Fora de Vendas, mantém
+  // integralmente o find-or-create legado do Atendimento.
   const resolveThread = useCallback(async () => {
     setOpened(true);
     setLoading(true);
     setError(null);
     try {
+      if (vendasMode && leadId) {
+        const leadPath = `/vendas/lead/${encodeURIComponent(leadId)}/conversation`;
+        const found = await apiFetch<unknown>(leadPath);
+        let current = applyVendasSnapshot(found, true);
+        let id = current.conversation?.id != null ? String(current.conversation.id) : null;
+
+        if (!id) {
+          const created = await apiFetch<unknown>(leadPath, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          current = applyVendasSnapshot(created, true);
+          id = current.conversation?.id != null ? String(current.conversation.id) : null;
+        }
+        if (!id) throw new Error("Não foi possível abrir a conversa.");
+
+        const response = await apiFetch<unknown>(
+          `${leadPath}/messages?limit=30`,
+        );
+        applyMessagePayload(response, { notify: true });
+        return;
+      }
+
       const started = await apiFetch<ConvoStart>("/inbox/conversations/start", {
         method: "POST",
         body: JSON.stringify({ phone: phone.trim(), ...(name ? { name: name.trim() } : {}) }),
       });
-      const id = started?.id != null ? Number(started.id) : null;
-      if (!id || Number.isNaN(id)) {
+      const id = started?.id != null ? String(started.id) : null;
+      if (!id) {
         throw new Error("Não foi possível abrir a conversa.");
       }
       setConvoId(id);
@@ -856,8 +1156,7 @@ export function ConversationPanel({
       const res = await apiFetch<ConvoMessagesResponse>(
         `/inbox/conversations/${encodeURIComponent(id)}/messages?limit=30`,
       );
-      const msgs = Array.isArray(res?.messages) ? res.messages : [];
-      setMessages(msgs);
+      setMessages(normalizeConvoMessages(res?.messages));
       setHasMore(Boolean(res?.hasMore));
       setNextBefore(res?.nextBefore ?? null);
     } catch (err) {
@@ -865,7 +1164,7 @@ export function ConversationPanel({
     } finally {
       setLoading(false);
     }
-  }, [phone, name]);
+  }, [applyMessagePayload, applyVendasSnapshot, leadId, name, phone, vendasMode]);
 
   // Rola pro fim quando o thread muda (mensagem nova / carga inicial).
   useEffect(() => {
@@ -874,8 +1173,13 @@ export function ConversationPanel({
     }
   }, [messages, tab]);
 
+  const hasExistingConversation = Boolean(
+    convoId || snapshot.conversation?.id || snapshot.conversation?.exists,
+  );
+
   // Copiloto (LEADS-FINAL/05): rascunho vindo de fora → preenche o campo de
-  // digitação e garante a aba WhatsApp + a conversa aberta pro composer aparecer.
+  // digitação. Em Vendas, ele só abre automaticamente quando a conversa JÁ
+  // existe; criar/vincular uma nova conversa continua exigindo clique explícito.
   // GUARDRAIL: só PREENCHE o draft; jamais chama enviar(). O setState sai do corpo
   // síncrono do efeito (queueMicrotask) — mesmo cuidado do react-hooks/set-state.
   const lastDraftSeq = useRef(0);
@@ -888,18 +1192,37 @@ export function ConversationPanel({
     queueMicrotask(() => {
       setDraft(text);
       setTab("whatsapp");
-      if (!alreadyOpen) void resolveThread();
+      if (!alreadyOpen && (!vendasMode || hasExistingConversation)) void resolveThread();
     });
-  }, [draftSignal, opened, resolveThread]);
+  }, [draftSignal, hasExistingConversation, opened, resolveThread, vendasMode]);
+
+  // Sem SSE neste corte: enquanto o thread está aberto, reconcilia status e
+  // inbound a cada 9 s. O callback só invalida o board quando a projeção mudou.
+  useEffect(() => {
+    if (!vendasMode || !opened || !convoId) return;
+    const intervalId = window.setInterval(() => { void refreshVendasThread(true); }, 9_000);
+    return () => window.clearInterval(intervalId);
+  }, [convoId, opened, refreshVendasThread, vendasMode]);
+
+  useEffect(() => () => {
+    if (postSendTimerRef.current != null) window.clearTimeout(postSendTimerRef.current);
+  }, []);
 
   async function carregarMaisAntigas() {
     if (!convoId || !nextBefore || olderBusy) return;
     setOlderBusy(true);
     try {
+      if (vendasMode && leadId) {
+        const response = await apiFetch<unknown>(
+          `/vendas/lead/${encodeURIComponent(leadId)}/conversation/messages?limit=30&before=${encodeURIComponent(nextBefore)}`,
+        );
+        applyMessagePayload(response, { prepend: true, notify: true });
+        return;
+      }
       const res = await apiFetch<ConvoMessagesResponse>(
         `/inbox/conversations/${encodeURIComponent(convoId)}/messages?limit=30&before=${encodeURIComponent(nextBefore)}`,
       );
-      const older = Array.isArray(res?.messages) ? res.messages : [];
+      const older = normalizeConvoMessages(res?.messages);
       setMessages((cur) => [...older, ...cur]);
       setHasMore(Boolean(res?.hasMore));
       setNextBefore(res?.nextBefore ?? null);
@@ -915,7 +1238,52 @@ export function ConversationPanel({
     if (!content || !convoId || sendBusy) return;
     setSendBusy(true);
     setSendError(null);
+    const optimisticId = `queued-${Date.now()}`;
     try {
+      if (vendasMode && leadId) {
+        const now = new Date().toISOString();
+        const optimisticMessage: ConvoMessage = {
+          id: optimisticId,
+          direction: "outbound",
+          content,
+          createdAt: now,
+          messageType: "text",
+          status: "QUEUED",
+          error: null,
+        };
+        setMessages(current => [...current, optimisticMessage]);
+        const optimisticSnapshot: VendasConversationSnapshot = {
+          conversation: snapshotRef.current.conversation,
+          engagement: {
+            ...snapshotRef.current.engagement,
+            state: "queued",
+            lastOutboundAt: now,
+            lastOutboundStatus: "QUEUED",
+            lastMessageAt: now,
+            lastMessageDirection: "outbound",
+            lastMessageStatus: "QUEUED",
+            lastMessagePreview: content.slice(0, 160),
+            failureReason: null,
+          },
+        };
+        snapshotRef.current = optimisticSnapshot;
+        setSnapshot(optimisticSnapshot);
+
+        const response = await apiFetch<unknown>(
+          `/vendas/lead/${encodeURIComponent(leadId)}/conversation/message`,
+          { method: "POST", body: JSON.stringify({ body: content }) },
+        );
+        setDraft("");
+        setBotActive(false);
+        applyMessagePayload(response, { notify: true });
+        if (postSendTimerRef.current != null) window.clearTimeout(postSendTimerRef.current);
+        postSendTimerRef.current = window.setTimeout(() => {
+          postSendTimerRef.current = null;
+          void refreshVendasThread(true);
+        }, 1_500);
+        return;
+      }
+
       await apiFetch(`/inbox/conversations/${encodeURIComponent(convoId)}/message`, {
         method: "POST",
         body: JSON.stringify({ content }),
@@ -927,12 +1295,30 @@ export function ConversationPanel({
       const res = await apiFetch<ConvoMessagesResponse>(
         `/inbox/conversations/${encodeURIComponent(convoId)}/messages?limit=30`,
       );
-      const msgs = Array.isArray(res?.messages) ? res.messages : [];
-      setMessages(msgs);
+      setMessages(normalizeConvoMessages(res?.messages));
       setHasMore(Boolean(res?.hasMore));
       setNextBefore(res?.nextBefore ?? null);
     } catch (err) {
-      setSendError(err instanceof Error ? err.message : "Não foi possível enviar a mensagem.");
+      const message = err instanceof Error ? err.message : "Não foi possível enviar a mensagem.";
+      setSendError(message);
+      if (vendasMode) {
+        setMessages(current => current.map(item => item.id === optimisticId
+          ? { ...item, status: "FAILED", error: message }
+          : item));
+        const failedSnapshot: VendasConversationSnapshot = {
+          conversation: snapshotRef.current.conversation,
+          engagement: {
+            ...snapshotRef.current.engagement,
+            state: "failed",
+            lastMessageStatus: "FAILED",
+            lastOutboundStatus: "FAILED",
+            failureReason: message,
+          },
+        };
+        snapshotRef.current = failedSnapshot;
+        setSnapshot(failedSnapshot);
+        void onConversationChangedRef.current?.(failedSnapshot);
+      }
     } finally {
       setSendBusy(false);
     }
@@ -943,12 +1329,13 @@ export function ConversationPanel({
   async function toggleIa() {
     if (!convoId || aiBusy) return;
     const next = !botActive;
+    const botConversationId = /^\d+$/.test(convoId) ? Number(convoId) : convoId;
     setAiBusy(true);
     setAiHint(null);
     try {
       await apiFetch("/inbox/conversations/bulk-bot", {
         method: "PATCH",
-        body: JSON.stringify({ ids: [convoId], enabled: next }),
+        body: JSON.stringify({ ids: [botConversationId], enabled: next }),
       });
       setBotActive(next);
     } catch (err) {
@@ -958,6 +1345,12 @@ export function ConversationPanel({
       setAiBusy(false);
     }
   }
+
+  const engagementMeta = vendasMode
+    ? vendasEngagementMeta(snapshot.engagement, snapshot.conversation)
+    : null;
+  const lastMessagePreview = snapshot.engagement?.lastMessagePreview?.trim() || null;
+  const failureReason = snapshot.engagement?.failureReason?.trim() || null;
 
   return (
     <div className="dn-convo">
@@ -979,7 +1372,7 @@ export function ConversationPanel({
         >
           <I d={ICONS.mail} size={14} /> E-mail
         </button>
-        {tab === "whatsapp" && convoId != null && (
+        {tab === "whatsapp" && convoId != null && !vendasMode && (
           <span className="dn-convo__ai" title="Deixar a IA responder esta conversa (some quando você digita)">
             <span className="dn-convo__ai-label">
               <I d={ICONS.bot} size={12} /> IA
@@ -996,6 +1389,18 @@ export function ConversationPanel({
         )}
       </div>
 
+      {tab === "whatsapp" && engagementMeta && (
+        <div className="dn-convo__hint" role="status" aria-live="polite">
+          <span className={engagementMeta.className} title={failureReason || undefined}>
+            {engagementMeta.label}
+          </span>
+          {lastMessagePreview && (
+            <span title={lastMessagePreview}> · {lastMessagePreview.length > 90 ? `${lastMessagePreview.slice(0, 87)}…` : lastMessagePreview}</span>
+          )}
+          {failureReason && <div className="dn-convo__err">{failureReason}</div>}
+        </div>
+      )}
+
       {tab === "email" ? (
         <div className="dn-convo__hint">
           E-mail ainda não tem caixa de entrada embutida no card. Use o e-mail do lead
@@ -1004,7 +1409,9 @@ export function ConversationPanel({
       ) : !opened ? (
         <div className="dn-convo__body">
           <div className="dn-convo__hint">
-            Veja e responda a conversa deste lead sem sair do card.
+            {hasExistingConversation
+              ? "A conversa já existe. Continue do ponto em que parou."
+              : "Veja e responda a conversa deste lead sem sair do card."}
           </div>
           <button
             type="button"
@@ -1012,7 +1419,7 @@ export function ConversationPanel({
             style={{ margin: "0 auto 14px", minWidth: 160 }}
             onClick={() => void resolveThread()}
           >
-            <I d={ICONS.msg} size={15} /> Abrir conversa
+            <I d={ICONS.msg} size={15} /> {hasExistingConversation ? "Continuar conversa" : "Abrir conversa"}
           </button>
         </div>
       ) : loading ? (
@@ -1033,22 +1440,25 @@ export function ConversationPanel({
               </button>
             )}
             {messages.length === 0 ? (
-              <div className="dn-convo__hint">Sem mensagens ainda. Envie a primeira abaixo.</div>
+              <div className="dn-convo__hint">Sem mensagens. Envie a primeira abaixo.</div>
             ) : (
               messages.map((m) => {
                 const out = m.direction === "outbound";
-                const failed = String(m.status || "").toUpperCase() === "FAILED";
+                const status = String(m.status || "").toUpperCase();
+                const failed = status === "FAILED";
+                const canceled = status === "CANCELED" || status === "CANCELLED";
+                const deliveryLabel = out ? messageDeliveryLabel(status) : null;
                 return (
                   <div key={m.id} className={"msg " + (out ? "out" : "in")}>
                     {!out && <Av name={name || "—"} size={26} />}
                     <div style={{ display: "grid", minWidth: 0 }}>
-                      <div className={"bubble" + (failed ? " deleted" : "")}>
+                      <div className={"bubble" + (failed || canceled ? " deleted" : "")} title={m.error || undefined}>
                         <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                           {m.content || (m.messageType && m.messageType !== "text" ? `[${humanize(m.messageType)}]` : "")}
                         </span>
                         <div className="tm">
                           {fmtMsgTime(m.createdAt)}
-                          {out && failed && <span className="muted-note" style={{ margin: 0 }}> · falhou</span>}
+                          {deliveryLabel && <span className="muted-note" style={{ margin: 0 }}> · {deliveryLabel}</span>}
                         </div>
                       </div>
                     </div>
@@ -1366,15 +1776,15 @@ export function DetalhesNegocio({
   historyLabel = "Histórico",
   kvExtra,
   showConversation = true,
+  conversationLeadId,
+  onConversationChanged,
   showAgenda = false,
   onDelete,
-  // compat props not used in render (kept for API compat)
-  waPhone: _waPhone,
-  waName: _waName,
-  waStartBusy: _waStartBusy,
-  waStartError: _waStartError,
 }: DetalhesNegocioProps) {
   const n = detail !== undefined ? detail : (negocio !== undefined ? negocio : null);
+  const detailEngagementMeta = n?.conversation !== undefined
+    ? vendasEngagementMeta(n.engagement, n.conversation)
+    : null;
   const [internalTab, setInternalTab] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -2209,6 +2619,7 @@ export function DetalhesNegocio({
                   )}
                   <div className="ctx-tags">
                     {n.statusLabel && <span className="tag">{n.statusLabel}</span>}
+                    {detailEngagementMeta && <span className={detailEngagementMeta.className}>{detailEngagementMeta.label}</span>}
                     {n.doNotCall && <span className="tag red">Não ligar</span>}
                     {n.leadTemperature && (
                       <span className={"tag" + (n.leadTemperature === "quente" ? " red" : n.leadTemperature === "morno" ? " warn" : "")}>
@@ -2256,7 +2667,15 @@ export function DetalhesNegocio({
           {/* ── WORM-11: conversa WhatsApp embutida (centro do card) ──── */}
           {showConversation && !loading && n.phone && (
             <div className="dn-zone dn-zone--convo">
-              <ConversationPanel key={n.phone} phone={n.phone} name={n.name} />
+              <ConversationPanel
+                key={conversationLeadId || n.phone}
+                phone={n.phone}
+                name={n.name}
+                leadId={conversationLeadId}
+                conversationId={n.conversation?.id}
+                conversationSnapshot={{ conversation: n.conversation, engagement: n.engagement }}
+                onConversationChanged={onConversationChanged}
+              />
             </div>
           )}
 

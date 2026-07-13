@@ -1027,6 +1027,47 @@ test('upsertConversationMessage relays inbound only for a newly created message'
   assert.equal(calls.relays, 1);
 });
 
+test('upsertConversationMessage relays persisted outbound status to the cockpit bridge', async () => {
+  const relays: Array<Record<string, any>> = [];
+  const prisma = {
+    companyMessage: {
+      findUnique: async () => null,
+      findFirst: async () => null,
+      create: async ({ data }: any) => ({ id: 504, ...data }),
+    },
+    companyConversation: {
+      updateMany: async () => ({ count: 1 }),
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+  service.setOutboundPersistedRelay(async (input) => {
+    relays.push(input);
+  });
+
+  const result = await (service as any).upsertConversationMessage(
+    47,
+    TEST_SESSION,
+    70,
+    '5511999990000@s.whatsapp.net',
+    {
+      key: { id: 'MSG-OUT-1', fromMe: true, remoteJid: '5511999990000@s.whatsapp.net' },
+      messageTimestamp: 1770000000,
+      messageType: 'conversation',
+      message: { conversation: 'Mensagem enviada pelo celular' },
+      status: 'DELIVERED',
+    },
+    null,
+  );
+
+  assert.equal(result, 504);
+  assert.deepEqual(relays, [{
+    companyId: 47,
+    conversationId: 70,
+    companyMessageId: 504,
+    status: 'DELIVERED',
+  }]);
+});
+
 test('upsertConversationMessage reuses legacy session-scoped provider ids', async () => {
   const calls = {
     relays: 0,

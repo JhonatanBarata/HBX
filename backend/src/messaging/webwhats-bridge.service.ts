@@ -271,6 +271,13 @@ type WebwhatsInboundRelayInput = {
   contactName?: string | null;
 };
 
+type WebwhatsOutboundPersistedRelayInput = {
+  companyId: number;
+  conversationId: number;
+  companyMessageId: number;
+  status: string;
+};
+
 @Injectable()
 export class WebwhatsBridgeService {
   private readonly logger = new Logger(WebwhatsBridgeService.name);
@@ -284,6 +291,8 @@ export class WebwhatsBridgeService {
   private readonly chatListCache = new Map<string, { expiresAt: number; value: WebwhatsFastChatListResult }>();
   private readonly presenceCache = new Map<string, { expiresAt: number; value: WebwhatsPresenceSnapshot }>();
   private inboundRelay: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null = null;
+  private outboundPersistedRelay:
+    ((input: WebwhatsOutboundPersistedRelayInput) => Promise<void>) | null = null;
   // Concorrência do cache de avatar em background (Fix 1, PR05072026): a LISTA de conversas
   // é hot path com N chats — nunca esperamos download aqui. Isso só limita quantos downloads
   // de foto rodam "soltos" ao mesmo tempo (evita rajada no motor/disco); a resposta da lista
@@ -820,6 +829,12 @@ export class WebwhatsBridgeService {
 
   setInboundRelay(handler: ((input: WebwhatsInboundRelayInput) => Promise<void>) | null) {
     this.inboundRelay = handler;
+  }
+
+  setOutboundPersistedRelay(
+    handler: ((input: WebwhatsOutboundPersistedRelayInput) => Promise<void>) | null,
+  ) {
+    this.outboundPersistedRelay = handler;
   }
 
   isDispatchAvailable(status: string | null | undefined) {
@@ -4169,6 +4184,21 @@ export class WebwhatsBridgeService {
     }
 
     await this.touchConversationActivityIfNewer(companyId, conversationId, timestamp);
+
+    if (direction === 'OUTBOUND' && persistedMessageId > 0 && this.outboundPersistedRelay) {
+      try {
+        await this.outboundPersistedRelay({
+          companyId,
+          conversationId,
+          companyMessageId: persistedMessageId,
+          status,
+        });
+      } catch (error: any) {
+        this.logger.warn(
+          `Webwhats outbound projection relay falhou para company ${companyId} conversation ${conversationId}: ${String(error?.message || error)}`,
+        );
+      }
+    }
 
     if (
       direction === 'INBOUND'

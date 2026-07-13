@@ -12,7 +12,12 @@ import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
-import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import {
+  DetalhesNegocio,
+  type NegocioDetail,
+  type VendasConversationRef,
+  type VendasConversationSnapshot,
+} from "@/components/hbx/detalhes-negocio";
 import { apiFetch } from "@/lib/api";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
@@ -25,6 +30,8 @@ export function NegocioSheet({
   onPulled,
   showPuxar,
   showConversation = true,
+  conversationLeadId,
+  onConversationChanged,
 }: {
   detail: NegocioDetail | null;
   open: boolean;
@@ -35,6 +42,9 @@ export function NegocioSheet({
   showPuxar?: boolean;
   /** mantém o mesmo painel WhatsApp/E-mail do desktop quando houver telefone. */
   showConversation?: boolean;
+  /** Opt-in de Vendas; Radar/Leads sem esta prop preservam o fluxo legado. */
+  conversationLeadId?: string | null;
+  onConversationChanged?: (snapshot?: VendasConversationSnapshot) => void | Promise<void>;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -64,16 +74,38 @@ export function NegocioSheet({
     setBusy(true);
     setMsg(null);
     try {
-      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
-        method: "POST",
-        body: JSON.stringify({
-          phone: shown.phone.trim(),
-          ...(shown.name ? { name: shown.name.trim() } : {}),
-        }),
-      });
-      if (res?.id != null) {
-        try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
+      let conversationId: string | null = null;
+      if (conversationLeadId) {
+        const path = `/vendas/lead/${encodeURIComponent(conversationLeadId)}/conversation`;
+        const found = await apiFetch<{ conversation?: VendasConversationRef | null; id?: string | number | null }>(path);
+        conversationId = found?.conversation?.id != null
+          ? String(found.conversation.id)
+          : found?.id != null ? String(found.id) : null;
+        if (!conversationId) {
+          const created = await apiFetch<{ conversation?: VendasConversationRef | null; id?: string | number | null }>(path, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          conversationId = created?.conversation?.id != null
+            ? String(created.conversation.id)
+            : created?.id != null ? String(created.id) : null;
+          if (created) void onConversationChanged?.();
+        }
+      } else {
+        const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
+          method: "POST",
+          body: JSON.stringify({
+            phone: shown.phone.trim(),
+            ...(shown.name ? { name: shown.name.trim() } : {}),
+          }),
+        });
+        conversationId = res?.id != null ? String(res.id) : null;
+      }
+      if (conversationId) {
+        try { sessionStorage.setItem("hbx:abrir-conversa", conversationId); } catch { /* sem storage */ }
         router.push("/atendimento");
+      } else {
+        throw new Error("Não foi possível abrir a conversa.");
       }
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
@@ -111,6 +143,8 @@ export function NegocioSheet({
             detail={shown}
             title="Detalhes"
             showConversation={showConversation}
+            conversationLeadId={conversationLeadId}
+            onConversationChanged={onConversationChanged}
             onWaOpenExternal={waLink ? () => setWaChoice(true) : undefined}
           />
 

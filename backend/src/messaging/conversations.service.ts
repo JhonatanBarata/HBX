@@ -1,5 +1,6 @@
 ﻿import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Logger } from '@nestjs/common';
 import {
   buildWhatsAppPhoneCandidates,
   normalizeWhatsAppPhone,
@@ -20,6 +21,10 @@ function requireCompanyIdFromUser(user: any): number {
 }
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+const COMMERCIAL_PROSPECTION_SOURCES = new Set([
+  'vendas_prospeccao_bot',
+  'prospeccao_bot',
+]);
 
 function normalizeWhatsAppContact(raw: string): string {
   const normalized = normalizeWhatsAppPhone(raw);
@@ -77,9 +82,20 @@ export type CadenciaInboundHookInput = {
   text?: string | null;
 };
 
+export type VendasCockpitProjectionHookInput = {
+  companyId: number;
+  conversationId: number;
+  event: 'queued' | 'sending' | 'sent' | 'failed' | 'canceled' | 'delivery' | 'inbound';
+  messageId?: number | null;
+  validHumanInbound?: boolean;
+};
+
 @Injectable()
 export class ConversationsService {
+  private readonly logger = new Logger(ConversationsService.name);
   private cadenciaInboundHook: ((input: CadenciaInboundHookInput) => Promise<void>) | null = null;
+  private vendasCockpitProjectionHook:
+    ((input: VendasCockpitProjectionHookInput) => Promise<void>) | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -99,6 +115,27 @@ export class ConversationsService {
       await hook(input);
     } catch {
       // silencioso: gatilho reativo e aditivo, nunca bloqueia o inbound.
+    }
+  }
+
+  setVendasCockpitProjectionHook(
+    handler: ((input: VendasCockpitProjectionHookInput) => Promise<void>) | null,
+  ) {
+    this.vendasCockpitProjectionHook = handler;
+  }
+
+  // A mensageria não conhece o modelo do CRM. Publica somente o fato persistido;
+  // o projetor de Vendas reconstrói o snapshot de forma best-effort e idempotente.
+  async dispatchVendasCockpitProjection(input: VendasCockpitProjectionHookInput) {
+    const hook = this.vendasCockpitProjectionHook;
+    if (!hook) return;
+    try {
+      await hook(input);
+    } catch (error: unknown) {
+      // A projeção nunca pode transformar sucesso/falha do provedor em retry de envio.
+      this.logger.warn(
+        `Falha ao atualizar cockpit de Vendas company=${input.companyId} conversation=${input.conversationId} event=${input.event}: ${String((error as any)?.message || error)}`,
+      );
     }
   }
 
@@ -330,6 +367,19 @@ export class ConversationsService {
     const from = normalizeWhatsAppContact(input.from);
     const body = String(input.body || '');
     const at = input.receivedAt ?? new Date();
+    const providerMessageId = String(input.providerMessageId || '').trim() || null;
+
+    if (providerMessageId) {
+      const existing = await this.prisma.companyMessage.findUnique({
+        where: { providerMessageId },
+      });
+      if (existing) {
+        if (Number(existing.companyId) !== companyId) {
+          throw new BadRequestException('Mensagem do provedor pertence a outra empresa.');
+        }
+        return { ...existing, isNew: false };
+      }
+    }
 
     const conversation = await this.getOrCreateConversation({ companyId, contact: from, channel: 'whatsapp', at });
     const messageType = String(input.messageType || 'text').trim().toLowerCase() || 'text';
@@ -353,33 +403,26 @@ export class ConversationsService {
       sourceModule,
       variablesJson,
       provider: 'WHATSAPP_CLOUD',
-      providerMessageId: input.providerMessageId || undefined,
+      providerMessageId: providerMessageId || undefined,
       rawPayload: input.rawPayload === undefined ? undefined : JSON.stringify(input.rawPayload),
     } as const;
 
-    if (input.providerMessageId) {
-      return this.prisma.companyMessage.upsert({
-        where: { providerMessageId: String(input.providerMessageId) },
-        create: createData,
-        update: {
-          body,
-          status: 'RECEIVED',
-          timestamp: at,
-          contactId: from,
-          messageType,
-          senderType,
-          sourceModule,
-          variablesJson,
-          conversationId: conversation.id,
-          companyId,
-          whatsappConnectionSessionId: conversation.whatsappConnectionSessionId || undefined,
-          sourcePhoneNormalized: conversation.sourcePhoneNormalized || undefined,
-          sourceTenantKey: conversation.sourceTenantKey || undefined,
-        },
-      });
+    if (providerMessageId) {
+      try {
+        const created = await this.prisma.companyMessage.create({ data: createData });
+        return { ...created, isNew: true };
+      } catch (error: unknown) {
+        if (!this.isUniqueConstraintError(error)) throw error;
+        const existing = await this.prisma.companyMessage.findUnique({
+          where: { providerMessageId },
+        });
+        if (!existing || Number(existing.companyId) !== companyId) throw error;
+        return { ...existing, isNew: false };
+      }
     }
 
-    return this.prisma.companyMessage.create({ data: createData });
+    const created = await this.prisma.companyMessage.create({ data: createData });
+    return { ...created, isNew: true };
   }
 
   private normalizeMessageType(value: string | null | undefined): 'text' | 'template' | 'interactive' {
@@ -435,6 +478,14 @@ export class ConversationsService {
     );
   }
 
+  private resolveCommercialLeadId(
+    sourceModule: string,
+    variables?: Record<string, unknown>,
+  ): string | null {
+    if (!COMMERCIAL_PROSPECTION_SOURCES.has(normalizeModuleName(sourceModule))) return null;
+    return String(variables?.leadId || '').trim() || null;
+  }
+
   private async hasAnyInboundMessage(companyId: number, conversationId: number): Promise<boolean> {
     const inbound = await this.prisma.companyMessage.findFirst({
       where: { companyId, conversationId, direction: 'INBOUND' },
@@ -479,6 +530,7 @@ export class ConversationsService {
     let body = messageType === 'template' ? (bodyFromPayload || `[template:${templateName || 'unknown'}]`) : bodyFromPayload;
     const contactId = String(payload?.contactId || to).trim();
     const variablesJson = payload?.variables === undefined ? null : JSON.stringify(payload.variables || {});
+    const commercialLeadId = this.resolveCommercialLeadId(sourceModule, payload?.variables);
 
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
@@ -576,7 +628,32 @@ export class ConversationsService {
       throw new BadRequestException('body is required');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const queued = await this.prisma.$transaction(async (tx) => {
+      if (commercialLeadId) {
+        const lead = await tx.vendasLead.findFirst({
+          where: { id: commercialLeadId, companyId },
+          select: { id: true },
+        });
+        if (!lead) {
+          throw new BadRequestException('Lead comercial nao pertence a esta empresa.');
+        }
+        const linked = await tx.companyConversation.updateMany({
+          where: {
+            id: conversation.id,
+            companyId,
+            OR: [{ vendasLeadId: null }, { vendasLeadId: commercialLeadId }],
+          },
+          data: {
+            vendasLeadId: commercialLeadId,
+            vendasLeadLinkedAt: at,
+            vendasLeadLinkSource: sourceModule,
+          },
+        });
+        if (linked.count !== 1) {
+          throw new BadRequestException('Conversa ja vinculada a outro lead comercial.');
+        }
+      }
+
       const outboundData: any = {
         companyId,
         contactId: contactId || to,
@@ -643,6 +720,13 @@ export class ConversationsService {
         status: outbound.status,
       };
     });
+    await this.dispatchVendasCockpitProjection({
+      companyId,
+      conversationId: queued.conversationId,
+      event: 'queued',
+      messageId: queued.messageId,
+    });
+    return queued;
   }
 
   async queueOutboundMessage(user: any, input: QueueOutboundPayload) {

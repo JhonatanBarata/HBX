@@ -37,11 +37,25 @@ function makeService(opts: {
   svc.prisma = {
     cadenciaInscricao: {
       findMany: async () => inscricoes.filter((i) => i.status === 'ativa' && i.nextStepAt <= new Date()),
+      findFirst: async ({ where }: any) => inscricoes.find((i) =>
+        i.id === where.id && i.companyId === where.companyId && i.leadId === where.leadId,
+      ) || null,
       update: async ({ where, data }: any) => {
         const row = inscricoes.find((i) => i.id === where.id);
         if (row) Object.assign(row, data);
         updates.push({ id: where.id, data });
         return row;
+      },
+      updateMany: async ({ where, data }: any) => {
+        let count = 0;
+        for (const row of inscricoes) {
+          if (where.id && row.id !== where.id) continue;
+          if (where.status && row.status !== where.status) continue;
+          Object.assign(row, data);
+          updates.push({ id: row.id, data });
+          count += 1;
+        }
+        return { count };
       },
     },
     cadencia: {
@@ -77,6 +91,12 @@ function makeService(opts: {
     },
   };
   svc.logger = { log() {}, warn() {}, error() {} };
+  svc.commercialContactControl = {
+    canCadenciaRun: async ({ companyId, leadId, inscricaoId }: any) => {
+      const row = inscricoes.find((item) => item.id === inscricaoId);
+      return Boolean(row && row.companyId === companyId && row.leadId === leadId && row.status === 'ativa');
+    },
+  };
 
   return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes };
 }

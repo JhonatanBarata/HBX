@@ -23,6 +23,7 @@ import {
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
 import { VendasAutomationService } from './vendas-automation.service';
+import { VendasConversationService } from './vendas-conversation.service';
 import { VendasService } from './vendas.service';
 
 @Controller('vendas')
@@ -32,6 +33,7 @@ export class VendasController {
   constructor(
     private readonly vendasService: VendasService,
     private readonly vendasAutomationService: VendasAutomationService,
+    private readonly vendasConversationService: VendasConversationService,
   ) {}
 
   @Get('automation/bot-config')
@@ -310,6 +312,41 @@ export class VendasController {
   @Get('lead/:leadId/conversation-snapshot')
   getLeadConversationSnapshot(@Req() req: any, @Param('leadId') leadId: string, @Query('eventId') eventId?: string) {
     return this.vendasService.getLeadConversationSnapshotForUser(req.user, leadId, eventId || null);
+  }
+
+  // Fachada CRM: leitura direta do banco, sem /inbox/conversations/start, sem
+  // consulta ao motor e sem assumir atendimento humano ao apenas abrir o card.
+  @Get('lead/:leadId/conversation')
+  getLeadConversation(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasConversationService.getConversationForUser(req.user, leadId);
+  }
+
+  @Post('lead/:leadId/conversation')
+  createOrLinkLeadConversation(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasConversationService.createOrLinkConversationForUser(req.user, leadId);
+  }
+
+  @Get('lead/:leadId/conversation/messages')
+  listLeadConversationMessages(
+    @Req() req: any,
+    @Param('leadId') leadId: string,
+    @Query('limit') limit?: string,
+    @Query('before') before?: string,
+  ) {
+    return this.vendasConversationService.listMessagesForUser(req.user, leadId, { limit, before });
+  }
+
+  @Post('lead/:leadId/conversation/message')
+  sendLeadConversationMessage(
+    @Req() req: any,
+    @Param('leadId') leadId: string,
+    @Body() body?: { body?: string; content?: string },
+  ) {
+    return this.vendasConversationService.sendMessageForUser(
+      req.user,
+      leadId,
+      body?.body ?? body?.content,
+    );
   }
 
   // LEAD-COCKPIT (11/07): ficha RFB rica da empresa do lead pro modal "cockpit" do Vendas.

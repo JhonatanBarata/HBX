@@ -7,10 +7,14 @@ import { ConversationsService } from './conversations.service';
 function createService(opts?: {
   inboundExists?: boolean;
   conversation?: Record<string, unknown> | null;
+  leadExists?: boolean;
+  duplicateProviderMessage?: boolean;
+  linkCount?: number;
 }) {
   const outboundCreateCalls: Array<Record<string, unknown>> = [];
   const messageCreateCalls: Array<Record<string, unknown>> = [];
   const conversationUpdateCalls: Array<Record<string, unknown>> = [];
+  const conversationLinkCalls: Array<Record<string, unknown>> = [];
   const conversation = opts?.conversation ?? {
     id: 10,
     companyId: 7,
@@ -37,6 +41,13 @@ function createService(opts?: {
         conversationUpdateCalls.push(input);
         return input;
       },
+      updateMany: async (input: Record<string, unknown>) => {
+        conversationLinkCalls.push(input);
+        return { count: opts?.linkCount ?? 1 };
+      },
+    },
+    vendasLead: {
+      findFirst: async () => (opts?.leadExists === false ? null : { id: 'lead-1' }),
     },
   };
 
@@ -67,6 +78,20 @@ function createService(opts?: {
         }
         return null;
       },
+      create: async ({ data }: any) => {
+        if (opts?.duplicateProviderMessage) {
+          const error: any = new Error('duplicate');
+          error.code = 'P2002';
+          throw error;
+        }
+        return { id: 4001, ...data };
+      },
+      findUnique: async () => ({
+        id: 4001,
+        companyId: 7,
+        conversationId: 10,
+        providerMessageId: 'wamid.duplicate',
+      }),
     },
   } as any;
 
@@ -79,6 +104,7 @@ function createService(opts?: {
     outboundCreateCalls,
     messageCreateCalls,
     conversationUpdateCalls,
+    conversationLinkCalls,
   };
 }
 
@@ -136,4 +162,54 @@ test('queueOutboundForCompany reserves conversation start for explicit prospecti
 
   assert.equal(result.status, 'PENDING');
   assert.equal(outboundCreateCalls.length, 1);
+});
+
+test('queueOutboundForCompany links a commercial conversation to the tenant lead before queueing', async () => {
+  const { service, conversationLinkCalls } = createService();
+
+  await service.queueOutboundForCompany(7, {
+    conversationId: 10,
+    to: '+55 11 99999-0000',
+    body: 'Mensagem comercial',
+    sourceModule: 'vendas_prospeccao_bot',
+    senderType: 'bot',
+    messageType: 'text',
+    variables: { leadId: 'lead-1' },
+  });
+
+  assert.equal(conversationLinkCalls.length, 1);
+  assert.equal((conversationLinkCalls[0] as any).where.companyId, 7);
+  assert.equal((conversationLinkCalls[0] as any).data.vendasLeadId, 'lead-1');
+});
+
+test('queueOutboundForCompany rejects cross-tenant commercial lead links before queueing', async () => {
+  const { service, outboundCreateCalls } = createService({ leadExists: false });
+
+  await assert.rejects(
+    () => service.queueOutboundForCompany(7, {
+      conversationId: 10,
+      to: '+55 11 99999-0000',
+      body: 'Mensagem comercial',
+      sourceModule: 'vendas_prospeccao_bot',
+      senderType: 'bot',
+      messageType: 'text',
+      variables: { leadId: 'lead-other-tenant' },
+    }),
+    /nao pertence a esta empresa/,
+  );
+  assert.equal(outboundCreateCalls.length, 0);
+});
+
+test('recordInboundMessage marks provider webhook replays as duplicates', async () => {
+  const { service } = createService({ duplicateProviderMessage: true });
+
+  const result = await service.recordInboundMessage({
+    companyId: 7,
+    from: '+55 11 99999-0000',
+    body: 'Oi',
+    providerMessageId: 'wamid.duplicate',
+  });
+
+  assert.equal(result.isNew, false);
+  assert.equal(result.conversationId, 10);
 });

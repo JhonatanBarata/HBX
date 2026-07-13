@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { CanalIcon, type Canal } from "@/components/hbx/canal-icon";
+import { vendasEngagementMeta } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -241,7 +242,9 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                     <Av name={card.name || "?"} size={42} />
                     <span className="vnd-m__row-main">
                       <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
-                      <span className="vnd-m__row-sub">{card.statusLabel} · {fmtWhenMobile(card.returnAt)}</span>
+                      <span className="vnd-m__row-sub">
+                        {card.statusLabel} · {vendasEngagementMeta(card.engagement, card.conversation).label} · {fmtWhenMobile(card.returnAt)}
+                      </span>
                       <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
@@ -265,7 +268,9 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                     <Av name={card.name || "?"} size={42} />
                     <span className="vnd-m__row-main">
                       <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
-                      <span className="vnd-m__row-sub">{card.city || "—"}{card.state ? `/${card.state}` : ""}</span>
+                      <span className="vnd-m__row-sub">
+                        {vendasEngagementMeta(card.engagement, card.conversation).label} · {card.city || "—"}{card.state ? `/${card.state}` : ""}
+                      </span>
                       <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
@@ -281,6 +286,8 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
       <NegocioSheet
         open={Boolean(sel)}
         detail={sel ? vendasLeadToDetail(sel) : null}
+        conversationLeadId={sel?.id ?? null}
+        onConversationChanged={load}
         onClose={() => setSel(null)}
       />
 

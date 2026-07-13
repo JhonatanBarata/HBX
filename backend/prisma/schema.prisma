@@ -741,6 +741,10 @@ model CompanyConversation {
   id            Int      @id @default(autoincrement())
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId     Int
+  vendasLead    VendasLead? @relation(fields: [vendasLeadId], references: [id], onDelete: SetNull)
+  vendasLeadId  String?
+  vendasLeadLinkedAt DateTime?
+  vendasLeadLinkSource String?
   whatsappConnectionSession WhatsAppConnectionSession? @relation(fields: [whatsappConnectionSessionId], references: [id], onDelete: SetNull)
   whatsappConnectionSessionId String?
   sourcePhoneNormalized String?
@@ -764,6 +768,7 @@ model CompanyConversation {
   hbxSupportTickets HbxSupportTicket[]
 
   @@unique([companyId, channel, contact, whatsappConnectionSessionId])
+  @@index([companyId, vendasLeadId])
   @@index([companyId, channel, contact])
   @@index([companyId, whatsappConnectionSessionId])
   @@index([companyId, lastMessageAt])
@@ -3011,6 +3016,8 @@ model VendasLead {
   state             String?
   segment           String?
   status            String   @default("novo") // novo | contato | retorno | qualificado | encerrado
+  pipelineStage     String?  @default("prospeccao")
+  outcome           String?  @default("open")
   nextAction        String?
   returnAt          DateTime?
   shortNote         String?
@@ -3066,6 +3073,8 @@ model VendasLead {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   timelineEvents    VendasLeadTimelineEvent[]
+  conversations     CompanyConversation[]
+  cockpitState      VendasLeadCockpitState?
   automationJobs    VendasAutomationJob[]
   radarCompanyStates RadarLeadCompanyState[]
   commissionReceivables VendasCommissionReceivable[]
@@ -3083,6 +3092,34 @@ model VendasLead {
   @@index([customerProfileId])
   @@index([productId])
   @@index([companyId, productId])
+}
+
+model VendasLeadCockpitState {
+  lead                       VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId                     String     @id
+  companyId                  Int
+  conversationId             Int?
+  engagementState            String     @default("no_conversation")
+  hasInboundMessage          Boolean    @default(false)
+  hasInboundReply            Boolean    @default(false)
+  firstSuccessfulOutboundAt  DateTime?
+  lastSuccessfulOutboundAt   DateTime?
+  lastOutboundAt             DateTime?
+  lastOutboundStatus         String?
+  lastInboundAt              DateTime?
+  lastMessageId              Int?
+  lastMessageAt              DateTime?
+  lastMessageDirection       String?
+  lastMessageStatus          String?
+  lastMessagePreview         String?
+  lastFailureAt              DateTime?
+  lastFailureReason          String?
+  version                     Int        @default(1)
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
+
+  @@index([companyId, engagementState])
+  @@index([companyId, conversationId])
 }
 
 model VendasCommissionPayout {
@@ -3147,8 +3184,10 @@ model VendasLeadTimelineEvent {
   resultLabel     String?
   returnAt        DateTime?
   createdByUserId Int?
+  idempotencyKey  String?
   createdAt       DateTime   @default(now())
 
+  @@unique([leadId, idempotencyKey])
   @@index([leadId, createdAt])
 }
 

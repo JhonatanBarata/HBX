@@ -466,25 +466,21 @@ test('handleVendasAutomationInbound marks explicit negative on lead without movi
   const inboundMetaCalls: Array<Record<string, unknown>> = [];
   const tx = {
     vendasAutomationJob: {
-      update: async (input: Record<string, unknown>) => {
-        jobUpdates.push(input);
-        return input;
-      },
       updateMany: async (input: Record<string, unknown>) => {
         jobUpdates.push(input);
-        return { count: 0 };
+        return { count: (input as any)?.where?.id === 'job-email-1' ? 1 : 0 };
       },
     },
     vendasLead: {
-      update: async (input: Record<string, unknown>) => {
+      updateMany: async (input: Record<string, unknown>) => {
         leadUpdates.push(input);
-        return input;
+        return { count: 1 };
       },
     },
     vendasLeadTimelineEvent: {
-      create: async (input: Record<string, unknown>) => {
+      createMany: async (input: Record<string, unknown>) => {
         timelineEvents.push(input);
-        return input;
+        return { count: 1 };
       },
     },
   };
@@ -522,6 +518,7 @@ test('handleVendasAutomationInbound marks explicit negative on lead without movi
   assert.equal(jobUpdates.length, 2);
   assert.equal((jobUpdates[0] as any).data.status, 'replied_negative');
   assert.equal((leadUpdates[0] as any).data.status, 'encerrado');
+  assert.equal((leadUpdates[0] as any).data.outcome, 'no_interest');
   assert.equal(timelineEvents.length, 1);
   assert.equal(conversationStateCalls.length, 1);
   const nextState = conversationStateCalls[0].payload as any;
@@ -531,8 +528,9 @@ test('handleVendasAutomationInbound marks explicit negative on lead without movi
   assert.equal(nextState.metadata.inboxManualQueueOverride, undefined);
   assert.equal(nextState.metadata.inboxLocalDeleted, undefined);
   assert.equal(nextState.metadata.doNotContact, true);
-  assert.equal(nextState.metadata.optOut, true);
-  assert.equal(nextState.metadata.blacklisted, true);
+  assert.equal(nextState.metadata.optOut, false);
+  assert.equal(nextState.metadata.blacklisted, false);
+  assert.equal(nextState.metadata.vendasAutomation.outcome, 'no_interest');
   assert.equal(nextState.metadata.vendasProspeccao.stage, 'negative_reply');
 });
 
@@ -544,6 +542,7 @@ test('handleVendasAutomationInbound treats bot menu as auto-reply, not negative'
     vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
   };
   const jobUpdates: Array<Record<string, any>> = [];
+  const leadUpdates: Array<Record<string, any>> = [];
   const inboundMetaCalls: Array<Record<string, unknown>> = [];
   const { service, conversationStateCalls } = createService({
     prisma: {
@@ -559,7 +558,14 @@ test('handleVendasAutomationInbound treats bot menu as auto-reply, not negative'
         },
       },
       vendasLead: {
-        update: async (input: Record<string, any>) => input,
+        update: async (input: Record<string, any>) => {
+          leadUpdates.push(input);
+          return input;
+        },
+        updateMany: async (input: Record<string, any>) => {
+          leadUpdates.push(input);
+          return { count: 1 };
+        },
       },
       companyConversation: {
         findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }),
@@ -585,8 +591,10 @@ test('handleVendasAutomationInbound treats bot menu as auto-reply, not negative'
   assert.equal(inboundMetaCalls[0].sourceModule, 'vendas_prospeccao_auto_reply');
   assert.ok(jobUpdates.some((call) => call.data?.classification === 'bot_menu_detected'));
   assert.equal(jobUpdates.some((call) => call.data?.status === 'replied_negative'), false);
+  assert.equal(leadUpdates.length, 0, 'auto-reply nao movimenta pipeline');
   assert.equal(conversationStateCalls.length, 1);
   assert.equal((conversationStateCalls[0].payload as any).flowResult, 'prospection_auto_reply');
+  assert.equal((conversationStateCalls[0].payload as any).metadata.vendasProspeccao.stage, 'sent_waiting');
 });
 
 test('handleVendasAutomationInbound turns explicit no-interest into opt-out block', async () => {
@@ -598,17 +606,13 @@ test('handleVendasAutomationInbound turns explicit no-interest into opt-out bloc
   const inboundMetaCalls: Array<Record<string, unknown>> = [];
   const tx = {
     vendasAutomationJob: {
-      update: async (input: Record<string, any>) => {
-        jobUpdates.push(input);
-        return input;
-      },
       updateMany: async (input: Record<string, any>) => {
         jobUpdates.push(input);
-        return { count: 0 };
+        return { count: input?.where?.id === 'job-email-1' ? 1 : 0 };
       },
     },
-    vendasLead: { update: async (input: Record<string, any>) => input },
-    vendasLeadTimelineEvent: { create: async (input: Record<string, any>) => input },
+    vendasLead: { updateMany: async () => ({ count: 1 }) },
+    vendasLeadTimelineEvent: { createMany: async () => ({ count: 1 }) },
   };
   const { service } = createService({
     prisma: {
@@ -641,6 +645,137 @@ test('handleVendasAutomationInbound turns explicit no-interest into opt-out bloc
   assert.ok(
     jobUpdates.some((call) => call.data?.status === 'replied_negative' && call.data?.classification === 'opt_out'),
   );
+});
+
+test('inbound humano avanca somente prospeccao para qualificacao e mantem legado em contato', async () => {
+  const leadCalls: any[] = [];
+  const timelineCalls: any[] = [];
+  const tx = {
+    vendasLead: {
+      updateMany: async (input: any) => {
+        leadCalls.push(input);
+        return { count: 1 };
+      },
+    },
+    vendasLeadTimelineEvent: {
+      createMany: async (input: any) => {
+        timelineCalls.push(input);
+        return { count: 1 };
+      },
+    },
+  };
+  const { service } = createService();
+
+  assert.equal(await (service as any).advanceVendasLeadFromProspectingOnHumanInbound(tx, {
+    companyId: 7,
+    leadId: 'lead-1',
+    jobId: 'job-1',
+    inboundMessageId: 900,
+    lastResult: 'Interesse pelo WhatsApp',
+  }), true);
+
+  assert.equal(leadCalls[0].data.pipelineStage, 'qualificacao');
+  assert.equal(leadCalls[0].data.status, 'contato');
+  assert.deepEqual(leadCalls[0].where.OR, [
+    { pipelineStage: 'prospeccao' },
+    { pipelineStage: null, status: 'novo' },
+  ]);
+  assert.match(timelineCalls[0].data[0].idempotencyKey, /job-1:900$/);
+});
+
+test('inbound humano nao regride lead que ja saiu da prospeccao', async () => {
+  let timelineCreated = false;
+  const tx = {
+    vendasLead: { updateMany: async () => ({ count: 0 }) },
+    vendasLeadTimelineEvent: {
+      createMany: async () => {
+        timelineCreated = true;
+        return { count: 1 };
+      },
+    },
+  };
+  const { service } = createService();
+
+  assert.equal(await (service as any).advanceVendasLeadFromProspectingOnHumanInbound(tx, {
+    companyId: 7,
+    leadId: 'lead-qualified',
+    jobId: 'job-2',
+    inboundMessageId: 901,
+    lastResult: 'Resposta recebida',
+  }), false);
+  assert.equal(timelineCreated, false);
+});
+
+test('Meta Cloud duplicate webhook does not repeat inbound orchestration', async () => {
+  const projectionCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    conversations: {
+      recordInboundMessage: async () => ({ id: 901, conversationId: 42, isNew: false }),
+      dispatchVendasCockpitProjection: async (input: Record<string, unknown>) => {
+        projectionCalls.push(input);
+      },
+    },
+  });
+  let processCalls = 0;
+  (service as any).updateInboundConversationMetadata = async () => undefined;
+  (service as any).processPersistedInbound = async () => {
+    processCalls += 1;
+    return { matched: true };
+  };
+
+  const result = await (service as any).handleInboundMessage({
+    companyId: 7,
+    customerPhone: '+5511998877766',
+    text: 'Oi novamente',
+    messageType: 'text',
+    timestamp: new Date('2026-07-13T12:00:00.000Z'),
+    externalMessageId: 'wamid.duplicate-1',
+    rawPayload: {},
+  });
+
+  assert.equal(processCalls, 0);
+  assert.equal(result.duplicate, true);
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 7,
+    conversationId: 42,
+    event: 'inbound',
+    messageId: 901,
+    validHumanInbound: false,
+  });
+});
+
+test('historical WebWhats inbound refreshes preview without qualifying the lead', async () => {
+  const projectionCalls: Array<Record<string, unknown>> = [];
+  const { service } = createService({
+    conversations: {
+      dispatchVendasCockpitProjection: async (input: Record<string, unknown>) => {
+        projectionCalls.push(input);
+      },
+    },
+  });
+
+  const result = await (service as any).processPersistedInbound({
+    company: { id: 7, name: 'Empresa Sete', timezone: 'America/Sao_Paulo' },
+    from: '+5511998877766',
+    text: 'Mensagem antiga',
+    inboundType: 'text',
+    rawPayload: {},
+    timestamp: new Date(Date.now() - 10 * 60 * 1000),
+    externalMessageId: 'webwhats:company-7:historical-1',
+    inboundRow: { id: 902, conversationId: 42 },
+    scope: 'webwhats_sync',
+    provider: 'WEBWHATS',
+    sourceModule: 'webwhats_sync',
+  });
+
+  assert.equal(result.botSuppressed, true);
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 7,
+    conversationId: 42,
+    event: 'inbound',
+    messageId: 902,
+    validHumanInbound: false,
+  });
 });
 
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
@@ -1536,10 +1671,11 @@ test('Agenda simples offers business-day 09-13 slots and skips occupied days', a
 // Webwhats status update (messages.update with keyId) — Bug fix regression tests
 // ---------------------------------------------------------------------------
 
-function createServiceForStatusTest() {
+function createServiceForStatusTest(opts?: { resolveMeta?: boolean }) {
   const outboundUpdateCalls: Array<Record<string, unknown>> = [];
   const messageUpdateCalls: Array<Record<string, unknown>> = [];
   const webhookEventCalls: Array<Record<string, unknown>> = [];
+  const projectionCalls: Array<Record<string, unknown>> = [];
 
   const prisma = {
     hasTable: async () => false,
@@ -1549,7 +1685,9 @@ function createServiceForStatusTest() {
         if (where?.id === 2) return { id: 2, name: 'Empresa Dois', timezone: 'America/Sao_Paulo' };
         return null;
       },
-      findFirst: async () => null,
+      findFirst: async () => opts?.resolveMeta
+        ? { id: 2, name: 'Empresa Dois', timezone: 'America/Sao_Paulo' }
+        : null,
     },
     whatsAppWebhookEvent: {
       create: async ({ data }: any) => {
@@ -1568,7 +1706,9 @@ function createServiceForStatusTest() {
             id === 'webwhats:company-2-user-36:3EB077C40CDBE832E3CDE3' ||
             id === 'webwhats:company-2:3EB077C40CDBE832E3CDE3',
         );
-        return hit ? [{ conversationId: 10 }] : [];
+        return hit || (opts?.resolveMeta && providerIds.includes('wamid.meta-1'))
+          ? [{ conversationId: 10 }]
+          : [];
       },
       create: async ({ data }: any) => ({ id: 501, ...data }),
       update: async (input: Record<string, unknown>) => input,
@@ -1607,6 +1747,9 @@ function createServiceForStatusTest() {
   const conversations = {
     queueOutboundForCompany: async () => ({ outboundMessageId: 999, conversationId: 42 }),
     updateConversationState: async () => null,
+    dispatchVendasCockpitProjection: async (input: Record<string, unknown>) => {
+      projectionCalls.push(input);
+    },
   } as any;
 
   const audit = { log: async () => undefined } as any;
@@ -1635,11 +1778,11 @@ function createServiceForStatusTest() {
     undefined as any,
   );
 
-  return { service, outboundUpdateCalls, messageUpdateCalls, webhookEventCalls };
+  return { service, outboundUpdateCalls, messageUpdateCalls, webhookEventCalls, projectionCalls };
 }
 
 test('webwhats messages.update with keyId sets OUTBOUND to FAILED (Bug fix: keyId was ignored)', async () => {
-  const { service, outboundUpdateCalls, messageUpdateCalls } = createServiceForStatusTest();
+  const { service, outboundUpdateCalls, messageUpdateCalls, projectionCalls } = createServiceForStatusTest();
 
   // Real payload shape observed live: keyId at data-level, status at data-level
   const payload = {
@@ -1672,6 +1815,11 @@ test('webwhats messages.update with keyId sets OUTBOUND to FAILED (Bug fix: keyI
   assert.ok(messageUpdateCalls.length >= 1, 'companyMessage.updateMany should have been called');
   const msgCall = messageUpdateCalls[0] as any;
   assert.equal(msgCall.data?.status, 'FAILED', 'Message status should be FAILED');
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 2,
+    conversationId: 10,
+    event: 'failed',
+  });
 });
 
 test('webwhats messages.update with keyId sets OUTBOUND to DELIVERED', async () => {
@@ -1700,6 +1848,35 @@ test('webwhats messages.update with keyId sets OUTBOUND to DELIVERED', async () 
   assert.equal(msgCall.data?.status, 'DELIVERED', 'Message status should be DELIVERED');
 });
 
+test('Meta Cloud status is tenant-scoped and rebuilds the Vendas cockpit', async () => {
+  const { service, outboundUpdateCalls, messageUpdateCalls, projectionCalls } =
+    createServiceForStatusTest({ resolveMeta: true });
+  (service as any).verifyWebhookSignature = () => true;
+
+  const result = await service.handleWhatsAppWebhook({
+    entry: [{
+      changes: [{
+        value: {
+          metadata: { phone_number_id: 'meta-phone-2', display_phone_number: '+5511999990000' },
+          statuses: [{ id: 'wamid.meta-1', status: 'sent', timestamp: '1770000000' }],
+        },
+      }],
+    }],
+  });
+
+  assert.equal(result.statusesHandled, 1);
+  assert.equal((outboundUpdateCalls[0] as any).where.companyId, 2);
+  assert.deepEqual((outboundUpdateCalls[0] as any).where.status.notIn, ['DELIVERED', 'READ', 'FAILED']);
+  assert.equal((outboundUpdateCalls[0] as any).data.status, 'SENT');
+  assert.equal((messageUpdateCalls[0] as any).where.companyId, 2);
+  assert.equal((messageUpdateCalls[0] as any).data.status, 'SENT');
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 2,
+    conversationId: 10,
+    event: 'sent',
+  });
+});
+
 // ---------------------------------------------------------------------------
 // INTENTENGINE S4 — reaper de SENDING órfão (docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint4.md)
 // ---------------------------------------------------------------------------
@@ -1708,6 +1885,7 @@ function createServiceForReaperTest(stuckMessages: Array<Record<string, any>>) {
   const outboundMessageUpdateCalls: Array<Record<string, unknown>> = [];
   const outboundAttemptUpdateCalls: Array<Record<string, unknown>> = [];
   const companyMessageUpdateManyCalls: Array<Record<string, unknown>> = [];
+  const projectionCalls: Array<Record<string, unknown>> = [];
 
   const prisma = {
     hasTable: async () => false,
@@ -1736,7 +1914,12 @@ function createServiceForReaperTest(stuckMessages: Array<Record<string, any>>) {
     },
   } as any;
 
-  const conversations = { queueOutboundForCompany: async () => ({ outboundMessageId: 999, conversationId: 42 }) } as any;
+  const conversations = {
+    queueOutboundForCompany: async () => ({ outboundMessageId: 999, conversationId: 42 }),
+    dispatchVendasCockpitProjection: async (input: Record<string, unknown>) => {
+      projectionCalls.push(input);
+    },
+  } as any;
   const audit = { log: async () => undefined } as any;
   const inboxRealtime = { publish: () => undefined, subscribe: () => () => undefined } as any;
 
@@ -1758,13 +1941,19 @@ function createServiceForReaperTest(stuckMessages: Array<Record<string, any>>) {
     undefined as any,
   );
 
-  return { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls };
+  return {
+    service,
+    outboundMessageUpdateCalls,
+    outboundAttemptUpdateCalls,
+    companyMessageUpdateManyCalls,
+    projectionCalls,
+  };
 }
 
 test('reaper: SENDING travada SEM attempt registrado volta para PENDING (re-enfileira)', async () => {
   const oldEnough = new Date(Date.now() - 20 * 60 * 1000); // 20min > default 10min
-  const { service, outboundMessageUpdateCalls, companyMessageUpdateManyCalls } = createServiceForReaperTest([
-    { id: 101, attemptCount: 0, createdAt: oldEnough, attempts: [] },
+  const { service, outboundMessageUpdateCalls, companyMessageUpdateManyCalls, projectionCalls } = createServiceForReaperTest([
+    { id: 101, companyId: 7, attemptCount: 0, createdAt: oldEnough, attempts: [], message: { id: 501, conversationId: 42 } },
   ]);
 
   const result = await service.reapStuckSendingMessages();
@@ -1780,17 +1969,25 @@ test('reaper: SENDING travada SEM attempt registrado volta para PENDING (re-enfi
 
   assert.equal(companyMessageUpdateManyCalls.length, 1);
   assert.equal((companyMessageUpdateManyCalls[0] as any).data.status, 'QUEUED');
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 7,
+    conversationId: 42,
+    event: 'queued',
+    messageId: 501,
+  });
 });
 
 test('reaper: SENDING travada COM attempt registrado sem resultado vira FAILED (stuck_unknown_outcome)', async () => {
   const oldEnough = new Date(Date.now() - 20 * 60 * 1000);
-  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls } =
+  const { service, outboundMessageUpdateCalls, outboundAttemptUpdateCalls, companyMessageUpdateManyCalls, projectionCalls } =
     createServiceForReaperTest([
       {
         id: 202,
+        companyId: 7,
         attemptCount: 1,
         createdAt: oldEnough,
         attempts: [{ id: 555, startedAt: oldEnough, finishedAt: null, httpStatus: null, responseBody: null }],
+        message: { id: 502, conversationId: 43 },
       },
     ]);
 
@@ -1815,6 +2012,12 @@ test('reaper: SENDING travada COM attempt registrado sem resultado vira FAILED (
 
   assert.equal(companyMessageUpdateManyCalls.length, 1);
   assert.equal((companyMessageUpdateManyCalls[0] as any).data.status, 'FAILED');
+  assert.deepEqual(projectionCalls[0], {
+    companyId: 7,
+    conversationId: 43,
+    event: 'failed',
+    messageId: 502,
+  });
 });
 
 test('reaper: SENDING recente (dentro da janela) não é tocada', async () => {

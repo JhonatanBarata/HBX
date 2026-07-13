@@ -8073,6 +8073,13 @@ export class InboxService {
       });
     });
 
+    await this.conversations.dispatchVendasCockpitProjection({
+      companyId,
+      conversationId: conversation.id,
+      event: 'queued',
+      messageId: message.id,
+    });
+
     await this.logInboxEvent({
       companyId,
       event: 'manual_outbound_retry_queued',
@@ -8238,6 +8245,8 @@ export class InboxService {
     opts?: {
       quotedMessageId?: string;
       quotedContent?: string;
+      sourceModule?: string;
+      variables?: Record<string, unknown>;
       attachment?: {
         kind?: string | null;
         url?: string | null;
@@ -8297,7 +8306,9 @@ export class InboxService {
     const body = quotedPreview
       ? `> ${quotedPreview}\n\n${normalizedContent}`
       : normalizedContent;
-    const variables: Record<string, unknown> = {};
+    const variables: Record<string, unknown> = {
+      ...(opts?.variables && typeof opts.variables === 'object' ? opts.variables : {}),
+    };
     if (opts?.quotedMessageId) {
       variables.quotedMessageId = String(opts.quotedMessageId).trim();
       // Resolve o { key, message } pro motor repassar a citacao de verdade no WhatsApp do
@@ -8337,12 +8348,13 @@ export class InboxService {
       String(conversationMetadata?.queueTarget || conversationMetadata?.routeTarget || '').trim().toLowerCase() === 'conversas' ||
       String((conversation as any)?.routeTarget || '').trim().toLowerCase() === 'conversas';
 
+    const sourceModule = String(opts?.sourceModule || 'atendimento_human').trim().toLowerCase() || 'atendimento_human';
     const outboundPayload: any = {
       conversationId,
       to: toPhone,
       body,
       messageType: 'text',
-      sourceModule: 'atendimento_human',
+      sourceModule,
       senderType: 'human',
       contactId: toPhone,
       flowState: {
@@ -8397,7 +8409,7 @@ export class InboxService {
       messageType: 'text',
       result: 'queued',
       extra: {
-        sourceModule: 'atendimento_human',
+        sourceModule,
         hasQuote: !!quotedPreview,
         attachmentKind: attachment?.kind || null,
       },

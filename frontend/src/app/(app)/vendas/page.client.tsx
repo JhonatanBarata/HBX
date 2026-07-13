@@ -13,7 +13,13 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
-import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import {
+  DetalhesNegocio,
+  vendasEngagementMeta,
+  type NegocioDetail,
+  type VendasConversationRef,
+  type VendasEngagementSnapshot,
+} from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { LeadCockpitModal } from "@/components/hbx/lead-cockpit-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
@@ -74,6 +80,8 @@ export type VendasLead = {
   daysSinceOpened?: number | null;
   // presença no Atendimento
   isInInbox?: boolean | null;
+  conversation?: VendasConversationRef | null;
+  engagement?: VendasEngagementSnapshot | null;
   timeline?: Array<{
     id: string;
     eventType?: string | null;
@@ -235,7 +243,8 @@ function agendaInfo(card: VendasLead): { tone: string; label: string } {
 
 // Termômetro (1–5) DERIVADO — nós = estrela viva (não estrela na mão). Combina o
 // score de oportunidade do Radar (0–100) com sinais de engajamento reais do card:
-// temperatura (frio/morno/quente), tentativas de contato e presença no Atendimento.
+// temperatura, tentativas e a projeção canônica da conversa. `isInInbox` significa
+// somente existência de conversa e JAMAIS é tratado como resposta.
 // Retorna a nota + o "porquê" (tooltip) pra ninguém adivinhar de onde saiu.
 function deriveTermometro(card: VendasLead): { score: number; why: string } {
   const reasons: string[] = [];
@@ -253,8 +262,10 @@ function deriveTermometro(card: VendasLead): { score: number; why: string } {
   if (temp === "quente") { pts += 1.4; reasons.push("Lead quente"); }
   else if (temp === "morno") { pts += 0.7; reasons.push("Lead morno"); }
   else if (temp === "frio") { reasons.push("Lead frio"); }
-  // Engajamento: já respondeu no Atendimento? Já teve tentativas de contato?
-  if (card.isInInbox) { pts += 0.8; reasons.push("Respondeu no WhatsApp"); }
+  // Engajamento canônico: inbound real vale mais; outbound confirmado é só um
+  // sinal de contato e mantém o lead aguardando resposta.
+  if (card.engagement?.hasInboundReply) { pts += 0.8; reasons.push("Cliente respondeu"); }
+  else if (card.engagement?.hasSuccessfulOutbound) { pts += 0.3; reasons.push("Contato enviado"); }
   if ((card.attemptCount ?? 0) >= 2) { pts += 0.4; reasons.push(`${card.attemptCount} contatos`); }
   const score = Math.max(1, Math.min(5, Math.round(pts)));
   const why = reasons.length ? reasons.join(" · ") : "Sem sinais suficientes";
@@ -722,25 +733,37 @@ export function VendasClient() {
     if (link) window.open(link, "_blank", "noopener");
   }
 
-  // Abre o WhatsApp Interno: POST /inbox/conversations/start → navega pro /atendimento
-  // usando sessionStorage (mecanismo já existente no atendimento — hbx:abrir-conversa).
-  // O backend já valida QR e acesso internamente; trate o erro com mensagem amigável.
-  async function abrirWhatsAppInterno(lead: { phone: string | null; name: string | null }) {
+  // Atalho explícito para o Atendimento. Em Vendas, consulta primeiro o vínculo
+  // canônico (leitura sem efeito colateral) e só cria/vincula se ainda não existir.
+  async function abrirWhatsAppInterno(lead: Pick<VendasLead, "id" | "phone" | "conversation">) {
     if (!lead.phone || waStartBusy) return;
     setWaStartBusy(true);
     setWaStartError(null);
     try {
-      const res = await apiFetch<{ id?: number | string }>("/inbox/conversations/start", {
-        method: "POST",
-        body: JSON.stringify({
-          phone: lead.phone.trim(),
-          ...(lead.name ? { name: lead.name.trim() } : {}),
-        }),
-      });
-      if (res?.id != null) {
+      const path = `/vendas/lead/${encodeURIComponent(lead.id)}/conversation`;
+      let conversationId = lead.conversation?.id ? String(lead.conversation.id) : null;
+      if (!conversationId) {
+        const found = await apiFetch<{ conversation?: VendasConversationRef | null; id?: string | number | null }>(path);
+        conversationId = found?.conversation?.id != null
+          ? String(found.conversation.id)
+          : found?.id != null ? String(found.id) : null;
+      }
+      if (!conversationId) {
+        const created = await apiFetch<{ conversation?: VendasConversationRef | null; id?: string | number | null }>(path, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        conversationId = created?.conversation?.id != null
+          ? String(created.conversation.id)
+          : created?.id != null ? String(created.id) : null;
+        void loadBoard();
+      }
+      if (conversationId) {
         // Handoff via sessionStorage — o atendimento lê ao montar e seleciona a conversa.
-        try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
+        try { sessionStorage.setItem("hbx:abrir-conversa", conversationId); } catch { /* sem storage */ }
         router.push("/atendimento");
+      } else {
+        throw new Error("Não foi possível abrir a conversa.");
       }
     } catch (err) {
       setWaStartError(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");
@@ -920,12 +943,15 @@ export function VendasClient() {
       productName: d.product?.name ?? null,
       returnAt: d.returnAt,
       lastContactAt: d.lastContactAt,
+      lastMessageAt: d.engagement?.lastMessageAt ?? null,
       attemptCount: d.attemptCount,
       nextAction: d.nextAction,
       shortNote: d.shortNote,
       lastResult: d.lastResult,
       timesSeen: d.timesSeen,
       isInInbox: d.isInInbox ?? null,
+      conversation: d.conversation ?? null,
+      engagement: d.engagement ?? null,
       createdAt: d.createdAt ?? null,
       updatedAt: d.updatedAt ?? null,
       sourceType: d.sourceType ?? null,
@@ -1232,6 +1258,7 @@ export function VendasClient() {
                         const blockLbl: Record<string, string> = { today: "Hoje", overdue: "Atrasados", scheduled: "Agendados", closed: "Fechados" };
                         return flatLeads.map(card => {
                           const tagCls = card.block === "overdue" ? "tag warn" : card.block === "closed" ? "tag teal" : "tag";
+                          const engagement = vendasEngagementMeta(card.engagement, card.conversation);
                           return (
                             <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}
                               onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}>
@@ -1241,7 +1268,11 @@ export function VendasClient() {
                               </td>
                               <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}<RadarAiBadge status={aiStatusMap[card.id]} /></div></td>
                               <td>{card.segment || "—"}</td>
-                              <td><span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>{card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}</td>
+                              <td>
+                                <span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>
+                                <span className={engagement.className} style={{ marginLeft: 6 }}>{engagement.label}</span>
+                                {card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}
+                              </td>
                               {board.canViewValues && <td className="hbx-mono">{leadValueLabel(card)}</td>}
                               <td><span className="nowrap-cell" style={{ maxWidth: 240, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }} title={card.nextAction || card.shortNote || ""}>{card.nextAction || card.statusLabel || "—"}</span></td>
                               <td>{card.owner?.name ? <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Av name={card.owner.name} size={20} />{card.owner.name}</span> : "—"}</td>
@@ -1297,6 +1328,7 @@ export function VendasClient() {
                             {cards.map(card => {
                               const ag = agendaInfo(card);
                               const therm = deriveTermometro(card);
+                              const engagement = vendasEngagementMeta(card.engagement, card.conversation);
                               return (
                                 <article
                                   key={card.id}
@@ -1323,6 +1355,7 @@ export function VendasClient() {
                                     {card.owner?.name
                                       ? <span className="vnd-card__owner"><Av name={card.owner.name} size={16} />{card.owner.name}</span>
                                       : <span className="vnd-card__owner vnd-card__owner--none">Sem dono</span>}
+                                    <span className={engagement.className}>{engagement.label}</span>
                                   </div>
                                 </article>
                               );
@@ -1344,9 +1377,11 @@ export function VendasClient() {
                 onClose={() => setSel(null)}
                 onExpand={deal ? () => setCockpitOpen(true) : undefined}
                 showAgenda
+                conversationLeadId={deal?.id ?? null}
+                onConversationChanged={loadBoard}
                 crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.id]} /> : undefined}
                 onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
-                onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno({ phone: deal.phone, name: deal.name }) : undefined}
+                onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno(deal) : undefined}
                 waQrActive={waQrActive}
                 waCanInternal={canAtendimento}
                 onDelete={deal ? () => { setAcaoMsg(null); setExcluirMotivoOpen("card"); } : undefined}
@@ -1468,6 +1503,7 @@ export function VendasClient() {
           canViewValues={Boolean(board?.canViewValues)}
           open={cockpitOpen}
           onClose={() => setCockpitOpen(false)}
+          onConversationChanged={loadBoard}
         />
       )}
 

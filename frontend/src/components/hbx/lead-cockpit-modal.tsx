@@ -184,11 +184,12 @@ function CopyRow({ label, value, mono = true, badge }: {
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
+export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConversationChanged }: {
   lead: VendasLead;
   canViewValues: boolean;
   open: boolean;
   onClose: () => void;
+  onConversationChanged?: () => void | Promise<void>;
 }) {
   const router = useRouter();
   const ent = useEntitlements();
@@ -460,6 +461,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
     .filter((e): e is string => Boolean(e))
     .filter((e, i, a) => a.indexOf(e) === i);
   const waMap = lead.phonesWhatsapp || {};
+  const hasExistingConversation = Boolean(lead.conversation?.id || lead.conversation?.exists);
 
   const historico = [...addedNotes, ...(lead.timeline || [])].slice(0, 8);
 
@@ -498,15 +500,24 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose }: {
             <h4 className="lead-cockpit__box-title"><I d={ICONS.msg} size={12} /> WhatsApp</h4>
             {!lead.phone ? (
               <p className="muted-note">Lead sem telefone.</p>
-            ) : waOk === false ? (
+            ) : waOk === false && !hasExistingConversation ? (
               <div className="lead-cockpit__noconn">
                 <p className="hint">Conecte o WhatsApp da empresa pra conversar com este lead sem sair do funil.</p>
                 <button type="button" className="btn-teal" onClick={() => setWaConnectOpen(true)}>
                   <WhatsAppMark size={14} /> Conectar WhatsApp
                 </button>
               </div>
-            ) : waOk === true ? (
-              <ConversationPanel key={lead.phone} phone={lead.phone} name={lead.name} draftSignal={draftSignal} />
+            ) : waOk === true || hasExistingConversation ? (
+              <ConversationPanel
+                key={lead.id}
+                phone={lead.phone}
+                name={lead.name}
+                draftSignal={draftSignal}
+                leadId={lead.id}
+                conversationId={lead.conversation?.id}
+                conversationSnapshot={{ conversation: lead.conversation, engagement: lead.engagement }}
+                onConversationChanged={onConversationChanged}
+              />
             ) : (
               <p className="muted-note">Verificando conexão…</p>
             )}

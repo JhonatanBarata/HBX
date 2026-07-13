@@ -74,6 +74,7 @@ import { resolveVendasAccessContext, type VendasAccessContext } from '../team/te
 import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MasterAlertService } from '../master-alert/master-alert.service';
+import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
 
 type VendasLeadStatus = 'novo' | 'contato' | 'retorno' | 'qualificado' | 'encerrado';
 type VendasSaleStatus = 'none' | 'activation_pending' | 'trial_started' | 'sale_confirmed' | 'inactive' | 'canceled';
@@ -345,6 +346,7 @@ export class VendasService {
     private readonly hbxCommissionSync: HbxCommissionSyncService,
     private readonly authService: AuthService,
     private readonly masterAlert: MasterAlertService,
+    private readonly cockpitProjector: VendasLeadCockpitProjectorService,
   ) {}
 
   async getAutomationBotConfigForUser(user: any) {
@@ -1465,6 +1467,7 @@ export class VendasService {
     inboxPresence?: { conversationId?: string | number | null } | null,
     planAccess?: VendasPlanAccess | null,
     accessContext?: VendasAccessContext | null,
+    cockpitSnapshot?: any | null,
   ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
@@ -1532,6 +1535,26 @@ export class VendasService {
     const productPriceLabel = productPriceCents == null
       ? null
       : `R$ ${(productPriceCents / 100).toFixed(2).replace('.', ',')}`;
+    const canonicalConversation = cockpitSnapshot?.conversation?.exists
+      ? cockpitSnapshot.conversation
+      : inboxPresence?.conversationId
+        ? { id: String(inboxPresence.conversationId), exists: true }
+        : null;
+    const canonicalEngagement = cockpitSnapshot?.engagement || {
+      state: canonicalConversation ? 'no_messages' : 'no_conversation',
+      hasSuccessfulOutbound: false,
+      hasInboundMessage: false,
+      hasInboundReply: false,
+      firstSuccessfulOutboundAt: null,
+      lastOutboundAt: null,
+      lastOutboundStatus: null,
+      lastInboundAt: null,
+      lastMessageAt: null,
+      lastMessageDirection: null,
+      lastMessageStatus: null,
+      lastMessagePreview: null,
+      failureReason: null,
+    };
     return {
       id: String(row?.id || ''),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
@@ -1558,6 +1581,8 @@ export class VendasService {
       segment: row?.segment ? String(row.segment) : null,
       status,
       statusLabel: this.formatStatusLabel(status),
+      pipelineStage: row?.pipelineStage ? String(row.pipelineStage) : null,
+      outcome: row?.outcome ? String(row.outcome) : null,
       nextAction: row?.nextAction ? String(row.nextAction) : null,
       returnAt: row?.returnAt instanceof Date ? row.returnAt.toISOString() : null,
       shortNote: row?.shortNote ? String(row.shortNote) : null,
@@ -1635,9 +1660,16 @@ export class VendasService {
       planTier: access.planTier,
       capabilities: leadCapabilities,
       leadIntelligence: this.applyLeadIntelligenceCapabilities(leadIntelligence, access, row),
-      isInInbox: Boolean(inboxPresence?.conversationId || sharedProfile?.presence?.atendimento?.present),
-      inboxConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
-      atendimentoConversationId: inboxPresence?.conversationId ? String(inboxPresence.conversationId) : null,
+      conversation: canonicalConversation,
+      engagement: canonicalEngagement,
+      conversationId: canonicalConversation?.id ? String(canonicalConversation.id) : null,
+      hasInboundReply: Boolean(canonicalEngagement.hasInboundReply),
+      lastMessageAt: canonicalEngagement.lastMessageAt || null,
+      lastMessagePreview: canonicalEngagement.lastMessagePreview || null,
+      // Compatibilidade temporária: daqui em diante significa somente "há conversa".
+      isInInbox: Boolean(canonicalConversation),
+      inboxConversationId: canonicalConversation?.id ? String(canonicalConversation.id) : null,
+      atendimentoConversationId: canonicalConversation?.id ? String(canonicalConversation.id) : null,
       signals,
       timeline,
       sharedProfile: sharedProfile || null,
@@ -8009,6 +8041,9 @@ export class VendasService {
         leadInboxPresence.set(leadId, { conversationId: String(conversation.id) });
       }
     }
+    const cockpitStates = leadIds.length
+      ? await this.cockpitProjector.getCockpitStatesForLeads(context.companyId, leadIds)
+      : new Map<string, any>();
 
     const blocks = {
       today: [] as any[],
@@ -8029,6 +8064,7 @@ export class VendasService {
         leadInboxPresence.get(String(row.id)) || null,
         planAccess,
         context.access,
+        cockpitStates.get(String(row.id)) || null,
       );
       blocks[payload.block].push(payload);
     }

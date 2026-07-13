@@ -12,6 +12,7 @@ import {
   type CadenciaPasso,
 } from './cadencia-personas';
 import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from './dto/cadencia.dto';
+import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 
 // ================================================================
 // WORM-13 — CADENCIA (13a): CRUD das personas + aplicar a lista/filtro + runner
@@ -62,13 +63,16 @@ type CadenciaRow = {
 @Injectable()
 export class CadenciaService {
   private readonly logger = new Logger(CadenciaService.name);
+  private readonly commercialContactControl: CommercialContactControlService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
     private readonly atividades: AtividadesService,
     private readonly mailer: CompanyMailerService,
-  ) {}
+  ) {
+    this.commercialContactControl = new CommercialContactControlService(this.prisma);
+  }
 
   private get runnerEnabled(): boolean {
     return String(process.env[RUNNER_FLAG] || '').trim() === '1' || String(process.env[RUNNER_FLAG] || '').trim().toLowerCase() === 'true';
@@ -280,29 +284,33 @@ export class CadenciaService {
 
     let inscritos = 0;
     let jaInscritos = 0;
+    let conflitosAutomacao = 0;
     for (const lead of validLeads) {
       const responsavelId = responsavelDefault ?? lead.assignedUserId ?? null;
-      try {
-        await (this.prisma as any).cadenciaInscricao.create({
-          data: {
-            cadenciaId: cadencia.id,
-            companyId: context.companyId,
-            leadId: lead.id,
-            responsavelId,
-            status: 'ativa',
-            currentStep: 0,
-            startedAt: now,
-            nextStepAt,
-          },
-        });
+      const slot = await this.commercialContactControl.createCadenciaInscricao({
+        companyId: context.companyId,
+        leadId: lead.id,
+        data: {
+          cadenciaId: cadencia.id,
+          companyId: context.companyId,
+          leadId: lead.id,
+          responsavelId,
+          status: 'ativa',
+          currentStep: 0,
+          startedAt: now,
+          nextStepAt,
+        },
+      });
+      if (slot.created) {
         inscritos += 1;
-      } catch {
-        // unique (cadenciaId, leadId) — ja inscrito, ignora.
+      } else if (slot.alreadyEnrolled) {
         jaInscritos += 1;
+      } else {
+        conflitosAutomacao += 1;
       }
     }
 
-    return { ok: true, inscritos, jaInscritos, total: validLeads.length, runnerEnabled: this.runnerEnabled };
+    return { ok: true, inscritos, jaInscritos, conflitosAutomacao, total: validLeads.length, runnerEnabled: this.runnerEnabled };
   }
 
   // Cancela a inscricao de um lead (ou de toda a cadencia).
@@ -380,15 +388,28 @@ export class CadenciaService {
 
     for (const insc of due) {
       try {
+        if (!(await this.commercialContactControl.canCadenciaRun({
+          companyId: insc.companyId,
+          leadId: insc.leadId,
+          inscricaoId: insc.id,
+        }))) {
+          continue;
+        }
         const cadencia = (await (this.prisma as any).cadencia.findUnique({ where: { id: insc.cadenciaId } })) as CadenciaRow | null;
         if (!cadencia || !cadencia.ativa) {
-          await (this.prisma as any).cadenciaInscricao.update({ where: { id: insc.id }, data: { status: 'pausada' } });
+          await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: insc.id, status: 'ativa' },
+            data: { status: 'pausada' },
+          });
           continue;
         }
         const passos = this.parsePassos(cadencia.passosJson);
         if (insc.currentStep >= passos.length) {
-          await (this.prisma as any).cadenciaInscricao.update({ where: { id: insc.id }, data: { status: 'concluida' } });
-          concluded += 1;
+          const result = await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: insc.id, status: 'ativa' },
+            data: { status: 'concluida' },
+          });
+          concluded += Number(result?.count || 0);
           continue;
         }
         const passo = passos[insc.currentStep];
@@ -408,15 +429,15 @@ export class CadenciaService {
           }
         } else if (passo.canal === 'whats' && whatsCapReached) {
           // Teto de chip atingido: NAO dispara, adia 1 dia (nunca fura o teto).
-          await (this.prisma as any).cadenciaInscricao.update({
-            where: { id: insc.id },
+          await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: insc.id, status: 'ativa' },
             data: { nextStepAt: this.addDays(now, 1), lastError: 'whats_daily_cap_deferred' },
           });
           continue;
         } else if (passo.canal === 'email' && emailCapReached) {
           // Teto de e-mail atingido: NAO envia, adia 1 dia (mesmo padrao do WhatsApp).
-          await (this.prisma as any).cadenciaInscricao.update({
-            where: { id: insc.id },
+          await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: insc.id, status: 'ativa' },
             data: { nextStepAt: this.addDays(now, 1), lastError: 'email_daily_cap_deferred' },
           });
           continue;
@@ -430,19 +451,29 @@ export class CadenciaService {
           await this.executeAtividadeStep(insc, cadencia, passo);
         }
 
+        // Um inbound pode ter cancelado a inscricao enquanto o passo executava.
+        // Nunca reativa nem conclui por cima desse cancelamento.
+        if (!(await this.commercialContactControl.canCadenciaRun({
+          companyId: insc.companyId,
+          leadId: insc.leadId,
+          inscricaoId: insc.id,
+        }))) {
+          continue;
+        }
+
         // Avanca para o proximo passo. nextStepAt = startedAt-relativo ao dia do
         // proximo passo, medido a partir de agora + (diaProx - diaAtual).
         const nextStep = insc.currentStep + 1;
         if (nextStep >= passos.length) {
-          await (this.prisma as any).cadenciaInscricao.update({
-            where: { id: insc.id },
+          const result = await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: insc.id, status: 'ativa' },
             data: { currentStep: nextStep, status: 'concluida', lastStepAt: now, lastError: null },
           });
-          concluded += 1;
+          concluded += Number(result?.count || 0);
         } else {
           const deltaDias = Math.max(0, (passos[nextStep].dia ?? 0) - (passo.dia ?? 0));
-          await (this.prisma as any).cadenciaInscricao.update({
-            where: { id: insc.id },
+          await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: insc.id, status: 'ativa' },
             data: {
               currentStep: nextStep,
               nextStepAt: this.addDays(now, deltaDias),
@@ -456,7 +487,10 @@ export class CadenciaService {
         failed += 1;
         this.logger.warn(`[cadencia-runner] falha inscricao=${insc.id}: ${String(error?.message || error)}`);
         await (this.prisma as any).cadenciaInscricao
-          .update({ where: { id: insc.id }, data: { nextStepAt: this.addDays(now, 1), lastError: String(error?.message || error).slice(0, 200) } })
+          .updateMany({
+            where: { id: insc.id, status: 'ativa' },
+            data: { nextStepAt: this.addDays(now, 1), lastError: String(error?.message || error).slice(0, 200) },
+          })
           .catch(() => null);
       }
     }
@@ -470,6 +504,13 @@ export class CadenciaService {
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
   ): Promise<boolean> {
+    if (!(await this.commercialContactControl.canCadenciaRun({
+      companyId: insc.companyId,
+      leadId: insc.leadId,
+      inscricaoId: insc.id,
+    }))) {
+      return false;
+    }
     const lead = (await this.prisma.vendasLead.findFirst({
       where: { id: insc.leadId, companyId: insc.companyId },
       select: { id: true, phone: true, phoneNormalized: true, name: true },

@@ -5,7 +5,11 @@
 // função fechada dentro do componente desktop) evita qualquer acoplamento com
 // o estado interno do VendasClient/LeadsClient.
 
-import type { NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import type {
+  NegocioDetail,
+  VendasConversationRef,
+  VendasEngagementSnapshot,
+} from "@/components/hbx/detalhes-negocio";
 
 export type VendasBlockKey = "today" | "overdue" | "scheduled" | "closed";
 
@@ -54,6 +58,8 @@ export type VendasLeadMobile = {
   isFreshCompany?: boolean | null;
   daysSinceOpened?: number | null;
   isInInbox?: boolean | null;
+  conversation?: VendasConversationRef | null;
+  engagement?: VendasEngagementSnapshot | null;
   timeline?: Array<{
     id: string;
     eventType?: string | null;
@@ -170,12 +176,15 @@ export function vendasLeadToDetail(d: VendasLeadMobile): NegocioDetail {
     productName: d.product?.name ?? null,
     returnAt: d.returnAt,
     lastContactAt: d.lastContactAt,
+    lastMessageAt: d.engagement?.lastMessageAt ?? null,
     shortNote: d.shortNote,
     attemptCount: d.attemptCount,
     nextAction: d.nextAction,
     lastResult: d.lastResult,
     timesSeen: d.timesSeen,
     isInInbox: d.isInInbox ?? null,
+    conversation: d.conversation ?? null,
+    engagement: d.engagement ?? null,
     createdAt: d.createdAt ?? null,
     updatedAt: d.updatedAt ?? null,
     sourceType: d.sourceType ?? null,
