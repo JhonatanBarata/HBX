@@ -370,8 +370,8 @@ export function BotOnboarding(props: {
                       >
                         {done ? <I d={ICONS.check} size={12} /> : i + 1}
                       </span>
-                      <span className="bot-onb-check__text">
-                        <span className="bot-onb-check__label">{f.label}</span>
+                      <span className="bot-onb-check__txt">
+                        <span className="bot-onb-check__name">{f.label}</span>
                         <span className="bot-onb-check__state">
                           {active ? "editando agora" : done ? "pronto" : "pendente"}
                         </span>
