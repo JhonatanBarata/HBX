@@ -126,40 +126,48 @@ export function BotOnboarding(props: {
   // O PATCH comum da tela não aguardava o salvamento e também não marcava `setup.completed`.
   // No Atendimento, o onboarding agora lê a configuração atual, preserva botões/regras e
   // grava as mensagens editadas + conclusão do tutorial em uma única operação atômica.
-  async function saveCompletedSetup() {
-    if (botType !== "atendimento") {
-      await onSave();
-      return;
-    }
-
-    const current = await apiFetch<Record<string, unknown>>("/inbox/bot-config");
-    if (!current || typeof current !== "object") {
-      throw new Error("Não foi possível carregar a configuração atual do bot.");
-    }
-
-    const currentSetup =
-      current.setup && typeof current.setup === "object" && !Array.isArray(current.setup)
-        ? (current.setup as Record<string, unknown>)
-        : {};
-    const editedFields = Object.fromEntries(
-      fields.map(field => [field.key, value(field.key)]),
-    );
-
-    await apiFetch("/inbox/bot-config", {
-      method: "PATCH",
-      body: JSON.stringify({
-        ...current,
-        ...editedFields,
-        setup: {
-          ...currentSetup,
-          completed: true,
-          completedAt: new Date().toISOString(),
-          botType: "atendimento",
-          configuredFrom: "bot_onboarding",
-        },
-      }),
-    });
+ async function saveCompletedSetup() {
+  if (botType !== "atendimento") {
+    await onSave();
+    return;
   }
+
+  const current = await apiFetch<Record<string, unknown>>("/inbox/bot-config");
+
+  if (!current || typeof current !== "object") {
+    throw new Error("Não foi possível carregar a configuração atual do bot.");
+  }
+
+  const persistableConfig = { ...current };
+  delete persistableConfig.providerCapabilities;
+
+  const currentSetup =
+    current.setup &&
+    typeof current.setup === "object" &&
+    !Array.isArray(current.setup)
+      ? (current.setup as Record<string, unknown>)
+      : {};
+
+  const editedFields = Object.fromEntries(
+    fields.map(field => [field.key, value(field.key)]),
+  );
+
+  await apiFetch("/inbox/bot-config", {
+    method: "PATCH",
+    body: JSON.stringify({
+      ...persistableConfig,
+      ...editedFields,
+      setup: {
+        ...currentSetup,
+        completed: true,
+        completedAt: new Date().toISOString(),
+        botType: "atendimento",
+        configuredFrom: "bot_onboarding",
+      },
+    }),
+  });
+}
+  
 
   function handleNext() {
     if (phase === PHASE_SPLASH) { goTo(PHASE_CONN); return; }
