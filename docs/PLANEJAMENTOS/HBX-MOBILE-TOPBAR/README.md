@@ -188,7 +188,9 @@ Aplicar a migration em banco descartável e validar:
 - push enviado muda para `notified`;
 - pull muda para `delivered`;
 - retorno e conclusão gravam duração/resultado;
-- histórico não expõe ação de outro usuário ou tenant.
+- histórico não expõe ação de outro usuário ou tenant;
+- nomes reais das tabelas/colunas usados no SQL raw;
+- serialização do array em `ANY($1::text[])`; se o driver Prisma/Postgres atual não aceitar, trocar por `Prisma.join(ids)` em `IN (...)`.
 
 ### Android
 
