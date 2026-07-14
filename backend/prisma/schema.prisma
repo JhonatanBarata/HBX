@@ -297,6 +297,8 @@ model Company {
   logisticaTrackingSessions LogisticaTrackingSession[]
   logisticaTrackingPoints LogisticaTrackingPoint[]
   logisticaTrackingEvents LogisticaTrackingEvent[]
+  logisticaTrackedCreditClaims LogisticaTrackedCreditClaim[]
+  logisticaTrackingBonusGrants LogisticaTrackingBonusGrant[]
   // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
   locaisEntrega          LocalEntrega[]
   logisticaConfig        LogisticaConfig?
@@ -1170,6 +1172,7 @@ model Entrega {
   logisticaRouteStop LogisticaRouteStop?
   logisticaTrackingPoints LogisticaTrackingPoint[]
   logisticaTrackingEvents LogisticaTrackingEvent[]
+  logisticaTrackedCreditClaims LogisticaTrackedCreditClaim[]
 
   @@unique([id, companyId])
   @@unique([companyId, idempotencyKey])
@@ -1207,6 +1210,7 @@ model LogisticaRoute {
   stops               LogisticaRouteStop[]
   essentialClaims     LogisticaEssentialCreditClaim[]
   trackingSession     LogisticaTrackingSession?
+  trackedCreditClaims LogisticaTrackedCreditClaim[]
 
   @@unique([id, companyId])
   @@unique([companyId, entregadorId, routeDate])
@@ -1262,6 +1266,7 @@ model LogisticaTrackingSession {
   updatedAt         DateTime @updatedAt
   points            LogisticaTrackingPoint[]
   events            LogisticaTrackingEvent[]
+  trackedCreditClaims LogisticaTrackedCreditClaim[]
 
   @@unique([id, companyId])
   @@unique([routeId, companyId])
@@ -1345,6 +1350,64 @@ model LogisticaEssentialCreditClaim {
   @@unique([companyId, entregadorId, routeDate, blockIndex])
   @@index([companyId, routeId, status])
   @@index([companyId, entregadorId, routeDate])
+}
+
+// ROTA RASTREADA PR3 (14/07) — saga financeira de uma entrega concluída
+// durante uma sessão válida. A unicidade comercial é sessão+entrega e impede
+// tanto retries quanto chamadas concorrentes de cobrarem novamente.
+model LogisticaTrackedCreditClaim {
+  id                  String   @id @default(cuid())
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId           Int
+  trackingSession     LogisticaTrackingSession @relation(fields: [trackingSessionId, companyId], references: [id, companyId], onDelete: Cascade)
+  trackingSessionId   String
+  route               LogisticaRoute @relation(fields: [routeId, companyId], references: [id, companyId], onDelete: Cascade)
+  routeId             String
+  delivery            Entrega  @relation(fields: [deliveryId, companyId], references: [id, companyId], onDelete: Restrict)
+  deliveryId          String
+  status              String   @default("PENDING") // PENDING | PROCESSING | DEBITED | COMPLETED | REFUNDING | REFUNDED | FAILED
+  billingAttempt      Int      @default(0)
+  debitUsageKey       String?  @unique
+  processingToken     String?  @unique
+  leaseUntil          DateTime?
+  paidCreditsConsumed Int      @default(0)
+  sourceMonth         String?  @db.VarChar(7) // YYYY-MM America/Sao_Paulo; só quando COMPLETED
+  debitedAt           DateTime?
+  completedAt         DateTime?
+  refundedAt          DateTime?
+  lastError           String?  @db.VarChar(500)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([companyId, trackingSessionId, deliveryId])
+  @@index([companyId, routeId, status])
+  @@index([companyId, deliveryId])
+  @@index([companyId, sourceMonth, status])
+  @@index([companyId, status, leaseUntil])
+}
+
+// Um grant por empresa+mês de origem. O valor elegível é exclusivamente a
+// parcela de lotes pagos consumida pelas claims concluídas; promo nunca entra.
+model LogisticaTrackingBonusGrant {
+  id                    String   @id @default(cuid())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             Int
+  sourceMonth           String   @db.VarChar(7)
+  eligiblePaidCredits   Int      @default(0)
+  bonusCredits          Int      @default(0)
+  status                String   @default("PENDING") // PENDING | PROCESSING | GRANTED | FAILED
+  usageKey              String?  @unique
+  processingToken       String?  @unique
+  leaseUntil            DateTime?
+  expiresAt             DateTime?
+  grantedAt             DateTime?
+  lastError             String?  @db.VarChar(500)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([companyId, sourceMonth])
+  @@index([companyId, status, sourceMonth])
+  @@index([status, leaseUntil])
 }
 
 // Arquivo de comprovante da entrega. Mesmo padrão de storage privado usado por

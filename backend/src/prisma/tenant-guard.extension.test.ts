@@ -55,6 +55,8 @@ test('lista tenant-scoped tem os modelos quentes e NÃO tem os globais', () => {
     'LogisticaRoute',
     'LogisticaRouteStop',
     'LogisticaEssentialCreditClaim',
+    'LogisticaTrackedCreditClaim',
+    'LogisticaTrackingBonusGrant',
   ]) {
     assert.ok(TENANT_SCOPED_MODELS.has(m), `${m} deveria ser tenant-scoped`);
   }
