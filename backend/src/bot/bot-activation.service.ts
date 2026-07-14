@@ -11,7 +11,10 @@ import {
   isAtendimentoBotSetupComplete,
   normalizeAtendimentoBotConfig,
 } from '../inbox/atendimento-config';
-import { normalizeRecoveryBotConfig } from '../hbx-recovery/recovery-bot-config';
+import {
+  normalizeRecoveryBotConfig,
+  RECOVERY_BOT_CONFIG_CHANNEL,
+} from '../hbx-recovery/recovery-bot-config';
 import type { BotTypeKey } from './dto/bot-activation.dto';
 import {
   BotConfigStoreService,
@@ -109,13 +112,27 @@ export class BotActivationService {
     }
 
     if (type === 'recovery') {
-      // Recovery: tem start template ativo + mainMenuButtons não vazios.
+      // Recovery pode iniciar por template Meta aprovado OU por uma etapa
+      // durável habilitada (WhatsApp conectado/e-mail). Isso permite operar no
+      // canal QR sem inventar nome de template, mantendo o pré-voo fail-closed.
       const payload = await this.botConfigStore.get(companyId, 'recovery_bot');
       if (!payload) return false;
       const config = normalizeRecoveryBotConfig(payload as any);
       const hasActiveTemplate = config.startTemplates.some((t) => t.active && t.name.trim());
       const hasMainMenu = config.mainMenuButtons.length > 0;
-      return hasActiveTemplate && hasMainMenu;
+      const durableStage = hasActiveTemplate
+        ? null
+        : await this.prisma.hbxRecoveryFlowStage.findFirst({
+            where: {
+              companyId,
+              enabled: true,
+              channel: {
+                notIn: [RECOVERY_BOT_CONFIG_CHANNEL, 'HBX_RECOVERY_META_TEMPLATES'],
+              },
+            },
+            select: { id: true },
+          });
+      return (hasActiveTemplate || Boolean(durableStage?.id)) && hasMainMenu;
     }
 
     if (type === 'prospeccao') {
