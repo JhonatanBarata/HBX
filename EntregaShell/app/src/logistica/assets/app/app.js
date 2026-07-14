@@ -1,11 +1,19 @@
 (function () {
   "use strict";
   const H = window.HBX;
+  // Versões anteriores armazenavam a resposta genérica de customer-profiles,
+  // que também contém contatos importados pelo WhatsApp. Nunca reaproveite esse cache.
+  H.cache.remove("logistica-clients");
   const state = {
     screen: "route",
     route: H.cache.get("logistica-route", null),
     products: H.cache.get("logistica-products", []),
-    clients: H.cache.get("logistica-clients", []),
+    clients: [],
+    clientsPage: 0,
+    clientsTotal: 0,
+    clientsTotalPages: 1,
+    clientsLoading: false,
+    clientsError: null,
     config: H.cache.get("logistica-config", null),
     statement: null,
     filter: "Todos",
@@ -18,6 +26,8 @@
     toast: null,
   };
   const app = document.getElementById("app");
+  let clientsRequestId = 0;
+  let clientsSearchTimer = null;
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
     users: "<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'/>",
@@ -74,15 +84,12 @@
     return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small></div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
   }
 
-  function mergedClients() {
-    const byId = new Map((state.clients || []).map(c => [String(c.id), { ...c }]));
-    items().forEach(item => { const c = item.cliente; if (!c || !c.id) return; byId.set(String(c.id), { ...(byId.get(String(c.id)) || {}), ...c }); });
-    return [...byId.values()];
-  }
   function clientsScreen() {
-    const q = state.query.toLowerCase().trim();
-    const list = mergedClients().filter(c => !q || [c.name, c.nome, c.phone, c.endereco, c.cidade].join(" ").toLowerCase().includes(q));
-    return shell(`<div class="screen-head"><div><h1>Clientes</h1><p class="subtitle">${list.length} cadastro(s) da empresa</p></div><button class="link-btn" data-action="new-client">Novo</button></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Nome, telefone ou endereço" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}</span></div><div class="list">${list.length ? list.map(c => `<button class="lead-card" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><small>${H.escape(c.phone || "Sem telefone")}</small></div><span>›</span></button>`).join("") : empty("Nenhum cliente", "Cadastre um cliente para criar entregas.")}</div><button class="fab" data-action="new-client">+</button>`);
+    const list = state.clients || [];
+    const total = Number(state.clientsTotal || 0);
+    const firstLoad = state.clientsLoading && state.clientsPage === 0;
+    const emptyText = state.clientsError || (state.query.trim() ? "Nenhum cliente corresponde à busca." : "Cadastre um cliente para criar entregas.");
+    return shell(`<div class="screen-head"><div><h1>Clientes</h1><p class="subtitle">${total} cadastro(s) da empresa</p></div><button class="link-btn" data-action="new-client">Novo</button></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Nome, telefone ou endereço" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><small>${H.escape(c.phone || c.phoneNormalized || "Sem telefone")}</small></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${state.clientsPage < state.clientsTotalPages ? `<button class="btn btn-secondary btn-block" data-action="load-more-clients" ${state.clientsLoading ? "disabled" : ""}>${state.clientsLoading ? "Carregando…" : "Carregar mais"}</button>` : ""}<button class="fab" data-action="new-client">+</button>`);
   }
   function productsScreen() {
     const products = state.products || [];
@@ -93,7 +100,7 @@
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1><p class="subtitle">Aplicativo, rota e permissões</p></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ao vivo ativo" : "Modo essencial"}</h2><p class="muted">O GPS só funciona durante uma rota ativa e para ao encerrar.</p></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong><span>${trackedAvailable ? defaultTracked ? "Preferência: Rota Rastreada" : "Preferência: Rota Essencial" : "Indisponível pela configuração global"}</span></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo congelado</strong><span>${routeActive() ? `Esta rota permanece ${routeTracked() ? "Rastreada" : "Essencial"} até o fim` : "Pode ser escolhido antes de iniciar"}</span></div></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão da rota</strong><span>${defaultTracked ? "Rastreada" : "Essencial"}${routeActive() ? " · bloqueado durante a rota" : ""}</span></div><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong><span>Saldo, débitos e bônus elegível</span></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema claro/escuro</strong><span>Interface de alta definição</span></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong><span>Rota, clientes, produtos e configurações</span></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair deste aparelho</strong><span>Remove somente o vínculo local</span></div><span>›</span></button></section><p class="subtitle" style="text-align:center;margin-top:14px">Versão ${H.escape(H.info().versionName || "local")} · GPS sem API paga</p>`);
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema claro/escuro</strong><span>Interface de alta definição</span></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong><span>Rota, produtos e configurações</span></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair deste aparelho</strong><span>Remove o vínculo e os dados locais</span></div><span>›</span></button></section><p class="subtitle" style="text-align:center;margin-top:14px">Versão ${H.escape(H.info().versionName || "local")} · GPS sem API paga</p>`);
   }
 
   function deliverySheet(item) {
@@ -120,14 +127,52 @@
   }
   function render() { const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen }; app.innerHTML = (screens[state.screen] || routeScreen)(); }
 
+  async function loadClients(reset, silent) {
+    if (!reset && (state.clientsLoading || state.clientsPage >= state.clientsTotalPages)) return;
+    const requestId = reset ? ++clientsRequestId : clientsRequestId;
+    const page = reset ? 1 : state.clientsPage + 1;
+    const params = new URLSearchParams({ page: String(page), pageSize: "50" });
+    const query = state.query.trim();
+    if (query) params.set("query", query);
+    state.clientsLoading = true;
+    state.clientsError = null;
+    if (reset) {
+      state.clients = [];
+      state.clientsPage = 0;
+      state.clientsTotal = 0;
+      state.clientsTotalPages = 1;
+    }
+    if (!silent) render();
+    try {
+      const result = await H.api(`/nucleo/clientes?${params.toString()}`);
+      if (requestId !== clientsRequestId) return;
+      // Defesa em profundidade: mesmo que o contrato do backend seja alterado,
+      // a agenda/lead só aparece aqui depois de virar cliente explicitamente.
+      const incoming = (Array.isArray(result && result.items) ? result.items : []).filter(client => client && client.isCliente === true);
+      const byId = new Map((reset ? [] : state.clients).map(client => [String(client.id), client]));
+      incoming.forEach(client => byId.set(String(client.id), client));
+      state.clients = [...byId.values()];
+      state.clientsPage = Number(result && result.page || page);
+      state.clientsTotal = Number(result && result.total || state.clients.length);
+      state.clientsTotalPages = Math.max(1, Number(result && result.totalPages || 1));
+    } catch (error) {
+      if (requestId === clientsRequestId) state.clientsError = err(error);
+    } finally {
+      if (requestId === clientsRequestId) {
+        state.clientsLoading = false;
+        if (!silent) render();
+      }
+    }
+  }
+
   async function refresh(silent) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
-    const results = await Promise.allSettled([H.api("/logistica/rota"), H.api("/logistica/produtos"), H.api("/logistica/config"), H.api("/cadastros/customer-profiles")]);
+    const results = await Promise.allSettled([H.api("/logistica/rota"), H.api("/logistica/produtos"), H.api("/logistica/config")]);
     if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; }
     else state.error = err(results[0].reason);
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
-    if (results[3].status === "fulfilled") { state.clients = results[3].value || []; H.cache.set("logistica-clients", state.clients); }
+    if (state.screen === "clients") await loadClients(true, true);
     state.loading = false; state.refreshing = false; render();
     if (routeActive()) activateNativeRoute();
   }
@@ -181,12 +226,12 @@
       toast(type === "foto" ? "Foto anexada." : "Assinatura anexada.");
     } catch (error) { toast(err(error), true); }
   }
-  function clientById(id) { return mergedClients().find(c => String(c.id) === String(id)); }
+  function clientById(id) { return (state.clients || []).find(c => String(c.id) === String(id)); }
 
   app.addEventListener("click", async event => {
     if (event.target.closest(".sheet,.modal") && !event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode]")) return;
     const target = event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode]"); if (!target) return;
-    if (target.dataset.screen) { state.screen = target.dataset.screen; state.selected = null; state.modal = null; render(); return; }
+    if (target.dataset.screen) { const nextScreen = target.dataset.screen; state.screen = nextScreen; state.selected = null; state.modal = null; render(); if (nextScreen === "clients" && state.clientsPage === 0) loadClients(true); return; }
     if (target.dataset.delivery) { state.selected = items().find(i => i.id === target.dataset.delivery) || null; render(); return; }
     if (target.dataset.client) { const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.modal = "new-delivery"; render(); } return; }
     if (target.dataset.mode) {
@@ -197,6 +242,7 @@
     const action = target.dataset.action;
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
+    if (action === "load-more-clients") loadClients(false);
     if (action === "close-modal") { state.modal = null; state.modalClient = null; render(); }
     if (action === "close-sheet") { state.selected = null; render(); }
     if (action === "new-client") { state.modal = "new-client"; render(); }
@@ -216,7 +262,12 @@
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); state.modal = "statement"; render(); } catch (error) { toast(err(error), true); } }
     if (action === "logout") { if (confirm("Desvincular este aparelho do HBX Logística?")) H.logout(); }
   });
-  app.addEventListener("input", event => { if (event.target.id !== "client-search") return; state.query = event.target.value; const pos = event.target.selectionStart; render(); const input = document.getElementById("client-search"); input && input.focus(); input && input.setSelectionRange(pos, pos); });
+  app.addEventListener("input", event => {
+    if (event.target.id !== "client-search") return;
+    state.query = event.target.value;
+    clearTimeout(clientsSearchTimer);
+    clientsSearchTimer = setTimeout(() => loadClients(true), 300);
+  });
   app.addEventListener("change", event => {
     if (!state.selected || !event.target.files || !event.target.files[0]) return;
     if (event.target.id === "proof-photo") uploadProof(state.selected, "foto", event.target.files[0]);
@@ -226,7 +277,7 @@
     event.preventDefault(); const form = event.target; const button = form.querySelector("button[type=submit]"); button.disabled = true;
     try {
       const data = Object.fromEntries(new FormData(form).entries()); Object.keys(data).forEach(k => { if (!String(data[k]).trim()) delete data[k]; });
-      if (form.id === "new-client-form") { data.externalSource = "manual"; data.status = "active"; data.uf = data.uf && String(data.uf).toUpperCase(); await H.api("/cadastros/customer-profiles", { method: "POST", body: data }); state.modal = null; await refresh(true); toast("Cliente cadastrado."); }
+      if (form.id === "new-client-form") { const body = { nome: data.name, tipo: "pf", whatsapp: data.phone, endereco: data.endereco, cidade: data.cidade, uf: data.uf && String(data.uf).toUpperCase(), isCliente: true, isLead: false }; Object.keys(body).forEach(k => { if (body[k] === undefined) delete body[k]; }); await H.api("/nucleo/contas", { method: "POST", body }); state.modal = null; await loadClients(true, true); toast("Cliente cadastrado."); }
       if (form.id === "new-product-form") { data.price = Number(data.price || 0); data.stock = Number(data.stock || 0); data.kind = "tenant_product"; data.status = "active"; data.usaLogistica = true; await H.api("/products", { method: "POST", body: data }); state.modal = null; await refresh(true); toast("Produto cadastrado."); }
       if (form.id === "new-delivery-form") { data.productId = data.productId ? Number(data.productId) : undefined; data.quantidade = Number(data.quantidade || 1); data.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt).toISOString() : undefined; await H.api("/logistica/entregas", { method: "POST", body: data }); state.modal = null; state.modalClient = null; await refresh(true); toast("Entrega adicionada à rota."); }
     } catch (error) { button.disabled = false; toast(err(error), true); }

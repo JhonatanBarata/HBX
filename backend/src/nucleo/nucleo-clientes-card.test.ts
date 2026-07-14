@@ -51,11 +51,20 @@ type MockOpts = {
 };
 
 function buildPrismaMock(opts: MockOpts) {
-  const store = { deletionRecords: [] as any[], accountUpdates: [] as any[] };
+  const store = {
+    deletionRecords: [] as any[],
+    accountUpdates: [] as any[],
+    customerCountArgs: [] as any[],
+    customerFindManyArgs: [] as any[],
+  };
   const prisma: any = {
     customerProfile: {
-      count: async () => opts.pageRows.length,
+      count: async (args: any) => {
+        store.customerCountArgs.push(args);
+        return opts.pageRows.length;
+      },
       findMany: async (args: any) => {
+        store.customerFindManyArgs.push(args);
         // universo da duplicata (company-wide) tem where.status='active'; a página tem skip/take.
         if (args?.where?.status === 'active') return opts.universe ?? opts.pageRows;
         return opts.pageRows;
@@ -121,12 +130,31 @@ const baseRow = (over: any = {}) => ({
   numero: '10',
   lat: -4,
   lng: -38,
+  phone: '5588999990000',
   phoneNormalized: '5588999990000',
   _count: { contatos: 1 },
   ...over,
 });
 
 // ── (2) GET /nucleo/clientes — campos aditivos ────────────────────────────────
+test('MOBILE lista só clientes e permite busca por telefone/endereço', async () => {
+  const row = baseRow({ endereco: 'Rua das Flores', numero: '10' });
+  const { prisma, store } = buildPrismaMock({ pageRows: [row], universe: [row] });
+
+  const res = await new NucleoCadastroService(prisma).listClientes(7, { query: '(88) 99999-0000' });
+  const pageArgs = store.customerFindManyArgs.find((args) => Number(args?.take) > 0);
+  const filters = pageArgs?.where?.OR || [];
+
+  assert.equal(pageArgs?.where?.companyId, 7);
+  assert.equal(pageArgs?.where?.isCliente, true);
+  assert.ok(filters.some((filter: any) => filter.phoneNormalized?.contains === '88999990000'));
+  assert.ok(filters.some((filter: any) => filter.endereco?.contains === '(88) 99999-0000'));
+  assert.equal(res.items[0].phone, '5588999990000');
+  assert.equal(res.items[0].phoneNormalized, '5588999990000');
+  assert.equal(res.items[0].endereco, 'Rua das Flores');
+  assert.equal(res.items[0].numero, '10');
+});
+
 test('W5 listClientes: pendências na ordem fixa endereco→numero→gps→dia→whatsapp', async () => {
   const row = baseRow({ endereco: '  ', numero: null, lat: null, phoneNormalized: null });
   const { prisma } = buildPrismaMock({ pageRows: [row], universe: [row], vinculos: [] });

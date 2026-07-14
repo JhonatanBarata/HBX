@@ -37,6 +37,10 @@ export interface ClienteListItem {
   id: string;
   name: string | null;
   cnpj: string | null;
+  phone: string | null;
+  phoneNormalized: string | null;
+  endereco: string | null;
+  numero: string | null;
   cidade: string | null;
   uf: string | null;
   isLead: boolean;

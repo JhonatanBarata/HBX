@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.util.Base64
 import android.webkit.JavascriptInterface
+import android.webkit.WebStorage
 import android.webkit.WebView
 import org.json.JSONObject
 import java.util.concurrent.ExecutorService
@@ -110,6 +111,7 @@ class NativeAppBridge(
         api.clearSession()
         DeviceCredentialStore(activity).clearDeviceToken()
         activity.runOnUiThread {
+            WebStorage.getInstance().deleteAllData()
             activity.startActivity(
                 Intent(activity, PairingActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),

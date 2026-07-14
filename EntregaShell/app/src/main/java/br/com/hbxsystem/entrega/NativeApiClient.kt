@@ -213,13 +213,7 @@ class NativeApiClient(
         require('\\' !in endpoint && '\u0000' !in endpoint && endpoint.split('/').none { it == "." || it == ".." }) {
             "Caminho inválido."
         }
-        val allowed = when (BuildConfig.APP_MODE) {
-            "vendas" -> endpoint == "/vendas" || endpoint.startsWith("/vendas/")
-            "logistica" -> endpoint == "/logistica" || endpoint.startsWith("/logistica/") ||
-                endpoint == "/products" || endpoint.startsWith("/products/") ||
-                endpoint == "/cadastros" || endpoint.startsWith("/cadastros/")
-            else -> false
-        }
+        val allowed = isMobileEndpointAllowed(BuildConfig.APP_MODE, endpoint)
         require(allowed) { "Esta operação não pertence ao ${BuildConfig.APP_MODE}." }
         return raw
     }
@@ -239,4 +233,13 @@ class NativeApiClient(
     companion object {
         private const val MAX_REQUEST_CHARS = 512_000
     }
+}
+
+internal fun isMobileEndpointAllowed(appMode: String, endpoint: String): Boolean = when (appMode) {
+    "vendas" -> endpoint == "/vendas" || endpoint.startsWith("/vendas/")
+    "logistica" -> endpoint == "/logistica" || endpoint.startsWith("/logistica/") ||
+        endpoint == "/products" || endpoint.startsWith("/products/") ||
+        endpoint == "/cadastros" || endpoint.startsWith("/cadastros/") ||
+        endpoint == "/nucleo/clientes" || endpoint == "/nucleo/contas"
+    else -> false
 }

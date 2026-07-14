@@ -53,8 +53,8 @@ android {
         applicationId = "br.com.hbxsystem"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.0.0"
+        versionCode = 9
+        versionName = "2.0.1"
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
         buildConfigField("String", "APP_MODE", buildConfigString("vendas"))
@@ -73,8 +73,8 @@ android {
         create("logistica") {
             dimension = "experience"
             applicationId = "br.com.hbxsystem.logistica"
-            versionCode = 1
-            versionName = "1.0.0"
+            versionCode = 2
+            versionName = "1.0.1"
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
             manifestPlaceholders["hbxAppLabel"] = "HBX Logística"
         }

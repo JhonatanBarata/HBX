@@ -27,5 +27,6 @@ o frontend web do HBX:
 As interfaces ficam em `app/src/vendas/assets/app` e
 `app/src/logistica/assets/app`. CSS e cliente nativo compartilhados ficam em
 `app/src/main/assets/app`. A bridge limita Vendas a `/vendas` e Logística a
-`/logistica`, `/cadastros` e `/products`; a credencial do aparelho e o JWT nunca
+`/logistica`, `/cadastros`, `/products` e aos endpoints canônicos exatos
+`/nucleo/clientes` e `/nucleo/contas`; a credencial do aparelho e o JWT nunca
 são expostos ao JavaScript.

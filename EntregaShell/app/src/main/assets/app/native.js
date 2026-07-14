@@ -72,7 +72,12 @@
         reader.readAsDataURL(file);
       });
     },
-    logout() { bridge && bridge.logout && bridge.logout(); },
+    logout() {
+      // Dados operacionais são por empresa/aparelho. Apague antes de trocar o
+      // vínculo para que nenhum flavor mostre a carteira do usuário anterior.
+      HBX.cache.clearPrivateData();
+      bridge && bridge.logout && bridge.logout();
+    },
     info() {
       try { return bridge && bridge.appInfo ? JSON.parse(bridge.appInfo()) : { mode: "preview" }; }
       catch (_) { return { mode: "preview" }; }
@@ -86,6 +91,13 @@
         try { localStorage.setItem(`hbx:${key}`, JSON.stringify(value)); } catch (_) {}
       },
       remove(key) { try { localStorage.removeItem(`hbx:${key}`); } catch (_) {} },
+      clearPrivateData() {
+        try {
+          Object.keys(localStorage)
+            .filter(key => key.startsWith("hbx:") && key !== "hbx:theme")
+            .forEach(key => localStorage.removeItem(key));
+        } catch (_) {}
+      },
     },
     escape(value) {
       return String(value == null ? "" : value).replace(/[&<>'"]/g, char => ({

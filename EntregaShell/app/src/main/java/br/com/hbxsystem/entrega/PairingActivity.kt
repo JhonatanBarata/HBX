@@ -13,6 +13,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.WebStorage
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -124,6 +125,9 @@ class PairingActivity : AppCompatActivity() {
             },
             success = { response ->
                 val deviceToken = response.getString("deviceToken")
+                // Um novo código pode apontar para outra empresa/usuário. O WebView
+                // não pode herdar localStorage, IndexedDB ou cache do vínculo anterior.
+                WebStorage.getInstance().deleteAllData()
                 credentialStore.saveDeviceToken(deviceToken)
                 if (BuildConfig.APP_MODE == "vendas") {
                     HbxMobileBridge.onDevicePaired(this)

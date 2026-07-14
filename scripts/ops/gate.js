@@ -22,6 +22,26 @@ const {
 } = require('./common');
 
 const steps = [
+  // Pré-condições do Webwhats vêm PRIMEIRO: sem dependências ou Prisma gerado,
+  // o gate deve falhar em segundos, antes de gastar minutos em builds do HBX.
+  {
+    label: 'Webwhats: pré-requisitos locais (TypeScript + Prisma)',
+    cwd: path.join(repoRoot, 'Webwhats'),
+    command: 'node',
+    args: ['-e', "const fs=require('fs'); const missing=['node_modules/typescript/lib/tsc.js','node_modules/prisma/build/index.js'].filter(p=>!fs.existsSync(p)); if(missing.length) throw new Error('Dependências do Webwhats ausentes. Rode npm ci em Webwhats antes do publish: '+missing.join(', '));"],
+  },
+  {
+    label: 'Webwhats: gerar cliente Prisma',
+    cwd: path.join(repoRoot, 'Webwhats'),
+    command: 'npm',
+    args: ['run', 'db:generate'],
+  },
+  {
+    label: 'Webwhats: typecheck',
+    cwd: path.join(repoRoot, 'Webwhats'),
+    command: 'npm',
+    args: ['run', 'typecheck'],
+  },
   {
     label: 'backend: build (tsc + prisma generate)',
     cwd: path.join(repoRoot, 'backend'),
@@ -67,12 +87,6 @@ const steps = [
     cwd: path.join(repoRoot, 'frontend'),
     command: 'npm',
     args: ['run', 'build'],
-  },
-  {
-    label: 'Webwhats: typecheck',
-    cwd: path.join(repoRoot, 'Webwhats'),
-    command: 'npm',
-    args: ['run', 'typecheck'],
   },
   {
     label: 'hbx-scraping-engine: pytest -q',
