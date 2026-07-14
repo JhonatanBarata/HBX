@@ -19,10 +19,11 @@ import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
+import { OPENFREEMAP_STYLE_URL } from "@/lib/openfreemap";
+
 import type { RotaItem } from "./entrega-api";
 import type { PosicaoAoVivo } from "./entrega-hooks";
 
-const ESTILO_TILES = "https://tiles.openfreemap.org/styles/liberty";
 // Sem 'load' dentro desse prazo = trata como indisponível (offline / tiles fora do ar).
 const CARREGAR_TIMEOUT_MS = 9000;
 
@@ -94,7 +95,7 @@ export function RotaMapa({ paradas, indiceAtual, onSelecionarParada, posicaoEntr
     try {
       map = new maplibregl.Map({
         container: glEl,
-        style: ESTILO_TILES,
+        style: OPENFREEMAP_STYLE_URL,
         center: [pontos[0].lng, pontos[0].lat],
         zoom: 12,
         attributionControl: { compact: true },

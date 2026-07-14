@@ -38,3 +38,40 @@ test('ponte móvel falha fechada quando Vendas não existe no catálogo de módu
   const service = new MobileDevicePresenceService(prisma as never);
   await assert.rejects(service.assertUserCanUseBridge(7, 3), /módulo Vendas não está habilitado/i);
 });
+
+test('heartbeat compartilhado aceita DRIVER da Logística quando ele não possui Vendas', async () => {
+  const service: any = new MobileDevicePresenceService({} as never);
+  let touched = 0;
+  let logisticsChecks = 0;
+  service.authenticateDeviceCredential = async () => ({
+    id: 'device-driver', userId: 7, companyId: 3, name: null, platform: 'android',
+  });
+  service.assertUserCanUseBridge = async () => {
+    throw new Error('sem Vendas');
+  };
+  service.assertUserCanUseLogistica = async () => { logisticsChecks++; };
+  service.touchAuthenticatedDevice = async () => { touched++; };
+
+  const result = await service.heartbeat({ deviceToken: 'x'.repeat(40), installationId: 'installation-1234' });
+  assert.equal(result.ok, true);
+  assert.equal(result.deviceId, 'device-driver');
+  assert.equal(logisticsChecks, 1);
+  assert.equal(touched, 1);
+});
+
+test('heartbeat de SELLER preserva o gate da ponte e não exige DRIVER', async () => {
+  const service: any = new MobileDevicePresenceService({} as never);
+  let bridgeChecks = 0;
+  let logisticsChecks = 0;
+  service.authenticateDeviceCredential = async () => ({
+    id: 'device-seller', userId: 8, companyId: 3, name: null, platform: 'android',
+  });
+  service.assertUserCanUseBridge = async () => { bridgeChecks++; };
+  service.assertUserCanUseLogistica = async () => { logisticsChecks++; };
+  service.touchAuthenticatedDevice = async () => undefined;
+
+  const result = await service.heartbeat({ deviceToken: 'x'.repeat(40), installationId: 'installation-1234' });
+  assert.equal(result.ok, true);
+  assert.equal(bridgeChecks, 1);
+  assert.equal(logisticsChecks, 0);
+});

@@ -1,6 +1,7 @@
 package br.com.hbxsystem.entrega
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -278,6 +279,7 @@ object HbxMobileBridge {
         return true
     }
 
+    @SuppressLint("MissingPermission") // notificationsAvailable faz o gate imediatamente antes do notify.
     private fun showActionNotification(context: Context, action: MobileActionPayload): Boolean {
         ensureNotificationChannel(context)
         val intent = Intent(context, MobileActionActivity::class.java).apply {

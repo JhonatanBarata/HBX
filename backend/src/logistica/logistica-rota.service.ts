@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   canonicalRouteDate,
   LogisticaRouteBillingService,
   type PreparedLogisticaRoute,
 } from './logistica-route-billing.service';
+import { LogisticaTrackingService } from './logistica-tracking.service';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
 type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
@@ -47,6 +48,7 @@ export class LogisticaRotaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly routeBilling: LogisticaRouteBillingService,
+    @Optional() private readonly tracking?: LogisticaTrackingService,
   ) {}
 
   // ── PLANEJAR ROTA ────────────────────────────────────────────────────────────
@@ -166,6 +168,7 @@ export class LogisticaRotaService {
     input: IniciarRotaInput = {},
     entregadorId?: number,
     actorUserId?: number | null,
+    includeCommercialMode = false,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date));
@@ -201,6 +204,7 @@ export class LogisticaRotaService {
     const primeira = plan.paradas.find((p) => p.rotaOrdem === 0 && !p.semCoordenada) ?? plan.paradas[0];
     const startedAt = new Date();
     let changedFirst = false;
+    let trackingSessionEnsured = false;
     try {
       if (primeira && primeira.status === 'agendada') {
         const changed = await this.prisma.entrega.updateMany({
@@ -209,6 +213,16 @@ export class LogisticaRotaService {
         });
         changedFirst = changed.count === 1;
         if (changedFirst) primeira.status = 'em_rota';
+      }
+      if (prepared.mode === 'TRACKED') {
+        if (!this.tracking) throw new Error('Serviço de rastreamento indisponível para a Rota Rastreada.');
+        const session = await this.tracking.ensureSessionForStartedRoute(
+          companyId,
+          prepared.routeId,
+          startedAt,
+        );
+        if (!session) throw new Error('Não foi possível criar a sessão da Rota Rastreada.');
+        trackingSessionEnsured = true;
       }
       if (!initialization.alreadyActive && initialization.token) {
         await this.routeBilling.activateRoute(companyId, prepared.routeId, initialization.token, startedAt);
@@ -221,6 +235,9 @@ export class LogisticaRotaService {
         }).catch(() => undefined);
       }
       if (!initialization.alreadyActive && initialization.token) {
+        if (trackingSessionEnsured && this.tracking) {
+          await this.tracking.discardUnboundSessionAfterRouteFailure(companyId, prepared.routeId).catch(() => undefined);
+        }
         await this.routeBilling.failInitialization({
           companyId,
           routeId: prepared.routeId,
@@ -231,7 +248,27 @@ export class LogisticaRotaService {
       }
       throw error;
     }
-    return plan;
+    const operational = this.tracking
+      ? await this.tracking.getOperationalRouteMetadata(
+          companyId,
+          effectiveDriverId,
+          canonicalRouteDate(input.date),
+          includeCommercialMode,
+        )
+      : {
+          routeId: prepared.routeId,
+          trackingRequired: prepared.mode === 'TRACKED',
+          routeStatus: 'ACTIVE',
+          trackingSessionId: null,
+          trackingStatus: null,
+          ...(includeCommercialMode ? { routeMode: prepared.mode } : {}),
+        };
+    const { routeMode, ...operationalOnly } = operational;
+    return {
+      ...plan,
+      ...operationalOnly,
+      ...(includeCommercialMode ? { routeMode: routeMode ?? prepared.mode } : {}),
+    };
   }
 
   private async resolveSingleDriver(companyId: number, date?: string): Promise<number> {
@@ -699,4 +736,10 @@ export interface PlanejarRotaResult {
   velocidadeMediaKmH: number;
   tempoParadaMin: number;
   paradas: PlanejarRotaParada[];
+  routeId?: string | null;
+  trackingRequired?: boolean;
+  routeMode?: 'ESSENTIAL' | 'TRACKED' | null;
+  routeStatus?: string | null;
+  trackingSessionId?: string | null;
+  trackingStatus?: string | null;
 }

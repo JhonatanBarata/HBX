@@ -198,6 +198,8 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
       return { refunded: debit?.amount || 0, balanceAfter: available, alreadyProcessed: false };
     },
   };
+  prisma.$queryRawUnsafe = async () => [];
+  prisma.$transaction = async (callback: any) => callback(prisma);
   const config: any = { resolveRouteMode: async () => mode };
   const service = new LogisticaRouteBillingService(prisma, wallet, config);
   return {
@@ -243,6 +245,48 @@ test('Essencial cobra uma vez por bloco e só abre novo claim na 6ª entrega', a
   assert.equal(h.debitCalls.length, 2, '6ª entrega abre exatamente o bloco 2');
   assert.equal(h.claims.length, 2);
   assert.equal(new Set(h.stops.map((s) => s.deliveryId)).size, 6);
+});
+
+test('COMPLETED é terminal: START não anexa, não cobra e não reabre o modo congelado', async () => {
+  const h = makeHarness('ESSENTIAL');
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+  const first = await h.service.prepareRoute({
+    ...base,
+    deliveryIds: ['d1'],
+    chargeEssential: true,
+  });
+  assert.ok(first);
+  h.routes[0].status = 'COMPLETED';
+  h.routes[0].completedAt = new Date();
+  const frozenMode = h.routes[0].mode;
+  const claimsBefore = h.claims.length;
+  const debitsBefore = h.debitCalls.length;
+
+  await assert.rejects(
+    h.service.prepareRoute({
+      ...base,
+      deliveryIds: ['d1', 'd2'],
+      chargeEssential: true,
+    }),
+    /já foi concluída/i,
+  );
+  assert.deepEqual(h.stops.map((stop) => stop.deliveryId), ['d1']);
+  assert.equal(h.claims.length, claimsBefore);
+  assert.equal(h.debitCalls.length, debitsBefore);
+  assert.equal(h.routes[0].mode, frozenMode);
+
+  const readOnly = await h.service.prepareRoute({
+    ...base,
+    deliveryIds: ['d1', 'd2'],
+    chargeEssential: false,
+  });
+  assert.equal(readOnly?.status, 'COMPLETED');
+  assert.equal(readOnly?.totalUniqueDeliveries, 1);
+  assert.deepEqual(h.stops.map((stop) => stop.deliveryId), ['d1']);
+  await assert.rejects(
+    h.service.beginInitialization(7, h.routes[0].id, h.routes[0].billingRevision),
+    /já foi concluída/i,
+  );
 });
 
 test('falha de saldo em lote novo estorna os débitos feitos na mesma tentativa', async () => {

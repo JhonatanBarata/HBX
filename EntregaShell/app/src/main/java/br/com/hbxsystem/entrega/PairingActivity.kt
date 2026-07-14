@@ -125,6 +125,8 @@ class PairingActivity : AppCompatActivity() {
             success = { response ->
                 val deviceToken = response.getString("deviceToken")
                 credentialStore.saveDeviceToken(deviceToken)
+                TrackingSessionStore(this).clearAuthBlocked()
+                TrackingSync.requestFlush(this)
                 openEntryUrl(response.getString("entryUrl"))
             },
             failure = { error ->
@@ -161,7 +163,7 @@ class PairingActivity : AppCompatActivity() {
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "HBXShell/2.1 Android/${Build.VERSION.SDK_INT}")
+            setRequestProperty("User-Agent", "HBXShell/${BuildConfig.VERSION_NAME} Android/${Build.VERSION.SDK_INT}")
         }
 
         return try {

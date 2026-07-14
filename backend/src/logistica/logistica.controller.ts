@@ -32,6 +32,7 @@ import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
+import { LogisticaTrackingService } from './logistica-tracking.service';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -80,6 +81,7 @@ export class LogisticaController {
     // Default preserva testes legados que instanciam o controller diretamente;
     // no módulo Nest o provider é sempre injetado.
     private readonly operacao: LogisticaOperacaoService = null as any,
+    private readonly tracking: LogisticaTrackingService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -543,7 +545,30 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
-    }, entregadorId, Number(req.user?.id) || null);
+    }, entregadorId, Number(req.user?.id) || null, isBillingOwnerActor(req.user));
+  }
+
+  // ── ROTA RASTREADA PR2 — cockpit administrativo ao vivo ───────────────────
+
+  @Get('tracking/live')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  trackingLive(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.tracking.getLive(companyId);
+  }
+
+  @Get('tracking/sessions/:sessionId/history')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  trackingHistory(
+    @Req() req: any,
+    @Param('sessionId') sessionId: string,
+    @Query('limit') limitInput?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const parsed = Number(limitInput || 500);
+    return this.tracking.getHistory(companyId, sessionId, Number.isFinite(parsed) ? parsed : 500);
   }
 
   // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ─────────────────

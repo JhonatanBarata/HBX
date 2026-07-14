@@ -11,7 +11,11 @@ import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-
 import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
 import { LogisticaActor, LogisticaOperacaoService, isLogisticaAdmin } from './logistica-operacao.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
-import { LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { canonicalRouteDate, LogisticaRouteBillingService } from './logistica-route-billing.service';
+import {
+  LogisticaTrackingService,
+  type OperationalRouteMetadata,
+} from './logistica-tracking.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -68,6 +72,9 @@ export class LogisticaService {
     // Gate comercial dos modos de rota. Optional preserva testes unitários
     // legados; no módulo HTTP o provider é obrigatório e sempre injetado.
     @Optional() private readonly routeBilling?: LogisticaRouteBillingService,
+    // Metadados operacionais seguros da rota/sessão (sem preço/saldo). Optional
+    // apenas para preservar instanciações diretas de testes legados.
+    @Optional() private readonly tracking?: LogisticaTrackingService,
   ) {}
 
   /**
@@ -286,10 +293,41 @@ export class LogisticaService {
       }
     }
 
+    const driverIds = new Set<number>();
+    const actorDriverId = Number((actorWhere as any)?.entregadorId);
+    if (Number.isInteger(actorDriverId) && actorDriverId > 0) driverIds.add(actorDriverId);
+    for (const row of rows) {
+      const id = Number(row.entregador?.id);
+      if (Number.isInteger(id) && id > 0) driverIds.add(id);
+    }
+    let routeMetadata: OperationalRouteMetadata = {
+      routeId: null as string | null,
+      trackingRequired: false,
+      routeMode: null as 'ESSENTIAL' | 'TRACKED' | null,
+      routeStatus: null as string | null,
+      trackingSessionId: null as string | null,
+      trackingStatus: null as string | null,
+    };
+    if (this.tracking && driverIds.size === 1) {
+      try {
+        routeMetadata = await this.tracking.getOperationalRouteMetadata(
+          companyId,
+          [...driverIds][0],
+          canonicalRouteDate(dateInput),
+          billingAudience,
+        );
+      } catch (error: any) {
+        this.logger.warn(`[logistica] metadados da rota company=${companyId} falharam: ${String(error?.message || error)}`);
+      }
+    }
+
+    const { routeMode, ...operationalRouteMetadata } = routeMetadata;
     return {
       date: dayISO,
       total: rows.length,
       refreshedAt: new Date().toISOString(),
+      ...operationalRouteMetadata,
+      ...(billingAudience ? { routeMode: routeMode ?? null } : {}),
       effectsEnabled: this.effectsEnabled,
       ...(billingAudience ? { moduloFinanceiroAtivo, pix } : {}),
       avisoChegandoAtivo,
@@ -2571,6 +2609,12 @@ export interface RotaResult {
   total: number;
   refreshedAt: string;
   effectsEnabled: boolean;
+  routeId: string | null;
+  trackingRequired: boolean;
+  routeMode?: 'ESSENTIAL' | 'TRACKED' | null;
+  routeStatus: string | null;
+  trackingSessionId: string | null;
+  trackingStatus: string | null;
   moduloFinanceiroAtivo?: boolean;
   pix?: RotaPix | null;
   // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST

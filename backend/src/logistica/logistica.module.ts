@@ -6,6 +6,7 @@ import { HbxRecoveryModule } from '../hbx-recovery/hbx-recovery.module';
 import { CreditsModule } from '../credits/credits.module';
 // PR10072026 W1: gate de módulo em rota (ModuleAccessGuard precisa do ModulesService).
 import { ModulesAccessModule } from '../modules/modules.module';
+import { AuthModule } from '../auth/auth.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
@@ -18,6 +19,8 @@ import { LogisticaController } from './logistica.controller';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { LogisticaTrackingService } from './logistica-tracking.service';
+import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -54,8 +57,8 @@ import { LogisticaRouteBillingService } from './logistica-route-billing.service'
  * WhatsApp/cobrança (efeitos continuam só no confirmar, atrás da flag do N6).
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule],
-  controllers: [LogisticaController, LogisticaPedidoPublicoController],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
+  controllers: [LogisticaController, LogisticaPedidoPublicoController, LogisticaTrackingMobileController],
   providers: [
     LogisticaService,
     LogisticaRecorrenciaService,
@@ -67,6 +70,7 @@ import { LogisticaRouteBillingService } from './logistica-route-billing.service'
     LogisticaPedidoPublicoService,
     LogisticaOperacaoService,
     LogisticaRouteBillingService,
+    LogisticaTrackingService,
   ],
   exports: [
     LogisticaService,
@@ -76,6 +80,7 @@ import { LogisticaRouteBillingService } from './logistica-route-billing.service'
     LogisticaOperacaoService,
     LogisticaRecoveryService,
     LogisticaRouteBillingService,
+    LogisticaTrackingService,
   ],
 })
 export class LogisticaModule {}

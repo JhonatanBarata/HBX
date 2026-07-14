@@ -26,6 +26,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
         HbxMobileBridge.initialize(this)
+        TrackingSync.rescheduleIfPending(this)
     }
 
     override fun onActivityResumed(activity: Activity) {
@@ -33,6 +34,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
         resumedActivities += 1
         if (resumedActivities == 1) {
             HbxMobileBridge.onAppForeground(this)
+            TrackingSync.requestFlush(this)
             maybeAskNotificationPermission(activity)
         }
     }

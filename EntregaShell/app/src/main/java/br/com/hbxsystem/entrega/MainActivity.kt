@@ -38,6 +38,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 import java.io.File
 
@@ -58,10 +62,15 @@ class MainActivity : AppCompatActivity() {
         private const val COR_FUNDO = "#0B1020"
         private const val COR_BOTAO = "#2E5BFF"
         private const val COR_TEXTO_SEC = "#B0BEC5"
+        private const val TRACKING_DISCLOSURE_PREFS = "hbx_tracking_disclosure"
+        private const val TRACKING_DISCLOSURE_V1 = "accepted_v1"
     }
 
     private lateinit var webView: WebView
     private lateinit var offlineView: View
+    private var secureShellOrigin: String? = null
+    private var secureShellFallback = false
+    private var secureShellScriptHandler: ScriptHandler? = null
 
     // Erro de main frame na carga atual — decide se a tela offline fica de pé
     // quando o onPageFinished chegar (sub-recurso falhando NÃO derruba a página).
@@ -74,7 +83,7 @@ class MainActivity : AppCompatActivity() {
     // A bridge pode atualizar a lista enquanto o diálogo do sistema está aberto.
     // Guardamos sempre o snapshot mais recente e só ativamos o serviço depois que
     // localização + notificações estiverem disponíveis.
-    private var rotaPendente: Pair<Int, List<Parada>>? = null
+    private var rotaPendente: NativeRouteRequest? = null
     private var solicitacaoSistemaEmAndamento = false
     private var dialogoPermissao: AlertDialog? = null
 
@@ -123,14 +132,9 @@ class MainActivity : AppCompatActivity() {
             settings.setGeolocationEnabled(true)
             // O front (e o backend, via logs) detectam a casca por bridge E por
             // User-Agent — gate confiável do modo-Play mesmo antes do JS rodar.
-            settings.userAgentString = settings.userAgentString + " HBXShell/2.0"
+            settings.userAgentString = settings.userAgentString + " HBXShell/3.0"
 
-            addJavascriptInterface(
-                HBXShellBridge(context) { raioM, paradas ->
-                    runOnUiThread { solicitarAtivacaoRota(raioM, paradas) }
-                },
-                "HBXShell"
-            )
+            this@MainActivity.installSecureShellBridge(this)
 
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(
@@ -234,6 +238,7 @@ class MainActivity : AppCompatActivity() {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    if (view != null && url != null) maybeInjectSecureShellFallback(view, url)
                     if (!erroNaCargaAtual) {
                         offlineView.visibility = View.GONE
                     }
@@ -272,6 +277,55 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
         webView.loadUrl(urlPermitidaDoIntent(intent) ?: webBaseUrl())
+    }
+
+    private fun installSecureShellBridge(view: WebView) {
+        val origin = canonicalHbxWebOrigin(BuildConfig.WEB_BASE_URL, BuildConfig.DEBUG) ?: return
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
+        val bridge = HBXShellBridge(
+            context = view.context,
+            onSolicitarRota = { route -> runOnUiThread { solicitarAtivacaoRota(route) } },
+            onClearRota = { runOnUiThread { rotaPendente = null } },
+        )
+        val listener = WebViewCompat.WebMessageListener { _, message, sourceOrigin, isMainFrame, _ ->
+                if (!isMainFrame) return@WebMessageListener
+                if (webOriginForUrl(sourceOrigin.toString(), BuildConfig.DEBUG) != origin) {
+                    return@WebMessageListener
+                }
+                if (message.type != WebMessageCompat.TYPE_STRING) return@WebMessageListener
+                message.data?.let(bridge::handleMessage)
+            }
+        val listenerInstalled = runCatching {
+            WebViewCompat.addWebMessageListener(
+                view,
+                HBX_NATIVE_ROUTE_BRIDGE,
+                setOf(origin),
+                listener,
+            )
+        }.isSuccess
+        if (!listenerInstalled) return
+        secureShellOrigin = origin
+        secureShellScriptHandler = if (
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) {
+            runCatching {
+                WebViewCompat.addDocumentStartJavaScript(
+                    view,
+                    HBX_SHELL_TOP_FRAME_SHIM,
+                    setOf(origin),
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        secureShellFallback = secureShellScriptHandler == null
+    }
+
+    private fun maybeInjectSecureShellFallback(view: WebView, url: String) {
+        if (!secureShellFallback) return
+        val origin = secureShellOrigin ?: return
+        if (webOriginForUrl(url, BuildConfig.DEBUG) != origin) return
+        view.evaluateJavascript(HBX_SHELL_TOP_FRAME_SHIM, null)
     }
 
     private fun webBaseUrl(): String = BuildConfig.WEB_BASE_URL.trimEnd('/') + "/"
@@ -316,6 +370,17 @@ class MainActivity : AppCompatActivity() {
         RotaState.registrarListener(null)
         CookieManager.getInstance().flush()
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        secureShellScriptHandler?.remove()
+        secureShellScriptHandler = null
+        if (::webView.isInitialized && secureShellOrigin != null &&
+            WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+        ) {
+            runCatching { WebViewCompat.removeWebMessageListener(webView, HBX_NATIVE_ROUTE_BRIDGE) }
+        }
+        super.onDestroy()
     }
 
     @Deprecated("Deprecated in Java")
@@ -446,9 +511,10 @@ class MainActivity : AppCompatActivity() {
             temPermissao(Manifest.permission.POST_NOTIFICATIONS)) &&
             NotificationManagerCompat.from(this).areNotificationsEnabled()
 
-    private fun solicitarAtivacaoRota(raioM: Int, paradas: List<Parada>) {
-        rotaPendente = raioM to paradas
-        if (temLocalizacao() && temNotificacoes()) {
+    private fun solicitarAtivacaoRota(route: NativeRouteRequest) {
+        rotaPendente = route
+        val precisaExplicarRastreamento = route.mode == "TRACKED" && !trackingDisclosureAccepted()
+        if (temLocalizacao() && temNotificacoes() && !precisaExplicarRastreamento) {
             ativarRotaPendente()
             return
         }
@@ -457,15 +523,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun mostrarExplicacaoPermissoes() {
+        val tracked = rotaPendente?.mode == "TRACKED"
         val dialogo = AlertDialog.Builder(this)
-            .setTitle("Acompanhamento da rota")
-            .setMessage("O HBX usa sua localização durante a rota para avisar quando você chega ao cliente.")
-            .setPositiveButton("Continuar") { _, _ -> solicitarLocalizacaoOuNotificacao() }
+            .setTitle(if (tracked) "Rastreamento da rota" else "Acompanhamento da rota")
+            .setMessage(
+                if (tracked) {
+                    "Durante esta rota, o HBX enviará sua localização ao servidor e a exibirá ao administrador. " +
+                        "Uma notificação persistente ficará visível enquanto o rastreamento estiver ativo e o envio " +
+                        "será encerrado ao finalizar a rota."
+                } else {
+                    "O HBX usa sua localização durante a rota para avisar quando você chega ao cliente."
+                },
+            )
+            .setPositiveButton("Continuar") { _, _ ->
+                if (tracked) markTrackingDisclosureAccepted()
+                solicitarLocalizacaoOuNotificacao()
+            }
             .setNegativeButton("Agora não") { _, _ ->
                 webView.post { mostrarAvisoPermissoesNegadas() }
             }
             .create()
         registrarEExibirDialogo(dialogo)
+    }
+
+    private fun trackingDisclosureAccepted(): Boolean =
+        getSharedPreferences(TRACKING_DISCLOSURE_PREFS, MODE_PRIVATE)
+            .getBoolean(TRACKING_DISCLOSURE_V1, false)
+
+    private fun markTrackingDisclosureAccepted() {
+        getSharedPreferences(TRACKING_DISCLOSURE_PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean(TRACKING_DISCLOSURE_V1, true)
+            .apply()
     }
 
     private fun solicitarLocalizacaoOuNotificacao() {
@@ -496,9 +585,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ativarRotaPendente() {
-        val (raioM, paradas) = rotaPendente ?: return
+        val route = rotaPendente ?: return
         if (!temLocalizacao() || !temNotificacoes()) return
-        RotaState.setRota(raioM, paradas)
+        val routeId = route.routeId
+        if (route.mode == "TRACKED" && routeId != null && TrackingSessionStore(this).isTerminal(routeId)) {
+            rotaPendente = null
+            AlertDialog.Builder(this)
+                .setTitle("Rastreamento encerrado")
+                .setMessage("Esta sessão já foi encerrada pelo HBX. Atualize a rota para iniciar um novo rastreamento autorizado.")
+                .setPositiveButton("Entendi", null)
+                .show()
+            return
+        }
+        RotaState.setRota(
+            novoRaioM = route.radiusM,
+            novosAlvos = route.stops,
+            novoRouteId = route.routeId,
+            novoMode = route.mode,
+            novaTrackingSessionId = route.trackingSessionId,
+        )
         RotaState.persistir(this)
         RotaService.sync(this)
         rotaPendente = null
