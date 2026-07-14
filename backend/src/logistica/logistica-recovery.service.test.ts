@@ -27,14 +27,11 @@ function buildPrismaMock(opts: {
   conta?: any;
 }) {
   const recoveryCustomers: any[] = [...(opts.recoveryCustomers ?? [])];
-  const debtItems: any[] = [];
-  const debtCases: any[] = [];
   const conta = opts.conta ?? { name: 'Cliente Água', phone: '5585999990000', phoneNormalized: '5585999990000' };
   const chargeReads: any[] = [];
   const debtItems: any[] = [];
   const debtCases: any[] = [];
   const prisma: any = {
-    $transaction: async (callback: (tx: any) => Promise<any>) => callback(prisma),
     logisticaConfig: {
       findUnique: async () => ({ moduloRecoveryAtivo: opts.moduloRecoveryAtivo }),
       findMany: async () => (opts.moduloRecoveryAtivo ? [{ companyId: 1 }] : []),
@@ -59,51 +56,6 @@ function buildPrismaMock(opts: {
       findFirst: async (args: any) => {
         const pid = args?.where?.customerProfileId;
         return recoveryCustomers.find((r) => r.customerProfileId === pid) || null;
-      },
-      update: async (args: any) => {
-        const row = recoveryCustomers.find((item) => item.id === args.where.id);
-        if (row) Object.assign(row, args.data);
-        return row;
-      },
-    },
-    entrega: { findMany: async () => [] },
-    recoveryDebtItem: {
-      aggregate: async (args: any) => ({
-        _sum: {
-          openAmount: debtItems
-            .filter((item) => item.recoveryCustomerId === args.where.recoveryCustomerId && item.status === 'open')
-            .reduce((sum, item) => sum + Number(item.openAmount || 0), 0),
-        },
-      }),
-      findUnique: async (args: any) => debtItems.find((item) => item.financeiroChargeId === args.where.financeiroChargeId) || null,
-      create: async (args: any) => {
-        const row = { id: `debt-${debtItems.length + 1}`, ...args.data };
-        debtItems.push(row);
-        return row;
-      },
-      update: async (args: any) => {
-        const row = debtItems.find((item) => item.id === args.where.id);
-        if (row) Object.assign(row, args.data);
-        return row;
-      },
-      updateMany: async (args: any) => {
-        const rows = debtItems.filter((item) => item.recoveryCustomerId === args.where.recoveryCustomerId);
-        rows.forEach((row) => Object.assign(row, args.data));
-        return { count: rows.length };
-      },
-    },
-    recoveryDebtItemProduct: { upsert: async () => ({}) },
-    debtCase: {
-      findFirst: async () => debtCases.find((item) => item.status === 'open') || null,
-      create: async (args: any) => {
-        const row = { id: `case-${debtCases.length + 1}`, ...args.data };
-        debtCases.push(row);
-        return row;
-      },
-      update: async (args: any) => {
-        const row = debtCases.find((item) => item.id === args.where.id);
-        if (row) Object.assign(row, args.data);
-        return row;
       },
     },
     customerProfile: {
