@@ -229,6 +229,46 @@ test('completude da exclusão de empresa contra o Postgres local', async (t) => 
         const vleadRow = await prisma.vendasLead.findFirst({ where: { companyId: a.id } });
         await seed('Atividade', () =>
           prisma.atividade.create({ data: { companyId: a.id, leadId: vleadRow!.id, tipo: 't', titulo: 'x', vencimento: new Date() } as any }), seeded, failed);
+        const automationEnrollment = await seed('AutomationEnrollment', () =>
+          prisma.automationEnrollment.create({
+            data: {
+              companyId: a.id,
+              leadId: vleadRow!.id,
+              definitionKind: 'cadence',
+              definitionId: `cad-${SUFFIX}`,
+              status: 'active',
+              activeCommercialSlot: 'commercial',
+            } as any,
+          }), seeded, failed);
+        if (automationEnrollment) {
+          const enrollmentRow = await prisma.automationEnrollment.findFirst({ where: { companyId: a.id } });
+          const stepRun = await seed('AutomationStepRun', () =>
+            prisma.automationStepRun.create({
+              data: {
+                companyId: a.id,
+                leadId: vleadRow!.id,
+                enrollmentId: enrollmentRow!.id,
+                stepKey: '0',
+                channel: 'whatsapp',
+                idempotencyKey: `step-${SUFFIX}`,
+              } as any,
+            }), seeded, failed);
+          if (stepRun) {
+            const stepRow = await prisma.automationStepRun.findFirst({ where: { companyId: a.id } });
+            await seed('AutomationLedgerEvent', () =>
+              prisma.automationLedgerEvent.create({
+                data: {
+                  companyId: a.id,
+                  leadId: vleadRow!.id,
+                  enrollmentId: enrollmentRow!.id,
+                  stepRunId: stepRow!.id,
+                  eventType: 'step_scheduled',
+                  source: 'test',
+                  idempotencyKey: `ledger-${SUFFIX}`,
+                } as any,
+              }), seeded, failed);
+          }
+        }
       }
       await seed('HbxRecoveryFlowStage', () =>
         prisma.hbxRecoveryFlowStage.create({ data: { companyId: a.id, title: 't', template: 'x' } as any }), seeded, failed);

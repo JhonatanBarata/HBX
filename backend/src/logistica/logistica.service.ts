@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
-import { CreditMeterService } from '../credits/credit-meter.service';
+import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
@@ -57,9 +58,9 @@ export class LogisticaService {
     private readonly conversations: ConversationsService,
     private readonly rota: LogisticaRotaService,
     private readonly config: LogisticaConfigService,
-    // Slot legado mantido apenas para compatibilidade de DI/instanciações diretas.
-    // A medição `logistica_delivery` foi desativada: os novos modos têm cobrança própria.
-    @Optional() private readonly _legacyCreditMeter?: CreditMeterService,
+    // A Logística usa crédito quando a entrega é iniciada/criada, mesmo que não
+    // seja concluída depois. Opcional mantém testes diretos compatíveis.
+    @Optional() private readonly creditActionUsage?: CreditActionUsageService,
     // QUITAR → RECOVERY: baixa manual de fiado PARA a cadência hbx-recovery do
     // cliente se ele zerou a dívida vencida. @Optional() (ausente nos testes/DI sem
     // funil = simplesmente não fecha a cadência). Sem ciclo: LogisticaRecoveryService
@@ -505,8 +506,24 @@ export class LogisticaService {
 
     const scheduledAt = parseDateOrNull(input.scheduledAt) ?? new Date();
 
-    const created = await this.prisma.entrega.create({
-      data: {
+    const entregaId = randomUUID();
+    const creditReservation = this.creditActionUsage
+      ? await this.creditActionUsage.authorize({
+          companyId,
+          actionKey: 'logistica_delivery',
+          refId: `entrega:${entregaId}`,
+          metadata: { trigger: 'entrega_iniciada' },
+        })
+      : null;
+    if (creditReservation && !creditReservation.allowed) {
+      throw new BadRequestException('Saldo de créditos insuficiente para iniciar a entrega.');
+    }
+
+    let created: { id: string };
+    try {
+      created = await this.prisma.entrega.create({
+        data: {
+        id: entregaId,
         companyId,
         customerProfileId: conta.id,
         contatoId,
@@ -519,9 +536,13 @@ export class LogisticaService {
         scheduledAt,
         cobrancaStatus: 'pendente',
         notes: input.notes?.trim() || null,
-      },
-      select: { id: true },
-    });
+        },
+        select: { id: true },
+      });
+    } catch (error) {
+      await creditReservation?.release?.().catch(() => undefined);
+      throw error;
+    }
     return { id: created.id };
   }
 

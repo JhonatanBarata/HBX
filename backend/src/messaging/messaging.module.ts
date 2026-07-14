@@ -30,11 +30,12 @@ import { WebwhatsFleetHealthController } from './webwhats-fleet-health.controlle
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
 // INTENTENGINE Sprint 5 (PR-1): handler do trecho legado do pipeline de inbound.
 import { LegacyRulesInboundHandler } from '../bot/pipeline/legacy-rules.handler';
-// CRÉDITO UNIVERSAL (PR10072026): medidor de uso (track do whatsapp_auto_send no dispatch).
+// Ação de crédito para envios automáticos confirmados pelo provedor.
 import { CreditsModule } from '../credits/credits.module';
+import { AssistenteModule } from '../assistente/assistente.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, IntentEngineModule, BotConfigStoreModule, CreditsModule],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, IntentEngineModule, BotConfigStoreModule, CreditsModule, AssistenteModule],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService, WhatsAppConnectionProjectionService, LegacyRulesInboundHandler],
   controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController, WebwhatsFleetHealthController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WhatsAppConnectionProjectionService],

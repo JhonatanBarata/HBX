@@ -371,6 +371,10 @@ function Editor({ assistente, publishEnabled, onRefazer, onSaved }: {
   }
 
   async function togglePublish() {
+    if (dirty) {
+      setNote("Salve o fluxo antes de ativar a assistente no WhatsApp.");
+      return;
+    }
     try {
       const res = await apiFetch<{ ok?: boolean; published?: boolean; publishEnabled?: boolean; message?: string }>("/assistente/publish", {
         method: "POST",
@@ -395,20 +399,20 @@ function Editor({ assistente, publishEnabled, onRefazer, onSaved }: {
         </div>
         <span className={"ia-pub-pill" + (published ? " is-on" : "")}>
           <I d={published ? ICONS.check : ICONS.edit} size={11} />
-          {published ? "Publicado no chip" : "Rascunho"}
+          {published ? "Ativa no WhatsApp" : dirty ? "Alterações não salvas" : "Rascunho"}
         </span>
         <div className="ia-toolbar__actions">
           <button className="btn-ghost btn-xs" onClick={onRefazer}>Refazer no assistente</button>
           <button className="btn-ghost btn-xs" disabled={saving || !dirty} onClick={salvar}>{saving ? "Salvando…" : "Salvar fluxo"}</button>
-          <button className={"btn-teal btn-xs" + (published ? " danger" : "")} onClick={togglePublish}>
-            {published ? "Desativar no chip" : "Publicar no chip"}
+          <button className={"btn-teal btn-xs" + (published ? " danger" : "")} disabled={saving || dirty} onClick={togglePublish}>
+            {published ? "Desativar no WhatsApp" : "Ativar no WhatsApp"}
           </button>
         </div>
       </div>
       {!publishEnabled && (
         <div className="auto-flag-note">
           <I d={ICONS.help} size={14} />
-          Publicação no chip está desligada nesta instalação (liberada pelo responsável). Teste à vontade no sandbox — nada é enviado no WhatsApp.
+          Ativação no WhatsApp está desligada nesta instalação (liberada pelo responsável). Teste à vontade no sandbox — nada é enviado no WhatsApp.
         </div>
       )}
       {note && <div className="auto-flag-note"><I d={ICONS.check} size={14} />{note}</div>}

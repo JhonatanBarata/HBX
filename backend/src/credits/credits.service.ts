@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService, CreditGrantType, GrantOptions } from './credit-wallet.service';
 import { CreditPackConfigService } from './credit-pack-config.service';
@@ -9,10 +9,12 @@ import {
   getWelcomeCreditsDefault,
   normalizeCreditPackKey,
 } from './credit-pack-catalog';
-import { isCreditsEnforceEnabled, isCreditsFeatureEnabled, isCreditsShadowEnabled } from './credits.flags';
+import { isCreditsEnforceEnabled, isCreditsFeatureEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { loadUserTeamPolicyRuntime, resolveTeamPolicyStoredLimit } from '../team/team-policy-persistence';
 import { normalizeCompanyAccountType } from '../modules/company-access-state';
+import { CreditActionConfigService } from './credit-action-config.service';
+import { getCreditActionBaseDefinition } from './credit-action-catalog';
 
 // CRÉDITOS S3-PARTE1 — camada de orquestração entre o ledger (S1, CreditWalletService) e o
 // catálogo de pacotes (credit-pack-catalog.ts). Tudo aqui respeita HBX_CREDITS_ENABLED
@@ -38,6 +40,7 @@ export class CreditsService {
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
     private readonly packConfig: CreditPackConfigService,
+    @Optional() private readonly actionConfig?: CreditActionConfigService,
   ) {}
 
   private assertFeatureEnabled() {
@@ -200,7 +203,7 @@ export class CreditsService {
       recent: recentRows.map((row) => ({
         id: row.id,
         kind: row.kind,
-        amount: row.amount,
+        amount: Number(row.amount),
         actionKey: row.actionKey || null,
         sourceRef: row.sourceRef || null,
         createdAt: row.createdAt.toISOString(),
@@ -429,65 +432,6 @@ export class CreditsService {
       : this.getMeForSellerAudience(companyId);
   }
 
-  // ── S2 — shadow-debit no choke único de baixa de lead ────────────────────────
-  /**
-   * MEDIÇÃO, não enforcement. Chamado logo após `recordCardCommercialUseOnce` (o choke ÚNICO
-   * de "1 lead = 1 baixa" hoje em vendas.service.ts) ter sucesso. Grava 1 linha
-   * `CreditLedgerEntry` com `kind: 'debit_shadow'`, `remaining: 0` — NUNCA entra no FIFO de
-   * saldo (`openLotsFifo` só lê `kind IN (grant, recharge, promo)`), então `getBalance` é
-   * matematicamente indiferente a esta chamada, com ou sem a flag.
-   *
-   * Best-effort: nunca lança, nunca bloqueia o caminho de venda. Atrás de
-   * `HBX_CREDITS_SHADOW` (default OFF) — flag OFF é no-op imediato, sem tocar o banco.
-   * Idempotente em código por `usageKey` (`shadow:<actionKey>:<leadId>`) + `kind: 'debit_shadow'`
-   * — o `@@unique([usageKey, parentEntryId])` do schema NÃO cobre este caso (parentEntryId fica
-   * null aqui, e NULLs não colidem em unique no Postgres), então o `findFirst` abaixo É a trava.
-   *
-   * CRÉDITO UNIVERSAL (PR10072026): este é o escritor ÚNICO de shadow — o CreditMeterService
-   * (track de whatsapp/IA/logística) passa por aqui também. `leadId` é a REF idempotente da
-   * ação (historicamente o lead; hoje qualquer ref), `units` é o peso medido (default 1).
-   */
-  async recordShadowDebit(
-    companyId: number,
-    userId: number | null,
-    input: { leadId: string | number; actionKey: string; units?: number },
-  ): Promise<void> {
-    if (!isCreditsShadowEnabled()) return;
-    try {
-      const companyIdNum = Number(companyId);
-      if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return;
-      const actionKey = String(input?.actionKey || '').trim();
-      const leadId = String(input?.leadId ?? '').trim();
-      if (!actionKey || !leadId) return;
-      const units = Math.max(1, Math.trunc(Number(input?.units ?? 1)) || 1);
-
-      const usageKey = `shadow:${actionKey}:${leadId}`;
-
-      const existing = await this.prisma.creditLedgerEntry.findFirst({
-        where: { companyId: companyIdNum, kind: 'debit_shadow', usageKey },
-        select: { id: true },
-      });
-      if (existing) return;
-
-      const wallet = await this.wallet.ensureWallet(companyIdNum);
-      await this.prisma.creditLedgerEntry.create({
-        data: {
-          walletId: wallet.id,
-          companyId: companyIdNum,
-          kind: 'debit_shadow',
-          amount: units,
-          remaining: 0,
-          actionKey,
-          usageKey,
-          createdByUserId: userId ?? null,
-        },
-      });
-    } catch (error: any) {
-      // Best-effort puro: shadow-debit nunca pode quebrar/atrasar o fluxo de venda real.
-      this.logger.warn(`shadow_debit_failed company=${companyId} error=${String(error?.message || error)}`);
-    }
-  }
-
   // ── A3 — lote grátis de boas-vindas no signup self-service ───────────────────
   /**
    * Concede 1 lote `kind:'promo'`/`grantType:'promo'` (NUNCA receita — D3/S5) na hora em que
@@ -497,7 +441,7 @@ export class CreditsService {
    * liberam o lote). Idempotente por `usageKey: welcome:<companyId>` — 1 lote por empresa, PRA SEMPRE
    * (retry/duplo-clique/reprocesso nunca duplica; `CreditWalletService.grant` já dedupa).
    *
-   * Best-effort PURO (mesmo padrão do `recordShadowDebit` acima): nunca lança, nunca atrasa
+   * Best-effort PURO: nunca lança, nunca atrasa
    * nem quebra o signup. Flag `HBX_CREDITS_ENABLED` OFF → no-op imediato, sem tocar o banco.
    * Chamador é responsável por NÃO invocar para `platform_infra` nem para empresa criada pelo
    * master (Implantação/companies.service.ts) — ver comentário no auth.service.ts.
@@ -531,7 +475,7 @@ export class CreditsService {
   /**
    * Gate em 2 chaves (R1-SPEC): `HBX_CREDITS_ENFORCE` (env, mestre) E
    * `Company.creditsEnforceEnabled` (por-tenant) precisam estar ON. Qualquer uma OFF →
-   * enforcement INTEIRO desligado (o caller decide se ainda quer disparar o shadow).
+   * enforcement inteiro desligado.
    */
   async isEnforceActiveForCompany(companyId: number): Promise<boolean> {
     const companyIdNum = Number(companyId);
@@ -699,13 +643,11 @@ export class CreditsService {
   }
 
   /**
-   * Choke ÚNICO de débito REAL (R1). Chamado do MESMO ponto do shadow (S2) em
-   * `CommercialUsageLimitsService`, logo após o sucesso da baixa. Se o gate (2 chaves) está
-   * OFF, é no-op transparente (`applied: false`) — quem chama segue o fluxo shadow normal.
+   * Choke único do Lead entregue. Se o gate está OFF, é no-op transparente.
    * Com o gate ON: (1) checa teto individual do vendedor (S4) ANTES do débito da empresa —
    * estourou, bloqueia SÓ ele; (2) debita 1 crédito da carteira via `CreditWalletService.debit`
-   * (fail-closed, nunca negativo, idempotente pela mesma `usageKey` do shadow:
-   * `enforce:<actionKey>:<leadId>`); sem saldo → bloqueio (fail-closed), a entrega PARA.
+   * (fail-closed, nunca negativo e idempotente por
+   * `enforce:<actionKey>:<leadId>`); sem saldo, a entrega para.
    */
   async assertAndDebitLeadDelivery(
     companyId: number,
@@ -725,6 +667,14 @@ export class CreditsService {
     const leadId = String(input?.leadId ?? '').trim();
     if (!leadId) return { applied: false, debited: 0 };
 
+    const definition = this.actionConfig
+      ? await this.actionConfig.resolveEffective(actionKey)
+      : getCreditActionBaseDefinition(actionKey);
+    if (!definition || definition.mode === 'free' || definition.cost <= 0) {
+      return { applied: false, debited: 0 };
+    }
+    const cost = definition.cost;
+
     const isBillingAudienceUser = Boolean(input?.isBillingAudienceUser);
     const now = new Date();
 
@@ -743,13 +693,13 @@ export class CreditsService {
     }
 
     const usageKey = `enforce:${actionKey}:${leadId}`;
-    const result = await this.wallet.debit(companyIdNum, 1, {
+    const result = await this.wallet.debit(companyIdNum, cost, {
       actionKey,
       usageKey,
       userId,
     });
 
-    if (result.debited < 1) {
+    if (result.debited < cost) {
       // Fail-closed (D7): saldo não cobriu o pedido — a entrega PARA. Nunca saldo negativo.
       this.throwBlocked('no_balance', isBillingAudienceUser);
     }

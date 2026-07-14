@@ -30,7 +30,7 @@ export type RadarPostDeliveryAiSaneamentoInput = {
   /**
    * CRÉDITO UNIVERSAL (PR11072026): empresa que puxou o lead pra Vendas (`context.companyId` de
    * `importRadarLeadToVendasForUser`) — tenant REAL, já validado por `resolveContext` antes da
-   * entrega. Repassado ao gateway de IA só como medição `ai_batch` (track, nunca cobra).
+   * entrega. Repassado ao gateway como ação `ai_batch`, grátis por padrão.
    */
   companyId?: number | null;
 };

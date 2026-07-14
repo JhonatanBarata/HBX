@@ -6,6 +6,7 @@ import { AssistenteService } from './assistente.service';
 import { AssistenteSandboxService } from './assistente-sandbox.service';
 import { CopilotoController } from './copiloto.controller';
 import { CopilotoService } from './copiloto.service';
+import { ConversationAssistantRuntimeService } from './conversation-assistant-runtime.service';
 
 // WORM-14 — Assistente IA (wizard + fluxo em lista + sandbox "Teste sua IA").
 //
@@ -19,7 +20,7 @@ import { CopilotoService } from './copiloto.service';
 @Module({
   imports: [PrismaModule, ModulesAccessModule],
   controllers: [AssistenteController, CopilotoController],
-  providers: [AssistenteService, AssistenteSandboxService, CopilotoService],
-  exports: [AssistenteService],
+  providers: [AssistenteService, AssistenteSandboxService, CopilotoService, ConversationAssistantRuntimeService],
+  exports: [AssistenteService, ConversationAssistantRuntimeService],
 })
 export class AssistenteModule {}

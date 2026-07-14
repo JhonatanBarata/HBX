@@ -51,9 +51,6 @@ import { HbxRecoveryService } from '../hbx-recovery/hbx-recovery.service';
 const RECOVERY_SWEEP_MS = 24 * 60 * 60 * 1000;
 const RECOVERY_BOOT_DELAY_MS = 45_000;
 
-// sourceModule das charges nascidas na logística (ver logistica.service.ts).
-const LOGISTICA_SOURCE_MODULES = ['logistica_entrega', 'logistica_fechamento'];
-
 @Injectable()
 export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(LogisticaRecoveryService.name);
@@ -141,29 +138,56 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
     // (ou da data informada). Vencida = passou do dia; "vence hoje" ainda não conta.
     const corte = startOfDay(parseDateOrNull(dateInput) ?? new Date());
 
-    // 2) Cobranças vencidas e ainda abertas nascidas na logística.
+    // 2) Gancho canônico do Recovery: toda cobrança financeira vencida que está
+    // ligada a um CustomerProfile entra, independentemente do módulo de origem.
+    // Cobranças da própria plataforma não possuem customerProfileId e ficam fora.
     const charges = await this.prisma.financeiroCharge.findMany({
       where: {
         companyId,
         status: 'pending',
         dueDate: { lt: corte },
-        sourceModule: { in: LOGISTICA_SOURCE_MODULES },
         customerProfileId: { not: null },
       },
-      select: { id: true, customerProfileId: true, amount: true, dueDate: true, entregaId: true },
+      select: {
+        id: true,
+        customerProfileId: true,
+        amount: true,
+        dueDate: true,
+        entregaId: true,
+        sourceModule: true,
+      },
       orderBy: [{ dueDate: 'asc' }],
     });
 
+    const entregaIds = [...new Set(charges.map((charge) => String(charge.entregaId || '')).filter(Boolean))];
+    const entregas = entregaIds.length
+      ? await this.prisma.entrega.findMany({
+          where: { companyId, id: { in: entregaIds } },
+          select: {
+            id: true,
+            productId: true,
+            quantidade: true,
+            valor: true,
+            itens: { select: { productId: true, qtdEntregue: true, qtdPrevista: true, valorUnit: true } },
+          },
+        })
+      : [];
+    const entregaById = new Map(entregas.map((entrega) => [entrega.id, entrega]));
+
     // 3) Agrupa por cliente: o funil é 1 caso por cliente (soma o aberto vencido).
-    const porCliente = new Map<string, { amount: number; dueDate: Date | null; chargeIds: string[] }>();
+    const porCliente = new Map<string, {
+      amount: number;
+      dueDate: Date | null;
+      charges: Array<(typeof charges)[number]>;
+    }>();
     for (const c of charges) {
       const pid = String(c.customerProfileId || '').trim();
       if (!pid) continue;
-      const g = porCliente.get(pid) ?? { amount: 0, dueDate: null, chargeIds: [] };
+      const g = porCliente.get(pid) ?? { amount: 0, dueDate: null, charges: [] };
       g.amount = round2(g.amount + Math.max(0, Number(c.amount) || 0));
       // guarda o vencimento MAIS ANTIGO (o que a cobrança usa como registrationDate).
       if (c.dueDate && (!g.dueDate || c.dueDate.getTime() < g.dueDate.getTime())) g.dueDate = c.dueDate;
-      g.chargeIds.push(c.id);
+      g.charges.push(c);
       porCliente.set(pid, g);
     }
 
@@ -176,14 +200,10 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
 
       // IDEMPOTÊNCIA: já existe um HbxRecoveryCustomer deste cliente? Então ele já
       // está no funil — não cria outro (a 2ª varredura cai aqui e não duplica).
-      const existente = await this.prisma.hbxRecoveryCustomer.findFirst({
+      let existente = await this.prisma.hbxRecoveryCustomer.findFirst({
         where: { companyId, customerProfileId },
-        select: { id: true },
+        select: { id: true, openAmount: true, sourceModule: true },
       });
-      if (existente) {
-        jaNoFunil++;
-        continue;
-      }
 
       // O funil precisa de um alvo de WhatsApp (a cadência manda pra ele). Cliente
       // sem telefone não tem como ser cobrado → pula (não é falha, só não aplica).
@@ -192,7 +212,7 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
         select: { name: true, phone: true, phoneNormalized: true },
       });
       const telefone = String(conta?.phoneNormalized || conta?.phone || '').trim();
-      if (!digitsOk(telefone)) {
+      if (!existente && !digitsOk(telefone)) {
         semTelefone++;
         continue;
       }
@@ -202,18 +222,34 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
       // sincroniza o DebtCase linkado ao customerProfile (dentro da mesma transação
       // do Recovery). NÃO reimplementamos cadência/envio aqui.
       try {
-        await this.recovery.createCustomer(
-          { companyId },
-          {
-            name: nome,
-            clientName: nome,
-            whatsappNumber: telefone,
-            openAmount: grupo.amount,
-            registrationDate: grupo.dueDate ? grupo.dueDate.toISOString() : undefined,
-          } as any,
-          { sourceModule: 'logistica' }, // marca origem → só ISTO é auto-quitável por baixa de fiado
-        );
-        injetados++;
+        let createdNow = false;
+        if (!existente) {
+          const created = await this.recovery.createCustomer(
+            { companyId },
+            {
+              name: nome,
+              clientName: nome,
+              whatsappNumber: telefone,
+              openAmount: grupo.amount,
+              registrationDate: grupo.dueDate ? grupo.dueDate.toISOString() : undefined,
+            } as any,
+            { sourceModule: 'financeiro' },
+          );
+          existente = { id: String(created.id), openAmount: grupo.amount, sourceModule: 'financeiro' };
+          createdNow = true;
+        } else {
+          jaNoFunil++;
+        }
+
+        await this.materializeCustomerDebt({
+          companyId,
+          customerProfileId,
+          recoveryCustomer: existente,
+          charges: grupo.charges,
+          entregaById,
+          createdNow,
+        });
+        if (createdNow) injetados++;
       } catch (e: any) {
         this.logger.warn(
           `[logistica-recovery] company=${companyId} cliente=${customerProfileId} falhou ao injetar no funil: ${String(e?.message || e)}`,
@@ -255,15 +291,16 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
     const pid = String(customerProfileId || '').trim();
     if (!cid || !pid) return;
 
-    // Recompute (mesmo critério do varrer): sobrou alguma charge logistica_*
-    // pendente E VENCIDA deste cliente? Se sim, ele ainda deve → a cadência segue.
+    await this.reconcileDebtItems(cid, pid);
+
+    // Recompute: sobrou alguma cobrança financeira pendente e vencida deste
+    // cliente? Se sim, a cadência segue.
     const corte = startOfDay(new Date());
     const pendente = await this.prisma.financeiroCharge.findFirst({
       where: {
         companyId: cid,
         customerProfileId: pid,
         status: 'pending',
-        sourceModule: { in: LOGISTICA_SOURCE_MODULES },
         dueDate: { lt: corte },
       },
       select: { id: true },
@@ -272,6 +309,163 @@ export class LogisticaRecoveryService implements OnModuleInit, OnModuleDestroy {
 
     // Zerou a dívida vencida → PARA a cadência (sem WhatsApp, idempotente).
     await this.recovery.resolverDebtCaseSeQuitado(cid, pid);
+  }
+
+  private async materializeCustomerDebt(input: {
+    companyId: number;
+    customerProfileId: string;
+    recoveryCustomer: { id: string; openAmount: number; sourceModule?: string | null };
+    charges: Array<{
+      id: string;
+      amount: number;
+      dueDate: Date | null;
+      entregaId: string | null;
+      sourceModule: string | null;
+    }>;
+    entregaById: Map<string, any>;
+    createdNow: boolean;
+  }) {
+    await this.prisma.$transaction(async (tx) => {
+      const before = await tx.recoveryDebtItem.aggregate({
+        where: { companyId: input.companyId, recoveryCustomerId: input.recoveryCustomer.id, status: 'open' },
+        _sum: { openAmount: true },
+      });
+      const beforeMaterialized = Number(before._sum.openAmount || 0);
+
+      let debtCase = await tx.debtCase.findFirst({
+        where: {
+          companyId: input.companyId,
+          customerProfileId: input.customerProfileId,
+          sourceProvider: 'HBX_RECOVERY',
+          status: 'open',
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+
+      for (const charge of input.charges) {
+        const existingItem = await tx.recoveryDebtItem.findUnique({
+          where: { financeiroChargeId: charge.id },
+          select: { id: true, paidAmount: true },
+        });
+        const paidAmount = Math.max(0, Number(existingItem?.paidAmount || 0));
+        const originalAmount = round2(Math.max(0, Number(charge.amount || 0)));
+        const openAmount = round2(Math.max(0, originalAmount - paidAmount));
+        const item = existingItem
+          ? await tx.recoveryDebtItem.update({
+              where: { id: existingItem.id },
+              data: {
+                recoveryCustomerId: input.recoveryCustomer.id,
+                debtCaseId: debtCase?.id || null,
+                originalAmount,
+                openAmount,
+                dueDate: charge.dueDate,
+                status: openAmount > 0 ? 'open' : 'paid',
+              },
+            })
+          : await tx.recoveryDebtItem.create({
+              data: {
+                companyId: input.companyId,
+                customerProfileId: input.customerProfileId,
+                recoveryCustomerId: input.recoveryCustomer.id,
+                debtCaseId: debtCase?.id || null,
+                financeiroChargeId: charge.id,
+                sourceType: String(charge.sourceModule || 'financeiro'),
+                sourceRefId: charge.id,
+                entregaId: charge.entregaId || null,
+                originalAmount,
+                openAmount,
+                paidAmount,
+                dueDate: charge.dueDate,
+                status: openAmount > 0 ? 'open' : 'paid',
+              },
+            });
+
+        const entrega = charge.entregaId ? input.entregaById.get(charge.entregaId) : null;
+        const productRows = entrega?.itens?.length
+          ? entrega.itens
+          : entrega?.productId
+            ? [{
+                productId: entrega.productId,
+                qtdEntregue: entrega.quantidade,
+                qtdPrevista: entrega.quantidade,
+                valorUnit: Number(entrega.valor || 0) / Math.max(1, Number(entrega.quantidade || 1)),
+              }]
+            : [];
+        for (const product of productRows) {
+          if (!product.productId) continue;
+          const quantity = Math.max(1, Number(product.qtdEntregue ?? product.qtdPrevista ?? 1));
+          await tx.recoveryDebtItemProduct.upsert({
+            where: { debtItemId_productId: { debtItemId: item.id, productId: Number(product.productId) } },
+            create: {
+              debtItemId: item.id,
+              productId: Number(product.productId),
+              quantity,
+              amount: round2(Number(product.valorUnit || 0) * quantity),
+            },
+            update: { quantity, amount: round2(Number(product.valorUnit || 0) * quantity) },
+          });
+        }
+      }
+
+      const after = await tx.recoveryDebtItem.aggregate({
+        where: { companyId: input.companyId, recoveryCustomerId: input.recoveryCustomer.id, status: 'open' },
+        _sum: { openAmount: true },
+      });
+      const materializedOpen = round2(Number(after._sum.openAmount || 0));
+      const legacyFinancialCase = beforeMaterialized === 0 && ['logistica', 'financeiro'].includes(String(input.recoveryCustomer.sourceModule || ''));
+      const nextOpen = input.createdNow || legacyFinancialCase
+        ? materializedOpen
+        : round2(Math.max(0, Number(input.recoveryCustomer.openAmount || 0) + materializedOpen - beforeMaterialized));
+
+      await tx.hbxRecoveryCustomer.update({
+        where: { id: input.recoveryCustomer.id },
+        data: { openAmount: nextOpen, status: nextOpen > 0 ? 'OVERDUE' : 'PAID' },
+      });
+
+      if (!debtCase && nextOpen > 0) {
+        debtCase = await tx.debtCase.create({
+          data: {
+            companyId: input.companyId,
+            customerProfileId: input.customerProfileId,
+            sourceProvider: 'HBX_RECOVERY',
+            amount: nextOpen,
+            dueDate: input.charges[0]?.dueDate || null,
+            status: 'open',
+            rawPayloadJson: JSON.stringify({ source: 'financeiro-recovery-hook', recoveryCustomerId: input.recoveryCustomer.id }),
+          },
+        });
+      } else if (debtCase) {
+        await tx.debtCase.update({
+          where: { id: debtCase.id },
+          data: { amount: nextOpen, status: nextOpen > 0 ? 'open' : 'paid', paidAt: nextOpen > 0 ? null : new Date() },
+        });
+      }
+      if (debtCase) {
+        await tx.recoveryDebtItem.updateMany({
+          where: { companyId: input.companyId, recoveryCustomerId: input.recoveryCustomer.id },
+          data: { debtCaseId: debtCase.id },
+        });
+      }
+    });
+  }
+
+  private async reconcileDebtItems(companyId: number, customerProfileId: string) {
+    const items = await this.prisma.recoveryDebtItem.findMany({
+      where: { companyId, customerProfileId, financeiroChargeId: { not: null } },
+      include: { financeiroCharge: { select: { status: true, amount: true } } },
+    });
+    for (const item of items) {
+      const paid = ['approved', 'paid', 'released'].includes(String(item.financeiroCharge?.status || '').toLowerCase());
+      if (!paid) continue;
+      await this.prisma.recoveryDebtItem.update({
+        where: { id: item.id },
+        data: {
+          openAmount: 0,
+          paidAmount: round2(Number(item.financeiroCharge?.amount || item.originalAmount || 0)),
+          status: 'paid',
+        },
+      });
+    }
   }
 }
 

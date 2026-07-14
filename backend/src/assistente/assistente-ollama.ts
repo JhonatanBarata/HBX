@@ -57,7 +57,7 @@ export function assistenteOllamaEnabled() {
 }
 
 export type AssistenteOllamaOptions = {
-  // CRÉDITO UNIVERSAL: empresa dona da chamada — sucesso vira track `ai_realtime`.
+  // Empresa dona da chamada para autorização `ai_realtime`.
   companyId?: number | null;
   // Sobrescreve o timeout da frente assistente (default = assistenteTimeoutMs()).
   timeoutMs?: number;

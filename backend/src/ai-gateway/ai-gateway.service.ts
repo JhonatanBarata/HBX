@@ -44,7 +44,7 @@
 
 export type AiGatewayLane = 'realtime' | 'batch';
 
-export type AiGatewayRefusalReason = 'queue_full' | 'budget_exceeded';
+export type AiGatewayRefusalReason = 'queue_full' | 'budget_exceeded' | 'credit_unavailable';
 
 /**
  * Resultado de `run()`. Discriminated union — NUNCA lança pro caller. `refused:true` quando a
@@ -56,13 +56,11 @@ export type AiGatewayRunResult<T> =
   | { ok: true; value: T; refused: false }
   | { ok: false; value: null; refused: true; reason: AiGatewayRefusalReason };
 
-// ─── CRÉDITO UNIVERSAL (PR10072026) — medição de uso por empresa ─────────────────────────────
+// ─── Crédito por uso de IA ───────────────────────────────────────────────────────────────────
 /**
  * Contexto OPCIONAL de uso, passado pelo caller que SABE a empresa dona da chamada. O gateway
- * não conhece crédito nem banco: só repassa ao listener registrado no boot pelo módulo de
- * créditos (CreditMeterService). Sem listener, sem contexto ou sem companyId válido → nada
- * acontece (byte-idêntico ao comportamento anterior). Emite SÓ quando `fn` teve SUCESSO
- * (uso real de IA); recusa cedo e erro não são uso.
+ * não conhece carteira nem banco: pede autorização ao callback registrado pelo módulo de
+ * créditos. A reserva acontece antes do modelo; erro/HTTP inválido libera a reserva.
  */
 export type AiGatewayUsageContext = {
   companyId?: number | null;
@@ -141,38 +139,46 @@ export class AiGatewayService {
       : envInt('HBX_AI_GATEWAY_BATCH_TYPICAL_MS', 20000);
   }
 
-  // ── medição de uso (CRÉDITO UNIVERSAL) ─────────────────────────────────────────────────────
-  private static usageListener: ((usage: AiGatewayUsageEvent) => void) | null = null;
+  // ── autorização de uso ─────────────────────────────────────────────────────────────────────
+  private static usageAuthorizer: ((usage: AiGatewayUsageEvent) => Promise<{
+    allowed: boolean;
+    release?: () => Promise<void>;
+  }>) | null = null;
   private static usageSeq = 0;
 
-  /** Registrado 1x no boot pelo módulo de créditos (CreditMeterService); null desliga. */
-  static setUsageListener(listener: ((usage: AiGatewayUsageEvent) => void) | null) {
-    AiGatewayService.usageListener = listener;
+  static setUsageAuthorizer(authorizer: typeof AiGatewayService.usageAuthorizer) {
+    AiGatewayService.usageAuthorizer = authorizer;
   }
 
-  /** Best-effort ABSOLUTO: medição nunca pode afetar a chamada de IA. */
-  private static emitUsage(lane: AiGatewayLane, usage: AiGatewayUsageContext | undefined, value: unknown) {
+  private static buildUsageEvent(lane: AiGatewayLane, usage?: AiGatewayUsageContext): AiGatewayUsageEvent | null {
+    if (!usage) return null;
+    const companyId = Math.trunc(Number(usage.companyId ?? 0));
+    if (!Number.isFinite(companyId) || companyId <= 0) return null;
+    AiGatewayService.usageSeq += 1;
+    return {
+      lane,
+      companyId,
+      actionKey: String(usage.actionKey || '').trim() || (lane === 'realtime' ? 'ai_realtime' : 'ai_batch'),
+      refId: `ai-${process.pid}-${Date.now().toString(36)}-${AiGatewayService.usageSeq}`,
+      units: Math.max(1, Math.trunc(Number(usage.units ?? 1)) || 1),
+    };
+  }
+
+  private static async authorizeUsage(lane: AiGatewayLane, usage?: AiGatewayUsageContext) {
+    const authorizer = AiGatewayService.usageAuthorizer;
+    const event = AiGatewayService.buildUsageEvent(lane, usage);
+    if (!authorizer || !event) return { allowed: true } as { allowed: boolean; release?: () => Promise<void> };
     try {
-      const listener = AiGatewayService.usageListener;
-      if (!listener || !usage) return;
-      // fetch RESOLVE em HTTP 4xx/5xx (só rejeita em rede/timeout) — todos os call-sites
-      // devolvem Response. Resposta não-ok não é inferência real: não conta como uso (senão
-      // uma noite de Ollama devolvendo 500 infla exatamente o número que precifica a fase 2).
-      const okFlag = (value as { ok?: unknown } | null | undefined)?.ok;
-      if (typeof okFlag === 'boolean' && !okFlag) return;
-      const companyId = Math.trunc(Number(usage.companyId ?? 0));
-      if (!Number.isFinite(companyId) || companyId <= 0) return;
-      AiGatewayService.usageSeq += 1;
-      listener({
-        lane,
-        companyId,
-        actionKey: String(usage.actionKey || '').trim() || (lane === 'realtime' ? 'ai_realtime' : 'ai_batch'),
-        refId: `ai-${process.pid}-${Date.now().toString(36)}-${AiGatewayService.usageSeq}`,
-        units: Math.max(1, Math.trunc(Number(usage.units ?? 1)) || 1),
-      });
+      return await authorizer(event);
     } catch {
-      // medição nunca derruba IA
+      // Com cobrança ativa, indisponibilidade da autorização é fail-closed.
+      return { allowed: false };
     }
+  }
+
+  private static successfulUsage(value: unknown) {
+    const okFlag = (value as { ok?: unknown } | null | undefined)?.ok;
+    return typeof okFlag !== 'boolean' || okFlag;
   }
 
   // ── estado por faixa (estático — serve todo o processo, sem DI por call-site) ──────────────────
@@ -345,7 +351,7 @@ export class AiGatewayService {
    * sempre — o caller já a trata no try/catch existente. Só a ADMISSÃO é governada aqui.
    *
    * `usage` (opcional, CRÉDITO UNIVERSAL): quem tem a empresa à mão informa e o sucesso vira
-   * evento de medição (ver emitUsage). Omitir = comportamento idêntico ao anterior.
+   * autorização de débito. Omitir = comportamento idêntico ao anterior.
    */
   static async run<T>(
     lane: AiGatewayLane,
@@ -354,9 +360,16 @@ export class AiGatewayService {
     usage?: AiGatewayUsageContext,
   ): Promise<AiGatewayRunResult<T>> {
     if (!AiGatewayService.isEnabled()) {
-      const value = await fn();
-      AiGatewayService.emitUsage(lane, usage, value);
-      return { ok: true, value, refused: false };
+      const authorization = await AiGatewayService.authorizeUsage(lane, usage);
+      if (!authorization.allowed) return { ok: false, value: null, refused: true, reason: 'credit_unavailable' };
+      try {
+        const value = await fn();
+        if (!AiGatewayService.successfulUsage(value)) await authorization.release?.();
+        return { ok: true, value, refused: false };
+      } catch (error) {
+        await authorization.release?.().catch(() => undefined);
+        throw error;
+      }
     }
 
     const admission = await AiGatewayService.admit(lane, Math.max(0, Number(budgetMs) || 0));
@@ -364,10 +377,18 @@ export class AiGatewayService {
       return { ok: false, value: null, refused: true, reason: admission.refused };
     }
 
+    const authorization = await AiGatewayService.authorizeUsage(lane, usage);
+    if (!authorization.allowed) {
+      AiGatewayService.release(lane);
+      return { ok: false, value: null, refused: true, reason: 'credit_unavailable' };
+    }
     try {
       const value = await fn();
-      AiGatewayService.emitUsage(lane, usage, value);
+      if (!AiGatewayService.successfulUsage(value)) await authorization.release?.();
       return { ok: true, value, refused: false };
+    } catch (error) {
+      await authorization.release?.().catch(() => undefined);
+      throw error;
     } finally {
       AiGatewayService.release(lane);
     }
@@ -408,6 +429,7 @@ export class AiGatewayService {
   // ── teste: reset do estado estático entre casos (mesmo furo do SourceBudget) ──────────────────
   /** Zera contadores e filas — usado só nos testes de aceite/regressão. */
   static resetForTest() {
+    AiGatewayService.usageAuthorizer = null;
     for (const lane of ['realtime', 'batch'] as AiGatewayLane[]) {
       const r = AiGatewayService.lane(lane);
       r.active = 0;

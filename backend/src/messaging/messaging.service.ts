@@ -71,7 +71,8 @@ import { WebwhatsBridgeService, type WebwhatsFetchedMessage, type WebwhatsQuoted
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
-import { CreditMeterService } from '../credits/credit-meter.service';
+import { CreditActionUsageService } from '../credits/credit-action-usage.service';
+import { ConversationAssistantRuntimeService } from '../assistente/conversation-assistant-runtime.service';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
   isCommercialEntitlementActive,
@@ -288,9 +289,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // WEBWHATS-ARQ3 S3: writer ÚNICO da projeção de estado de conexão. @Optional() pelo mesmo
     // motivo (testes instanciam direto); ausente = carimbo de projeção é no-op, sem regressão.
     @Optional() private readonly connectionProjection?: WhatsAppConnectionProjectionService,
-    // CRÉDITO UNIVERSAL (PR10072026): medidor de uso — track (nunca débito) das mensagens
-    // AUTOMÁTICAS enviadas com sucesso. @Optional() pelo mesmo motivo; ausente = não mede.
-    @Optional() private readonly creditMeter?: CreditMeterService,
+    // Só origens automáticas confirmadas pelo provedor usam a ação "Automação".
+    @Optional() private readonly creditActionUsage?: CreditActionUsageService,
+    // Assistente configurável por tenant. Opcional mantém os testes diretos e
+    // instalações com a flag de publicação desligada sem mudança de runtime.
+    @Optional() private readonly conversationAssistant?: ConversationAssistantRuntimeService,
   ) {
     // Guarda transitoria local: evita ampliar o grafo de DI antes do modelo canonico.
     this.commercialContactControl = new CommercialContactControlService(this.prisma, this.conversations);
@@ -429,6 +432,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         return 'bot_atendimento_global_desativado';
       }
     }
+    if (String(input.sourceModule || '').trim().toLowerCase() === 'conversation_assistant') {
+      const runtimeEnabled = ['true', '1', 'yes', 'on'].includes(
+        String(process.env.HBX_ASSISTENTE_PUBLISH_ENABLED || '').trim().toLowerCase(),
+      );
+      const config = runtimeEnabled
+        ? await this.prisma.assistenteConfig.findUnique({
+            where: { companyId: input.companyId },
+            select: { published: true },
+          })
+        : null;
+      if (!runtimeEnabled || !config?.published) return 'assistente_despublicada';
+    }
 
     return null;
   }
@@ -468,6 +483,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       where: { outboundMessageId: input.outboundMessageId },
       data: { status: 'CANCELED', error },
     });
+    await this.commercialContactControl.syncAutomationStepFromOutbound({
+      companyId: input.companyId,
+      outboundMessageId: input.outboundMessageId,
+      status: 'canceled',
+      errorCode: input.reason,
+      errorMessage: error,
+    }).catch(() => null);
     await this.logWhatsAppEvent({
       companyId: input.companyId,
       scope: 'dispatch',
@@ -8311,6 +8333,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           where: { outboundMessageId: msg.id },
           data: { status: 'QUEUED' },
         });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'queued',
+        }).catch(() => null);
         if (Number(msg.message?.conversationId || 0) > 0) {
           await this.conversations.dispatchVendasCockpitProjection({
             companyId: msg.companyId,
@@ -8339,6 +8366,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         where: { outboundMessageId: msg.id },
         data: { status: 'FAILED', error: 'stuck_unknown_outcome' },
       });
+      await this.commercialContactControl.syncAutomationStepFromOutbound({
+        companyId: msg.companyId,
+        outboundMessageId: msg.id,
+        status: 'failed',
+        errorCode: 'stuck_unknown_outcome',
+        errorMessage: 'stuck_unknown_outcome',
+      }).catch(() => null);
       if (Number(msg.message?.conversationId || 0) > 0) {
         await this.conversations.dispatchVendasCockpitProjection({
           companyId: msg.companyId,
@@ -8516,38 +8550,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // CRÉDITO UNIVERSAL (PR10072026): mede (TRACK — nunca debita, decisão do dono 10/07: WhatsApp
-  // automação não se cobra, "ninguém cobra a não ser que for Meta") toda mensagem AUTOMÁTICA
+  // Cobra a ação pública "Automação" para mensagens automáticas confirmadas.
   // enviada com sucesso. Allowlist EXPLÍCITA por sourceModule — humano (atendimento_human/
-  // manual, respostas do funil 'vendas', etc.) NUNCA entra; fora da lista = não mede
+  // manual, respostas do funil 'vendas', etc.) NUNCA entra; fora da lista = não cobra
   // (fail-safe da regra "humano não conta"). Idempotente por outboundMessage.id (retry do
-  // dispatch não conta 2x). Best-effort puro: o meter nunca lança.
-  private meterAutoSendBestEffort(msg: {
-    id: number;
-    companyId: number;
+  // dispatch não conta 2x). A cobrança é idempotente pela mensagem de saída.
+  private isCreditAutomationMessage(msg: {
     sourceModule: string | null;
     message?: { senderType?: string | null } | null;
-  }) {
-    if (!this.creditMeter) return;
+  }): boolean {
     // Guarda DURA da regra "humano não conta" (revisão 10/07): o recovery rotula mensagem de
     // OPERADOR como sourceModule `hbx_recovery_human` — o prefixo sozinho pegaria humano.
     // senderType 'human' e sufixos _human/_manual saem SEMPRE, antes da allowlist.
     const senderType = String(msg?.message?.senderType || '').trim().toLowerCase();
-    if (senderType === 'human') return;
+    if (senderType === 'human') return false;
     const source = String(msg?.sourceModule || '').trim().toLowerCase();
-    if (source.endsWith('_human') || source.endsWith('_manual')) return;
-    const metered =
+    if (source.endsWith('_human') || source.endsWith('_manual')) return false;
+    return (
       source === 'vendas_prospeccao_bot' ||
       source === 'atendimento_bot' ||
-      source === 'logistica_entrega' ||
-      source === 'logistica_fechamento' ||
-      source.startsWith('hbx_recovery');
-    if (!metered) return;
-    void this.creditMeter.meter({
-      companyId: msg.companyId,
-      actionKey: 'whatsapp_auto_send',
-      refId: `wa:${msg.id}`,
-    });
+      source === 'conversation_assistant' ||
+      source.startsWith('hbx_recovery')
+    );
   }
 
   private async sendOne(messageId: number) {
@@ -8559,6 +8583,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (locked.count === 0) return;
 
     await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: messageId }, data: { status: 'SENDING' } });
+    await this.commercialContactControl.syncAutomationStepFromOutbound({
+      companyId: Number((await this.prisma.outboundMessage.findUnique({ where: { id: messageId }, select: { companyId: true } }))?.companyId || 0),
+      outboundMessageId: messageId,
+      status: 'dispatching',
+    }).catch(() => null);
 
     const supportsOutboundEndpointColumn = await this.supportsOutboundEndpointColumn();
     const msg = await this.prisma.outboundMessage.findUnique({
@@ -8621,6 +8650,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    let automaticReservation: { allowed: boolean; release?: () => Promise<void> } | null = null;
     try {
       let messageType = String(msg.messageType || 'text').toLowerCase();
       let dispatchBody = String(msg.body || '');
@@ -8708,6 +8738,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           where: { outboundMessageId: msg.id },
           data: { status: 'QUEUED' },
         });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'queued',
+        }).catch(() => null);
         if (conversationId) {
           await this.conversations.dispatchVendasCockpitProjection?.({
             companyId: msg.companyId,
@@ -8739,6 +8774,29 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           `WhatsApp send THROTTLED messageId=${msg.id} reason=${throttleDecision.reason} retryIn=${Math.round(throttleDecision.retryAfterMs / 1000)}s`,
         );
         return;
+      }
+
+      if (this.creditActionUsage && this.isCreditAutomationMessage(msg)) {
+        automaticReservation = await this.creditActionUsage.authorize({
+          companyId: msg.companyId,
+          actionKey: 'whatsapp_auto_send',
+          refId: `wa:${msg.id}`,
+          metadata: { channel: 'whatsapp', sourceModule: msg.sourceModule || null },
+        });
+        if (!automaticReservation.allowed) {
+          await this.cancelOutboundBeforeDispatch({
+            outboundMessageId: msg.id,
+            attemptId: attempt.id,
+            companyId: msg.companyId,
+            conversationId,
+            to: msg.to,
+            messageType: String(msg.messageType || 'text'),
+            sourceModule: msg.sourceModule,
+            reason: 'credit_unavailable',
+            companyMessageId: Number(msg.message?.id || 0) || null,
+          });
+          return;
+        }
       }
 
       const attachment = this.extractWebwhatsAttachment(dispatchVariables);
@@ -8798,9 +8856,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             error: null,
           },
         });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'succeeded',
+        }).catch(() => null);
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
-        this.meterAutoSendBestEffort(msg);
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -8942,6 +9004,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (!this.enabled) {
+        await automaticReservation?.release?.().catch(() => undefined);
+        automaticReservation = null;
         await this.prisma.outboundAttempt.update({
           where: { id: attempt.id },
           data: {
@@ -8957,6 +9021,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           data: { status: 'SENT', sentAt: new Date(), attemptCount: attemptNo, lastError: null, deliveryStatus: 'sent' },
         });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'SENT', error: null } });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'succeeded',
+        }).catch(() => null);
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
         if (conversationId) {
@@ -9052,9 +9121,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           where: { outboundMessageId: msg.id },
           data: { status: 'SENT', providerMessageId: providerMessageId || undefined, error: null },
         });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'succeeded',
+        }).catch(() => null);
         await this.updateRecoveryTemplateLastContact(msg, 'sent', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'enviado');
-        this.meterAutoSendBestEffort(msg);
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -9108,8 +9181,17 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           },
         });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: providerError } });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'failed',
+          errorCode: `provider_http_${res.status}`,
+          errorMessage: providerError,
+        }).catch(() => null);
         await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
         await this.syncLogisticaEntregaWhatsappOutcome(dispatchVariables, 'falhou', providerError);
+        await automaticReservation?.release?.().catch(() => undefined);
+        automaticReservation = null;
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -9166,6 +9248,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       if (attemptNo >= updated.maxAttempts) {
         await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'FAILED', failedAt: new Date(), deliveryStatus: 'failed' } });
         await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'FAILED', error: errorMessage } });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'failed',
+          errorCode: 'provider_retries_exhausted',
+          errorMessage,
+        }).catch(() => null);
         await this.updateRecoveryTemplateLastContact(msg, 'failed', new Date());
         // `dispatchVariables` foi declarado dentro do `try` (fora de escopo aqui) —
         // relê o mesmo payload já carregado em `msg.message.variablesJson`.
@@ -9174,6 +9263,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           'falhou',
           errorMessage,
         );
+        await automaticReservation?.release?.().catch(() => undefined);
+        automaticReservation = null;
         await this.logWhatsAppEvent({
           companyId: msg.companyId,
           scope: 'dispatch',
@@ -9206,6 +9297,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       const next = new Date(Date.now() + delayMs);
       await this.prisma.outboundMessage.update({ where: { id: msg.id }, data: { status: 'PENDING', nextAttemptAt: next } });
       await this.prisma.companyMessage.updateMany({ where: { outboundMessageId: msg.id }, data: { status: 'QUEUED', error: errorMessage } });
+      await this.commercialContactControl.syncAutomationStepFromOutbound({
+        companyId: msg.companyId,
+        outboundMessageId: msg.id,
+        status: 'queued',
+        errorCode: 'provider_retry_scheduled',
+        errorMessage,
+      }).catch(() => null);
       if (conversationId) {
         await this.conversations.dispatchVendasCockpitProjection?.({
           companyId: msg.companyId,
@@ -9972,6 +10070,75 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
+    if (isValidHumanInbound && !recoveryCustomer && this.conversationAssistant) {
+      const prepared = await this.conversationAssistant.prepareReply({
+        companyId,
+        conversationId: inboundConversationId,
+        inboundMessageId: Number(input.inboundRow?.id || 0),
+        text,
+      });
+      if (prepared.handled) {
+        if (prepared.runId && prepared.reply) {
+          try {
+            const queued = await this.conversations.queueOutboundForCompany(companyId, {
+              conversationId: inboundConversationId,
+              to: from,
+              contactId: from,
+              body: prepared.reply,
+              messageType: 'text',
+              sourceModule: 'conversation_assistant',
+              senderType: 'bot',
+              variables: {
+                purpose: 'conversation_reply',
+                assistantRunId: prepared.runId,
+                inboundMessageId: Number(input.inboundRow?.id || 0),
+                vendasLeadId: prepared.vendasLeadId || null,
+              },
+              flowState: { botActive: true, humanAssigned: false, flowResult: null },
+            });
+            await this.conversationAssistant.markQueued({
+              companyId,
+              runId: prepared.runId,
+              outboundMessageId: Number(queued.outboundMessageId),
+              source: prepared.source || null,
+            });
+            await this.logWhatsAppEvent({
+              companyId,
+              scope: 'conversation_assistant',
+              event: 'assistant_reply_queued',
+              message: `Resposta de ${prepared.publicName || 'assistente'} enfileirada.`,
+              conversationId: inboundConversationId,
+              phone: from,
+              messageType: 'text',
+              result: 'queued',
+              extra: {
+                assistantRunId: prepared.runId,
+                inboundMessageId: Number(input.inboundRow?.id || 0),
+                outboundMessageId: Number(queued.outboundMessageId),
+              },
+            });
+          } catch (error) {
+            await this.conversationAssistant.markQueueFailed({
+              companyId,
+              runId: prepared.runId,
+              error,
+            }).catch(() => null);
+            this.logger.warn(
+              `Falha ao enfileirar resposta da assistente company=${companyId} conversation=${inboundConversationId}: ${String((error as any)?.message || error)}`,
+            );
+          }
+        }
+        // Claim, falha ou duplicata da Assistente não cai também no Atendimento:
+        // apenas um motor conversacional pode responder ao mesmo inbound.
+        return {
+          matched: true,
+          source: 'conversation_assistant',
+          assistantRunId: prepared.runId || null,
+          duplicate: prepared.duplicate === true,
+          failed: prepared.failed === true,
+        };
+      }
+    }
     if (['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)) {
       const atendimentoResult = await this.handleAtendimentoInbound({
         companyId,

@@ -4625,7 +4625,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       }
 
       const result = await this.creditWallet.reversePurchase(charge.companyId, {
-        amount: lot.amount,
+        amount: Number(lot.amount),
         usageKey: `mp-reversal:${paymentIdentity}`,
         preferredLotId: lot.id,
         userId: context.actorUserId ?? null,
@@ -4668,7 +4668,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         if (!result.alreadyProcessed) {
           const chargeAmount = this.normalizeCurrencyAmount(charge.amount);
           const debtValue = this.normalizeCurrencyAmount(
-            lot.amount > 0 ? (chargeAmount * result.shortfall) / lot.amount : 0,
+            Number(lot.amount) > 0 ? (chargeAmount * result.shortfall) / Number(lot.amount) : 0,
           );
           await emitMasterEvent(this.prisma, {
             type: 'credit.recharge_reversal_shortfall',
@@ -4679,7 +4679,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
               state: 'shortfall',
               chargeId: charge.id,
               paymentId: paymentIdentity,
-              packCredits: lot.amount,
+              packCredits: Number(lot.amount),
               reversedCredits: result.reversed,
               debtCredits: result.shortfall,
               debtValue,

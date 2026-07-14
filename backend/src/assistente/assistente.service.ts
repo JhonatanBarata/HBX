@@ -19,9 +19,8 @@ import type { SandboxDto, SaveAssistenteDto } from './dto/assistente.dto';
 // WORM-14 — Assistente IA (service). CRUD do AssistenteConfig por empresa +
 // compilador (fluxoJson->prompt) + sandbox seguro + publicar atras de flag.
 //
-// PUBLICAR NO CHIP fica atras de HBX_ASSISTENTE_PUBLISH_ENABLED (default OFF): o
-// dono liga quando quiser. Enquanto OFF, "publicar" apenas MARCA a intencao
-// (published=true) — nenhum caminho deste modulo envia WhatsApp real.
+// Ativar no WhatsApp fica atrás de HBX_ASSISTENTE_PUBLISH_ENABLED (default OFF).
+// Com a flag desligada, o endpoint não publica e o runtime não reivindica inbound.
 // ============================================================================
 
 const PUBLISH_FLAG = 'HBX_ASSISTENTE_PUBLISH_ENABLED';
@@ -98,9 +97,8 @@ export class AssistenteService {
   }
 
   private async findRow(companyId: number): Promise<AssistenteRow | null> {
-    return (await (this.prisma as any).assistenteConfig.findFirst({
+    return (await (this.prisma as any).assistenteConfig.findUnique({
       where: { companyId },
-      orderBy: { updatedAt: 'desc' },
     })) as AssistenteRow | null;
   }
 
@@ -150,7 +148,6 @@ export class AssistenteService {
     }
 
     const config = sanitizeAssistenteConfig(incoming);
-    const existing = await this.findRow(companyId);
 
     const data = {
       companyId,
@@ -162,15 +159,13 @@ export class AssistenteService {
       fluxoJson: JSON.stringify(config.fluxo),
     };
 
-    let row: AssistenteRow;
-    if (existing?.id) {
-      row = (await (this.prisma as any).assistenteConfig.update({
-        where: { id: existing.id },
-        data,
-      })) as AssistenteRow;
-    } else {
-      row = (await (this.prisma as any).assistenteConfig.create({ data })) as AssistenteRow;
-    }
+    // Uma configuração por tenant. Toda edição volta a rascunho: conteúdo já
+    // publicado nunca muda silenciosamente no runtime sem nova confirmação.
+    const row = (await (this.prisma as any).assistenteConfig.upsert({
+      where: { companyId },
+      create: { ...data, published: false },
+      update: { ...data, published: false },
+    })) as AssistenteRow;
     return { ok: true, assistente: this.serialize(row) };
   }
 
@@ -213,7 +208,7 @@ export class AssistenteService {
     const message = String(dto?.message || '').trim();
 
     // CRÉDITO UNIVERSAL (PR10072026): meta com a empresa — a chamada de IA do sandbox vira
-    // medição `ai_realtime` (track) no gateway.
+    // autorização da ação `ai_realtime` no gateway.
     const result = await this.sandbox.reply(config, history, message, chat, { companyId });
 
     // Numera o teste: incrementa o contador da empresa (sem transacao pesada —
@@ -244,9 +239,8 @@ export class AssistenteService {
     };
   }
 
-  // POST /assistente/publish — liga/desliga o assistente NO CHIP. Atras de flag.
-  // Com a flag OFF, apenas registra a INTENCAO (published) — nenhum envio real
-  // acontece por este modulo (o caminho de disparo vive no bot/cadencia com freios).
+  // POST /assistente/publish — liga/desliga o runtime conversacional. A flag
+  // desligada rejeita a ativação; o sandbox continua sempre sem envio real.
   async publish(user: any, on: boolean) {
     const companyId = requireCompanyId(user);
     const row = await this.findRow(companyId);

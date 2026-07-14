@@ -123,8 +123,18 @@ class UsageKeySatisfiedSignal extends Error {
   }
 }
 
-function isFiniteNonNegativeInt(value: number) {
-  return Number.isInteger(value) && value >= 0;
+function normalizeCreditAmount(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed * 1000) / 1000;
+}
+
+function addCredits(left: unknown, right: unknown): number {
+  return Math.round((Number(left || 0) + Number(right || 0)) * 1000) / 1000;
+}
+
+function subtractCredits(left: unknown, right: unknown): number {
+  return Math.round((Number(left || 0) - Number(right || 0)) * 1000) / 1000;
 }
 
 @Injectable()
@@ -179,8 +189,8 @@ export class CreditWalletService {
     });
     return open.map((row) => ({
       id: row.id,
-      amount: row.amount,
-      remaining: row.remaining,
+      amount: Number(row.amount),
+      remaining: Number(row.remaining),
       expiresAt: row.expiresAt,
       grantType: (row.grantType as CreditGrantType | null) ?? null,
       createdAt: row.createdAt,
@@ -243,9 +253,8 @@ export class CreditWalletService {
    * uma entrada com a mesma usageKey, é no-op (retorna a entrada já gravada, sem duplicar).
    */
   async grant(companyId: number, amount: number, opts: GrantOptions = {}): Promise<{ entryId: string; amount: number; alreadyProcessed: boolean }> {
-    if (!isFiniteNonNegativeInt(amount) || amount <= 0) {
-      throw new Error('grant: amount deve ser inteiro positivo');
-    }
+    const normalizedAmount = normalizeCreditAmount(amount);
+    if (normalizedAmount == null || normalizedAmount <= 0) throw new Error('grant: amount deve ser positivo (até 3 casas decimais)');
     const wallet = await this.ensureWallet(companyId);
     const usageKey = opts.usageKey?.trim() || null;
 
@@ -272,7 +281,7 @@ export class CreditWalletService {
           });
           throw new Error(`grant: usageKey já registrada para outra empresa (usageKey=${usageKey})`);
         }
-        return { entryId: existing.id, amount: existing.amount, alreadyProcessed: true };
+        return { entryId: existing.id, amount: Number(existing.amount), alreadyProcessed: true };
       }
     }
 
@@ -281,8 +290,8 @@ export class CreditWalletService {
         walletId: wallet.id,
         companyId,
         kind: opts.kind || 'grant',
-        amount,
-        remaining: amount,
+        amount: normalizedAmount,
+        remaining: normalizedAmount,
         expiresAt: opts.expiresAt ?? null,
         grantType: opts.grantType ?? null,
         usageKey,
@@ -308,13 +317,13 @@ export class CreditWalletService {
       );
     }
 
-    return { entryId: created.id, amount: created.amount, alreadyProcessed: false };
+    return { entryId: created.id, amount: Number(created.amount), alreadyProcessed: false };
   }
 
   /** Resultado idempotente: relê as linhas `debit` COMMITADAS dessa usageKey e monta o retorno. */
   private async debitResultFromLedger(companyId: number, usageKey: string, requested: number): Promise<DebitResult> {
     const rows = await this.prisma.creditLedgerEntry.findMany({ where: { usageKey, kind: 'debit' } });
-    const debited = rows.reduce((sum, row) => sum + row.amount, 0);
+    const debited = rows.reduce((sum, row) => addCredits(sum, row.amount), 0);
     const balanceAfter = await this.getBalance(companyId);
     return { debited, requested, partial: debited < requested, balanceAfter };
   }
@@ -334,9 +343,8 @@ export class CreditWalletService {
    *   e tratamos a ação como já-processada (relemos as linhas committadas). Nunca dobra o débito.
    */
   async debit(companyId: number, amount: number, opts: DebitOptions): Promise<DebitResult> {
-    if (!isFiniteNonNegativeInt(amount) || amount <= 0) {
-      throw new Error('debit: amount deve ser inteiro positivo');
-    }
+    const normalizedAmount = normalizeCreditAmount(amount);
+    if (normalizedAmount == null || normalizedAmount <= 0) throw new Error('debit: amount deve ser positivo (até 3 casas decimais)');
     const usageKey = String(opts.usageKey || '').trim();
     if (!usageKey) throw new Error('debit: usageKey é obrigatório (idempotência)');
 
@@ -366,7 +374,7 @@ export class CreditWalletService {
         });
         throw new Error(`debit: usageKey já registrada para outra empresa (usageKey=${usageKey})`);
       }
-      return this.debitResultFromLedger(companyId, usageKey, amount);
+      return this.debitResultFromLedger(companyId, usageKey, normalizedAmount);
     }
 
     const wallet = await this.ensureWallet(companyId);
@@ -375,7 +383,7 @@ export class CreditWalletService {
     const { consumed, duplicateDetected } = await this.consumeOpenLots({
       walletId: wallet.id,
       companyId,
-      amount,
+      amount: normalizedAmount,
       usageKey,
       movementKind: 'debit',
       actionKey: opts.actionKey,
@@ -387,14 +395,14 @@ export class CreditWalletService {
     // Se detectamos duplicata em qualquer ponto, a fonte da verdade é o ledger committado
     // (o que ESTA chamada gravou + o que a concorrente gravou com a mesma usageKey).
     if (duplicateDetected) {
-      return this.debitResultFromLedger(companyId, usageKey, amount);
+      return this.debitResultFromLedger(companyId, usageKey, normalizedAmount);
     }
 
     const balanceAfter = await this.getBalance(companyId, now);
     return {
       debited: consumed,
-      requested: amount,
-      partial: consumed < amount,
+      requested: normalizedAmount,
+      partial: consumed < normalizedAmount,
       balanceAfter,
     };
   }
@@ -512,8 +520,8 @@ export class CreditWalletService {
         }
 
         if (committed) {
-          remainingToConsume -= consumedNow;
-          totalConsumed += consumedNow;
+          remainingToConsume = subtractCredits(remainingToConsume, consumedNow);
+          totalConsumed = addCredits(totalConsumed, consumedNow);
           progressedThisPass = true;
         }
       }
@@ -539,7 +547,7 @@ export class CreditWalletService {
     const rows = await this.prisma.creditLedgerEntry.findMany({
       where: { usageKey, kind: 'purchase_reversal' },
     });
-    const reversed = rows.reduce((sum, row) => sum + row.amount, 0);
+    const reversed = rows.reduce((sum, row) => addCredits(sum, row.amount), 0);
     const balanceAfter = await this.getBalance(companyId, now);
     return {
       reversed,
@@ -564,9 +572,8 @@ export class CreditWalletService {
    * compra estornada não volta sozinha.
    */
   async reversePurchase(companyId: number, opts: PurchaseReversalOptions): Promise<PurchaseReversalResult> {
-    if (!isFiniteNonNegativeInt(opts.amount) || opts.amount <= 0) {
-      throw new Error('reversePurchase: amount deve ser inteiro positivo');
-    }
+    const normalizedAmount = normalizeCreditAmount(opts.amount);
+    if (normalizedAmount == null || normalizedAmount <= 0) throw new Error('reversePurchase: amount deve ser positivo');
     const usageKey = String(opts.usageKey || '').trim();
     if (!usageKey) throw new Error('reversePurchase: usageKey é obrigatório (idempotência)');
 
@@ -577,14 +584,14 @@ export class CreditWalletService {
       where: { usageKey, kind: 'purchase_reversal' },
     });
     if (existing.length > 0) {
-      return this.purchaseReversalResultFromLedger(companyId, usageKey, opts.amount, true, now);
+      return this.purchaseReversalResultFromLedger(companyId, usageKey, normalizedAmount, true, now);
     }
 
     const wallet = await this.ensureWallet(companyId);
     const { consumed, duplicateDetected } = await this.consumeOpenLots({
       walletId: wallet.id,
       companyId,
-      amount: opts.amount,
+      amount: normalizedAmount,
       usageKey,
       movementKind: 'purchase_reversal',
       preferredLotId: opts.preferredLotId ?? null,
@@ -594,14 +601,14 @@ export class CreditWalletService {
     });
 
     if (duplicateDetected) {
-      return this.purchaseReversalResultFromLedger(companyId, usageKey, opts.amount, true, now);
+      return this.purchaseReversalResultFromLedger(companyId, usageKey, normalizedAmount, true, now);
     }
 
     const balanceAfter = await this.getBalance(companyId, now);
     return {
       reversed: consumed,
-      requested: opts.amount,
-      shortfall: Math.max(0, opts.amount - consumed),
+      requested: normalizedAmount,
+      shortfall: Math.max(0, subtractCredits(normalizedAmount, consumed)),
       balanceAfter,
       alreadyProcessed: false,
     };
@@ -635,9 +642,8 @@ export class CreditWalletService {
       metadata?: Record<string, unknown> | null;
     },
   ): Promise<{ debtAfter: number; alreadyProcessed: boolean }> {
-    if (!isFiniteNonNegativeInt(opts.amount) || opts.amount <= 0) {
-      throw new Error('registerChargebackDebt: amount deve ser inteiro positivo');
-    }
+    const normalizedAmount = normalizeCreditAmount(opts.amount);
+    if (normalizedAmount == null || normalizedAmount <= 0) throw new Error('registerChargebackDebt: amount deve ser positivo');
     const usageKey = String(opts.usageKey || '').trim();
     if (!usageKey) throw new Error('registerChargebackDebt: usageKey é obrigatório (idempotência)');
     const wallet = await this.ensureWallet(companyId);
@@ -657,7 +663,7 @@ export class CreditWalletService {
             walletId: wallet.id,
             companyId,
             kind: 'chargeback_debt',
-            amount: opts.amount,
+            amount: normalizedAmount,
             remaining: 0,
             actionKey: 'chargeback_debt',
             usageKey,
@@ -669,9 +675,9 @@ export class CreditWalletService {
         });
         const updated = await tx.creditWallet.update({
           where: { companyId },
-          data: { chargebackDebtCredits: { increment: opts.amount } },
+          data: { chargebackDebtCredits: { increment: normalizedAmount } },
         });
-        return Math.max(0, updated.chargebackDebtCredits);
+        return Math.max(0, Number(updated.chargebackDebtCredits));
       });
       return { debtAfter, alreadyProcessed: false };
     } catch (error) {
@@ -749,7 +755,7 @@ export class CreditWalletService {
           });
         }
       }
-      settled += consumed;
+      settled = addCredits(settled, consumed);
       if (consumed <= 0) break;
     }
 
@@ -788,7 +794,7 @@ export class CreditWalletService {
       where: { usageKey: refundKey, kind: 'refund' },
     });
     if (existingRefunds.length > 0) {
-      const refunded = existingRefunds.reduce((sum, row) => sum + row.amount, 0);
+      const refunded = existingRefunds.reduce((sum, row) => addCredits(sum, row.amount), 0);
       const balanceAfter = await this.getBalance(companyId, now);
       return { refunded, balanceAfter, alreadyProcessed: true };
     }
@@ -813,7 +819,7 @@ export class CreditWalletService {
             walletId: wallet.id,
             companyId,
             kind: 'refund',
-            amount: debits.reduce((sum, row) => sum + row.amount, 0),
+            amount: debits.reduce((sum, row) => addCredits(sum, row.amount), 0),
             remaining: 0,
             usageKey: refundKey,
             parentEntryId: debits[0]?.id ?? null,
@@ -864,7 +870,7 @@ export class CreditWalletService {
             });
           }
 
-          sum += debitRow.amount;
+          sum = addCredits(sum, debitRow.amount);
         }
         return sum;
       });
@@ -874,7 +880,7 @@ export class CreditWalletService {
         const rows = await this.prisma.creditLedgerEntry.findMany({
           where: { usageKey: refundKey, kind: 'refund' },
         });
-        const refunded = rows.reduce((sum, row) => sum + row.amount, 0);
+        const refunded = rows.reduce((sum, row) => addCredits(sum, row.amount), 0);
         const balanceAfter = await this.getBalance(companyId, now);
         return { refunded, balanceAfter, alreadyProcessed: true };
       }
@@ -910,7 +916,7 @@ export class CreditWalletService {
     for (const lot of expiredLots) {
       for (let attempt = 0; attempt < MAX_CONCURRENCY_RETRIES; attempt++) {
         const fresh = await this.prisma.creditLedgerEntry.findUnique({ where: { id: lot.id } });
-        if (!fresh || fresh.remaining <= 0) break;
+        if (!fresh || Number(fresh.remaining) <= 0) break;
         if (!fresh.expiresAt || fresh.expiresAt.getTime() >= now.getTime()) break;
 
         let committedAmount = 0;
@@ -936,7 +942,7 @@ export class CreditWalletService {
                 sourceRef: 'expireLots-job',
               },
             });
-            return fresh.remaining;
+            return Number(fresh.remaining);
           });
         } catch (error) {
           if (error instanceof ConcurrencyRetrySignal) continue;
@@ -944,7 +950,7 @@ export class CreditWalletService {
         }
 
         expiredEntries += 1;
-        expiredCredits += committedAmount;
+        expiredCredits = addCredits(expiredCredits, committedAmount);
         break;
       }
     }

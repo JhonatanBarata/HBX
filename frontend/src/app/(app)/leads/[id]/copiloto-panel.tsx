@@ -9,12 +9,11 @@
 //    (via onDraft); quem aperta enviar é o humano.
 //  - 1 clique = 1 chamada; sem loop, sem polling; falha = "Copiloto indisponível"
 //    e a tela segue 100% funcional (a IA é acessório).
-//  - Coleta das últimas mensagens usa as MESMAS rotas de LEITURA do Atendimento
-//    (/inbox/conversations/start + /messages) — zero envio, zero motor novo. Envia
-//    o contexto pronto ao backend, que só gera texto.
+//  - No cockpit de Vendas, coleta as últimas mensagens somente pela fachada GET
+//    canônica do lead. Sem conversa = histórico vazio; nunca cria/muta conversa.
 //  - Desligar a flag (HBX_COPILOTO_ENABLED) → o pai nem monta este painel.
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -36,7 +35,6 @@ type RascunhoResp = { ok?: boolean; rascunho?: string; error?: string };
 type ResumoResp = { ok?: boolean; bullets?: string[]; error?: string };
 type SugestaoResp = { ok?: boolean; titulo?: string; prazoDias?: number; tipo?: string; motivo?: string; error?: string };
 
-type ConvoStart = { id?: number | string };
 type ConvoMsg = { direction?: string; content?: string | null };
 type ConvoMessagesResponse = { messages?: ConvoMsg[] };
 
@@ -51,14 +49,12 @@ const TIPO_LABEL: Record<string, string> = {
 };
 
 export function CopilotoPanel({
-  phone,
-  name,
+  leadId,
   ficha,
   onDraft,
   onSaveNote,
 }: {
-  phone: string | null;
-  name?: string | null;
+  leadId: string;
   ficha: CopilotoFicha;
   // Preenche o campo de digitação do WhatsApp (NUNCA envia).
   onDraft: (text: string) => void;
@@ -72,27 +68,12 @@ export function CopilotoPanel({
   const [sugestao, setSugestao] = useState<{ titulo: string; prazoDias: number; tipo: string; motivo: string } | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
-  const convoIdRef = useRef<number | null>(null);
-
-  // Coleta best-effort das últimas mensagens (rotas de LEITURA do Atendimento).
-  // Falha/telefone ausente → [] (a IA rascunha/sugere só com a ficha). Zero envio.
+  // Coleta best-effort das últimas mensagens pela leitura pura do Vendas.
+  // Falha/sem conversa → [] (a IA rascunha/sugere só com a ficha). Zero envio.
   async function gatherMensagens(): Promise<CopilotoMensagem[]> {
-    const digits = (phone || "").trim();
-    if (!digits) return [];
     try {
-      let convoId = convoIdRef.current;
-      if (convoId == null) {
-        const started = await apiFetch<ConvoStart>("/inbox/conversations/start", {
-          method: "POST",
-          body: JSON.stringify({ phone: digits, ...(name ? { name: name.trim() } : {}) }),
-        });
-        const id = started?.id != null ? Number(started.id) : NaN;
-        if (!id || Number.isNaN(id)) return [];
-        convoId = id;
-        convoIdRef.current = id;
-      }
       const res = await apiFetch<ConvoMessagesResponse>(
-        `/inbox/conversations/${encodeURIComponent(convoId)}/messages?limit=20`,
+        `/vendas/lead/${encodeURIComponent(leadId)}/conversation/messages?limit=20`,
       );
       const msgs = Array.isArray(res?.messages) ? res.messages : [];
       return msgs

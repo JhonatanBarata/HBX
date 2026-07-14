@@ -98,6 +98,8 @@ async function main() {
     failedOutbox24h,
     recentJobs,
     recentOutbox,
+    canonicalEnrollments,
+    canonicalStepGroups,
   ] = await Promise.all([
     campaign
       ? prisma.vendasAutomationJob.groupBy({
@@ -179,10 +181,42 @@ async function main() {
         createdAt: true,
       },
     }),
+    prisma.automationEnrollment.findMany({
+      where: {
+        companyId,
+        definitionKind: 'prospecting_campaign',
+        activeCommercialSlot: 'commercial',
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        leadId: true,
+        legacyExecutionId: true,
+        status: true,
+        currentStep: true,
+        nextStepAt: true,
+        stopReason: true,
+        updatedAt: true,
+      },
+    }).catch(() => []),
+    prisma.automationStepRun.groupBy({
+      by: ['status'],
+      where: {
+        companyId,
+        enrollment: { definitionKind: 'prospecting_campaign' },
+      },
+      _count: { _all: true },
+    }).catch(() => []),
   ]);
 
   const jobs = Object.fromEntries(jobGroups.map((row) => [row.status, row._count._all]));
   const outbox = Object.fromEntries(commercialOutboxGroups.map((row) => [row.status, row._count._all]));
+  const canonicalSteps = Object.fromEntries(canonicalStepGroups.map((row) => [row.status, row._count._all]));
+  const canonicalSchemaAvailable = await prisma.automationEnrollment
+    .count({ where: { companyId } })
+    .then(() => true)
+    .catch(() => false);
   const masterSwitchOff = Boolean(masterConfig?.parsed?.off);
   const atendimentoGlobalOff = atendimentoConfig
     ? atendimentoConfig.parsed?.routingRules?.globalBotEnabled !== true
@@ -208,7 +242,8 @@ async function main() {
   if (campaign && checklistMissing.length) blockers.push('triage_config_incomplete');
   if (campaign && Number(jobs.scheduled || 0) === 0) blockers.push('no_scheduled_jobs');
   if (campaign && Number(jobs.scheduled || 0) > 0 && dueScheduledJobs === 0) blockers.push('no_due_scheduled_jobs');
-  if (atendimentoGlobalOff) blockers.push('atendimento_bot_global_off');
+  // Atendimento e prospecção têm gates independentes. O estado global do bot de
+  // atendimento é informativo e não pode mais bloquear o runner comercial.
   if (!company.prospectingBotLiveAt) blockers.push('prospecting_not_live');
   if (campaign && !inWorkingHours(campaign, now)) blockers.push('outside_working_hours');
   if (campaign && sentToday >= Math.max(0, Number(campaign.dailyLimit || 0))) {
@@ -271,11 +306,24 @@ async function main() {
         failed: Number(outbox.FAILED || 0),
         failedLast24h: failedOutbox24h,
       },
+      canonical: {
+        migrationAvailable: canonicalSchemaAvailable,
+        activeEnrollments: canonicalEnrollments.length,
+        stepCounts: canonicalSteps,
+        enrollments: canonicalEnrollments,
+      },
     },
     recentOutbox,
     gates: {
       masterSwitchOff,
-      atendimentoGlobalOff,
+      prospecting: {
+        live: Boolean(company.prospectingBotLiveAt),
+        triageConfirmed: Boolean(campaign?.triagemConfirmedAt),
+      },
+      atendimento: {
+        globalOff: atendimentoGlobalOff,
+        independentFromProspecting: true,
+      },
     },
     blockers,
     firstBlocker: blockers[0] || null,

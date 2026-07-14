@@ -98,8 +98,8 @@ export type AiSaneamentoInput = {
   state?: string | null;
   segmentHint?: string | null;
   /**
-   * CRÉDITO UNIVERSAL (PR11072026): empresa dona da entrega, quando existir — vira medição
-   * `ai_batch` (track, nunca cobra). SÓ o disparo pós-entrega (`saneiaComNota` via
+   * Empresa dona da entrega, quando existir, para autorizar a ação `ai_batch`.
+   * Só o disparo pós-entrega (`saneiaComNota` via
    * RadarPostDeliveryAiSaneamentoService) tem tenant real (`context.companyId` da entrega);
    * o worker manual/batch do owner (`saneia` via `aiSaneamentoForMaster`) varre TODO o pool
    * sem dono — nunca inventa, fica undefined.

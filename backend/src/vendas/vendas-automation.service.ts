@@ -17,6 +17,7 @@ import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
 import { StartVendasProspectingDto, UpdateVendasProspectingConfigDto } from './dto/vendas.dto';
 import { resolveBotActivation } from '../modules/bot-activation-state';
+import { BotActivationService } from '../bot/bot-activation.service';
 import {
   SAFE_FIRST_CONTACT_TEMPLATE,
   SAFE_FIRST_CONTACT_VARIANTS,
@@ -535,6 +536,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly inboxRealtime: InboxRealtimeService,
     private readonly commercialPlansService: CommercialPlansService,
     private readonly intentEngine: IntentEngineService,
+    private readonly botActivation?: BotActivationService,
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
   }
@@ -1872,26 +1874,26 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   async patchProspectingConfigForUser(user: any, dto: UpdateVendasProspectingConfigDto) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
+    this.assertCanManageProspecting(user);
+    await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
     const searchSignature = this.buildSearchSignature(data);
     const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
-    const savedStatusText = current?.status === 'running'
-      ? isStaleProspectingRadarConfigText(current.lastStatusText)
-        ? 'Configuração salva. Preparando fila com cards do Vendas que têm WhatsApp.'
-        : current.lastStatusText || 'Configuração salva. Preparando fila com cards do Vendas que têm WhatsApp.'
-      : 'Configuração salva. Pronta para iniciar.';
+    const savedStatusText = 'Configuração salva. Revise a triagem e inicie novamente.';
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
           where: { id: current.id },
           data: {
             ...data,
             searchSignature,
-            status: current.status === 'running' ? 'running' : 'paused',
+            status: 'paused',
             createdByUserId: current.createdByUserId || context.userId,
             lastStatusText: savedStatusText,
             lastError: null,
+            triagemConfirmedAt: null,
+            triagemConfirmedByUserId: null,
           },
         })
       : await this.prisma.vendasAutomationCampaign.create({
@@ -1907,26 +1909,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (searchChanged) {
       await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
     }
-    if (campaign.status === 'running') {
-      void this.primeExistingProspectingQueue(campaign.id).catch((error) => {
-        const errorMessage = String(error?.message || error);
-        this.logger.warn(`Falha ao preparar fila apos salvar prospeccao campaign=${campaign.id}: ${errorMessage}`);
-        void this.markCampaignStage(
-          campaign.id,
-          context.companyId,
-          'aguardando',
-          'Falha ao preparar a fila. Campanha segue ativa e tentará novamente pelos cards do Vendas.',
-          {
-            error: errorMessage,
-            type: 'config_queue_failed',
-          },
-        ).catch(() => null);
-      });
-    }
+    await this.commercialContactControl.setAutomationDefinitionStatus({
+      companyId: context.companyId,
+      definitionKind: 'prospecting_campaign',
+      definitionId: campaign.id,
+      status: searchChanged ? 'canceled' : 'paused',
+      reason: searchChanged ? 'campaign_search_changed' : 'configuration_changed',
+    });
     this.publishAutomationEvent({
       companyId: context.companyId,
       campaignId: campaign.id,
-      status: campaign.status === 'paused' ? 'pausado' : 'aguardando',
+      status: 'pausado',
       text: campaign.lastStatusText || 'Configuração salva.',
       type: 'config_updated',
     });
@@ -2097,6 +2090,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
+    // O clique em "Iniciar" e o ato explicito de armar a campanha. Valida a
+    // configuracao efetiva (campanha anterior + DTO normalizado) antes de gravar
+    // `running`, e persiste o carimbo que o worker exige para consumir a fila.
+    this.assertCanArmProspecting(user, { ...(current || {}), ...data });
+    // Fecha primeiro a chave física. Assim configuração/fila podem ser preparadas
+    // sem uma janela em que um worker consuma contatos antigos.
+    await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
     const searchSignature = this.buildSearchSignature(data);
     const searchLabel = this.formatProspectingSearchLabel(data);
     const now = new Date();
@@ -2115,6 +2115,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             createdByUserId: current.createdByUserId || context.userId,
             lastStatusText: initialStatusText,
             lastError: null,
+            triagemConfirmedAt: now,
+            triagemConfirmedByUserId: context.userId,
           },
         })
       : await this.prisma.vendasAutomationCampaign.create({
@@ -2125,10 +2127,44 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             createdByUserId: context.userId,
             status: 'running',
             lastStatusText: initialStatusText,
+            triagemConfirmedAt: now,
+            triagemConfirmedByUserId: context.userId,
           },
         });
-    if (searchChanged) {
-      await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
+    try {
+      if (searchChanged) {
+        await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
+      }
+      if (startsInsideWorkingHours) {
+        await this.scheduleJobsForCampaign(campaign.id);
+      }
+      await this.botActivation?.putActivation(user, { type: 'prospeccao', live: true });
+      await this.commercialContactControl.setAutomationDefinitionStatus({
+        companyId: context.companyId,
+        definitionKind: 'prospecting_campaign',
+        definitionId: campaign.id,
+        status: 'active',
+        reason: 'campaign_started',
+      });
+    } catch (error) {
+      await this.prisma.vendasAutomationCampaign.update({
+        where: { id: campaign.id },
+        data: {
+          status: 'paused',
+          triagemConfirmedAt: null,
+          triagemConfirmedByUserId: null,
+          lastStatusText: 'Campanha não iniciada: pré-voo do WhatsApp reprovado.',
+        },
+      });
+      await this.commercialContactControl.setAutomationDefinitionStatus({
+        companyId: context.companyId,
+        definitionKind: 'prospecting_campaign',
+        definitionId: campaign.id,
+        status: 'paused',
+        reason: 'campaign_start_failed',
+      }).catch(() => null);
+      await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false }).catch(() => null);
+      throw error;
     }
 
     this.publishAutomationEvent({
@@ -2139,28 +2175,26 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       type: 'campaign_started',
     });
 
-    if (startsInsideWorkingHours) {
-      void this.primeExistingProspectingQueue(campaign.id).catch((error) => {
-        const errorMessage = String(error?.message || error);
-        this.logger.warn(`Falha ao preparar fila inicial de prospeccao campaign=${campaign.id}: ${errorMessage}`);
-        void this.markCampaignStage(
-          campaign.id,
-          context.companyId,
-          'aguardando',
-          'Falha ao preparar a fila inicial. Campanha segue ativa e tentará novamente pelos cards do Vendas.',
-          {
-            error: errorMessage,
-            type: 'initial_queue_failed',
-          },
-        ).catch(() => null);
-      });
-    }
+    if (startsInsideWorkingHours) void this.runWorkerCycle().catch(() => null);
 
     return this.buildLiveStatus(campaign);
   }
 
   async pauseProspectingForUser(user: any) {
-    return this.setCampaignStatusForUser(user, 'paused', 'Campanha pausada.', 'campaign_paused');
+    const status = await this.setCampaignStatusForUser(user, 'paused', 'Campanha pausada.', 'campaign_paused');
+    await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
+    const context = this.resolveUserContext(user);
+    const campaign = await this.latestCampaign(context.companyId);
+    if (campaign) {
+      await this.commercialContactControl.setAutomationDefinitionStatus({
+        companyId: context.companyId,
+        definitionKind: 'prospecting_campaign',
+        definitionId: campaign.id,
+        status: 'paused',
+        reason: 'campaign_paused',
+      });
+    }
+    return status;
   }
 
   async resumeProspectingForUser(user: any) {
@@ -2168,7 +2202,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
-    const nextScheduledAt = this.moveToWorkingWindow(new Date(), campaign);
+    this.assertCanArmProspecting(user, campaign);
+    const now = new Date();
+    const nextScheduledAt = this.moveToWorkingWindow(now, campaign);
     const updated = await this.prisma.$transaction(async (tx) => {
       const nextJob = await tx.vendasAutomationJob.findFirst({
         where: { campaignId: campaign.id, status: { in: ['pending', 'scheduled'] } },
@@ -2187,9 +2223,39 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           status: 'running',
           lastStatusText: this.formatNextScheduledText(nextScheduledAt),
           lastError: null,
+          triagemConfirmedAt: now,
+          triagemConfirmedByUserId: context.userId,
         },
       });
     });
+    try {
+      await this.botActivation?.putActivation(user, { type: 'prospeccao', live: true });
+      await this.commercialContactControl.setAutomationDefinitionStatus({
+        companyId: context.companyId,
+        definitionKind: 'prospecting_campaign',
+        definitionId: campaign.id,
+        status: 'active',
+        reason: 'campaign_resumed',
+      });
+    } catch (error) {
+      await this.prisma.vendasAutomationCampaign.update({
+        where: { id: campaign.id },
+        data: {
+          status: 'paused',
+          triagemConfirmedAt: null,
+          triagemConfirmedByUserId: null,
+          lastStatusText: 'Campanha não retomada: pré-voo do WhatsApp reprovado.',
+        },
+      });
+      await this.commercialContactControl.setAutomationDefinitionStatus({
+        companyId: context.companyId,
+        definitionKind: 'prospecting_campaign',
+        definitionId: campaign.id,
+        status: 'paused',
+        reason: 'campaign_resume_failed',
+      }).catch(() => null);
+      throw error;
+    }
     this.publishAutomationEvent({
       companyId: context.companyId,
       campaignId: updated.id,
@@ -2216,6 +2282,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         where: { id: campaign.id },
         data: { status: 'canceled', lastStatusText: 'Campanha cancelada.', lastError: null },
       });
+    });
+    await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
+    await this.commercialContactControl.setAutomationDefinitionStatus({
+      companyId: context.companyId,
+      definitionKind: 'prospecting_campaign',
+      definitionId: updated.id,
+      status: 'canceled',
+      reason: 'campaign_canceled',
     });
     this.publishAutomationEvent({
       companyId: context.companyId,
@@ -2258,6 +2332,22 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  private assertCanArmProspecting(user: any, campaign: any) {
+    this.assertCanManageProspecting(user);
+    const faltando = this.computeTriagemChecklist(campaign).filter((i) => !i.ok).map((i) => i.label);
+    if (faltando.length) {
+      throw new BadRequestException(`Triagem incompleta: configure ${faltando.join(', ')} antes de ligar o robô.`);
+    }
+  }
+
+  private assertCanManageProspecting(user: any) {
+    const role = String(user?.role || '').trim().toUpperCase();
+    // USERMASTER (dono do tenant) = admin (superset), igual a ADMIN.
+    if (!user?.isSystemMaster && role !== 'ADMIN' && role !== 'USERMASTER') {
+      throw new ForbiddenException('Só o dono/gerente pode configurar ou ligar a prospecção automática.');
+    }
+  }
+
   private async setCampaignStatusForUser(user: any, status: 'running' | 'paused', text: string, type: string) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
@@ -2267,15 +2357,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // Só dono/gerente (ADMIN) ou master arma; vendedor (USER) NUNCA. E só com a
     // config mínima pronta — senão o robô fala com cliente sem estar configurado.
     if (status === 'running') {
-      const role = String(user?.role || '').trim().toUpperCase();
-      // USERMASTER (dono do tenant) = admin (superset), igual a ADMIN.
-      if (!user?.isSystemMaster && role !== 'ADMIN' && role !== 'USERMASTER') {
-        throw new ForbiddenException('Só o dono/gerente pode ligar a prospecção automática.');
-      }
-      const faltando = this.computeTriagemChecklist(campaign).filter((i) => !i.ok).map((i) => i.label);
-      if (faltando.length) {
-        throw new BadRequestException(`Triagem incompleta: configure ${faltando.join(', ')} antes de ligar o robô.`);
-      }
+      this.assertCanArmProspecting(user, campaign);
     }
     const updated = await this.prisma.vendasAutomationCampaign.update({
       where: { id: campaign.id },
@@ -2312,18 +2394,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       companyId: campaign.companyId,
       company: await this.prisma.company.findUnique({ where: { id: campaign.companyId } }),
     };
-  }
-
-  private async isHBotActiveForCampaign(campaign: any) {
-    if (typeof (this.inboxService as any)?.getBotConfig !== 'function') return true;
-    try {
-      const runtimeUser = await this.buildAutomationUser(campaign);
-      const config = await this.inboxService.getBotConfig(runtimeUser);
-      return config?.routingRules?.globalBotEnabled === true;
-    } catch (error: any) {
-      this.logger.warn(`Falha ao validar HBot ativo campaign=${campaign.id}: ${String(error?.message || error)}`);
-      return false;
-    }
   }
 
   /**
@@ -3498,6 +3568,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return true;
     });
     if (!archived) return false;
+    await this.commercialContactControl.finishAutomationEnrollment({
+      companyId: job.companyId,
+      legacySource: 'vendas_automation_job',
+      legacyExecutionId: job.id,
+      status: 'completed',
+      reason: 'no_response_archived',
+    });
     if (job.conversationId) {
       const conversation = await this.prisma.companyConversation.findFirst({
         where: { id: Number(job.conversationId), companyId: job.companyId },
@@ -3753,6 +3830,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `[vendas-automation] skip lead campaignId=${campaignId} jobId=${jobId} leadId=${leadId || '-'} reason=${classification} doesNotConsumeDailyLimit=true doesNotConsumeCooldown=true`,
       );
+      await this.commercialContactControl.finishAutomationEnrollment({
+        companyId: Number(campaign.companyId),
+        legacySource: 'vendas_automation_job',
+        legacyExecutionId: jobId,
+        status: 'completed',
+        reason: classification,
+      });
       await this.replenishCampaignAfterSkip(campaign, errorMessage);
       return { outcome: 'skipped', campaignId, leadId, jobId, classification, shouldContinue: true };
     };
@@ -3766,13 +3850,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       nextAllowedSendAt,
       shouldContinue: false,
     });
-
-    if (!(await this.isHBotActiveForCampaign(campaign))) {
-      await this.markCampaignStage(campaign.id, campaign.companyId, 'pausado', 'HBot desligado. Ative o bot para enviar novos contatos.', {
-        type: 'hbot_inactive',
-      });
-      return deferredResult('hbot_inactive', null);
-    }
 
     // Gate de prospecção ao vivo (kill-switch): chavinha desligada = nenhum disparo sai.
     // Pausa a fila na hora — jobs ficam agendados mas não são processados.
@@ -4229,6 +4306,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         data: { status: 'skipped', archivedAt: now, classification: 'repeated_first_contact_review', errorMessage },
       });
       await this.pauseCampaignForSafety(campaign, errorMessage, 'repeated_first_contact_safety_pause');
+      await this.commercialContactControl.finishAutomationEnrollment({
+        companyId: campaign.companyId,
+        legacySource: 'vendas_automation_job',
+        legacyExecutionId: job.id,
+        status: 'completed',
+        reason: 'repeated_first_contact_review',
+      });
       return deferredResult('repeated_first_contact_review');
     }
 
@@ -4241,6 +4325,34 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (claim.count !== 1) {
       this.logger.log(`[vendas-automation] job ja reivindicado por outro ciclo, pulando jobId=${jobId}`);
       return { outcome: 'skipped', campaignId, leadId, jobId, classification: 'already_claimed', shouldContinue: true };
+    }
+    const automationStep = await this.commercialContactControl.claimVendasJobStep({
+      companyId: campaign.companyId,
+      leadId,
+      campaignId: campaign.id,
+      jobId,
+      scheduledAt: job.scheduledAt || null,
+    });
+    if (automationStep.supported && !automationStep.claimed) {
+      if (automationStep.alreadyExecuted) {
+        await this.prisma.vendasAutomationJob.updateMany({
+          where: { id: job.id, status: 'sending' },
+          data: { status: 'sent', classification: 'canonical_step_already_queued', errorMessage: null },
+        });
+      } else {
+        await this.prisma.vendasAutomationJob.updateMany({
+          where: { id: job.id, status: 'sending' },
+          data: { status: 'scheduled', classification: 'canonical_step_claim_conflict' },
+        });
+      }
+      return {
+        outcome: 'skipped',
+        campaignId,
+        leadId,
+        jobId,
+        classification: automationStep.alreadyExecuted ? 'canonical_step_already_queued' : 'already_claimed',
+        shouldContinue: true,
+      };
     }
     await this.markCampaignStage(campaign.id, campaign.companyId, 'enviando', `Enviando para ${lead.name || contact}.`, {
       type: 'send_started',
@@ -4255,6 +4367,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       leadId,
       jobId,
     }))) {
+      await this.commercialContactControl.completeAutomationStep({
+        companyId: campaign.companyId,
+        stepRunId: automationStep.stepRunId,
+        status: 'canceled',
+        errorCode: COMMERCIAL_INBOUND_STOP_REASON,
+        errorMessage: COMMERCIAL_INBOUND_STOP_REASON,
+      });
       this.logger.log(
         `[vendas-automation] envio invalidado antes da fila campaignId=${campaignId} jobId=${jobId} leadId=${leadId} reason=${COMMERCIAL_INBOUND_STOP_REASON}`,
       );
@@ -4282,7 +4401,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           leadId: lead.id,
           firstContact: true,
           preMessage: preMessageEnabled,
+          automationStepRunId: automationStep.stepRunId,
         },
+        automationStepRunId: automationStep.stepRunId || undefined,
         flowState: {
           botActive: true,
           humanAssigned: false,
@@ -4360,6 +4481,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return { outcome: 'sent_success', campaignId, leadId, jobId, sentAt };
     } catch (error: any) {
       const errorMessage = String(error?.message || error);
+      await this.commercialContactControl.completeAutomationStep({
+        companyId: campaign.companyId,
+        stepRunId: automationStep.stepRunId,
+        status: 'failed',
+        errorCode: 'outbox_enqueue_failed',
+        errorMessage,
+      });
       await this.prisma.vendasAutomationJob.updateMany({
         where: { id: job.id, status: 'sending' },
         data: { status: 'failed', archivedAt: new Date(), errorMessage },

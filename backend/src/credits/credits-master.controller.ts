@@ -96,13 +96,11 @@ export class CreditsMasterController {
     return { ok: true, pack };
   }
 
-  // PR11072026 W1 — catálogo de AÇÕES de crédito (base em código + overlay editável no
-  // master, mesmo padrão dos packs acima). `lead_delivery` é SÓ LEITURA (o service rejeita
-  // qualquer PUT/DELETE de override nela — cobrança fixa no caminho assert do lead).
+  // Catálogo editável: todas as ações aceitam apenas Grátis ou Débito.
   @Get('action-catalog')
   async listActionCatalog() {
     this.assertEnabled();
-    return { actions: this.actionConfig.listForMaster() };
+    return { actions: await this.actionConfig.listForMaster() };
   }
 
   @Put('action-catalog/:actionKey')

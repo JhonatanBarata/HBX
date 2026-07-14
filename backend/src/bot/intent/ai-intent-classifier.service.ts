@@ -154,7 +154,7 @@ export class AiIntentClassifierService {
     try {
       // GOVERNOR-IA: faixa realtime (prioridade absoluta). Recusa cedo (fila cheia/espera condenada)
       // → cai no MESMO fallback keyword de sempre (return null aqui = caller usa keyword).
-      // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
+      // Contexto canônico da ação de crédito `ai_realtime`.
       const gw = await AiGatewayService.run(
         'realtime',
         timeoutMs,
@@ -230,7 +230,7 @@ export class AiIntentClassifierService {
     neutralKeywords: string[];
     callbackKeywords?: string[];
     humanHandoffKeywords?: string[];
-    /** CRÉDITO UNIVERSAL (PR10072026): empresa dona da conversa — vira medição `ai_realtime`. */
+    /** Empresa dona da conversa para autorização da ação `ai_realtime`. */
     companyId?: number | null;
   }): Promise<{
     intent: ProspectingIntentClassification;

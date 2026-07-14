@@ -276,10 +276,16 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       recuperacao: {
         hbxRecoveryCustomers: await countSafe(() => this.prisma.hbxRecoveryCustomer.count({ where: { companyId: id } })),
         hbxRecoveryPayments: await countSafe(() => this.prisma.hbxRecoveryPayment.count({ where: { companyId: id } })),
+        recoveryDebtItems: await countSafe(() => this.prisma.recoveryDebtItem.count({ where: { companyId: id } })),
+        recoveryDebtAllocations: await countSafe(() => this.prisma.recoveryDebtAllocation.count({ where: { companyId: id } })),
+        recoveryAutomationStepRuns: await countSafe(() => this.prisma.recoveryAutomationStepRun.count({ where: { companyId: id } })),
         debtCases: await countSafe(() => this.prisma.debtCase.count({ where: { companyId: id } })),
       },
       vendas: {
         vendasLeads: await countSafe(() => this.prisma.vendasLead.count({ where: { companyId: id } })),
+        automationEnrollments: await countSafe(() => this.prisma.automationEnrollment.count({ where: { companyId: id } })),
+        automationStepRuns: await countSafe(() => this.prisma.automationStepRun.count({ where: { companyId: id } })),
+        emailOutboundMessages: await countSafe(() => this.prisma.emailOutboundMessage.count({ where: { companyId: id } })),
       },
       radar: {
         webscrapingSearchHistories: await countSafe(() => this.prisma.webscrapingSearchHistory.count({ where: { companyId: id } })),

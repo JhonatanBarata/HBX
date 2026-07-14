@@ -1468,6 +1468,7 @@ export class VendasService {
     planAccess?: VendasPlanAccess | null,
     accessContext?: VendasAccessContext | null,
     cockpitSnapshot?: any | null,
+    automationEnrollment?: any | null,
   ) {
     const status = this.normalizeStatus(row?.status);
     const block = this.classifyLeadBlock(row);
@@ -1555,6 +1556,21 @@ export class VendasService {
       lastMessagePreview: null,
       failureReason: null,
     };
+    const automation = automationEnrollment
+      ? {
+          enrollmentId: String(automationEnrollment.id),
+          kind: String(automationEnrollment.definitionKind || ''),
+          definitionId: String(automationEnrollment.definitionId || ''),
+          status: String(automationEnrollment.status || 'active'),
+          currentStep: Math.max(0, Math.trunc(Number(automationEnrollment.currentStep || 0))),
+          nextStepAt: automationEnrollment.nextStepAt instanceof Date
+            ? automationEnrollment.nextStepAt.toISOString()
+            : null,
+          label: String(automationEnrollment.definitionKind || '') === 'cadence'
+            ? 'Cadencia ativa'
+            : 'Bot ativo',
+        }
+      : null;
     return {
       id: String(row?.id || ''),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
@@ -1662,6 +1678,7 @@ export class VendasService {
       leadIntelligence: this.applyLeadIntelligenceCapabilities(leadIntelligence, access, row),
       conversation: canonicalConversation,
       engagement: canonicalEngagement,
+      automation,
       conversationId: canonicalConversation?.id ? String(canonicalConversation.id) : null,
       hasInboundReply: Boolean(canonicalEngagement.hasInboundReply),
       lastMessageAt: canonicalEngagement.lastMessageAt || null,
@@ -8044,6 +8061,56 @@ export class VendasService {
     const cockpitStates = leadIds.length
       ? await this.cockpitProjector.getCockpitStatesForLeads(context.companyId, leadIds)
       : new Map<string, any>();
+    // Fase 3: projeção canônica da única automação comercial ativa por lead.
+    // O catch mantém o board disponível durante rollout em que o código chega
+    // antes da migration; nenhum runner usa essa projeção para decidir envios.
+    const activeEnrollments = leadIds.length && typeof (this.prisma as any).automationEnrollment?.findMany === 'function'
+      ? await this.prisma.automationEnrollment.findMany({
+          where: {
+            companyId: context.companyId,
+            leadId: { in: leadIds },
+            activeCommercialSlot: 'commercial',
+            status: { in: ['active', 'paused'] },
+          },
+          select: {
+            id: true,
+            leadId: true,
+            definitionKind: true,
+            definitionId: true,
+            status: true,
+            currentStep: true,
+            nextStepAt: true,
+          },
+        }).catch(() => [])
+      : [];
+    const activeEnrollmentByLeadId = new Map(
+      activeEnrollments.map((enrollment) => [String(enrollment.leadId), enrollment]),
+    );
+
+    const [assistantConfig, assistantCompany] = await Promise.all([
+      typeof (this.prisma as any).assistenteConfig?.findUnique === 'function'
+        ? this.prisma.assistenteConfig.findUnique({
+            where: { companyId: context.companyId },
+            select: { nome: true, published: true, updatedAt: true },
+          }).catch(() => null)
+        : Promise.resolve(null),
+      this.prisma.company.findUnique({
+        where: { id: context.companyId },
+        select: { botArmedAt: true },
+      }).catch(() => null),
+    ]);
+    const assistantRuntimeEnabled = ['true', '1', 'yes', 'on'].includes(
+      String(process.env.HBX_ASSISTENTE_PUBLISH_ENABLED || '').trim().toLowerCase(),
+    );
+    const assistant = {
+      configured: Boolean(assistantConfig),
+      publicName: assistantConfig?.nome ? String(assistantConfig.nome) : null,
+      published: Boolean(assistantConfig?.published),
+      runtimeEnabled: assistantRuntimeEnabled,
+      channelArmed: Boolean(assistantCompany?.botArmedAt),
+      active: Boolean(assistantRuntimeEnabled && assistantConfig?.published && assistantCompany?.botArmedAt),
+      updatedAt: assistantConfig?.updatedAt instanceof Date ? assistantConfig.updatedAt.toISOString() : null,
+    };
 
     const blocks = {
       today: [] as any[],
@@ -8065,6 +8132,7 @@ export class VendasService {
         planAccess,
         context.access,
         cockpitStates.get(String(row.id)) || null,
+        activeEnrollmentByLeadId.get(String(row.id)) || null,
       );
       blocks[payload.block].push(payload);
     }
@@ -8116,6 +8184,7 @@ export class VendasService {
       usage,
       radarSupply,
       team,
+      assistant,
       blocks,
     };
   }

@@ -431,133 +431,6 @@ test('seller active card quota pauses new cards when governance is paused', asyn
   assert.equal(snapshot.code, 'SELLER_QUOTA_PAUSED');
 });
 
-// ─── CRÉDITOS S2 — cobertura do shadow-debit no DONO da baixa ───────────────────────────────────
-// Prova que o shadow dispara pelos DOIS métodos que consomem cota (recordCardImport +
-// recordCardCommercialUseOnce), cobrindo vendas E radar por construção. O fake creditsService
-// registra as chamadas ignorando a flag real (HBX_CREDITS_SHADOW) — o no-op-por-flag já é testado
-// em credits.service.test.ts. Aqui o alvo é: o hook FIRA no ponto certo, com a chave certa, 1×.
-
-function buildShadowPrismaMock(existingLogs: Array<Record<string, any>> = []) {
-  const logs = [...existingLogs];
-  return {
-    prisma: {
-      company: {
-        // getCompanyPlan: sem plano especial -> cai no padrão; timezone default.
-        findUnique: async () => ({ selectedPlanKey: 'hbx_padrao', timezone: 'America/Sao_Paulo', companyKind: 'tenant' }),
-      },
-      // isSystemMaster=true faz getUsageSnapshot devolver snapshot ilimitado ->
-      // assertCanImportCard nunca bloqueia (o teste é de COBERTURA do shadow, não de cota).
-      user: {
-        findUnique: async () => ({ isSystemMaster: true, role: 'USER' }),
-        count: async () => 1,
-      },
-      userTeamPolicy: { findUnique: async () => null },
-      authSession: { findFirst: async () => null },
-      $queryRawUnsafe: async () => [],
-      companyCommercialUsageLog: {
-        create: async ({ data }: any) => {
-          logs.push(data);
-          return { id: `log-${logs.length}`, ...data };
-        },
-        count: async () => 0,
-        // recordCardCommercialUseOnce dedup: acha um log anterior cujo metadataJson contém a
-        // substring buscada (`"usageKey":"..."`). Com logs vazio (mock fresco) -> null -> segue.
-        findFirst: async ({ where }: any) => {
-          const needle = String(where?.metadataJson?.contains || '');
-          if (!needle) return null;
-          const hit = logs.find((l) => String(l.metadataJson || '').includes(needle));
-          return hit ? { id: 'existing' } : null;
-        },
-      },
-    },
-    logs,
-  };
-}
-
-function buildShadowCredits() {
-  const calls: Array<{ companyId: number; userId: number | null; leadId: string; actionKey: string }> = [];
-  return {
-    calls,
-    service: {
-      recordShadowDebit: async (
-        companyId: number,
-        userId: number | null,
-        input: { leadId: string; actionKey: string },
-      ) => {
-        calls.push({ companyId, userId, leadId: String(input.leadId), actionKey: input.actionKey });
-      },
-      // CRÉDITOS R1 — o fake real (CreditsService) sempre expõe isto; aqui simula gate OFF
-      // (no-op transparente), que é o comportamento default enquanto HBX_CREDITS_ENFORCE não
-      // está ligada. Provado à parte em credits.service.test.ts.
-      assertAndDebitLeadDelivery: async () => ({ applied: false, debited: 0 }),
-      refundLeadDelivery: async () => ({ refunded: 0 }),
-      // FRONTEIRA 07/07: default não-conta-de-crédito (empresa paga) — só relevante quando a
-      // cota de plano estoura; os testes de shadow usam master (snapshot ilimitado) e nunca chegam lá.
-      isCreditsAccountCompany: async () => false,
-    } as any,
-  };
-}
-
-test('shadow-debit: recordCardImport (radar_card_claimed) dispara 1 shadow com leadId canônico', async () => {
-  const { prisma } = buildShadowPrismaMock();
-  const credits = buildShadowCredits();
-  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
-
-  await service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'abc-123', status: 'delivered' });
-
-  assert.equal(credits.calls.length, 1);
-  assert.equal(credits.calls[0].companyId, 1);
-  assert.equal(credits.calls[0].userId, 7);
-  assert.equal(credits.calls[0].leadId, 'radar:abc-123');
-  assert.equal(credits.calls[0].actionKey, 'lead_delivery');
-});
-
-test('shadow-debit: recordCardCommercialUseOnce dispara 1 shadow com a usageKey como leadId', async () => {
-  const { prisma } = buildShadowPrismaMock();
-  const credits = buildShadowCredits();
-  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
-
-  await service.recordCardCommercialUseOnce(1, 7, {
-    source: 'radar_contact_click',
-    usageKey: 'radar:abc-123',
-    radarLeadId: 'abc-123',
-    status: 'contacted',
-  });
-
-  assert.equal(credits.calls.length, 1);
-  assert.equal(credits.calls[0].leadId, 'radar:abc-123');
-  assert.equal(credits.calls[0].actionKey, 'lead_delivery');
-});
-
-test('shadow-debit: import + commercial-use do MESMO lead usam o MESMO leadId canônico (idempotência 1:1)', async () => {
-  // recordCardImport passa radarLeadId cru; recordCardCommercialUseOnce passa usageKey radar:<id>.
-  // Ambos DEVEM resolver para o mesmo leadId 'radar:abc-123' -> o recordShadowDebit real (idempotente
-  // por usageKey) grava 1 só. Aqui provamos que a CHAVE é idêntica nos dois caminhos.
-  const importMock = buildShadowPrismaMock();
-  const commercialMock = buildShadowPrismaMock();
-  const creditsImport = buildShadowCredits();
-  const creditsCommercial = buildShadowCredits();
-
-  const svcImport = new CommercialUsageLimitsService(importMock.prisma as any, creditsImport.service);
-  const svcCommercial = new CommercialUsageLimitsService(commercialMock.prisma as any, creditsCommercial.service);
-
-  await svcImport.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'abc-123' });
-  await svcCommercial.recordCardCommercialUseOnce(1, 7, { source: 'radar_contact_click', usageKey: 'radar:abc-123', radarLeadId: 'abc-123' });
-
-  assert.equal(creditsImport.calls.length, 1);
-  assert.equal(creditsCommercial.calls.length, 1);
-  assert.equal(creditsImport.calls[0].leadId, creditsCommercial.calls[0].leadId);
-  assert.equal(creditsImport.calls[0].leadId, 'radar:abc-123');
-});
-
-test('shadow-debit: sem CreditsService injetado (undefined) NÃO quebra recordCardImport', async () => {
-  const { prisma } = buildShadowPrismaMock();
-  const service = new CommercialUsageLimitsService(prisma as any); // sem 2º arg (opcional)
-  await assert.doesNotReject(() =>
-    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'abc-123' }),
-  );
-});
-
 // ─── FRONTEIRA cota-de-plano × crédito (decisão do dono 07/07) ──────────────────────────────────
 // Conta de CRÉDITO (cortesia, modelo grátis) NÃO tem cota de plano; o teto real é o saldo de
 // crédito, checado no débito por-lead (enforceLeadDeliveryDebit). Aqui provamos, no ponto de
@@ -606,7 +479,6 @@ test('FRONTEIRA: conta de crédito com cota de plano ESGOTADA ainda puxa (crédi
       debitCalls.push({ companyId, userId, ...i });
       return { applied: true, debited: 1 }; // saldo cobriu -> baixa liberada
     },
-    recordShadowDebit: async () => {},
     refundLeadDelivery: async () => ({ refunded: 0 }),
   } as any;
   const service = new CommercialUsageLimitsService(prisma as any, credits);
@@ -634,7 +506,6 @@ test('FRONTEIRA: gate de crédito BARRA a baixa (fail-closed) mesmo com cota de 
     assertAndDebitLeadDelivery: async () => {
       throw new ConflictException({ ok: false, code: 'CREDIT_BALANCE_EXHAUSTED', message: 'Saldo de créditos esgotado.' });
     },
-    recordShadowDebit: async () => {},
     refundLeadDelivery: async () => ({ refunded: 0 }),
   } as any;
   const service = new CommercialUsageLimitsService(prisma as any, credits);
@@ -786,7 +657,6 @@ function buildDailyCapCredits() {
         debitCalls.push({ companyId, userId, ...i });
         return { applied: true, debited: 1 };
       },
-      recordShadowDebit: async () => {},
       refundLeadDelivery: async () => ({ refunded: 0 }),
       isCreditsAccountCompany: async () => false,
     } as any,

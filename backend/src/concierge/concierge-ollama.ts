@@ -58,8 +58,8 @@ export function conciergeTimeoutMs() {
 }
 
 /**
- * UMA chamada de extração: faixa realtime + budget do concierge + medição
- * `ai_realtime` por empresa (track de graça no trilho do CRÉDITO UNIVERSAL).
+ * UMA chamada de extração: faixa realtime + budget do Concierge + autorização
+ * da ação `ai_realtime` por empresa.
  */
 export async function callConciergeExtractor(
   messages: Array<{ role: string; content: string }>,

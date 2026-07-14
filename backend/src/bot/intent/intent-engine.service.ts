@@ -131,7 +131,7 @@ export class IntentEngineService {
   ): Promise<IntentEngineResult> {
     const startedAt = Date.now();
     // CRÉDITO UNIVERSAL (PR10072026): repassa a empresa dona da conversa pro classificador —
-    // a chamada de IA vira medição `ai_realtime` (track) no gateway. Sem context = sem medição.
+    // a chamada de IA é autorizada como `ai_realtime` no gateway.
     const result = await this.aiIntentClassifier.classifyIntentWithFallback({
       ...input,
       companyId: context?.companyId ?? null,
@@ -192,7 +192,7 @@ export class IntentEngineService {
     try {
       // GOVERNOR-IA: faixa realtime (bot de atendimento tem gate apertado, passa na frente).
       // Recusa cedo → cai no MESMO menu de sempre (classification fica null).
-      // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
+      // Contexto canônico da ação de crédito `ai_realtime`.
       const gw = await AiGatewayService.run(
         'realtime',
         timeoutMs,

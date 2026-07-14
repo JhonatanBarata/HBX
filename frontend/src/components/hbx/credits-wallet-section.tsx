@@ -94,32 +94,32 @@ function Ic({ paths }: { paths: string[] }) {
 // backend: débito on-success, refund on-failure, FIFO por validade, saldo
 // nunca negativo, carteira é da EMPRESA).
 const HOW_ITEMS = [
-  { ic: IC_SEARCH, t: "Buscar é grátis", d: "Pesquise e filtre empresas à vontade no Radar. Procurar não gasta nada." },
-  { ic: IC_TARGET, t: "1 crédito = 1 lead", d: "O crédito só sai quando um lead novo é entregue e validado na sua lista." },
-  { ic: IC_REFRESH, t: "Falhou, voltou", d: "Entrega que falha é estornada na hora. O saldo nunca fica negativo." },
-  { ic: IC_CAL, t: "Validade por lote", d: "Cada recarga tem prazo próprio e o sistema gasta primeiro o que vence antes." },
+  { ic: IC_SEARCH, t: "Grátis ou Débito", d: "Cada ação tem um modo claro. Buscar no Radar e IA em lote são grátis por padrão." },
+  { ic: IC_TARGET, t: "Custos por ação", d: "Lead: 1 · Automação: 0,1 · IA em tempo real/Concierge: 0,1 · Logística iniciada: 0,2." },
+  { ic: IC_REFRESH, t: "Frações ficam no saldo", d: "Exemplo: 1 crédito menos uma Logística de 0,2 deixa exatamente 0,8. O saldo nunca fica negativo." },
+  { ic: IC_CAL, t: "Mudanças com aviso", d: "Qualquer alteração de preço ou regra será avisada previamente no sistema e por e-mail." },
 ];
 
 const FAQ_ITEMS: Array<{ q: string; a: string }> = [
   {
     q: "O que é 1 crédito?",
-    a: "1 crédito libera 1 lead completo na sua lista — telefone, cidade e os dados da empresa validados. Cada lead é cobrado uma única vez: se ele voltar pra sua lista, não debita de novo.",
+    a: "Crédito é a unidade da carteira da empresa. Um lead entregue custa 1; ações menores podem consumir frações, sempre com até três casas decimais e sem arredondamento surpresa.",
   },
   {
-    q: "O que NÃO gasta crédito?",
-    a: "Buscar e filtrar empresas, ver sua lista, mandar mensagem, agendar retorno e usar o funil — tudo grátis. O crédito só sai quando um lead novo entra pra você.",
+    q: "O que é Automação?",
+    a: "É o envio automático de WhatsApp ou e-mail feito por Atendimento, Prospecção, Assistente ou Recovery. Respostas humanas, e-mail manual e mensagens transacionais da plataforma não entram.",
   },
   {
     q: "Créditos expiram?",
     a: "Cada lote tem validade própria (mostrada no pacote e no extrato). O sistema consome primeiro os créditos que vencem primeiro, então nada morre na mão à toa.",
   },
   {
-    q: "E se a entrega falhar?",
-    a: "Se o lead não chegar, o crédito volta pro saldo automaticamente. E o saldo nunca fica negativo: sem crédito, a entrega simplesmente não acontece — nada de surpresa na fatura.",
+    q: "E se uma ação falhar?",
+    a: "Quando a falha é confirmada antes do efeito, a reserva volta automaticamente. Resultado incerto de provedor fica visível para revisão e não é repetido às cegas.",
   },
   {
     q: "Quem da equipe gasta os créditos?",
-    a: "A carteira é da empresa: a equipe toda puxa dela. Vendedor não vê valores — só quantos leads ainda pode puxar. Se quiser, você define um teto por vendedor no Gerencial.",
+    a: "A carteira é da empresa: os usos autorizados da equipe saem do mesmo saldo. Vendedor não vê preços ou pacotes; o dono acompanha saldo, lotes e regras.",
   },
   {
     q: "Preciso de assinatura pra usar?",
@@ -224,7 +224,7 @@ export function CreditsWalletSection() {
             <span className="cw-hero__num">{data.balance ?? 0}</span>
             <div className="cw-hero__sub">
               <span className="cw-hero__label">créditos disponíveis</span>
-              <span className="cw-hero__hint">1 crédito = 1 lead entregue e validado. O saldo é da empresa: a equipe toda puxa dele.</span>
+              <span className="cw-hero__hint">A carteira é da empresa e aceita custos fracionados por ação, sem saldo negativo.</span>
             </div>
           </div>
           <div className="cw-hero__side">
@@ -281,8 +281,8 @@ export function CreditsWalletSection() {
                       <span className="cw-pack__title">{p.title}</span>
                       <span className="cw-pack__credits"><b>{p.credits.toLocaleString("pt-BR")}</b><em>créditos</em></span>
                       <span className="cw-pack__price">{brl(p.price)}</span>
-                      {unit > 0 && <span className="cw-pack__unit">{brl(unit)} por lead</span>}
-                      {save > 0 && <span className="cw-pack__save">{save}% mais barato por lead</span>}
+                      {unit > 0 && <span className="cw-pack__unit">{brl(unit)} por crédito</span>}
+                      {save > 0 && <span className="cw-pack__save">{save}% mais barato por crédito</span>}
                       <span className="cw-pack__life">Validade de {p.defaultExpiryDays} dias</span>
                       <button
                         className="btn-teal cw-pack__cta"

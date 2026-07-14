@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { HbxRecoveryModule } from '../hbx-recovery/hbx-recovery.module';
-// CRÉDITO UNIVERSAL (PR10072026): medidor de uso (track da entrega concluída).
+// Crédito da Logística é reservado no início da entrega.
 import { CreditsModule } from '../credits/credits.module';
 // PR10072026 W1: gate de módulo em rota (ModuleAccessGuard precisa do ModulesService).
 import { ModulesAccessModule } from '../modules/modules.module';

@@ -15,9 +15,13 @@ import { MasterEmailController } from './master-email.controller';
 import { MailService } from './mail.service';
 import { GmailOAuthService } from './gmail-oauth.service';
 import { GmailOAuthController } from './gmail-oauth.controller';
+import { PrismaModule } from '../prisma/prisma.module';
+import { CreditsModule } from '../credits/credits.module';
+import { EmailOutboxService } from './email-outbox.service';
+import { EmailOutboxWorkerService } from './email-outbox-worker.service';
 
 @Module({
-  imports: [forwardRef(() => ModulesAccessModule)],
+  imports: [PrismaModule, CreditsModule, forwardRef(() => ModulesAccessModule)],
   controllers: [MasterEmailController, CompanyEmailController, CompanyEmailStatusController, GmailOAuthController],
   providers: [
     MailService,
@@ -31,6 +35,8 @@ import { GmailOAuthController } from './gmail-oauth.controller';
     CompanyPresentationEmailService,
     MasterGuard,
     GmailOAuthService,
+    EmailOutboxService,
+    EmailOutboxWorkerService,
   ],
   exports: [
     MailService,
@@ -42,6 +48,7 @@ import { GmailOAuthController } from './gmail-oauth.controller';
     CompanyMailerService,
     CompanyPresentationEmailService,
     GmailOAuthService,
+    EmailOutboxService,
   ],
 })
 export class MailModule {}

@@ -273,6 +273,9 @@ export class HbxRecoveryService {
 
   private normalizeLifecycle(statusRaw: string): PaymentLifecycle {
     const status = String(statusRaw || '').toLowerCase().trim();
+    if (status === 'paid') return 'paid';
+    if (status === 'finalized') return 'finalized';
+    if (status === 'cancelled') return 'cancelled';
     if (status === 'released') return 'finalized';
     if (['failed', 'cancelled', 'refunded', 'partially_refunded', 'rejected', 'charged_back'].includes(status)) return 'cancelled';
     if (status === 'approved') return 'paid';
@@ -3137,6 +3140,95 @@ export class HbxRecoveryService {
     throw new BadRequestException('Concorrência ao estornar pagamento no Recovery; tente novamente.');
   }
 
+  private async reconcilePaymentDebtItems(input: {
+    companyId: number;
+    paymentId: string;
+    customerId: string;
+    appliedAmount: number;
+    reversedAmount: number;
+  }) {
+    await this.prisma.$transaction(async (tx) => {
+      let toApply = Number(Math.max(0, input.appliedAmount).toFixed(2));
+      if (toApply > 0) {
+        const items = await tx.recoveryDebtItem.findMany({
+          where: {
+            companyId: input.companyId,
+            recoveryCustomerId: input.customerId,
+            status: 'open',
+            openAmount: { gt: 0 },
+          },
+          orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
+        });
+        for (const item of items) {
+          if (toApply <= 0.009) break;
+          const amount = Number(Math.min(toApply, Number(item.openAmount || 0)).toFixed(2));
+          if (amount <= 0) continue;
+          const nextOpen = Number(Math.max(0, Number(item.openAmount || 0) - amount).toFixed(2));
+          await tx.recoveryDebtAllocation.upsert({
+            where: { paymentId_debtItemId: { paymentId: input.paymentId, debtItemId: item.id } },
+            create: { companyId: input.companyId, paymentId: input.paymentId, debtItemId: item.id, appliedAmount: amount },
+            update: { appliedAmount: { increment: amount } },
+          });
+          await tx.recoveryDebtItem.update({
+            where: { id: item.id },
+            data: {
+              openAmount: nextOpen,
+              paidAmount: { increment: amount },
+              status: nextOpen <= 0.009 ? 'paid' : 'open',
+            },
+          });
+          if (nextOpen <= 0.009 && item.financeiroChargeId) {
+            await tx.financeiroCharge.updateMany({
+              where: { id: item.financeiroChargeId, companyId: input.companyId, status: 'pending' },
+              data: { status: 'approved', lifecycle: 'paid', paidAt: new Date() },
+            });
+          }
+          if (item.debtCaseId) {
+            await tx.hbxRecoveryPayment.updateMany({
+              where: { id: input.paymentId, companyId: input.companyId, debtCaseId: null },
+              data: { debtCaseId: item.debtCaseId },
+            });
+          }
+          toApply = Number((toApply - amount).toFixed(2));
+        }
+      }
+
+      let toReverse = Number(Math.max(0, input.reversedAmount).toFixed(2));
+      if (toReverse > 0) {
+        const allocations = await tx.recoveryDebtAllocation.findMany({
+          where: { companyId: input.companyId, paymentId: input.paymentId },
+          include: { debtItem: true },
+          orderBy: [{ createdAt: 'desc' }],
+        });
+        for (const allocation of allocations) {
+          if (toReverse <= 0.009) break;
+          const available = Math.max(0, Number(allocation.appliedAmount || 0) - Number(allocation.reversedAmount || 0));
+          const amount = Number(Math.min(toReverse, available).toFixed(2));
+          if (amount <= 0) continue;
+          await tx.recoveryDebtAllocation.update({
+            where: { id: allocation.id },
+            data: { reversedAmount: { increment: amount } },
+          });
+          await tx.recoveryDebtItem.update({
+            where: { id: allocation.debtItemId },
+            data: {
+              openAmount: { increment: amount },
+              paidAmount: { decrement: amount },
+              status: 'open',
+            },
+          });
+          if (allocation.debtItem.financeiroChargeId) {
+            await tx.financeiroCharge.updateMany({
+              where: { id: allocation.debtItem.financeiroChargeId, companyId: input.companyId },
+              data: { status: 'pending', lifecycle: 'in_progress', paidAt: null },
+            });
+          }
+          toReverse = Number((toReverse - amount).toFixed(2));
+        }
+      }
+    });
+  }
+
   private approvedPaymentCustomerMessage(customer: any) {
     const customerName = String(customer?.clientName || customer?.name || 'cliente').trim() || 'cliente';
     return `Olá "${customerName}" pagamento aprovado, muito obrigado e tenha uma ótima semana!\n${RECOVERY_APPROVED_PAYMENT_SIGNATURE}`;
@@ -3239,21 +3331,54 @@ export class HbxRecoveryService {
     let incReversed = 0;
     if (targetNetPaid > currentNet + 0.009) {
       const delta = Number((targetNetPaid - currentNet).toFixed(2));
-      const result = await this.applyPayment(companyId, updated.customerId, delta, `Pagamento Mercado Pago (#${paymentId})`, paidAt || undefined);
-      incApplied = Number(result.amount || 0);
+      // Claim condicional no próprio pagamento: dois webhooks concorrentes podem
+      // calcular o mesmo delta, mas apenas um altera o saldo do cliente.
+      const claim = await this.prisma.hbxRecoveryPayment.updateMany({
+        where: {
+          id: updated.id,
+          companyId,
+          appliedToCustomerAmount: applied,
+          reversedAmount: reversed,
+        },
+        data: { appliedToCustomerAmount: Number((applied + delta).toFixed(2)) },
+      });
+      if (claim.count === 1) {
+        const result = await this.applyPayment(companyId, updated.customerId, delta, `Pagamento Mercado Pago (#${paymentId})`, paidAt || undefined);
+        incApplied = Number(result.amount || 0);
+        if (incApplied + 0.009 < delta) {
+          await this.prisma.hbxRecoveryPayment.update({
+            where: { id: updated.id },
+            data: { appliedToCustomerAmount: { decrement: Number((delta - incApplied).toFixed(2)) } },
+          });
+        }
+      }
     }
     if (targetNetPaid + 0.009 < currentNet) {
       const delta = Number((currentNet - targetNetPaid).toFixed(2));
-      const result = await this.reversePayment(companyId, updated.customerId, delta, `Estorno Mercado Pago (#${paymentId})`, refundedAt || undefined);
-      incReversed = Number(result.amount || 0);
+      const claim = await this.prisma.hbxRecoveryPayment.updateMany({
+        where: {
+          id: updated.id,
+          companyId,
+          appliedToCustomerAmount: applied,
+          reversedAmount: reversed,
+        },
+        data: { reversedAmount: Number((reversed + delta).toFixed(2)) },
+      });
+      if (claim.count === 1) {
+        const result = await this.reversePayment(companyId, updated.customerId, delta, `Estorno Mercado Pago (#${paymentId})`, refundedAt || undefined);
+        incReversed = Number(result.amount || 0);
+      }
     }
     if (incApplied > 0 || incReversed > 0) {
-      updated = await this.prisma.hbxRecoveryPayment.update({
+      await this.reconcilePaymentDebtItems({
+        companyId,
+        paymentId: updated.id,
+        customerId: updated.customerId,
+        appliedAmount: incApplied,
+        reversedAmount: incReversed,
+      });
+      updated = await this.prisma.hbxRecoveryPayment.findUniqueOrThrow({
         where: { id: updated.id },
-        data: {
-          appliedToCustomerAmount: Number((Number(updated.appliedToCustomerAmount || 0) + incApplied).toFixed(2)),
-          reversedAmount: Number((Number(updated.reversedAmount || 0) + incReversed).toFixed(2)),
-        },
         include: { customer: true },
       });
     }

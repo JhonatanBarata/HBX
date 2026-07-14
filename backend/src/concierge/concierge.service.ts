@@ -23,7 +23,7 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import { CreditsService } from '../credits/credits.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { AiPressureSignals } from '../master-alert/ai-pressure-signals';
-import { getCreditActionDefinition } from '../credits/credit-action-catalog';
+import { CreditActionConfigService } from '../credits/credit-action-config.service';
 import { applyDeterministicGuards, buildExtractorMessages, channelsToRadarPreferred, computeMissingFields, ConciergeChannel, CONCIERGE_CHANNELS, ConciergeSlots, emptySlots, mergeSlots, safeParseConciergeJson, sanitizeAiSlots, slotsExecutionHash, BRAZIL_UFS } from './concierge-slots';
 import { callConciergeExtractor, conciergeAiEnabled, conciergeFeatureEnabled, conciergeModel } from './concierge-ollama';
 
@@ -57,7 +57,7 @@ type CostPreview = {
   blocked: boolean;
   /** LEI DO VENDEDOR: null pro vendedor — só o dono vê custo em créditos (§2.4). */
   costCredits: number | null;
-  mode: 'track' | 'debit' | null;
+  mode: 'free' | 'debit' | null;
 };
 
 type PresentedDraft = {
@@ -97,6 +97,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     private readonly webscraping: WebscrapingService,
     private readonly usageLimits: CommercialUsageLimitsService,
     private readonly credits: CreditsService,
+    private readonly creditActions: CreditActionConfigService,
   ) {}
 
   // Sweeper de TTL — mesmo espírito do sweeper de lease da fila de missões:
@@ -564,8 +565,10 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       ? ` Você pediu ${preview.requestedQuantity}, consigo até ${preview.quantity} agora (limite do seu plano/dia).`
       : '';
     if (isBillingOwnerActor(user) && preview.costCredits != null) {
-      const modeNote = preview.mode === 'debit' ? '' : ' (sem cobrança agora — só medição)';
-      return `Vou buscar ${preview.quantity} ${slots.targetSegment} em ${where} — custo ${preview.costCredits} crédito${preview.costCredits === 1 ? '' : 's'}${modeNote}.${clampNote} Confirma?`;
+      const costText = preview.mode === 'free'
+        ? 'grátis'
+        : `custo ${preview.costCredits} crédito${preview.costCredits === 1 ? '' : 's'}`;
+      return `Vou buscar ${preview.quantity} ${slots.targetSegment} em ${where} — ${costText}.${clampNote} Confirma?`;
     }
     return `Vou buscar ${preview.quantity} ${slots.targetSegment} em ${where} — dentro do seu limite.${clampNote} Confirma?`;
   }
@@ -608,13 +611,13 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
 
     const billingAudience = isBillingOwnerActor(user);
     let costCredits: number | null = null;
-    let mode: 'track' | 'debit' | null = null;
+    let mode: 'free' | 'debit' | null = null;
     if (billingAudience) {
-      const definition = getCreditActionDefinition('lead_delivery');
-      const unitCost = Math.max(1, Math.trunc(Number(definition?.cost ?? 1)));
-      costCredits = quantity * unitCost;
+      const definition = await this.creditActions.resolveEffective('lead_delivery');
+      const unitCost = definition?.mode === 'free' ? 0 : Math.max(0, Number(definition?.cost ?? 1));
+      costCredits = Math.round(quantity * unitCost * 1000) / 1000;
       const enforceActive = await this.credits.isEnforceActiveForCompany(ctx.companyId).catch(() => false);
-      mode = enforceActive ? 'debit' : 'track';
+      mode = enforceActive ? (definition?.mode ?? 'debit') : 'free';
     }
 
     return { requestedQuantity: requested, quantity, clamped: quantity < requested, blocked, costCredits, mode };

@@ -298,6 +298,12 @@ export class BotActivationService {
 
     // Se está ligando ao vivo: checar pré-voo
     if (live) {
+      if (await this.resolveMasterOff(companyId)) {
+        throw new BadRequestException({
+          code: 'BOT_MASTER_SWITCH_OFF',
+          message: 'A chave geral do Bot está desligada. Ligue-a antes de ativar este motor.',
+        });
+      }
       const chipConectado = await this.resolveChipConectado(companyId);
       const atendimentoConfig =
         type === 'atendimento' ? await this.getAtendimentoConfig(companyId) : undefined;

@@ -80,12 +80,7 @@ type SellerActiveCardQuotaSnapshot = {
 export class CommercialUsageLimitsService {
   constructor(
     private readonly prisma: PrismaService,
-    // CRÉDITOS S2 — shadow-debit (MEDIÇÃO atrás de HBX_CREDITS_SHADOW, default OFF). Emitido
-    // do DONO da baixa (este service), no ponto único onde a cota mensal da empresa é de fato
-    // consumida — cobre TODOS os callers (vendas + radar) por construção. Direção de import
-    // única: CommercialPlansModule -> CreditsModule (CreditsModule só depende de PrismaModule,
-    // não fecha ciclo). Injetado como opcional-defensivo: se ausente, os logs de cota seguem
-    // normais (o shadow simplesmente não dispara).
+    // Débito real do lead permanece no choke único deste serviço.
     @Optional() private readonly creditsService?: CreditsService,
   ) {}
 
@@ -957,11 +952,6 @@ export class CommercialUsageLimitsService {
     // PARA e nada é gravado como sucesso. Com o gate OFF (2 chaves), é no-op transparente.
     await this.enforceLeadDeliveryDebit(companyId, userId, metadata);
     const result = await this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
-    // CRÉDITOS S2 — shadow-debit no ponto ÚNICO da baixa. recordCardImport loga
-    // vendas_card_imported/radar_card_claimed (2 dos 4 CARD_SUCCESS_EVENTS que contam a cota);
-    // hookear aqui cobre a entrega automática do Radar (radar_claim) + imports diretos por
-    // construção, sem caçar call-site.
-    this.emitLeadDeliveryShadowDebit(companyId, userId, metadata);
     return result;
   }
 
@@ -988,23 +978,6 @@ export class CommercialUsageLimitsService {
     const vendasLeadId = String(metadata?.vendasLeadId ?? '').trim();
     if (vendasLeadId) return this.normalizeUsageKey(`vendas:${vendasLeadId}`);
     return '';
-  }
-
-  /**
-   * CRÉDITOS S2 — dispara o shadow-debit (MEDIÇÃO, sem enforcement) a partir do dono da baixa.
-   * Best-effort e fire-and-forget: NÃO await bloqueante, o try/catch mora dentro do próprio
-   * recordShadowDebit (que também é no-op com HBX_CREDITS_SHADOW OFF). A idempotência por
-   * usageKey lá dentro garante 1 shadow por lead mesmo que recordCardImport E
-   * recordCardCommercialUseOnce disparem pro MESMO lead (a cota real também só conta 1×, via o
-   * findFirst de CARD_SUCCESS_EVENTS).
-   */
-  private emitLeadDeliveryShadowDebit(companyId: number, userId: number | null, metadata: Record<string, any>) {
-    if (!this.creditsService) return;
-    const leadId = this.resolveLeadDeliveryKey(metadata);
-    if (!leadId) return;
-    void this.creditsService
-      .recordShadowDebit(companyId, userId, { leadId, actionKey: 'lead_delivery' })
-      .catch(() => undefined);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -1166,13 +1139,12 @@ export class CommercialUsageLimitsService {
   }
 
   /**
-   * CRÉDITOS R1 — gate REAL (bloqueante) no MESMO ponto/MESMA chave canônica do shadow (S2).
-   * Diferente do shadow (fire-and-forget), este AWAIT e PODE LANÇAR: se o gate (2 chaves) está
+   * CRÉDITOS R1 — gate REAL (bloqueante) no mesmo ponto e chave canônica da entrega.
+   * Este AWAIT e PODE LANÇAR: se o gate (2 chaves) está
    * ON e não há saldo (ou o vendedor estourou o teto S4), a exceção sobe e a chamada de fora
    * (recordCardImport/recordCardCommercialUseOnce) PARA antes de logar sucesso — fail-closed.
    * Com o gate OFF (`isEnforceActiveForCompany` false), o próprio CreditsService devolve
-   * `applied: false` sem tocar o banco — no-op transparente, shadow continua sendo a única
-   * medição ativa.
+   * `applied: false` sem tocar o banco — no-op transparente.
    */
   private async enforceLeadDeliveryDebit(companyId: number, userId: number | null, metadata: Record<string, any>) {
     // Defensivo: se o provider injetado (fake/mock de teste, ou versão antiga do módulo) não
@@ -1253,8 +1225,6 @@ export class CommercialUsageLimitsService {
         status: 'success',
         ...metadata,
       });
-      // CRÉDITOS S2 — shadow-debit no ponto único da baixa (ver emitLeadDeliveryShadowDebit).
-      this.emitLeadDeliveryShadowDebit(companyId, userId, metadata);
       return { debited: true, alreadyDebited: false };
     }
     const existing = await this.prisma.companyCommercialUsageLog.findFirst({
@@ -1275,9 +1245,6 @@ export class CommercialUsageLimitsService {
       ...metadata,
       usageKey,
     });
-    // CRÉDITOS S2 — shadow-debit no ponto único da baixa. Passa a usageKey já normalizada para o
-    // leadId bater EXATAMENTE com o de recordCardImport do mesmo lead (idempotência 1:1).
-    this.emitLeadDeliveryShadowDebit(companyId, userId, { ...metadata, usageKey });
     return { debited: true, alreadyDebited: false };
   }
 

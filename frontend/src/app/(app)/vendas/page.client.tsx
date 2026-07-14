@@ -82,6 +82,15 @@ export type VendasLead = {
   isInInbox?: boolean | null;
   conversation?: VendasConversationRef | null;
   engagement?: VendasEngagementSnapshot | null;
+  automation?: {
+    enrollmentId: string;
+    kind: string;
+    definitionId: string;
+    status: string;
+    currentStep: number;
+    nextStepAt: string | null;
+    label: string;
+  } | null;
   timeline?: Array<{
     id: string;
     eventType?: string | null;
@@ -155,6 +164,15 @@ type BoardResponse = {
     sellers: Array<{ id: number; name: string; active: boolean; isMe: boolean }>;
     selectedSellerId: number | null;
   } | null;
+  assistant?: {
+    configured: boolean;
+    publicName: string | null;
+    published: boolean;
+    runtimeEnabled: boolean;
+    channelArmed: boolean;
+    active: boolean;
+    updatedAt: string | null;
+  };
 } | null;
 
 type TriagemItem = { key: string; label: string; ok: boolean };
@@ -1142,7 +1160,7 @@ export function VendasClient() {
                       {sortBy === "az" ? "A→Z" : sortBy === "za" ? "Z→A" : "A→Z"}
                     </button>
                   )}
-                  <button className="icon-ghost" title="Prospecção automática" aria-label="Prospecção automática" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
+                  <button className="icon-ghost" title="Automações comerciais" aria-label="Automações comerciais" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
                   </button>
                   <button className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" data-tut="vendas-agenda" onClick={() => setAgendaOpen(o => !o)}>
@@ -1271,6 +1289,7 @@ export function VendasClient() {
                               <td>
                                 <span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>
                                 <span className={engagement.className} style={{ marginLeft: 6 }}>{engagement.label}</span>
+                                {card.automation && <span className="tag warn" style={{ marginLeft: 6 }} title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
                                 {card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}
                               </td>
                               {board.canViewValues && <td className="hbx-mono">{leadValueLabel(card)}</td>}
@@ -1356,6 +1375,7 @@ export function VendasClient() {
                                       ? <span className="vnd-card__owner"><Av name={card.owner.name} size={16} />{card.owner.name}</span>
                                       : <span className="vnd-card__owner vnd-card__owner--none">Sem dono</span>}
                                     <span className={engagement.className}>{engagement.label}</span>
+                                    {card.automation && <span className="tag warn" title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
                                   </div>
                                 </article>
                               );
@@ -1511,9 +1531,40 @@ export function VendasClient() {
         <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setProspOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              Prospecção automática
+              Automações comerciais
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProspOpen(false)}>✕</span>
             </h3>
+            <div style={{ display: "grid", gap: 8 }}>
+              <div className="field-label">Assistente de conversa</div>
+              <div className="kv">
+                <div className="row">
+                  <span className="k">Nome público</span>
+                  <span className="v">{board?.assistant?.publicName || "Não configurada"}</span>
+                </div>
+                <div className="row">
+                  <span className="k">WhatsApp</span>
+                  <span className={"tag" + (board?.assistant?.active ? " teal" : " warn")}>
+                    {board?.assistant?.active
+                      ? "Ativa"
+                      : !board?.assistant?.configured
+                        ? "Não configurada"
+                        : !board?.assistant?.published
+                          ? "Rascunho"
+                          : !board?.assistant?.runtimeEnabled
+                            ? "Aguardando liberação"
+                            : "Conecte o canal"}
+                  </span>
+                </div>
+              </div>
+              <p className="text-ink-muted" style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5 }}>
+                Responde mensagens recebidas e não ocupa a automação comercial ativa do lead.
+              </p>
+              <button className="btn-ghost" onClick={() => { setProspOpen(false); router.push("/assistente"); }}>
+                Configurar assistente
+              </button>
+            </div>
+            <div style={{ height: 1, background: "var(--border-hairline)" }} />
+            <div className="field-label">Bot de prospecção</div>
             {prospError && (
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)" }}>{prospError}</div>
             )}

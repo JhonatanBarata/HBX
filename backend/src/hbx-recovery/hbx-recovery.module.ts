@@ -10,11 +10,13 @@ import { HbxRecoveryPublicController } from './hbx-recovery-public.controller';
 import { HbxRecoveryService } from './hbx-recovery.service';
 import { HbxRecoveryWebhookController } from './hbx-recovery.webhook.controller';
 import { BotConfigStoreModule } from '../bot/config/bot-config-store.module';
+import { MailModule } from '../mail/mail.module';
+import { RecoveryAutomationWorkerService } from './recovery-automation-worker.service';
 
 @Module({
-  imports: [PrismaModule, ModulesAccessModule, MessagingModule, PaymentsModule, CadastrosModule, IntegrationsModule, BotConfigStoreModule],
+  imports: [PrismaModule, ModulesAccessModule, MessagingModule, PaymentsModule, CadastrosModule, IntegrationsModule, BotConfigStoreModule, MailModule],
   controllers: [HbxRecoveryController, HbxRecoveryWebhookController, HbxRecoveryPublicController],
-  providers: [HbxRecoveryService],
+  providers: [HbxRecoveryService, RecoveryAutomationWorkerService],
   exports: [HbxRecoveryService],
 })
 export class HbxRecoveryModule {}

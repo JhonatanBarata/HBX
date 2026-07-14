@@ -71,7 +71,7 @@ export class AssistenteSandboxService {
     userMessage: string,
     chat?: OllamaChat,
     // CRÉDITO UNIVERSAL (PR10072026): empresa dona do teste — repassada ao gateway de IA
-    // pra medição `ai_realtime` (track). Opcional: ausente = sem medição (testes/fakes).
+    // para autorização `ai_realtime`. Opcional em testes/fakes.
     meta?: { companyId?: number | null },
   ): Promise<SandboxReplyResult> {
     const startedAt = Date.now();
@@ -151,7 +151,7 @@ export class AssistenteSandboxService {
     meta?: { companyId?: number | null },
   ): Promise<string> {
     this.guard.ollamaCalls += 1;
-    // CRÉDITO UNIVERSAL (PR10072026): contexto de uso — sucesso vira track `ai_realtime`.
+    // Contexto canônico da ação de crédito `ai_realtime`.
     return callAssistenteOllama(messages, { companyId: meta?.companyId, actionKey: 'ai_realtime' });
   }
 }

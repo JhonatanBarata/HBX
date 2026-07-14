@@ -13,6 +13,7 @@ import {
   resolveProviderCapabilitiesFromCompany,
 } from '../inbox/atendimento-config';
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
+import { CommercialAutomationStateService } from '../automation/commercial-automation-state.service';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -57,6 +58,8 @@ export type QueueOutboundPayload = {
   flowState?: ConversationStatePatch;
   whatsappEndpointId?: string;
   preferredModuleKey?: string;
+  // Fase 3: vínculo opcional do passo lógico comercial com a outbox física.
+  automationStepRunId?: string;
 };
 
 export type ConversationStatePatch = {
@@ -90,12 +93,16 @@ export type VendasCockpitProjectionHookInput = {
   validHumanInbound?: boolean;
 };
 
+export type RecoveryAutomationHookInput = VendasCockpitProjectionHookInput;
+
 @Injectable()
 export class ConversationsService {
   private readonly logger = new Logger(ConversationsService.name);
   private cadenciaInboundHook: ((input: CadenciaInboundHookInput) => Promise<void>) | null = null;
   private vendasCockpitProjectionHook:
     ((input: VendasCockpitProjectionHookInput) => Promise<void>) | null = null;
+  private recoveryAutomationHook:
+    ((input: RecoveryAutomationHookInput) => Promise<void>) | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -124,18 +131,34 @@ export class ConversationsService {
     this.vendasCockpitProjectionHook = handler;
   }
 
+  setRecoveryAutomationHook(
+    handler: ((input: RecoveryAutomationHookInput) => Promise<void>) | null,
+  ) {
+    this.recoveryAutomationHook = handler;
+  }
+
   // A mensageria não conhece o modelo do CRM. Publica somente o fato persistido;
   // o projetor de Vendas reconstrói o snapshot de forma best-effort e idempotente.
   async dispatchVendasCockpitProjection(input: VendasCockpitProjectionHookInput) {
     const hook = this.vendasCockpitProjectionHook;
-    if (!hook) return;
-    try {
-      await hook(input);
-    } catch (error: unknown) {
-      // A projeção nunca pode transformar sucesso/falha do provedor em retry de envio.
-      this.logger.warn(
-        `Falha ao atualizar cockpit de Vendas company=${input.companyId} conversation=${input.conversationId} event=${input.event}: ${String((error as any)?.message || error)}`,
-      );
+    if (hook) {
+      try {
+        await hook(input);
+      } catch (error: unknown) {
+        // A projeção nunca pode transformar sucesso/falha do provedor em retry de envio.
+        this.logger.warn(
+          `Falha ao atualizar cockpit de Vendas company=${input.companyId} conversation=${input.conversationId} event=${input.event}: ${String((error as any)?.message || error)}`,
+        );
+      }
+    }
+    if (this.recoveryAutomationHook) {
+      try {
+        await this.recoveryAutomationHook(input);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `Falha ao projetar automação Recovery company=${input.companyId} conversation=${input.conversationId} event=${input.event}: ${String((error as any)?.message || error)}`,
+        );
+      }
     }
   }
 
@@ -500,10 +523,14 @@ export class ConversationsService {
     conversationId: number;
     sourceModule: string;
     senderType: string;
+    messageType: 'text' | 'template' | 'interactive';
     variables?: Record<string, unknown>;
   }) {
     if (!this.isBotOutbound(input.sourceModule, input.senderType)) return;
     if (this.isProspectionOutbound(input.sourceModule, input.variables)) return;
+    const source = normalizeModuleName(input.sourceModule);
+    const botType = normalizeModuleName(String(input.variables?.botType || input.variables?.bot_type || ''));
+    if ((source.includes('recovery') || botType === 'recovery') && input.messageType === 'template') return;
     if (await this.hasAnyInboundMessage(input.companyId, input.conversationId)) return;
 
     throw new BadRequestException(
@@ -531,6 +558,7 @@ export class ConversationsService {
     const contactId = String(payload?.contactId || to).trim();
     const variablesJson = payload?.variables === undefined ? null : JSON.stringify(payload.variables || {});
     const commercialLeadId = this.resolveCommercialLeadId(sourceModule, payload?.variables);
+    const automationStepRunId = String(payload?.automationStepRunId || '').trim() || null;
 
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
@@ -572,6 +600,7 @@ export class ConversationsService {
       conversationId: conversation.id,
       sourceModule,
       senderType,
+      messageType,
       variables: payload?.variables,
     });
     const conversationMetadata = this.parseConversationMetadata(conversation?.metadata);
@@ -674,6 +703,21 @@ export class ConversationsService {
         maxAttempts: 3,
         nextAttemptAt: at,
       };
+      if (automationStepRunId) {
+        const stepRun = await tx.automationStepRun.findFirst({
+          where: {
+            id: automationStepRunId,
+            companyId,
+            status: 'claimed',
+            ...(commercialLeadId ? { leadId: commercialLeadId } : {}),
+          },
+          select: { id: true },
+        });
+        if (!stepRun) {
+          throw new BadRequestException('Passo da automação comercial não está disponível para envio.');
+        }
+        outboundData.automationStepRun = { connect: { id: stepRun.id } };
+      }
       if (await this.supportsOutboundEndpointColumn()) {
         outboundData.whatsappEndpointId = resolvedCreds.endpointId || null;
       }
@@ -681,6 +725,22 @@ export class ConversationsService {
       const outbound = await tx.outboundMessage.create({
         data: outboundData,
       });
+
+      if (automationStepRunId) {
+        const bound = await tx.automationStepRun.updateMany({
+          where: { id: automationStepRunId, companyId, status: 'claimed' },
+          data: {
+            status: 'queued',
+            queuedAt: at,
+            leaseUntil: null,
+            errorCode: null,
+            errorMessage: null,
+          },
+        });
+        if (bound.count !== 1) {
+          throw new BadRequestException('Passo da automação comercial já foi consumido.');
+        }
+      }
 
       const message = await tx.companyMessage.create({
         data: {
@@ -726,6 +786,17 @@ export class ConversationsService {
       event: 'queued',
       messageId: queued.messageId,
     });
+    if (automationStepRunId) {
+      // O vínculo com a outbox já foi criado na transação acima. O ledger é
+      // best-effort e não pode desfazer uma mensagem fisicamente enfileirada.
+      await new CommercialAutomationStateService(this.prisma)
+        .syncStepFromOutbound({
+          companyId,
+          outboundMessageId: queued.outboundMessageId,
+          status: 'queued',
+        })
+        .catch(() => null);
+    }
     return queued;
   }
 

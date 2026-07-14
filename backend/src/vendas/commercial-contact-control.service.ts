@@ -1,5 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
 import type { ConversationsService } from '../messaging/conversations.service';
+import { CommercialAutomationStateService } from '../automation/commercial-automation-state.service';
 
 export const COMMERCIAL_WHATSAPP_SOURCE_MODULES = [
   'vendas_prospeccao_bot',
@@ -59,17 +60,19 @@ function isUniqueConstraintError(error: any): boolean {
 }
 
 /**
- * Guarda TRANSITORIA para o corte Vendas <-> WhatsApp.
- *
- * Nao cria fonte de verdade nova: usa jobs/inscricoes/outbox existentes e um
- * advisory lock transacional por empresa+lead. Quando o modelo canonico da Fase
- * 3 existir, esta classe vira o adaptador dos legados para o orquestrador unico.
+ * Adaptador de dual-write entre os runners legados e o estado canônico da Fase 3.
+ * A exclusividade e os claims vivem no modelo canônico; consultas legadas ficam
+ * como reconciliação fail-closed durante a migração.
  */
 export class CommercialContactControlService {
+  private readonly canonical: CommercialAutomationStateService;
+
   constructor(
     private readonly prisma: PrismaLike,
     private readonly conversations?: Pick<ConversationsService, 'dispatchVendasCockpitProjection'>,
-  ) {}
+  ) {
+    this.canonical = new CommercialAutomationStateService(this.prisma);
+  }
 
   isCommercialWhatsappSource(sourceModule: unknown): boolean {
     const source = String(sourceModule || '').trim().toLowerCase();
@@ -93,6 +96,9 @@ export class CommercialContactControlService {
   }
 
   private async findActiveConflict(tx: any, companyId: number, leadId: string): Promise<CommercialAutomationConflict | null> {
+    const canonicalConflict = await this.canonical.findActiveConflict(tx, companyId, leadId);
+    if (canonicalConflict) return canonicalConflict;
+
     const jobs = typeof tx?.vendasAutomationJob?.findMany === 'function'
       ? await tx.vendasAutomationJob.findMany({
           where: {
@@ -157,7 +163,29 @@ export class CommercialContactControlService {
 
       const conflict = await this.findActiveConflict(tx, input.companyId, input.leadId);
       if (conflict) return { created: false, conflict };
+      const enrollment = await this.canonical.reserveEnrollment(tx, {
+        companyId: input.companyId,
+        leadId: input.leadId,
+        definitionKind: 'prospecting_campaign',
+        definitionId: input.campaignId,
+        legacySource: 'vendas_automation_job',
+        snapshot: {
+          campaignId: input.campaignId,
+          scheduledAt: input.data?.scheduledAt || null,
+          classification: input.data?.classification || null,
+        },
+        nextStepAt: input.data?.scheduledAt || null,
+      });
       const row = await tx.vendasAutomationJob.create({ data: input.data });
+      const linkedEnrollment = await this.canonical.attachLegacyExecution(tx, enrollment, String(row.id));
+      await this.canonical.ensureStep(tx, {
+        enrollment: linkedEnrollment,
+        stepKey: 'first_contact',
+        sequence: 0,
+        channel: 'whatsapp',
+        scheduledAt: input.data?.scheduledAt || null,
+        idempotencyKey: `vendas_automation_job:${String(row.id)}:step:first_contact`,
+      });
       return { created: true, row };
     });
   }
@@ -184,7 +212,21 @@ export class CommercialContactControlService {
       const conflict = await this.findActiveConflict(tx, input.companyId, input.leadId);
       if (conflict) return { created: false, conflict };
       try {
+        const enrollment = await this.canonical.reserveEnrollment(tx, {
+          companyId: input.companyId,
+          leadId: input.leadId,
+          definitionKind: 'cadence',
+          definitionId: cadenciaId,
+          legacySource: 'cadencia_inscricao',
+          snapshot: {
+            cadenciaId,
+            responsavelId: input.data?.responsavelId || null,
+          },
+          currentStep: Number(input.data?.currentStep || 0),
+          nextStepAt: input.data?.nextStepAt || null,
+        });
         const row = await tx.cadenciaInscricao.create({ data: input.data });
+        await this.canonical.attachLegacyExecution(tx, enrollment, String(row.id));
         return { created: true, row };
       } catch (error: any) {
         if (isUniqueConstraintError(error)) return { created: false, alreadyEnrolled: true };
@@ -211,6 +253,103 @@ export class CommercialContactControlService {
       select: { status: true, lastError: true },
     });
     return Boolean(enrollment && String(enrollment.status || '') === 'ativa');
+  }
+
+  claimVendasJobStep(input: {
+    companyId: number;
+    leadId: string;
+    campaignId: string;
+    jobId: string;
+    scheduledAt?: Date | null;
+  }) {
+    return this.canonical.claimLegacyStep({
+      companyId: input.companyId,
+      leadId: input.leadId,
+      legacySource: 'vendas_automation_job',
+      legacyExecutionId: input.jobId,
+      definitionKind: 'prospecting_campaign',
+      definitionId: input.campaignId,
+      stepKey: 'first_contact',
+      sequence: 0,
+      channel: 'whatsapp',
+      scheduledAt: input.scheduledAt || null,
+    });
+  }
+
+  claimCadenciaStep(input: {
+    companyId: number;
+    leadId: string;
+    cadenciaId: string;
+    inscricaoId: string;
+    currentStep: number;
+    channel: string;
+    scheduledAt?: Date | null;
+    snapshot?: Record<string, unknown> | null;
+  }) {
+    return this.canonical.claimLegacyStep({
+      companyId: input.companyId,
+      leadId: input.leadId,
+      legacySource: 'cadencia_inscricao',
+      legacyExecutionId: input.inscricaoId,
+      definitionKind: 'cadence',
+      definitionId: input.cadenciaId,
+      stepKey: String(input.currentStep),
+      sequence: input.currentStep,
+      channel: input.channel,
+      scheduledAt: input.scheduledAt || null,
+      snapshot: input.snapshot,
+    });
+  }
+
+  completeAutomationStep(input: {
+    companyId: number;
+    stepRunId?: string | null;
+    status: 'succeeded' | 'skipped' | 'failed' | 'canceled' | 'scheduled';
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }) {
+    if (!input.stepRunId) return Promise.resolve(null);
+    return this.canonical.completeStep({ ...input, stepRunId: input.stepRunId });
+  }
+
+  syncAutomationStepFromOutbound(input: {
+    companyId: number;
+    outboundMessageId: number;
+    status: 'queued' | 'dispatching' | 'succeeded' | 'failed' | 'canceled';
+    errorCode?: string | null;
+    errorMessage?: string | null;
+  }) {
+    return this.canonical.syncStepFromOutbound(input);
+  }
+
+  finishAutomationEnrollment(input: {
+    companyId: number;
+    legacySource: string;
+    legacyExecutionId: string;
+    status: 'completed' | 'canceled' | 'failed' | 'paused' | 'active';
+    reason?: string | null;
+  }) {
+    return this.canonical.finishEnrollmentByLegacy(input);
+  }
+
+  advanceAutomationEnrollment(input: {
+    companyId: number;
+    legacySource: string;
+    legacyExecutionId: string;
+    currentStep: number;
+    nextStepAt?: Date | null;
+  }) {
+    return this.canonical.advanceEnrollmentByLegacy(input);
+  }
+
+  setAutomationDefinitionStatus(input: {
+    companyId: number;
+    definitionKind: 'prospecting_campaign' | 'cadence';
+    definitionId: string;
+    status: 'active' | 'paused' | 'completed' | 'canceled' | 'failed';
+    reason?: string | null;
+  }) {
+    return this.canonical.setDefinitionStatus(input);
   }
 
   private async resolveLeadIds(tx: any, input: {
@@ -329,6 +468,8 @@ export class CommercialContactControlService {
     canceledJobs: number;
     canceledSendingJobs: number;
     canceledCadencias: number;
+    canceledEnrollments: number;
+    canceledSteps: number;
     canceledOutbox: number;
     inFlightOutbox: number;
   }> {
@@ -439,6 +580,13 @@ export class CommercialContactControlService {
           })
         : { count: 0 };
 
+      const canonicalCancellation = await this.canonical.interruptForInbound(tx, {
+        companyId: input.companyId,
+        leadIds: sortedLeadIds,
+        inboundMessageId: input.inboundMessageId,
+        timestamp: input.timestamp,
+      });
+
       const matchingOutbox = (outboundRows || []).filter((row) => this.outboundMatches(row, input.conversationId, leadIds));
       const pendingOutboxIds = matchingOutbox.filter((row) => row.status === 'PENDING').map((row) => row.id);
       const inFlightOutboxIds = matchingOutbox.filter((row) => row.status === 'SENDING').map((row) => row.id);
@@ -490,6 +638,8 @@ export class CommercialContactControlService {
           canceledJobs: Number(pendingJobs?.count || 0),
           canceledSendingJobs,
           canceledCadencias: Number(cadencias?.count || 0),
+          canceledEnrollments: canonicalCancellation.canceledEnrollments,
+          canceledSteps: canonicalCancellation.canceledSteps,
           canceledOutbox,
           reason: COMMERCIAL_INBOUND_STOP_REASON,
         },
@@ -514,6 +664,8 @@ export class CommercialContactControlService {
         canceledJobs: Number(pendingJobs?.count || 0),
         canceledSendingJobs,
         canceledCadencias: Number(cadencias?.count || 0),
+        canceledEnrollments: canonicalCancellation.canceledEnrollments,
+        canceledSteps: canonicalCancellation.canceledSteps,
         canceledOutbox,
         inFlightOutbox: inFlightOutboxIds.length,
         canceledConversationIds,

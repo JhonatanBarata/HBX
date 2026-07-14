@@ -490,8 +490,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
           <section className="lead-cockpit__box">
             {copilotoEnabled && (
               <CopilotoPanel
-                phone={lead.phone || null}
-                name={lead.name}
+                leadId={lead.id}
                 ficha={copilotoFicha}
                 onDraft={handleCopilotoDraft}
                 onSaveNote={handleSaveNote}

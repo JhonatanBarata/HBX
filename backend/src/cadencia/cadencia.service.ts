@@ -1,8 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { AtividadesService } from '../atividades/atividades.service';
 import { CompanyMailerService, COMPANY_EMAIL_NOT_CONFIGURED } from '../mail/company-mailer.service';
+import { EmailOutboxService } from '../mail/email-outbox.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import {
   CADENCIA_SEEDS,
@@ -29,9 +30,8 @@ import { CommercialContactControlService } from '../vendas/commercial-contact-co
 
 const RUNNER_FLAG = 'HBX_CADENCIA_RUNNER_ENABLED';
 
-// F1 — e-mail REAL da cadencia atras de flag propria (default OFF). Duplo gate:
-// so envia se HBX_CADENCIA_RUNNER_ENABLED (runner) E HBX_CADENCIA_EMAIL_ENABLED
-// estiverem ON. Com OFF, o passo de e-mail so grava timeline (comportamento de hoje).
+// E-mail automático da cadência atrás de flag própria (default OFF). Em produção
+// o passo entra na outbox durável; o worker possui kill-switch independente.
 const EMAIL_FLAG = 'HBX_CADENCIA_EMAIL_ENABLED';
 
 // Teto DURO de passos de WhatsApp disparados por empresa/dia pelo runner de
@@ -70,6 +70,7 @@ export class CadenciaService {
     private readonly conversations: ConversationsService,
     private readonly atividades: AtividadesService,
     private readonly mailer: CompanyMailerService,
+    @Optional() private readonly emailOutbox?: EmailOutboxService,
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
   }
@@ -319,7 +320,21 @@ export class CadenciaService {
     this.assertCanManage(context);
     const where: Record<string, any> = { cadenciaId: String(cadenciaId || '').trim(), companyId: context.companyId, status: 'ativa' };
     if (leadId) where.leadId = String(leadId).trim();
+    const affected = await (this.prisma as any).cadenciaInscricao.findMany({
+      where,
+      select: { id: true },
+      take: 500,
+    });
     const res = await (this.prisma as any).cadenciaInscricao.updateMany({ where, data: { status: 'cancelada' } });
+    for (const row of affected || []) {
+      await this.commercialContactControl.finishAutomationEnrollment({
+        companyId: context.companyId,
+        legacySource: 'cadencia_inscricao',
+        legacyExecutionId: String(row.id),
+        status: 'canceled',
+        reason: 'canceled_by_user',
+      });
+    }
     return { ok: true, canceladas: res?.count ?? 0 };
   }
 
@@ -376,6 +391,7 @@ export class CadenciaService {
       leadId: string;
       responsavelId: number | null;
       currentStep: number;
+      nextStepAt: Date;
     }>;
 
     let executed = 0;
@@ -387,6 +403,7 @@ export class CadenciaService {
     const emailSentByCompany = new Map<number, number>();
 
     for (const insc of due) {
+      let activeStepRunId: string | null = null;
       try {
         if (!(await this.commercialContactControl.canCadenciaRun({
           companyId: insc.companyId,
@@ -401,6 +418,13 @@ export class CadenciaService {
             where: { id: insc.id, status: 'ativa' },
             data: { status: 'pausada' },
           });
+          await this.commercialContactControl.finishAutomationEnrollment({
+            companyId: insc.companyId,
+            legacySource: 'cadencia_inscricao',
+            legacyExecutionId: insc.id,
+            status: 'paused',
+            reason: 'cadence_definition_inactive',
+          });
           continue;
         }
         const passos = this.parsePassos(cadencia.passosJson);
@@ -410,6 +434,13 @@ export class CadenciaService {
             data: { status: 'concluida' },
           });
           concluded += Number(result?.count || 0);
+          await this.commercialContactControl.finishAutomationEnrollment({
+            companyId: insc.companyId,
+            legacySource: 'cadencia_inscricao',
+            legacyExecutionId: insc.id,
+            status: 'completed',
+            reason: 'all_steps_completed',
+          });
           continue;
         }
         const passo = passos[insc.currentStep];
@@ -421,34 +452,77 @@ export class CadenciaService {
         const emailAlreadyToday = emailSentByCompany.get(insc.companyId) ?? 0;
         const emailCapReached = passo.canal === 'email' && this.emailEnabled && emailAlreadyToday >= CADENCIA_EMAIL_DAILY_CAP_PER_COMPANY;
 
-        if (passo.canal === 'whats' && !whatsCapReached) {
-          const sent = await this.executeWhatsStep(insc, cadencia, passo);
-          if (sent) {
-            whatsSent += 1;
-            whatsSentByCompany.set(insc.companyId, alreadyToday + 1);
-          }
-        } else if (passo.canal === 'whats' && whatsCapReached) {
+        if (passo.canal === 'whats' && whatsCapReached) {
           // Teto de chip atingido: NAO dispara, adia 1 dia (nunca fura o teto).
           await (this.prisma as any).cadenciaInscricao.updateMany({
             where: { id: insc.id, status: 'ativa' },
             data: { nextStepAt: this.addDays(now, 1), lastError: 'whats_daily_cap_deferred' },
           });
           continue;
-        } else if (passo.canal === 'email' && emailCapReached) {
+        }
+        if (passo.canal === 'email' && emailCapReached) {
           // Teto de e-mail atingido: NAO envia, adia 1 dia (mesmo padrao do WhatsApp).
           await (this.prisma as any).cadenciaInscricao.updateMany({
             where: { id: insc.id, status: 'ativa' },
             data: { nextStepAt: this.addDays(now, 1), lastError: 'email_daily_cap_deferred' },
           });
           continue;
-        } else if (passo.canal === 'email') {
-          const sent = await this.executeEmailStep(insc, cadencia, passo);
-          if (sent) {
-            emailSent += 1;
-            emailSentByCompany.set(insc.companyId, emailAlreadyToday + 1);
+        }
+
+        // Claim durável por passo: duas réplicas podem ler a mesma inscrição,
+        // mas somente uma muda scheduled -> claimed. Se a outbox já foi criada
+        // antes de um crash, a réplica seguinte apenas avança a inscrição.
+        const automationStep = await this.commercialContactControl.claimCadenciaStep({
+          companyId: insc.companyId,
+          leadId: insc.leadId,
+          cadenciaId: insc.cadenciaId,
+          inscricaoId: insc.id,
+          currentStep: insc.currentStep,
+          channel: passo.canal,
+          scheduledAt: insc.nextStepAt,
+          snapshot: { cadenciaNome: cadencia.nome, passo },
+        });
+        activeStepRunId = automationStep.stepRunId;
+        if (automationStep.supported && !automationStep.claimed && !automationStep.alreadyExecuted) {
+          continue;
+        }
+
+        if (!automationStep.alreadyExecuted) {
+          if (passo.canal === 'whats') {
+            const sent = await this.executeWhatsStep(insc, cadencia, passo, activeStepRunId);
+            if (sent) {
+              whatsSent += 1;
+              whatsSentByCompany.set(insc.companyId, alreadyToday + 1);
+            } else {
+              await this.commercialContactControl.completeAutomationStep({
+                companyId: insc.companyId,
+                stepRunId: activeStepRunId,
+                status: 'skipped',
+                errorCode: 'whatsapp_step_not_queued',
+              });
+            }
+          } else if (passo.canal === 'email') {
+            const queued = await this.executeEmailStep(insc, cadencia, passo, activeStepRunId);
+            if (queued) {
+              emailSent += 1;
+              emailSentByCompany.set(insc.companyId, emailAlreadyToday + 1);
+            }
+            if (!queued) {
+              await this.commercialContactControl.completeAutomationStep({
+                companyId: insc.companyId,
+                stepRunId: activeStepRunId,
+                status: 'skipped',
+                errorCode: 'email_action_not_dispatched',
+              });
+            }
+          } else if (passo.canal === 'atividade') {
+            await this.executeAtividadeStep(insc, cadencia, passo);
+            await this.commercialContactControl.completeAutomationStep({
+              companyId: insc.companyId,
+              stepRunId: activeStepRunId,
+              status: 'succeeded',
+            });
           }
-        } else if (passo.canal === 'atividade') {
-          await this.executeAtividadeStep(insc, cadencia, passo);
         }
 
         // Um inbound pode ter cancelado a inscricao enquanto o passo executava.
@@ -470,21 +544,47 @@ export class CadenciaService {
             data: { currentStep: nextStep, status: 'concluida', lastStepAt: now, lastError: null },
           });
           concluded += Number(result?.count || 0);
+          if (Number(result?.count || 0) > 0) {
+            await this.commercialContactControl.finishAutomationEnrollment({
+              companyId: insc.companyId,
+              legacySource: 'cadencia_inscricao',
+              legacyExecutionId: insc.id,
+              status: 'completed',
+              reason: 'all_steps_completed',
+            });
+          }
         } else {
           const deltaDias = Math.max(0, (passos[nextStep].dia ?? 0) - (passo.dia ?? 0));
-          await (this.prisma as any).cadenciaInscricao.updateMany({
+          const nextStepAt = this.addDays(now, deltaDias);
+          const advanced = await (this.prisma as any).cadenciaInscricao.updateMany({
             where: { id: insc.id, status: 'ativa' },
             data: {
               currentStep: nextStep,
-              nextStepAt: this.addDays(now, deltaDias),
+              nextStepAt,
               lastStepAt: now,
               lastError: null,
             },
           });
+          if (Number(advanced?.count || 0) > 0) {
+            await this.commercialContactControl.advanceAutomationEnrollment({
+              companyId: insc.companyId,
+              legacySource: 'cadencia_inscricao',
+              legacyExecutionId: insc.id,
+              currentStep: nextStep,
+              nextStepAt,
+            });
+          }
         }
         executed += 1;
       } catch (error: any) {
         failed += 1;
+        await this.commercialContactControl.completeAutomationStep({
+          companyId: insc.companyId,
+          stepRunId: activeStepRunId,
+          status: 'scheduled',
+          errorCode: 'cadence_step_failed',
+          errorMessage: String(error?.message || error),
+        }).catch(() => null);
         this.logger.warn(`[cadencia-runner] falha inscricao=${insc.id}: ${String(error?.message || error)}`);
         await (this.prisma as any).cadenciaInscricao
           .updateMany({
@@ -503,6 +603,7 @@ export class CadenciaService {
     insc: { id: string; companyId: number; leadId: string },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
+    automationStepRunId?: string | null,
   ): Promise<boolean> {
     if (!(await this.commercialContactControl.canCadenciaRun({
       companyId: insc.companyId,
@@ -539,15 +640,16 @@ export class CadenciaService {
         cadenciaInscricaoId: insc.id,
         leadId: lead!.id,
         step: passo.dia,
+        automationStepRunId: automationStepRunId || null,
       },
+      automationStepRunId: automationStepRunId || undefined,
       flowState: { botActive: true, humanAssigned: false, flowResult: null },
     });
     return true;
   }
 
-  // E-mail REAL (F1): envia pelo remetente do PROPRIO tenant via CompanyMailerService,
-  // atras da flag HBX_CADENCIA_EMAIL_ENABLED (default OFF). Best-effort — NUNCA lanca,
-  // NUNCA trava a cadencia. Retorna true SO quando um e-mail saiu de fato (pro teto contar).
+  // E-mail automático: enfileira pelo remetente do próprio tenant, atrás da flag
+  // HBX_CADENCIA_EMAIL_ENABLED. Retorna true quando a outbox aceitou o passo.
   //  - flag OFF            -> comportamento de hoje: so grava timeline, zero envio.
   //  - lead sem e-mail     -> no-op (igual WhatsApp sem telefone): so timeline.
   //  - passo sem corpo     -> no-op: so timeline (igual WhatsApp sem body).
@@ -557,6 +659,7 @@ export class CadenciaService {
     insc: { leadId: string; companyId: number },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
+    automationStepRunId?: string | null,
   ): Promise<boolean> {
     // Flag OFF: comportamento de hoje (so timeline "cadencia_email", zero envio).
     if (!this.emailEnabled) {
@@ -585,6 +688,24 @@ export class CadenciaService {
       return false;
     }
 
+    if (this.emailOutbox) {
+      await this.emailOutbox.enqueue({
+        companyId: insc.companyId,
+        leadId: insc.leadId,
+        automationStepRunId: automationStepRunId || null,
+        recipient: to,
+        subject,
+        bodyText: body,
+        sourceModule: 'cadencia_email',
+        purpose: 'commercial_contact',
+        idempotencyKey: automationStepRunId || `cadencia:${cadencia.id}:${insc.leadId}:${passo.dia}`,
+        metadata: { cadenciaId: cadencia.id, passoDia: passo.dia },
+      });
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, `E-mail para ${to} entrou na fila de Automação.`);
+      return true;
+    }
+
+    // Compatibilidade para testes unitários que constroem o service sem o módulo.
     try {
       const result = await this.mailer.sendForCompany(insc.companyId, { to, subject, text: body });
       if (result.ok) {

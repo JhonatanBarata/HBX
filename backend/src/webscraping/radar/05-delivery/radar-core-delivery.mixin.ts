@@ -3240,7 +3240,7 @@ export class RadarCoreDeliveryMixin {
    * resposta da entrega. `RadarPostDeliveryAiSaneamentoService.enqueue` já é no-op se a flag
    * `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default) — chamada sempre segura.
    * `companyId` (CRÉDITO UNIVERSAL, PR11072026): empresa dona da importação, já validada por
-   * `resolveContext` no caller — repassado só como medição `ai_batch`, nunca inventado.
+   * `resolveContext` no caller — repassado como ação `ai_batch`, nunca inventado.
    */
   private enqueueRadarPostDeliveryAiSaneamento(row: any, companyId?: number | null) {
     const radarLeadId = String(row?.id || '').trim();
@@ -3541,7 +3541,7 @@ export class RadarCoreDeliveryMixin {
     // igual ao padrão L4/web-enrichment desta mesma função) — nunca atrasa nem falha a
     // entrega. No-op silencioso se `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default).
     // companyId REAL da importação (context.companyId, validado por resolveContext) — vira
-    // medição ai_batch (CRÉDITO UNIVERSAL, PR11072026).
+    // autorização da ação ai_batch.
     this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
     // NÚCLEO-CRM N2 — materializa Conta(PJ)+Contato(dono) na espinha a partir do CNPJ do lead
     // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`

@@ -103,9 +103,8 @@ type GlobalConfig = {
   dailyDeliveryCapDefault?: number;
 };
 
-// PR11072026 W1 — catálogo de AÇÕES metradas pelo crédito (base em código + overlay
-// editável aqui). `lead_delivery` é SÓ LEITURA (cobrança fixa no caminho de entrega do lead).
-type CreditActionMode = "free" | "track" | "debit";
+// Catálogo de ações: todas são editáveis e só existem os modos Grátis/Débito.
+type CreditActionMode = "free" | "debit";
 
 type CreditActionItem = {
   actionKey: string;
@@ -117,8 +116,7 @@ type CreditActionItem = {
 
 const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
   { value: "free", label: "Grátis" },
-  { value: "track", label: "Medir" },
-  { value: "debit", label: "Debitar" },
+  { value: "debit", label: "Débito" },
 ];
 
 function toForm(p: CreditPack | null): PackForm {
@@ -336,7 +334,8 @@ export function JanelaCreditos({ companies, reload }: {
     if (actionBusyKey) return;
     const form = actionForms[actionKey];
     const cost = Number(form?.cost);
-    if (!Number.isInteger(cost) || cost < 1) { setActionMsg("Custo deve ser um número inteiro >= 1."); return; }
+    if (!Number.isFinite(cost) || cost < 0 || cost > 1000) { setActionMsg("Custo deve ficar entre 0 e 1000 créditos."); return; }
+    if (form.mode === "debit" && cost <= 0) { setActionMsg("Ação em Débito precisa ter custo maior que zero."); return; }
     setActionBusyKey(actionKey);
     setActionMsg(null);
     try {
@@ -726,7 +725,7 @@ export function JanelaCreditos({ companies, reload }: {
         <section className="panel">
           <div className="panel-head">
             <h2>Catálogo de ações</h2>
-            <div className="meta">1 crédito = 1 unidade medida</div>
+            <div className="meta">Custos por uso · até 3 casas decimais</div>
           </div>
           {actionsLoadError && <div className="sc-intro"><div className="sc-msg is-warn">{actionsLoadError}</div></div>}
           {actionMsg && <div className="sc-intro"><div className={"sc-msg " + (actionMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{actionMsg}</div></div>}
@@ -744,7 +743,6 @@ export function JanelaCreditos({ companies, reload }: {
                 )}
                 {(actions || []).map(a => {
                   const isLead = a.actionKey === "lead_delivery";
-                  const isWhatsapp = a.actionKey === "whatsapp_auto_send";
                   const form = actionForms[a.actionKey] || { mode: a.effective.mode, cost: String(a.effective.cost) };
                   const busy = actionBusyKey === a.actionKey;
                   return (
@@ -756,37 +754,26 @@ export function JanelaCreditos({ companies, reload }: {
                         </div>
                       </td>
                       <td>
-                        {isLead ? (
-                          <span className="tag">{a.effective.mode}</span>
-                        ) : (
-                          <select className="field-dark" value={form.mode}
-                            onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, mode: e.target.value as CreditActionMode } }))}>
-                            {MODE_OPTIONS.filter(o => !(isWhatsapp && o.value === "debit")).map(o => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </select>
-                        )}
+                        <select className="field-dark" value={form.mode}
+                          onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, mode: e.target.value as CreditActionMode, cost: e.target.value === "free" ? "0" : form.cost } }))}>
+                          {MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
                       </td>
                       <td>
-                        {isLead ? (
-                          <span>{a.effective.cost}</span>
-                        ) : (
-                          <input className="field-dark" style={{ maxWidth: 80 }} inputMode="numeric" value={form.cost}
-                            onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, cost: e.target.value } }))} />
-                        )}
+                        <input className="field-dark" style={{ maxWidth: 96 }} type="number" min={0} max={1000} step={0.1}
+                          disabled={form.mode === "free"} value={form.mode === "free" ? "0" : form.cost}
+                          onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, cost: e.target.value } }))} />
                       </td>
                       <td>
                         <span className={a.override ? "tag teal" : "tag"}>{a.override ? "editado" : "padrão"}</span>
                       </td>
                       <td>
-                        {!isLead && (
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
-                              onClick={() => salvarAcao(a.actionKey)}>{busy ? "…" : "Salvar"}</button>
-                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !a.override}
-                              onClick={() => restaurarAcao(a.actionKey)}>Restaurar padrão</button>
-                          </div>
-                        )}
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
+                            onClick={() => salvarAcao(a.actionKey)}>{busy ? "…" : "Salvar"}</button>
+                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !a.override}
+                            onClick={() => restaurarAcao(a.actionKey)}>Restaurar padrão</button>
+                        </div>
                       </td>
                     </tr>
                   );

@@ -310,8 +310,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
           <section className="lead-detail-col lead-detail-col--center">
             {copilotoEnabled && (
               <CopilotoPanel
-                phone={lead.phone || null}
-                name={lead.name}
+                leadId={lead.id}
                 ficha={{
                   nome: lead.name,
                   razaoSocial: lead.razaoSocial,

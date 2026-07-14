@@ -377,6 +377,29 @@ test('cancelQueuedJobsAfterSearchChange archives stale pending automation jobs',
   assert.ok(jobUpdateManyCalls[0].data.archivedAt instanceof Date);
 });
 
+test('triagem permite armar somente para dono ou gerente com checklist completo', () => {
+  const { service } = createService();
+  const readyCampaign = buildCampaign({ optOutMessage: 'Se preferir, não envio mais mensagens.' });
+
+  assert.doesNotThrow(() => service.assertCanArmProspecting({ role: 'ADMIN' }, readyCampaign));
+  assert.doesNotThrow(() => service.assertCanArmProspecting({ role: 'USERMASTER' }, readyCampaign));
+  assert.doesNotThrow(() => service.assertCanArmProspecting({ role: 'USER', isSystemMaster: true }, readyCampaign));
+  assert.throws(
+    () => service.assertCanArmProspecting({ role: 'USER' }, readyCampaign),
+    /Só o dono\/gerente pode configurar ou ligar a prospecção automática/,
+  );
+});
+
+test('triagem permanece fail-closed quando falta configuração mínima', () => {
+  const { service } = createService();
+  const incompleteCampaign = buildCampaign({ messageTemplate: '', optOutMessage: null, dailyLimit: 0 });
+
+  assert.throws(
+    () => service.assertCanArmProspecting({ role: 'ADMIN' }, incompleteCampaign),
+    /Triagem incompleta: configure mensagem de abordagem, mensagem de saída \(opt-out\), limite diário de envios/,
+  );
+});
+
 test('processDueJob sends segment mismatch lead with safe generic fallback when first contact was never sent', async () => {
   const { service, queueCalls, jobUpdateManyCalls, stateCalls, events } = createService({ conversationMetadata: {} });
 

@@ -666,10 +666,12 @@ test('reversePurchase: NÃO é revertível por refund (movimento purchase_revers
   assert.equal(await service.getBalance(1), 0);
 });
 
-test('reversePurchase: validações — amount não-inteiro/<=0 e usageKey vazia lançam', async () => {
+test('reversePurchase: aceita fração; amount <=0 e usageKey vazia lançam', async () => {
   const { service } = buildService();
-  await assert.rejects(() => service.reversePurchase(1, { amount: 0, usageKey: 'k' }), /inteiro positivo/);
-  await assert.rejects(() => service.reversePurchase(1, { amount: 1.5, usageKey: 'k' }), /inteiro positivo/);
+  await assert.rejects(() => service.reversePurchase(1, { amount: 0, usageKey: 'k' }), /positivo/);
+  await service.grant(1, 2, { kind: 'grant' });
+  const fractional = await service.reversePurchase(1, { amount: 1.5, usageKey: 'fractional' });
+  assert.equal(fractional.reversed, 1.5);
   await assert.rejects(() => service.reversePurchase(1, { amount: 3, usageKey: '  ' }), /usageKey/);
 });
 

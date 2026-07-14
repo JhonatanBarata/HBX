@@ -236,6 +236,9 @@ model Company {
   deletionRecords      DeletionRecord[]
   whatsappAuditLogs    WhatsAppAuditLog[]
   hbxRecoveryCustomers HbxRecoveryCustomer[]
+  recoveryDebtItems RecoveryDebtItem[]
+  recoveryDebtAllocations RecoveryDebtAllocation[]
+  recoveryAutomationStepRuns RecoveryAutomationStepRun[]
   hbxRecoveryFlowStages HbxRecoveryFlowStage[]
   hbxRecoveryPayments  HbxRecoveryPayment[]
   financeiroCharges    FinanceiroCharge[]
@@ -274,6 +277,11 @@ model Company {
   salesProfiles       SalesProfile[]
   vendasAutomationCampaigns VendasAutomationCampaign[]
   vendasAutomationJobs VendasAutomationJob[]
+  automationEnrollments AutomationEnrollment[]
+  automationStepRuns AutomationStepRun[]
+  automationLedgerEvents AutomationLedgerEvent[]
+  conversationAssistantRuns ConversationAssistantRun[]
+  emailOutboundMessages EmailOutboundMessage[]
   commercialEntitlements CompanyCommercialEntitlement[]
   commercialUsageLogs CompanyCommercialUsageLog[]
   vendasCardComplaints VendasCardComplaint[]
@@ -607,6 +615,8 @@ model HbxRecoveryCustomer {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   payments            HbxRecoveryPayment[]
+  debtItems           RecoveryDebtItem[]
+  automationStepRuns  RecoveryAutomationStepRun[]
 
   @@index([companyId, status])
   @@index([companyId, openAmount])
@@ -649,6 +659,7 @@ model HbxRecoveryPayment {
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
   events                 HbxRecoveryPaymentEvent[]
+  debtAllocations        RecoveryDebtAllocation[]
 
   @@index([companyId, createdAt])
   @@index([companyId, lifecycle, createdAt])
@@ -717,6 +728,7 @@ model FinanceiroCharge {
   entregaId         String?  // idempotência da cobrança por entrega (avulso/na_hora/pendura)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  recoveryDebtItem RecoveryDebtItem?
 
   @@index([companyId, createdAt])
   @@index([companyId, lifecycle, createdAt])
@@ -731,6 +743,69 @@ model FinanceiroCharge {
   @@index([companyId, entregaId])
 }
 
+// Gancho canônico Cliente × Produto × Financeiro do Recovery. Uma cobrança
+// financeira vira no máximo um item, mantendo a origem e os produtos entregues.
+model RecoveryDebtItem {
+  id                    String   @id @default(cuid())
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId             Int
+  customerProfile       CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId     String
+  recoveryCustomer      HbxRecoveryCustomer? @relation(fields: [recoveryCustomerId], references: [id], onDelete: SetNull)
+  recoveryCustomerId    String?
+  debtCase              DebtCase? @relation(fields: [debtCaseId], references: [id], onDelete: SetNull)
+  debtCaseId             String?
+  financeiroCharge      FinanceiroCharge? @relation(fields: [financeiroChargeId], references: [id], onDelete: SetNull)
+  financeiroChargeId    String?  @unique
+  sourceType            String
+  sourceRefId           String
+  entregaId             String?
+  originalAmount        Float
+  openAmount            Float
+  paidAmount            Float    @default(0)
+  dueDate               DateTime?
+  status                String   @default("open") // open | paid | canceled
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  products              RecoveryDebtItemProduct[]
+  allocations           RecoveryDebtAllocation[]
+
+  @@unique([companyId, sourceType, sourceRefId])
+  @@index([companyId, customerProfileId, status, dueDate])
+  @@index([recoveryCustomerId, status])
+}
+
+model RecoveryDebtItemProduct {
+  id           String   @id @default(cuid())
+  debtItem     RecoveryDebtItem @relation(fields: [debtItemId], references: [id], onDelete: Cascade)
+  debtItemId   String
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId    Int
+  quantity     Int      @default(1)
+  amount       Float?
+  createdAt    DateTime @default(now())
+
+  @@unique([debtItemId, productId])
+  @@index([productId])
+}
+
+model RecoveryDebtAllocation {
+  id             String   @id @default(cuid())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  payment        HbxRecoveryPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  paymentId      String
+  debtItem       RecoveryDebtItem @relation(fields: [debtItemId], references: [id], onDelete: Cascade)
+  debtItemId     String
+  appliedAmount  Float    @default(0)
+  reversedAmount Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([paymentId, debtItemId])
+  @@index([companyId, debtItemId])
+}
+
 model HbxRecoveryFlowStage {
   id        String   @id @default(cuid())
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -743,9 +818,41 @@ model HbxRecoveryFlowStage {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  automationStepRuns RecoveryAutomationStepRun[]
 
   @@index([companyId, sortOrder])
   @@index([companyId, enabled])
+}
+
+// Execução durável das etapas do Recovery. A chave inclui o vencimento que
+// abriu o ciclo, permitindo uma nova cadência quando surgir uma dívida futura.
+model RecoveryAutomationStepRun {
+  id             String   @id @default(cuid())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  customer       HbxRecoveryCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customerId     String
+  stage          HbxRecoveryFlowStage @relation(fields: [stageId], references: [id], onDelete: Cascade)
+  stageId        String
+  cycleKey       String
+  channel        String
+  dueAt          DateTime
+  status         String   @default("pending") // pending | processing | queued | sent | failed | canceled | unknown
+  attempts       Int      @default(0)
+  leaseUntil     DateTime?
+  outboundMessageId Int?
+  emailOutboundMessage EmailOutboundMessage?
+  sentAt         DateTime?
+  canceledAt     DateTime?
+  cancelReason   String?
+  lastErrorCode  String?
+  lastErrorMessage String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([companyId, customerId, stageId, cycleKey])
+  @@index([status, dueAt])
+  @@index([companyId, customerId, status])
 }
 
 model CompanyConversation {
@@ -754,6 +861,8 @@ model CompanyConversation {
   companyId     Int
   vendasLead    VendasLead? @relation(fields: [vendasLeadId], references: [id], onDelete: SetNull)
   vendasLeadId  String?
+  customerProfile CustomerProfile? @relation(fields: [customerProfileId], references: [id], onDelete: SetNull)
+  customerProfileId String?
   vendasLeadLinkedAt DateTime?
   vendasLeadLinkSource String?
   whatsappConnectionSession WhatsAppConnectionSession? @relation(fields: [whatsappConnectionSessionId], references: [id], onDelete: SetNull)
@@ -762,7 +871,7 @@ model CompanyConversation {
   sourceTenantKey String?
   channel       String   @default("whatsapp")
   contact       String
-  currentFlow   String   @default("cobranca_recovery")
+  currentFlow   String   @default("atendimento")
   currentStep   String   @default("novo")
   flowResult    String?
   botActive     Boolean  @default(false)
@@ -777,9 +886,11 @@ model CompanyConversation {
   messages CompanyMessage[]
   atendimentoAppointments AtendimentoAppointment[]
   hbxSupportTickets HbxSupportTicket[]
+  assistantRuns ConversationAssistantRun[]
 
   @@unique([companyId, channel, contact, whatsappConnectionSessionId])
   @@index([companyId, vendasLeadId])
+  @@index([companyId, customerProfileId])
   @@index([companyId, channel, contact])
   @@index([companyId, whatsappConnectionSessionId])
   @@index([companyId, lastMessageAt])
@@ -1045,6 +1156,8 @@ model CustomerProfile {
   locais               LocalEntrega[]
   // NÚCLEO-CRM R2 (05/07) — cobranças linkadas a este cliente (extrato/fechar-mês).
   financeiroCharges    FinanceiroCharge[]
+  recoveryDebtItems    RecoveryDebtItem[]
+  conversations        CompanyConversation[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
@@ -1641,6 +1754,7 @@ model DebtCase {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   payments           HbxRecoveryPayment[]
+  recoveryDebtItems  RecoveryDebtItem[]
 
   @@index([companyId, customerProfileId])
   @@index([companyId, status])
@@ -3422,6 +3536,10 @@ model VendasLead {
   conversations     CompanyConversation[]
   cockpitState      VendasLeadCockpitState?
   automationJobs    VendasAutomationJob[]
+  automationEnrollments AutomationEnrollment[]
+  automationStepRuns AutomationStepRun[]
+  automationLedgerEvents AutomationLedgerEvent[]
+  emailOutboundMessages EmailOutboundMessage[]
   radarCompanyStates RadarLeadCompanyState[]
   commissionReceivables VendasCommissionReceivable[]
   atividades        Atividade[]
@@ -3687,6 +3805,112 @@ model VendasAutomationJob {
   @@index([campaignId, status, scheduledAt])
   @@index([leadId, status])
   @@index([conversationId])
+}
+
+// Fase 3 — execução canônica das automações comerciais. Campanha e Cadência
+// continuam sendo as definições; este modelo representa a inscrição operacional
+// e conserva um snapshot do que estava aprovado quando ela começou.
+model AutomationEnrollment {
+  id                     String   @id @default(cuid())
+  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId              Int
+  lead                   VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId                 String
+  definitionKind         String   // prospecting_campaign | cadence
+  definitionId           String
+  definitionSnapshotJson String?
+  legacySource           String?
+  legacyExecutionId      String?
+  status                 String   @default("active") // active | paused | completed | canceled | failed
+  // "commercial" enquanto ativa/pausada; null em estado terminal. A unique
+  // abaixo garante no banco somente uma automação comercial por lead.
+  activeCommercialSlot   String?
+  currentStep            Int      @default(0)
+  nextStepAt             DateTime?
+  startedAt              DateTime @default(now())
+  pausedAt               DateTime?
+  completedAt            DateTime?
+  canceledAt             DateTime?
+  stopReason             String?
+  lastError              String?
+  version                Int      @default(1)
+  metadataJson           String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  stepRuns               AutomationStepRun[]
+  ledgerEvents           AutomationLedgerEvent[]
+
+  @@unique([companyId, leadId, activeCommercialSlot])
+  @@index([companyId, definitionKind, definitionId, leadId])
+  @@index([companyId, status, nextStepAt])
+  @@index([leadId, status])
+}
+
+// Uma tentativa lógica de passo. Retry físico continua em OutboundAttempt; o
+// mesmo passo nunca cria outra mensagem apenas porque o provedor será tentado de
+// novo. leaseUntil permite claim atômico e recuperação entre réplicas.
+model AutomationStepRun {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  lead              VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId            String
+  enrollment        AutomationEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  enrollmentId      String
+  stepKey            String
+  sequence           Int      @default(0)
+  attemptNumber      Int      @default(1)
+  channel            String
+  purpose            String   @default("commercial_contact")
+  status             String   @default("scheduled") // scheduled | claimed | queued | dispatching | succeeded | failed | canceled | skipped
+  idempotencyKey     String
+  scheduledAt        DateTime?
+  claimedAt          DateTime?
+  leaseUntil         DateTime?
+  queuedAt           DateTime?
+  completedAt        DateTime?
+  canceledAt         DateTime?
+  outboundMessage    OutboundMessage? @relation(fields: [outboundMessageId], references: [id], onDelete: SetNull)
+  outboundMessageId  Int?     @unique
+  emailOutboundMessage EmailOutboundMessage?
+  errorCode          String?
+  errorMessage       String?
+  metadataJson       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  ledgerEvents       AutomationLedgerEvent[]
+
+  @@unique([companyId, idempotencyKey])
+  @@unique([enrollmentId, stepKey, attemptNumber])
+  @@index([companyId, status, scheduledAt])
+  @@index([enrollmentId, status])
+}
+
+// Trilha técnica append-only. Não substitui a timeline comercial do vendedor e
+// não armazena corpo integral da mensagem nem payload bruto do provedor.
+model AutomationLedgerEvent {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  lead            VendasLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId          String
+  enrollment      AutomationEnrollment? @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  enrollmentId    String?
+  stepRun         AutomationStepRun? @relation(fields: [stepRunId], references: [id], onDelete: SetNull)
+  stepRunId       String?
+  eventType       String
+  source          String
+  statusFrom      String?
+  statusTo        String?
+  idempotencyKey  String
+  occurredAt      DateTime @default(now())
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, leadId, occurredAt])
+  @@index([enrollmentId, occurredAt])
+  @@index([stepRunId, occurredAt])
 }
 
 // ================================================================
@@ -4240,6 +4464,7 @@ model Product {
   entregas    Entrega[]
   clienteProdutos ClienteProduto[]
   entregaItens EntregaItem[]
+  recoveryDebtItemProducts RecoveryDebtItemProduct[]
 
   @@index([companyId, status, sortOrder])
   @@index([companyId, kind, status])
@@ -4319,6 +4544,7 @@ model OutboundMessage {
   attempts      OutboundAttempt[]
 
   message CompanyMessage? @relation("OutboundMessageMessage")
+  automationStepRun AutomationStepRun?
 
   @@index([companyId, whatsappEndpointId, nextAttemptAt])
 }
@@ -4661,7 +4887,31 @@ model AssistenteConfig {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([companyId, updatedAt])
+  @@unique([companyId])
+}
+
+// Claim idempotente de uma resposta conversacional da assistente. Não ocupa o
+// slot comercial e não é uma inscrição de automação proativa.
+model ConversationAssistantRun {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  conversation      CompanyConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId    Int
+  inboundMessageId  Int
+  outboundMessageId Int?
+  vendasLeadId      String?
+  status            String   @default("claimed") // claimed | queued | failed | skipped
+  publicNameSnapshot String?
+  responseSource    String?
+  errorCode         String?
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([companyId, inboundMessageId])
+  @@index([companyId, conversationId, createdAt])
+  @@index([outboundMessageId])
 }
 
 model GmailConnection {
@@ -4884,7 +5134,7 @@ model CreditWallet {
   // carteira (o saldo continua 100% derivado do ledger append-only) — de propósito: o choke de
   // entrega é caminho quente e precisa de uma leitura barata (1 coluna), não de um Σ do ledger a
   // cada lead. O RASTRO append-only vive no ledger (kind='chargeback_debt' / 'chargeback_settlement').
-  chargebackDebtCredits Int @default(0)
+  chargebackDebtCredits Decimal @default(0) @db.Decimal(18, 3)
 
   entries CreditLedgerEntry[]
 }
@@ -4905,8 +5155,8 @@ model CreditLedgerEntry {
 
   kind String // grant | recharge | promo (LOTES) · debit | refund | expire | adjust | purchase_reversal | chargeback_debt | chargeback_settlement (movimentos)
 
-  amount    Int // sempre positivo; o `kind` dá o sinal semântico
-  remaining Int @default(0) // SÓ lotes: começa = amount, cai ao consumir. Movimentos ficam 0.
+  amount    Decimal @db.Decimal(18, 3) // sempre positivo; o `kind` dá o sinal semântico
+  remaining Decimal @default(0) @db.Decimal(18, 3) // SÓ lotes: começa = amount, cai ao consumir.
 
   expiresAt  DateTime? // SÓ lotes; null = não expira (concessão manual permanente do master)
   grantType  String? // paid | courtesy_internal | promo (SÓ lotes; alimenta o fiscal no S5)
@@ -4961,19 +5211,65 @@ model CreditGlobalConfig {
   updatedAt                DateTime @updatedAt
 }
 
-// PR11072026 W1 (docs/PLANEJAMENTOS/PR11072026/01-OVERLAY-CATALOGO-ACOES.md) — overlay
-// editável do CATÁLOGO DE AÇÕES metradas pelo crédito (credit-action-catalog.ts). Mesmo
-// padrão EXATO de CreditPackConfig: base em CÓDIGO + override aqui, hidratado no
-// boot/edição (credit-action-config.service.ts) pros getters síncronos do catálogo.
-// `lead_delivery` nunca tem linha aqui (rejeitado no set — cobrança fixa no caminho
-// assert); `whatsapp_auto_send` nunca persiste mode=debit (rejeitado no set). Migration
-// ADITIVA (só esta tabela nova).
+// Configuração editável do catálogo de ações de crédito. Todas as ações podem
+// operar em modo grátis ou débito, com custo decimal definido no Master.
 model CreditActionConfig {
   id         Int      @id @default(autoincrement())
   actionKey  String   @unique
-  configJson String   @default("{}") // { mode: free|track|debit, cost: number }
+  configJson String   @default("{}") // { mode: free|debit, cost: number }
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+// Outbox do e-mail comercial automático. E-mail manual/transacional não passa
+// por aqui. Um passo canônico produz no máximo uma mensagem.
+model EmailOutboundMessage {
+  id                  String   @id @default(cuid())
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId           Int
+  lead                VendasLead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId               String?
+  automationStepRun    AutomationStepRun? @relation(fields: [automationStepRunId], references: [id], onDelete: SetNull)
+  automationStepRunId  String?  @unique
+  recoveryStepRun      RecoveryAutomationStepRun? @relation(fields: [recoveryStepRunId], references: [id], onDelete: SetNull)
+  recoveryStepRunId    String?  @unique
+  requestedByUserId    Int?
+  recipient            String
+  subject              String
+  bodyText             String
+  sourceModule         String
+  purpose              String   @default("commercial_contact")
+  idempotencyKey       String
+  status               String   @default("pending") // pending | processing | sent | failed | canceled | unknown
+  attempts             Int      @default(0)
+  nextAttemptAt        DateTime @default(now())
+  leaseUntil           DateTime?
+  providerMessageId    String?
+  sentAt               DateTime?
+  lastErrorCode        String?
+  lastErrorMessage     String?
+  metadataJson         String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  attemptsLog          EmailOutboundAttempt[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([status, nextAttemptAt])
+  @@index([companyId, leadId, createdAt])
+}
+
+model EmailOutboundAttempt {
+  id               String   @id @default(cuid())
+  outboundMessage  EmailOutboundMessage @relation(fields: [outboundMessageId], references: [id], onDelete: Cascade)
+  outboundMessageId String
+  status           String   @default("started") // started | sent | failed | unknown
+  errorCode        String?
+  errorMessage     String?
+  providerMessageId String?
+  startedAt        DateTime @default(now())
+  finishedAt       DateTime?
+
+  @@index([outboundMessageId, startedAt])
 }
 
 // CONCIERGE IA (Missão F — docs/PLANEJAMENTOS/RELEASE-20X/IA-CONCIERGE-CONTRATO.md §2.1):

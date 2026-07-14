@@ -867,11 +867,21 @@ test('S2 ledger: syncMercadoPagoPayment grava evento approved num ciclo created�
     amount,
     customer: paymentRow.customer,
   });
+  service.reconcilePaymentDebtItems = async () => undefined;
   service.notifyApprovedPayment = async () => undefined;
 
   service.prisma = {
     hbxRecoveryPayment: {
       findFirst: async () => ({ ...paymentRow }),
+      findUniqueOrThrow: async () => ({ ...paymentRow }),
+      updateMany: async ({ where, data }: any) => {
+        if (
+          Number(where.appliedToCustomerAmount) !== Number(paymentRow.appliedToCustomerAmount) ||
+          Number(where.reversedAmount) !== Number(paymentRow.reversedAmount)
+        ) return { count: 0 };
+        Object.assign(paymentRow, data);
+        return { count: 1 };
+      },
       update: async ({ data }: any) => {
         Object.assign(paymentRow, data);
         // Após o update de status, o pagamento passa a refletir 'approved'.
@@ -930,11 +940,21 @@ test('S2 ledger: falha de escrita do evento NÃO derruba o fluxo (fire-and-forge
     amount,
     customer: paymentRow.customer,
   });
+  service.reconcilePaymentDebtItems = async () => undefined;
   service.notifyApprovedPayment = async () => undefined;
 
   service.prisma = {
     hbxRecoveryPayment: {
       findFirst: async () => ({ ...paymentRow }),
+      findUniqueOrThrow: async () => ({ ...paymentRow }),
+      updateMany: async ({ where, data }: any) => {
+        if (
+          Number(where.appliedToCustomerAmount) !== Number(paymentRow.appliedToCustomerAmount) ||
+          Number(where.reversedAmount) !== Number(paymentRow.reversedAmount)
+        ) return { count: 0 };
+        Object.assign(paymentRow, data);
+        return { count: 1 };
+      },
       update: async ({ data }: any) => {
         Object.assign(paymentRow, data);
         return { ...paymentRow };

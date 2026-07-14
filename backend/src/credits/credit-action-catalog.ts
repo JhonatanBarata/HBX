@@ -1,83 +1,60 @@
-// CRÉDITO UNIVERSAL (PR10072026, decisão do dono 10/07 — revoga o D1 do PLANO.md, ver adendo):
-// catálogo de AÇÕES metradas pelo crédito. Mesmo espírito do `credit-pack-catalog.ts` (fonte
-// única em CÓDIGO; overlay editável no /master é fase 2 — pendência registrada no adendo do
-// PLANO.md, não silenciosa). O modelo é TRACK-FIRST: ação nova nasce `track` (mede no ledger
-// como `debit_shadow`, saldo intocado) por ~30 dias; virar `debit` é decisão explícita do dono
-// com o número de uso real na mão — nunca flip silencioso.
-//
-// Modos:
-//  - `free`  → nem mede (zero linha no ledger).
-//  - `track` → mede (linha `debit_shadow` com o actionKey), NUNCA cobra nem bloqueia.
-//  - `debit` → cobra de verdade. ATENÇÃO: ação que precisa BLOQUEAR a entrega sem saldo
-//    (fail-closed ANTES do efeito) NÃO passa pelo meter — usa o caminho assert existente
-//    (`CreditsService.assertAndDebitLeadDelivery`). O meter só debita PÓS-FATO (efeito já
-//    aconteceu; sem saldo → serve o que couber e loga — não há como "desenviar" uma mensagem).
-
-export type CreditActionMode = 'free' | 'track' | 'debit';
+/**
+ * Catálogo canônico das ações que usam créditos.
+ *
+ * A chave antiga `whatsapp_auto_send` foi preservada para não quebrar overrides e
+ * ledger existentes, mas a ação agora representa qualquer Automação (WhatsApp,
+ * e-mail, atendimento, prospecção e recovery). Só existem dois modos públicos:
+ * grátis ou débito. Custos são expressos em créditos com até três casas decimais;
+ * a carteira decimal preserva FIFO, validade, estorno e idempotência.
+ */
+export type CreditActionMode = 'free' | 'debit';
 
 export const CREDIT_ACTION_KEYS = {
   LEAD_DELIVERY: 'lead_delivery',
+  AUTOMATION: 'whatsapp_auto_send',
+  // Alias de compatibilidade para callers antigos.
   WHATSAPP_AUTO_SEND: 'whatsapp_auto_send',
   AI_REALTIME: 'ai_realtime',
   AI_BATCH: 'ai_batch',
-  // `logistica_delivery` é a chave LEGADA de telemetria pós-entrega. Ela
-  // continua track-only para não disputar débito com os dois modos novos.
+  // Cobrança canônica ao iniciar uma entrega. As duas chaves seguintes
+  // preservam os contratos dos modos de rota publicados em paralelo.
   LOGISTICA_DELIVERY: 'logistica_delivery',
   LOGISTICA_ESSENTIAL_BLOCK: 'logistica_essential_block',
   LOGISTICA_TRACKED_DELIVERY: 'logistica_tracked_delivery',
 } as const;
 
-export type CreditActionKey = (typeof CREDIT_ACTION_KEYS)[keyof typeof CREDIT_ACTION_KEYS];
+export type CreditActionKey =
+  | 'lead_delivery'
+  | 'whatsapp_auto_send'
+  | 'ai_realtime'
+  | 'ai_batch'
+  | 'logistica_delivery'
+  | 'logistica_essential_block'
+  | 'logistica_tracked_delivery';
 
 export type CreditActionDefinition = {
   key: CreditActionKey;
   mode: CreditActionMode;
-  /** Custo em créditos por unidade (ledger é Int). Em `track` é o peso MEDIDO, não cobrado. */
+  /** Custo em créditos. Até 3 casas decimais; 0 é válido. */
   cost: number;
   label: string;
 };
 
 const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
-  // Débito real do lead JÁ vive no caminho assert (CommercialUsageLimitsService →
-  // assertAndDebitLeadDelivery, fail-closed antes da entrega). A linha existe aqui pra o
-  // catálogo ser a foto COMPLETA de preço por ação — o meter RECUSA `lead_delivery`
-  // explicitamente (ver CreditMeterService: aceitar criaria um 2º débito real em outro
-  // namespace de usageKey, fora do gate R1 e do god-mode).
-  [CREDIT_ACTION_KEYS.LEAD_DELIVERY]: {
-    key: CREDIT_ACTION_KEYS.LEAD_DELIVERY,
+  lead_delivery: { key: 'lead_delivery', mode: 'debit', cost: 1, label: 'Lead entregue' },
+  whatsapp_auto_send: { key: 'whatsapp_auto_send', mode: 'debit', cost: 0.1, label: 'Automação' },
+  ai_realtime: {
+    key: 'ai_realtime',
     mode: 'debit',
-    cost: 1,
-    label: 'Lead entregue',
+    cost: 0.1,
+    label: 'Chamada de IA em tempo real (inclui Concierge)',
   },
-  // Decisão do dono (10/07): WhatsApp automação NUNCA debita ("ninguém cobra a não ser que
-  // for Meta" — Evolution/Baileys não tem custo por mensagem; só a API oficial da Meta cobra,
-  // e aí se repassa). Fica `track` pra dar número real de uso; humano nem entra (allowlist
-  // por sourceModule no MessagingService).
-  [CREDIT_ACTION_KEYS.WHATSAPP_AUTO_SEND]: {
-    key: CREDIT_ACTION_KEYS.WHATSAPP_AUTO_SEND,
-    mode: 'track',
-    cost: 1,
-    label: 'Mensagem automática de WhatsApp',
-  },
-  // IA local (qwen no Ollama) tem custo marginal ~R$0 → track. IA PAGA futura (API externa)
-  // entra como ação NOVA já `debit` no dia 1 — não flip destas duas.
-  [CREDIT_ACTION_KEYS.AI_REALTIME]: {
-    key: CREDIT_ACTION_KEYS.AI_REALTIME,
-    mode: 'track',
-    cost: 1,
-    label: 'Chamada de IA em tempo real (bot/assistente)',
-  },
-  [CREDIT_ACTION_KEYS.AI_BATCH]: {
-    key: CREDIT_ACTION_KEYS.AI_BATCH,
-    mode: 'track',
-    cost: 1,
-    label: 'Chamada de IA em lote (enriquecimento/notas)',
-  },
-  [CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY]: {
-    key: CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
-    mode: 'track',
-    cost: 1,
-    label: 'Entrega concluída (logística, telemetria legada)',
+  ai_batch: { key: 'ai_batch', mode: 'free', cost: 0, label: 'Chamada de IA em lote (enriquecimento)' },
+  logistica_delivery: {
+    key: 'logistica_delivery',
+    mode: 'debit',
+    cost: 0.2,
+    label: 'Entrega iniciada — Logística',
   },
   [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
@@ -93,75 +70,57 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
   },
 };
 
-// As três chaves de logística têm contrato comercial fixo. Nem escrita direta
-// em CreditActionConfig pode mudar custo/modo: a moeda em reais continua vindo
-// do catálogo de packs do Master, mas as unidades por ação são invariantes.
-const FIXED_LOGISTICS_ACTION_KEYS: ReadonlySet<CreditActionKey> = new Set([
-  CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
-  CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
-  CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
-]);
-
-export function isFixedLogisticsCreditActionKey(value: unknown): boolean {
-  const key = normalizeCreditActionKey(value);
-  return key != null && FIXED_LOGISTICS_ACTION_KEYS.has(key);
-}
+const ACTION_KEYS: CreditActionKey[] = [
+  'lead_delivery',
+  'whatsapp_auto_send',
+  'ai_realtime',
+  'ai_batch',
+  'logistica_delivery',
+  'logistica_essential_block',
+  'logistica_tracked_delivery',
+];
 
 export function normalizeCreditActionKey(value: unknown): CreditActionKey | null {
   const normalized = String(value || '').trim().toLowerCase();
-  const keys = Object.values(CREDIT_ACTION_KEYS) as string[];
-  return keys.includes(normalized) ? (normalized as CreditActionKey) : null;
+  return ACTION_KEYS.includes(normalized as CreditActionKey) ? (normalized as CreditActionKey) : null;
 }
 
 export function listCreditActionKeys(): CreditActionKey[] {
-  return Object.values(CREDIT_ACTION_KEYS) as CreditActionKey[];
+  return [...ACTION_KEYS];
 }
 
-/** Definição BASE (em código, sem overlay) — usada pelo master pra mostrar "padrão" vs "editado". */
 export function getCreditActionBaseDefinition(actionKey: unknown): CreditActionDefinition | null {
   const key = normalizeCreditActionKey(actionKey);
-  if (!key) return null;
-  return { ...CREDIT_ACTION_BASE[key] };
+  return key ? { ...CREDIT_ACTION_BASE[key] } : null;
 }
 
-// ── Overlay editável (PR11072026 W1 — mesmo padrão do commercial-plan-catalog /
-// credit-pack-catalog: base em CÓDIGO + override em memória, hidratado no boot/edição
-// pelo CreditActionConfigService a partir de `CreditActionConfig`). `lead_delivery` NUNCA
-// tem override persistido (rejeitado no set do service) e `whatsapp_auto_send` nunca
-// persiste mode='debit' (idem) — mas o merge aqui é puramente mecânico, defesa em
-// profundidade fica no service (validação no set) e no meter (recusa hardcoded do lead).
-export type CreditActionOverride = {
-  mode?: CreditActionMode;
-  cost?: number;
-};
-
+export type CreditActionOverride = { mode?: CreditActionMode; cost?: number };
 const CREDIT_ACTION_OVERRIDES = new Map<CreditActionKey, CreditActionOverride>();
 
-/** Substitui o overlay inteiro (idempotente — chamado no boot e a cada PUT/DELETE do master). */
+export function normalizeCreditCost(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1000) return null;
+  return Math.round(parsed * 1000) / 1000;
+}
+
+export function creditCostToMilli(value: unknown): number {
+  const normalized = normalizeCreditCost(value);
+  return normalized == null ? 0 : Math.round(normalized * 1000);
+}
+
 export function applyCreditActionOverrides(
   entries: Array<{ actionKey: unknown; override: CreditActionOverride | null | undefined }>,
 ) {
   CREDIT_ACTION_OVERRIDES.clear();
   for (const entry of entries || []) {
     const key = normalizeCreditActionKey(entry?.actionKey);
-    if (!key) continue;
-    if (FIXED_LOGISTICS_ACTION_KEYS.has(key)) continue;
-    const ov = entry?.override;
-    if (!ov || typeof ov !== 'object') continue;
+    const override = entry?.override;
+    if (!key || !override || typeof override !== 'object') continue;
     const clean: CreditActionOverride = {};
-    if (ov.mode === 'free' || ov.mode === 'track' || ov.mode === 'debit') clean.mode = ov.mode;
-    // PARIDADE DE INVARIANTE (revisão 11/07): `whatsapp_auto_send` NUNCA debita (decisão do dono).
-    // O service rejeita mode='debit' no set, mas o merge é a ÚLTIMA linha de defesa contra uma
-    // linha CreditActionConfig injetada FORA do set (escrita direta no banco): dropar o mode aqui
-    // faz o invariante não depender de uma única camada — igual o lead é recusado no meter.
-    if (clean.mode === 'debit' && key === CREDIT_ACTION_KEYS.WHATSAPP_AUTO_SEND) delete clean.mode;
-    if (ov.cost != null && Number.isFinite(Number(ov.cost))) clean.cost = Math.max(1, Math.trunc(Number(ov.cost)));
-    // configJson corrompido/vazio (JSON.parse falhou no service) vira override SEM nenhum
-    // campo válido — não registra: senão getCreditActionOverride devolveria `{}` (objeto
-    // truthy) em vez de null, e a UI do master mostraria "editado" pra uma linha que na
-    // prática nunca teve override real gravado.
-    if (Object.keys(clean).length === 0) continue;
-    CREDIT_ACTION_OVERRIDES.set(key, clean);
+    if (override.mode === 'free' || override.mode === 'debit') clean.mode = override.mode;
+    const cost = normalizeCreditCost(override.cost);
+    if (cost != null) clean.cost = cost;
+    if (Object.keys(clean).length) CREDIT_ACTION_OVERRIDES.set(key, clean);
   }
 }
 
@@ -171,25 +130,19 @@ export function clearCreditActionOverrides() {
 
 export function getCreditActionOverride(actionKey: unknown): CreditActionOverride | null {
   const key = normalizeCreditActionKey(actionKey);
-  if (!key) return null;
-  return CREDIT_ACTION_OVERRIDES.get(key) || null;
+  return key ? CREDIT_ACTION_OVERRIDES.get(key) || null : null;
 }
 
-/** Ação fora do catálogo → null (o meter trata como "não medir", nunca inventa preço).
- * Aplica o overlay (base + override, override ganha) quando houver. */
 export function getCreditActionDefinition(actionKey: unknown): CreditActionDefinition | null {
   const key = normalizeCreditActionKey(actionKey);
   if (!key) return null;
   const base = CREDIT_ACTION_BASE[key];
   const override = CREDIT_ACTION_OVERRIDES.get(key);
-  if (!override) return { ...base };
-  return {
-    ...base,
-    mode: override.mode ?? base.mode,
-    cost: override.cost ?? base.cost,
-  };
+  return override
+    ? { ...base, mode: override.mode ?? base.mode, cost: override.cost ?? base.cost }
+    : { ...base };
 }
 
 export function listCreditActionDefinitions(): CreditActionDefinition[] {
-  return (Object.values(CREDIT_ACTION_KEYS) as CreditActionKey[]).map((key) => getCreditActionDefinition(key)!);
+  return ACTION_KEYS.map((key) => getCreditActionDefinition(key)!);
 }

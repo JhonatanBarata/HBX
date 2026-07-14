@@ -96,6 +96,12 @@ function makeService(opts: {
       const row = inscricoes.find((item) => item.id === inscricaoId);
       return Boolean(row && row.companyId === companyId && row.leadId === leadId && row.status === 'ativa');
     },
+    // Mocks unitários não têm as tabelas da Fase 3; reproduz o modo de
+    // compatibilidade do adaptador real sem desabilitar o runner legado.
+    claimCadenciaStep: async () => ({ supported: false, claimed: true, alreadyExecuted: false, stepRunId: null }),
+    completeAutomationStep: async () => null,
+    finishAutomationEnrollment: async () => null,
+    advanceAutomationEnrollment: async () => null,
   };
 
   return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes };

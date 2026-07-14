@@ -634,61 +634,6 @@ test('getMeForUser sem companyId em contexto recusa (evita 500, nunca vaza saldo
   await assert.rejects(() => service.getMeForUser({ role: 'USER', companyId: 0 }));
 });
 
-// ─── S2 — recordShadowDebit: MEDIÇÃO, sem enforcement ──────────────────────────────────────────
-
-test.beforeEach(() => {
-  process.env.HBX_CREDITS_SHADOW = 'true';
-});
-test.afterEach(() => {
-  delete process.env.HBX_CREDITS_SHADOW;
-});
-
-test('recordShadowDebit: idempotente — mesmo leadId 2x grava 1 entrada só', async () => {
-  const { service, fake } = buildService();
-  await service.recordShadowDebit(1, 42, { leadId: 'lead-abc', actionKey: 'vendas_contact_attempt' });
-  await service.recordShadowDebit(1, 42, { leadId: 'lead-abc', actionKey: 'vendas_contact_attempt' });
-  const entries = await fake.creditLedgerEntry.findMany({ where: { companyId: 1, kind: 'debit_shadow' } });
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].usageKey, 'shadow:vendas_contact_attempt:lead-abc');
-  assert.equal(entries[0].amount, 1);
-  assert.equal(entries[0].remaining, 0);
-  assert.equal(entries[0].actionKey, 'vendas_contact_attempt');
-  assert.equal(entries[0].createdByUserId, 42);
-});
-
-test('recordShadowDebit: leadIds diferentes geram entradas distintas (não é a mesma trava)', async () => {
-  const { service, fake } = buildService();
-  await service.recordShadowDebit(1, 42, { leadId: 'lead-a', actionKey: 'vendas_contact_attempt' });
-  await service.recordShadowDebit(1, 42, { leadId: 'lead-b', actionKey: 'vendas_contact_attempt' });
-  const entries = await fake.creditLedgerEntry.findMany({ where: { companyId: 1, kind: 'debit_shadow' } });
-  assert.equal(entries.length, 2);
-});
-
-test('recordShadowDebit: entrada debit_shadow NÃO afeta getBalance (remaining=0, kind fora do FIFO)', async () => {
-  const { service, wallet } = buildService();
-  await wallet.grant(1, 10, { kind: 'grant' });
-  const before = await wallet.getBalance(1);
-  await service.recordShadowDebit(1, 42, { leadId: 'lead-abc', actionKey: 'vendas_contact_attempt' });
-  const after = await wallet.getBalance(1);
-  assert.equal(before, 10);
-  assert.equal(after, 10);
-});
-
-test('recordShadowDebit: flag HBX_CREDITS_SHADOW OFF -> no-op, nenhuma entrada gravada', async () => {
-  delete process.env.HBX_CREDITS_SHADOW;
-  const { service, fake } = buildService();
-  await service.recordShadowDebit(1, 42, { leadId: 'lead-abc', actionKey: 'vendas_contact_attempt' });
-  const entries = await fake.creditLedgerEntry.findMany({ where: { companyId: 1, kind: 'debit_shadow' } });
-  assert.equal(entries.length, 0);
-});
-
-test('recordShadowDebit: nunca lança (best-effort) mesmo com companyId/leadId/actionKey inválidos', async () => {
-  const { service } = buildService();
-  await assert.doesNotReject(() => service.recordShadowDebit(0, 42, { leadId: 'lead-abc', actionKey: 'x' }));
-  await assert.doesNotReject(() => service.recordShadowDebit(1, 42, { leadId: '', actionKey: 'x' }));
-  await assert.doesNotReject(() => service.recordShadowDebit(1, 42, { leadId: 'lead-abc', actionKey: '' }));
-});
-
 // ─── CRÉDITOS A3 — grantWelcomeBatch: lote grátis de boas-vindas no signup ─────────────────────
 
 test('grantWelcomeBatch: concede o lote default (50 créditos/30d), kind+grantType promo', async () => {
