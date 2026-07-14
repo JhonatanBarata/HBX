@@ -427,7 +427,7 @@ export interface ProdutoOption {
   nome: string;
   unidade: string | null;
   usaLogistica: boolean;
-  precoCatalogo: number | null;
+  precoCatalogo?: number | null;
 }
 
 export function listProdutos(): Promise<ProdutoOption[]> {
@@ -440,7 +440,7 @@ export interface ClienteProduto {
   customerProfileId: string;
   productId: number;
   qtdPadrao: number;
-  precoAcordado: number | null;
+  precoAcordado?: number | null;
   frequenciaDias: number | null;
   diasSemana: string | null;
   proximaData: string | null;
@@ -448,7 +448,7 @@ export interface ClienteProduto {
   // MULTILOCAL 10/07 — "entregar em [local]" (default = local principal do
   // cliente); opcional/fail-soft (backend sem o campo ainda = undefined).
   localId?: string | null;
-  produto: { id: number; nome: string; unidade: string | null; precoCatalogo: number | null } | null;
+  produto: { id: number; nome: string; unidade: string | null; precoCatalogo?: number | null } | null;
 }
 
 export function listClienteProdutos(customerProfileId: string): Promise<ClienteProduto[]> {

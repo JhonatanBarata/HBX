@@ -354,6 +354,16 @@ export class IniciarRotaDto {
 // PATCH parcial da config da empresa: template do aviso + toggles + params de rota.
 // Só campos declarados passam (whitelist). companyId NUNCA vem do body (JWT).
 export class UpdateLogisticaConfigDto {
+  // PR1 — escolha comercial da rota. TRACKED só vira efetivo quando o toggle
+  // do tenant e a flag global estiverem ligados; o serviço aplica os gates.
+  @IsOptional()
+  @IsBoolean()
+  trackingAtivo?: boolean;
+
+  @IsOptional()
+  @IsIn(['ESSENTIAL', 'TRACKED'])
+  modoRotaPadrao?: 'ESSENTIAL' | 'TRACKED';
+
   @IsOptional()
   @IsBoolean()
   avisoWhatsEnabled?: boolean;

@@ -9,6 +9,7 @@ import {
   getCreditActionBaseDefinition,
   getCreditActionDefinition,
   getCreditActionOverride,
+  isFixedLogisticsCreditActionKey,
   listCreditActionKeys,
   normalizeCreditActionKey,
 } from './credit-action-catalog';
@@ -86,7 +87,7 @@ export class CreditActionConfigService implements OnModuleInit {
     };
   }
 
-  /** Catálogo completo (base + overlay), 5 ações, ordem fixa do catálogo em código. */
+  /** Catálogo completo (base + overlay), ordem fixa do catálogo em código. */
   listForMaster(): CreditActionCatalogItem[] {
     return listCreditActionKeys().map((key) => this.toItem(key));
   }
@@ -108,6 +109,10 @@ export class CreditActionConfigService implements OnModuleInit {
 
     if (key === CREDIT_ACTION_KEYS.LEAD_DELIVERY) {
       throw new BadRequestException('lead_delivery não é editável — cobrança fixa no caminho de entrega do lead');
+    }
+
+    if (isFixedLogisticsCreditActionKey(key)) {
+      throw new BadRequestException(`${key} não é editável — contrato fixo da logística`);
     }
 
     const modeInput = patch?.mode;

@@ -765,3 +765,160 @@ test('parseDateOrNull: entrada vazia/lixo → null (contrato preservado)', () =>
   assert.equal(parseDateOrNull(undefined), null);
   assert.equal(parseDateOrNull('abc'), null);
 });
+
+function assertNoRecurrencePrices(value: unknown, path = 'response'): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoRecurrencePrices(item, `${path}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, nested] of Object.entries(value)) {
+    assert.equal(
+      key === 'precoAcordado' || key === 'precoCatalogo' || key === 'price' || key === 'priceCents',
+      false,
+      `chave de preço ${path}.${key} deve estar ausente`,
+    );
+    assertNoRecurrencePrices(nested, `${path}.${key}`);
+  }
+}
+
+const GERENTE_SEM_COBRANCA = {
+  id: 9,
+  companyId: 7,
+  role: 'ADMIN',
+  canViewBilling: false,
+};
+
+test('listProdutos: ator sem cobrança não consulta nem serializa preço do catálogo', async () => {
+  let query: any;
+  const prisma: any = {
+    product: {
+      findMany: async (args: any) => {
+        query = args;
+        return [
+          {
+            id: 10,
+            name: 'Galão',
+            unidade: 'un',
+            usaLogistica: true,
+            price: 20,
+            priceCents: 2000,
+          },
+        ];
+      },
+    },
+  };
+
+  const result = await svc(prisma).listProdutos(7, GERENTE_SEM_COBRANCA);
+  assert.deepEqual(result, [{ id: 10, nome: 'Galão', unidade: 'un', usaLogistica: true }]);
+  assertNoRecurrencePrices(result);
+  assert.equal('price' in query.select, false);
+  assert.equal('priceCents' in query.select, false);
+});
+
+test('listByCliente: ator sem cobrança recebe vínculo operacional sem preços', async () => {
+  let query: any;
+  const prisma: any = {
+    clienteProduto: {
+      findMany: async (args: any) => {
+        query = args;
+        return [
+          {
+            id: 'cp-1',
+            customerProfileId: 'cliente-1',
+            productId: 10,
+            qtdPadrao: 2,
+            precoAcordado: 15,
+            frequenciaDias: 7,
+            diasSemana: null,
+            proximaData: new Date('2026-07-20T00:00:00Z'),
+            ativo: true,
+            product: {
+              id: 10,
+              name: 'Galão',
+              unidade: 'un',
+              price: 20,
+              priceCents: 2000,
+            },
+          },
+        ];
+      },
+    },
+  };
+
+  const result = await svc(prisma).listByCliente(7, 'cliente-1', GERENTE_SEM_COBRANCA);
+  assert.equal(result[0].qtdPadrao, 2);
+  assert.equal(result[0].produto?.nome, 'Galão');
+  assertNoRecurrencePrices(result);
+  assert.equal('precoAcordado' in query.select, false);
+  assert.equal('price' in query.select.product.select, false);
+  assert.equal('priceCents' in query.select.product.select, false);
+});
+
+test('getDiaPreview: ator sem cobrança não carrega insumos monetários', async () => {
+  let query: any;
+  const prisma: any = {
+    clienteProduto: {
+      findMany: async (args: any) => {
+        query = args;
+        return [
+          {
+            id: 'cp-1',
+            customerProfileId: 'cliente-1',
+            localId: null,
+            local: null,
+            productId: 10,
+            qtdPadrao: 2,
+            precoAcordado: 15,
+            frequenciaDias: null,
+            diasSemana: '1',
+            proximaData: null,
+            product: { id: 10, name: 'Galão', price: 20, priceCents: 2000 },
+            customerProfile: { id: 'cliente-1', name: 'Cliente', precoPadrao: 18 },
+          },
+        ];
+      },
+    },
+  };
+
+  const result = await svc(prisma).getDiaPreview(7, '2026-07-13', GERENTE_SEM_COBRANCA);
+  assert.equal(result.clientes[0].itens[0].nome, 'Galão');
+  assertNoRecurrencePrices(result);
+  assert.equal('precoAcordado' in query.select, false);
+  assert.equal('price' in query.select.product.select, false);
+  assert.equal('priceCents' in query.select.product.select, false);
+  assert.equal('precoPadrao' in query.select.customerProfile.select, false);
+});
+
+test('catálogo e vínculo preservam preços para dono/master', async () => {
+  const owner = { id: 1, companyId: 7, role: 'ADMIN', canViewBilling: true };
+  const prisma: any = {
+    product: {
+      findMany: async () => [
+        { id: 10, name: 'Galão', unidade: 'un', usaLogistica: true, price: null, priceCents: 2150 },
+      ],
+    },
+    clienteProduto: {
+      findMany: async () => [
+        {
+          id: 'cp-1',
+          customerProfileId: 'cliente-1',
+          productId: 10,
+          qtdPadrao: 2,
+          precoAcordado: 19,
+          frequenciaDias: 7,
+          diasSemana: null,
+          proximaData: null,
+          ativo: true,
+          product: { id: 10, name: 'Galão', unidade: 'un', price: null, priceCents: 2150 },
+        },
+      ],
+    },
+  };
+
+  const produtos = await svc(prisma).listProdutos(7, owner);
+  const vinculos = await svc(prisma).listByCliente(7, 'cliente-1', owner);
+  assert.equal(produtos[0].precoCatalogo, 21.5);
+  assert.equal(vinculos[0].precoAcordado, 19);
+  assert.equal(vinculos[0].produto?.precoCatalogo, 21.5);
+});

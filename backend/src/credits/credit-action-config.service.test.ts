@@ -67,7 +67,7 @@ test('listForMaster: ação sem override mostra override=null e effective=base',
   const service = new CreditActionConfigService(fake as any);
 
   const list = service.listForMaster();
-  assert.equal(list.length, 5);
+  assert.equal(list.length, 7);
   const item = list.find((a) => a.actionKey === CREDIT_ACTION_KEYS.AI_REALTIME)!;
   assert.equal(item.override, null);
   assert.deepEqual(item.effective, item.base);
@@ -82,6 +82,19 @@ test('lead_delivery: REJEITA sempre (400) — cobrança fixa no caminho assert, 
     /lead_delivery/,
   );
   assert.equal(fake.rows.length, 0, 'nada persistido');
+});
+
+test('ações de logística são fixas e rejeitam overlay do Master', async () => {
+  const fake = createFakePrisma();
+  const service = new CreditActionConfigService(fake as any);
+  for (const key of [
+    CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
+    CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+    CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
+  ]) {
+    await assert.rejects(service.setOverride(key, { mode: 'free', cost: 99 }), /não é editável/);
+  }
+  assert.equal(fake.rows.length, 0);
 });
 
 test('whatsapp_auto_send + mode debit: REJEITA (400) — decisão do dono, WhatsApp nunca debita', async () => {
@@ -132,16 +145,16 @@ test('clearOverride: DELETE volta à base (idempotente mesmo sem override existe
   const fake = createFakePrisma();
   const service = new CreditActionConfigService(fake as any);
 
-  await service.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY, { mode: 'debit', cost: 2 });
+  await service.setOverride(CREDIT_ACTION_KEYS.AI_BATCH, { mode: 'debit', cost: 2 });
   assert.equal(fake.rows.length, 1);
 
-  const cleared = await service.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY);
+  const cleared = await service.clearOverride(CREDIT_ACTION_KEYS.AI_BATCH);
   assert.equal(cleared.override, null);
   assert.deepEqual(cleared.effective, cleared.base);
   assert.equal(fake.rows.length, 0);
 
   // Chamar de novo (sem override) não quebra — idempotente.
-  const clearedAgain = await service.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY);
+  const clearedAgain = await service.clearOverride(CREDIT_ACTION_KEYS.AI_BATCH);
   assert.equal(clearedAgain.override, null);
 });
 

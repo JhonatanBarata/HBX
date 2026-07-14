@@ -19,6 +19,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { memoryStorage } from 'multer';
+import { isBillingOwnerActor } from '../access/actor-kind';
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -85,6 +86,12 @@ export class LogisticaController {
     const companyId = Number(user?.companyId);
     if (!companyId) throw new ForbiddenException('Empresa não identificada');
     return companyId;
+  }
+
+  private ensureBillingOwner(user: any): void {
+    if (!isBillingOwnerActor(user)) {
+      throw new ForbiddenException('Acesso não autorizado');
+    }
   }
 
   /** Rota de hoje (ou de ?date=YYYY-MM-DD): entregas do dia da empresa. */
@@ -260,6 +267,7 @@ export class LogisticaController {
   @Admin()
   fecharMes(@Req() req: any, @Body() dto: FecharMesDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     return this.service.fecharMes(companyId, { clienteId: dto?.clienteId, mesRef: dto?.mesRef });
   }
 
@@ -278,6 +286,7 @@ export class LogisticaController {
   @Admin()
   async extrato(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const res = await this.service.extratoCliente(companyId, id);
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
@@ -307,6 +316,7 @@ export class LogisticaController {
   async scoreCliente(@Req() req: any, @Param('id') id: string) {
     if (!isScoreFiadoEnabled()) throw new NotFoundException('Recurso indisponível');
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const res = await this.service.scoreFiadoCliente(companyId, id);
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
@@ -334,6 +344,7 @@ export class LogisticaController {
     @Query('cursor') cursor?: string,
   ) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const res = await this.service.historicoEntregasCliente(companyId, id, {
       limit: limit != null && String(limit).trim() !== '' ? Number(limit) : undefined,
       cursor,
@@ -354,6 +365,7 @@ export class LogisticaController {
   @Admin()
   async quitarCharge(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const res = await this.service.quitarCharge(companyId, id, {
       userId: Number(req.user?.id) || null,
     });
@@ -374,6 +386,7 @@ export class LogisticaController {
   @Admin()
   saldosFinanceiro(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     return this.service.saldosFinanceiro(companyId);
   }
 
@@ -396,6 +409,7 @@ export class LogisticaController {
   @Admin()
   resumoDia(@Req() req: any, @Query('date') date?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     return this.service.resumoDia(companyId, date);
   }
 
@@ -411,6 +425,7 @@ export class LogisticaController {
   @Admin()
   async updateFinanceiroCliente(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateFinanceiroClienteDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const res = await this.service.updateFinanceiroCliente(companyId, id, {
       formaPagamento: dto?.formaPagamento,
       metodoPadrao: dto?.metodoPadrao,
@@ -430,20 +445,21 @@ export class LogisticaController {
   @Get('produtos')
   listProdutos(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recorrencia.listProdutos(companyId);
+    return this.recorrencia.listProdutos(companyId, req.user);
   }
 
   /** Vínculos produto×cliente de um cliente. */
   @Get('cliente-produtos')
   listClienteProdutos(@Req() req: any, @Query('customerProfileId') customerProfileId: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recorrencia.listByCliente(companyId, customerProfileId);
+    return this.recorrencia.listByCliente(companyId, customerProfileId, req.user);
   }
 
   /** Cria um vínculo produto×cliente (qtd padrão, preço acordado, frequência). */
   @Post('cliente-produtos')
   createClienteProduto(@Req() req: any, @Body() dto: CreateClienteProdutoDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     return this.recorrencia.create(companyId, dto);
   }
 
@@ -451,6 +467,7 @@ export class LogisticaController {
   @Patch('cliente-produtos/:id')
   async updateClienteProduto(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateClienteProdutoDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const res = await this.recorrencia.update(companyId, id, dto);
     if (!res) throw new NotFoundException('Vínculo não encontrado');
     return res;
@@ -464,6 +481,7 @@ export class LogisticaController {
   @Delete('cliente-produtos/:id')
   async deleteClienteProduto(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
     const ok = await this.recorrencia.remove(companyId, id);
     if (!ok) throw new NotFoundException('Vínculo não encontrado');
     return { success: true };
@@ -489,7 +507,7 @@ export class LogisticaController {
   @Get('dia-preview')
   diaPreview(@Req() req: any, @Query('date') date?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recorrencia.getDiaPreview(companyId, date);
+    return this.recorrencia.getDiaPreview(companyId, date, req.user);
   }
 
   // ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ───────────────────────────────
@@ -509,7 +527,7 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
-    }, entregadorId);
+    }, entregadorId, Number(req.user?.id) || null);
   }
 
   /**
@@ -525,7 +543,7 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
-    }, entregadorId);
+    }, entregadorId, Number(req.user?.id) || null);
   }
 
   // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ─────────────────
@@ -538,7 +556,7 @@ export class LogisticaController {
   @Get('config')
   getConfig(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.config.getConfig(companyId);
+    return this.config.getConfig(companyId, req.user);
   }
 
   /**
@@ -550,7 +568,7 @@ export class LogisticaController {
   @Admin()
   updateConfig(@Req() req: any, @Body() dto: UpdateLogisticaConfigDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.config.updateConfig(companyId, dto);
+    return this.config.updateConfig(companyId, dto, req.user);
   }
 
   // ── S6 PORTAL-PEDIDO — link público de pedido (token opaco) ─────────────────

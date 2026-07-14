@@ -93,11 +93,11 @@ interface SucessoEntrega {
 // (ArrivalSheet.valorAtual), mas a partir do payload final (qtdEntregue), não
 // da quantidade prevista — honesto com o que o entregador de fato marcou.
 function valorConfirmado(parada: RotaItem, payload: { itens: Array<{ id: string; qtdEntregue: number }> }): number {
-  const temPreco = parada.itens.some((it) => it.valorUnit > 0);
+  const temPreco = parada.itens.some((it) => (it.valorUnit ?? 0) > 0);
   if (!temPreco) return Math.max(0, parada.valor ?? 0);
   const somaItens = payload.itens.reduce((s, p) => {
     const it = parada.itens.find((i) => i.id === p.id);
-    return s + (it ? p.qtdEntregue * it.valorUnit : 0);
+    return s + (it ? p.qtdEntregue * (it.valorUnit ?? 0) : 0);
   }, 0);
   const itensReaisExistiam = parada.itens.length > 0;
   const base = itensReaisExistiam ? 0 : Math.max(0, parada.valor ?? 0);

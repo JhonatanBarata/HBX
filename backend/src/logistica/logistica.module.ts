@@ -17,6 +17,7 @@ import { LogisticaPedidoPublicoService } from './logistica-pedido-publico.servic
 import { LogisticaController } from './logistica.controller';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
+import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -65,6 +66,7 @@ import { LogisticaOperacaoService } from './logistica-operacao.service';
     ResumoDiarioService,
     LogisticaPedidoPublicoService,
     LogisticaOperacaoService,
+    LogisticaRouteBillingService,
   ],
   exports: [
     LogisticaService,
@@ -73,6 +75,7 @@ import { LogisticaOperacaoService } from './logistica-operacao.service';
     LogisticaConfigService,
     LogisticaOperacaoService,
     LogisticaRecoveryService,
+    LogisticaRouteBillingService,
   ],
 })
 export class LogisticaModule {}

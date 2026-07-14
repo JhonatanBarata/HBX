@@ -26,6 +26,33 @@ function buildEntrega(overrides: Record<string, any> = {}) {
   };
 }
 
+const COMMERCIAL_ROUTE_KEYS = new Set([
+  'valor',
+  'valorUnit',
+  'cobrancaStatus',
+  'formaPagamento',
+  'metodoPadrao',
+  'saldoAberto',
+  'limiteFiado',
+  'moduloFinanceiroAtivo',
+  'pix',
+  'pixChave',
+  'pixNome',
+  'pixCidade',
+]);
+
+function assertNoCommercialRouteKeys(value: unknown, path = 'response'): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoCommercialRouteKeys(item, `${path}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, nested] of Object.entries(value)) {
+    assert.equal(COMMERCIAL_ROUTE_KEYS.has(key), false, `chave comercial ${path}.${key} deve estar ausente`);
+    assertNoCommercialRouteKeys(nested, `${path}.${key}`);
+  }
+}
+
 // Prisma mock mínimo: só o que confirmarEntrega/lancarCobranca tocam.
 // R2: financeiroCharge.findFirst (idempotência por entregaId) + um "banco" de charges.
 // R4: entrega.updateMany (claim do teto do reenvio) + masterEvent (trilha de falha).
@@ -298,6 +325,33 @@ test('confirmarEntrega: flag OFF → NÃO chama WhatsApp e NÃO cria cobrança (
 
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('confirmarEntrega consulta cobertura Essencial antes da transação', async () => {
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+  const calls: any[] = [];
+  const routeBilling = {
+    assertEssentialDeliveryCovered: async (companyId: number, deliveryId: string) => {
+      calls.push({ companyId, deliveryId });
+      throw new Error('rota sem cobertura');
+    },
+  } as any;
+  const service = new LogisticaService(
+    prisma, conversations, rota, config,
+    undefined, undefined, undefined, undefined, routeBilling,
+  );
+  await assert.rejects(
+    service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 }),
+    /rota sem cobertura/,
+  );
+  assert.deepEqual(calls, [{ companyId: 1, deliveryId: 'entrega-1' }]);
+  assert.equal(entregaUpdates.length, 0, 'gate bloqueia antes do status/GPS');
 });
 
 test('confirmarEntrega: flag ON (avulso) → WhatsApp blindado 1x + 1 charge LINKADO (MANUAL/pending)', async () => {
@@ -2008,4 +2062,161 @@ test('resolveDayRange: data impossível (2026-02-30) cai pra HOJE, igual a lixo/
 
 test('resolveDayRange: "YYYY-MM-DD" válido resolve pro próprio dia (fuso local)', () => {
   assert.equal(resolveDayRange('2026-07-11').dayISO, '2026-07-11');
+});
+
+function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
+  const queries: { entrega?: any; config?: any; saldo: number } = { saldo: 0 };
+  const row = {
+    id: 'entrega-rota-1',
+    status: 'em_rota',
+    quantidade: 2,
+    valor: 42,
+    scheduledAt: new Date('2026-07-13T12:00:00Z'),
+    deliveredAt: null,
+    deliveredLat: null,
+    deliveredLng: null,
+    cobrancaStatus: 'pendente',
+    notes: null,
+    updatedAt: new Date('2026-07-13T12:05:00Z'),
+    entregador: { id: 42, name: 'Motorista', email: 'motorista@hbx.test', username: 'motorista' },
+    comprovanteCodigoHash: null,
+    comprovanteConfirmadoAt: null,
+    comprovantes: [],
+    rotaOrdem: 1,
+    etaAt: new Date('2026-07-13T12:30:00Z'),
+    localId: null,
+    local: null,
+    customerProfile: {
+      id: 'cliente-1',
+      name: 'Cliente',
+      endereco: 'Rua A',
+      cidade: 'São Paulo',
+      uf: 'SP',
+      lat: -23.5,
+      lng: -46.6,
+      phone: '11999999999',
+      formaPagamento: 'aberto',
+      metodoPadrao: 'pix',
+      limiteFiado: 100,
+    },
+    contato: null,
+    product: { id: 10, name: 'Galão', unidade: 'un' },
+    itens: [
+      {
+        id: 'item-1',
+        qtdPrevista: 2,
+        qtdEntregue: null,
+        valorUnit: 21,
+        product: { id: 10, name: 'Galão', unidade: 'un' },
+      },
+    ],
+  };
+  const prisma: any = {
+    entrega: {
+      findMany: async (args: any) => {
+        queries.entrega = args;
+        return [row];
+      },
+      groupBy: async () => {
+        queries.saldo += 1;
+        return [];
+      },
+    },
+    financeiroCharge: {
+      groupBy: async () => {
+        queries.saldo += 1;
+        return [];
+      },
+    },
+    logisticaConfig: {
+      findUnique: async (args: any) => {
+        queries.config = args;
+        // O mock devolve os campos mesmo quando não selecionados para provar que a
+        // serialização continua fail-closed diante de um adapter permissivo.
+        return {
+          moduloFinanceiroAtivo,
+          pixChave: 'chave-pix-secreta',
+          pixNome: 'Empresa',
+          pixCidade: 'SAO PAULO',
+          avisoChegandoEnabled: false,
+          avisoChegandoDistanciaM: 500,
+          comprovanteFotoObrigatoria: false,
+          comprovanteAssinaturaObrigatoria: false,
+          comprovanteCodigoObrigatorio: false,
+        };
+      },
+    },
+  };
+  const operacao: any = {
+    whereForActor: async () => ({}),
+    requisitosFromConfig: () => ({
+      fotoObrigatoria: false,
+      assinaturaObrigatoria: false,
+      codigoObrigatorio: false,
+    }),
+  };
+  const service = new LogisticaService(
+    prisma,
+    {} as any,
+    {} as any,
+    {} as any,
+    undefined,
+    undefined,
+    undefined,
+    operacao,
+  );
+  return { service, queries };
+}
+
+test('listRota: vendedor, motorista e gerente não recebem nem consultam dados comerciais', async () => {
+  const atores = [
+    { nome: 'vendedor', actor: { id: 11, companyId: 7, role: 'USER', canViewBilling: false } },
+    { nome: 'motorista', actor: { id: 42, companyId: 7, role: 'USER', canViewBilling: false } },
+    { nome: 'gerente', actor: { id: 3, companyId: 7, role: 'ADMIN', canViewBilling: false } },
+  ];
+
+  for (const { nome, actor } of atores) {
+    const { service, queries } = buildRotaPrivacyMock(true);
+    const result = await service.listRota(7, '2026-07-13', actor);
+
+    assertNoCommercialRouteKeys(result, nome);
+    assert.equal(queries.saldo, 0, `${nome}: consulta de saldo não deve executar`);
+
+    const entregaSelect = queries.entrega.select;
+    assert.equal('valor' in entregaSelect, false, `${nome}: Entrega.valor não deve ser selecionado`);
+    assert.equal('cobrancaStatus' in entregaSelect, false, `${nome}: cobrança não deve ser selecionada`);
+    assert.equal('formaPagamento' in entregaSelect.customerProfile.select, false);
+    assert.equal('metodoPadrao' in entregaSelect.customerProfile.select, false);
+    assert.equal('limiteFiado' in entregaSelect.customerProfile.select, false);
+    assert.equal('valorUnit' in entregaSelect.itens.select, false);
+
+    const configSelect = queries.config.select;
+    assert.equal('moduloFinanceiroAtivo' in configSelect, false);
+    assert.equal('pixChave' in configSelect, false);
+    assert.equal('pixNome' in configSelect, false);
+    assert.equal('pixCidade' in configSelect, false);
+  }
+});
+
+test('listRota: dono mantém a visão comercial necessária à administração', async () => {
+  const { service, queries } = buildRotaPrivacyMock(false);
+  const result = await service.listRota(7, '2026-07-13', {
+    id: 1,
+    companyId: 7,
+    role: 'ADMIN',
+    canViewBilling: true,
+  });
+  const item = result.items[0];
+
+  assert.equal(result.moduloFinanceiroAtivo, false);
+  assert.equal(result.pix, null);
+  assert.equal(item.valor, 42);
+  assert.equal(item.cobrancaStatus, 'pendente');
+  assert.equal(item.cliente.formaPagamento, 'aberto');
+  assert.equal(item.cliente.metodoPadrao, 'pix');
+  assert.equal(item.cliente.saldoAberto, 0);
+  assert.equal(item.cliente.limiteFiado, 100);
+  assert.equal(item.itens[0].valorUnit, 21);
+  assert.equal('valor' in queries.entrega.select, true);
+  assert.equal('pixChave' in queries.config.select, true);
 });

@@ -120,7 +120,10 @@ test('S4: flag ON → endpoint repassa pro serviço e devolve o resultado', asyn
     const esperado = { clienteId: 'cliente-1', moduloFinanceiroAtivo: true, score: 91, motivo: null, insumos: null };
     const serviceStub: any = { scoreFiadoCliente: async () => esperado };
     const controller = new LogisticaController(serviceStub, {} as any, {} as any, {} as any, {} as any);
-    const res = await controller.scoreCliente({ user: { companyId: 1 } }, 'cliente-1');
+    const res = await controller.scoreCliente(
+      { user: { companyId: 1, role: 'ADMIN', canViewBilling: true } },
+      'cliente-1',
+    );
     assert.deepEqual(res, esperado);
   });
 });
@@ -130,7 +133,10 @@ test('S4: flag ON + cliente de outra empresa (null do serviço) → 404', async 
     const serviceStub: any = { scoreFiadoCliente: async () => null };
     const controller = new LogisticaController(serviceStub, {} as any, {} as any, {} as any, {} as any);
     await assert.rejects(
-      () => controller.scoreCliente({ user: { companyId: 1 } }, 'de-outra-empresa'),
+      () => controller.scoreCliente(
+        { user: { companyId: 1, role: 'ADMIN', canViewBilling: true } },
+        'de-outra-empresa',
+      ),
       (e: any) => e instanceof NotFoundException && e.getStatus() === 404,
     );
   });

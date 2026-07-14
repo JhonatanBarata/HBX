@@ -1,5 +1,13 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  canonicalRouteDate,
+  LogisticaRouteBillingService,
+  type PreparedLogisticaRoute,
+} from './logistica-route-billing.service';
+
+const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
+type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
 
 /**
  * LOGÍSTICA-MOBILE M3 (05/07) — MOTOR DE ROTA + ETA (100% local, sem API paga).
@@ -36,15 +44,25 @@ export class LogisticaRotaService {
   // Só as entregas ABERTAS entram na rota (as concluídas/canceladas saem).
   private static readonly STATUS_ABERTO = ['agendada', 'em_rota'] as const;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly routeBilling: LogisticaRouteBillingService,
+  ) {}
 
   // ── PLANEJAR ROTA ────────────────────────────────────────────────────────────
   /**
    * Ordena a rota do dia, grava rotaOrdem/etaAt e devolve a rota + término
    * previsto + quantas paradas ficaram sem coordenada.
    */
-  async planejarRota(companyId: number, input: PlanejarRotaInput = {}, entregadorId?: number): Promise<PlanejarRotaResult> {
+  async planejarRota(
+    companyId: number,
+    input: PlanejarRotaInput = {},
+    entregadorId?: number,
+    actorUserId?: number | null,
+    chargeEssential = false,
+  ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const routeDate = canonicalRouteDate(input.date);
     const { start, end, dayISO } = resolveDayRange(input.date);
     const config = await this.loadConfig(companyId);
     const origem = coordFromInput(input.origemLat, input.origemLng);
@@ -60,19 +78,60 @@ export class LogisticaRotaService {
 
     // Persiste rotaOrdem/etaAt de cada parada (sequencial: são poucas paradas/dia).
     for (const p of plan.paradas) {
-      await this.prisma.entrega.update({
-        where: { id: p.id },
+      const changed = await this.prisma.entrega.updateMany({
+        where: { companyId, id: p.id },
         data: { rotaOrdem: p.rotaOrdem, etaAt: p.etaAt },
       });
+      if (changed.count !== 1) throw new ConflictException('Entrega saiu da rota durante o planejamento.');
     }
 
     const semCoordenada = plan.paradas.filter((p) => p.semCoordenada).length;
+
+    // Admin pode continuar usando o planejamento amplo (vários motoristas) sem
+    // gerar agregado/cobrança. Quando há motorista definido, congela snapshot e
+    // cobra somente os blocos novos; retries/recalcular são idempotentes.
+    let prepared: PreparedLogisticaRoute | undefined;
+    if (entregadorId && plan.paradas.length > 0) {
+      prepared = (await this.routeBilling.prepareRoute({
+        companyId,
+        entregadorId,
+        routeDate,
+        deliveryIds: plan.paradas.map((p) => p.id),
+        actorUserId,
+        chargeEssential,
+        createIfMissing: chargeEssential,
+      })) ?? undefined;
+    } else if (plan.paradas.length > 0) {
+      // Planejamento amplo do admin não cria rota comercial, mas precisa
+      // reconciliar blocos novos das rotas que JÁ estão ACTIVE. Agrupa por
+      // motorista para nunca misturar chaves empresa+motorista+data.
+      const driverByDelivery = new Map(rows.map((row) => [row.id, row.entregadorId]));
+      const byDriver = new Map<number, string[]>();
+      for (const stop of plan.paradas) {
+        const driverId = driverByDelivery.get(stop.id);
+        if (!driverId) continue;
+        const ids = byDriver.get(driverId) || [];
+        ids.push(stop.id);
+        byDriver.set(driverId, ids);
+      }
+      for (const [driverId, deliveryIds] of byDriver) {
+        await this.routeBilling.prepareRoute({
+          companyId,
+          entregadorId: driverId,
+          routeDate,
+          deliveryIds,
+          actorUserId,
+          chargeEssential: false,
+          createIfMissing: false,
+        });
+      }
+    }
     this.logger.log(
       `[logistica] rota planejada ${dayISO} company=${companyId}: ${plan.paradas.length} parada(s), ` +
         `${semCoordenada} sem coord, término ~${plan.terminoPrevisto ?? 'n/a'}.`,
     );
 
-    return {
+    const result: InternalPlanResult = {
       date: dayISO,
       total: plan.paradas.length,
       semCoordenada,
@@ -91,6 +150,10 @@ export class LogisticaRotaService {
         nome: p.nome,
       })),
     };
+    if (prepared) {
+      Object.defineProperty(result, ROUTE_BILLING_CONTEXT, { value: prepared, enumerable: false });
+    }
+    return result;
   }
 
   // ── INICIAR ROTA ─────────────────────────────────────────────────────────────
@@ -98,26 +161,95 @@ export class LogisticaRotaService {
    * Marca o início da rota. Re-planeja com a ORIGEM atual (GPS do entregador ao
    * apertar "iniciar") e coloca a 1ª parada em 'em_rota' com startedAt=agora.
    */
-  async iniciarRota(companyId: number, input: IniciarRotaInput = {}, entregadorId?: number): Promise<PlanejarRotaResult> {
+  async iniciarRota(
+    companyId: number,
+    input: IniciarRotaInput = {},
+    entregadorId?: number,
+    actorUserId?: number | null,
+  ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date));
     // Re-planeja a partir da origem atual (mesmo caminho do planejar).
     const plan = await this.planejarRota(companyId, {
       date: input.date,
       origemLat: input.origemLat,
       origemLng: input.origemLng,
-    }, entregadorId);
+    }, effectiveDriverId, actorUserId, true);
+
+    if (plan.paradas.length === 0) throw new BadRequestException('Não há entregas abertas para iniciar.');
+    const prepared = (plan as InternalPlanResult)[ROUTE_BILLING_CONTEXT];
+    if (!prepared) throw new Error('Contexto comercial da rota não foi criado.');
+    let initialization: { token: string | null; alreadyActive: boolean };
+    try {
+      initialization = await this.routeBilling.beginInitialization(
+        companyId,
+        prepared.routeId,
+        prepared.billingRevision,
+      );
+    } catch (error) {
+      await this.routeBilling.abortPreparedRoute({
+        companyId,
+        routeId: prepared.routeId,
+        actorUserId,
+        error,
+      });
+      throw error;
+    }
 
     // 1ª parada roteável (rotaOrdem=0) vira 'em_rota' com startedAt — só se ainda
     // estiver 'agendada' (não rebaixa nada já em rota/entregue).
     const primeira = plan.paradas.find((p) => p.rotaOrdem === 0 && !p.semCoordenada) ?? plan.paradas[0];
-    if (primeira && primeira.status === 'agendada') {
-      await this.prisma.entrega.update({
-        where: { id: primeira.id },
-        data: { status: 'em_rota', startedAt: new Date() },
-      });
-      primeira.status = 'em_rota';
+    const startedAt = new Date();
+    let changedFirst = false;
+    try {
+      if (primeira && primeira.status === 'agendada') {
+        const changed = await this.prisma.entrega.updateMany({
+          where: { companyId, id: primeira.id, entregadorId: effectiveDriverId, status: 'agendada' },
+          data: { status: 'em_rota', startedAt },
+        });
+        changedFirst = changed.count === 1;
+        if (changedFirst) primeira.status = 'em_rota';
+      }
+      if (!initialization.alreadyActive && initialization.token) {
+        await this.routeBilling.activateRoute(companyId, prepared.routeId, initialization.token, startedAt);
+      }
+    } catch (error) {
+      if (changedFirst && !initialization.alreadyActive) {
+        await this.prisma.entrega.updateMany({
+          where: { companyId, id: primeira.id, status: 'em_rota', startedAt },
+          data: { status: 'agendada', startedAt: null },
+        }).catch(() => undefined);
+      }
+      if (!initialization.alreadyActive && initialization.token) {
+        await this.routeBilling.failInitialization({
+          companyId,
+          routeId: prepared.routeId,
+          token: initialization.token,
+          actorUserId,
+          error,
+        });
+      }
+      throw error;
     }
     return plan;
+  }
+
+  private async resolveSingleDriver(companyId: number, date?: string): Promise<number> {
+    const { start, end } = resolveDayRange(date);
+    const rows = await this.prisma.entrega.findMany({
+      where: {
+        companyId,
+        status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+        OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
+      },
+      select: { entregadorId: true },
+      distinct: ['entregadorId'],
+    });
+    const drivers = Array.from(new Set(rows.map((row) => row.entregadorId).filter((id): id is number => Number.isInteger(id))));
+    if (drivers.length !== 1) {
+      throw new BadRequestException('Atribua as entregas a exatamente um motorista antes de iniciar a rota.');
+    }
+    return drivers[0];
   }
 
   // ── RE-ETA (hook aditivo do confirmar/cancelar do N6) ────────────────────────
@@ -186,6 +318,7 @@ export class LogisticaRotaService {
       take: 300,
       select: {
         id: true,
+        entregadorId: true,
         status: true,
         rotaOrdem: true,
         scheduledAt: true,
@@ -523,6 +656,7 @@ function parseDateOrNull(value: string | null | undefined): Date | null {
 // ── tipos de I/O ────────────────────────────────────────────────────────────────
 interface ParadaRow {
   id: string;
+  entregadorId: number | null;
   status: string;
   rotaOrdem: number | null;
   scheduledAt: Date | null;

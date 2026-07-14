@@ -63,7 +63,7 @@ type MotivoNaoEntregue = "ausente" | "recusou" | "reagendar";
 
 // Regra dos chips: só aparecem quando o módulo financeiro está ON E o cliente é
 // 'aberto'. Costumeiro (mensal|na_hora|pendura) ou módulo OFF → nada de chips.
-function mostrarChips(moduloFinanceiroAtivo: boolean, formaPagamento: string): boolean {
+function mostrarChips(moduloFinanceiroAtivo: boolean, formaPagamento?: string): boolean {
   return moduloFinanceiroAtivo && formaPagamento === "aberto";
 }
 

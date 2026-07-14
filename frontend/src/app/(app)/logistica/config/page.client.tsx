@@ -22,20 +22,38 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
+type RouteMode = "ESSENTIAL" | "TRACKED";
+
 type Config = {
+  trackingAtivo?: boolean;
+  trackingDisponivel?: boolean;
+  modoRotaPadrao?: RouteMode;
   avisoWhatsEnabled: boolean;
   templateAviso: string | null;
   raioChegadaM: number;
   velocidadeMediaKmH: number;
   tempoParadaMin: number;
-  cobrancaNaEntrega: boolean;
-  moduloFinanceiroAtivo: boolean;
-  moduloRecoveryAtivo: boolean;
+  cobrancaNaEntrega?: boolean;
+  moduloFinanceiroAtivo?: boolean;
+  moduloRecoveryAtivo?: boolean;
   gerarDiaAutomatico: boolean;
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;
 };
+
+type ConfigActor = NonNullable<ReturnType<typeof useCurrentUser>> & {
+  canViewBilling?: boolean | null;
+};
+
+// Espelha access/actor-kind.isBillingOwnerActor do backend: system master tem
+// precedência; gerente (ADMIN + canViewBilling=false) não vê escolha comercial.
+function isBillingOwnerUser(user: ReturnType<typeof useCurrentUser>): boolean {
+  if (!user) return false;
+  if (user.isSystemMaster) return true;
+  const actor = user as ConfigActor;
+  return isTenantAdmin(user) && actor.canViewBilling !== false;
+}
 
 // Template padrão sugerido (o que o admin vê quando ainda não gravou nada).
 const TEMPLATE_DEFAULT =
@@ -88,6 +106,7 @@ function renderPreview(template: string): string {
 export function LogisticaConfigClient() {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
+  const billingOwner = isBillingOwnerUser(user);
 
   const [cfg, setCfg] = useState<Config | null>(null);
   const [template, setTemplate] = useState<string>("");
@@ -199,6 +218,69 @@ export function LogisticaConfigClient() {
 
         {!loading && cfg && (
           <div className="log-cfg">
+            {/* ── Modo comercial da rota — somente dono/master ────────────── */}
+            {billingOwner && (
+              <div className="log-cfg__block">
+                <div className="log-cfg__block-head">
+                  <div className="log-cfg__heading-copy">
+                    <strong className="log-cfg__block-title">Modo das novas rotas</strong>
+                    <span className="log-cfg__switch-hint">Escolha como o consumo de créditos será calculado.</span>
+                  </div>
+                  <label className="ctt-toggle ctt-toggle--inline">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.trackingAtivo}
+                      disabled={saving}
+                      onChange={(e) => patch({ trackingAtivo: e.target.checked })}
+                      aria-describedby="tracking-availability"
+                    />
+                    <span>{cfg.trackingAtivo ? "Rastreamento permitido" : "Rastreamento desligado"}</span>
+                  </label>
+                </div>
+
+                <div className="log-cfg__mode-grid" role="radiogroup" aria-label="Modo padrão das novas rotas">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={(cfg.modoRotaPadrao ?? "ESSENTIAL") === "ESSENTIAL"}
+                    className={`log-cfg__mode${(cfg.modoRotaPadrao ?? "ESSENTIAL") === "ESSENTIAL" ? " is-selected" : ""}`}
+                    disabled={saving}
+                    onClick={() => patch({ modoRotaPadrao: "ESSENTIAL" })}
+                  >
+                    <span className="log-cfg__mode-title">Rota Essencial</span>
+                    <span className="log-cfg__mode-copy">1 crédito por bloco iniciado de até 5 entregas únicas.</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={cfg.modoRotaPadrao === "TRACKED"}
+                    className={`log-cfg__mode${cfg.modoRotaPadrao === "TRACKED" ? " is-selected" : ""}`}
+                    disabled={saving || !cfg.trackingDisponivel || !cfg.trackingAtivo}
+                    aria-describedby="tracking-availability"
+                    onClick={() => patch({ modoRotaPadrao: "TRACKED" })}
+                  >
+                    <span className="log-cfg__mode-title">Rota Rastreada</span>
+                    <span className="log-cfg__mode-copy">2 créditos por entrega concluída durante uma sessão válida de rastreamento.</span>
+                  </button>
+                </div>
+
+                <p
+                  id="tracking-availability"
+                  className={`log-cfg__availability${cfg.trackingDisponivel ? " is-available" : ""}`}
+                  role="status"
+                >
+                  {cfg.trackingDisponivel
+                    ? (cfg.trackingAtivo
+                      ? "Rastreamento disponível para novas rotas."
+                      : "Ligue o rastreamento para liberar a Rota Rastreada.")
+                    : "Rastreamento indisponível globalmente. A preferência pode ficar salva para uma ativação futura."}
+                </p>
+                <p className="log-cfg__warning">
+                  O modo é congelado ao iniciar a rota e não pode ser alterado durante a sessão.
+                </p>
+              </div>
+            )}
+
             {/* ── Aviso de WhatsApp ─────────────────────────────────────────── */}
             <div className="log-cfg__block">
               <div className="log-cfg__block-head">
@@ -249,18 +331,20 @@ export function LogisticaConfigClient() {
 
             {/* ── Toggles gerais ─────────────────────────────────────────────── */}
             <div className="log-cfg__block">
-              <strong className="log-cfg__block-title">Cobrança e recorrência</strong>
-              <label className="log-cfg__switch">
-                <input
-                  type="checkbox"
-                  checked={cfg.cobrancaNaEntrega}
-                  onChange={(e) => patch({ cobrancaNaEntrega: e.target.checked })}
-                />
-                <span className="log-cfg__switch-txt">
-                  <span className="log-cfg__switch-name">Cobrança na entrega</span>
-                  <span className="log-cfg__switch-hint">Registra o recebimento no momento da entrega.</span>
-                </span>
-              </label>
+              <strong className="log-cfg__block-title">{billingOwner ? "Cobrança e recorrência" : "Recorrência"}</strong>
+              {billingOwner && (
+                <label className="log-cfg__switch">
+                  <input
+                    type="checkbox"
+                    checked={!!cfg.cobrancaNaEntrega}
+                    onChange={(e) => patch({ cobrancaNaEntrega: e.target.checked })}
+                  />
+                  <span className="log-cfg__switch-txt">
+                    <span className="log-cfg__switch-name">Cobrança na entrega</span>
+                    <span className="log-cfg__switch-hint">Registra o recebimento no momento da entrega.</span>
+                  </span>
+                </label>
+              )}
               <label className="log-cfg__switch">
                 <input
                   type="checkbox"
