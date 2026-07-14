@@ -61,6 +61,13 @@ class MainActivity : AppCompatActivity() {
         if (temLocalizacao()) solicitarNotificacaoOuAtivar() else mostrarAvisoPermissoesNegadas()
     }
 
+    // Cadastro de cliente pode usar GPS sem iniciar rota nem pedir notificação.
+    private val cadastroLocalizacaoLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        notificarPermissaoCadastroLocalizacao(temLocalizacao())
+    }
+
     private val notificacaoLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { concedida ->
@@ -168,6 +175,7 @@ class MainActivity : AppCompatActivity() {
             ticket = intent?.data?.getQueryParameter("ticket"),
             onRouteRequested = routeBridge::setRota,
             onRouteStopped = routeBridge::clearRota,
+            onLocationPermissionRequested = ::solicitarLocalizacaoParaCadastro,
         )
         webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
 
@@ -257,6 +265,23 @@ class MainActivity : AppCompatActivity() {
     private fun temNotificacoes(): Boolean =
         (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || temPermissao(Manifest.permission.POST_NOTIFICATIONS)) &&
             NotificationManagerCompat.from(this).areNotificationsEnabled()
+
+    private fun solicitarLocalizacaoParaCadastro() {
+        if (temLocalizacao()) {
+            notificarPermissaoCadastroLocalizacao(true)
+            return
+        }
+        cadastroLocalizacaoLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+        )
+    }
+
+    private fun notificarPermissaoCadastroLocalizacao(concedida: Boolean) {
+        webView.evaluateJavascript(
+            "window.HBXApp&&window.HBXApp.locationPermissionChanged&&window.HBXApp.locationPermissionChanged($concedida);",
+            null,
+        )
+    }
 
     private fun solicitarAtivacaoRota(route: NativeRouteRequest) {
         rotaPendente = route

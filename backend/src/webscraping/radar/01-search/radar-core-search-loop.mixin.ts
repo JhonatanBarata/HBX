@@ -182,32 +182,15 @@ function pruneRadarCnpjPublicClientRunState(now: number) {
 
 export class RadarCoreSearchLoopMixin {
   [key: string]: any;
-  private enqueueRadarSocialLookupForSavedLeads(
-    context: SearchExecutionContext,
-    runId: string,
-    input: NormalizedSearchInput,
-    leadIds: string[] = [],
-    engineUrl?: string | null,
-  ) {
-    return this.getRadarSocialLookupService().enqueue(
-      context,
-      runId,
-      input,
-      leadIds,
-      engineUrl,
-      this.buildRadarSocialLookupHost(),
-    );
-  }
-
   /**
-   * Fonte Receita (cnpj_public) soldada no run de cliente — aditivo, flag-gated
+   * Fonte Receita (cnpj_public) soldada no run de cliente — tentativa obrigatória para PJ.
    * (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md).
    *
    * CUTOVER ORDEM FIXA (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md):
    * a lane do cliente é semente → RFB → web → fusão. Este método agora é chamado ANTES do
    * batch do motor web (ver processSearchRun) — RFB roda primeiro na ordem fixa 1→8 da árvore
-   * mestra. Continua rodando no MÁXIMO 1x por run (ranThisRun/zeroAccepted); erro aqui NUNCA
-   * bloqueia o batch web que vem depois (degrade gracioso).
+   * mestra. Continua rodando no MÁXIMO 1x por run (ranThisRun/zeroAccepted); erro aqui fica
+   * registrado em sourceCoverage e NUNCA apaga o batch web que vem depois.
    */
   private async runCnpjPublicSourceForClientRunIfEligible(
     context: SearchExecutionContext,
@@ -215,21 +198,24 @@ export class RadarCoreSearchLoopMixin {
     runId: string,
     remainingQuantity: number,
   ): Promise<{ accepted: number; ran: boolean }> {
-    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return { accepted: 0, ran: false };
     if (normalized?.targetType !== 'pj') return { accepted: 0, ran: false };
-    if (remainingQuantity <= 0) return { accepted: 0, ran: false };
 
     const now = Date.now();
     pruneRadarCnpjPublicClientRunState(now);
     const state = radarCnpjPublicClientRunState.get(runId);
     if (state?.ranThisRun || state?.zeroAccepted) return { accepted: 0, ran: false };
     radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: state?.zeroAccepted || false, updatedAt: now });
+    await this.updateSearchRunSourceCoverage(runId, 'rfb', {
+      attempted: true,
+      status: 'running',
+      attemptedAt: new Date(now).toISOString(),
+    });
 
     try {
       const source = this.getRadarCnpjPublicSource
         ? this.getRadarCnpjPublicSource()
         : new RadarCnpjPublicSourceService();
-      const limit = Math.max(1, Math.min(remainingQuantity, 20));
+      const limit = Math.max(1, Math.min(Math.max(remainingQuantity, normalized.quantity || 1), 20));
       const sourceResult = await source.run({
         normalized,
         limit,
@@ -253,68 +239,52 @@ export class RadarCoreSearchLoopMixin {
       this.logger?.log?.(
         `[radar-cadeia] run ${runId}: 1=rfb found=${sourceResult?.foundCount ?? results.length} accepted=${accepted} reason=${sourceResult?.reason || '-'}`,
       );
+      await this.updateSearchRunSourceCoverage(runId, 'rfb', {
+        attempted: true,
+        status: 'completed',
+        succeeded: true,
+        accepted,
+        found: safeInteger(sourceResult?.foundCount ?? results.length),
+        finishedAt: new Date().toISOString(),
+      });
       return { accepted, ran: true };
     } catch (error) {
       this.logger?.warn?.(
         `[radar-cnpj] fonte receita falhou sem derrubar o batch run=${runId}: ${String((error as any)?.message || error)}`,
       );
+      await this.updateSearchRunSourceCoverage(runId, 'rfb', {
+        attempted: true,
+        status: 'failed',
+        succeeded: false,
+        error: String((error as any)?.message || error).slice(0, 500),
+        finishedAt: new Date().toISOString(),
+      });
       return { accepted: 0, ran: true };
     }
   }
 
-  private enqueueRadarWebEnrichmentForSavedLeads(
-    context: SearchExecutionContext,
+  private async updateSearchRunSourceCoverage(
     runId: string,
-    input: NormalizedSearchInput,
-    leadIds: string[] = [],
-    engineUrl?: string | null,
+    source: 'rfb' | 'motor',
+    patch: Record<string, any>,
   ) {
-    return this.getRadarWebEnrichmentJobService().enqueue(
-      context,
-      runId,
-      input,
-      leadIds,
-      engineUrl,
-      this.buildRadarWebEnrichmentJobHost(),
-    );
-  }
-
-  private async drainRadarSocialLookupQueue() {
-    return this.getRadarSocialLookupService().drain();
-  }
-
-  private async drainRadarWebEnrichmentQueue() {
-    return this.getRadarWebEnrichmentJobService().drain();
-  }
-
-  async runRadarSocialLookupForSavedLead(
-    context: SearchExecutionContext,
-    leadId: string,
-    input: NormalizedSearchInput,
-    engineUrl?: string | null,
-  ) {
-    return this.getRadarSocialLookupService().runForSavedLead(
-      context,
-      leadId,
-      input,
-      engineUrl,
-      this.buildRadarSocialLookupHost(),
-    );
-  }
-
-  async runRadarWebEnrichmentForSavedLead(
-    context: SearchExecutionContext,
-    leadId: string,
-    input: NormalizedSearchInput,
-    engineUrl?: string | null,
-  ) {
-    return this.getRadarWebEnrichmentJobService().runForSavedLead(
-      context,
-      leadId,
-      input,
-      engineUrl,
-      this.buildRadarWebEnrichmentJobHost(),
-    );
+    const delegate = (this.prisma as any)?.webscrapingSearchRun;
+    if (!delegate || typeof this.updateSearchRunMetrics !== 'function') return;
+    const run = await delegate.findUnique({
+      where: { id: runId },
+      select: { metricsJson: true },
+    }).catch(() => null);
+    const metrics = parseJsonObject(run?.metricsJson);
+    const sourceCoverage = parseJsonObject(metrics?.sourceCoverage);
+    await this.updateSearchRunMetrics(runId, {
+      sourceCoverage: {
+        ...sourceCoverage,
+        [source]: {
+          ...parseJsonObject(sourceCoverage?.[source]),
+          ...patch,
+        },
+      },
+    });
   }
 
   private async recalculateSearchRunCounters(runId: string) {
@@ -503,6 +473,11 @@ export class RadarCoreSearchLoopMixin {
     // targetQuantity/foundCount do próprio run, nunca o funil de Vendas.
     if (current.foundCount >= current.targetQuantity) return;
     const missingCount = Math.max(1, current.targetQuantity - current.foundCount);
+    const discoveryInput: NormalizedSearchInput = {
+      ...normalized,
+      requiredChannels: [],
+      channelMatchMode: 'prefer',
+    };
 
     const quantity = Math.min(
       this.getEnginePool().googleEmergencyMaxPerRun(),
@@ -537,7 +512,7 @@ export class RadarCoreSearchLoopMixin {
       );
       const incoming = Array.isArray(response.results) ? response.results : [];
       if (incoming.length > 0) {
-        const savedCounts = await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
+        await this.saveSearchRunResults(context, discoveryInput, runId, incoming, 'google_emergency');
         await this.recalculateSearchRunCounters(runId);
       }
       await this.prisma.webscrapingSearchRun.update({
@@ -792,25 +767,27 @@ export class RadarCoreSearchLoopMixin {
     // LIMPEZA-DESTRUTIVA L2 (04/07): sem gate de estoque do Vendas — o run nunca mais
     // para aqui por causa do funil; só busca até normalized.quantity/targetQuantity.
     const normalized = initialInput || this.normalizeSearchInput(this.buildRunInputFromRow(current));
-    const hasRequiredEnrichmentGate = this.hasExplicitRequiredChannels(normalized);
-    const batchLimit = this.getHbxRunBatchLimit(normalized.quantity);
-    const queryTaskCount = this.buildHbxBatchQueryTasks(normalized).length;
-    const maxAttempts = Math.max(this.getHbxRunMaxAttempts(normalized.quantity, batchLimit), queryTaskCount);
-    const hasExpandedScope = normalized.radiusKm > 0 || this.getSearchCityTargets(normalized).length > 1 || this.splitHbxBatchSegments(normalized.segment).length > 1;
-    const requiredSocialChannels = normalized.requiredChannels.filter((channel) => channel === 'instagram' || channel === 'facebook');
-    const requiredCandidateWindow = hasRequiredEnrichmentGate
-      ? this.getRequiredChannelCandidateWindow(normalized.quantity)
-      : normalized.quantity;
+    const hasRequiredChannelFilter = this.hasExplicitRequiredChannels(normalized);
+    // Canal obrigatório é filtro sobre sinais que já vieram nas fontes. Ele não
+    // pode aumentar janela, criar query social nem disparar enriquecimento antes
+    // do débito. A descoberta sempre trabalha com o pedido comercial neutro.
+    const discoveryInput: NormalizedSearchInput = {
+      ...normalized,
+      requiredChannels: [],
+      channelMatchMode: 'prefer',
+    };
+    const batchLimit = this.getHbxRunBatchLimit(discoveryInput.quantity);
+    const queryTaskCount = this.buildHbxBatchQueryTasks(discoveryInput).length;
+    const maxAttempts = Math.max(this.getHbxRunMaxAttempts(discoveryInput.quantity, batchLimit), queryTaskCount);
+    const hasExpandedScope = discoveryInput.radiusKm > 0 || this.getSearchCityTargets(discoveryInput).length > 1 || this.splitHbxBatchSegments(discoveryInput.segment).length > 1;
     const maxEmptyBatches = hasExpandedScope
       ? Math.max(this.getHbxRunMaxEmptyBatches(), Math.min(Math.max(queryTaskCount, 1), 120))
       : this.getHbxRunMaxEmptyBatches();
     const maxFailedBatches = this.getHbxRunMaxFailedBatches();
     const maxStalledPartialBatches = this.getHbxRunMaxStalledPartialBatches();
     const attempt = safeInteger(current.attemptCount) + 1;
-    const quantity = hasRequiredEnrichmentGate
-      ? batchLimit
-      : Math.min(batchLimit, Math.max(1, normalized.quantity - safeInteger(current.foundCount)));
-    const attemptTask = this.buildHbxBatchAttemptTask(normalized, attempt);
+    const quantity = Math.min(batchLimit, Math.max(1, discoveryInput.quantity - safeInteger(current.foundCount)));
+    const attemptTask = this.buildHbxBatchAttemptTask(discoveryInput, attempt);
     const attemptInput = attemptTask.input;
     const queryUsed = attemptTask.query;
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
@@ -837,21 +814,17 @@ export class RadarCoreSearchLoopMixin {
     };
 
     try {
-      if (safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(normalized, safeInteger(current.attemptCount))) {
-        const requiredChannelMatches = hasRequiredEnrichmentGate
+      if (safeInteger(current.foundCount) >= normalized.quantity && this.hasCompletedHbxMinimumCoverage(discoveryInput, safeInteger(current.attemptCount))) {
+        const requiredChannelMatches = hasRequiredChannelFilter
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(current.foundCount);
-        if (requiredChannelMatches < normalized.quantity && safeInteger(current.foundCount) < requiredCandidateWindow) {
-        } else {
-          if (requiredChannelMatches >= normalized.quantity) {
-            if (await autoImportAndStopIfPaused('final')) return;
-          }
-          const finalStatus: WebscrapingSearchRunStatus = requiredChannelMatches >= normalized.quantity
-            ? 'completed'
-            : 'completed_insufficient_results';
-          const finalMessage = finalStatus === 'completed'
-            ? null
-            : this.buildSearchRunInsufficientMessage(safeInteger(current.foundCount), attempt);
+        if (await autoImportAndStopIfPaused('final')) return;
+        const finalStatus: WebscrapingSearchRunStatus = requiredChannelMatches >= normalized.quantity
+          ? 'completed'
+          : 'completed_insufficient_results';
+        const finalMessage = finalStatus === 'completed'
+          ? null
+          : this.buildSearchRunInsufficientMessage(requiredChannelMatches, attempt);
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -867,7 +840,6 @@ export class RadarCoreSearchLoopMixin {
           },
         });
         return;
-        }
       }
 
       if (attempt > maxAttempts) {
@@ -875,7 +847,7 @@ export class RadarCoreSearchLoopMixin {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
-        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
+        if (counters.foundCount > 0) {
           const rested = await this.restSearchRunIfEligible(
             runId,
             current,
@@ -888,10 +860,8 @@ export class RadarCoreSearchLoopMixin {
         const finalMessage = counters.foundCount > 0
           ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
-        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
+        if (counters.foundCount > 0) {
           if (await autoImportAndStopIfPaused('parcial')) return;
-          await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
-        } else if (counters.foundCount > 0) {
           await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         }
         await this.prisma.webscrapingSearchRun.update({
@@ -943,16 +913,12 @@ export class RadarCoreSearchLoopMixin {
       if (this.isTerminalSearchRunStatus(liveRun.status)) return;
       if (
         safeInteger(liveRun.foundCount) >= safeInteger(liveRun.targetQuantity)
-        && this.hasCompletedHbxMinimumCoverage(normalized, attempt - 1)
+        && this.hasCompletedHbxMinimumCoverage(discoveryInput, attempt - 1)
       ) {
-        const requiredChannelMatches = hasRequiredEnrichmentGate
+        const requiredChannelMatches = hasRequiredChannelFilter
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(liveRun.foundCount);
-        if (requiredChannelMatches < safeInteger(liveRun.targetQuantity) && safeInteger(liveRun.foundCount) < requiredCandidateWindow) {
-        } else {
-        if (requiredChannelMatches >= safeInteger(liveRun.targetQuantity)) {
-          if (await autoImportAndStopIfPaused('alvo')) return;
-        }
+        if (await autoImportAndStopIfPaused('alvo')) return;
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -961,7 +927,7 @@ export class RadarCoreSearchLoopMixin {
             lastBatchStatus: requiredChannelMatches >= safeInteger(liveRun.targetQuantity) ? 'completed' : 'completed_insufficient_results',
             errorMessage: requiredChannelMatches >= safeInteger(liveRun.targetQuantity)
               ? null
-              : this.buildSearchRunInsufficientMessage(safeInteger(liveRun.foundCount), attempt),
+              : this.buildSearchRunInsufficientMessage(requiredChannelMatches, attempt),
             nextRetryAt: null,
             assignedEngineId: null,
             assignedEngineUrl: null,
@@ -970,7 +936,6 @@ export class RadarCoreSearchLoopMixin {
           },
         });
         return;
-        }
       }
 
       const dedup = await this.snapshotSearchRunDedup(runId);
@@ -979,11 +944,7 @@ export class RadarCoreSearchLoopMixin {
         ...attemptInput,
         quantity,
       };
-      const engineBatchInput: NormalizedSearchInput = {
-        ...batchInput,
-        requiredChannels: [],
-        channelMatchMode: 'prefer',
-      };
+      const engineBatchInput: NormalizedSearchInput = batchInput;
 
       // CUTOVER ORDEM FIXA (P1, 02/07): lane do cliente é semente → RFB → web → fusão (árvore
       // mestra, docs/PLANEJAMENTOS/ARVORE-MESTRA/ARVORE-MESTRA.md). RFB roda ANTES do motor web
@@ -991,22 +952,46 @@ export class RadarCoreSearchLoopMixin {
       // Erro/flag-off aqui nunca bloqueia o batch web que vem a seguir (degrade gracioso).
       const cnpjOutcome = await this.runCnpjPublicSourceForClientRunIfEligible(
         context,
-        normalized,
+        discoveryInput,
         runId,
         Math.max(0, safeInteger(normalized.quantity) - safeInteger(current.foundCount)),
       ).catch(() => ({ accepted: 0, ran: false }));
 
       const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput) || this.isSocialDiscoveryQuery(queryUsed);
-      const batchResponse = await this.searchHbxEngine(
-        engineBatchInput,
-        excludePhoneDigits,
-        engineUrl,
-        {
-          queryText: sendExplicitQuery ? queryUsed : undefined,
-          batchLimit: quantity,
-          timeoutMs: this.isSocialDiscoveryQuery(queryUsed) ? this.getHbxSocialBatchTimeoutMs() : this.getHbxBatchTimeoutMs(),
-        },
-      );
+      await this.updateSearchRunSourceCoverage(runId, 'motor', {
+        attempted: true,
+        status: 'running',
+        attemptedAt: new Date().toISOString(),
+      });
+      let batchResponse: any;
+      try {
+        batchResponse = await this.searchHbxEngine(
+          engineBatchInput,
+          excludePhoneDigits,
+          engineUrl,
+          {
+            queryText: sendExplicitQuery ? queryUsed : undefined,
+            batchLimit: quantity,
+            timeoutMs: this.isSocialDiscoveryQuery(queryUsed) ? this.getHbxSocialBatchTimeoutMs() : this.getHbxBatchTimeoutMs(),
+          },
+        );
+        await this.updateSearchRunSourceCoverage(runId, 'motor', {
+          attempted: true,
+          status: 'completed',
+          succeeded: true,
+          found: Array.isArray(batchResponse?.results) ? batchResponse.results.length : 0,
+          finishedAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        await this.updateSearchRunSourceCoverage(runId, 'motor', {
+          attempted: true,
+          status: 'failed',
+          succeeded: false,
+          error: String((error as any)?.message || error).slice(0, 500),
+          finishedAt: new Date().toISOString(),
+        });
+        throw error;
+      }
       const runAfterEngine = await this.prisma.webscrapingSearchRun.findUnique({
         where: { id: runId },
         select: { status: true },
@@ -1055,29 +1040,22 @@ export class RadarCoreSearchLoopMixin {
       const consecutiveEmptyBatchCount = approvedCount === 0
         ? safeInteger(current.consecutiveEmptyBatchCount) + 1
         : 0;
-      const requiredChannelMatches = hasRequiredEnrichmentGate && counters.foundCount >= normalized.quantity
+      const requiredChannelMatches = hasRequiredChannelFilter && counters.foundCount >= normalized.quantity
         ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
         : counters.foundCount;
-      const reachedTargetBeforeCoverage = hasRequiredEnrichmentGate
-        ? requiredChannelMatches >= normalized.quantity
-        : counters.foundCount >= normalized.quantity;
-      const reachedTarget = reachedTargetBeforeCoverage && this.hasCompletedHbxMinimumCoverage(normalized, attempt);
-      const reachedRequiredCandidateWindow = hasRequiredEnrichmentGate && counters.foundCount >= requiredCandidateWindow;
+      const reachedTargetBeforeCoverage = counters.foundCount >= normalized.quantity;
+      const reachedTarget = reachedTargetBeforeCoverage && this.hasCompletedHbxMinimumCoverage(discoveryInput, attempt);
       const reachedMaxAttempts = attempt >= maxAttempts;
-      const completedSocialWarmup = !requiredSocialChannels.length || attempt >= Math.max(1, Math.ceil(Math.max(queryTaskCount, 1) * 0.3));
       const completedPrimaryTasksOnce = attempt >= Math.max(queryTaskCount, 1);
       const reachedMaxEmptyBatches = approvedCount === 0
         && consecutiveEmptyBatchCount >= maxEmptyBatches
-        && completedSocialWarmup
         && (counters.foundCount <= 0 || completedPrimaryTasksOnce);
       const reachedStalledPartialTarget = approvedCount === 0
-        && !hasRequiredEnrichmentGate
         && counters.foundCount > 0
         && counters.foundCount < normalized.quantity
         && counters.foundCount === safeInteger(current.foundCount)
         && counters.foundCount / Math.max(1, normalized.quantity) >= 0.8
-        && consecutiveEmptyBatchCount >= maxStalledPartialBatches
-        && completedSocialWarmup;
+        && consecutiveEmptyBatchCount >= maxStalledPartialBatches;
       const batchDebugMeta = `attempts=${attempt}/${maxAttempts}; queryTaskCount=${queryTaskCount}; currentCity=${attemptTask.searchScope?.currentCity || normalized.city}; currentSegment=${attemptTask.searchScope?.currentSegment || normalized.segment}; currentQuery=${queryUsed}; approved=${approvedCount}; skipped=${savedCounts.skipped + savedCounts.invalid + batchResponse.rejectedCount}; duplicate=${duplicateCount}`;
 
       this.logHbxBatch({
@@ -1098,12 +1076,17 @@ export class RadarCoreSearchLoopMixin {
         await this.runGoogleEmergencyComplementIfEligible(runId, user, context, normalized);
         if (await autoImportAndStopIfPaused('complemento')) return;
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
+        const finalStatus: WebscrapingSearchRunStatus = requiredChannelMatches >= normalized.quantity
+          ? 'completed'
+          : 'completed_insufficient_results';
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
           data: {
-            status: 'completed',
-            lastBatchStatus: 'completed',
-            errorMessage: null,
+            status: finalStatus,
+            lastBatchStatus: finalStatus,
+            errorMessage: finalStatus === 'completed'
+              ? null
+              : this.buildSearchRunInsufficientMessage(requiredChannelMatches, attempt),
             nextRetryAt: null,
             assignedEngineId: null,
             assignedEngineUrl: null,
@@ -1116,11 +1099,11 @@ export class RadarCoreSearchLoopMixin {
         return;
       }
 
-      if (reachedMaxAttempts || reachedMaxEmptyBatches || reachedRequiredCandidateWindow || reachedStalledPartialTarget) {
+      if (reachedMaxAttempts || reachedMaxEmptyBatches || reachedStalledPartialTarget) {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
-        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate && !reachedRequiredCandidateWindow) {
+        if (counters.foundCount > 0) {
           const rested = await this.restSearchRunIfEligible(
             runId,
             current,
@@ -1226,7 +1209,7 @@ export class RadarCoreSearchLoopMixin {
       const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
         ? 'completed_insufficient_results'
         : 'failed';
-      if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
+      if (counters.foundCount > 0) {
         const rested = await this.restSearchRunIfEligible(
           runId,
           current,
@@ -1241,10 +1224,8 @@ export class RadarCoreSearchLoopMixin {
         : reachedMaxAttempts
           ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
-      if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
+      if (counters.foundCount > 0) {
         if (await autoImportAndStopIfPaused('pos-erro')) return;
-        await this.persistSearchRunHistoryIfPossible(runId, normalized, context).catch(() => null);
-      } else if (counters.foundCount > 0) {
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context).catch(() => null);
       }
       await this.prisma.webscrapingSearchRun.update({

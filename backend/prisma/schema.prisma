@@ -260,6 +260,7 @@ model Company {
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingSearchRuns WebscrapingSearchRun[]
   webscrapingSearchRunItems WebscrapingSearchRunItem[]
+  radarLeadProcessRuns RadarLeadProcessRun[]
   webscrapingCampaigns WebscrapingCampaign[]
   hbxEngineLocks HbxEngineLock[]
   webscrapingUsageLogs WebscrapingUsageLog[]
@@ -476,27 +477,6 @@ model CompanyCommercialUsageLog {
   @@index([companyId, eventType, createdAt])
   @@index([companyId, userId, eventType, createdAt])
   @@index([planKey, eventType, createdAt])
-}
-
-model EnrichmentCostLedger {
-  id               String   @id @default(cuid())
-  companyId        Int?
-  leadId           String?
-  provider         String
-  sku              String
-  estimatedCostUsd Float    @default(0)
-  estimatedCostBrl Float    @default(0)
-  cacheHit         Boolean  @default(false)
-  reason           String?
-  planKey          String?
-  triggeredBy      String
-  metadataJson     String?
-  createdAt        DateTime @default(now())
-
-  @@index([companyId, createdAt])
-  @@index([provider, createdAt])
-  @@index([leadId, createdAt])
-  @@index([planKey, createdAt])
 }
 
 model TrialPhoneUsage {
@@ -2064,6 +2044,7 @@ model User {
   teamPolicyAuditLogsAsTarget TeamPolicyAuditLog[] @relation("TeamPolicyAuditLogTarget")
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingSearchRuns WebscrapingSearchRun[]
+  radarLeadProcessRuns RadarLeadProcessRun[]
   webscrapingCampaigns WebscrapingCampaign[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadEventsCreated RadarLeadEvent[] @relation("RadarLeadEventCreatedBy")
@@ -2109,6 +2090,9 @@ model MobileDevice {
   installationId     String   @unique
   name               String?
   platform           String   @default("android")
+  // Perfil do aparelho: ADMIN = acesso total; STANDARD = operação sem financeiro.
+  // A coluna é persistida agora; o motor de cortes será aplicado posteriormente.
+  accessProfile      String   @default("ADMIN")
   tokenHash          String   @unique
   tokenVersion       Int      @default(1)
   pushToken          String?
@@ -2133,15 +2117,17 @@ model MobileDevice {
 }
 
 model MobilePairingCode {
-  id         String   @id
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     Int
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId  Int
-  codeHash   String   @unique
-  expiresAt  DateTime
-  consumedAt DateTime?
-  createdAt  DateTime @default(now())
+  id            String   @id
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     Int
+  codeHash      String   @unique
+  // Copiado para MobileDevice no consumo do código; não altera o papel da conta web.
+  accessProfile String @default("ADMIN")
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime @default(now())
 
   @@index([userId, expiresAt])
   @@index([expiresAt, consumedAt])
@@ -2634,6 +2620,37 @@ model WebscrapingSearchRun {
   @@index([userId, createdAt])
 }
 
+// Snapshot persistente do processamento visual do Radar. `mode=search` acompanha
+// uma busca; `mode=claim` acompanha a puxada paga até o Vendas. Os contatos não
+// vivem aqui: stages/events/snapshot guardam somente telemetria e referências.
+model RadarLeadProcessRun {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          Int
+  radarLead       RadarLeadPool? @relation(fields: [radarLeadId], references: [id], onDelete: SetNull)
+  radarLeadId     String?
+  mode            String   // claim | search
+  status          String   @default("queued") // queued | validating | debit_pending | credit_debited | ownership_claimed | rfb_hydrating | base_revealed | motor_enriching | vendas_creating | completed | partial | failed | refunded
+  idempotencyKey  String?
+  stagesJson      String   @default("[]")
+  eventsJson      String   @default("[]")
+  snapshotJson    String   @default("{}")
+  errorCode       String?
+  errorMessage    String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  version         Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, status, updatedAt])
+  @@index([companyId, userId, createdAt])
+  @@index([companyId, radarLeadId, createdAt])
+}
+
 model WebscrapingSourceQuality {
   id              String   @id @default(cuid())
   domain          String
@@ -2849,6 +2866,7 @@ model RadarLeadPool {
   events               RadarLeadEvent[]
   contacts             LeadContact[]
   people               LeadPerson[]
+  processRuns          RadarLeadProcessRun[]
 
   @@index([companyId, status])
   @@index([ownerCompanyId, status])
@@ -2881,6 +2899,7 @@ model LeadContact {
   @@index([radarLeadId, kind, rank])
   @@index([kind, valueNormalized])
   @@index([claimedByCompanyId])
+  @@unique([radarLeadId, kind, valueNormalized])
 }
 
 // WORM-16 (02/07, docs/PLANEJAMENTOS/worm/16-tela-contatos-empresas-crm.md): contato por PESSOA
@@ -3328,31 +3347,6 @@ model RadarCoverage {
 
   @@unique([state, city, segment, targetType])
   @@index([status, nextRevisitAt])
-}
-
-// FÁBRICA DE ENRIQUECIMENTO (F2, 02/07 — docs/PLANEJAMENTOS/ARVORE-MESTRA lane FÁBRICA). Estado
-// durável de uma corrida da fábrica: ela LÊ a lista RFB local (CnpjPublicCompany) e enriquece TUDO
-// (tel/email/insta/fb/site/sócio) atrás da fila `enrich_lead`. Linha única (key='main').
-// `budget` = quantos leads processar nesta corrida; para SOZINHA ao atingir. `stopRequested` = PARE
-// AGORA (congela com segurança). É crash-safe/idempotente: sobrevive a restart e o start retoma sem
-// duplicar (lead materializado por placeId `cnpj_public:<cnpj>` único; missão idempotente por dedupeKey).
-// NÃO substitui o PARAR TUDO global (RadarFactoryCursor.enabled) — a fábrica RESPEITA os dois freios.
-model RadarFabricaRun {
-  id             String    @id @default(cuid())
-  key            String    @unique @default("main")
-  running        Boolean   @default(false)
-  stopRequested  Boolean   @default(false)
-  budget         Int       @default(0) // alvo desta corrida (leads a enriquecer)
-  processed      Int       @default(0) // já enriquecidos nesta corrida
-  materialized   Int       @default(0) // leads criados a partir da RFB nesta corrida
-  contactsWritten Int      @default(0) // linhas LeadContact gravadas (grátis) nesta corrida
-  paidAttempts   Int       @default(0) // DEVE ficar 0 no local (prova de R$0)
-  lastLeadId     String?
-  lastError      String?
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
 }
 
 model WebscrapingCampaignBatch {
@@ -4848,7 +4842,7 @@ model CnpjPublicPartner {
 // Histórico/estado de um job de lote colado no painel Owner (:3107): cola até 10k CNPJs → cadastral
 // instantâneo (CnpjPublicCompany/BrasilAPI) + enfileira `enrich_lead` (camada vivo, mesma fila da
 // fábrica) + IA opcional → gera XLSX em background. ADITIVA: tabela nova isolada, não toca em
-// CnpjPublicCompany/Partner (outro worker mexe nelas) nem em RadarFabricaRun/RadarMission.
+// CnpjPublicCompany/Partner (outro worker mexe nelas) nem em RadarMission.
 model CnpjXrayJob {
   id              String    @id @default(cuid())
   status          String    @default("queued") // queued | running_cadastral | running_vivo | running_ia | done | error

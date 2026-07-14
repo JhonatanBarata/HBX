@@ -149,7 +149,6 @@ test('TRAVA LEI Nº1: camada vivo processando lote não toca NENHUMA fonte paga'
   assert.equal(r.started, true);
   // drena em background — espera o job de 1 item terminar
   await new Promise((resolve) => setTimeout(resolve, 300));
-  assert.equal(SourceBudgetService.serperAllowed(), false, 'Serper OFF no local');
   const job = prisma._jobs[0];
   assert.ok(['done', 'running_vivo', 'running_cadastral'].includes(job.status), `status inesperado: ${job.status}`);
 });

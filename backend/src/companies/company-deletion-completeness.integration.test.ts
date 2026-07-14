@@ -311,7 +311,7 @@ test('completude da exclusão de empresa contra o Postgres local', async (t) => 
     const scalarModels = [
       'assistenteConfig', 'atendimentoQuickReply', 'atendimentoCustomer', 'atividade',
       'cadenciaInscricao', 'cadenciaGatilho', 'cadenciaRotina', 'cadencia',
-      'commercialEmailMessageLog', 'enrichmentCostLedger', 'fiscalInvoice', 'gmailConnection',
+      'commercialEmailMessageLog', 'fiscalInvoice', 'gmailConnection',
       'harvestImportBatch', 'inboxTrashMeticulousPurgeJob', 'masterPaymentNotificationLog',
       'nightOrderDelivery', 'nightOrder', 'radarLeadEnrichment', 'recoveryOpportunity',
       'savedSearch', 'whatsAppWebhookEvent',

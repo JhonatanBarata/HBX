@@ -37,7 +37,7 @@ export default function TermosPage() {
           <ul>
             <li>Você deve fornecer dados verdadeiros, completos e atualizados.</li>
             <li>Você é responsável pelo sigilo das suas credenciais e por toda atividade na sua conta.</li>
-            <li>É proibido compartilhar acessos fora dos limites do plano contratado.</li>
+            <li>É proibido compartilhar acessos ou contornar controles operacionais e de segurança da conta.</li>
             <li>A HBX pode recusar, suspender ou encerrar contas que violem estes Termos.</li>
           </ul>
 

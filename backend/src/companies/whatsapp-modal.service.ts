@@ -1,7 +1,6 @@
 import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import axios, { AxiosError, AxiosResponse, Method } from 'axios';
 import * as QRCode from 'qrcode';
-import { COMMERCIAL_PLAN_KEYS } from '../commercial-plans/commercial-plan-catalog';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { ensureMasterBillingRuntimeSchema } from '../modules/master-runtime';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,7 +51,6 @@ type CompanyModalFields = {
   status?: string | null;
   // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState lê accountType antes de status.
   accountType?: string | null;
-  selectedPlanKey: string | null;
   contactPhone: string | null;
   isActive: boolean | null;
   trialStartsAt: Date | null;
@@ -1305,13 +1303,8 @@ export class WhatsAppModalService {
     return access.state === 'trial' || access.state === 'trial_ending';
   }
 
-  private isLeadTrialingCompany(company: Partial<CompanyModalFields>) {
-    const selectedPlanKey = String(company.selectedPlanKey || '').trim().toLowerCase();
-    return selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO && this.isTrialingCompany(company);
-  }
-
   private assertLeadTrialPairingPhoneAllowed(company: CompanyModalFields, phoneNumber: string) {
-    if (!this.isLeadTrialingCompany(company)) return;
+    if (!this.isTrialingCompany(company)) return;
 
     const lockedPhone = this.normalizeTrialPhone(company.contactPhone);
     if (!lockedPhone) {
@@ -1325,7 +1318,7 @@ export class WhatsAppModalService {
     if (requestedPhone !== lockedPhone) {
       throw new BadRequestException({
         code: 'TRIAL_WHATSAPP_PHONE_LOCKED',
-        message: 'No trial HBX Lead Plus, vincule o WhatsApp ao telefone informado na ativação. Para trocar o telefone, acione o suporte.',
+        message: 'Durante o período de avaliação, vincule o WhatsApp ao telefone informado na ativação. Para trocar o telefone, acione o suporte.',
       });
     }
   }
@@ -3608,7 +3601,6 @@ export class WhatsAppModalService {
         },
         status: true,
         accountType: true,
-        selectedPlanKey: true,
         contactPhone: true,
         isActive: true,
         trialStartsAt: true,

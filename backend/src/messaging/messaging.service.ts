@@ -73,10 +73,6 @@ import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { ConversationAssistantRuntimeService } from '../assistente/conversation-assistant-runtime.service';
-import {
-  COMMERCIAL_ENTITLEMENT_KEYS,
-  isCommercialEntitlementActive,
-} from '../commercial-plans/commercial-plan-catalog';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { HbxPresentationEmailService, type HbxPresentationEmailResult } from '../mail/hbx-presentation-email.service';
 import {
@@ -578,31 +574,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // Empresa suspensa/overdue/pending_checkout nao roda recovery no inbound.
     // W1 removeu o wipe que desligava os modulos; a guarda de acesso passa a ser aqui.
     const acesso = resolveCompanyAccessState(company as any);
-    const temPostIt =
-      Boolean(recoveryModule?.id) ||
-      String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery';
     return {
       providerCapabilities: resolveProviderCapabilitiesFromCompany(company),
-      recoveryEnabled: temPostIt && acesso.canUse,
+      recoveryEnabled: Boolean(recoveryModule?.id) && acesso.canUse,
     };
-  }
-
-  // Projecao do estado canonico (PR-002 A.4): nada de re-derivar trial aqui.
-  private isCompanyTrialingVendas(company: any) {
-    if (String(company?.trialModuleSelection || '').trim().toLowerCase() !== COMMERCIAL_ENTITLEMENT_KEYS.VENDAS) {
-      return false;
-    }
-    const access = resolveCompanyAccessState(company);
-    return access.state === 'trial' || access.state === 'trial_ending';
-  }
-
-  private isCommercialEntitlementUsable(row: any) {
-    const status = String(row?.status || '').trim().toLowerCase();
-    if (!isCommercialEntitlementActive(status)) return false;
-    if (status === 'trialing' && row?.currentPeriodEnd instanceof Date) {
-      return row.currentPeriodEnd.getTime() >= Date.now();
-    }
-    return true;
   }
 
   private async hasCommercialBotAiEntitlementForCompany(companyId: number) {

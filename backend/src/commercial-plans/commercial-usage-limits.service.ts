@@ -3,7 +3,7 @@ import { isPlatformInfraCompany } from '../common/company-kind';
 import { pushMasterNotice } from '../common/push-master-notice';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
-import { COMMERCIAL_PLAN_KEYS, COMMERCIAL_PLAN_QUOTAS, resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
+import { resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
 import { resolveRadarSearchAllowance, resolveSellerCardQuota } from './seller-card-quota.util';
 import {
   TEAM_POLICY_UNLIMITED_LIMIT,
@@ -15,10 +15,9 @@ import {
 const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
 const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
 const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
-const LEAD_ENRICHMENT_SUCCESS_EVENTS = ['lead_enrichment_used'];
 const SELLER_ACTIVE_CARD_LIMIT_MIN = 5;
 const SELLER_ACTIVE_CARD_LIMIT_MAX = 100;
-// Sentinela "sem teto" — vendedor ilimitado até o teto do plano (lei do dono 27/06).
+// Sentinela "sem teto" para a política operacional do vendedor.
 const SELLER_ACTIVE_CARD_LIMIT_UNLIMITED = 999999;
 // VENDAS-REFAB S1: penalidade automática de inatividade (corta effectiveLimit sozinha
 // com o vendedor sumido) só roda se o admin ligar explicitamente. Default OFF — mesmo
@@ -586,21 +585,6 @@ export class CommercialUsageLimitsService {
         userSent: 0,
         userLimit: unlimited,
       },
-      enrichment: {
-        used: 0,
-        limit: unlimited,
-        remaining: unlimited,
-        dailyUsed: 0,
-        dailyLimit: unlimited,
-        dailyRemaining: unlimited,
-        dailyLimitSource: 'system_master',
-        configuredDailyLimit: null as number | null,
-        fallbackDailyLimit: null as number | null,
-        canAutoEnrich: true,
-        canManualEnrich: true,
-        mode: 'auto',
-        period: 'daily',
-      },
       billableUsers: 0,
       resetAt: input.monthEnd.toISOString(),
       dailyResetAt: input.dayEnd.toISOString(),
@@ -650,21 +634,6 @@ export class CommercialUsageLimitsService {
         userSent: 0,
         userLimit: 0,
       },
-      enrichment: {
-        used: 0,
-        limit: 0,
-        remaining: 0,
-        dailyUsed: 0,
-        dailyLimit: 0,
-        dailyRemaining: 0,
-        dailyLimitSource: 'platform_infra',
-        configuredDailyLimit: null as number | null,
-        fallbackDailyLimit: null as number | null,
-        canAutoEnrich: false,
-        canManualEnrich: false,
-        mode: 'blocked',
-        period: 'daily',
-      },
       billableUsers: 0,
       resetAt: input.monthEnd.toISOString(),
       dailyResetAt: input.dayEnd.toISOString(),
@@ -682,28 +651,25 @@ export class CommercialUsageLimitsService {
     });
   }
 
-  private computeLimits(planKey: string, billableUsers: number, override?: { cardsPerMonth?: number | null; dailyCardSafetyLimit?: number | null }) {
-    const quotas = COMMERCIAL_PLAN_QUOTAS[planKey as keyof typeof COMMERCIAL_PLAN_QUOTAS] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
-    const monthlyCardLimit = override?.cardsPerMonth || quotas.cardsPerMonth || quotas.totalCards || 500;
-    const dailyCardSafetyLimit = override?.dailyCardSafetyLimit || quotas.dailyCardSafetyLimit || 100;
-    const userCount = Math.max(1, billableUsers);
+  private computeLimits(
+    _planKey: string,
+    _billableUsers: number,
+    _override?: { cardsPerMonth?: number | null; dailyCardSafetyLimit?: number | null },
+  ) {
+    // Não existe teto de capacidade por plano nem por override comercial.
+    // O único limite de cards preservado é a política operacional explícita
+    // do vendedor, aplicada abaixo por applyTeamPolicyUsageLimits. Crédito é
+    // debitado no choke próprio e não é representado por estes contadores.
+    const unlimited = TEAM_POLICY_UNLIMITED_LIMIT;
     return {
       cards: {
         perUserLimit: null as number | null,
-        companyCap: monthlyCardLimit,
-        limit: monthlyCardLimit,
-        monthlyLimit: monthlyCardLimit,
-        dailySafetyLimit: dailyCardSafetyLimit,
+        companyCap: unlimited,
+        limit: unlimited,
+        monthlyLimit: unlimited,
+        dailySafetyLimit: unlimited,
       },
-      emails: planKey === COMMERCIAL_PLAN_KEYS.MELHOR
-        ? { perUserLimit: 35, companyCap: 150, limit: Math.min(userCount * 35, 150) }
-        : { perUserLimit: null as number | null, companyCap: 25, limit: 25 },
-      enrichment: {
-        dailyLimit: quotas.enrichmentsPerDay || (planKey === COMMERCIAL_PLAN_KEYS.LITE ? 3 : dailyCardSafetyLimit),
-        dailyLimitSource: 'plan',
-        configuredDailyLimit: null as number | null,
-        fallbackDailyLimit: null as number | null,
-      },
+      emails: { perUserLimit: null as number | null, companyCap: unlimited, limit: unlimited },
     };
   }
 
@@ -711,7 +677,6 @@ export class CommercialUsageLimitsService {
     if (!policy) {
       return {
         dailyCardsUseUserScope: false,
-        enrichmentUseUserScope: false,
       };
     }
     const bounded = (value: number, planLimit: number) => {
@@ -721,7 +686,6 @@ export class CommercialUsageLimitsService {
     };
 
     let dailyCardsUseUserScope = false;
-    let enrichmentUseUserScope = false;
 
     const cardDeliveryDaily = resolveTeamPolicyStoredLimit(policy, 'cardDeliveryDaily');
     if (cardDeliveryDaily.applies) {
@@ -744,22 +708,8 @@ export class CommercialUsageLimitsService {
       limits.cards.userLimitSource = 'team_policy';
     }
 
-    const enrichmentDaily = resolveTeamPolicyStoredLimit(policy, 'enrichmentDaily');
-    if (enrichmentDaily.applies) {
-      const currentEnrichmentLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
-      const dailyLimit = enrichmentDaily.mode === 'unlimited'
-        ? currentEnrichmentLimit
-        : bounded(Number(enrichmentDaily.limit || 0), currentEnrichmentLimit || TEAM_POLICY_UNLIMITED_LIMIT);
-      limits.enrichment.dailyLimit = dailyLimit;
-      limits.enrichment.dailyLimitSource = 'team_policy';
-      limits.enrichment.configuredDailyLimit = enrichmentDaily.configuredLimit;
-      limits.enrichment.fallbackDailyLimit = currentEnrichmentLimit;
-      enrichmentUseUserScope = true;
-    }
-
     return {
       dailyCardsUseUserScope,
-      enrichmentUseUserScope,
     };
   }
 
@@ -805,7 +755,7 @@ export class CommercialUsageLimitsService {
     const limits = this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
     const policyScope = this.applyTeamPolicyUsageLimits(limits, userContext.teamPolicy);
 
-    const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent, enrichmentDailyUsed, enrichmentDailyUserUsed] = await Promise.all([
+    const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent] = await Promise.all([
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
       normalizedUserId ? this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd, normalizedUserId) : Promise.resolve(0),
       this.countLogs(companyId, CARD_SUCCESS_EVENTS, dayStart, dayEnd),
@@ -819,18 +769,12 @@ export class CommercialUsageLimitsService {
       this.countLogs(companyId, ['presentation_email_failed'], dayStart, dayEnd),
       this.countLogs(companyId, ['presentation_email_blocked_limit', 'presentation_email_blocked_policy'], dayStart, dayEnd),
       normalizedUserId ? this.countLogs(companyId, ['presentation_email_sent'], dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
-      this.countLogs(companyId, LEAD_ENRICHMENT_SUCCESS_EVENTS, dayStart, dayEnd),
-      normalizedUserId ? this.countLogs(companyId, LEAD_ENRICHMENT_SUCCESS_EVENTS, dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
     ]);
     const cardsUsed = Math.max(0, cardsGrossUsed - cardsRefunded);
     const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
     const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
     const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
     const cardsDailyUsedForLimit = policyScope.dailyCardsUseUserScope ? cardsDailyUserUsed : cardsDailyUsed;
-    const enrichmentDailyLimit = Math.max(0, Math.trunc(Number(limits.enrichment.dailyLimit || 0) || 0));
-    const enrichmentDailyUsedForLimit = policyScope.enrichmentUseUserScope ? enrichmentDailyUserUsed : enrichmentDailyUsed;
-    const enrichmentDailyRemaining = Math.max(0, enrichmentDailyLimit - Math.max(0, enrichmentDailyUsedForLimit));
-    const enrichmentAutoEnabled = false;
 
     return {
       planKey,
@@ -871,24 +815,6 @@ export class CommercialUsageLimitsService {
         companyCap: limits.emails.companyCap,
         userSent: emailUserSent,
         userLimit: limits.emails.perUserLimit != null ? limits.emails.perUserLimit : limits.emails.limit,
-      },
-      enrichment: {
-        used: Math.max(0, enrichmentDailyUsedForLimit),
-        limit: enrichmentDailyLimit,
-        remaining: enrichmentDailyRemaining,
-        dailyUsed: Math.max(0, enrichmentDailyUsedForLimit),
-        dailyUserUsed: Math.max(0, enrichmentDailyUserUsed),
-        dailyLimit: enrichmentDailyLimit,
-        dailyRemaining: enrichmentDailyRemaining,
-        dailyLimitSource: limits.enrichment.dailyLimitSource,
-        configuredDailyLimit: limits.enrichment.configuredDailyLimit,
-        fallbackDailyLimit: limits.enrichment.fallbackDailyLimit,
-        canAutoEnrich: enrichmentAutoEnabled,
-        canManualEnrich: enrichmentDailyRemaining > 0,
-        mode: enrichmentDailyRemaining > 0
-          ? 'manual_only'
-          : 'blocked_until_reset',
-        period: 'daily',
       },
       billableUsers,
       resetAt: monthEnd.toISOString(),
@@ -1138,30 +1064,34 @@ export class CommercialUsageLimitsService {
     }
   }
 
-  /**
-   * CRÉDITOS R1 — gate REAL (bloqueante) no mesmo ponto e chave canônica da entrega.
-   * Este AWAIT e PODE LANÇAR: se o gate (2 chaves) está
-   * ON e não há saldo (ou o vendedor estourou o teto S4), a exceção sobe e a chamada de fora
-   * (recordCardImport/recordCardCommercialUseOnce) PARA antes de logar sucesso — fail-closed.
-   * Com o gate OFF (`isEnforceActiveForCompany` false), o próprio CreditsService devolve
-   * `applied: false` sem tocar o banco — no-op transparente.
-   */
+  private throwCreditDebitUnavailable(reason: string): never {
+    throw new ConflictException({
+      ok: false,
+      code: 'CREDIT_DEBIT_UNAVAILABLE',
+      message: 'Nao foi possivel confirmar o debito do lead. Nenhum dado foi liberado.',
+      reason,
+    });
+  }
+
+  /** Débito obrigatório antes de qualquer log de sucesso ou revelação do lead. */
   private async enforceLeadDeliveryDebit(companyId: number, userId: number | null, metadata: Record<string, any>) {
-    // Defensivo: se o provider injetado (fake/mock de teste, ou versão antiga do módulo) não
-    // expõe assertAndDebitLeadDelivery, trata como enforcement indisponível/OFF — nunca quebra
-    // o caminho de venda por causa de um shape de objeto diferente.
-    if (!this.creditsService || typeof this.creditsService.assertAndDebitLeadDelivery !== 'function') return;
+    if (!this.creditsService || typeof this.creditsService.assertAndDebitLeadDelivery !== 'function') {
+      this.throwCreditDebitUnavailable('credits_service_unavailable');
+    }
     const leadId = this.resolveLeadDeliveryKey(metadata);
-    if (!leadId) return;
+    if (!leadId) this.throwCreditDebitUnavailable('missing_lead_key');
     const isBillingAudienceUser = Boolean(metadata?.isBillingAudienceUser);
     // GUARDRAILS S3 — teto diário por empresa, no MESMO choke do débito real, ANTES do débito
     // (mesmo com saldo sobrando, o teto batido PARA a entrega).
     await this.assertDailyDeliveryCapNotReached(companyId, userId, { usageKey: leadId, isBillingAudienceUser });
-    await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
+    const result = await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
       leadId,
       actionKey: 'lead_delivery',
       isBillingAudienceUser,
     });
+    if (!result?.applied || Number(result?.debited || 0) < 1) {
+      this.throwCreditDebitUnavailable('debit_not_applied');
+    }
   }
 
   /**
@@ -1169,8 +1099,8 @@ export class CommercialUsageLimitsService {
    * choke real de `enforceLeadDeliveryDebit` (mesma usageKey canônica `enforce:lead_delivery:<key>`,
    * idempotente pelo CreditWalletService), só que exposto pro caller debitar PRIMEIRO e gravar
    * DEPOIS — assim o bloqueio por saldo esgotado sobe (ConflictException) sem deixar card órfão no
-   * Vendas (fix "entrega parcial + 409"). Fail-closed: sem saldo lança; gate OFF (2 chaves) devolve
-   * `applied:false` sem tocar o banco. `isBillingAudienceUser` decide a mensagem (dono → "Saldo de
+   * Vendas (fix "entrega parcial + 409"). Fail-closed: sem saldo ou sem serviço de crédito lança.
+   * `isBillingAudienceUser` decide a mensagem (dono → "Saldo de
    * créditos esgotado"; vendedor/gerente → bloqueio neutro, LEI DO VENDEDOR).
    */
   async reserveLeadDeliveryCredit(
@@ -1179,10 +1109,10 @@ export class CommercialUsageLimitsService {
     input: { usageKey: string; isBillingAudienceUser?: boolean },
   ): Promise<{ applied: boolean; debited: number }> {
     if (!this.creditsService || typeof this.creditsService.assertAndDebitLeadDelivery !== 'function') {
-      return { applied: false, debited: 0 };
+      this.throwCreditDebitUnavailable('credits_service_unavailable');
     }
     const usageKey = this.normalizeUsageKey(input?.usageKey || '');
-    if (!usageKey) return { applied: false, debited: 0 };
+    if (!usageKey) this.throwCreditDebitUnavailable('missing_lead_key');
     // GUARDRAILS S3 — mesmo teto diário de enforceLeadDeliveryDebit, aqui no OUTRO choke (reserva
     // atômica ANTES da gravação do card no Vendas).
     await this.assertDailyDeliveryCapNotReached(companyId, userId, {
@@ -1194,7 +1124,10 @@ export class CommercialUsageLimitsService {
       actionKey: 'lead_delivery',
       isBillingAudienceUser: Boolean(input?.isBillingAudienceUser),
     });
-    return { applied: Boolean(result?.applied), debited: Number(result?.debited || 0) };
+    if (!result?.applied || Number(result?.debited || 0) < 1) {
+      this.throwCreditDebitUnavailable('debit_not_applied');
+    }
+    return { applied: true, debited: Number(result.debited) };
   }
 
   /**
@@ -1246,42 +1179,6 @@ export class CommercialUsageLimitsService {
       usageKey,
     });
     return { debited: true, alreadyDebited: false };
-  }
-
-  // R5 (FASE 2 — REMOÇÃO, definitivo): enriquecimento é capacidade GRÁTIS
-  // (D1 do PLANO — RBAC decide se pode, não crédito nem cota de plano). O
-  // limite diário por plano deixa de bloquear; mantém o log de telemetria.
-  async recordLeadEnrichmentUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
-    const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.leadId);
-    if (usageKey) {
-      const existing = await this.prisma.companyCommercialUsageLog.findFirst({
-        where: {
-          companyId,
-          eventType: { in: LEAD_ENRICHMENT_SUCCESS_EVENTS },
-          metadataJson: { contains: `"usageKey":"${usageKey}"` },
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        return { debited: false, alreadyDebited: true, usage: await this.getUsageSnapshot(companyId, userId) };
-      }
-    }
-
-    const snapshot = await this.getUsageSnapshot(companyId, userId);
-    if (Number(snapshot.enrichment?.dailyRemaining || 0) <= 0) {
-      await this.log(companyId, Number(userId || 0) || null, 'lead_enrichment_limit_shadow', 'lead_enrichment', {
-        reason: 'daily_enrichment_limit_reached',
-        ...metadata,
-        usageKey: usageKey || undefined,
-      });
-    }
-
-    await this.log(companyId, userId, 'lead_enrichment_used', String(metadata.source || 'lead_enrichment'), {
-      status: 'success',
-      ...metadata,
-      usageKey: usageKey || undefined,
-    });
-    return { debited: true, alreadyDebited: false, usage: await this.getUsageSnapshot(companyId, userId) };
   }
 
   async recordCardRefund(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {

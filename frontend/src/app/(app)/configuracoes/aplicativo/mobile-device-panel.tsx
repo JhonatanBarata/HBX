@@ -9,14 +9,18 @@ import styles from "./mobile-device-panel.module.css";
 
 type PairingCodeResponse = {
   code: string;
+  accessProfile: AccessProfile;
   expiresAt: string;
   expiresInSeconds: number;
 };
+
+type AccessProfile = "ADMIN" | "STANDARD";
 
 type MobileDevice = {
   id: string;
   name?: string | null;
   platform?: string | null;
+  accessProfile?: AccessProfile | null;
   lastUsedAt?: string | null;
   revokedAt?: string | null;
   createdAt: string;
@@ -49,6 +53,7 @@ export function MobileDevicePanel() {
   const [busy, setBusy] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [pairing, setPairing] = useState<PairingCodeResponse | null>(null);
+  const [accessProfile, setAccessProfile] = useState<AccessProfile>("ADMIN");
   const [now, setNow] = useState(() => Date.now());
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,10 +99,11 @@ export function MobileDevicePanel() {
     try {
       const result = await apiFetch<PairingCodeResponse>("/mobile/devices/pairing-code", {
         method: "POST",
+        body: JSON.stringify({ accessProfile }),
       });
       setPairing(result);
       setNow(Date.now());
-      setMessage("Código criado. Digite-o no aplicativo deste aparelho.");
+      setMessage(`Código ${result.accessProfile === "ADMIN" ? "ADMIN" : "Padrão"} criado. Digite-o no aplicativo deste aparelho.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível gerar o código.");
     } finally {
@@ -169,9 +175,41 @@ export function MobileDevicePanel() {
             </article>
 
             <article className={styles.setupCard}>
-              <strong>2. Gere o código deste usuário</strong>
+              <strong>2. Escolha o perfil e gere o código</strong>
               <p className={styles.description}>
                 O código vale por 10 minutos, funciona uma única vez e vincula o celular à sua própria conta.
+              </p>
+              <fieldset className={styles.profileChoices} disabled={busy}>
+                <legend>Perfil deste aparelho</legend>
+                <label className={`${styles.profileChoice} ${accessProfile === "ADMIN" ? styles.profileChoiceSelected : ""}`}>
+                  <input
+                    type="radio"
+                    name="accessProfile"
+                    value="ADMIN"
+                    checked={accessProfile === "ADMIN"}
+                    onChange={() => setAccessProfile("ADMIN")}
+                  />
+                  <span>
+                    <strong>ADMIN</strong>
+                    <small>Acesso total.</small>
+                  </span>
+                </label>
+                <label className={`${styles.profileChoice} ${accessProfile === "STANDARD" ? styles.profileChoiceSelected : ""}`}>
+                  <input
+                    type="radio"
+                    name="accessProfile"
+                    value="STANDARD"
+                    checked={accessProfile === "STANDARD"}
+                    onChange={() => setAccessProfile("STANDARD")}
+                  />
+                  <span>
+                    <strong>Padrão</strong>
+                    <small>Acesso operacional completo; financeiro/$$ ficará reservado por padrão.</small>
+                  </span>
+                </label>
+              </fieldset>
+              <p className={styles.muted}>
+                O perfil já fica salvo no aparelho. Os cortes por perfil serão ativados na próxima etapa; por enquanto, não há bloqueio adicional.
               </p>
               <button className="btn-teal" onClick={generateCode} disabled={busy}>
                 {busy ? "Gerando…" : pairing && remainingSeconds > 0 ? "Gerar outro código" : "Gerar código de vinculação"}
@@ -182,7 +220,7 @@ export function MobileDevicePanel() {
           {pairing && remainingSeconds > 0 && (
             <article className={styles.pairingCard}>
               <span className={styles.pairingLabel}>
-                Digite no aplicativo
+                Digite no aplicativo · {pairing.accessProfile === "ADMIN" ? "ADMIN" : "Padrão"}
               </span>
               <button
                 type="button"
@@ -238,6 +276,9 @@ export function MobileDevicePanel() {
                 <strong>{device.name || "Aparelho Android"}</strong>
                 <span className={styles.deviceMeta}>
                   {device.active ? "Ativo" : "Desconectado"} · Último acesso: {formatDate(device.lastUsedAt)}
+                </span>
+                <span className={styles.deviceMeta}>
+                  Perfil: {device.accessProfile === "STANDARD" ? "Padrão" : "ADMIN"}
                 </span>
                 <span className={styles.deviceCreated}>
                   Vinculado em {formatDate(device.createdAt)}

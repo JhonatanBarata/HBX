@@ -20,7 +20,7 @@ test('HBX_ROLE ausente = local (fail-safe: na dúvida, não gasta)', () => {
 
 test('HBX_ROLE=local recusa TODAS as fontes pagas', () => {
   const env = { HBX_ROLE: 'local' } as unknown as NodeJS.ProcessEnv;
-  for (const source of ['brave', 'google_places', 'serper'] as const) {
+  for (const source of ['brave', 'google_places'] as const) {
     assert.equal(canUsePaidSource(source, env), false, `${source} deveria estar bloqueada`);
     assert.throws(() => assertPaidSourceAllowed(source, env), PaidSourceBlockedByRoleError);
   }
@@ -50,11 +50,11 @@ test('aliases de VPS (production/prod/server) também liberam', () => {
 test('erro da trava carrega a fonte e o papel (auditoria/telemetria)', () => {
   const env = { HBX_ROLE: 'local' } as unknown as NodeJS.ProcessEnv;
   try {
-    assertPaidSourceAllowed('serper', env);
+    assertPaidSourceAllowed('google_places', env);
     assert.fail('deveria ter lançado');
   } catch (error) {
     assert.ok(error instanceof PaidSourceBlockedByRoleError);
-    assert.equal((error as PaidSourceBlockedByRoleError).paidSource, 'serper');
+    assert.equal((error as PaidSourceBlockedByRoleError).paidSource, 'google_places');
     assert.equal((error as PaidSourceBlockedByRoleError).role, 'local');
     assert.match(String((error as Error).message), /Zero tentativa paga/);
   }

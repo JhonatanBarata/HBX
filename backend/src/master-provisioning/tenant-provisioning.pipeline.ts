@@ -1,9 +1,4 @@
 import {
-  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
-  type ActiveCommercialPlanKey,
-  type CommercialEntitlementKey,
-} from '../commercial-plans/commercial-plan-catalog';
-import {
   buildTenantProductSeeds,
   ensureTenantProductsTx,
   type EnsureTenantProductResult,
@@ -26,8 +21,7 @@ import {
 //   - produtos default (seedTenantDefaultProductsTx)
 //   - módulos (seedTenantModulesTx) — POST-IT: só grava CompanyModule quando o
 //     master mandou módulos EXPLÍCITOS; default = não grava nada (a caixa do
-//     plano resolve ao vivo em module-access-policy.ts).
-//   - entitlements de acesso manual (seedManualEntitlementsTx) — só no full.
+//     kill-switch resolve ao vivo em module-access-policy.ts).
 //   - ledger de nascimento (buildProvisioningLedger) — trilha de COMO nasceu.
 //
 // O que NÃO mora aqui (é da PORTA, difere demais entre presets): a linha
@@ -41,8 +35,6 @@ export type TenantProvisioningPreset = 'self_service' | 'master_invite' | 'maste
 export type TenantProvisioningPresetSpec = {
   // Semeia os produtos default do tenant (oferta-principal em rascunho).
   seedsDefaultProducts: boolean;
-  // Concede entitlements comerciais em modo 'manual' (cortesia master). Só o full.
-  grantsManualEntitlements: boolean;
   // Cria o admin com senha temporária no próprio nascimento. Só o full — no
   // self_service o user vem do signup; no invite o admin nasce sem senha (token).
   createsAdminWithPassword: boolean;
@@ -50,26 +42,22 @@ export type TenantProvisioningPresetSpec = {
 
 export const TENANT_PROVISIONING_PRESETS: Record<TenantProvisioningPreset, TenantProvisioningPresetSpec> = {
   // Signup público: empresa em pending_checkout, produtos default, SEM
-  // entitlement (o acesso nasce no checkout com cartão — regra travada 16/06),
   // SEM admin no pipeline (o usuário ADMIN é criado pelo próprio signup).
   self_service: {
     seedsDefaultProducts: true,
-    grantsManualEntitlements: false,
     createsAdminWithPassword: false,
   },
   // Convite do master: empresa em pending_checkout + contato/convite (o e-mail e
   // o token de definir senha continuam na porta createByMaster, FORA do pipeline)
-  // + produtos default. Sem entitlement (o contratante conclui o checkout).
+  // + produtos default.
   master_invite: {
     seedsDefaultProducts: true,
-    grantsManualEntitlements: false,
     createsAdminWithPassword: false,
   },
-  // Provisionamento full do master: cortesia/trial, entitlements manuais, admin
-  // com senha temporária, canais e implantação assistida.
+  // Provisionamento full do master: admin com senha temporária, canais e
+  // implantação assistida. Capacidade de produto não muda por esta porta.
   master_full: {
     seedsDefaultProducts: true,
-    grantsManualEntitlements: true,
     createsAdminWithPassword: true,
   },
 };
@@ -99,18 +87,14 @@ export async function seedTenantDefaultProductsTx(
   return ensureTenantProductsTx(tx, companyId, seeds, { authorId: options.authorId ?? null });
 }
 
-// POST-IT (PR13062026007 PB2): a empresa NÃO nasce com cópia dos módulos do plano.
-// Ela segue a caixa do plano AO VIVO (module-access-policy.ts). `CompanyModule`
-// guarda SÓ exceção explícita do master. Por isso este passo só grava quando o
-// master mandou módulos EXPLÍCITOS no input — default (módulos do plano) = nada
-// a gravar, senão congelaria uma cópia que ignoraria edições do plano.
+// A empresa não nasce com cópia de módulos comerciais. `CompanyModule` guarda
+// somente a decisão explícita do master; o restante vem do kill-switch vivo.
 export async function seedTenantModulesTx(
   tx: any,
   companyId: number,
-  modules: Array<{ key: string; enabled: boolean; source: 'input' | 'plan_default' }>,
+  modules: Array<{ key: string; enabled: boolean; source: 'input' }>,
 ): Promise<{ resolvedModuleKeys: string[] }> {
-  const explicitModules = modules.filter((moduleItem) => moduleItem.source === 'input');
-  if (!explicitModules.length) {
+  if (!modules.length) {
     // Sem exceção explícita = post-it vazio. Não toca em CompanyModule.
     return { resolvedModuleKeys: [] };
   }
@@ -118,13 +102,13 @@ export async function seedTenantModulesTx(
   const moduleRows = await tx.systemModule.findMany({
     where: {
       companyAssignable: true,
-      key: { in: explicitModules.map((moduleItem) => moduleItem.key) },
+      key: { in: modules.map((moduleItem) => moduleItem.key) },
     },
     select: { id: true, key: true },
   });
   const moduleIdByKey = new Map(moduleRows.map((row: any) => [String(row.key), Number(row.id)]));
 
-  for (const moduleItem of explicitModules) {
+  for (const moduleItem of modules) {
     const moduleId = moduleIdByKey.get(moduleItem.key);
     if (!moduleId) continue;
     await tx.companyModule.upsert({
@@ -135,40 +119,6 @@ export async function seedTenantModulesTx(
   }
 
   return { resolvedModuleKeys: moduleRows.map((row: any) => String(row.key)) };
-}
-
-// Concede os entitlements comerciais do plano em modo 'manual' (cortesia master).
-// Só roda no preset full quando é acesso manual e o preço não é zero — mesmo gate
-// que o provisionamento tinha inline.
-export async function seedManualEntitlementsTx(
-  tx: any,
-  companyId: number,
-  planKey: ActiveCommercialPlanKey,
-): Promise<CommercialEntitlementKey[]> {
-  const entitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || [];
-  const now = new Date();
-  for (const key of entitlementKeys) {
-    await tx.companyCommercialEntitlement.upsert({
-      where: { companyId_key: { companyId, key } },
-      update: {
-        status: 'manual',
-        source: 'master_provisioning',
-        currentPeriodStart: now,
-        currentPeriodEnd: null,
-        metadataJson: JSON.stringify({ planKey, source: 'master_provisioning' }),
-      },
-      create: {
-        companyId,
-        key,
-        status: 'manual',
-        source: 'master_provisioning',
-        currentPeriodStart: now,
-        currentPeriodEnd: null,
-        metadataJson: JSON.stringify({ planKey, source: 'master_provisioning' }),
-      },
-    });
-  }
-  return entitlementKeys;
 }
 
 // Trilha de nascimento (ledger): registra COMO cada empresa nasceu — por qual

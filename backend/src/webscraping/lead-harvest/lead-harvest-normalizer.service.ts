@@ -109,6 +109,7 @@ export class LeadHarvestNormalizerService {
     if (emailIssue?.code === 'blocked_domain') errors.push({ ...emailIssue, externalId });
 
     const phone = normalizeHarvestPhone(input?.phone);
+    const phone2 = normalizeHarvestPhone(input?.phone2);
     const whatsapp = normalizeHarvestPhone(input?.whatsapp);
     const value: LeadHarvestCandidate = {
       externalId,
@@ -120,6 +121,7 @@ export class LeadHarvestNormalizerService {
       segment: nullableHarvestText(input?.segment, 180),
       website: normalizeHarvestWebsite(input?.website),
       phone,
+      phone2: phone2 && phone2 !== phone ? phone2 : null,
       whatsapp,
       email: email || null,
       emailStatus: normalizeLeadHarvestEmailStatus(input?.emailStatus, Boolean(email)),

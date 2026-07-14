@@ -51,6 +51,7 @@ const TENANT_MODELS = new Set(
     'User', 'TeamPolicyPreset', 'UserTeamPolicy', 'TeamPolicyAuditLog',
     'HbxPartnerReferralCandidate', 'SellerOnboarding', 'CompanyBillableSeatUsage', 'MasterNotice',
     'MasterPaymentNotificationLog', 'VendasCardComplaint', 'WebscrapingSearchHistory', 'WebscrapingSearchRun',
+    'RadarLeadProcessRun',
     'WebscrapingSearchRunItem', 'WebscrapingUsageLog', 'RadarLeadPool', 'RadarLeadCompanyState',
     'RadarLeadEvent', 'RadarAutoDistributionRule', 'RadarDistributionDailyUsage', 'RadarLeadEnrichment',
     'RecoveryOpportunity', 'WebscrapingCampaign', 'HarvestImportBatch', 'VendasLead', 'VendasCommissionPayout',

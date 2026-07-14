@@ -30,7 +30,9 @@ const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
 const SYSTEM_CONTAINERS = ["backend", "app-db-1", "hbx-scraping-engine", "webscraping", "hbx-ops-control"];
 
 const HOST = "127.0.0.1";
-const PORT = Number(process.env.HBX_OWNER_LOCAL_AGENT_PORT || 3107);
+// Porta fixa por regra de segurança do Owner: a Night Factory só existe neste
+// processo local e não pode migrar por configuração para outro bind/serviço.
+const PORT = 3107;
 const TOKEN = String(process.env.HBX_OWNER_LOCAL_TOKEN || "").trim();
 const rootDir = path.resolve(__dirname, "..", "..");
 const logsDir = path.join(__dirname, "logs");
@@ -851,18 +853,18 @@ function isCrawlableSite(website) {
   return Boolean(d) && d.includes(".") && !NON_SITE_DOMAINS.has(d);
 }
 
-// ===== ENRIQUECEDOR DE CARDS (1 worker, contínuo) ===========================
-// Roda enquanto o PC estiver ligado (toggle on/off). Fonte = cards do VPS (cockpit),
-// in-place: lê do VPS → enriquece → grava de volta no VPS. SEM copiar pro local.
-//   • Tipo 1 (identidade): roda SERVER-SIDE no VPS (cnpj→dono, telefone, sociais). IP-safe.
-//   • Tipo 2 (scraper e-mail): crawl agressivo do SEU IP local (Local Lab 3098) → e-mail/tel/CNPJ.
+// ===== NIGHT FACTORY LOCAL (1 worker, manual) ================================
+// O executor mora SOMENTE neste processo, que escuta 127.0.0.1:3107. Ele nunca é iniciado no
+// boot e morre junto com o PC/Owner. O VPS é apenas fonte/destino dos cards: todo crawl sai do
+// Local Lab (IP residencial). Não existe chamada para iniciar enriquecimento server-side.
 // Cursor de retomada + pacing/backoff (o Local Lab já tem o freio por site).
 let enricherJob = {
   running: false, startedAt: 0, stoppedAt: 0, phase: "parado",
-  types: { identity: true, scraper: true }, aggressive: false,
+  types: { scraper: true }, aggressive: false,
+  budget: 0, processed: 0, errors: 0, currentLead: null,
   cursorPage: 1, cycle: 0, vpsTotal: null,
   cardsScanned: 0, sitesCrawled: 0, emailsFound: 0, phonesFound: 0, cnpjsFound: 0, applied: 0,
-  tipo1: null, tipo1Runs: 0, localLabJobId: null, lastError: null, lastCycleAt: 0,
+  localLabJobId: null, lastError: null, lastCycleAt: 0,
 };
 function enricherSleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -890,25 +892,12 @@ async function vpsReadCardsAggregated(logicalPage, want) {
   return { items, total };
 }
 
-// Um ciclo: dispara Tipo 1 no VPS (a cada N ciclos) + crawleia 1 página de cards (Tipo 2).
+// Um ciclo: lê candidatos no VPS, mas todo acesso aos sites ocorre no Local Lab deste PC.
 async function enricherCycle() {
   enricherJob.cycle += 1;
   enricherJob.lastCycleAt = Date.now();
 
-  // Tipo 1 — identidade no VPS (server-side). 1º ciclo + a cada 5 (é pesado, throttle BrasilAPI).
-  if (enricherJob.types.identity && (enricherJob.cycle === 1 || enricherJob.cycle % 5 === 0)) {
-    enricherJob.phase = "Tipo 1 (identidade) no VPS";
-    const t1 = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope: "vps", limit: 150 }, 180000);
-    if (t1.ok) {
-      enricherJob.tipo1Runs += 1;
-      enricherJob.tipo1 = (t1.data && (t1.data.results?.[0]?.data || t1.data.data || t1.data)) || null;
-    } else if (t1.configured !== false) {
-      enricherJob.lastError = "Tipo1: " + (t1.reason || `http_${t1.statusCode || "?"}`);
-    }
-  }
-  if (!enricherJob.running) return;
-
-  // Tipo 2 — crawl local de 1 página LÓGICA de cards do VPS (agrega 25 páginas reais de 20 = 500
+  // Crawl local de 1 página LÓGICA de cards do VPS (agrega 25 páginas reais de 20 = 500
   // cards por varredura; o backend deployado trava em 20/página — ver vpsReadCardsAggregated).
   if (enricherJob.types.scraper) {
     enricherJob.phase = "lendo VPS p/ crawl";
@@ -923,6 +912,9 @@ async function enricherCycle() {
       if (seeds.length >= 15) break; // teto por ciclo: lote curto fecha em minutos (não horas) e o
                                      // painel vê progresso/aplicação rápido — varre 500 cards, mas só
                                      // os 15 primeiros COM site crawlável viram lote; o resto avança o cursor.
+      // Regra do produto: nada de pré-enriquecer a vitrine. A posse global só nasce depois do
+      // débito confirmado; portanto a factory local ignora qualquer card ainda não puxado.
+      if (!Number(row.ownerCompanyId || 0)) continue;
       if (!isCrawlableSite(row.website)) continue;
       const haveEmails = Array.isArray(row.emails) ? row.emails.length : 0;
       if (String(row.email || "").trim() && haveEmails >= 3) continue; // já tem e-mail suficiente
@@ -982,7 +974,7 @@ async function runEnricherCrawl(seeds, map) {
   const ex = await localLabRequest("GET", `/local-lab/jobs/${jobId}/export?file=batch`, null, 30000, 32_000_000);
   const batch = ex.data && (ex.data.batch || ex.data);
   const leads = batch && Array.isArray(batch.leads) ? batch.leads : [];
-  const items = [];
+  let items = [];
   for (const lead of leads) {
     const id = map[cardDomain(lead.website || lead.sourceUrl)];
     if (!id) continue;
@@ -997,10 +989,27 @@ async function runEnricherCrawl(seeds, map) {
     if (cnpj) enricherJob.cnpjsFound += 1;
   }
   if (!items.length) return;
+  if (enricherJob.budget > 0) {
+    const remaining = Math.max(0, enricherJob.budget - enricherJob.processed);
+    if (remaining === 0) { enricherJob.running = false; enricherJob.phase = "budget concluído"; return; }
+    items = items.slice(0, remaining);
+  }
   enricherJob.phase = `aplicando ${items.length} no VPS`;
+  enricherJob.currentLead = items[0] && items[0].id ? String(items[0].id) : null;
   const apply = await opsRequest("POST", "/api/radar/vps/apply-contacts", { items }, 60000);
-  if (apply.ok) enricherJob.applied += Number((apply.data && (apply.data.data || apply.data) || {}).updated || 0);
-  else enricherJob.lastError = "apply VPS: " + (apply.reason || `http_${apply.statusCode || "?"}`);
+  if (apply.ok) {
+    const updated = Number((apply.data && (apply.data.data || apply.data) || {}).updated || 0);
+    enricherJob.applied += updated;
+    enricherJob.processed += updated;
+    if (enricherJob.budget > 0 && enricherJob.processed >= enricherJob.budget) {
+      enricherJob.running = false;
+      enricherJob.phase = "budget concluído";
+    }
+  } else {
+    enricherJob.errors += 1;
+    enricherJob.lastError = "apply VPS: " + (apply.reason || `http_${apply.statusCode || "?"}`);
+  }
+  enricherJob.currentLead = null;
 }
 
 // Journal em disco do enriquecedor: cursor de varredura + config + métricas. Gravado ao fim de
@@ -1018,7 +1027,6 @@ function saveEnricherJournal() {
       phonesFound: enricherJob.phonesFound,
       cnpjsFound: enricherJob.cnpjsFound,
       applied: enricherJob.applied,
-      tipo1Runs: enricherJob.tipo1Runs,
     },
     savedAt: Date.now(),
   });
@@ -1046,8 +1054,12 @@ function startEnricher(opts = {}) {
   const m = (journal && journal.metrics) || {};
   enricherJob = {
     running: true, startedAt: Date.now(), stoppedAt: 0, phase: "iniciando",
-    types: { identity: opts.identity !== false, scraper: opts.scraper !== false },
+    types: { scraper: true },
     aggressive: opts.aggressive === true,
+    budget: Math.max(0, Math.trunc(Number(opts.budget) || 0)),
+    processed: 0,
+    errors: 0,
+    currentLead: null,
     cursorPage: (journal && Number.isFinite(Number(journal.cursorPage)) && Number(journal.cursorPage) >= 1)
       ? Math.trunc(Number(journal.cursorPage)) : 1,
     cycle: 0, vpsTotal: null,
@@ -1057,8 +1069,6 @@ function startEnricher(opts = {}) {
     phonesFound: Number(m.phonesFound) || 0,
     cnpjsFound: Number(m.cnpjsFound) || 0,
     applied: Number(m.applied) || 0,
-    tipo1: null,
-    tipo1Runs: Number(m.tipo1Runs) || 0,
     localLabJobId: null, lastError: null, lastCycleAt: 0,
   };
   setImmediate(() => void enricherLoop());
@@ -2070,7 +2080,7 @@ function broadcastTransfer() {
   sseBroadcast("transfer", payload);
 }
 
-// Empurra as métricas do enricher a cada ciclo/mudança. Shape idêntico ao GET /owner/enricher/status
+// Empurra as métricas da Night Factory local a cada ciclo/mudança.
 // EXCETO labUp (que exige uma leitura async do Local Lab) — o front mantém o labUp do último poll,
 // então o SSE nunca "apaga" o estado do Lab; só atualiza os números.
 function broadcastEnricher() {
@@ -2091,9 +2101,7 @@ function broadcastEnricher() {
       phonesFound: enricherJob.phonesFound,
       cnpjsFound: enricherJob.cnpjsFound,
       applied: enricherJob.applied,
-      tipo1Runs: enricherJob.tipo1Runs,
     },
-    tipo1: enricherJob.tipo1,
     startedAt: enricherJob.startedAt,
     lastCycleAt: enricherJob.lastCycleAt,
     error: enricherJob.lastError,
@@ -2170,9 +2178,7 @@ async function buildTreeSnapshot(force = false) {
         phonesFound: enricherJob.phonesFound,
         cnpjsFound: enricherJob.cnpjsFound,
         applied: enricherJob.applied,
-        tipo1Runs: enricherJob.tipo1Runs,
       },
-      tipo1: enricherJob.tipo1,
       startedAt: enricherJob.startedAt,
       lastCycleAt: enricherJob.lastCycleAt,
       error: enricherJob.lastError,
@@ -2267,7 +2273,6 @@ function readBody(req) {
 const INTEGRATION_CATALOG = [
   { key: "GOOGLE_PLACES_API_KEY", label: "Google Places", group: "Busca & Leads", cost: "pago", desc: "Fonte de leads estruturada e imbanível (alternativa paga ao scraping do seu IP)." },
   { key: "BRAVE_SEARCH_API_KEY", label: "Brave Search", group: "Busca & Leads", cost: "grátis", desc: "Busca de site/CNPJ no enriquecimento. Sem chave cai no Bing/DDG." },
-  { key: "SERPER_API_KEY", label: "Serper (Google)", group: "Busca & Leads", cost: "pago", desc: "Busca Google paga p/ enriquecimento em escala." },
   { key: "OPENAI_API_KEY", label: "OpenAI", group: "IA", cost: "pago", desc: "Respostas inteligentes / assistente. Só liga se usar a IA." },
   { key: "GOOGLE_CLIENT_ID", label: "Login Google", group: "Login & E-mail", cost: "grátis", desc: "Entrar com Google (OAuth)." },
   { key: "GMAIL_OAUTH_CLIENT_ID", label: "Gmail — Client ID", group: "Login & E-mail", cost: "grátis", desc: "Envio de e-mail pelo Gmail (módulo e-mail)." },
@@ -2431,30 +2436,45 @@ async function route(req, res) {
     return;
   }
 
-  // ── FÁBRICA de leads (contrato OWNERV2 — outro worker implementa o backend em paralelo) ──
-  // GET status · POST start {budget} · POST stop. Enquanto o backend LOCAL não tiver as rotas
-  // /modules/owner/fabrica/*, isto DEGRADA gracioso: devolve { ok:false, offline:true } e a UI
-  // mostra "fábrica offline" em vez de quebrar. Proxy pelo padrão backendRequest do server.
+  // ── NIGHT FACTORY LOCAL ───────────────────────────────────────────────────
+  // Não encaminhar estas rotas ao backend. O executor é este processo 127.0.0.1:3107 e, por
+  // construção, deixa de existir quando o Owner/PC desliga. O VPS só recebe os contatos achados.
   if (req.method === "GET" && url.pathname === "/owner/fabrica/status") {
-    const r = await backendRequest("GET", "/modules/owner/fabrica/status", null, { timeoutMs: 15000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    sendJson(res, 200, {
+      ok: true,
+      localOnly: true,
+      bind: `${HOST}:${PORT}`,
+      running: enricherJob.running,
+      processed: enricherJob.processed,
+      budget: enricherJob.budget,
+      budgetLeft: enricherJob.budget > 0 ? Math.max(0, enricherJob.budget - enricherJob.processed) : null,
+      currentLead: enricherJob.currentLead,
+      errors: enricherJob.errors,
+      message: enricherJob.running ? enricherJob.phase : (enricherJob.phase === "budget concluído" ? "Budget concluído. A fábrica local parou." : "Parada no HBX Owner local."),
+    });
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/fabrica/start") {
     let body = {};
     try { body = await readBody(req); } catch { body = {}; }
     const budget = Number(body && body.budget);
-    const payload = Number.isFinite(budget) && budget > 0 ? { budget: Math.trunc(budget) } : {};
-    const r = await backendRequest("POST", "/modules/owner/fabrica/start", payload, { timeoutMs: 30000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    if (!Number.isFinite(budget) || budget < 1) {
+      sendJson(res, 400, { ok: false, reason: "budget_obrigatorio" });
+      return;
+    }
+    if (!startEnricher({ budget: Math.min(5000, Math.trunc(budget)), scraper: true, aggressive: body.aggressive === true })) {
+      sendJson(res, 200, { ok: false, reason: "ja_rodando" });
+      return;
+    }
+    sendJson(res, 200, { ok: true, localOnly: true, running: true, budget: enricherJob.budget, message: "Night Factory iniciada no HBX Owner local." });
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/fabrica/stop") {
-    const r = await backendRequest("POST", "/modules/owner/fabrica/stop", {}, { timeoutMs: 30000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    stopEnricher();
+    if (enricherJob.localLabJobId) {
+      await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(enricherJob.localLabJobId)}/cancel`, {}, 8000).catch(() => {});
+    }
+    sendJson(res, 200, { ok: true, localOnly: true, stopped: true, message: "Night Factory local parada." });
     return;
   }
 
@@ -2973,63 +2993,6 @@ async function route(req, res) {
   }
 
   // ================================================================
-  // ENRIQUECEDOR DE CARDS (1 worker contínuo) — fonte VPS, crawl IP local.
-  // Tipo 1 (identidade) roda no VPS; Tipo 2 (e-mail) crawleia do seu IP.
-  // ================================================================
-
-  if (req.method === "GET" && url.pathname === "/owner/enricher/status") {
-    const lab = await readLocalLabStatus();
-    sendJson(res, 200, {
-      ok: true,
-      labUp: Boolean(lab.up),
-      running: enricherJob.running,
-      phase: enricherJob.phase,
-      types: enricherJob.types,
-      aggressive: enricherJob.aggressive,
-      cycle: enricherJob.cycle,
-      cursorPage: enricherJob.cursorPage,
-      vpsTotal: enricherJob.vpsTotal,
-      metrics: {
-        cardsScanned: enricherJob.cardsScanned,
-        sitesCrawled: enricherJob.sitesCrawled,
-        emailsFound: enricherJob.emailsFound,
-        phonesFound: enricherJob.phonesFound,
-        cnpjsFound: enricherJob.cnpjsFound,
-        applied: enricherJob.applied,
-        tipo1Runs: enricherJob.tipo1Runs,
-      },
-      tipo1: enricherJob.tipo1,
-      startedAt: enricherJob.startedAt,
-      lastCycleAt: enricherJob.lastCycleAt,
-      error: enricherJob.lastError,
-    });
-    return;
-  }
-
-  // Liga o worker contínuo (fica enriquecendo enquanto o PC estiver ligado).
-  if (req.method === "POST" && url.pathname === "/owner/enricher/start") {
-    if (enricherJob.running) { sendJson(res, 200, { ok: false, reason: "ja_rodando", message: "Enriquecedor já está ligado." }); return; }
-    const body = await readBody(req);
-    const identity = body.identity !== false; // Tipo 1
-    const scraper = body.scraper !== false;   // Tipo 2
-    const aggressive = body.aggressive === true;
-    if (!identity && !scraper) { sendJson(res, 200, { ok: false, reason: "sem_tipo", message: "Escolha pelo menos um tipo." }); return; }
-    startEnricher({ identity, scraper, aggressive });
-    sendJson(res, 200, { ok: true, message: "Enriquecedor ligado — roda enquanto o PC ficar ligado.", types: enricherJob.types, aggressive });
-    return;
-  }
-
-  // Desliga o worker (para de verdade e fica parado; retoma do cursor ao religar).
-  if (req.method === "POST" && url.pathname === "/owner/enricher/stop") {
-    stopEnricher();
-    if (enricherJob.localLabJobId) {
-      await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(enricherJob.localLabJobId)}/cancel`, {}, 8000).catch(() => {});
-    }
-    sendJson(res, 200, { ok: true, message: "Enriquecedor desligado." });
-    return;
-  }
-
-  // ================================================================
   // CÉREBRO IA (Ollama LOCAL) — status ao vivo + aquecer modelo.
   // 100% local (127.0.0.1:11434). Degrade gracioso se o Ollama estiver off.
   // ================================================================
@@ -3389,111 +3352,6 @@ async function route(req, res) {
     if (!backendToken) { await refreshBackendToken().catch(() => null); }
     const r = await backendRequest("GET", "/modules/owner/night-factory/recovery-opportunities");
     sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  // Controles: rodar agora / pausar / retomar (destrutivos: pausar/parar exigem confirmação)
-  if (req.method === "POST" && url.pathname === "/owner/night-factory/run-now") {
-    const body = await readBody(req);
-    if (body.confirm !== true) {
-      sendError(res, 400, "Confirmacao obrigatoria para rodar a Night Factory agora.");
-      return;
-    }
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/night-factory/run-now", {}, { timeoutMs: 60000 });
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/owner/night-factory/pause") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/night-factory/pause", {});
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/owner/night-factory/resume") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/night-factory/resume", {});
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/owner/night-factory/config") {
-    const body = await readBody(req);
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/night-factory/config", body);
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  // Enriquecimento CNPJ→dono (cadeia gratis L1/L3/L4). RESPEITA o scope:
-  //   local → backend local (backendRequest, system-master via SYSTEM_MASTER_*).
-  //   vps   → ops-control → backend da VPS (opsRequest /api/opscontrol/cnpj-backfill).
-  //   both  → roda os dois e devolve os dois resultados.
-  // Antes ignorava o scope e batia SEMPRE no backend local (bug da auditoria codex): o botao
-  // "CNPJ → dono" (scope vps) acabava enriquecendo o banco LOCAL, nao o do VPS.
-  if (req.method === "POST" && url.pathname === "/owner/ops/cnpj-backfill") {
-    const body = await readBody(req);
-    const scope = OPS_SCOPES.has(String(body.scope || "vps").toLowerCase()) ? String(body.scope).toLowerCase() : "vps";
-    const limit = clampInt(body.limit, 200, 1, 2000);
-    const wantLocal = scope === "local" || scope === "both";
-    const wantVps = scope === "vps" || scope === "both";
-
-    // ----- Lado LOCAL (backend local, autenticado como system-master) -----
-    let localResult = null;
-    if (wantLocal) {
-      if (!backendToken) await refreshBackendToken().catch(() => null);
-      if (!backendToken) {
-        localResult = { ok: false, environment: "local", label: "local", error: "backend_token_ausente", data: {} };
-      } else {
-        const r = await backendRequest("POST", `/modules/owner/radar/cnpj-backfill?limit=${limit}`, {}, { timeoutMs: 170000 });
-        const d = (r && r.data) || {};
-        localResult = { ok: Boolean(r && r.ok), environment: "local", label: "local", error: r?.error || d?.message, data: d };
-      }
-    }
-
-    // ----- Lado VPS (ops-control → backend da VPS) -----
-    let vpsResult = null;
-    if (wantVps) {
-      const r = await opsRequest("POST", "/api/opscontrol/cnpj-backfill", { scope: "vps", limit }, 180000);
-      if (!r.configured) {
-        vpsResult = { ok: false, environment: "vps", label: "vps", error: "ops_token_ausente", data: {} };
-      } else {
-        // ops devolve { ok, results:[{ environment, ok, data }] } OU o payload plano direto.
-        const opsData = r.data || {};
-        const inner = Array.isArray(opsData.results) ? (opsData.results.find((x) => x.environment === "vps") || opsData.results[0]) : null;
-        const d = (inner && inner.data) || opsData;
-        const ok = r.ok && (inner ? inner.ok : opsData.ok) !== false;
-        vpsResult = { ok, environment: "vps", label: "vps", error: r.reason || (inner && inner.error) || opsData.error, data: d };
-      }
-    }
-
-    // O front "Descobrir site + CNPJ" (local) le o formato PLANO; o "CNPJ → dono" le ops.results[].
-    // Pra both, o formato plano reflete o local (origem do botao Descobrir). Reason/ok agregam os dois.
-    const results = [localResult, vpsResult].filter(Boolean);
-    const ok = results.length > 0 && results.every((x) => x.ok);
-    const flat = (scope === "vps" ? vpsResult : localResult) || results[0] || { data: {} };
-    const fd = flat.data || {};
-    const reason = ok ? undefined : results.filter((x) => !x.ok).map((x) => `${x.label}: ${x.error || "falhou"}`).join(" · ") || `http_?`;
-    sendJson(res, ok ? 200 : 502, {
-      ok,
-      scope,
-      limit,
-      // formato plano (ckStartDiscover) — reflete o lado pedido (local p/ scope local, vps p/ vps)
-      scanned: fd.scanned,
-      enriched: fd.enriched,
-      errors: fd.errors,
-      sitesFound: fd.sitesFound,
-      cnpjsFound: fd.cnpjsFound,
-      phonesFound: fd.phonesFound,
-      socialsFound: fd.socialsFound,
-      data: fd,
-      // compat: ckCnpjBackfill le ops.results[] (cada ambiente com seu data)
-      ops: { results: results.map((x) => ({ ok: x.ok, environment: x.environment, label: x.label, error: x.error, data: x.data })) },
-      reason,
-      message: reason,
-    });
     return;
   }
 

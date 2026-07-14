@@ -26,12 +26,13 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, WhatsAppMark, useCurrentUser, useEntitlements, useMyModules, isModuleVisible } from "@/components/hbx/shell";
-import { AgendaLeadPanel, ConversationPanel, LockGate, humanize } from "@/components/hbx/detalhes-negocio";
+import { AgendaLeadPanel, ConversationPanel, humanize } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { LeadContactList } from "@/components/hbx/lead-contact-list";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
 import { apiFetch } from "@/lib/api";
-import { formatBrPhone, onlyDigits } from "@/lib/br-phone";
+import { onlyDigits } from "@/lib/br-phone";
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
 
 // ── Contratos dos extras (fail-soft: erro → "—"/estado vazio) ────────────────
@@ -195,8 +196,6 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
   const ent = useEntitlements();
   const user = useCurrentUser();
   const mods = useMyModules();
-  // Mesmo default do DetalhesNegocio: enquanto não carrega assume liberado.
-  const canIntel = !ent.loaded || ent.canSeeLeadIntelligence;
   // Atalho "Buscar parecidos" (Concierge): fail-closed por módulo (Lei do
   // FRONTEND.md — módulo sem acesso some da navegação, nunca aparece e barra no
   // clique). Só entra no header quando /modules/me afirma accessible:true.
@@ -453,14 +452,6 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
     );
   }
 
-  // Telefones/e-mails: principal + extras, dedup (badge WhatsApp ✓ pelo mapa).
-  const phones = [lead.phone, ...(Array.isArray(lead.phones) ? lead.phones : [])]
-    .filter((p): p is string => Boolean(p))
-    .filter((p, i, a) => a.findIndex(x => onlyDigits(x) === onlyDigits(p)) === i);
-  const emails = [lead.email, ...(Array.isArray(lead.emails) ? lead.emails : [])]
-    .filter((e): e is string => Boolean(e))
-    .filter((e, i, a) => a.indexOf(e) === i);
-  const waMap = lead.phonesWhatsapp || {};
   const hasExistingConversation = Boolean(lead.conversation?.id || lead.conversation?.exists);
 
   const historico = [...addedNotes, ...(lead.timeline || [])].slice(0, 8);
@@ -566,8 +557,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
           </section>
 
           {temAbordagem && (
-            <LockGate locked={!canIntel} ctaText="Disponível no HBX Lead+/Pro">
-              <section className="lead-cockpit__box">
+            <section className="lead-cockpit__box">
                 <h4 className="lead-cockpit__box-title"><I d={ICONS.bolt} size={12} /> Abordagem</h4>
                 {(li?.recommendedChannel || li?.painType) && (
                   <div className="kv">
@@ -591,8 +581,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
                     </button>
                   </div>
                 )}
-              </section>
-            </LockGate>
+            </section>
           )}
 
           <section className="lead-cockpit__box">
@@ -632,11 +621,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
       </div>
     );
     if (c?.locked) {
-      return (
-        <LockGate locked ctaText="Disponível no HBX Pro">
-          {fallbackRows}
-        </LockGate>
-      );
+      return fallbackRows;
     }
     if (!c?.found) {
       return (
@@ -692,20 +677,17 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
         <div className="lead-cockpit__col">
           <section className="lead-cockpit__box">
             <h4 className="lead-cockpit__box-title"><I d={ICONS.phone} size={12} /> Contato</h4>
+            <LeadContactList
+              phone={lead.phone}
+              email={lead.email}
+              phones={lead.phones}
+              emails={lead.emails}
+              phoneContacts={lead.phoneContacts}
+              emailContacts={lead.emailContacts}
+              phonesWhatsapp={lead.phonesWhatsapp}
+              emptyLabel="Sem telefone ou e-mail disponível."
+            />
             <div className="kv">
-              {phones.length === 0 && <KvRow label="Telefone"><span className="muted-note">—</span></KvRow>}
-              {phones.map((p, i) => (
-                <CopyRow
-                  key={`ph-${i}`}
-                  label={i === 0 ? "Telefone" : `Telefone ${i + 1}`}
-                  value={formatBrPhone(p) || p}
-                  badge={waMap[onlyDigits(p)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
-                />
-              ))}
-              {emails.length === 0 && <KvRow label="E-mail"><span className="muted-note">—</span></KvRow>}
-              {emails.map((em, i) => (
-                <CopyRow key={`em-${i}`} label={i === 0 ? "E-mail" : `E-mail ${i + 1}`} value={em} mono={false} />
-              ))}
               <KvRow label="Site">
                 {lead.website ? (
                   <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer">

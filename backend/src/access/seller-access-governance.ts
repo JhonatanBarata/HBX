@@ -35,7 +35,7 @@ export type CapabilityMap = Partial<Record<HbxCapability, boolean>>;
 
 export type ResolveEffectiveCapabilityInput = {
   capability: HbxCapability;
-  companyEntitlements?: CapabilityMap | null;
+  companyCapabilities?: CapabilityMap | null;
   configuredUserCaps?: CapabilityMap | null;
   safetyCaps?: CapabilityMap | null;
 };
@@ -46,14 +46,14 @@ export function resolveAccessGovernor(targetUser: HbxUserLike, targetCompany?: H
 
 export function resolveEffectiveCapability({
   capability,
-  companyEntitlements = {},
+  companyCapabilities = {},
   configuredUserCaps = {},
   safetyCaps = {},
 }: ResolveEffectiveCapabilityInput): boolean {
-  const planAllows = companyEntitlements?.[capability] !== false;
+  const companyAllows = companyCapabilities?.[capability] !== false;
   const userAllows = configuredUserCaps?.[capability] === true;
   const safetyAllows = safetyCaps?.[capability] !== false;
-  return Boolean(planAllows && userAllows && safetyAllows);
+  return Boolean(companyAllows && userAllows && safetyAllows);
 }
 
 export function buildModuleCapabilityKey(moduleKey: string, action: 'access' | 'run' | 'manage' = 'access'): HbxCapability | null {

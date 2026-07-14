@@ -424,7 +424,6 @@ function makeSaveInstance(db: ReturnType<typeof makeFakeDb>, options: { donation
     warn: (msg: string) => warns.push(msg),
   };
   instance.prisma = db.prisma;
-  instance.enrichSearchRunResultsBeforeSave = async (_normalized: any, results: any[]) => results;
   instance.getRadarRunItemFilter = () => new RadarRunItemFilterService();
   instance.buildRadarRunItemFilterHost = () => ({
     isBlockedLeadOfficialWebsite: () => false,

@@ -7,8 +7,8 @@
 
 /* ---- Bloco A · CLARO ---- */
 [data-theme="ember"] {
-  --hbx-brand: #EA580C; --hbx-brand-strong: #C2410C; --hbx-brand-soft: #FFEDD5; --hbx-brand-contrast: #FFF7ED;
-  --hbx-primary: #EA580C; --hbx-secondary: #44403C; --hbx-success: #16A34A; --hbx-accent: #F59E0B;
+  --hbx-brand: #C2410C; --hbx-brand-strong: #C2410C; --hbx-brand-soft: #FFEDD5; --hbx-brand-contrast: #FFF7ED;
+  --hbx-primary: #C2410C; --hbx-secondary: #44403C; --hbx-success: #16A34A; --hbx-accent: #F59E0B;
   --hbx-info: #0E7490; --hbx-warning: #B45309; --hbx-danger: #DC2626; --hbx-danger-soft: #FEE2E2;
   --hbx-background: #FAF6F1; --hbx-background-alt: #F3EDE5;
   --hbx-surface: #FFFFFF; --hbx-surface-soft: #F7F2EB; --hbx-surface-raised: #EFE6DA;
@@ -18,7 +18,7 @@
   --hbx-foreground: #1C1410; --hbx-foreground-soft: #44362C; --hbx-muted: #7D6B5D;
   --hbx-line: #E0D3C2; --hbx-shadow: #3B2A1A; --hbx-overlay: rgba(28,20,16,0.4);
   --border-hairline: #E7DCCD; --border-strong: #CBB89F; --ring-brand: rgba(234,88,12,0.22);
-  --hbx-action-ink: #FFF7ED; --hbx-avatar-from: #EA580C; --hbx-avatar-to: #B45309;
+  --hbx-action-ink: #FFF7ED; --hbx-avatar-from: #C2410C; --hbx-avatar-to: #9A3412;
   --font-display: "Plus Jakarta Sans", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   /* anel do CascaLoading — laranja→âmbar→ouro→PLATINA (fim platina, sem

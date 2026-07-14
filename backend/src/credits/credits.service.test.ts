@@ -4,6 +4,7 @@ import { CreditWalletService } from './credit-wallet.service';
 import { CreditPackConfigService } from './credit-pack-config.service';
 import { CreditsService } from './credits.service';
 import { clearCreditPackOverrides } from './credit-pack-catalog';
+import { getCreditActionBaseDefinition } from './credit-action-catalog';
 
 // CRÉDITOS S3-PARTE1 — CreditsService: concessão master idempotente por sourceRef/usageKey,
 // grantType, expiresAt do default quando omitido; e /credits/me role-gating (LEI DO VENDEDOR:
@@ -58,7 +59,7 @@ function applyData(row: Row, data: Row) {
 function createFakePrisma(companyIds: number[] = [1]) {
   const wallets: Row[] = [];
   const entries: Row[] = [];
-  const companies: Row[] = companyIds.map((id) => ({ id, creditsEnforceEnabled: false }));
+  const companies: Row[] = companyIds.map((id) => ({ id, companyKind: 'tenant', creditsEnforceEnabled: false }));
   const packs: Row[] = [];
   const globalConfig: Row[] = [];
   const teamPolicies: Row[] = [];
@@ -364,7 +365,10 @@ function buildService(companyIds: number[] = [1]) {
   const fake = createFakePrisma(companyIds);
   const wallet = new CreditWalletService(fake as any);
   const packConfig = new CreditPackConfigService(fake as any);
-  const service = new CreditsService(fake as any, wallet, packConfig);
+  const actionConfig = {
+    resolveEffective: async (actionKey: string) => getCreditActionBaseDefinition(actionKey),
+  };
+  const service = new CreditsService(fake as any, wallet, packConfig, actionConfig as any);
   return { fake, wallet, packConfig, service };
 }
 
@@ -697,19 +701,14 @@ test('grantWelcomeBatch: empresas DIFERENTES recebem lotes INDEPENDENTES (usageK
   assert.equal(await wallet.getBalance(2), 50);
 });
 
-// ─── R1 — gate REAL de enforcement (HBX_CREDITS_ENFORCE + Company.creditsEnforceEnabled) ───────
-// Testes 1-6 do R1-SPEC-GATE-ENFORCE.md. `HBX_CREDITS_ENFORCE` liga/desliga em cada teste
-// (afterEach limpa); `fake.__setCompanyEnforce`/`__setUserTeamPolicy` mutam o estado in-memory.
-// MASTER-REFAB S6 (10/07 noite): o cutover 2-chaves é EXCLUSIVO de conta enterprise (conta credit
-// sempre debita real, sem depender dele — ver bloco "Conta CREDIT" abaixo) — toda company aqui
-// marca `accountType: 'enterprise'` pra continuar exercitando o cutover legado isoladamente.
+// ─── Débito universal por lead ────────────────────────────────────────────────────────────────
+// Plano, accountType, flags antigas e o papel do ator não podem liberar dados sem débito.
 
 test.afterEach(() => {
   delete process.env.HBX_CREDITS_ENFORCE;
 });
 
-// Teste 1 — flags OFF (qualquer uma) -> zero débito real, comportamento atual intacto.
-test('R1 gate: HBX_CREDITS_ENFORCE OFF (empresa ON) -> no-op, zero débito real', async () => {
+test('tenant debita mesmo com HBX_CREDITS_ENFORCE OFF e flag da empresa ON', async () => {
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
   fake.__setCompanyEnforce(1, true);
@@ -717,12 +716,12 @@ test('R1 gate: HBX_CREDITS_ENFORCE OFF (empresa ON) -> no-op, zero débito real'
 
   const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-1', actionKey: 'lead_delivery' });
 
-  assert.equal(result.applied, false);
-  assert.equal(result.debited, 0);
-  assert.equal(await wallet.getBalance(1), 10); // saldo intacto
+  assert.equal(result.applied, true);
+  assert.equal(result.debited, 1);
+  assert.equal(await wallet.getBalance(1), 9);
 });
 
-test('R1 gate: HBX_CREDITS_ENFORCE ON mas empresa OFF -> no-op, zero débito real', async () => {
+test('tenant debita mesmo com flag da empresa OFF', async () => {
   process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
@@ -731,9 +730,9 @@ test('R1 gate: HBX_CREDITS_ENFORCE ON mas empresa OFF -> no-op, zero débito rea
   await wallet.grant(1, 10, { kind: 'grant' });
   const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-1', actionKey: 'lead_delivery' });
 
-  assert.equal(result.applied, false);
-  assert.equal(result.debited, 0);
-  assert.equal(await wallet.getBalance(1), 10);
+  assert.equal(result.applied, true);
+  assert.equal(result.debited, 1);
+  assert.equal(await wallet.getBalance(1), 9);
 });
 
 // Teste 2 — gate ON + saldo >= 1 -> entrega debita 1; ledger ganha linha `debit` com a usageKey certa.
@@ -935,27 +934,24 @@ test('R1 idempotência: mesmo lead debitado 2x (mesma usageKey) -> só 1 débito
   assert.equal(debits.length, 1);
 });
 
-// ─── isEnforceActiveForCompany — cutover legado (2 chaves), só se aplica a conta ENTERPRISE ─────
-// MASTER-REFAB S6 (10/07 noite): cortesia morre como conceito de conta — o predicado agora lê
-// accountType direto (era access-state courtesy/exempt-manual). Conta credit (default) sempre
-// debita real, sem depender do cutover — o cutover 2-chaves é EXCLUSIVO de conta enterprise.
+// ─── isEnforceActiveForCompany — todo tenant, sem gate comercial ───────────────────────────────
 
-test('isEnforceActiveForCompany: enterprise, false quando env OFF mesmo com empresa ON', async () => {
+test('isEnforceActiveForCompany: tenant enterprise continua ativo com env OFF', async () => {
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
   fake.__setCompanyEnforce(1, true);
-  assert.equal(await service.isEnforceActiveForCompany(1), false);
+  assert.equal(await service.isEnforceActiveForCompany(1), true);
 });
 
-test('isEnforceActiveForCompany: enterprise, false quando empresa OFF mesmo com env ON', async () => {
+test('isEnforceActiveForCompany: tenant enterprise continua ativo com flag da empresa OFF', async () => {
   process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
   fake.__setCompanyEnforce(1, false);
-  assert.equal(await service.isEnforceActiveForCompany(1), false);
+  assert.equal(await service.isEnforceActiveForCompany(1), true);
 });
 
-test('isEnforceActiveForCompany: enterprise, true só quando AMBAS estão ON', async () => {
+test('isEnforceActiveForCompany: tenant permanece ativo com flags antigas ON', async () => {
   process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
@@ -963,11 +959,7 @@ test('isEnforceActiveForCompany: enterprise, true só quando AMBAS estão ON', a
   assert.equal(await service.isEnforceActiveForCompany(1), true);
 });
 
-// ─── Conta CREDIT (MASTER-REFAB S6, 10/07 noite) — débito real LIGADO por default ───────────────
-// Cortesia morreu como conceito de conta: o gatilho do débito real é accountType==='credit', não
-// mais courtesy/exempt-manual. Conta credit NÃO tem cota de plano; o teto real é o saldo de
-// crédito. Por isso o débito real nasce ligado assim que HBX_CREDITS_ENABLED está ON — sem
-// depender do cutover HBX_CREDITS_ENFORCE (que é só pra migrar empresa ENTERPRISE).
+// AccountType/status são metadados financeiros e não mudam o débito do lead.
 
 test('conta credit (accountType=credit, default da coluna): débito real LIGADO por default, SEM HBX_CREDITS_ENFORCE', async () => {
   // credits ENABLED (beforeEach); enforce env OFF; empresa NÃO optou (creditsEnforceEnabled=false).
@@ -988,37 +980,80 @@ test('conta credit legada em status/courtesy antigo (pré-S6) continua debitando
   assert.equal(await service.isEnforceActiveForCompany(1), true);
 });
 
-test('empresa ENTERPRISE (accountType=enterprise) NÃO entra no débito de crédito por default (segue no cutover 2-chaves)', async () => {
+test('empresa ENTERPRISE também entra no débito de crédito por default', async () => {
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise', status: 'active' });
-  // enforce env OFF + empresa não optou -> gate legado OFF; enterprise não tem atalho de credit.
-  assert.equal(await service.isEnforceActiveForCompany(1), false);
+  assert.equal(await service.isEnforceActiveForCompany(1), true);
 });
 
-test('master (isSystemMaster) NUNCA debita, mesmo em conta credit com enforce ligado', async () => {
+test('master operando o fluxo de cliente também debita antes de revelar', async () => {
   const { service, wallet, fake } = buildService();
   fake.__setUser(7, { isSystemMaster: true });
   await wallet.grant(1, 5, { kind: 'promo', grantType: 'promo' });
 
   const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-master', actionKey: 'lead_delivery' });
-  assert.equal(result.applied, false);
-  assert.equal(result.debited, 0);
-  assert.equal(await wallet.getBalance(1), 5); // saldo intacto — master é god-mode, nunca queima crédito do tenant
+  assert.equal(result.applied, true);
+  assert.equal(result.debited, 1);
+  assert.equal(await wallet.getBalance(1), 4);
 });
 
-// ─── isCreditsAccountCompany — método público reusável (fronteira cota-de-plano × crédito) ──────
-test('isCreditsAccountCompany: true p/ accountType=credit (default); false p/ enterprise; false com módulo OFF', async () => {
+// ─── Compatibilidade do predicado público: agora significa tenant debitável ────────────────────
+test('isCreditsAccountCompany ignora accountType e flag do módulo; rejeita platform_infra', async () => {
   const { service, fake } = buildService();
 
-  assert.equal(await service.isCreditsAccountCompany(1), true); // default da coluna é credit
+  assert.equal(await service.isCreditsAccountCompany(1), true);
 
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
-  assert.equal(await service.isCreditsAccountCompany(1), false);
+  assert.equal(await service.isCreditsAccountCompany(1), true);
 
-  // Módulo de crédito OFF -> nunca é conta de crédito, independe do tipo.
   fake.__setCompanyFields(1, { accountType: 'credit' });
   delete process.env.HBX_CREDITS_ENABLED;
+  assert.equal(await service.isCreditsAccountCompany(1), true);
+
+  fake.__setCompanyFields(1, { companyKind: 'platform_infra' });
   assert.equal(await service.isCreditsAccountCompany(1), false);
+});
+
+test('assertAndDebitLeadDelivery falha fechado para platform_infra', async () => {
+  const { service, fake } = buildService();
+  fake.__setCompanyFields(1, { companyKind: 'platform_infra' });
+  await assert.rejects(
+    () => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-infra', actionKey: 'lead_delivery' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_DEBIT_UNAVAILABLE');
+      return true;
+    },
+  );
+});
+
+test('assertAndDebitLeadDelivery falha fechado sem configuração de ação e sem debitar', async () => {
+  const { fake, wallet, packConfig } = buildService();
+  await wallet.grant(1, 2, { kind: 'promo', grantType: 'promo' });
+  const service = new CreditsService(fake as any, wallet, packConfig, undefined as any);
+  await assert.rejects(
+    () => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-config', actionKey: 'lead_delivery' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_DEBIT_UNAVAILABLE');
+      return true;
+    },
+  );
+  assert.equal(await wallet.getBalance(1), 2);
+});
+
+test('assertAndDebitLeadDelivery falha fechado se lead_delivery vier grátis', async () => {
+  const { fake, wallet, packConfig } = buildService();
+  await wallet.grant(1, 2, { kind: 'promo', grantType: 'promo' });
+  const service = new CreditsService(fake as any, wallet, packConfig, {
+    resolveEffective: async () => ({ key: 'lead_delivery', mode: 'free', cost: 0, label: 'Lead entregue' }),
+  } as any);
+  await assert.rejects(
+    () => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-free', actionKey: 'lead_delivery' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_DEBIT_UNAVAILABLE');
+      return true;
+    },
+  );
+  assert.equal(await wallet.getBalance(1), 2);
 });
 
 // ─── MASTER-REFAB S2 — getMasterOverview (Visão geral do centro financeiro) ─────────────────────

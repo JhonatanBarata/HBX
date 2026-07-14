@@ -25,7 +25,6 @@ export type RadarRunPresenterHost = {
   normalizeChannelMatchMode: (value: unknown) => RadarChannelMatchMode;
   isRunItemQualityDeliverable: (item: any, input: NormalizedRadarFilters) => boolean;
   attachDeliveryClassification: (item: any, input: NormalizedRadarFilters, quality: LeadQualityResult | null, qualityV2: LeadQualityV2 | null) => any;
-  stripListPremiumFields: (item: any, input: NormalizedRadarFilters) => any;
   normalizeRadiusKm: (value: unknown) => number;
   getHbxRunBatchLimit: (targetQuantity: number) => number;
   getHbxRunMaxAttempts: (targetQuantity: number, batchLimit: number) => number;
@@ -285,10 +284,7 @@ export class RadarRunPresenterService {
       const contact = this.mapRunItemToContact(item, host);
       const { placeId: _placeId, ...publicContact } = contact;
       const qualityV2 = host.extractLeadQualityV2FromObject(contact) || null;
-      return host.stripListPremiumFields(
-        host.attachDeliveryClassification(publicContact, qualityInput, contact.quality || null, qualityV2),
-        qualityInput,
-      );
+      return host.attachDeliveryClassification(publicContact, qualityInput, contact.quality || null, qualityV2);
     });
     const query = {
       city: String(run.city || ''),
@@ -468,10 +464,7 @@ export class RadarRunPresenterService {
           deliveryBlockers: issueSummary.blockers,
           createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
         };
-        return host.stripListPremiumFields(
-          host.attachDeliveryClassification(publicItem, qualityInput, raw.quality || null, qualityV2),
-          qualityInput,
-        );
+        return host.attachDeliveryClassification(publicItem, qualityInput, raw.quality || null, qualityV2);
       }),
       results,
     };

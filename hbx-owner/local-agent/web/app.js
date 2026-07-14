@@ -1237,128 +1237,6 @@ async function ckCancelEnrich() {
   }
 }
 
-/* ---------- Enriquecer CNPJ→dono (L4/BrasilAPI) ---------- */
-async function ckCnpjBackfill() {
-  const btn = $("#btn-cnpj-backfill");
-  const fb  = $("#export-feedback");
-  if (btn) btn.disabled = true;
-  if (fb)  { fb.textContent = "solicitando enriquecimento CNPJ→dono…"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/ops/cnpj-backfill", { scope: "vps", limit: 200 });
-    const results = (r.ops && r.ops.results) || [];
-    const summary = results.map((item) => {
-      const d = item.data || {};
-      if (!item.ok) return `${item.label || item.environment}: falhou`;
-      return `${item.label || item.environment}: ${d.scanned ?? "?"}↗ ${d.enriched ?? "?"}✓ ${d.phonesFound ?? 0}tel ${d.socialsFound ?? 0}redes ${d.errors ?? "?"}✗`;
-    }).join(" · ") || (r.reason || "resposta vazia");
-    if (fb) { fb.textContent = r.ok ? `CNPJ→dono: ${summary}` : `Erro: ${r.reason || summary}`; fb.className = r.ok ? "delta up" : "delta"; }
-    pushFeed(`CNPJ→dono: ${summary}`, r.ok ? "ok" : "warn");
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-/* ---------- Descobrir site + CNPJ (cadeia grátis L1→L4) ---------- */
-async function ckStartDiscover() {
-  const btn = $("#btn-cockpit-discover");
-  const fb  = $("#el-feedback");
-  const enrichRow = $("#cockpit-enrich-row");
-  if (enrichRow) enrichRow.style.display = "";
-  if (btn) btn.disabled = true;
-  if (fb)  { fb.textContent = "descobrindo site + CNPJ da base… (cadeia grátis)"; fb.className = "delta"; }
-  try {
-    const r = await api("POST", "/owner/ops/cnpj-backfill", { scope: "local", limit: 500 });
-    const scanned   = r.scanned   ?? r.data?.scanned   ?? "?";
-    const sitesFound = r.sitesFound ?? r.data?.sitesFound ?? 0;
-    const cnpjsFound = r.cnpjsFound ?? r.data?.cnpjsFound ?? 0;
-    const phonesFound = r.phonesFound ?? r.data?.phonesFound ?? 0;
-    const socialsFound = r.socialsFound ?? r.data?.socialsFound ?? 0;
-    const enriched  = r.enriched  ?? r.data?.enriched  ?? "?";
-    const errors    = r.errors    ?? r.data?.errors    ?? 0;
-    if (r.ok !== false) {
-      const summary = `${scanned} varridos · ${sitesFound} sites · ${cnpjsFound} CNPJ · ${phonesFound} tel · ${socialsFound} redes · ${enriched} enriquecidos`;
-      if (fb) { fb.textContent = summary; fb.className = "delta up"; }
-      pushFeed(`Descoberta grátis: ${summary}`, errors > 0 ? "warn" : "ok");
-    } else {
-      const msg = r.message || r.reason || "falha ao descobrir";
-      if (fb) { fb.textContent = msg; fb.className = "delta"; }
-      pushFeed(`Descoberta grátis: ${msg}`, "warn");
-    }
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.className = "delta"; }
-    pushFeed(`Descoberta grátis: ${err.message}`, "warn");
-  } finally {
-    if (btn) btn.disabled = false;
-    setTimeout(loadCockpit, 1500);
-  }
-}
-
-/* ---------- Enriquecedor de Cards (1 worker contínuo) ---------- */
-let enrPollTimer = null;
-let enrRunning = false;
-
-function enrSetStatus(text, kind) {
-  const s = $("#enr-status"); if (!s) return;
-  const cls = kind === "run" ? "pill-amber" : kind === "done" ? "pill-ok" : kind === "warn" ? "pill-bad" : "pill-muted";
-  s.textContent = text; s.className = "pill " + cls;
-}
-
-function enrPaint(r) {
-  enrRunning = !!(r && r.running);
-  const m = (r && r.metrics) || {};
-  const set = (id, v) => { const el = $(id); if (el) el.textContent = (v != null ? Number(v).toLocaleString("pt-BR") : "—"); };
-  set("#enr-scanned", m.cardsScanned);
-  set("#enr-sites", m.sitesCrawled);
-  set("#enr-emails", m.emailsFound);
-  set("#enr-phones", m.phonesFound);
-  set("#enr-cnpjs", m.cnpjsFound);
-  set("#enr-applied", m.applied);
-  const toggle = $("#btn-enr-toggle");
-  if (enrRunning) {
-    enrSetStatus(r.labUp ? "ligado" : "ligado (lab subindo)", "run");
-    if (toggle) { toggle.textContent = "■ Desligar"; toggle.className = "btn btn-sm btn-amber"; }
-  } else {
-    enrSetStatus("parado", r && r.error ? "warn" : "idle");
-    if (toggle) { toggle.textContent = "▶ Ligar"; toggle.className = "btn btn-sm btn-green"; }
-  }
-  const fb = $("#enr-feedback");
-  if (fb) {
-    if (enrRunning) {
-      const t1 = m.tipo1Runs ? ` · Tipo1 ${m.tipo1Runs}×` : "";
-      fb.textContent = `${(r && r.phase) || "rodando"}${t1}` + (r && r.error ? ` · ⚠ ${r.error}` : "");
-      fb.className = "delta up";
-    } else {
-      fb.textContent = r && r.error ? `Parado · ⚠ ${r.error}` : "Desligado.";
-      fb.className = "delta";
-    }
-  }
-}
-
-async function enrPollOnce() {
-  try { enrPaint(await api("GET", "/owner/enricher/status")); } catch { /* mantém */ }
-}
-
-async function enrToggle() {
-  const fb = $("#enr-feedback");
-  try {
-    if (enrRunning) {
-      await api("POST", "/owner/enricher/stop", {});
-      pushFeed("Enriquecedor desligado.", "warn");
-    } else {
-      const identity = !!($("#enr-identity") && $("#enr-identity").checked);
-      const scraper = !!($("#enr-scraper") && $("#enr-scraper").checked);
-      const aggressive = !!($("#enr-aggressive") && $("#enr-aggressive").checked);
-      const r = await api("POST", "/owner/enricher/start", { identity, scraper, aggressive });
-      if (!r.ok) { if (fb) { fb.textContent = r.message || r.reason || "não consegui ligar."; fb.className = "delta"; } return; }
-      pushFeed("Enriquecedor ligado — roda enquanto o PC ficar ligado.", "info");
-      enrSetStatus("ligado", "run");
-    }
-    enrPollOnce();
-  } catch (err) { if (fb) { fb.textContent = err.message; fb.className = "delta"; } }
-}
-
 /* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) com progresso vivo ---------- */
 let transferPollTimer = null;
 
@@ -1473,11 +1351,9 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const reloadBtn      = $("#btn-cockpit-reload");
   const csvBtn         = $("#btn-cockpit-csv");
   const enrichBtn      = $("#btn-cockpit-enrich");
-  const cnpjBackfillBtn = $("#btn-cnpj-backfill");
   const exportUnclaimedBtn = $("#btn-export-unclaimed");
   const exportAllVpsBtn   = $("#btn-export-all");
   const exportLocalBtn    = $("#btn-export-local");
-  const discoverBtn    = $("#btn-cockpit-discover");
   const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
   const nextBtn        = $("#btn-ck-next");
@@ -1487,18 +1363,12 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (reloadBtn) reloadBtn.addEventListener("click", loadCockpit);
   if (csvBtn)    csvBtn.addEventListener("click", ckExportCsv);
   if (enrichBtn) enrichBtn.addEventListener("click", ckStartEnrich);
-  if (discoverBtn) discoverBtn.addEventListener("click", ckStartDiscover);
-  if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (exportUnclaimedBtn) exportUnclaimedBtn.addEventListener("click", ckExportUnclaimedContacts);
   if (exportAllVpsBtn) exportAllVpsBtn.addEventListener("click", ckExportAllVps);
   if (exportLocalBtn) exportLocalBtn.addEventListener("click", ckExportAllLocal);
   if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 
-  // Enriquecedor de Cards (1 worker contínuo)
-  const enrToggleBtn = $("#btn-enr-toggle"); if (enrToggleBtn) enrToggleBtn.addEventListener("click", enrToggle);
-  enrPollOnce();
-  if (!enrPollTimer) enrPollTimer = setInterval(enrPollOnce, 5000);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
     for (const id of ["cf-not-enriched", "cf-has-site", "cf-has-whatsapp"]) { const el = $(`#${id}`); if (el) el.checked = false; }
@@ -1879,7 +1749,7 @@ async function fabRender() {
   set("#fab-budget-left", r.budgetLeft != null ? r.budgetLeft : (r.budget != null && r.processed != null ? Math.max(0, r.budget - r.processed) : null));
   set("#fab-current", r.currentLead || r.current || null);
   set("#fab-errors", r.errors);
-  if (fb) fb.textContent = r.message || (running ? "Enriquecendo a base — para sozinha no fim do budget." : "Parada. Informe o budget e aperte Iniciar.");
+  if (fb) fb.textContent = r.message || (running ? "Enriquecendo somente leads já puxados — para sozinha no fim do budget." : "Parada. Só processa leads já puxados e pagos.");
 }
 
 async function fabStart() {
@@ -2763,8 +2633,6 @@ function paintSnapshot(snap) {
     renderSistema(local.system, local.bank);
     // VPS: pressão/veredito + banco VPS + motores, tudo com o MESMO generatedAt do snapshot.
     renderVps(vps.system, vps.leads, vps.engines);
-    // Enricher (métricas). labUp não vem no snapshot → mantém o do último poll (não apaga).
-    if (snap.enricher) enrPaint(snap.enricher);
     // Transferência (se houver estado).
     if (snap.transfer) paintTransferFromEvent(snap.transfer);
     // Integrações (D5): pinta local + VPS pelo snapshot — o badge "VPS …" morre sozinho, sem clique/fetch.
@@ -2819,10 +2687,6 @@ function connectSSE() {
   es.addEventListener("transfer", (ev) => {
     sseState.errorStreak = 0; sseState.healthy = true;
     try { paintTransferFromEvent(JSON.parse(ev.data)); } catch {}
-  });
-  es.addEventListener("enricher", (ev) => {
-    sseState.errorStreak = 0; sseState.healthy = true;
-    try { enrPaint(JSON.parse(ev.data)); } catch {}
   });
   es.addEventListener("error", () => {
     // EventSource re-tenta sozinho (retry nativo). Após 2 erros seguidos, garante o fallback de polling

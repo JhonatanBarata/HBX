@@ -9,10 +9,8 @@
 // │  [costura "O que fazer"]                                                    │
 // │  ZONA 2 "O que fazer": ações + meta compacta + histórico recolhido          │
 // │                                                                             │
-// │  GATING por TIER do plano (não por entitlement):                            │
-// │    list  → básico apenas (nome, phone, cidade, seg, canais, site, email)   │
-// │    lead  → + inteligência (score, motivo, canal recomendado, wa verificado) │
-// │    full  → + empresa (CNPJ, razão, CNAE, sócio, situação)                  │
+// │  Dados do lead são liberados pela POSSE, após o débito do crédito.          │
+// │  Não existe diferenciação de conteúdo por plano dentro deste componente.   │
 // │                                                                             │
 // │  HUMANIZAÇÃO: zero snake_case na tela. Mapa central LABEL_MAP.             │
 // └─────────────────────────────────────────────────────────────────────────────┘
@@ -24,9 +22,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, PhotoLightbox, WhatsAppMark, useEntitlements } from "@/components/hbx/shell";
+import { Av, I, ICONS, PhotoLightbox, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { LeadContactList, type LeadContactRecord } from "@/components/hbx/lead-contact-list";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
 import { apiFetch, type ApiError } from "@/lib/api";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
@@ -231,7 +230,9 @@ export type NegocioDetail = {
   // Multi-contatos acumulados pelo scraper (até 3) — captura-e-acumula, nunca descarta.
   emails?: string[] | null;
   phones?: string[] | null;
-  // Mapa digits→tem WhatsApp? (motor dedicado). Telefone extra só é exibido se confirmado aqui.
+  phoneContacts?: LeadContactRecord[] | null;
+  emailContacts?: LeadContactRecord[] | null;
+  // Mapa digits→tem WhatsApp? Controla somente a ação WhatsApp; não a visibilidade.
   phonesWhatsapp?: Record<string, boolean> | null;
   cnpj?: string | null;
   cnae?: string | null;
@@ -239,7 +240,8 @@ export type NegocioDetail = {
   ownerName?: string | null;
   ownerNames?: string[] | null;
   // WORM-16: PESSOAS estruturadas (sócio da Receita = nome + cargo). Cada uma vira linha na
-  // seção "Pessoas" com botão wa.me + copiar. Opcional — card antigo sem `people` não mostra a seção.
+  // seção "Pessoas" com copiar e wa.me apenas quando confirmado. Opcional —
+  // card antigo sem `people` não mostra a seção.
   people?: Array<{ name: string; role?: string | null; source?: string | null; phoneDigits?: string | null }> | null;
   // Dados PESSOAIS do dono/sócio (L4 CNPJ→qsa) — sensíveis, gate por tier.
   ownerPhone?: string | null;
@@ -582,29 +584,6 @@ function ChevronDown() {
   );
 }
 
-// ── Gate de plano — borrado + cadeado + CTA quando locked ────────────────────
-// Exportado (LEAD-COCKPIT, 11/07): o cockpit reusa o MESMO cadeado de tier no
-// bloco Empresa/Abordagem — nada de recriar o overlay em outra tela.
-
-export function LockGate({ locked, ctaText, children }: { locked: boolean; ctaText?: string; children: React.ReactNode }) {
-  if (!locked) return <>{children}</>;
-  return (
-    <div className="dn-locked">
-      {children}
-      <div className="dn-lock-overlay">
-        <span className="dn-lock-overlay__icon">🔒</span>
-        <button
-          type="button"
-          className="dn-lock-overlay__cta"
-          onClick={() => { window.location.href = "/configuracoes"; }}
-        >
-          {ctaText || "Disponível no HBX Lead+/Pro"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Score ring circular ───────────────────────────────────────────────────────
 
 function ScoreRing({ score }: { score: number }) {
@@ -632,8 +611,9 @@ function ScoreRing({ score }: { score: number }) {
 }
 
 // ── Pessoa (WORM-16): sócio da Receita / contato estruturado ──────────────────
-// Nome + cargo + (quando houver) botão wa.me e copiar. Fonte "receita_qsa" = sócio
-// oficial da Receita. Visual 100% em classes centrais (kit.css .dn-person*).
+// Nome + cargo + copiar. O botão wa.me só existe quando o mapa do backend confirma
+// aquele número; ser telefone de sócio não prova WhatsApp. Fonte "receita_qsa" =
+// sócio oficial da Receita. Visual 100% em classes centrais (kit.css .dn-person*).
 type PersonView = { name: string; role?: string | null; source?: string | null; phoneDigits?: string | null };
 
 function waHrefFromDigits(digits: string): string {
@@ -642,7 +622,7 @@ function waHrefFromDigits(digits: string): string {
   return `https://wa.me/${withCountry}`;
 }
 
-function PersonRow({ person }: { person: PersonView }) {
+function PersonRow({ person, whatsappConfirmed }: { person: PersonView; whatsappConfirmed: boolean }) {
   const [copied, setCopied] = useState(false);
   const digits = String(person.phoneDigits || "").replace(/\D/g, "");
   const fromReceita = String(person.source || "") === "receita_qsa";
@@ -664,7 +644,7 @@ function PersonRow({ person }: { person: PersonView }) {
       </span>
       <span className="dn-person__acts">
         {fromReceita && <span className="tag teal dn-person__badge">Receita</span>}
-        {digits && (
+        {digits && whatsappConfirmed && (
           <a
             href={waHrefFromDigits(digits)}
             target="_blank"
@@ -703,7 +683,6 @@ function ChannelRow({
   waQrActive,
   waCanInternal,
   onDelete,
-  canSeeIntelligence = true,
 }: {
   n: NegocioDetail;
   onWaExternal?: () => void;
@@ -711,7 +690,6 @@ function ChannelRow({
   waQrActive?: boolean;
   waCanInternal?: boolean;
   onDelete?: () => void;
-  canSeeIntelligence?: boolean;
 }) {
   const li = n.leadIntelligence;
   const mode = useWaOpenMode();
@@ -848,11 +826,9 @@ function ChannelRow({
       })}
     </div>
     {waVerified && (
-      <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
-        <span className="dn-wa-verified">
-          ✓ WhatsApp VERIFICADO
-        </span>
-      </LockGate>
+      <span className="dn-wa-verified">
+        ✓ WhatsApp VERIFICADO
+      </span>
     )}
     </div>
   );
@@ -1790,12 +1766,6 @@ export function DetalhesNegocio({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
 
-  // ── Gate de plano por TIER (não por entitlement opportunity_score que estava errado)
-  // Enquanto não carrega: assume canSeeIntelligence=true e canSeeCompany=false
-  const ent = useEntitlements();
-  const canSeeIntelligence = !ent.loaded || ent.canSeeLeadIntelligence;
-  const canSeeCompany = ent.loaded && ent.canSeeCompanyData;
-
   const li = n?.leadIntelligence;
   const recChannel = li?.recommendedChannel ? toCanal(li.recommendedChannel) : null;
   // HOT-07 (empresa recém-aberta): badge só monta texto quando o backend confirma.
@@ -1814,13 +1784,12 @@ export function DetalhesNegocio({
   function renderScore() {
     if (!n) return null;
     if (n.opportunityScore == null || n.opportunityScore <= 0) return null;
-    const content = (
+    return (
       <div className="dn-score-inline">
         <ScoreRing score={n.opportunityScore} />
         <span className="dn-score-inline-label">Score de oportunidade</span>
       </div>
     );
-    return <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">{content}</LockGate>;
   }
 
   function renderOpportunityTeaser() {
@@ -1836,13 +1805,12 @@ export function DetalhesNegocio({
       text = humanize(painType);
     }
 
-    const content = (
+    return (
       <div className="dn-opportunity-teaser">
         <span className="dn-opportunity-teaser__icon">💡</span>
         <p className="dn-opportunity-teaser__text">{text}</p>
       </div>
     );
-    return <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">{content}</LockGate>;
   }
 
   function renderStatusChip() {
@@ -1869,14 +1837,9 @@ export function DetalhesNegocio({
   function renderContacts() {
     if (!n) return null;
     const hasCompanyData = Boolean(n.cnpj || n.razaoSocial || n.cnae || n.ownerName || n.ownerPhone || n.companySituation);
-    // Regra do dono: telefone extra só aparece se passou pelo motor do WhatsApp (confirmado).
-    const waOk = (p: string) => (n.phonesWhatsapp || {})[String(p).replace(/\D/g, "")] === true;
-    // Telefones extras (2/3): além do principal, SÓ os verificados no WhatsApp. Sem verificado → vazio → card idêntico.
-    const extraPhones = (Array.isArray(n.phones) ? n.phones : [])
-      .filter((p) => p && p !== n.phone && waOk(p)).filter((p, i, a) => a.indexOf(p) === i).slice(0, 3);
-    // E-mails extras (2/3): além do principal, já validados na captura. Sem extra → card idêntico.
-    const extraEmails = (Array.isArray(n.emails) ? n.emails : [])
-      .filter((e) => e && e !== n.email).filter((e, i, a) => a.indexOf(e) === i).slice(0, 3);
+    const hasContactData = Boolean(
+      n.phone || n.email || n.phones?.length || n.emails?.length || n.phoneContacts?.length || n.emailContacts?.length,
+    );
     // Pessoas estruturadas (WORM-16): sócio da Receita etc. Cai no fallback ownerName quando o
     // backend não mandou `people` (blob antigo). Dedup por nome; teto discreto.
     const peopleList: PersonView[] = (Array.isArray(n.people) ? n.people : [])
@@ -1891,22 +1854,22 @@ export function DetalhesNegocio({
       // .row/.k/.v abaixo — sem essa classe elas caem em fluxo inline (bug: "E-mail" e
       // o valor grudados, sem separador, quebrando linha de qualquer jeito).
       <div className="kv" style={{ gap: 6 }}>
-        {n.phone ? (
-          <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-            <CanalIcon canal="telefone" /> {n.phone}
-          </a>
+        {hasContactData ? (
+          <LeadContactList
+            phone={n.phone}
+            email={n.email}
+            phones={n.phones}
+            emails={n.emails}
+            phoneContacts={n.phoneContacts}
+            emailContacts={n.emailContacts}
+            phonesWhatsapp={n.phonesWhatsapp}
+            compact
+          />
         ) : fieldPending(false) ? (
-          // Enriquecendo: procurando telefone — placeholder, NÃO "ausente".
           <span className="dn-contact-skel" aria-label="Buscando telefone…" role="status" />
         ) : !loading ? (
-          <div className="dn-no-phone muted-note">Sem telefone neste card.</div>
+          <div className="dn-no-phone muted-note">Sem telefone ou e-mail neste card.</div>
         ) : null}
-
-        {extraPhones.map((p, i) => (
-          <a key={`xp-${i}`} href={`tel:${p.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">
-            <CanalIcon canal="telefone" /> {p}
-          </a>
-        ))}
 
         {n.website && (
           <a
@@ -1919,10 +1882,9 @@ export function DetalhesNegocio({
           </a>
         )}
 
-        {/* Bloco EMPRESA — tier full (Pro/Implantação) */}
+        {/* Bloco EMPRESA — liberado junto com a posse do lead. */}
         {hasCompanyData && (
-          <LockGate locked={!canSeeCompany} ctaText="Disponível no HBX Pro">
-            <div style={{ display: "grid", gap: 4 }}>
+          <div style={{ display: "grid", gap: 4 }}>
               <span className="dn-section-head">
                 <I d={ICONS.mapin} size={11} /> Empresa
               </span>
@@ -1981,28 +1943,31 @@ export function DetalhesNegocio({
                   </span>
                 </div>
               )}
-            </div>
-          </LockGate>
+          </div>
         )}
 
-        {/* Bloco PESSOAS (WORM-16) — sócio da Receita e contatos estruturados, com wa.me + copiar.
-            Mesmo gate de tier do bloco Empresa (dado cadastral/pessoal). */}
+        {/* Bloco PESSOAS (WORM-16) — sócio da Receita e contatos estruturados. */}
         {peopleList.length > 0 && (
-          <LockGate locked={!canSeeCompany} ctaText="Disponível no HBX Pro">
-            <div style={{ display: "grid", gap: 4 }}>
+          <div style={{ display: "grid", gap: 4 }}>
               <span className="dn-section-head">
                 <I d={ICONS.users} size={11} /> {peopleList.length > 1 ? "Pessoas" : "Pessoa"}
               </span>
               {peopleList.map((p, i) => (
-                <PersonRow key={`person-${i}-${p.name}`} person={p} />
+                <PersonRow
+                  key={`person-${i}-${p.name}`}
+                  person={p}
+                  whatsappConfirmed={Boolean(
+                    p.phoneDigits
+                    && n.phonesWhatsapp?.[String(p.phoneDigits).replace(/\D/g, "")] === true
+                  )}
+                />
               ))}
-            </div>
-          </LockGate>
+          </div>
         )}
 
-        {/* Empresa AINDA sendo buscada (enriquecendo, sem dado, tier libera):
+        {/* Empresa AINDA sendo buscada (enriquecendo, sem dado):
             placeholder pulsante das linhas-chave em vez de sumir a seção. */}
-        {isEnriching && !hasCompanyData && canSeeCompany && (
+        {isEnriching && !hasCompanyData && (
           <div style={{ display: "grid", gap: 4 }}>
             <span className="dn-section-head">
               <I d={ICONS.mapin} size={11} /> Empresa
@@ -2017,40 +1982,6 @@ export function DetalhesNegocio({
                 <span className="v"><FieldSkel variant={variant} /></span>
               </div>
             ))}
-          </div>
-        )}
-
-        {n.email && !n.channel && (
-          <div className="row dn-kv-row">
-            <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <I d={ICONS.mail} size={13} /> E-mail
-            </span>
-            <span className="v"><TypedText text={n.email} speed={44} delay={40} /></span>
-          </div>
-        )}
-
-        {/* E-mail sendo buscado (enriquecendo, sem e-mail nem canal). */}
-        {!n.email && !n.channel && fieldPending(false) && (
-          <div className="row dn-kv-row">
-            <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <I d={ICONS.mail} size={13} /> E-mail
-            </span>
-            <span className="v"><FieldSkel variant="wide" /></span>
-          </div>
-        )}
-
-        {extraEmails.length > 0 && (
-          <div className="row dn-kv-row">
-            <span className="k" style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-              <I d={ICONS.mail} size={13} /> {extraEmails.length > 1 ? "Outros e-mails" : "Outro e-mail"}
-            </span>
-            <span className="v" style={{ display: "grid", gap: 2 }}>
-              {extraEmails.map((e, i) => (
-                <span key={`em-${i}`} style={{ display: "block" }}>
-                  <TypedText text={e} speed={44} delay={40 + i * 30} />
-                </span>
-              ))}
-            </span>
           </div>
         )}
 
@@ -2302,7 +2233,7 @@ export function DetalhesNegocio({
         )}
       </div>
     );
-    return <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">{content}</LockGate>;
+    return content;
   }
 
   function renderOrigin() {
@@ -2437,15 +2368,13 @@ export function DetalhesNegocio({
         {hasAnyKv && (
           <div className="kv">
             {hasRecChannel && (
-              <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
-                <div className="row dn-kv-row">
-                  <span className="k">Canal recomendado</span>
-                  <span className="v">
-                    <CanalIcon canal={recChannel!} size="sm" />{" "}
-                    <TypedText text={humanize(recChannel)} speed={46} delay={0} />
-                  </span>
-                </div>
-              </LockGate>
+              <div className="row dn-kv-row">
+                <span className="k">Canal recomendado</span>
+                <span className="v">
+                  <CanalIcon canal={recChannel!} size="sm" />{" "}
+                  <TypedText text={humanize(recChannel)} speed={46} delay={0} />
+                </span>
+              </div>
             )}
             {hasQuality && (
               <div className="row dn-kv-row">
@@ -2647,7 +2576,6 @@ export function DetalhesNegocio({
                 waQrActive={waQrActive}
                 waCanInternal={waCanInternal}
                 onDelete={onDelete}
-                canSeeIntelligence={canSeeIntelligence}
               />
             </div>
 

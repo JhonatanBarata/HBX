@@ -9,7 +9,7 @@
 // Uma tela, dois modos por segmented compacto 28px: Funil | Buscar. Consome os
 // MESMOS endpoints que vendas/page.client.tsx e leads/page.client.tsx já usam
 // no desktop (GET /vendas/board, GET/POST /webscraping/radar/*, GET
-// /night-factory/leads-bank, GET /vendas/usage) — zero backend novo, zero
+// /leads-bank, GET /vendas/usage) — zero backend novo, zero
 // alteração na lógica/estado das telas desktop (DOM mobile separada).
 //
 // Entrar em "Buscar" direto em /vendas: mesma flag sessionStorage que o

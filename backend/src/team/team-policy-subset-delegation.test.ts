@@ -227,17 +227,17 @@ test('gerente concede chave de acesso que TEM -> passa (subset ok)', async () =>
   const requester = gerenteRequester();
   const { service, state } = createService({
     requester,
-    // gerente tem radar.enrichment.manual (default admin do catalogo = true)
+    // gerente tem vendas.cards.edit (default admin do catálogo = true)
     requesterTeamPolicy: null,
   });
 
   const result = await service.updatePolicy(requester, 7, {
-    access: { 'radar.enrichment.manual': true },
+    access: { 'vendas.cards.edit': true },
   } as any);
 
-  assert.equal(result.effectiveAccessMap['radar.enrichment.manual'], true);
+  assert.equal(result.effectiveAccessMap['vendas.cards.edit'], true);
   const rows = JSON.parse(state.user.teamPolicy.modulesJson);
-  assert.equal(rows.some((row: any) => row.key === 'radar.enrichment.manual' && row.allowed === true), true);
+  assert.equal(rows.some((row: any) => row.key === 'vendas.cards.edit' && row.allowed === true), true);
 });
 
 // Caso 2 — gerente concede chave que NÃO tem -> 403 (subset viola).
@@ -342,13 +342,13 @@ test('patch.access nao aceita canViewBilling (nao e chave do catalogo, ignorado)
   const { service, state } = createService({ requester });
 
   const result = await service.updatePolicy(requester, 7, {
-    access: { canViewBilling: true, 'radar.enrichment.manual': true },
+    access: { canViewBilling: true, 'vendas.cards.edit': true },
   } as any);
 
   // canViewBilling nao e TeamAccessKey -> normalizeTeamAccessMap descarta;
   // so a chave valida (que o gerente tem por default) passa.
   assert.equal((result.effectiveAccessMap as any).canViewBilling, undefined);
-  assert.equal(result.effectiveAccessMap['radar.enrichment.manual'], true);
+  assert.equal(result.effectiveAccessMap['vendas.cards.edit'], true);
   const rows = JSON.parse(state.user.teamPolicy.modulesJson);
   assert.equal(rows.some((row: any) => row.key === 'canViewBilling'), false);
 });
@@ -393,7 +393,7 @@ test('gerente concede mix de chaves com e sem posse -> lista as negadas na mensa
       access: {
         'commission.markPaid': true,
         'commission.cancel': true,
-        'radar.enrichment.manual': true, // este o gerente TEM (default admin)
+        'vendas.cards.edit': true, // este o gerente TEM (default admin)
       },
     } as any),
     (error: unknown) => {
@@ -401,7 +401,7 @@ test('gerente concede mix de chaves com e sem posse -> lista as negadas na mensa
       const message = (error as ForbiddenException).message;
       assert.ok(message.includes('commission.markPaid'));
       assert.ok(message.includes('commission.cancel'));
-      assert.ok(!message.includes('radar.enrichment.manual'));
+      assert.ok(!message.includes('vendas.cards.edit'));
       return true;
     },
   );

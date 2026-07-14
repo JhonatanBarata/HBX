@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { NightFactoryController } from './night-factory.controller';
 import { NightFactoryPublicController } from './night-factory-public.controller';
 import { NightFactoryService } from './night-factory.service';
 
@@ -37,6 +38,27 @@ function createUser(overrides: Record<string, any> = {}) {
     ...overrides,
   };
 }
+
+test('pre-enriquecimento noturno foi removido do contrato HTTP', () => {
+  const prototype = NightFactoryController.prototype as any;
+  assert.equal(typeof prototype.runNow, 'undefined');
+  assert.equal(typeof prototype.pause, 'undefined');
+  assert.equal(typeof prototype.resume, 'undefined');
+  assert.equal(typeof prototype.saveConfig, 'undefined');
+});
+
+test('status declara worker aposentado e enriquecimento somente na puxada', async () => {
+  const prisma = { hasTable: async () => false } as any;
+  const cnpjBaseQuery = { countBase: async () => ({ available: false, count: null }) } as any;
+  const service = new NightFactoryService(prisma, cnpjBaseQuery);
+
+  const status = await service.getStatus();
+
+  assert.equal(status.worker.retired, true);
+  assert.equal(status.worker.running, false);
+  assert.equal(status.config.allowWebsiteFetch, false);
+  assert.match(status.copy.subtitle, /Nenhum enriquecimento extra/i);
+});
 
 function createPrisma(options: { leads?: any[]; claims?: any[] } = {}) {
   const leads = options.leads || [];
@@ -183,149 +205,6 @@ test('selecao de recompensa nao chama Google', async () => {
   }
 });
 
-function createCrawler(result: any, calls: any[] = []) {
-  return {
-    calls,
-    crawl: async (url: string) => {
-      calls.push(url);
-      return result;
-    },
-  };
-}
-
-test('enrichLead com allowWebsiteFetch grava email confirmado, social e dor no pool', async () => {
-  const lead = createLead(1, {
-    id: 'lead-site',
-    name: 'Clinica Horizonte',
-    website: 'https://clinicahorizonte.com.br',
-    websiteStatus: 'unknown',
-    email: null,
-  });
-  const prisma = createPrisma({ leads: [lead] });
-  const crawler = createCrawler({
-    status: 'completed',
-    reason: 'website_crawl_light_executado',
-    evidence: {
-      requestedUrl: 'https://clinicahorizonte.com.br',
-      normalizedUrl: 'https://clinicahorizonte.com.br/',
-      pages: [{ url: 'https://clinicahorizonte.com.br/', status: 'fetched', httpStatus: 200 }],
-    },
-    fields: {
-      emails: ['contato@clinicahorizonte.com.br'],
-      instagramUrls: ['https://instagram.com/clinicahorizonte'],
-      facebookUrls: [],
-      whatsappUrls: ['https://wa.me/5511999990001'],
-      whatsappPhoneDigits: ['5511999990001'],
-      contactLinks: [],
-      budgetLinks: [],
-      chatLinks: [],
-      formLinks: [],
-      hasContactForm: true,
-      hasBudgetIntent: false,
-    },
-  });
-  const service = new NightFactoryService(prisma, crawler as any) as any;
-  service.emailMxCheck = async () => 'ok';
-
-  await service.enrichLead(lead, null, { allowWebsiteFetch: true });
-
-  assert.equal(crawler.calls.length, 1);
-  const data = prisma.__radarUpdates[0]?.data || {};
-  assert.equal(data.email, 'contato@clinicahorizonte.com.br');
-  assert.equal(data.emailStatus, 'confirmed');
-  assert.ok(Number(data.emailConfidence) >= 92);
-  assert.equal(data.emailSource, 'website');
-  assert.equal(data.instagramUrl, 'https://instagram.com/clinicahorizonte');
-  assert.equal(data.websiteStatus, 'present');
-  assert.equal(typeof data.painType, 'string');
-  assert.ok(data.painType.length > 0);
-  // Crawl nunca promove WhatsApp: canal recomendado não pode ser whatsapp sem Webwhats.
-  assert.notEqual(data.recommendedChannel, 'whatsapp');
-  const metadata = JSON.parse(data.metadataJson || '{}');
-  assert.equal(metadata.nightFactory?.websiteFetch?.fetchedPages, 1);
-});
-
-test('email achado no site mas sem MX e rebaixado para invalid', async () => {
-  const lead = createLead(1, {
-    id: 'lead-no-mx',
-    name: 'Clinica Horizonte',
-    website: 'https://clinicahorizonte.com.br',
-    websiteStatus: 'unknown',
-    email: null,
-  });
-  const prisma = createPrisma({ leads: [lead] });
-  const crawler = createCrawler({
-    status: 'completed',
-    reason: 'website_crawl_light_executado',
-    evidence: {
-      requestedUrl: 'https://clinicahorizonte.com.br',
-      normalizedUrl: 'https://clinicahorizonte.com.br/',
-      pages: [{ url: 'https://clinicahorizonte.com.br/', status: 'fetched', httpStatus: 200 }],
-    },
-    fields: {
-      emails: ['contato@dominio-que-nao-existe-xyz.com.br'],
-      instagramUrls: [],
-      facebookUrls: [],
-      whatsappUrls: [],
-      whatsappPhoneDigits: [],
-      contactLinks: [],
-      budgetLinks: [],
-      chatLinks: [],
-      formLinks: [],
-      hasContactForm: false,
-      hasBudgetIntent: false,
-    },
-  });
-  const service = new NightFactoryService(prisma, crawler as any) as any;
-  service.emailMxCheck = async () => 'no_mx';
-
-  await service.enrichLead(lead, null, { allowWebsiteFetch: true });
-
-  const data = prisma.__radarUpdates[0]?.data || {};
-  assert.equal(data.emailStatus, 'invalid');
-  assert.equal(data.emailConfidence, 0);
-  assert.notEqual(data.recommendedChannel, 'email');
-  const metadata = JSON.parse(data.metadataJson || '{}');
-  assert.equal(metadata.nightFactory?.websiteFetch?.emailMx, 'no_mx');
-});
-
-test('falha total de fetch nao rebaixa site present nem apaga email existente', async () => {
-  const lead = createLead(1, {
-    id: 'lead-fetch-fail',
-    website: 'https://empresa.com.br',
-    websiteStatus: 'present',
-    email: 'dono@empresa.com.br',
-    emailStatus: 'confirmed',
-  });
-  const prisma = createPrisma({ leads: [lead] });
-  const crawler = createCrawler({
-    status: 'partial_error',
-    reason: 'website_crawl_fetch_failed',
-    evidence: { requestedUrl: 'https://empresa.com.br', normalizedUrl: 'https://empresa.com.br/', pages: [{ url: 'https://empresa.com.br/', status: 'error' }] },
-    fields: { emails: [], instagramUrls: [], facebookUrls: [], whatsappUrls: [], whatsappPhoneDigits: [], contactLinks: [], budgetLinks: [], chatLinks: [], formLinks: [] },
-  });
-  const service = new NightFactoryService(prisma, crawler as any) as any;
-
-  await service.enrichLead(lead, null, { allowWebsiteFetch: true });
-
-  const data = prisma.__radarUpdates[0]?.data || {};
-  assert.equal(data.websiteStatus, 'present');
-  assert.equal('email' in data, false);
-  assert.equal('emailStatus' in data, false);
-});
-
-test('allowWebsiteFetch desligado nao chama o crawler', async () => {
-  const lead = createLead(1, { id: 'lead-no-fetch', website: 'https://empresa.com.br' });
-  const prisma = createPrisma({ leads: [lead] });
-  const crawler = createCrawler({ status: 'completed', evidence: { pages: [] }, fields: {} });
-  const service = new NightFactoryService(prisma, crawler as any) as any;
-
-  await service.enrichLead(lead, null, { allowWebsiteFetch: false });
-
-  assert.equal(crawler.calls.length, 0);
-  assert.equal(prisma.__radarUpdates.length, 1);
-});
-
 test('top opportunities preferem LeadQualityV2 finalRankScore quando disponivel', async () => {
   const lowRawHighRank = createLead(1, {
     id: 'lead-quality-v2',
@@ -381,56 +260,105 @@ test('top opportunities preferem LeadQualityV2 finalRankScore quando disponivel'
   assert.equal(result.items[0].score, 96);
 });
 
-// ─── VENDAS-REFAB S3 — getLeadsBank ganha baseTotal/baseAvailable (base 28M real via
-// CnpjBaseQueryService.countBase), sem substituir o `total` do pool (RadarLeadPool) que outras
-// telas ainda usam para "pronto pra puxar". Nunca inventa numero fixo — o mock devolve um N
-// arbitrario so pra provar que o dado vem do count() da base, nao do pool local.
-function createLeadsBankPrisma(options: { poolCount?: number; hasRadarLeadPool?: boolean } = {}) {
-  const poolCount = options.poolCount ?? 3;
+// Universo do produto = RFB ativa U identidades exclusivas do motor. Os aliases exibidos ao
+// cliente precisam ser o mesmo número; a contagem do pool fica somente como telemetria.
+function createLeadsBankPrisma(options: {
+  rows?: any[];
+  activeCnpjs?: string[];
+  hasRadarLeadPool?: boolean;
+} = {}) {
+  const rows = options.rows || [];
+  const activeCnpjs = new Set(options.activeCnpjs || []);
   return {
     hasTable: async (name: string) => (name === 'RadarLeadPool' ? options.hasRadarLeadPool !== false : false),
     radarLeadPool: {
-      count: async () => poolCount,
+      findMany: async () => rows,
+    },
+    cnpjPublicCompany: {
+      findMany: async ({ where }: any) => (where?.cnpj?.in || [])
+        .filter((cnpj: string) => activeCnpjs.has(cnpj))
+        .map((cnpj: string) => ({ cnpj })),
     },
   } as any;
 }
 
-test('getLeadsBank: baseTotal vem do countBase() da base 28M, total continua o pool local', async () => {
-  const prisma = createLeadsBankPrisma({ poolCount: 3 });
+test('getLeadsBank: Total, Disponiveis e baseTotal sao a mesma uniao deduplicada', async () => {
+  const activeCnpj = '11222333000181';
+  const prisma = createLeadsBankPrisma({
+    activeCnpjs: [activeCnpj],
+    rows: [
+      { id: 'rfb-1', name: 'Ja na RFB', metadataJson: JSON.stringify({ cnpj: activeCnpj }), createdAt: new Date() },
+      { id: 'web-1', name: 'Exclusiva Motor', city: 'Campinas', state: 'SP', placeId: 'place-1', createdAt: new Date() },
+      { id: 'web-dup', name: 'Exclusiva Motor', city: 'Campinas', state: 'SP', placeId: 'place-1', createdAt: new Date() },
+    ],
+  });
   const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: true, count: 6068 }) };
-  const service = new NightFactoryService(prisma, undefined as any, fakeCnpjBaseQuery) as any;
+  const service = new NightFactoryService(prisma, fakeCnpjBaseQuery) as any;
 
   const result = await service.getLeadsBank();
 
   assert.equal(result.available, true);
-  assert.equal(result.total, 3);
+  assert.equal(result.total, 6069);
+  assert.equal(result.universeTotal, 6069);
+  assert.equal(result.availableTotal, 6069);
   assert.equal(result.baseAvailable, true);
-  assert.equal(result.baseTotal, 6068);
-  assert.notEqual(result.baseTotal, result.total);
+  assert.equal(result.baseTotal, 6069);
+  assert.equal(result.nationalActiveTotal, 6068);
+  assert.equal(result.operationalPoolTotal, 3);
+  assert.equal(result.poolExclusiveTotal, 1);
+  assert.equal(result.deltaToday, 1);
 });
 
-test('getLeadsBank: RadarLeadPool ausente -> pool indisponivel, mas baseTotal segue reportado', async () => {
+test('getLeadsBank: RadarLeadPool ausente -> universo e a RFB ativa', async () => {
   const prisma = createLeadsBankPrisma({ hasRadarLeadPool: false });
   const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: true, count: 6068 }) };
-  const service = new NightFactoryService(prisma, undefined as any, fakeCnpjBaseQuery) as any;
+  const service = new NightFactoryService(prisma, fakeCnpjBaseQuery) as any;
+
+  const result = await service.getLeadsBank();
+
+  assert.equal(result.available, true);
+  assert.equal(result.total, 6068);
+  assert.equal(result.baseAvailable, true);
+  assert.equal(result.baseTotal, 6068);
+  assert.equal(result.operationalPoolTotal, 0);
+  assert.equal(result.poolExclusiveTotal, 0);
+});
+
+test('getLeadsBank: base RFB indisponivel -> nao inventa nem soma uma uniao inexata', async () => {
+  const prisma = createLeadsBankPrisma({
+    rows: [{ id: 'web-1', name: 'Exclusiva Motor', city: 'Campinas', state: 'SP', createdAt: new Date() }],
+  });
+  const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: false, count: null }) };
+  const service = new NightFactoryService(prisma, fakeCnpjBaseQuery) as any;
 
   const result = await service.getLeadsBank();
 
   assert.equal(result.available, false);
-  assert.equal(result.total, 0);
-  assert.equal(result.baseAvailable, true);
-  assert.equal(result.baseTotal, 6068);
-});
-
-test('getLeadsBank: base 28M indisponivel neste ambiente -> baseAvailable false, nunca lanca', async () => {
-  const prisma = createLeadsBankPrisma({ poolCount: 3 });
-  const fakeCnpjBaseQuery: any = { countBase: async () => ({ available: false, count: null }) };
-  const service = new NightFactoryService(prisma, undefined as any, fakeCnpjBaseQuery) as any;
-
-  const result = await service.getLeadsBank();
-
-  assert.equal(result.available, true);
-  assert.equal(result.total, 3);
+  assert.equal(result.total, null);
+  assert.equal(result.universeTotal, null);
   assert.equal(result.baseAvailable, false);
   assert.equal(result.baseTotal, null);
+  assert.equal(result.poolExclusiveTotal, null);
+});
+
+test('getLeadsBank: lead exclusivo novo incrementa imediatamente sem esperar cache nacional', async () => {
+  const rows: any[] = [];
+  const prisma = createLeadsBankPrisma({ rows });
+  let nationalCountReads = 0;
+  const fakeCnpjBaseQuery: any = {
+    countBase: async () => {
+      nationalCountReads += 1;
+      return { available: true, count: 6068 };
+    },
+  };
+  const service = new NightFactoryService(prisma, fakeCnpjBaseQuery) as any;
+
+  const before = await service.getLeadsBank();
+  rows.push({ id: 'motor-new', placeId: 'place-new', name: 'Nova do Motor', city: 'Campinas', state: 'SP', createdAt: new Date() });
+  const after = await service.getLeadsBank();
+
+  assert.equal(before.universeTotal, 6068);
+  assert.equal(after.universeTotal, 6069);
+  assert.equal(after.availableTotal, 6069);
+  assert.equal(nationalCountReads, 1);
 });

@@ -9,14 +9,11 @@ import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usa
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import {
   COMMERCIAL_PLAN_KEYS,
+  UNIVERSAL_PRODUCT_CAPABILITIES,
   applyCommissionCap,
-  getCommercialPlanCapabilities,
   getCommercialPlanMonthlyPrice,
-  getCommercialPlanTier,
   normalizeCommercialPlanKey,
-  resolveCommercialPlanKeyForCapabilities,
   type CommercialPlanCapabilities,
-  type CommercialPlanTier,
 } from '../commercial-plans/commercial-plan-catalog';
 import { CompanyPresentationEmailService } from '../mail/company-presentation-email.service';
 import { ConversationsService } from '../messaging/conversations.service';
@@ -172,7 +169,7 @@ type VendasWhatsappAvailabilityState = {
 };
 
 type VendasPlanAccess = {
-  planTier: CommercialPlanTier;
+  planTier: 'full';
   capabilities: CommercialPlanCapabilities;
 };
 
@@ -1504,17 +1501,12 @@ export class VendasService {
           ? 'platform_engine'
           : null,
     });
-    const access = planAccess || this.buildPlanAccess(COMMERCIAL_PLAN_KEYS.PADRAO);
-    const manualEnrichmentUnlock = this.hasManualLeadEnrichmentUnlock(row);
-    const leadCapabilities = manualEnrichmentUnlock && !access.capabilities.canSeeLeadIntelligence
-      ? { ...access.capabilities, canSeeLeadIntelligence: true }
-      : access.capabilities;
+    const access = planAccess || this.buildProductAccess();
     const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
-    // Empresa + dono + multi-contatos no TOPO do lead (o card lê daqui). Gated pela MESMA
-    // capability da inteligência — dado pessoal do dono NÃO vaza pra tier sem acesso.
-    // Telefone extra continua só exibido se confirmado no WhatsApp (phonesWhatsapp).
-    const companyData = leadCapabilities.canSeeLeadIntelligence
-      ? {
+    // Empresa + dono + multi-contatos no TOPO do lead (o card lê daqui).
+    // O lead já foi debitado/importado; WhatsApp controla somente a ação do botão,
+    // nunca a visibilidade de um telefone válido.
+    const companyData = {
           cnpj: (rawIntelligence as any).cnpj || null,
           cnae: (rawIntelligence as any).cnae || null,
           razaoSocial: (rawIntelligence as any).razaoSocial || null,
@@ -1526,9 +1518,10 @@ export class VendasService {
           companySituation: (rawIntelligence as any).companySituation || null,
           emails: (rawIntelligence as any).emails || [],
           phones: (rawIntelligence as any).phones || [],
+          phoneContacts: (rawIntelligence as any).phoneContacts || [],
+          emailContacts: (rawIntelligence as any).emailContacts || [],
           phonesWhatsapp: (rawIntelligence as any).phonesWhatsapp || {},
-        }
-      : {};
+        };
     const canViewProductPrice = Boolean(accessContext?.canViewProductPrice);
     const productPriceCents = canViewProductPrice && row?.productPriceCentsSnapshot != null
       ? Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0))
@@ -1674,8 +1667,8 @@ export class VendasService {
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
       planTier: access.planTier,
-      capabilities: leadCapabilities,
-      leadIntelligence: this.applyLeadIntelligenceCapabilities(leadIntelligence, access, row),
+      capabilities: access.capabilities,
+      leadIntelligence: this.applyLeadIntelligenceCapabilities(leadIntelligence),
       conversation: canonicalConversation,
       engagement: canonicalEngagement,
       automation,
@@ -1959,13 +1952,6 @@ export class VendasService {
     );
   }
 
-  private assertCanManualEnrichRadar(context: VendasUserContext) {
-    this.assertVendasPermission(
-      context.access?.canManualEnrichRadar,
-      'Acesso para enriquecer card manualmente bloqueado pela politica da equipe.',
-    );
-  }
-
   private assertCanPrepareManualWhatsapp(context: VendasUserContext) {
     this.assertVendasPermission(
       context.access?.canSendWhatsappManual,
@@ -2164,20 +2150,15 @@ export class VendasService {
     }));
   }
 
-  private buildPlanAccess(planKey: unknown): VendasPlanAccess {
-    const normalized = normalizeCommercialPlanKey(planKey);
+  private buildProductAccess(): VendasPlanAccess {
     return {
-      planTier: getCommercialPlanTier(normalized),
-      capabilities: getCommercialPlanCapabilities(normalized),
+      planTier: 'full',
+      capabilities: { ...UNIVERSAL_PRODUCT_CAPABILITIES },
     };
   }
 
-  private async resolvePlanAccessForCompany(companyId: number): Promise<VendasPlanAccess> {
-    const company = await this.prisma.company.findUnique({
-      where: { id: Number(companyId) },
-      select: { selectedPlanKey: true },
-    }).catch(() => null);
-    return this.buildPlanAccess(resolveCommercialPlanKeyForCapabilities(company || {}));
+  private async resolvePlanAccessForCompany(_companyId: number): Promise<VendasPlanAccess> {
+    return this.buildProductAccess();
   }
 
   private hasManualLeadEnrichmentUnlock(row: any) {
@@ -2204,45 +2185,8 @@ export class VendasService {
     };
   }
 
-  private applyLeadIntelligenceCapabilities(intelligence: any, access: VendasPlanAccess, row?: any, forceFull = false) {
-    if (forceFull || access.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(row)) {
-      return intelligence;
-    }
-    return {
-      emailStatus: intelligence?.emailStatus || null,
-      whatsappStatus: access.capabilities.canUseVerifiedWhatsapp ? intelligence?.whatsappStatus || null : 'unverified',
-      contactQuality: intelligence?.contactQuality === 'blocked' ? 'blocked' : 'review',
-      opportunityScore: null,
-      opportunityReason: null,
-      painType: null,
-      painPitch: null,
-      recommendedChannel: null,
-      emailSource: null,
-      confidence: null,
-      leadReasonTags: (Array.isArray(intelligence?.leadReasonTags) ? intelligence.leadReasonTags : [])
-        .filter((tag: string) => ['sem_site', 'cidade_alvo', 'segmento_alvo'].includes(String(tag))),
-      nextBestAction: null,
-      lastVerifiedAt: null,
-      verifiedBy: null,
-      visibilityTier: intelligence?.visibilityTier || null,
-      deliveryProduct: intelligence?.deliveryProduct || null,
-      debitEligible: typeof intelligence?.debitEligible === 'boolean' ? intelligence.debitEligible : null,
-      qualityReason: intelligence?.qualityReason || null,
-      messageTemplate: null,
-      messageTemplates: [],
-      templateLibrarySize: Number(intelligence?.templateLibrarySize || 0) || 0,
-      instagramUrl: null,
-      facebookUrl: null,
-      socialStatus: intelligence?.socialStatus || null,
-      socialConfidence: null,
-      primarySocial: intelligence?.primarySocial || null,
-      premiumTeaser: intelligence?.primarySocial || intelligence?.opportunityScore
-        ? {
-            label: 'Disponível no HBX Lead Plus',
-            cta: 'Ver card inteligente',
-          }
-        : null,
-    };
+  private applyLeadIntelligenceCapabilities(intelligence: any) {
+    return intelligence;
   }
 
   private defaultSalesProfile(): EffectiveSalesProfile {
@@ -2354,36 +2298,8 @@ export class VendasService {
     };
   }
 
-  private applySalesProfileCapabilities(profile: EffectiveSalesProfile, access: VendasPlanAccess): EffectiveSalesProfile {
-    if (access.capabilities.canUseSalesProfileAdvanced) return profile;
-    return {
-      ...this.defaultSalesProfile(),
-      id: profile.id,
-      whatDoYouSell: profile.whatDoYouSell,
-      offerCategory: profile.offerCategory,
-      targetAudience: profile.targetAudience || [],
-      targetSegments: (profile.targetSegments || []).slice(0, 1),
-      avoidSegments: profile.avoidSegments || [],
-      hardRejectSegments: profile.hardRejectSegments || [],
-      preferredCities: (profile.preferredCities || []).slice(0, 1),
-      preferredStates: (profile.preferredStates || []).slice(0, 1),
-      preferredChannels: ['whatsapp'],
-      leadPreferences: {
-        preferSmallBusiness: true,
-        preferNoWebsite: false,
-        preferInstagram: false,
-        preferWhatsapp: true,
-        preferHighReviews: false,
-        preferLocalBusiness: true,
-      },
-      negativeRules: {
-        avoidDirectories: true,
-        avoidNoPhone: true,
-        avoidNoWhatsapp: false,
-      },
-      weeklyAutoUpdateEnabled: false,
-      source: profile.source,
-    };
+  private applySalesProfileCapabilities(profile: EffectiveSalesProfile, _access: VendasPlanAccess): EffectiveSalesProfile {
+    return profile;
   }
 
   private async getEffectiveSalesProfileForContext(context: { companyId: number; userId: number }, access?: VendasPlanAccess) {
@@ -2716,7 +2632,7 @@ export class VendasService {
       ok: true,
       period,
       capabilities: planAccess.capabilities,
-      isComplete: Boolean(planAccess.capabilities.canSeeConversionReport && planAccess.capabilities.canUseSalesProfileAdvanced),
+      isComplete: true,
       metrics: {
         cardsRecebidos: leads.length,
         cardsEntregues: leads.length,
@@ -2745,13 +2661,6 @@ export class VendasService {
         ? `Nesta semana, o HBX identificou que seus melhores resultados vieram de ${topSegments[0].label}, ${topCities[0]?.label || 'sua região'} e ${topChannels[0]?.label || 'WhatsApp'}.`
         : 'Meça alguns contatos para o HBX recomendar segmentos, cidades e canais com mais precisão.',
     };
-    if (!planAccess.capabilities.canUseSalesProfileAdvanced) {
-      return {
-        ...report,
-        rankings: { segments: topSegments.slice(0, 1), cities: topCities.slice(0, 1), channels: [], discardReasons: [] },
-        recommendation: 'Relatório inteligente disponível no HBX Lead Plus.',
-      };
-    }
     return report;
   }
 
@@ -5062,10 +4971,6 @@ export class VendasService {
 
   async exportConversionReportPdfForUser(user: any, periodRaw?: string) {
     const context = await this.resolveVendasUserContext(user);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    if (!planAccess.capabilities.canExportConversionPdf) {
-      throw new ForbiddenException('Exportação PDF disponível no HBX Lead Plus.');
-    }
     const [report, company] = await Promise.all([
       this.getConversionReportForUser(user, periodRaw),
       this.prisma.company.findUnique({ where: { id: context.companyId }, select: { name: true } }).catch(() => null),
@@ -5118,9 +5023,6 @@ export class VendasService {
   async suggestWeeklySalesProfileForUser(user: any) {
     const context = await this.resolveVendasUserContext(user);
     const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    if (!planAccess.capabilities.canUseWeeklyProfileSuggestions) {
-      throw new ForbiddenException('Sugestão semanal disponível no HBX Lead Plus.');
-    }
     const [profilePayload, report] = await Promise.all([
       this.getEffectiveSalesProfileForContext(context, planAccess),
       this.getConversionReportForUser(user, '7d'),
@@ -5243,139 +5145,6 @@ export class VendasService {
     }
   }
 
-  async enrichLeadForUser(user: any, leadId: string, opts?: { templateOffset?: number }) {
-    const context = await this.resolveVendasUserContext(user);
-    this.assertCanManualEnrichRadar(context);
-    const { companyId, userId } = context;
-    const planAccess = await this.resolvePlanAccessForCompany(companyId);
-    const normalizedLeadId = this.normalizeText(leadId);
-    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
-
-    const lead = await this.prisma.vendasLead.findFirst({
-      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
-      include: {
-        timelineEvents: {
-          orderBy: [{ createdAt: 'desc' }],
-          take: 12,
-        },
-      },
-    });
-    if (!lead) throw new NotFoundException('Lead nao encontrado.');
-    await this.hydrateRowsWithRadarPoolEnrichment([lead]);
-
-    const usageResult = await this.commercialUsageLimits.recordLeadEnrichmentUseOnce(companyId, userId, {
-      source: 'vendas_manual_enrichment',
-      vendasLeadId: String(lead.id),
-      usageKey: `vendas:${lead.id}`,
-    });
-    if (usageResult?.debited) {
-      await this.prisma.vendasLeadTimelineEvent.create({
-        data: {
-          leadId: lead.id,
-          ...this.buildTimelineEvent({
-            eventType: 'lead_enrichment_used',
-            title: 'Enriquecimento usado',
-            description: 'Crédito diário usado para completar este card no Vendas.',
-            sourceType: 'lead_enrichment',
-            resultLabel: 'enriched',
-            createdByUserId: userId,
-          }),
-        },
-      }).catch(() => null);
-    }
-
-    let availability =
-      (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
-    let verifiedBy: 'platform_engine' | 'manual' | null = availability?.checkedAt
-        ? 'platform_engine'
-        : null;
-    const phoneDigits = this.normalizePhone((lead as any).phoneNormalized || (lead as any).phone);
-    const availabilityCheckedAt = availability?.checkedAt ? new Date(availability.checkedAt).getTime() : 0;
-    const shouldRefreshWhatsapp =
-      Boolean(phoneDigits) &&
-      (!availabilityCheckedAt ||
-        Number.isNaN(availabilityCheckedAt) ||
-        Date.now() - availabilityCheckedAt > 30 * 24 * 60 * 60 * 1000);
-
-    if (phoneDigits && shouldRefreshWhatsapp) {
-      const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
-      if (engineCompanyId) {
-        try {
-          const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
-          if (lookup) {
-            const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
-            const now = new Date();
-            const phoneLabel = this.buildPreferredLeadContact(phoneDigits) || `+${phoneDigits}`;
-            const message = lookup.exists
-              ? `Consulta tecnica confirmou WhatsApp para ${phoneLabel}.`
-              : `Consulta tecnica nao encontrou WhatsApp para ${phoneLabel}.`;
-            availability = {
-              status,
-              checkedAt: now.toISOString(),
-              phoneDigits,
-              message,
-            };
-            verifiedBy = 'platform_engine';
-            await this.prisma.vendasLeadTimelineEvent.create({
-              data: {
-                leadId: lead.id,
-                ...this.buildTimelineEvent({
-                  eventType: 'generic',
-                  title: lookup.exists ? 'WhatsApp verificado pelo motor tecnico' : 'Motor tecnico nao encontrou WhatsApp',
-                  description: message,
-                  sourceType: VENDAS_WHATSAPP_LOOKUP_SOURCE,
-                  resultLabel: status,
-                  createdByUserId: userId,
-                }),
-              },
-            }).catch(() => null);
-          }
-        } catch (error: any) {
-          this.logger.warn(
-            `[vendas-enrichment] Falha na verificacao tecnica lead=${lead.id} company=${companyId}: ${String(error?.message || error)}`,
-          );
-        }
-      }
-    }
-
-    const enrichedIntelligence = this.decorateManualEnrichmentIntelligence(
-      buildVendasLeadIntelligence({
-        lead,
-        whatsappAvailability: availability,
-        verifiedBy,
-        templateOffset: opts?.templateOffset,
-      }),
-      {
-        ...lead,
-        timelineEvents: [
-          {
-            eventType: 'lead_enrichment_used',
-            sourceType: 'lead_enrichment',
-            createdAt: new Date(),
-          },
-          ...((lead as any).timelineEvents || []),
-        ],
-      },
-    );
-
-    return {
-      ok: true,
-      leadId: String(lead.id),
-      planTier: planAccess.planTier,
-      capabilities: planAccess.capabilities.canSeeLeadIntelligence
-        ? planAccess.capabilities
-        : { ...planAccess.capabilities, canSeeLeadIntelligence: true },
-      usage: usageResult?.usage || null,
-      whatsappAvailability: availability,
-      leadIntelligence: this.applyLeadIntelligenceCapabilities(
-        enrichedIntelligence,
-        planAccess,
-        lead,
-        true,
-      ),
-    };
-  }
-
   // LEAD-COCKPIT (11/07): ficha RFB rica do lead pro modal "cockpit" do Vendas.
   // Lê SÓ a base local (CnpjPublicCompany + CnpjPublicPartner) — zero chamada externa,
   // zero débito de crédito. CNPJ derivado SERVER-SIDE (mesma hidratação RadarLeadPool do
@@ -5396,16 +5165,6 @@ export class VendasService {
       },
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
-
-    // MESMO gate do board (buildLeadPayload): dado de empresa é gated por
-    // canSeeLeadIntelligence, com o mesmo destravamento do enriquecimento manual do card.
-    // Sem direito → locked (200), sem vazar nem o CNPJ.
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const canSeeCompanyData =
-      planAccess.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(lead);
-    if (!canSeeCompanyData) {
-      return { company: { found: false, locked: true } };
-    }
 
     // CNPJ server-side: mesma fonte do board (hidratação RadarLeadPool → intelligence);
     // fallback: CNPJ da ficha do cliente (NÚCLEO-CRM). Quando ambas falham, tenta reconciliar

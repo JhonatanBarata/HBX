@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   applyCreditActionOverrides,
   CreditActionDefinition,
+  CREDIT_ACTION_KEYS,
   CreditActionKey,
   CreditActionMode,
   CreditActionOverride,
@@ -58,7 +59,7 @@ export class CreditActionConfigService implements OnModuleInit {
       select: { actionKey: true, configJson: true },
     }).catch(() => [] as Array<{ actionKey: string; configJson: string }>);
     applyCreditActionOverrides(
-      rows.map((row: { actionKey: string; configJson: string | null }) => ({
+      rows.filter((row: { actionKey: string }) => row.actionKey !== CREDIT_ACTION_KEYS.LEAD_DELIVERY).map((row: { actionKey: string; configJson: string | null }) => ({
         actionKey: row.actionKey,
         override: this.parseOverride(row.configJson),
       })),
@@ -67,6 +68,15 @@ export class CreditActionConfigService implements OnModuleInit {
 
   private toItem(key: CreditActionKey): CreditActionCatalogItem {
     const base = getCreditActionBaseDefinition(key)!;
+    if (key === CREDIT_ACTION_KEYS.LEAD_DELIVERY) {
+      return {
+        actionKey: key,
+        label: base.label,
+        base: { mode: 'debit', cost: 1 },
+        override: null,
+        effective: { mode: 'debit', cost: 1 },
+      };
+    }
     const override = getCreditActionOverride(key);
     const effective = getCreditActionDefinition(key)!;
     return {
@@ -89,6 +99,7 @@ export class CreditActionConfigService implements OnModuleInit {
     const key = normalizeCreditActionKey(actionKeyInput);
     if (!key) return null;
     const base = getCreditActionBaseDefinition(key)!;
+    if (key === CREDIT_ACTION_KEYS.LEAD_DELIVERY) return { ...base, mode: 'debit', cost: 1 };
     const row = await (this.prisma as any).creditActionConfig.findUnique({
       where: { actionKey: key },
       select: { configJson: true },
@@ -104,6 +115,9 @@ export class CreditActionConfigService implements OnModuleInit {
   async setOverride(actionKeyInput: unknown, patch: { mode?: unknown; cost?: unknown }): Promise<CreditActionCatalogItem> {
     const key = normalizeCreditActionKey(actionKeyInput);
     if (!key) throw new BadRequestException('actionKey desconhecida');
+    if (key === CREDIT_ACTION_KEYS.LEAD_DELIVERY) {
+      throw new BadRequestException('A entrega de lead tem debito fixo de 1 credito e nao aceita override');
+    }
     if (typeof patch?.mode !== 'string' || !VALID_MODES.has(patch.mode as CreditActionMode)) {
       throw new BadRequestException('mode deve ser free ou debit');
     }

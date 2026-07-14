@@ -75,7 +75,7 @@ const baseRow: MockRow = {
   city: 'Fortaleza',
   state: 'CE',
   phone: '85992617022',
-  phone2: null,
+  phone2: '8533334444',
   email: 'contato@pizzaria.com',
   website: null,
   openedAt: new Date('2020-01-10'),
@@ -95,6 +95,33 @@ test('query: state/city entram no WHERE (índice composto usado primeiro)', asyn
   await service.query({ cities: ['fortaleza'], states: ['CE'], limit: 20 });
   assert.equal(capturedWhere.state.in[0], 'CE');
   assert.equal(capturedWhere.normalizedCity.in[0], 'fortaleza');
+  assert.equal(capturedWhere.situacao, 'ativa');
+});
+
+test('countBase: sem situacao explicita conta somente empresas ativas', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    count: 28_000_000,
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+
+  await service.countBase({});
+
+  assert.equal(capturedWhere.situacao, 'ativa');
+});
+
+test('countBase: situacao explicita substitui o padrao ativo', async () => {
+  let capturedWhere: any = null;
+  const prisma = makeMockPrisma({
+    count: 10,
+    captureWhere: (where) => { capturedWhere = where; },
+  });
+  const service = new CnpjBaseQueryService(prisma);
+
+  await service.countBase({ situacoes: ['baixada'] });
+
+  assert.deepEqual(capturedWhere.situacao, { in: ['baixada'] });
 });
 
 test('query: devolve count + amostra com selo de qualidade', async () => {
@@ -313,6 +340,9 @@ test('materialize: chama LeadHarvestImportService com leads mapeados da CnpjPubl
   assert.equal(result.requested, 1);
   assert.equal(capturedBody.leads[0].externalId, `cnpj:${baseRow.cnpj}`);
   assert.equal(capturedBody.leads[0].sourceProvider, 'cnpj_base_query');
+  assert.equal(capturedBody.leads[0].phone, baseRow.phone);
+  assert.equal(capturedBody.leads[0].phone2, baseRow.phone2);
+  assert.equal(capturedBody.leads[0].email, baseRow.email);
 });
 
 // ─── VENDAS-REFAB S3 — countBase (count puro sobre a base 28M, sem amostra) ───────────────────

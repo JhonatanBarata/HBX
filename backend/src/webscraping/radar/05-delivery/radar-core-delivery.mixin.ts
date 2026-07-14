@@ -100,6 +100,7 @@ import {
 import { incrementAffinity } from '../../../users/segment-affinity.util';
 import { isBillingOwnerActor } from '../../../access/actor-kind';
 import {
+  extractCnpjFromRadarLead,
   materializeNucleoFromRadarLead as materializeNucleoIngestaoFromRadarLead,
   nucleoIngestaoEnabled,
 } from '../../../nucleo/nucleo-ingestao';
@@ -172,16 +173,10 @@ import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyAccessAllowed,
 } from '../../../team/team-policy-persistence';
-import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enrichment.service';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
 
 export class RadarCoreDeliveryMixin {
-  private _cnpjL4Enrichment: RadarCnpjL4EnrichmentService | null = null;
-  private getCnpjL4Enrichment(): RadarCnpjL4EnrichmentService {
-    if (!this._cnpjL4Enrichment) this._cnpjL4Enrichment = new RadarCnpjL4EnrichmentService();
-    return this._cnpjL4Enrichment;
-  }
   private _leadContactWrite: LeadContactWriteService | null = null;
   private getLeadContactWrite(): LeadContactWriteService {
     if (!this._leadContactWrite) this._leadContactWrite = new LeadContactWriteService();
@@ -281,6 +276,9 @@ export class RadarCoreDeliveryMixin {
       where: { OR: or },
       take: Math.min(Math.max(limit * 4, 100), 1000),
       include: {
+        contacts: {
+          orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
+        },
         companyStates: {
           where: { companyId },
           take: 1,
@@ -534,6 +532,90 @@ export class RadarCoreDeliveryMixin {
     return this.getRadarVendasSyncService().isAutoImportLimitError(error);
   }
 
+  private buildSearchProcessSnapshot(run: any, input: {
+    progress?: number;
+    items?: any[];
+    counters?: Record<string, number>;
+  } = {}) {
+    const rawStatus = this.normalizeSearchRunStatus(run?.status);
+    const terminal = this.isTerminalRadarSearchRunStatus(rawStatus);
+    const processStatus = rawStatus === 'failed' || rawStatus === 'canceled'
+      ? 'failed'
+      : rawStatus === 'completed_insufficient_results' || rawStatus === 'partial_error'
+        ? 'partial'
+        : rawStatus === 'completed'
+          ? 'completed'
+          : rawStatus === 'queued' || rawStatus === 'sleeping'
+            ? 'starting'
+            : 'running';
+    const metrics = parseJsonObject(run?.metricsJson);
+    const coverage = parseJsonObject(metrics?.sourceCoverage);
+    const matchedCount = safeInteger(run?.foundCount);
+    const duplicateCount = safeInteger(run?.duplicateCount);
+    const discardedCount = safeInteger(run?.skippedCount);
+    const processedCount = matchedCount + duplicateCount + discardedCount;
+    const pipelineStageStatus = terminal ? 'completed' : processedCount > 0 ? 'running' : 'pending';
+    const normalizeStage = (key: 'rfb' | 'motor', label: string) => {
+      const state = parseJsonObject(coverage?.[key]);
+      const status = state?.status === 'completed'
+        ? 'completed'
+        : state?.status === 'failed'
+          ? 'failed'
+          : state?.status === 'running'
+            ? 'running'
+            : 'pending';
+      return {
+        key,
+        label,
+        status,
+        detail: state?.error || (state?.attempted ? `${safeInteger(state?.found)} encontrado(s)` : null),
+      };
+    };
+    const events = [
+      run?.createdAt ? { key: 'search_queued', label: 'Busca enfileirada', status: 'completed', at: run.createdAt.toISOString() } : null,
+      coverage?.rfb?.attemptedAt ? { key: 'rfb_attempted', label: 'Consulta à Receita iniciada', status: coverage.rfb.status, at: coverage.rfb.attemptedAt } : null,
+      coverage?.motor?.attemptedAt ? { key: 'motor_attempted', label: 'Motor iniciado', status: coverage.motor.status, at: coverage.motor.attemptedAt } : null,
+      terminal && run?.finishedAt ? { key: 'search_finished', label: 'Busca finalizada', status: processStatus, at: run.finishedAt.toISOString() } : null,
+    ].filter(Boolean);
+    const recentLeads = Array.isArray(input.items) ? input.items.slice(-8) : [];
+    return {
+      operationId: String(run?.id || ''),
+      mode: 'search',
+      status: processStatus,
+      progress: Math.max(0, Math.min(100, safeInteger(input.progress))),
+      stages: [
+        { key: 'queued', label: 'Preparando pesquisa', status: run?.startedAt ? 'completed' : 'running', detail: null },
+        normalizeStage('rfb', 'Consultando a Receita Federal'),
+        normalizeStage('motor', 'Consultando o motor HBX'),
+        {
+          key: 'cross_deduplicate',
+          label: 'Cruzando e removendo duplicados',
+          status: pipelineStageStatus,
+          detail: processedCount > 0 ? `${duplicateCount} duplicado(s) identificado(s)` : null,
+        },
+        {
+          key: 'validate_eligibility',
+          label: 'Validando elegibilidade',
+          status: pipelineStageStatus,
+          detail: processedCount > 0 ? `${discardedCount} descartado(s) pelos critérios` : null,
+        },
+        { key: 'publishing', label: 'Publicando empresas aprovadas', status: terminal ? 'completed' : matchedCount > 0 ? 'running' : 'pending', detail: matchedCount > 0 ? `${matchedCount} aprovado(s)` : null },
+      ],
+      counters: {
+        scanned: safeInteger(metrics?.rawFoundCount),
+        matched: matchedCount,
+        duplicates: duplicateCount,
+        discarded: discardedCount,
+        approved: matchedCount,
+        ...(input.counters || {}),
+      },
+      currentLead: recentLeads.length ? recentLeads[recentLeads.length - 1] : null,
+      recentLeads,
+      events,
+      sourceCoverage: coverage,
+    };
+  }
+
   private async buildPausedRadarSearchRunResponse(run: any) {
     const filters = await this.applyTeamPolicyRadarFilters({
       companyId: safeInteger(run?.companyId),
@@ -556,6 +638,9 @@ export class RadarCoreDeliveryMixin {
       requestedQuantity,
       stockTarget,
     });
+    const pausedProgress = requestedQuantity > 0
+      ? Math.min(99, Math.round((Math.max(deliveredCount, safeInteger(run?.foundCount)) / requestedQuantity) * 100))
+      : 0;
     return {
       id: run.id,
       runId: run.id,
@@ -568,6 +653,7 @@ export class RadarCoreDeliveryMixin {
       targetQuantity: requestedQuantity,
       foundCount: safeInteger(run?.foundCount),
       errorMessage: message,
+      process: this.buildSearchProcessSnapshot(run, { progress: pausedProgress, items: [] }),
       meta: {
         requestedQuantity,
         deliveredCount,
@@ -576,9 +662,7 @@ export class RadarCoreDeliveryMixin {
         requiredChannels: filters.requiredChannels,
         channelMatchMode: filters.channelMatchMode,
         requiredChannelRejectedCount: 0,
-        progress: requestedQuantity > 0
-          ? Math.min(99, Math.round((Math.max(deliveredCount, safeInteger(run?.foundCount)) / requestedQuantity) * 100))
-          : 0,
+        progress: pausedProgress,
         terminal: false,
         paused: true,
         pauseReason: String(run?.lastBatchStatus || ''),
@@ -839,8 +923,12 @@ export class RadarCoreDeliveryMixin {
       remaining: null,
       failures: [],
     };
-    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
-    const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields }));
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, {
+      maskContact: true,
+      viewerCompanyId: context.companyId,
+      ownershipEnabled,
+    }));
     const seenPhones = new Set(
       rowPublicItems
         .map((item: any) => normalizePhoneDigits(item?.phoneDigits || item?.phone))
@@ -885,19 +973,26 @@ export class RadarCoreDeliveryMixin {
         id: `run:${effectiveRun.id}:${item.id}`,
         radarRunId: effectiveRun.id,
         radarRunItemId: item.id,
-        premiumFeatureStatus: includeSmartFields ? 'enrichment_pending' : 'locked',
-        premiumLocked: !includeSmartFields,
-        premiumTeaser: true,
       };
     });
-    const publicCandidates = [...rowPublicItems, ...fallbackPublicItems].slice(0, requestedQuantity);
-    const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id) || 'off';
-    const whatsapp = await this.applyRadarWhatsappCheck(
-      context,
-      publicCandidates,
-      whatsappMode,
-    );
-    const items = includeSmartFields ? whatsapp.items : whatsapp.items.map((item: any) => this.maskRadarSmartFieldsForList(item));
+    const publicCandidates = [...rowPublicItems, ...fallbackPublicItems]
+      .slice(0, requestedQuantity)
+      .map((item: any) => ({
+        ...item,
+        phone: '',
+        phoneDigits: '',
+        email: null,
+        ownerPhone: null,
+        phones: [],
+        emails: [],
+        phoneContacts: [],
+        emailContacts: [],
+        people: Array.isArray(item?.people)
+          ? item.people.map((person: any) => ({ ...person, phone: null, phoneDigits: null, email: null }))
+          : [],
+      }));
+    // WhatsApp é enriquecimento e fica adiado até o pull pós-débito.
+    const items = publicCandidates;
     const deliveredCount = items.length;
     const databaseCount = foundItems.filter((item: any) => String(item.source || '') === 'radar_database').length;
     const fetchedCount = Math.max(0, deliveredCount - databaseCount);
@@ -926,6 +1021,11 @@ export class RadarCoreDeliveryMixin {
       targetQuantity: requestedQuantity,
       foundCount: Math.max(deliveredCount, safeInteger(effectiveRun.foundCount)),
       errorMessage: message || effectiveRun.errorMessage || null,
+      process: this.buildSearchProcessSnapshot(effectiveRun, {
+        progress,
+        items,
+        counters: { approved: deliveredCount },
+      }),
       meta: {
         requestedQuantity,
         deliveredCount,
@@ -988,7 +1088,7 @@ export class RadarCoreDeliveryMixin {
           radiusKm: filters.radiusKm,
         },
         qualitySummary,
-        whatsappCheck: whatsapp.meta,
+        whatsappCheck: { mode: 'off', checked: 0, deferredUntilClaim: true },
       },
     };
   }
@@ -1432,282 +1532,6 @@ export class RadarCoreDeliveryMixin {
     return claimedRows;
   }
 
-  async pullRadarLeadsForUser(user: any, input: RadarFiltersInput = {}) {
-    const context = this.resolveContext(user);
-    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
-    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
-    if (!filters.normalizedCity || !filters.normalizedSegment) {
-      throw new BadRequestException('Cidade e segmento sao obrigatorios para puxar cards do Radar.');
-    }
-    if (!(await this.supportsRadarPersistence())) {
-      try {
-        return await this.searchRadarDirectForUser(user, filters, 'radar_database_unavailable');
-      } catch (error: any) {
-        return {
-          items: [],
-          total: 0,
-          code: 'RADAR_DIRECT_UNAVAILABLE',
-          message: 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
-          retryable: false,
-          meta: {
-            requestedQuantity: filters.quantity,
-            deliveredCount: 0,
-            filters: {
-              state: filters.state,
-              city: filters.city,
-              segment: filters.segment,
-              targetType: filters.targetType,
-            },
-            direct: {
-              ran: true,
-              reason: 'radar_database_unavailable_direct_search_failed',
-              technicalMessage: this.extractHbxErrorMessage(error),
-            },
-          },
-        };
-      }
-    }
-    if (this.commercialUsageLimits) {
-      const sellerQuota = await this.commercialUsageLimits
-        .limitRequestedCardsBySellerActiveQuota(context.companyId, context.userId, filters.quantity)
-        .catch(() => null);
-      if (sellerQuota?.quota?.seller) {
-        if (Number(sellerQuota.limit || 0) <= 0) {
-          throw new ConflictException({
-            ok: false,
-            code: sellerQuota.quota.code || 'SELLER_CARD_QUOTA_REACHED',
-            message: 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.',
-            activeCount: sellerQuota.quota.activeCount,
-            effectiveLimit: sellerQuota.quota.effectiveLimit,
-            availableSlots: 0,
-            quota: sellerQuota.quota,
-          });
-        }
-        filters.quantity = Math.max(1, Math.min(filters.quantity, Math.trunc(Number(sellerQuota.limit || 0))));
-        filters.limit = Math.max(filters.limit, filters.quantity);
-      }
-    }
-
-    let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
-      limit: Math.max(filters.quantity, filters.minimumStock, 100),
-      requirePhone: false,
-      availableOnly: true,
-    });
-    const cleanStockBefore = rows.length;
-    let replenish: any = {
-      ran: false,
-      cleanStockBefore,
-      cleanStockAfter: cleanStockBefore,
-      fetchedCount: 0,
-    };
-    let replenishErrorMessage: string | null = null;
-
-    if (cleanStockBefore < Math.max(filters.minimumStock, filters.quantity)) {
-      try {
-        replenish = await this.replenishRadarStockForUser(user, {
-          ...input,
-          city: filters.city,
-          state: filters.state,
-          segment: filters.segment,
-          desiredStock: filters.desiredStock,
-          minimumStock: filters.minimumStock,
-          engine: filters.engine,
-          targetType: filters.targetType,
-        });
-      } catch (error: any) {
-        const errorMessage = this.extractHbxErrorMessage(error);
-        replenishErrorMessage = 'Motores em aquecimento/cooldown. Entreguei os cards disponiveis do banco; tente novamente em instantes.';
-        replenish = {
-          ran: true,
-          reason: 'replenish_failed_using_database',
-          cleanStockBefore,
-          cleanStockAfter: cleanStockBefore,
-          fetchedCount: 0,
-          errorMessage: replenishErrorMessage,
-          technicalMessage: errorMessage,
-        };
-        this.logger.warn(
-          `[radar] reposicao falhou; usando estoque existente company=${context.companyId} city=${filters.normalizedCity} state=${filters.state} segment=${filters.normalizedSegment} targetType=${filters.targetType}: ${errorMessage}`,
-        );
-      }
-      rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
-        limit: Math.max(filters.quantity, filters.minimumStock, 100),
-        requirePhone: false,
-        availableOnly: true,
-      });
-    }
-
-    let deliveredRows = rows.slice(0, filters.quantity);
-    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
-    if (filters.whatsappCheckMode === 'only_valid' && deliveredRows.length) {
-      const whatsappPrecheck = await this.applyRadarWhatsappCheck(
-        context,
-        deliveredRows.map((row) => this.buildRadarLeadPublic(row, { includeSmartFields })),
-        'only_valid',
-      );
-      const confirmedIds = new Set(whatsappPrecheck.items.map((item: any) => String(item?.id || '')).filter(Boolean));
-      deliveredRows = deliveredRows.filter((row) => confirmedIds.has(String(row?.id || '')));
-    }
-
-    if (!deliveredRows.length && replenishErrorMessage) {
-      try {
-        return await this.searchRadarDirectForUser(user, filters, 'radar_database_empty_after_replenish_error', replenish.technicalMessage || replenishErrorMessage);
-      } catch (error: any) {
-        return {
-          items: [],
-          total: 0,
-          code: 'NO_ENGINE_AVAILABLE',
-          message: 'Motores ocupados. Nao havia cards disponiveis no banco para esse filtro.',
-          retryable: true,
-          meta: {
-            requestedQuantity: filters.quantity,
-            deliveredCount: 0,
-            filters: {
-              state: filters.state,
-              city: filters.city,
-              segment: filters.segment,
-              targetType: filters.targetType,
-            },
-            replenish,
-            direct: {
-              ran: true,
-              reason: 'direct_search_failed_after_replenish_error',
-              technicalMessage: this.extractHbxErrorMessage(error),
-            },
-            availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
-              ...filters,
-              city: '',
-              state: '',
-              segment: '',
-              normalizedCity: '',
-              normalizedSegment: '',
-            }, { limit: 2000 })),
-          },
-        };
-      }
-    }
-
-    if (!deliveredRows.length) {
-      try {
-        return await this.searchRadarDirectForUser(user, filters, 'radar_database_empty_after_replenish');
-      } catch (error: any) {
-        return {
-          items: [],
-          total: 0,
-          code: 'RADAR_NO_RESULTS',
-          message: 'Pesquisa concluida. Nao ha cards publicos suficientes para esse filtro agora.',
-          retryable: false,
-          meta: {
-            requestedQuantity: filters.quantity,
-            deliveredCount: 0,
-            filters: {
-              state: filters.state,
-              city: filters.city,
-              segment: filters.segment,
-              targetType: filters.targetType,
-            },
-            replenish,
-            direct: {
-              ran: true,
-              reason: 'direct_search_finished_without_cards',
-              technicalMessage: this.extractHbxErrorMessage(error),
-            },
-            availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
-              ...filters,
-              city: '',
-              state: '',
-              segment: '',
-              normalizedCity: '',
-              normalizedSegment: '',
-            }, { limit: 2000 })),
-          },
-        };
-      }
-    }
-    
-    let claimedRows = deliveredRows;
-    // LIMPEZA-DESTRUTIVA L3: assignedUserId agora e so INFORMATIVO ("Responsavel" = quem
-    // puxou) — grava pra QUALQUER papel que puxa (vendedor, admin, master), nunca so vendedor.
-    const assignToUserId = context.userId;
-    try {
-      claimedRows = await this.markRadarDelivered(context.companyId, context.userId, deliveredRows, {
-        assignedUserId: assignToUserId,
-        assignedByUserId: assignToUserId,
-      });
-      if (!claimedRows.length && deliveredRows.length) {
-        claimedRows = deliveredRows;
-      }
-    } catch (error: any) {
-      this.logger.error(`[radar] failed to mark delivered: ${error?.message || error}`);
-      claimedRows = deliveredRows;
-    }
-
-    let items: any[] = [];
-    let whatsapp: Awaited<ReturnType<RadarWebscrapingCoreService['applyRadarWhatsappCheck']>> | null = null;
-    try {
-      const publicItems = claimedRows.map((row) => this.buildRadarLeadPublic({
-        ...row,
-        ownerCompanyId: context.companyId,
-        claimedAt: new Date(),
-        status: 'reserved',
-        companyStates: [{
-          status: 'reserved',
-          assignedUserId: assignToUserId,
-          assignedByUserId: assignToUserId ? context.userId : null,
-        }],
-      }, { includeSmartFields }));
-      whatsapp = await this.applyRadarWhatsappCheck(context, publicItems, filters.whatsappCheckMode);
-      items = includeSmartFields ? whatsapp.items : whatsapp.items.map((item: any) => this.maskRadarSmartFieldsForList(item));
-    } catch (error: any) {
-      this.logger.error(`[radar] failed to build public leads: ${error?.message || error}`);
-      items = claimedRows.map((row) => ({
-        placeId: row?.placeId || `radar:${row?.id}`,
-        name: String(row?.name || 'Empresa sem nome'),
-        phone: row?.phone || row?.phoneDigits || '',
-      }));
-      whatsapp = await this.applyRadarWhatsappCheck(context, items, filters.whatsappCheckMode);
-      items = whatsapp.items;
-    }
-
-    return {
-      items,
-      total: items.length,
-      meta: {
-        requestedQuantity: filters.quantity,
-        deliveredCount: claimedRows.length,
-        filters: {
-          state: filters.state,
-          city: filters.city,
-          segment: filters.segment,
-          targetType: filters.targetType,
-        },
-        cleanStockBefore,
-        cleanStockAfter: rows.length,
-        minimumStock: filters.minimumStock,
-        desiredStock: filters.desiredStock,
-        replenish,
-        whatsappCheck: whatsapp?.meta || null,
-        availableFilters: this.buildRadarAvailableFilters(await this.queryRadarRowsForCompany(context.companyId, {
-          ...filters,
-          city: '',
-          state: '',
-          segment: '',
-          normalizedCity: '',
-          normalizedSegment: '',
-        }, { limit: 2000 })),
-      },
-    };
-  }
-
-  // Pull do vendedor (modelo B / PR13062026008): o PRÓPRIO vendedor puxa cards
-  // da lagoa compartilhada (RadarLeadPool, companyId null) filtrando por
-  // preferencia (segmento obrigatorio; cidade/UF opcionais) e eles caem DIRETO
-  // na carteira dele em Vendas. Reaproveita o encanamento testado
-  // (importRadarLeadToVendasForUser, assignedUserId=self), so que disparado pelo
-  // vendedor para si mesmo, respeitando quota de cards ativos + teto diario.
-  // O push admin→vendedor (distributeRadarLeadsToVendedoresForUser) foi REMOVIDO
-  // (LIMPEZA-DESTRUTIVA L4, 04/07); radar/pull reserve-only (pullRadarLeadsForUser)
-  // segue vivo e intocado.
   private async _bumpSegmentAffinity(userId: number, segment: string): Promise<void> {
     const n = normalizeLookupValue(String(segment || ''));
     if (!n || !userId) return;
@@ -1782,19 +1606,6 @@ export class RadarCoreDeliveryMixin {
       });
     }
 
-    // O import tem portao de visibilidade do vendedor (so importa lead JA dele).
-    // No pull o vendedor reivindica leads novos, entao executamos o import na
-    // pele do ADMIN da empresa (mesma semantica do push), atribuindo ao vendedor.
-    const adminRow = await this.prisma.user.findFirst({
-      where: { companyId: context.companyId, role: 'ADMIN', isActive: true, isSystemMaster: false },
-      select: { id: true, companyId: true, role: true, isSystemMaster: true },
-      orderBy: [{ id: 'asc' }],
-    }).catch(() => null);
-    if (!adminRow) {
-      throw new ServiceUnavailableException('Empresa sem administrador ativo para liberar o pull de leads.');
-    }
-    const importAsAdmin = { id: adminRow.id, companyId: adminRow.companyId, role: 'ADMIN', isSystemMaster: false };
-
     const queryLimit = Math.max(allowed * 3, 60);
     const requestedLeadIds = Array.isArray((input as any).leadIds) && (input as any).leadIds.length > 0
       ? (input as any).leadIds.slice(0, allowed * 2)
@@ -1830,23 +1641,30 @@ export class RadarCoreDeliveryMixin {
       rows = await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
     }
 
-    const assignments: Array<{ radarLeadId: string; vendasLeadId: string | null; name: string | null; city: string | null; state: string | null; segment: string | null; opportunityScore: number | null }> = [];
+    const batchId = String((input as any)?.idempotencyKey || '').trim() || randomUUID();
+    const assignments: Array<Record<string, any>> = [];
+    const operations: any[] = [];
     const failures: Array<{ radarLeadId: string | null; error: string }> = [];
-    let pulled = 0;
+    let started = 0;
     for (const row of rows) {
-      if (pulled >= allowed) break;
+      if (started >= allowed) break;
       try {
-        const result = await this.importRadarLeadToVendasForUser(importAsAdmin, row.id, {
+        const result = await this.startRadarLeadClaimForUser(user, row.id, {
           skipWhatsappValidation: true,
           debitOnImport: true,
           assignedUserId: context.userId,
           assignedByUserId: context.userId,
+          idempotencyKey: `pull-batch:${batchId}:${row.id}`,
         });
-        await this.incrementDailyDistributionDelivery(context.companyId, context.userId, dailyLimit, dayKey);
-        pulled += 1;
+        const operation = result?.operation || null;
+        if (!operation?.operationId) throw new Error('Operação persistente do pull não foi criada.');
+        started += 1;
+        operations.push(operation);
         assignments.push({
           radarLeadId: row.id,
-          vendasLeadId: result?.vendasLeadId || null,
+          vendasLeadId: null,
+          operationId: operation.operationId,
+          processStatus: operation.status,
           name: row.name || null,
           city: row.city || null,
           state: row.state || null,
@@ -1860,22 +1678,25 @@ export class RadarCoreDeliveryMixin {
     }
 
     const commissionPercent = Math.max(0, Math.min(100, Number(seller?.commissionPercent || 0) || 0));
-    if (pulled > 0) this._bumpSegmentAffinity(context.userId, filters.normalizedSegment).catch(() => null);
     return {
-      ok: pulled > 0,
-      pulledCount: pulled,
+      ok: started > 0,
+      batchId,
+      pulledCount: started,
+      processingCount: started,
       requestedCount: requested,
       allowedCount: allowed,
       failedCount: failures.length,
       commissionPercent,
-      dailyRemainingAfter: Math.max(0, dailyRemaining - pulled),
-      activeRemainingAfter: activeQuota?.seller ? Math.max(0, activeRemaining - pulled) : null,
+      dailyRemainingAfter: Math.max(0, dailyRemaining - started),
+      activeRemainingAfter: activeQuota?.seller ? Math.max(0, activeRemaining - started) : null,
       assignments,
+      operations,
+      processRuns: operations,
       failures: failures.slice(0, 8),
       replenish,
       filters: { segment: filters.segment, city: filters.city, state: filters.state },
-      message: pulled > 0
-        ? `${pulled} lead(s) puxado(s) para a sua carteira em Vendas.`
+      message: started > 0
+        ? `${started} processamento(s) de lead iniciado(s). Acompanhe até a transferência para Vendas.`
         : failures.length
           ? `Nenhum lead puxado. ${failures[0]?.error || ''}`.trim()
           : 'Sem leads disponiveis na lagoa para esse filtro agora. Tente outro segmento ou cidade.',
@@ -2161,7 +1982,9 @@ export class RadarCoreDeliveryMixin {
     options: { campaignId?: string | null; strictLocalDdd?: boolean; sourceUrl?: string | null; engineUrl?: string | null } = {},
   ) {
     if (!(await this.supportsRadarPersistence())) return { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
-    const resultsToPersist = await this.enrichSearchRunResultsBeforeSave(input, results, sourceEngine, options.engineUrl);
+    // Não enriquecer estoque/previews. O motor só complementa o lead depois do
+    // débito e da reivindicação persistente da operação de pull.
+    const resultsToPersist = results;
     const delegate = (this.prisma as any).radarLeadPool;
     const now = new Date();
     const expectedDdds = this.buildExpectedDdds(input);
@@ -2531,12 +2354,6 @@ export class RadarCoreDeliveryMixin {
           select: { id: true },
         }).catch(() => null);
         if (created?.id) savedId = created.id;
-      }
-      // L4 fire-and-forget: enrich CNPJ when available (grátis, BrasilAPI)
-      const savedCnpj = String((result as any).cnpj || this.parseMaybeJsonObject(data.metadataJson)?.cnpj || '').replace(/\D/g, '');
-      if (savedId && savedCnpj.length >= 14) {
-        const l4Row = { id: savedId, metadataJson: data.metadataJson, evidenceJson: data.evidenceJson, cnpj: savedCnpj };
-        this.getCnpjL4Enrichment().enrichRow(this.prisma, l4Row).catch(() => null);
       }
       // Escrita dupla ADITIVA em LeadContact (Sprint 5 MOTOR-RFB-FILA): todo contato que chega
       // no pool (busca + L2 síncrono) vira linha consultável/exportável — com gate de formato.
@@ -3271,6 +3088,754 @@ export class RadarCoreDeliveryMixin {
     );
   }
 
+  private async persistClaimSourceCoverage(row: any, source: 'rfb' | 'motor', patch: Record<string, any>) {
+    const latest = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: row.id },
+      select: { metadataJson: true },
+    }).catch(() => null);
+    const metadata = this.parseMaybeJsonObject(latest?.metadataJson || row?.metadataJson);
+    const sourceCoverage = this.parseMaybeJsonObject(metadata?.sourceCoverage);
+    const nextMetadata = {
+      ...metadata,
+      sourceCoverage: {
+        ...sourceCoverage,
+        [source]: { ...this.parseMaybeJsonObject(sourceCoverage?.[source]), ...patch },
+      },
+    };
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: { metadataJson: JSON.stringify(nextMetadata) },
+    });
+    return { ...row, metadataJson: JSON.stringify(nextMetadata) };
+  }
+
+  private async hydrateRadarLeadFromRfbForClaim(row: any) {
+    const attemptedAt = new Date().toISOString();
+    let leadRow = await this.persistClaimSourceCoverage(row, 'rfb', {
+      attempted: true,
+      status: 'running',
+      attemptedAt,
+    });
+    const cnpj = extractCnpjFromRadarLead(leadRow);
+    const fail = async (reason: string, detail: string) => ({
+      row: await this.persistClaimSourceCoverage(leadRow, 'rfb', {
+        attempted: true,
+        succeeded: false,
+        status: 'failed',
+        reason,
+        ...(cnpj ? { cnpj } : {}),
+        finishedAt: new Date().toISOString(),
+      }),
+      succeeded: false,
+      reason: detail,
+    });
+    if (!cnpj) return fail('cnpj_not_resolved', 'CNPJ não identificado para hidratação RFB.');
+    if (!(await this.prisma.hasTable('CnpjPublicCompany').catch(() => false))) {
+      return fail('rfb_table_unavailable', 'Base RFB indisponível neste ambiente.');
+    }
+    const rfb = await (this.prisma as any).cnpjPublicCompany.findUnique({
+      where: { cnpj },
+      select: {
+        cnpj: true,
+        razaoSocial: true,
+        nomeFantasia: true,
+        cnae: true,
+        cnaeDescription: true,
+        situacao: true,
+        naturezaJuridica: true,
+        porte: true,
+        matrizFilial: true,
+        openedAt: true,
+        capitalSocial: true,
+        simples: true,
+        mei: true,
+        regimeTributario: true,
+        cnaeSecundarias: true,
+        phoneShareCount: true,
+        emailShareCount: true,
+        ownerName: true,
+        ownerQualification: true,
+        address: true,
+        city: true,
+        state: true,
+        website: true,
+        phone: true,
+        phone2: true,
+        email: true,
+      },
+    }).catch(() => null);
+    if (!rfb) return fail('cnpj_not_found', 'CNPJ não localizado na base RFB.');
+
+    const phone1 = normalizePhoneDigits(rfb.phone);
+    const phone2 = normalizePhoneDigits(rfb.phone2);
+    const email = normalizeBusinessEmail(rfb.email);
+    const secondaryCnaeCodes = Array.from(new Set(
+      String(rfb.cnaeSecundarias || '')
+        .split(/[,;|\s]+/)
+        .map((value) => String(value || '').replace(/\D/g, ''))
+        .filter((value) => value.length === 7 && value !== String(rfb.cnae || '').replace(/\D/g, '')),
+    )).slice(0, 99);
+    const secondaryCnaeRows = secondaryCnaeCodes.length && (this.prisma as any).cnpjPublicCnae?.findMany
+      ? await (this.prisma as any).cnpjPublicCnae.findMany({
+          where: { codigo: { in: secondaryCnaeCodes } },
+          select: { codigo: true, descricao: true },
+        }).catch(() => [])
+      : [];
+    const secondaryCnaeDescriptionByCode = new Map(
+      (Array.isArray(secondaryCnaeRows) ? secondaryCnaeRows : []).map((item: any) => [String(item.codigo), String(item.descricao || '') || null]),
+    );
+    const secondaryCnaes = secondaryCnaeCodes.map((code) => ({
+      code,
+      description: secondaryCnaeDescriptionByCode.get(code) || null,
+    }));
+    const officialOpenedAt = rfb.openedAt instanceof Date
+      ? rfb.openedAt.toISOString()
+      : rfb.openedAt ? new Date(rfb.openedAt).toISOString() : null;
+    const officialWebsiteRaw = String(rfb.website || '').trim() || null;
+    const officialWebsite = officialWebsiteRaw
+      && !this.isBlockedLeadOfficialWebsite(officialWebsiteRaw)
+      && websiteHostLooksCompatibleWithLead({ ...leadRow, website: officialWebsiteRaw }, officialWebsiteRaw)
+      ? officialWebsiteRaw
+      : null;
+    const candidates = [
+      ...(phone1 ? [{ kind: 'phone' as const, value: phone1, source: 'rfb_primary', confidence: 100, rank: 1 }] : []),
+      ...(phone2 && phone2 !== phone1 ? [{ kind: 'phone' as const, value: phone2, source: 'rfb_secondary', confidence: 100, rank: 2 }] : []),
+      ...(email ? [{ kind: 'email' as const, value: email, source: 'rfb_email', confidence: 100, rank: 1 }] : []),
+    ];
+    if (candidates.length) {
+      await this.getLeadContactWrite().writeContacts(this.prisma, row.id, candidates).catch(() => null);
+    }
+    const metadata = this.parseMaybeJsonObject(leadRow.metadataJson);
+    const phones = Array.from(new Set([
+      normalizePhoneDigits(leadRow.phoneDigits || leadRow.phone),
+      ...(Array.isArray(metadata?.phones) ? metadata.phones.map(normalizePhoneDigits) : []),
+      phone1,
+      phone2,
+    ].filter(Boolean))).slice(0, 3);
+    const emails = Array.from(new Set([
+      normalizeBusinessEmail(leadRow.email),
+      ...(Array.isArray(metadata?.emails) ? metadata.emails.map(normalizeBusinessEmail) : []),
+      email,
+    ].filter(Boolean))).slice(0, 3);
+    const currentPhoneDigits = normalizePhoneDigits(leadRow.phoneDigits || leadRow.phone);
+    const rfbPrimaryCandidate = phone1 || phone2 || null;
+    let scalarPhoneDigits = currentPhoneDigits || rfbPrimaryCandidate;
+    // RadarLeadPool.phoneDigits continua sendo a chave de identidade histórica e é
+    // única. Telefones RFB compartilhados (contador/central) não podem abortar a
+    // compra: ficam canonicamente em LeadContact, sem disputar a coluna escalar.
+    if (!currentPhoneDigits && scalarPhoneDigits) {
+      const collision = await (this.prisma as any).radarLeadPool.findFirst({
+        where: { id: { not: row.id }, phoneDigits: scalarPhoneDigits },
+        select: { id: true },
+      }).catch(() => null);
+      if (collision) scalarPhoneDigits = null;
+    }
+    const nextMetadata = {
+      ...metadata,
+      rfbOfficial: {
+        source: 'rfb',
+        cnpj,
+        razaoSocial: rfb.razaoSocial || null,
+        nomeFantasia: rfb.nomeFantasia || null,
+        situacao: rfb.situacao || null,
+        cnae: rfb.cnae || null,
+        cnaeDescription: rfb.cnaeDescription || null,
+        secondaryCnaes,
+        porte: rfb.porte || null,
+        matrizFilial: rfb.matrizFilial || null,
+        openedAt: officialOpenedAt,
+        address: rfb.address || null,
+        city: rfb.city || null,
+        state: rfb.state || null,
+        website: officialWebsite,
+        ownerName: rfb.ownerName || null,
+        ownerQualification: rfb.ownerQualification || null,
+        capitalSocial: rfb.capitalSocial == null ? null : String(rfb.capitalSocial),
+        naturezaJuridica: rfb.naturezaJuridica || null,
+        simples: rfb.simples ?? null,
+        mei: rfb.mei ?? null,
+        regimeTributario: rfb.regimeTributario || null,
+        shareCounts: {
+          phone: rfb.phoneShareCount == null ? null : safeInteger(rfb.phoneShareCount),
+          email: rfb.emailShareCount == null ? null : safeInteger(rfb.emailShareCount),
+        },
+        hydratedAt: new Date().toISOString(),
+      },
+      cnpj,
+      razaoSocial: rfb.razaoSocial || metadata?.razaoSocial || null,
+      nomeFantasia: rfb.nomeFantasia || metadata?.nomeFantasia || null,
+      cnae: rfb.cnae || metadata?.cnae || null,
+      cnaeDescription: rfb.cnaeDescription || metadata?.cnaeDescription || null,
+      companySituation: rfb.situacao || metadata?.companySituation || null,
+      naturezaJuridica: rfb.naturezaJuridica || metadata?.naturezaJuridica || null,
+      porte: rfb.porte || metadata?.porte || null,
+      matrizFilial: rfb.matrizFilial || metadata?.matrizFilial || null,
+      openedAt: officialOpenedAt || metadata?.openedAt || null,
+      capitalSocial: rfb.capitalSocial == null ? metadata?.capitalSocial ?? null : String(rfb.capitalSocial),
+      simples: rfb.simples ?? metadata?.simples ?? null,
+      mei: rfb.mei ?? metadata?.mei ?? null,
+      regimeTributario: rfb.regimeTributario || metadata?.regimeTributario || null,
+      secondaryCnaes: secondaryCnaes.length ? secondaryCnaes : Array.isArray(metadata?.secondaryCnaes) ? metadata.secondaryCnaes : [],
+      shareCounts: {
+        ...this.parseMaybeJsonObject(metadata?.shareCounts),
+        phone: rfb.phoneShareCount == null ? this.parseMaybeJsonObject(metadata?.shareCounts)?.phone ?? null : safeInteger(rfb.phoneShareCount),
+        email: rfb.emailShareCount == null ? this.parseMaybeJsonObject(metadata?.shareCounts)?.email ?? null : safeInteger(rfb.emailShareCount),
+      },
+      ownerName: rfb.ownerName || metadata?.ownerName || null,
+      ownerNames: Array.from(new Set([rfb.ownerName, ...(Array.isArray(metadata?.ownerNames) ? metadata.ownerNames : [])].filter(Boolean))),
+      ownerQualification: rfb.ownerQualification || metadata?.ownerQualification || null,
+      officialAddress: rfb.address || metadata?.officialAddress || null,
+      officialCity: rfb.city || metadata?.officialCity || null,
+      officialState: rfb.state || metadata?.officialState || null,
+      officialWebsite: officialWebsite || metadata?.officialWebsite || null,
+      phones,
+      emails,
+      sourceCoverage: {
+        ...this.parseMaybeJsonObject(metadata?.sourceCoverage),
+        rfb: {
+          attempted: true,
+          succeeded: true,
+          status: 'completed',
+          cnpj,
+          contactsFound: candidates.length,
+          attemptedAt,
+          finishedAt: new Date().toISOString(),
+        },
+      },
+    };
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        phone: leadRow.phone || (scalarPhoneDigits ? (phone1 === scalarPhoneDigits ? rfb.phone : rfb.phone2) : null),
+        phoneDigits: scalarPhoneDigits,
+        email: normalizeBusinessEmail(leadRow.email) || email || null,
+        emailStatus: normalizeBusinessEmail(leadRow.email) || email ? leadRow.emailStatus || 'confirmed' : leadRow.emailStatus,
+        emailSource: normalizeBusinessEmail(leadRow.email) ? leadRow.emailSource : email ? 'rfb_email' : leadRow.emailSource,
+        emailConfidence: normalizeBusinessEmail(leadRow.email) || email
+          ? Math.max(safeInteger(leadRow.emailConfidence), email ? 100 : 0)
+          : leadRow.emailConfidence,
+        address: leadRow.address || rfb.address || null,
+        city: leadRow.city || rfb.city || null,
+        state: leadRow.state || rfb.state || null,
+        website: leadRow.website || officialWebsite || null,
+        websiteStatus: leadRow.website || officialWebsite ? 'present' : leadRow.websiteStatus,
+        metadataJson: JSON.stringify(nextMetadata),
+        lastSeenAt: new Date(),
+      },
+    });
+    const refreshed = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: row.id },
+      include: { companyStates: true, contacts: true },
+    }).catch(() => null);
+    return { row: refreshed || { ...leadRow, metadataJson: JSON.stringify(nextMetadata) }, succeeded: true, reason: null };
+  }
+
+  private async rollbackRadarClaimAttempt(input: {
+    context: SearchExecutionContext;
+    originalRow: any;
+    vendasLeadId?: string | null;
+    vendasCreated?: boolean;
+  }) {
+    const { context, originalRow } = input;
+    const restoredDate = (value: any) => {
+      if (!value) return null;
+      if (value instanceof Date) return value;
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+    const previousState = Array.isArray(originalRow?.companyStates) ? originalRow.companyStates[0] || null : null;
+    if (previousState) {
+      await (this.prisma as any).radarLeadCompanyState.update({
+        where: { companyId_radarLeadId: { companyId: context.companyId, radarLeadId: originalRow.id } },
+        data: {
+          vendasLeadId: previousState.vendasLeadId || null,
+          status: previousState.status,
+          assignedUserId: previousState.assignedUserId || null,
+          assignedByUserId: previousState.assignedByUserId || null,
+          assignedAt: restoredDate(previousState.assignedAt),
+          lastActionAt: restoredDate(previousState.lastActionAt),
+          negativeReason: previousState.negativeReason || null,
+          privateNotes: previousState.privateNotes || null,
+          noAnswerCount: safeInteger(previousState.noAnswerCount),
+          contactedCount: safeInteger(previousState.contactedCount),
+          lastContactAt: restoredDate(previousState.lastContactAt),
+          complaintReason: previousState.complaintReason || null,
+          deniedReason: previousState.deniedReason || null,
+        },
+      }).catch(() => null);
+    } else {
+      await (this.prisma as any).radarLeadCompanyState.deleteMany({
+        where: { companyId: context.companyId, radarLeadId: originalRow.id },
+      }).catch(() => null);
+    }
+    await (this.prisma as any).radarLeadPool.updateMany({
+      where: { id: originalRow.id, ownerCompanyId: context.companyId },
+      data: {
+        ownerCompanyId: originalRow.ownerCompanyId || null,
+        claimedAt: restoredDate(originalRow.claimedAt),
+        status: originalRow.status || 'clean',
+      },
+    }).catch(() => null);
+    if (input.vendasCreated && input.vendasLeadId) {
+      await (this.prisma as any).vendasLead.deleteMany({
+        where: {
+          id: input.vendasLeadId,
+          companyId: context.companyId,
+          sourceHistoryId: `radar:${originalRow.id}`,
+        },
+      }).catch(() => null);
+    }
+  }
+
+  private buildPublicLeadProcessSnapshot(snapshot: any) {
+    const data = snapshot?.data && typeof snapshot.data === 'object' ? snapshot.data : {};
+    const internalStatus = String(snapshot?.status || 'queued');
+    const status = internalStatus === 'completed'
+      ? 'completed'
+      : internalStatus === 'partial'
+        ? 'partial'
+        : internalStatus === 'failed' || internalStatus === 'refunded'
+          ? 'failed'
+          : internalStatus === 'queued'
+            ? 'starting'
+            : 'running';
+    const stageProgress = Array.isArray(snapshot?.stages) && snapshot.stages.length
+      ? Math.round((snapshot.stages.filter((stage: any) => stage?.state === 'completed').length / snapshot.stages.length) * 100)
+      : 0;
+    return {
+      operationId: String(snapshot?.id || ''),
+      mode: snapshot?.mode === 'search' ? 'search' : 'claim',
+      status,
+      progress: Math.max(0, Math.min(100, safeInteger(data?.progress ?? stageProgress))),
+      stages: Array.isArray(snapshot?.stages) ? snapshot.stages.map((stage: any) => ({
+        key: String(stage?.key || ''),
+        label: String(stage?.label || ''),
+        status: stage?.state === 'active' ? 'running' : stage?.state,
+        detail: stage?.message || null,
+      })) : [],
+      counters: data?.counters && typeof data.counters === 'object' ? data.counters : {},
+      currentLead: data?.currentLead || null,
+      recentLeads: Array.isArray(data?.recentLeads) ? data.recentLeads : [],
+      events: Array.isArray(snapshot?.events) ? snapshot.events.map((event: any) => ({
+        id: event.id,
+        key: event.type,
+        label: event.message || event.type,
+        status: event.statusTo,
+        detail: event.data || null,
+        at: event.occurredAt,
+      })) : [],
+      error: snapshot?.error || null,
+      internalStatus,
+      radarLeadId: snapshot?.radarLeadId || null,
+      vendasLeadId: data?.vendasLeadId || null,
+      sourceCoverage: data?.sourceCoverage || null,
+      createdAt: snapshot?.createdAt || null,
+      updatedAt: snapshot?.updatedAt || null,
+    };
+  }
+
+  private claimOperationProgress(status: string) {
+    const order = [
+      'queued',
+      'validating',
+      'debit_pending',
+      'credit_debited',
+      'ownership_claimed',
+      'rfb_hydrating',
+      'base_revealed',
+      'motor_enriching',
+      'vendas_creating',
+      'completed',
+    ];
+    if (status === 'partial' || status === 'completed') return 100;
+    if (status === 'failed' || status === 'refunded') return Math.max(0, Math.round(((order.indexOf(status) + 1) / order.length) * 100));
+    const index = Math.max(0, order.indexOf(status));
+    return Math.round((index / Math.max(1, order.length - 1)) * 100);
+  }
+
+  async startRadarLeadClaimForUser(
+    user: any,
+    radarLeadId: string,
+    options: {
+      skipWhatsappValidation?: boolean;
+      debitOnImport?: boolean;
+      idempotencyKey?: string | null;
+      assignedUserId?: number | null;
+      assignedByUserId?: number | null;
+    } = {},
+  ) {
+    const context = this.resolveContext(user);
+    await this.assertSellerTeamPolicyAccess(user, 'radar.cards.sendToVendas', 'Envio do Radar para Vendas bloqueado pela politica da equipe.');
+    const leadId = String(radarLeadId || '').trim();
+    if (!leadId) throw new BadRequestException('Informe o lead do Radar.');
+    const processDelegate = (this.prisma as any).radarLeadProcessRun;
+    if (!processDelegate || !(await this.prisma.hasTable('RadarLeadProcessRun').catch(() => false))) {
+      throw new ServiceUnavailableException('Processamento seguro de leads ainda não foi migrado neste ambiente.');
+    }
+    const existingActive = await processDelegate.findFirst({
+      where: {
+        companyId: context.companyId,
+        radarLeadId: leadId,
+        mode: 'claim',
+        status: { notIn: ['completed', 'partial', 'failed', 'refunded'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    }).catch(() => null);
+    if (existingActive) {
+      const updatedAtMs = existingActive.updatedAt instanceof Date ? existingActive.updatedAt.getTime() : 0;
+      if (updatedAtMs && updatedAtMs < Date.now() - 2 * 60 * 1000) {
+        setImmediate(() => {
+          void this.recoverStaleRadarLeadClaimOperations({
+            updatedBefore: new Date(Date.now() - 2 * 60 * 1000),
+          }).catch(() => null);
+        });
+      }
+      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, existingActive.id);
+      return { ok: true, operation: this.buildPublicLeadProcessSnapshot(snapshot) };
+    }
+    const previousAcquisition = await processDelegate.findFirst({
+      where: {
+        companyId: context.companyId,
+        radarLeadId: leadId,
+        mode: 'claim',
+        status: { in: ['completed', 'partial'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    }).catch(() => null);
+    if (previousAcquisition) {
+      // Aquisição é uma vez por identidade/tenant. Uma nova chave HTTP não
+      // transforma o mesmo lead em nova compra; devolvemos a operação que já
+      // comprovou débito + entrega.
+      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, previousAcquisition.id);
+      return { ok: true, alreadyAcquired: true, operation: this.buildPublicLeadProcessSnapshot(snapshot) };
+    }
+    const previousCount = await processDelegate.count({
+      where: { companyId: context.companyId, radarLeadId: leadId, mode: 'claim' },
+    }).catch(() => 0) || 0;
+    const requestedKey = String(options.idempotencyKey || '').trim();
+    const idempotencyKey = requestedKey || `claim:${leadId}:${previousCount + 1}`;
+    const lead = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: leadId },
+      select: {
+        id: true,
+        name: true,
+        city: true,
+        state: true,
+        segment: true,
+        ownerCompanyId: true,
+        claimedAt: true,
+        status: true,
+        companyStates: {
+          where: { companyId: context.companyId },
+          take: 1,
+          select: {
+            vendasLeadId: true,
+            status: true,
+            assignedUserId: true,
+            assignedByUserId: true,
+            assignedAt: true,
+            lastActionAt: true,
+            negativeReason: true,
+            privateNotes: true,
+            noAnswerCount: true,
+            contactedCount: true,
+            lastContactAt: true,
+            complaintReason: true,
+            deniedReason: true,
+          },
+        },
+      },
+    });
+    if (!lead) throw new NotFoundException('Card do Radar nao encontrado.');
+    const alreadyOwnedAndTransferred = Number(lead.ownerCompanyId || 0) === context.companyId
+      && (lead.companyStates || []).some((state: any) => (
+        Boolean(state?.vendasLeadId)
+        || ['sent_to_vendas', 'imported_to_vendas'].includes(String(state?.status || '').toLowerCase())
+      ));
+    if (alreadyOwnedAndTransferred) {
+      throw new ConflictException('Este lead já foi adquirido por esta empresa e já está em Vendas.');
+    }
+    let created: any;
+    try {
+      created = await this.getRadarLeadProcessStore().createOperation({
+      companyId: context.companyId,
+      userId: context.userId,
+      radarLeadId: leadId,
+      mode: 'claim',
+      idempotencyKey,
+      snapshot: {
+        progress: 0,
+        counters: { queued: 1, completed: 0, partial: 0, failed: 0 },
+        currentLead: { id: lead.id, name: lead.name, city: lead.city, state: lead.state, segment: lead.segment },
+        recentLeads: [],
+        // Dados internos para compensação após queda do processo. O presenter da
+        // operação nunca projeta este bloco para o cliente.
+        originalOwnership: {
+          id: lead.id,
+          ownerCompanyId: lead.ownerCompanyId || null,
+          claimedAt: lead.claimedAt || null,
+          status: lead.status,
+          companyStates: lead.companyStates || [],
+        },
+        claimOptions: {
+          assignedUserId: Math.trunc(Number(options.assignedUserId || 0)) || null,
+          assignedByUserId: Math.trunc(Number(options.assignedByUserId || 0)) || null,
+          skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
+        },
+      },
+      });
+    } catch (error: any) {
+      // O índice parcial no PostgreSQL serializa compras concorrentes do mesmo
+      // lead/tenant, mesmo quando chegaram com idempotency keys diferentes.
+      if (String(error?.code || '').toUpperCase() !== 'P2002') throw error;
+      const winner = await processDelegate.findFirst({
+        where: {
+          companyId: context.companyId,
+          radarLeadId: leadId,
+          mode: 'claim',
+          status: { notIn: ['completed', 'partial', 'failed', 'refunded'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      }).catch(() => null);
+      if (!winner) throw error;
+      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, winner.id);
+      return { ok: true, operation: this.buildPublicLeadProcessSnapshot(snapshot) };
+    }
+    // Uma repetição com a mesma chave pode devolver uma operação já terminal.
+    // Nunca reabre uma compra concluída/compensada: a resposta idempotente é o
+    // snapshot persistido e somente uma nova operação recebe um novo débito.
+    if (!['completed', 'partial', 'failed', 'refunded'].includes(String(created.status))) {
+      setImmediate(() => {
+        void this.processRadarLeadClaimOperation(created.id, user, leadId, options);
+      });
+    }
+    return { ok: true, operation: this.buildPublicLeadProcessSnapshot(created) };
+  }
+
+  private async processRadarLeadClaimOperation(operationId: string, user: any, radarLeadId: string, options: any) {
+    const context = this.resolveContext(user);
+    const store = this.getRadarLeadProcessStore();
+    const onProgress = async (status: string, payload: Record<string, any> = {}) => {
+      let currentLead: any = undefined;
+      const contactsMayBeRevealed = ['base_revealed', 'motor_enriching', 'vendas_creating', 'completed', 'partial'].includes(status);
+      if (contactsMayBeRevealed) {
+        currentLead = await this.getRadarLeadForUser(user, radarLeadId)
+          .then((result: any) => result?.item || null)
+          .catch(() => null);
+      } else if (status === 'failed' || status === 'refunded') {
+        // Se a operação falhou/foi compensada, o crédito não sustenta mais a
+        // revelação. Regrava somente o resumo seguro no snapshot persistente.
+        currentLead = await (this.prisma as any).radarLeadPool.findUnique({
+          where: { id: radarLeadId },
+          select: { id: true, name: true, city: true, state: true, segment: true },
+        }).catch(() => null);
+      }
+      const metadata = this.parseMaybeJsonObject(currentLead?.metadataJson);
+      await store.transitionOperation({
+        companyId: context.companyId,
+        operationId,
+        status: status as any,
+        eventType: `claim.${status}`,
+        eventMessage: payload?.detail || payload?.error || null,
+        eventData: payload,
+        errorCode: status === 'failed' || status === 'refunded' ? 'RADAR_CLAIM_FAILED' : status === 'partial' ? 'RADAR_CLAIM_PARTIAL' : null,
+        errorMessage: status === 'failed' || status === 'refunded' || status === 'partial'
+          ? String(payload?.error || payload?.detail || (Array.isArray(payload?.partialReasons) ? payload.partialReasons.join(' ') : '') || '').slice(0, 1000) || null
+          : null,
+        snapshotPatch: {
+          progress: this.claimOperationProgress(status),
+          ...(currentLead !== undefined
+            ? { currentLead, recentLeads: contactsMayBeRevealed && currentLead ? [currentLead] : [] }
+            : {}),
+          ...(payload?.vendasLeadId ? { vendasLeadId: payload.vendasLeadId } : {}),
+          ...(currentLead?.sourceCoverage || metadata?.sourceCoverage ? { sourceCoverage: currentLead?.sourceCoverage || metadata?.sourceCoverage } : {}),
+          counters: {
+            queued: 0,
+            completed: status === 'completed' ? 1 : 0,
+            partial: status === 'partial' ? 1 : 0,
+            failed: status === 'failed' || status === 'refunded' ? 1 : 0,
+          },
+        },
+      });
+    };
+    try {
+      await this.importRadarLeadToVendasForUser(user, radarLeadId, {
+        ...options,
+        debitOnImport: options?.debitOnImport !== false,
+        claimOperationId: operationId,
+        onProgress,
+      });
+    } catch (error) {
+      const current = await store.getSnapshot(context.companyId, operationId).catch(() => null);
+      if (current && !['failed', 'refunded'].includes(String(current.status))) {
+        await onProgress('failed', { error: String((error as any)?.message || error) }).catch(() => null);
+      }
+    }
+  }
+
+  async getRadarClaimRunForUser(user: any, operationId: string) {
+    const context = this.resolveContext(user);
+    const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, operationId);
+    return this.buildPublicLeadProcessSnapshot(snapshot);
+  }
+
+  /**
+   * Recuperação de boot para operações interrompidas. Antes do débito, a operação
+   * pode ser retomada idempotentemente. Depois do débito, reconciliamos um Vendas
+   * já criado ou compensamos crédito + posse; nunca deixamos o cliente debitado
+   * em um estado ativo órfão.
+   */
+  private async recoverStaleRadarLeadClaimOperations(options: { updatedBefore?: Date } = {}) {
+    if ((this as any).radarClaimRecoveryActive) return;
+    const delegate = (this.prisma as any).radarLeadProcessRun;
+    if (!delegate || !(await this.prisma.hasTable('RadarLeadProcessRun').catch(() => false))) return;
+    (this as any).radarClaimRecoveryActive = true;
+    try {
+      const runs = await delegate.findMany({
+        where: {
+          mode: 'claim',
+          status: { notIn: ['completed', 'partial', 'failed', 'refunded'] },
+          ...(options.updatedBefore ? { updatedAt: { lt: options.updatedBefore } } : {}),
+        },
+        orderBy: { updatedAt: 'asc' },
+        take: 100,
+      }).catch(() => []);
+      const preDebitStatuses = new Set(['queued', 'validating', 'debit_pending']);
+      for (const run of Array.isArray(runs) ? runs : []) {
+        const operationId = String(run?.id || '');
+        const radarLeadId = String(run?.radarLeadId || '');
+        const companyId = Math.trunc(Number(run?.companyId || 0));
+        const userId = Math.trunc(Number(run?.userId || 0));
+        if (!operationId || !radarLeadId || !companyId || !userId) continue;
+        const store = this.getRadarLeadProcessStore();
+        const snapshot = await store.getSnapshot(companyId, operationId).catch(() => null);
+        if (!snapshot) continue;
+        const recoveryData = snapshot.data && typeof snapshot.data === 'object' ? snapshot.data as any : {};
+        const claimOptions = recoveryData.claimOptions && typeof recoveryData.claimOptions === 'object'
+          ? recoveryData.claimOptions
+          : {};
+        const recoveredAssignedUserId = Math.trunc(Number(claimOptions.assignedUserId || 0)) || userId;
+        const recoveredAssignedByUserId = Math.trunc(Number(claimOptions.assignedByUserId || 0)) || userId;
+
+        const persistedUser = await (this.prisma as any).user.findFirst({
+          where: { id: userId, companyId, isActive: true },
+          select: { id: true },
+        }).catch(() => null);
+        if (preDebitStatuses.has(String(run.status)) && persistedUser) {
+          const queueUser = await this.buildQueueUser(run);
+          setImmediate(() => {
+            void this.processRadarLeadClaimOperation(operationId, queueUser, radarLeadId, {
+              debitOnImport: true,
+              assignedUserId: Math.trunc(Number(claimOptions.assignedUserId || 0)) || null,
+              assignedByUserId: Math.trunc(Number(claimOptions.assignedByUserId || 0)) || null,
+              skipWhatsappValidation: Boolean(claimOptions.skipWhatsappValidation),
+            });
+          });
+          continue;
+        }
+
+        const vendasDelegate = (this.prisma as any).vendasLead;
+        const vendasLead = vendasDelegate
+          ? await vendasDelegate.findFirst({
+              where: { companyId, sourceHistoryId: `radar:${radarLeadId}` },
+              select: { id: true },
+            }).catch(() => null)
+          : null;
+        if (vendasLead?.id) {
+          const now = new Date();
+          await (this.prisma as any).radarLeadCompanyState.upsert({
+            where: { companyId_radarLeadId: { companyId, radarLeadId } },
+            create: {
+              companyId,
+              radarLeadId,
+              vendasLeadId: vendasLead.id,
+              status: 'sent_to_vendas',
+              assignedUserId: recoveredAssignedUserId,
+              assignedByUserId: recoveredAssignedByUserId,
+              assignedAt: now,
+              lastActionAt: now,
+            },
+            update: {
+              vendasLeadId: vendasLead.id,
+              status: 'sent_to_vendas',
+              lastActionAt: now,
+            },
+          }).catch(() => null);
+          await (this.prisma as any).radarLeadPool.updateMany({
+            where: {
+              id: radarLeadId,
+              OR: [{ ownerCompanyId: null }, { ownerCompanyId: companyId }],
+            },
+            data: {
+              ownerCompanyId: companyId,
+              claimedAt: now,
+              status: 'sent_to_vendas',
+              lastSeenAt: now,
+            },
+          }).catch(() => null);
+          const queueUser = persistedUser ? await this.buildQueueUser(run) : null;
+          const currentLead = queueUser
+            ? await this.getRadarLeadForUser(queueUser, radarLeadId).then((value: any) => value?.item || null).catch(() => null)
+            : null;
+          await store.transitionOperation({
+            companyId,
+            operationId,
+            status: 'completed',
+            eventType: 'claim.recovered_completed',
+            eventMessage: 'Operação reconciliada após reinício.',
+            eventData: { vendasLeadId: vendasLead.id },
+            snapshotPatch: {
+              progress: 100,
+              vendasLeadId: vendasLead.id,
+              ...(currentLead ? { currentLead, recentLeads: [currentLead] } : {}),
+              counters: { queued: 0, completed: 1, partial: 0, failed: 0 },
+            },
+          }).catch(() => null);
+          continue;
+        }
+
+        if (typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit === 'function') {
+          await this.commercialUsageLimits.releaseLeadDeliveryCredit(
+            companyId,
+            userId,
+            { usageKey: `radar:${radarLeadId}:claim:${operationId}` },
+          ).catch(() => undefined);
+        }
+        const original = recoveryData.originalOwnership && typeof recoveryData.originalOwnership === 'object'
+          ? recoveryData.originalOwnership
+          : { id: radarLeadId, ownerCompanyId: null, claimedAt: null, status: 'clean', companyStates: [] };
+        await this.rollbackRadarClaimAttempt({
+          context: { companyId, userId } as SearchExecutionContext,
+          originalRow: { ...original, id: radarLeadId },
+        });
+        const safeLead = await (this.prisma as any).radarLeadPool.findUnique({
+          where: { id: radarLeadId },
+          select: { id: true, name: true, city: true, state: true, segment: true },
+        }).catch(() => null);
+        await store.transitionOperation({
+          companyId,
+          operationId,
+          status: 'refunded',
+          eventType: 'claim.recovered_refunded',
+          eventMessage: persistedUser
+            ? 'Operação interrompida compensada após reinício.'
+            : 'Operação compensada porque o usuário não está mais ativo.',
+          eventData: { creditReleased: true, ownershipRestored: true },
+          errorCode: 'RADAR_CLAIM_INTERRUPTED',
+          errorMessage: 'A puxada foi interrompida e compensada com segurança.',
+          snapshotPatch: {
+            progress: this.claimOperationProgress('refunded'),
+            currentLead: safeLead,
+            recentLeads: [],
+            counters: { queued: 0, completed: 0, partial: 0, failed: 1 },
+          },
+        }).catch(() => null);
+      }
+    } finally {
+      (this as any).radarClaimRecoveryActive = false;
+    }
+  }
+
   async importRadarLeadToVendasForUser(
     user: any,
     radarLeadId: string,
@@ -3279,32 +3844,47 @@ export class RadarCoreDeliveryMixin {
       debitOnImport?: boolean;
       assignedUserId?: number | null;
       assignedByUserId?: number | null;
+      claimOperationId?: string | null;
+      /** Uso interno: transfere para Vendas um card que já pertence ao tenant. */
+      transferAlreadyOwnedWithoutDebit?: boolean;
+      onProgress?: (state: string, payload?: Record<string, any>) => Promise<void> | void;
     } = {},
   ) {
     if (!this.vendasService) {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
     }
     const context = this.resolveContext(user);
+    const reportProgress = async (state: string, payload: Record<string, any> = {}) => {
+      if (typeof options.onProgress !== 'function') return;
+      await Promise.resolve(options.onProgress(state, payload)).catch((error: any) => {
+        this.logger.warn(`[radar-claim-progress] falha ao persistir state=${state}: ${String(error?.message || error)}`);
+      });
+    };
+    await reportProgress('validating', { radarLeadId: String(radarLeadId || '').trim() });
     await this.assertSellerTeamPolicyAccess(user, 'radar.cards.sendToVendas', 'Envio do Radar para Vendas bloqueado pela politica da equipe.');
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }
     const row = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: String(radarLeadId || '').trim() },
-      include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+        contacts: true,
+      },
     });
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    if (options.debitOnImport !== false && Number(row.ownerCompanyId || 0) === context.companyId) {
+      const existingTenantState = Array.isArray(row.companyStates) ? row.companyStates[0] : null;
+      if (existingTenantState?.vendasLeadId || ['sent_to_vendas', 'imported_to_vendas'].includes(String(existingTenantState?.status || '').toLowerCase())) {
+        throw new ConflictException('Este lead já foi adquirido por esta empresa; não haverá novo débito.');
+      }
+    }
     // LIMPEZA-DESTRUTIVA L3: qualquer vendedor/admin/master da empresa pode puxar um card
     // que já esteja atribuído a OUTRO colega — assignedUserId nunca mais é trava de posse.
     let leadRow = row;
     if (this.isRadarProtectedStatus(leadRow?.companyStates?.[0]?.status || leadRow?.status)) {
       throw new BadRequestException('Card protegido nao pode ser enviado para Vendas.');
     }
-    // Zap-gate porta 8 REESCRITO 03/07 (decisão do dono): NADA bloqueia entrega por WhatsApp.
-    // O motor só LÊ e SINALIZA — grava o whatsappStatus verdadeiro no card; empresa sem zap é lead
-    // útil e ENTREGA NORMAL. O front exibe o WhatsApp clicável quando existe.
-    const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow);
-    if (resolvedWhatsappStatus) this.applyRadarWhatsappStatusSignalToRow(leadRow, resolvedWhatsappStatus);
     // LIMPEZA-DESTRUTIVA L3: quando QUALQUER papel (vendedor, admin, master) puxa um card
     // livre para si (sem assignedUserId explícito), o campo é só INFORMATIVO ("Responsável"
     // = quem puxou) — usa context.userId. Callers de distribuição sempre passam
@@ -3355,10 +3935,24 @@ export class RadarCoreDeliveryMixin {
     // (2 chaves) = no-op transparente. O importWebscraping abaixo roda com debitOnImport:false — o
     // débito e o teto de cards-em-mãos já foram resolvidos aqui, então NÃO há débito duplo nem
     // dupla contagem do teto S4 do vendedor. Estorno atômico no catch se a gravação falhar depois.
-    const wantsCreditDebit = Boolean(options.debitOnImport);
-    const creditUsageKey = `radar:${leadRow.id}`;
+    const wantsCreditDebit = options.debitOnImport !== false;
+    if (!wantsCreditDebit) {
+      const isOwnedTransfer = options.transferAlreadyOwnedWithoutDebit === true
+        && Number(leadRow.ownerCompanyId || 0) === context.companyId;
+      if (!isOwnedTransfer) {
+        throw new ConflictException('A transferência sem débito só é permitida para um lead já adquirido por esta empresa.');
+      }
+    }
+    const claimOperationId = String(options.claimOperationId || '').trim();
+    if (wantsCreditDebit && !claimOperationId) {
+      throw new ServiceUnavailableException('Operação segura de compra ausente. Nenhum dado foi revelado.');
+    }
+    const creditUsageKey = wantsCreditDebit
+      ? `radar:${leadRow.id}:claim:${claimOperationId}`
+      : `radar:${leadRow.id}:owned-transfer`;
     let creditReserved = false;
     if (wantsCreditDebit) {
+      await reportProgress('debit_pending', { radarLeadId: leadRow.id });
       // (1) Teto operacional de cards-em-mãos do vendedor (mesmo gate do importador em lote —
       //     preservado aqui de propósito porque desligamos o debitOnImport downstream).
       if (typeof this.commercialUsageLimits?.assertSellerActiveCardSlots === 'function') {
@@ -3368,17 +3962,29 @@ export class RadarCoreDeliveryMixin {
         );
       }
       // (2) Débito REAL do crédito, fail-closed, ANTES da gravação.
-      if (typeof this.commercialUsageLimits?.reserveLeadDeliveryCredit === 'function') {
-        const reservation = await this.commercialUsageLimits.reserveLeadDeliveryCredit(
-          context.companyId,
-          context.userId,
-          { usageKey: creditUsageKey, isBillingAudienceUser: isBillingOwnerActor(user) },
-        );
-        creditReserved = Boolean(reservation?.applied) && Number(reservation?.debited || 0) > 0;
+      if (typeof this.commercialUsageLimits?.reserveLeadDeliveryCredit !== 'function') {
+        throw new ServiceUnavailableException('Débito de crédito indisponível. Nenhum dado foi revelado.');
       }
+      const reservation = await this.commercialUsageLimits.reserveLeadDeliveryCredit(
+        context.companyId,
+        context.userId,
+        { usageKey: creditUsageKey, isBillingAudienceUser: isBillingOwnerActor(user) },
+      );
+      if (reservation?.applied !== true || Number(reservation?.debited || 0) < 1) {
+        throw new ServiceUnavailableException('Não foi possível confirmar o débito do crédito. Nenhum dado foi revelado.');
+      }
+      creditReserved = true;
+      await reportProgress('credit_debited', {
+        radarLeadId: leadRow.id,
+        creditReserved: true,
+        usageKey: creditUsageKey,
+      });
     }
 
     let imported: any = null;
+    let vendasLeadId: string | null = null;
+    let ownershipClaimed = false;
+    const partialReasons: string[] = [];
     try {
     await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
@@ -3391,8 +3997,60 @@ export class RadarCoreDeliveryMixin {
       assignedByUserId,
       countUsage: false,
     });
+    ownershipClaimed = true;
+    await reportProgress('ownership_claimed', { radarLeadId: leadRow.id });
 
-    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    await reportProgress('rfb_hydrating', { radarLeadId: leadRow.id });
+    const rfbHydration = await this.hydrateRadarLeadFromRfbForClaim(leadRow).catch((error: any) => ({
+      row: leadRow,
+      succeeded: false,
+      reason: String(error?.message || error || 'Falha ao consultar a RFB.'),
+    }));
+    leadRow = rfbHydration.row || leadRow;
+    if (!rfbHydration.succeeded && rfbHydration.reason) partialReasons.push(rfbHydration.reason);
+    await reportProgress('base_revealed', {
+      radarLeadId: leadRow.id,
+      rfbSucceeded: Boolean(rfbHydration.succeeded),
+      detail: rfbHydration.reason || null,
+    });
+
+    await reportProgress('motor_enriching', { radarLeadId: leadRow.id });
+    const motorAttemptedAt = new Date().toISOString();
+    leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
+      attempted: true,
+      status: 'running',
+      attemptedAt: motorAttemptedAt,
+    });
+    const motorPayload = await this.enrichRadarLeadViaLeadPlusEngine(context, leadRow).catch(() => null);
+    if (motorPayload) {
+      leadRow = await this.applyLeadPlusEnrichmentToRadarRow(context, leadRow, motorPayload).catch(() => leadRow);
+      leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
+        attempted: true,
+        succeeded: true,
+        status: 'completed',
+        attemptedAt: motorAttemptedAt,
+        finishedAt: new Date().toISOString(),
+      });
+    } else {
+      partialReasons.push('Motor HBX não concluiu o enriquecimento; os dados RFB foram preservados.');
+      leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
+        attempted: true,
+        succeeded: false,
+        status: 'failed',
+        attemptedAt: motorAttemptedAt,
+        finishedAt: new Date().toISOString(),
+      });
+    }
+
+    // Verificação de WhatsApp também é enriquecimento: só pode acontecer após
+    // débito + claim, junto do motor. Ela apenas sinaliza; nunca bloqueia entrega.
+    const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow);
+    if (resolvedWhatsappStatus) this.applyRadarWhatsappStatusSignalToRow(leadRow, resolvedWhatsappStatus);
+
+    await reportProgress('vendas_creating', {
+      radarLeadId: leadRow.id,
+      partialReasons,
+    });
     imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
       sourceHistoryId: `radar:${leadRow.id}`,
       assignedUserId: assignedUserId || undefined,
@@ -3407,55 +4065,55 @@ export class RadarCoreDeliveryMixin {
           name: leadRow.name,
           phone: leadRow.phone || leadRow.phoneDigits,
           phoneDigits: leadRow.phoneDigits || normalizePhoneDigits(leadRow.phone),
-          email: includeSmartFields ? leadRow.email || undefined : undefined,
-          emailStatus: includeSmartFields ? leadRow.emailStatus || undefined : undefined,
-          emailSource: includeSmartFields ? leadRow.emailSource || undefined : undefined,
-          emailConfidence: includeSmartFields ? leadRow.emailConfidence ?? undefined : undefined,
+          email: leadRow.email || undefined,
+          emailStatus: leadRow.emailStatus || undefined,
+          emailSource: leadRow.emailSource || undefined,
+          emailConfidence: leadRow.emailConfidence ?? undefined,
           address: leadRow.address || undefined,
           website: leadRow.website || undefined,
-          websiteStatus: includeSmartFields ? leadRow.websiteStatus || undefined : undefined,
+          websiteStatus: leadRow.websiteStatus || undefined,
           rating: leadRow.rating ?? undefined,
           reviews: leadRow.reviews ?? undefined,
           city: leadRow.city || undefined,
           state: leadRow.state || undefined,
           segment: leadRow.segment || undefined,
-          instagramUrl: includeSmartFields ? leadRow.instagramUrl || undefined : undefined,
-          facebookUrl: includeSmartFields ? leadRow.facebookUrl || undefined : undefined,
-          socialStatus: includeSmartFields ? leadRow.socialStatus || undefined : undefined,
-          socialConfidence: includeSmartFields ? leadRow.socialConfidence ?? undefined : undefined,
-          primarySocial: includeSmartFields
-            ? leadRow.instagramUrl && leadRow.facebookUrl
+          instagramUrl: leadRow.instagramUrl || undefined,
+          facebookUrl: leadRow.facebookUrl || undefined,
+          socialStatus: leadRow.socialStatus || undefined,
+          socialConfidence: leadRow.socialConfidence ?? undefined,
+          primarySocial: leadRow.instagramUrl && leadRow.facebookUrl
               ? 'both'
               : leadRow.instagramUrl
                 ? 'instagram'
                 : leadRow.facebookUrl
                   ? 'facebook'
-                  : undefined
-            : undefined,
-          googleMapsUrl: includeSmartFields ? leadRow.googleMapsUrl || undefined : undefined,
-          businessCategory: includeSmartFields ? leadRow.businessCategory || undefined : undefined,
-          openingHoursStatus: includeSmartFields ? leadRow.openingHoursStatus || undefined : undefined,
-          recommendedChannel: includeSmartFields ? leadRow.recommendedChannel || undefined : undefined,
-          painType: includeSmartFields ? leadRow.painType || undefined : undefined,
-          painLabel: includeSmartFields ? leadRow.painLabel || undefined : undefined,
-          painPitch: includeSmartFields ? leadRow.painPitch || undefined : undefined,
-          enrichmentScore: includeSmartFields ? leadRow.enrichmentScore ?? undefined : undefined,
-          enrichmentConfidence: includeSmartFields ? leadRow.enrichmentConfidence ?? undefined : undefined,
+                  : undefined,
+          googleMapsUrl: leadRow.googleMapsUrl || undefined,
+          businessCategory: leadRow.businessCategory || undefined,
+          openingHoursStatus: leadRow.openingHoursStatus || undefined,
+          recommendedChannel: leadRow.recommendedChannel || undefined,
+          painType: leadRow.painType || undefined,
+          painLabel: leadRow.painLabel || undefined,
+          painPitch: leadRow.painPitch || undefined,
+          enrichmentScore: leadRow.enrichmentScore ?? undefined,
+          enrichmentConfidence: leadRow.enrichmentConfidence ?? undefined,
           opportunityScore: leadRow.opportunityScore ?? undefined,
-          opportunityReason: includeSmartFields ? leadRow.opportunityReason || undefined : undefined,
+          opportunityReason: leadRow.opportunityReason || undefined,
           source: leadRow.source || undefined,
           sourceEngine: leadRow.sourceEngine || undefined,
           sourceUrl: leadRow.sourceUrl || undefined,
-          enrichmentJson: includeSmartFields && leadRow.enrichmentJson
-            ? this.buildCompactVendasEnrichmentJson(leadRow, quality, qualityV2, deliveryClassification)
-            : undefined,
-          quality: includeSmartFields ? quality : undefined,
+          enrichmentJson: this.buildCompactVendasEnrichmentJson(leadRow, quality, qualityV2, deliveryClassification),
+          quality,
           ...deliveryClassification,
-          shortNote: includeSmartFields ? leadRow.opportunityReason || undefined : 'Lead herdado do Radar Digital.',
-          scriptText: includeSmartFields ? leadRow.painPitch || leadRow.opportunityReason || undefined : undefined,
+          shortNote: leadRow.opportunityReason || 'Lead herdado do Radar Digital.',
+          scriptText: leadRow.painPitch || leadRow.opportunityReason || undefined,
         },
       ],
     } as any);
+    vendasLeadId = imported?.leads?.[0]?.id || null;
+    if (!vendasLeadId) {
+      throw new BadRequestException('O lead não foi criado em Vendas; a compra foi desfeita.');
+    }
     } catch (error) {
       // Estorno atômico: a gravação falhou DEPOIS do débito — devolve o crédito reservado
       // (best-effort, idempotente pela mesma usageKey). O caso "sem saldo" já barrou ANTES de
@@ -3465,9 +4123,20 @@ export class RadarCoreDeliveryMixin {
           .releaseLeadDeliveryCredit(context.companyId, context.userId, { usageKey: creditUsageKey })
           .catch(() => undefined);
       }
+      if (ownershipClaimed) {
+        await this.rollbackRadarClaimAttempt({
+          context,
+          originalRow: row,
+          vendasLeadId,
+          vendasCreated: Boolean(imported?.createdCount),
+        });
+      }
+      await reportProgress(creditReserved ? 'refunded' : 'failed', {
+        radarLeadId: row.id,
+        error: String((error as any)?.message || error),
+      });
       throw error;
     }
-    const vendasLeadId = imported?.leads?.[0]?.id || null;
     const now = new Date();
     const existingMetadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
     const existingEnrichment = this.parseMaybeJsonObject(leadRow?.enrichmentJson);
@@ -3487,8 +4156,9 @@ export class RadarCoreDeliveryMixin {
       ...existingEnrichment,
       ...deliveredState.enrichmentPatch,
     };
-    await (this.prisma as any).$transaction([
-      (this.prisma as any).radarLeadCompanyState.upsert({
+    try {
+      await (this.prisma as any).$transaction([
+        (this.prisma as any).radarLeadCompanyState.upsert({
         where: {
           companyId_radarLeadId: {
             companyId: context.companyId,
@@ -3513,8 +4183,8 @@ export class RadarCoreDeliveryMixin {
           assignedAt: assignedUserId ? now : undefined,
           lastActionAt: now,
         },
-      }),
-      (this.prisma as any).radarLeadPool.update({
+        }),
+        (this.prisma as any).radarLeadPool.update({
         where: { id: leadRow.id },
         data: {
           ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
@@ -3524,16 +4194,34 @@ export class RadarCoreDeliveryMixin {
           metadataJson: JSON.stringify(nextDeliveryMetadata),
           enrichmentJson: JSON.stringify(nextDeliveryEnrichment),
         },
-      }),
-    ]).catch(() => null);
-    await this.recordRadarLeadEvent({
-      leadId: leadRow.id,
-      companyId: context.companyId,
-      userId: context.userId,
-      eventType: 'imported_to_vendas',
-      statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
-      statusTo: 'sent_to_vendas',
-    });
+        }),
+      ]);
+      await this.recordRadarLeadEvent({
+        leadId: leadRow.id,
+        companyId: context.companyId,
+        userId: context.userId,
+        eventType: 'imported_to_vendas',
+        statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
+        statusTo: 'sent_to_vendas',
+      });
+    } catch (error) {
+      if (creditReserved && typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit === 'function') {
+        await this.commercialUsageLimits
+          .releaseLeadDeliveryCredit(context.companyId, context.userId, { usageKey: creditUsageKey })
+          .catch(() => undefined);
+      }
+      await this.rollbackRadarClaimAttempt({
+        context,
+        originalRow: row,
+        vendasLeadId,
+        vendasCreated: Boolean(imported?.createdCount),
+      });
+      await reportProgress(creditReserved ? 'refunded' : 'failed', {
+        radarLeadId: row.id,
+        error: String((error as any)?.message || error),
+      });
+      throw error;
+    }
     if (!assignedUserId && leadRow?.segment) {
       this._bumpSegmentAffinity(context.userId, String(leadRow.segment)).catch(() => null);
     }
@@ -3547,11 +4235,17 @@ export class RadarCoreDeliveryMixin {
     // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`
     // (default OFF → no-op total). NUNCA quebra o pull (a função engole o próprio erro).
     void this.materializeNucleoFromRadarLead(context.companyId, leadRow);
+    await reportProgress(partialReasons.length ? 'partial' : 'completed', {
+      radarLeadId: leadRow.id,
+      vendasLeadId,
+      partialReasons,
+    });
     return {
       ok: true,
       radarLeadId: leadRow.id,
       vendasLeadId,
       import: imported,
+      partialReasons,
     };
   }
 

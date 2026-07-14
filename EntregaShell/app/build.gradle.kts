@@ -97,6 +97,11 @@ android {
             buildConfigField("String", "WEB_BASE_URL", buildConfigString(debugWebBaseUrl))
             manifestPlaceholders["hbxUsesCleartextTraffic"] =
                 (debugApiBaseUrl.startsWith("http://") || debugWebBaseUrl.startsWith("http://")).toString()
+            // A variante debug precisa atualizar o APK já instalado no aparelho de teste.
+            // Mantém BuildConfig.DEBUG para ADB/Chrome DevTools, mas usa a chave local de release.
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         release {
             isMinifyEnabled = false

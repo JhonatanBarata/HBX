@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 import { useCurrentUser } from "@/components/hbx/shell";
+import { useLeadClaim } from "@/components/hbx/lead-pull-progress-overlay";
 import { apiFetch } from "@/lib/api";
 import { isCompanySeller } from "@/lib/roles";
 
@@ -56,9 +57,12 @@ function addPopped(id: string) {
 
 export function SellersBrainsHost() {
   const user = useCurrentUser();
+  const { claimLead } = useLeadClaim();
   const router = useRouter();
   const [notice, setNotice] = useState<BrainNotice | null>(null);
   const [visible, setVisible] = useState(false);
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
   const iconRef = useRef<HTMLSpanElement | null>(null);
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -139,15 +143,24 @@ export function SellersBrainsHost() {
   async function handleCta() {
     if (!notice) return;
     if (notice.payload?.kind === "lead" && notice.payload?.poolId) {
+      setClaimBusy(true);
+      setClaimError(null);
       try {
-        await apiFetch("/webscraping/radar/pull-to-vendas", {
-          method: "POST",
-          body: JSON.stringify({ leadIds: [notice.payload.poolId] }),
+        await claimLead(notice.payload.poolId, {
+          lead: {
+            id: notice.payload.poolId,
+            name: notice.payload.name,
+            city: notice.payload.city,
+          },
         });
-      } catch { /* falha silenciosa */ }
-      await ackNotice(notice.id);
-      close();
-      router.push("/vendas");
+        await ackNotice(notice.id);
+        close();
+        router.push("/vendas");
+      } catch (cause) {
+        setClaimError(cause instanceof Error ? cause.message : "Não foi possível puxar este lead.");
+      } finally {
+        setClaimBusy(false);
+      }
     } else {
       await ackNotice(notice.id);
       close();
@@ -227,9 +240,10 @@ export function SellersBrainsHost() {
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <button className="btn-teal" style={{ width: "100%" }} onClick={handleCta}>
-            {ctaLabel}
+          <button className="btn-teal" style={{ width: "100%" }} onClick={handleCta} disabled={claimBusy}>
+            {claimBusy ? "Puxando…" : ctaLabel}
           </button>
+          {claimError ? <p role="alert" style={{ margin: 0, color: "var(--hbx-danger)", fontSize: "0.72rem", lineHeight: 1.4 }}>{claimError}</p> : null}
           <div style={{ display: "flex", gap: 8 }}>
             <button className="btn-ghost" style={{ flex: 1 }} onClick={async () => { await ackNotice(notice.id); close(); }}>
               Marcar lido

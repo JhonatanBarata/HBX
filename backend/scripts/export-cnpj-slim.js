@@ -4,11 +4,9 @@
  * docs/PLANEJAMENTOS/PR02072026/F1-rfb-carga-extrato-vps.md).
  *
  * A "lei" travada (MOTOR-RFB-FILA sprint 2, item 5) é "VPS nunca recebe o dump cru" — isso
- * vale pro dump da RFB (Empresas/Estabelecimentos/Socios .zip) e por extensão pra qualquer
- * coisa que carregue e-mail/sócio em volume. O extrato de BUSCA (razão, fantasia, cnae,
- * cidade/UF, situação, fone) foi aprovado (gate G2 do dono, 02/07/2026) porque é exatamente
- * o que a fonte `cnpj_public` do Radar lê pra resolver CNPJ por nome+cidade — sem e-mail,
- * sem endereço completo, sem sócio, sem rawJson.
+ * vale pro dump cru da RFB (Empresas/Estabelecimentos/Socios .zip). O extrato normalizado de
+ * BUSCA (razão, fantasia, CNAE, cidade/UF, situação e contatos oficiais) contém somente o que
+ * a fonte `cnpj_public` do Radar precisa — sem endereço completo, sócio ou rawJson.
  *
  * Uso:
  *   node scripts/export-cnpj-slim.js                       # exporta ativas p/ ~/hbx-data/rfb/export/
@@ -17,7 +15,7 @@
  *
  * Saída: CSV com header, gzip, colunas na ordem do COPY (ver COLUMNS abaixo) — pronto pra
  * `COPY "CnpjPublicCompany" (<COLUMNS>) FROM STDIN WITH (FORMAT csv, HEADER, DELIMITER ',')`
- * (após gunzip) no postgres de destino. Colunas ausentes no extrato (email, address, website,
+ * (após gunzip) no postgres de destino. Colunas ausentes no extrato (address, website,
  * rawJson, ownerQualification) ficam NULL no destino — só a busca funciona lá, que é o objetivo.
  *
  * Roda 100% LOCAL: fala com o postgres via `docker exec` (mesmo padrão do import-cnpj-dataset.js,
@@ -45,10 +43,10 @@ function log(msg) {
 }
 
 // Colunas do extrato magro — só o que a fonte cnpj_public precisa pra resolver por
-// nome+cidade/CNAE e exibir no card. SEM email, address, website, rawJson, sócio.
+// nome+cidade/CNAE e entregar contatos RFB normalizados. SEM address, website, rawJson, sócio.
 const COLUMNS = [
   'id', 'cnpj', 'razaoSocial', 'nomeFantasia', 'situacao', 'cnae', 'cnaeDescription',
-  'porte', 'matrizFilial', 'openedAt', 'phone', 'phoneDigits', 'city', 'state',
+  'porte', 'matrizFilial', 'openedAt', 'phone', 'phone2', 'phoneDigits', 'email', 'city', 'state',
   'normalizedCity', 'searchText', 'ownerName', 'importedAt', 'createdAt', 'updatedAt',
 ];
 

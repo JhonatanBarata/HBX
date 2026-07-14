@@ -173,7 +173,10 @@ export class CnpjBaseQueryService {
       }
     }
     if (input.naturezas?.length) where.naturezaJuridica = { in: input.naturezas };
+    // A base pesquisável do produto é o universo ATIVO. Situações diferentes só entram
+    // quando o chamador pede explicitamente (telas administrativas/diagnósticas).
     if (input.situacoes?.length) where.situacao = { in: input.situacoes.map((s) => String(s).trim().toLowerCase()) };
+    else where.situacao = 'ativa';
     if (input.porte?.length) where.porte = { in: input.porte };
     if (input.matrizFilial) {
       const matrizFilialList = Array.isArray(input.matrizFilial) ? input.matrizFilial : [input.matrizFilial];
@@ -437,7 +440,7 @@ export class CnpjBaseQueryService {
       take: maxItems,
       select: {
         cnpj: true, razaoSocial: true, nomeFantasia: true, city: true, state: true,
-        cnaeDescription: true, website: true, phone: true, phoneDigits: true, email: true,
+        cnaeDescription: true, website: true, phone: true, phone2: true, phoneDigits: true, email: true,
       },
     }).catch(() => []);
 
@@ -455,6 +458,7 @@ export class CnpjBaseQueryService {
       segment: row.cnaeDescription || null,
       website: row.website || null,
       phone: row.phone || null,
+      phone2: row.phone2 || null,
       email: row.email || null,
       emailStatus: row.email ? 'probable' : 'missing',
       sourceUrl: `internal://cnpj-base/${row.cnpj}`,

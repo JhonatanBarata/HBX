@@ -3,9 +3,7 @@ import { randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { COMPANY_KIND_TENANT } from '../common/company-kind';
 import {
-  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_KEYS,
-  COMMERCIAL_PLAN_MODULE_KEYS,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
@@ -21,7 +19,6 @@ import {
 } from '../products/tenant-product-seed';
 import {
   buildProvisioningLedger,
-  seedManualEntitlementsTx,
   seedTenantModulesTx,
   serializeProvisioningLedger,
   type TenantProvisioningLedgerStep,
@@ -91,7 +88,7 @@ export type MasterProvisioningPlan = {
     taxDocument: string | null;
     priceIsZero: boolean;
   };
-  modules: Array<{ key: string; enabled: boolean; source: 'input' | 'plan_default' }>;
+  modules: Array<{ key: string; enabled: boolean; source: 'input' }>;
   limits: {
     commercialCardsMonthlyLimitOverride: number | null;
     commercialCardsDailyLimitOverride: number | null;
@@ -203,7 +200,7 @@ export class MasterProvisioningService {
     const explicitModules = Array.isArray(input.modules) && input.modules.length > 0;
     const moduleInputs = explicitModules
       ? input.modules || []
-      : (COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []).map((key) => ({ key, enabled: true }));
+      : [];
     const seenModules = new Set<string>();
     const modules = moduleInputs
       .map((item) => {
@@ -214,10 +211,10 @@ export class MasterProvisioningService {
         return {
           key: normalizedKey,
           enabled: typeof item === 'string' ? true : item.enabled !== false,
-          source: explicitModules ? 'input' as const : 'plan_default' as const,
+          source: 'input' as const,
         };
       })
-      .filter((item): item is { key: string; enabled: boolean; source: 'input' | 'plan_default' } => Boolean(item));
+      .filter((item): item is { key: string; enabled: boolean; source: 'input' } => Boolean(item));
 
     const adminEmail = input.admin ? normalizeEmail(input.admin.email) : null;
     if (input.admin && !adminEmail) throw new BadRequestException('E-mail do admin inicial e obrigatorio.');
@@ -322,7 +319,7 @@ export class MasterProvisioningService {
       ? String(input.admin?.password || temporaryPassword || '')
       : '';
     const adminPasswordHash = plan.admin ? await bcrypt.hash(adminPassword, 12) : null;
-    const entitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[plan.commercial.planKey] || [];
+    const entitlementKeys: CommercialEntitlementKey[] = [];
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Trilha de nascimento: registra cada passo do preset master_full (a
@@ -383,11 +380,7 @@ export class MasterProvisioningService {
         detail: explicitModules ? null : 'post-it vazio (módulos do plano ao vivo)',
       });
 
-      const grantsEntitlements = plan.commercial.manualAccess && !plan.commercial.priceIsZero;
-      if (grantsEntitlements) {
-        await seedManualEntitlementsTx(tx, company.id, plan.commercial.planKey);
-      }
-      ledgerSteps.push({ key: 'grant_manual_entitlements', status: grantsEntitlements ? 'done' : 'skipped' });
+      ledgerSteps.push({ key: 'grant_manual_entitlements', status: 'skipped', detail: 'aposentado: produto não varia por plano' });
 
       const admin = plan.admin && adminPasswordHash
         ? await tx.user.create({

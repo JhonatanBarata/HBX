@@ -284,15 +284,10 @@ test('platform_infra company has zero commercial usage limits', async () => {
   assert.equal(snapshot.cards.dailySafetyLimit, 0);
   assert.equal(snapshot.cards.dailyUsed, 0);
   assert.equal(snapshot.cards.dailyRemaining, 0);
-  assert.equal(snapshot.enrichment.dailyLimit, 0);
-  assert.equal(snapshot.enrichment.dailyUsed, 0);
-  assert.equal(snapshot.enrichment.dailyRemaining, 0);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'platform_infra');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, null);
-  assert.equal(snapshot.enrichment.fallbackDailyLimit, null);
+  assert.equal((snapshot as any).enrichment, undefined);
 });
 
-test('team policy overrides tenant seller enrichment daily limit inside plan cap', async () => {
+test('team policy legada não recria superfície de enriquecimento extra', async () => {
   const service = new CommercialUsageLimitsService({
     company: {
       findUnique: async () => ({
@@ -323,11 +318,7 @@ test('team policy overrides tenant seller enrichment daily limit inside plan cap
 
   const snapshot = await service.getUsageSnapshot(1, 7);
 
-  assert.equal(snapshot.enrichment.dailyLimit, 80);
-  assert.equal(snapshot.enrichment.dailyUsed, 15);
-  assert.equal(snapshot.enrichment.dailyRemaining, 65);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'team_policy');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, 80);
+  assert.equal((snapshot as any).enrichment, undefined);
 });
 
 test('tenant usage does not become special seller quota from legacy user override alone', async () => {
@@ -349,14 +340,8 @@ test('tenant usage does not become special seller quota from legacy user overrid
   const snapshot = await service.getUsageSnapshot(1, 7);
 
   assert.equal(snapshot.planKey, 'hbx_padrao');
-  assert.equal(snapshot.enrichment.dailyLimit, 100);
-  assert.equal(snapshot.enrichment.dailyRemaining, 100);
-  assert.equal(snapshot.enrichment.dailyLimitSource, 'plan');
-  assert.equal(snapshot.enrichment.configuredDailyLimit, null);
-  assert.equal(snapshot.enrichment.fallbackDailyLimit, null);
-  assert.equal(snapshot.enrichment.canAutoEnrich, false);
-  assert.equal(snapshot.enrichment.canManualEnrich, true);
-  assert.equal(snapshot.enrichment.mode, 'manual_only');
+  assert.equal((snapshot as any).enrichment, undefined);
+  assert.equal(snapshot.cards.limit, 999999);
 });
 
 // R5 (FASE 2 — REMOÇÃO, definitivo): cota count-based (mensal/diária por plano)
@@ -561,10 +546,29 @@ test('reserveLeadDeliveryCredit: com saldo devolve {applied,debited} e propaga l
   assert.equal(calls[0].isBillingAudienceUser, true);
 });
 
-test('reserveLeadDeliveryCredit: sem CreditsService (gate indisponível) = no-op {applied:false}, NÃO lança', async () => {
+test('reserveLeadDeliveryCredit: sem CreditsService falha fechado e não libera o lead', async () => {
   const service = new CommercialUsageLimitsService({} as any); // sem 2º arg (opcional)
-  const result = await service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-3' });
-  assert.deepEqual(result, { applied: false, debited: 0 });
+  await assert.rejects(
+    () => service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-3' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_DEBIT_UNAVAILABLE');
+      return true;
+    },
+  );
+});
+
+test('reserveLeadDeliveryCredit: resposta sem débito aplicado falha fechado', async () => {
+  const credits = {
+    assertAndDebitLeadDelivery: async () => ({ applied: false, debited: 0 }),
+  } as any;
+  const service = new CommercialUsageLimitsService({} as any, credits);
+  await assert.rejects(
+    () => service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-noop' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_DEBIT_UNAVAILABLE');
+      return true;
+    },
+  );
 });
 
 test('releaseLeadDeliveryCredit: estorna pela MESMA usageKey; sem CreditsService é no-op silencioso', async () => {

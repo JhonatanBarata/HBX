@@ -18,7 +18,7 @@ from app.services.web_search_service import WebSearchService
 
 CONFIDENCE_TARGET = 70
 PROVIDER_CACHE_TTL = timedelta(hours=24)
-PROVIDER_ROUTER_VERSION = "lead-link-enrichment-v1"
+PROVIDER_ROUTER_VERSION = "lead-link-enrichment-v2-multi-contact"
 ROUTER_LEGAL_STOP_TOKENS = {
     "administradora",
     "administradoras",
@@ -66,6 +66,8 @@ ROUTER_DIRECTORY_HOSTS = {
     "serasaexperian.com.br",
 }
 ROUTER_EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+ROUTER_PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(\d{2}\)|\d{2}[\s.-]+)\s*9?\d{4}[-.\s]+\d{4}(?!\d)")
+ROUTER_PHONE_LINK_RE = re.compile(r"(?:tel:|wa\.me/|phone=)(?:\+?55)?([1-9]{2}9?\d{8})(?!\d)", re.I)
 ROUTER_CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
 
 
@@ -133,12 +135,6 @@ class LeadEnrichmentProviderRouter:
             ProviderDefinition("HbxEngineProvider", True, 30, supportsSearch=True),
             ProviderDefinition("DuckDuckGoProvider", True, 40, freeQuotaMonthly=10_000, supportsSearch=True, tier="free"),
             ProviderDefinition("BraveSearchProvider", bool(os.getenv("BRAVE_SEARCH_API_KEY")), 50, freeQuotaMonthly=2_000, costPerRequest=0.001, supportsSearch=True, requiresApiKey=True, tier="free", envKey="BRAVE_SEARCH_API_KEY"),
-            ProviderDefinition("SerperProvider", bool(os.getenv("SERPER_API_KEY")), 60, costPerRequest=0.001, supportsSearch=True, requiresApiKey=True, tier="paid", envKey="SERPER_API_KEY"),
-            ProviderDefinition("ScrapingDogProvider", bool(os.getenv("SCRAPINGDOG_API_KEY")), 70, costPerRequest=0.002, supportsSearch=True, requiresApiKey=True, tier="paid", envKey="SCRAPINGDOG_API_KEY"),
-            ProviderDefinition("TavilyProvider", bool(os.getenv("TAVILY_API_KEY")), 80, costPerRequest=0.002, supportsSearch=True, supportsSemanticSearch=True, requiresApiKey=True, tier="paid", envKey="TAVILY_API_KEY"),
-            ProviderDefinition("ExaProvider", bool(os.getenv("EXA_API_KEY")), 90, costPerRequest=0.003, supportsSearch=True, supportsSemanticSearch=True, requiresApiKey=True, tier="premium", envKey="EXA_API_KEY"),
-            ProviderDefinition("FirecrawlExtractorProvider", bool(os.getenv("FIRECRAWL_API_KEY")), 100, costPerRequest=0.004, supportsExtraction=True, requiresApiKey=True, tier="premium", envKey="FIRECRAWL_API_KEY"),
-            ProviderDefinition("SerpApiProvider", bool(os.getenv("SERPAPI_KEY")), 110, costPerRequest=0.005, supportsSearch=True, requiresApiKey=True, tier="premium", envKey="SERPAPI_KEY"),
         ]
 
     async def run(
@@ -152,6 +148,7 @@ class LeadEnrichmentProviderRouter:
         cached = self.get_cached(cache_key)
         if cached:
             response = EnrichLeadResponse.model_validate(cached)
+            self.finalize_contact_lists(response)
             self.attach_router_stats(response, runs, started, cache_hit=True)
             return response
 
@@ -164,7 +161,12 @@ class LeadEnrichmentProviderRouter:
         database_response, database_run = await self.run_hbx_database_provider(request)
         runs.append(database_run)
         response: EnrichLeadResponse | None = database_response
-        if response and self.is_sufficient(response, request):
+        contact_completion_requested = bool(
+            {"phone", "phones", "email", "emails"}
+            & {str(value or "").strip().lower() for value in (request.requestedFields or [])}
+        )
+        if response and self.is_sufficient(response, request) and not contact_completion_requested:
+            self.finalize_contact_lists(response)
             self.cache_set(cache_key, response)
             self.attach_router_stats(response, runs, started, cache_hit=False)
             return response
@@ -175,6 +177,7 @@ class LeadEnrichmentProviderRouter:
             self.merge_response(response, engine_response)
         else:
             response = engine_response
+        self.finalize_contact_lists(response)
         runs.append(ProviderRun(
             provider="HbxEngineProvider",
             status="success",
@@ -187,12 +190,6 @@ class LeadEnrichmentProviderRouter:
         if not self.is_sufficient(response, request):
             for provider in sorted(self.providers, key=lambda item: item.priority):
                 if provider.name in {"LocalCacheProvider", "HbxDatabaseProvider", "HbxEngineProvider"}:
-                    continue
-                if provider.tier == "paid" and not request.allowPaid:
-                    runs.append(self.skipped_run(provider, response, "allowPaid=false"))
-                    continue
-                if provider.tier == "premium" and not request.allowPremium:
-                    runs.append(self.skipped_run(provider, response, "allowPremium=false"))
                     continue
                 if provider.requiresApiKey and not provider.enabled:
                     runs.append(self.skipped_run(provider, response, f"missing api key {provider.envKey or ''}".strip()))
@@ -213,6 +210,7 @@ class LeadEnrichmentProviderRouter:
                 if self.is_sufficient(response, request):
                     break
 
+        self.finalize_contact_lists(response)
         self.cache_set(cache_key, response)
         self.attach_router_stats(response, runs, started, cache_hit=False)
         return response
@@ -288,8 +286,6 @@ class LeadEnrichmentProviderRouter:
             ",".join(normalize_channel_list_for_router(request.preferredChannels)),
             ",".join(normalize_channel_list_for_router(request.requiredChannels)),
             ",".join(normalize_channel_list_for_router(request.requestedFields)),
-            "paid" if request.allowPaid else "free",
-            "premium" if request.allowPremium else "standard",
         ])
 
     def get_cached(self, key: str) -> dict | None:
@@ -455,13 +451,23 @@ class LeadEnrichmentProviderRouter:
             )
 
     def response_from_hbx_database(self, request: EnrichLeadRequest, result: dict) -> EnrichLeadResponse:
+        phone_contacts = result.get("phoneContacts") if isinstance(result.get("phoneContacts"), list) else []
+        email_contacts = result.get("emailContacts") if isinstance(result.get("emailContacts"), list) else []
         response = EnrichLeadResponse(
             name=str(result.get("name") or request.name or ""),
             phone=str(result.get("phone") or request.phone or ""),
             phoneDigits=str(result.get("phoneDigits") or request.phoneDigits or ""),
+            phones=[
+                *(result.get("phones") if isinstance(result.get("phones"), list) else []),
+                *[item.get("value") or item.get("valueNormalized") for item in phone_contacts if isinstance(item, dict)],
+            ],
             address=result.get("address"),
             website=result.get("website"),
             email=result.get("email"),
+            emails=[
+                *(result.get("emails") if isinstance(result.get("emails"), list) else []),
+                *[item.get("value") or item.get("valueNormalized") for item in email_contacts if isinstance(item, dict)],
+            ],
             emailStatus=str(result.get("emailStatus") or "missing"),
             emailSource=str(result.get("emailSource") or "none"),
             emailConfidence=int(result.get("emailConfidence") or 0),
@@ -481,7 +487,44 @@ class LeadEnrichmentProviderRouter:
             "sourceEngine": result.get("sourceEngine") or "hbx_database",
             "sourceUrl": result.get("sourceUrl"),
         }
+        self.finalize_contact_lists(response)
         return response
+
+    def normalize_phone(self, value: object) -> str | None:
+        digits = re.sub(r"\D", "", str(value or ""))
+        if len(digits) in {12, 13} and digits.startswith("55"):
+            digits = digits[2:]
+        if len(digits) not in {10, 11} or digits.startswith("0") or len(set(digits)) <= 2:
+            return None
+        return digits
+
+    def normalize_email(self, value: object) -> str | None:
+        match = ROUTER_EMAIL_RE.search(str(value or "").strip().lower())
+        if not match:
+            return None
+        email = match.group(0).lower()
+        if email.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")):
+            return None
+        return email
+
+    def finalize_contact_lists(self, response: EnrichLeadResponse) -> None:
+        phones: list[str] = []
+        for value in [response.phoneDigits, response.phone, *(response.phones or [])]:
+            normalized = self.normalize_phone(value)
+            if normalized and normalized not in phones:
+                phones.append(normalized)
+        emails: list[str] = []
+        for value in [response.email, *(response.emails or [])]:
+            normalized = self.normalize_email(value)
+            if normalized and normalized not in emails:
+                emails.append(normalized)
+        response.phones = phones[:3]
+        response.emails = emails[:3]
+        if response.phones:
+            response.phoneDigits = response.phoneDigits or response.phones[0]
+            response.phone = response.phone or response.phones[0]
+        if response.emails:
+            response.email = response.email or response.emails[0]
 
     async def run_provider(self, provider: ProviderDefinition, request: EnrichLeadRequest, response: EnrichLeadResponse) -> ProviderRun:
         confidence_before = int(response.socialConfidence or 0)
@@ -490,8 +533,6 @@ class LeadEnrichmentProviderRouter:
                 results = await self.search_duckduckgo(request)
             elif provider.name == "BraveSearchProvider":
                 results = await self.search_brave(request, provider)
-            elif provider.name == "SerperProvider":
-                results = await self.search_serper(request, provider)
             else:
                 results = []
             return ProviderRun(
@@ -565,39 +606,6 @@ class LeadEnrichmentProviderRouter:
                         "title": row.get("title"),
                         "body": row.get("description"),
                     }, provider.name, query))
-        return self.classify_rows(request, rows)
-
-    async def search_serper(
-        self,
-        request: EnrichLeadRequest,
-        provider: ProviderDefinition,
-        client: httpx.AsyncClient | None = None,
-    ) -> list[dict]:
-        key = os.getenv(provider.envKey or "")
-        if not key:
-            return []
-        rows: list[dict] = []
-        owns_client = client is None
-        http_client = client or httpx.AsyncClient(timeout=8.0)
-        try:
-            for query in self.queries_for_request(request)[:4]:
-                response = await http_client.post(
-                    "https://google.serper.dev/search",
-                    json={"q": query, "gl": "br", "hl": "pt-br", "num": 10},
-                    headers={"X-API-KEY": key, "Content-Type": "application/json"},
-                )
-                if response.status_code >= 400:
-                    continue
-                data = response.json()
-                for row in data.get("organic") or []:
-                    rows.append(self.normalize_search_row({
-                        "href": row.get("link"),
-                        "title": row.get("title"),
-                        "body": row.get("snippet"),
-                    }, provider.name, query))
-        finally:
-            if owns_client:
-                await http_client.aclose()
         return self.classify_rows(request, rows)
 
     def queries_for_request(self, request: EnrichLeadRequest) -> list[str]:
@@ -847,15 +855,25 @@ class LeadEnrichmentProviderRouter:
             if page.status_code >= 400:
                 return
             html = (page.text or "").replace("\\/", "/").replace("&amp;", "&")
-            if not response.email:
-                for match in ROUTER_EMAIL_RE.findall(html):
-                    email = str(match or "").strip().lower()
-                    if email and not email.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js")):
-                        response.email = email
-                        response.emailStatus = "confirmed"
-                        response.emailSource = "website"
-                        response.emailConfidence = max(int(response.emailConfidence or 0), 92)
-                        break
+            for match in ROUTER_EMAIL_RE.findall(html):
+                email = self.normalize_email(match)
+                if email and email not in response.emails:
+                    response.emails.append(email)
+                if len(response.emails) >= 3:
+                    break
+            raw_phones = [match.group(0) for match in ROUTER_PHONE_RE.finditer(html)]
+            raw_phones.extend(match.group(1) for match in ROUTER_PHONE_LINK_RE.finditer(html))
+            for match in raw_phones:
+                phone = self.normalize_phone(match)
+                if phone and phone not in response.phones:
+                    response.phones.append(phone)
+                if len(response.phones) >= 3:
+                    break
+            if response.emails:
+                response.email = response.email or response.emails[0]
+                response.emailStatus = "confirmed"
+                response.emailSource = "website"
+                response.emailConfidence = max(int(response.emailConfidence or 0), 92)
             for raw in re.findall(r"https?://(?:www\.)?(?:instagram|facebook|linkedin)\.com/[A-Za-z0-9._%+\-/]+", html, flags=re.I):
                 normalized = normalize_social_url(raw.rstrip(".,;:)")) or raw.rstrip(".,;:)")
                 field = social_field_for_url(normalized)
@@ -864,6 +882,7 @@ class LeadEnrichmentProviderRouter:
             if response.instagramUrl or response.facebookUrl or response.linkedinUrl:
                 response.socialStatus = "found"
                 response.socialConfidence = max(int(response.socialConfidence or 0), 86)
+            self.finalize_contact_lists(response)
         except Exception:
             return
 
@@ -914,6 +933,9 @@ class LeadEnrichmentProviderRouter:
         base.discardedResults.extend(other.discardedResults or [])
         base.stats = {**(other.stats or {}), **(base.stats or {})}
         base.evidenceJson = {**(other.evidenceJson or {}), **(base.evidenceJson or {})}
+        base.phones.extend(other.phones or [])
+        base.emails.extend(other.emails or [])
+        self.finalize_contact_lists(base)
 
     def attach_router_stats(
         self,

@@ -34,30 +34,47 @@ Providers (`radar/providers/`):
 - CLI: `python -m app.cli --city "X" --state "SP" --segment "y" --limit 10 --fresh`
   com `--target-type pj | pf | agenda_pf`.
 
-## Organograma do enriquecimento (L0→L5 · grátis primeiro · captura TUDO · cadeado por plano)
+## Pipeline canônico: localizar mascarado, debitar, revelar e enriquecer
 
-Regra do dono: enriquecer = rodar TUDO que é de graça e **ACUMULAR**; só PARA de subir quando já tem
-o alvo; só paga pro que o grátis comprovadamente não alcança. Nunca descarta ouro (CNPJ). Sem forçar
-rede social. O **PLANO decide o que o usuário VÊ** (cadeado), não o que se enche. Um botão = um pipeline.
+Todo lead operacional passa pelas duas fontes canônicas: **RFB e motor HBX**. Isso significa tentativa
+e telemetria das duas fontes, sem falsificar a origem que realmente descobriu o lead.
 
-| Camada | O que faz | Onde mora (backend) | Estado |
-|---|---|---|---|
-| L0 · busca | capta tudo no crawl (nome/tel + CNPJ/CNAE/razão do rodapé) | motor Python `01-search` | no ar |
-| L1 · parse | DDD/região · provável-WhatsApp · dor (do segmento) | `03-enrichment/radar-public-data` + `lead-signals.util` | no ar |
-| L2 · crawl do site | abre o site → email · IG · FB · CNPJ rodapé · razão | `03-enrichment/radar-web-enrichment` | no ar |
-| L3 · descoberta | acha SITE e CNPJ por nome+cidade p/ quem só tem telefone | `radar-web-enrichment.searchWeb` | **Brave (grátis)** |
-| L4 · cofre CNPJ | CNPJ → razão/CNAE/**sócio**/endereço/situação (dataset local + BrasilAPI/qsa) | `03-enrichment/radar-cnpj-l4-enrichment` | no ar |
-| L5 · whatsapp-check | número tem WhatsApp? (motor interno) | `applyRadarWhatsappCheck` (05-delivery) | no ar · **risco ban → NÃO mexer na reconexão** |
-| 🔒 gate | `canSeeLeadIntelligence = tier !== 'list'`; card borra+cadeado p/ List | `commercial-plans` + `DetalhesNegocio` | no ar |
+Na pesquisa, o sistema apenas localiza, cruza, deduplica e qualifica o candidato o suficiente para a
+vitrine. Contatos permanecem omitidos/mascarados no payload público. Não existe pré-enriquecimento
+adicional para montar estoque.
 
-**L3 = Brave Search API (grátis, IP-safe).** Substitui o scrape de Bing/DuckDuckGo (risco de bloqueio
-de IP). `BRAVE_SEARCH_API_KEY` no `.env` do **backend** — sem chave, cai no Bing/DDG. **Nunca reservar
-API paga** (decisão do dono 25/06): Brave cobre o L3. Pago (P1 dados pessoais do sócio / P2 social
-premium) só pro **ALÉM** e só quando ligado por env (`HBX_ENRICH_ALLOW_PAID/PREMIUM`, default off).
+Ao puxar o lead, a ordem é rígida:
 
-**Controle = HBX Owner** (o master saiu do controle do motor, 25/06): backfill da cadeia inteira pelo
-cockpit → owner agent (`/owner/ops/cnpj-backfill`) → ops-control (`/api/opscontrol/cnpj-backfill`) →
-backend (`/modules/owner/radar/cnpj-backfill`). O backfill roda L1→L4 grátis (NÃO inclui L5 no lote).
+1. validar tenant, RBAC, módulo, saldo e idempotência;
+2. debitar 1 crédito;
+3. reivindicar o lead;
+4. hidratar RFB (telefone 1, telefone 2, e-mail cadastral, QSA e dados oficiais);
+5. revelar o contato base;
+6. rodar o motor e acumular o que for localizado (até 3 telefones e 3 e-mails na projeção);
+7. transferir para Vendas;
+8. concluir, ou desfazer reivindicação e reembolsar em falha pós-débito.
+
+| Etapa pós-débito | O que faz | Onde mora |
+|---|---|---|
+| RFB | telefone 1/2, e-mail cadastral, CNPJ/CNAE/QSA/endereço/situação | `cnpj-public` + `radar-cnpj-l4-enrichment` |
+| Crawl do site | site, e-mails, telefones, IG/FB e sinais públicos | `radar-web-enrichment` / `website-crawl` |
+| Busca permitida | descobre presença oficial e evidências | Google e Brave |
+| WhatsApp | verifica cada número individualmente | `applyRadarWhatsappCheck` (risco ban: não mexer na reconexão) |
+| Persistência | deduplica e ordena contatos com origem | `LeadContact` |
+
+**Provedores pagos permitidos: somente Google e Brave.** Serper, ScrapingDog, Tavily, Exa,
+Firecrawl, SerpApi e fallback pago de e-mail não podem existir em código, configuração ou painel.
+Cache local, base HBX, motor próprio e fontes gratuitas podem permanecer. Não há `allowPaid`,
+`allowPremium`, tier ou plano controlando enriquecimento. O governor físico de Google/Brave é
+global, fail-closed e igual para todos.
+
+### Night Factory local
+
+A Night Factory não é um worker do backend. O único executor fica no HBX Owner, ligado em
+`127.0.0.1:3107`, e só inicia por ação manual com orçamento. Ela não inicia no boot, não tem cron,
+não possui rota de execução no VPS e para quando o Owner/PC desliga. O crawl sai do Local Lab/IP
+residencial; o VPS apenas fornece e recebe registros. A seleção é limitada a leads com
+`ownerCompanyId`, isto é, já puxados após débito — nunca pré-enriquece a vitrine.
 
 ## Legado e laboratório
 
@@ -77,7 +94,7 @@ backend (`/modules/owner/radar/cnpj-backfill`). O backfill roda L1→L4 grátis 
 
 ## Cards do Radar (frontend) — regras absolutas
 
-- Não alterar hero, rotas públicas, payload antigo, `importedCount` nem regra comercial.
+- Não alterar hero ou rotas públicas sem necessidade do fluxo aprovado.
 - Campos novos do card são sempre OPCIONAIS; card antigo sem eles continua renderizando.
 - Social pendente/erro NUNCA aparece como erro do card (badge discreto).
 - Delivery e social são status separados.
@@ -89,6 +106,9 @@ backend (`/modules/owner/radar/cnpj-backfill`). O backfill roda L1→L4 grátis 
 - Assets e tokens visuais: `docs/ICONES/CARDS/` (sprite SVG + design tokens JSON +
   referências light/dark). Manter os symbol IDs `hbx-icon-*`.
 - Card só nasce de empresa/oportunidade real — nunca de fonte genérica.
+- Antes do débito, nenhum telefone/e-mail pode existir no payload público, inclusive arrays,
+  `people`, `ownerPhone` e metadados estruturados. Depois da compra, telefone sem WhatsApp continua
+  visível; o status de WhatsApp controla somente a ação de WhatsApp.
 - **Origem do card = DESCOBERTA, não enriquecimento (medidor honesto, 03/07).** `sourceChain`
   (`rfb`/`web`/`rfb+web`) reflete só quem **DESCOBRIU** o lead; quem apenas **ENRIQUECEU** vai no
   campo OPCIONAL `enrichedBy` (lanes) + `enrichmentEngines` (rótulos crus). Enriquecimento **NUNCA**

@@ -31,7 +31,7 @@ import {
 import { WebwhatsBridgeService } from '../../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from '../radar-lead-enrichment';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../lead-quality-v2';
-import { RadarSocialLookupService, type RadarSocialLookupHost } from './04-socials/radar-social-lookup.service';
+import { RadarSocialLookupService } from './04-socials/radar-social-lookup.service';
 import { RadarDeliveryOrchestratorService } from './05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './05-delivery/radar-post-delivery-vendas-update.service';
@@ -51,7 +51,6 @@ import { RadarSourcePlannerService } from './01-search/radar-source-planner.serv
 import { RadarMissionQueueService } from './missions/radar-mission-queue.service';
 import { RadarPonteStatusService } from './missions/radar-ponte-status.service';
 import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
-import { RadarSourceExecutorService } from './01-search/radar-source-executor.service';
 import { RadarCnpjPublicSourceService } from './01-search/radar-cnpj-public-source.service';
 import { RadarLocalDirectorySourceService } from './01-search/radar-local-directory-source.service';
 import { RadarVerticalSourceService } from './01-search/radar-vertical-source.service';
@@ -62,13 +61,14 @@ import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-fil
 import { RadarWebSourceGateService } from './02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
 import { RadarDuplicateFieldDonationService } from './03-enrichment/radar-duplicate-field-donation.service';
-import { RadarWebEnrichmentJobService, type RadarWebEnrichmentJobHost } from './03-enrichment/radar-web-enrichment-job.service';
+import { RadarWebEnrichmentJobService } from './03-enrichment/radar-web-enrichment-job.service';
 import { GoogleSearchProviderService } from './providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './shared/radar-shared-normalizer.service';
 import { CnpjBaseQueryService } from './providers/cnpj-public/cnpj-base-query.service';
 import { NucleoCadastroService } from '../../nucleo/nucleo-cadastro.service';
+import { RadarLeadProcessStoreService } from './05-delivery/radar-lead-process-store.service';
 
 import {
   PLACES_NEW_TEXT_SEARCH_URL,
@@ -219,8 +219,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   private radarAutoDistributionPumpActive = false;
   private radarAutoDistributionTimer: NodeJS.Timeout | null = null;
   private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
-  private readonly leadPlusSignalEnrichmentInFlight = new Set<string>();
-  private readonly requiredChannelEnrichmentInFlight = new Set<string>();
   // Lazy (não entra no construtor: mudar a assinatura quebraria o super() posicional
   // de webscraping.service.ts, fora do escopo do radar).
   private radarDuplicateFieldDonation?: RadarDuplicateFieldDonationService;
@@ -252,7 +250,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() private readonly radarInternalReprocessSource?: RadarInternalReprocessSourceService,
-    @Optional() private readonly radarSourceExecutor?: RadarSourceExecutorService,
     @Optional() private readonly radarCnpjPublicSource?: RadarCnpjPublicSourceService,
     @Optional() private readonly radarLocalDirectorySource?: RadarLocalDirectorySourceService,
     @Optional() private readonly radarVerticalSource?: RadarVerticalSourceService,
@@ -285,6 +282,11 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     setTimeout(() => {
       void this.processNextQueuedSearchRun();
     }, 2_000);
+    setTimeout(() => {
+      void this.recoverStaleRadarLeadClaimOperations().catch((error: any) => {
+        this.logger.error(`[radar-claim-recovery] falha no boot: ${String(error?.message || error)}`);
+      });
+    }, 3_000);
   }
 
   onModuleDestroy() {
@@ -325,10 +327,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarRunRepository || new RadarRunRepositoryService(this.prisma);
   }
 
-  private getRadarSocialLookupService() {
-    return this.radarSocialLookup || new RadarSocialLookupService(this.getRadarRunRepository());
-  }
-
   private getRadarRunPresenter() {
     return this.radarRunPresenter || new RadarRunPresenterService();
   }
@@ -357,6 +355,14 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarPostDeliveryAiSaneamento || new RadarPostDeliveryAiSaneamentoService();
   }
 
+  private radarLeadProcessStoreLazy: RadarLeadProcessStoreService | null = null;
+  private getRadarLeadProcessStore() {
+    if (!this.radarLeadProcessStoreLazy) {
+      this.radarLeadProcessStoreLazy = new RadarLeadProcessStoreService(this.prisma);
+    }
+    return this.radarLeadProcessStoreLazy;
+  }
+
   // NÚCLEO-CRM N2 (04/07): serviço da espinha (Conta+Contato) acessível aos mixins pelo
   // MESMO padrão lazy do resto (não entra no construtor — a assinatura é super() posicional
   // de webscraping.service.ts). `new NucleoCadastroService(this.prisma)` não registra
@@ -379,10 +385,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarInternalReprocessSource() {
     return this.radarInternalReprocessSource || new RadarInternalReprocessSourceService();
-  }
-
-  private getRadarSourceExecutor() {
-    return this.radarSourceExecutor || new RadarSourceExecutorService();
   }
 
   private getRadarWebsiteCrawlSource() {
@@ -460,10 +462,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarScoreEnrichment || new RadarScoreEnrichmentService();
   }
 
-  private getRadarWebEnrichmentJobService() {
-    return this.radarWebEnrichmentJob || new RadarWebEnrichmentJobService(this.getRadarRunRepository());
-  }
-
   private getGoogleSearchProvider() {
     return this.googleSearchProvider || new GoogleSearchProviderService();
   }
@@ -528,66 +526,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     };
   }
 
-  private buildRadarSocialLookupHost(): RadarSocialLookupHost {
-    return {
-      searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
-      normalizeRadarSocialUrl: (value, network) => this.normalizeRadarSocialUrl(value, network),
-      pickRadarSocialUrl: (item, network) => this.pickRadarSocialUrl(item, network),
-    };
-  }
-
-  private buildRadarWebEnrichmentJobHost(): RadarWebEnrichmentJobHost {
-    return {
-      searchHbxEngine: (input, existing, engineUrl, options) => this.searchHbxEngine(input, existing, engineUrl, options),
-      getRadarWebsiteCrawlSource: () => this.getRadarWebsiteCrawlSource(),
-      recordVendasEnrichmentStatus: async (context, row, status, payload = {}) => {
-        const result = await this.getRadarPostDeliveryVendasUpdate().recordEnrichmentStatus({
-          prisma: this.prisma,
-          context,
-          row,
-          status,
-          payload,
-        });
-        if (result.status === 'partial_error') {
-          await this.markRadarPostDeliveryUpdateRetryable(row?.id, result.error || 'Falha ao registrar enriquecimento no Vendas.', 'post_delivery_update');
-        }
-      },
-      syncVendasAfterRadarEnrichment: async (context, row, data, reason) => {
-        const compactEnrichment = {
-          source: 'radar_web_enrichment',
-          reason: reason || null,
-          enrichmentStatus: 'completed',
-          website: data.website || null,
-          email: data.email || null,
-          instagramUrl: data.instagramUrl || null,
-          facebookUrl: data.facebookUrl || null,
-          possibleSocialCandidates: Array.isArray(data.possibleSocialCandidates) ? data.possibleSocialCandidates : [],
-          confirmedSocialCandidates: Array.isArray(data.confirmedSocialCandidates) ? data.confirmedSocialCandidates : [],
-          socialStatus: data.socialStatus || null,
-          socialConfidence: data.socialConfidence || null,
-          recommendedChannel: data.recommendedChannel || null,
-          opportunityReason: data.opportunityReason || null,
-        };
-        const result = await this.getRadarPostDeliveryVendasUpdate().syncAfterRadarEnrichment({
-          prisma: this.prisma,
-          context,
-          row,
-          data: {
-            ...data,
-            enrichmentStatus: 'completed',
-          },
-          compactEnrichment,
-        });
-        if (result.status === 'partial_error') {
-          await this.markRadarPostDeliveryUpdateRetryable(row?.id, result.error || 'Falha ao atualizar Vendas apos enriquecimento.', 'post_delivery_update');
-        } else if (result.status === 'completed') {
-          await this.markRadarPostDeliveryUpdateCompleted(row?.id);
-        }
-      },
-      logger: this.logger,
-    };
-  }
-
   private buildRadarRunPresenterHost(): RadarRunPresenterHost {
     return {
       parseMaybeJsonObject: (value) => this.parseMaybeJsonObject(value),
@@ -600,7 +538,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
       normalizeChannelMatchMode: (value) => this.normalizeChannelMatchMode(value),
       isRunItemQualityDeliverable: (item, input) => this.isRunItemQualityDeliverable(item, input),
       attachDeliveryClassification: (item, input, quality, qualityV2) => this.attachDeliveryClassification(item, input, quality, qualityV2),
-      stripListPremiumFields: (item, input) => this.stripListPremiumFields(item, input),
       normalizeRadiusKm: (value) => this.normalizeRadiusKm(value),
       getHbxRunBatchLimit: (targetQuantity) => this.getHbxRunBatchLimit(targetQuantity),
       getHbxRunMaxAttempts: (targetQuantity, batchLimit) => this.getHbxRunMaxAttempts(targetQuantity, batchLimit),

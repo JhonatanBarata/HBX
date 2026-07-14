@@ -14,7 +14,7 @@ npm run owner:app
 `HBX_OWNER_LOCAL_TOKEN` ou gerado/persistido em `hbx-owner/local-agent/.owner-token`
 (gitignored).
 
-Pra falar com o backend do produto (banco de leads, export, fábrica) e com a VPS (Ops
+Pra falar com o backend do produto (banco de leads e export) e com a VPS (Ops
 Control), o `start-owner.ps1` já injeta os tokens. Manualmente:
 
 ```powershell
@@ -27,7 +27,7 @@ $env:HBX_OWNER_OPS_TOKEN="<OPS_CONTROL_TOKEN do .env.ops-control>"
 
 - **Topo** — pills de status: agent · backend · Ops · VPS + tema.
 - **Pressão** — sua máquina (RAM/CPU/disco nativo) × VPS (via Ops Control), cada lado com veredito.
-- **Motores & fábrica** — sua máquina (ligar/parar frota, Lab on/off, checks elástico/fábrica/turbo)
+- **Motores & Night Factory** — sua máquina (fábrica manual, com budget, somente para leads já puxados)
   × VPS (ligar/parar faixa, parar motor base, cancelar busca).
 - **Radar ao vivo** — o que cada ambiente raspa AGORA (cidade/segmento/modo) + controles
   Turbo / filtro de canal / Forçar filtro / Cancelar.
@@ -36,7 +36,7 @@ $env:HBX_OWNER_OPS_TOKEN="<OPS_CONTROL_TOKEN do .env.ops-control>"
 
 ## Bridges (bastidores — você não abre nenhum)
 
-- **Backend do produto** (`:3000`) — banco de leads, fábrica, export, clean.
+- **Backend do produto** (`:3000`) — banco de leads, export e clean. Não executa Night Factory.
 - **Ops Control** (`:3099`) — **headless**, só API: SSH → VPS (pressão, motores, radar-cockpit,
   email-lab, cancelar). Não tem mais tela própria; o Owner é a única cara. Sobe com
   `docker compose -f docker-compose.ops.yml up -d`.
@@ -48,7 +48,9 @@ degradam com aviso — não quebram.
 
 ## O que o Owner NUNCA faz
 
-- Liberar feature paga sem o backend autorizar.
+- Iniciar a Night Factory no boot ou delegar o crawl ao VPS. Ela só roda neste processo em
+  `127.0.0.1:3107`, por clique explícito, e para quando o Owner/PC desliga.
+- Pré-enriquecer cards ainda não puxados ou não pagos.
 - Expor secrets ou rodar shell livre.
 - Deploy, publish, new, force ou migrations.
 - Apagar histórico negativo do Radar.

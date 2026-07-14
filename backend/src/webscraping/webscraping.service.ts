@@ -26,7 +26,6 @@ import { RadarSearchInputService } from './radar/01-search/radar-search-input.se
 import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
 import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
-import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
 import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
 import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
 import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
@@ -88,7 +87,6 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() radarSearchRunConfig?: RadarSearchRunConfigService,
     @Optional() radarInternalReprocessSource?: RadarInternalReprocessSourceService,
-    @Optional() radarSourceExecutor?: RadarSourceExecutorService,
     @Optional() radarCnpjPublicSource?: RadarCnpjPublicSourceService,
     @Optional() radarLocalDirectorySource?: RadarLocalDirectorySourceService,
     @Optional() radarVerticalSource?: RadarVerticalSourceService,
@@ -130,7 +128,6 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarSearchOrchestrator,
       radarSearchRunConfig,
       radarInternalReprocessSource,
-      radarSourceExecutor,
       radarCnpjPublicSource,
       radarLocalDirectorySource,
       radarVerticalSource,

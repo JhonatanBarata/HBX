@@ -13,8 +13,8 @@
 //
 // REGRA FINAL (dono, 03/07): USERMASTER = admin NORMAL, idêntico a
 // role==='ADMIN'. Sem "admin ilimitado mágico" — este helper é PURO
-// reconhecimento de papel. A capacidade do tenant (card-quota do plano) o dono
-// regula pelo /master, não por UI especial de admin.
+// reconhecimento de papel. Limites operacionais por vendedor são configurados
+// pelo admin; saldo de créditos pertence à empresa.
 //
 // IMPORTANTE — separação de conceitos:
 //  - tenant-admin  (isTenantAdmin)  = dono/admin da EMPRESA (inclui USERMASTER
@@ -25,9 +25,8 @@
 //    isTenantAdmin no lugar de isSystemMaster — um USERMASTER de tenant é
 //    tenant-admin mas NÃO é platform-master.
 //
-// A cota do PLANO da empresa (Leads do mês / "Cota da empresa") aparece pra
-// TODO MUNDO (inclusive admin) — NUNCA esconder. isCompanySeller existe só pra
-// esconder carteira/escopo do VENDEDOR, nunca a cota do plano.
+// isCompanySeller existe apenas para carteira, escopo e limites operacionais do
+// vendedor. Não deve criar diferença de produto por plano.
 
 // Shape mínimo — cada tela tem seu próprio tipo de user; aceitamos o subconjunto.
 export type RoleUser = {

@@ -17,7 +17,9 @@ import {
   resolveTeamPolicyAccessAllowed,
 } from '../team/team-policy-persistence';
 import {
+  CreateMobilePairingCodeDto,
   ConsumeMobileWebTicketDto,
+  MobileAccessProfile,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
 } from './dto/mobile-device.dto';
@@ -29,6 +31,7 @@ type PairingCodeRow = {
   companyId: number;
   expiresAt: Date;
   consumedAt: Date | null;
+  accessProfile: MobileAccessProfile;
 };
 
 type MobileDeviceRow = {
@@ -38,6 +41,7 @@ type MobileDeviceRow = {
   installationId: string;
   name: string | null;
   platform: string;
+  accessProfile: MobileAccessProfile;
   tokenHash: string;
   tokenVersion: number;
   lastUsedAt: Date | null;
@@ -98,6 +102,10 @@ export class MobileDeviceService {
     return normalized.replace(/[^a-z0-9_-]/g, '').slice(0, 32) || 'android';
   }
 
+  private normalizeAccessProfile(value: unknown): MobileAccessProfile {
+    return String(value || '').trim().toUpperCase() === 'STANDARD' ? 'STANDARD' : 'ADMIN';
+  }
+
   private async resolvePairingOwner(userIdInput: unknown) {
     const userId = Number(userIdInput || 0);
     if (!Number.isInteger(userId) || userId <= 0) {
@@ -113,6 +121,7 @@ export class MobileDeviceService {
           companyId: true,
           isActive: true,
           isSystemMaster: true,
+          role: true,
         },
       }),
     );
@@ -124,11 +133,19 @@ export class MobileDeviceService {
       throw new BadRequestException('Vinculação móvel exige uma conta vinculada a uma empresa.');
     }
 
-    return { userId: user.id, companyId: Number(user.companyId) };
+    return {
+      userId: user.id,
+      companyId: Number(user.companyId),
+      role: String(user.role || '').trim().toUpperCase(),
+    };
   }
 
-  async createPairingCode(userIdInput: unknown) {
+  async createPairingCode(userIdInput: unknown, input: CreateMobilePairingCodeDto = {}) {
     const owner = await this.resolvePairingOwner(userIdInput);
+    const accessProfile = this.normalizeAccessProfile(input.accessProfile);
+    if (accessProfile === 'ADMIN' && owner.role !== 'ADMIN' && owner.role !== 'USERMASTER') {
+      throw new ForbiddenException('Somente administradores podem gerar um código móvel com perfil ADMIN.');
+    }
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.pairingTtlMs);
 
@@ -148,12 +165,13 @@ export class MobileDeviceService {
         try {
           await this.prisma.$executeRaw`
             INSERT INTO "MobilePairingCode"
-              ("id", "userId", "companyId", "codeHash", "expiresAt", "createdAt")
+              ("id", "userId", "companyId", "codeHash", "accessProfile", "expiresAt", "createdAt")
             VALUES
-              (${crypto.randomUUID()}, ${owner.userId}, ${owner.companyId}, ${codeHash}, ${expiresAt}, ${now})
+              (${crypto.randomUUID()}, ${owner.userId}, ${owner.companyId}, ${codeHash}, ${accessProfile}, ${expiresAt}, ${now})
           `;
           return {
             code,
+            accessProfile,
             expiresAt: expiresAt.toISOString(),
             expiresInSeconds: Math.floor(this.pairingTtlMs / 1000),
           };
@@ -173,11 +191,12 @@ export class MobileDeviceService {
         id: string;
         name: string | null;
         platform: string;
+        accessProfile: MobileAccessProfile;
         lastUsedAt: Date | null;
         revokedAt: Date | null;
         createdAt: Date;
       }>>`
-        SELECT "id", "name", "platform", "lastUsedAt", "revokedAt", "createdAt"
+        SELECT "id", "name", "platform", "accessProfile", "lastUsedAt", "revokedAt", "createdAt"
         FROM "MobileDevice"
         WHERE "userId" = ${owner.userId}
           AND "companyId" = ${owner.companyId}
@@ -230,7 +249,7 @@ export class MobileDeviceService {
       this.prisma.$transaction(async (tx) => {
         // tenant-raw-allow: codeHash é segredo opaco de uso único; a empresa só é conhecida após encontrar o código.
         const codes = await tx.$queryRaw<PairingCodeRow[]>`
-          SELECT "id", "userId", "companyId", "expiresAt", "consumedAt"
+          SELECT "id", "userId", "companyId", "expiresAt", "consumedAt", "accessProfile"
           FROM "MobilePairingCode"
           WHERE "codeHash" = ${codeHash}
           FOR UPDATE
@@ -277,17 +296,21 @@ export class MobileDeviceService {
           throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
         }
 
+        // Perfil pertence ao aparelho, não ao User. Nesta etapa ele é só a fundação
+        // persistida; as restrições por perfil entram em uma etapa posterior.
+        const accessProfile = this.normalizeAccessProfile(pairing.accessProfile);
         const deviceId = existing?.id || crypto.randomUUID();
         await tx.$executeRaw`
           INSERT INTO "MobileDevice"
-            ("id", "userId", "companyId", "installationId", "name", "platform", "tokenHash", "tokenVersion", "lastUsedAt", "revokedAt", "createdAt", "updatedAt")
+            ("id", "userId", "companyId", "installationId", "name", "platform", "accessProfile", "tokenHash", "tokenVersion", "lastUsedAt", "revokedAt", "createdAt", "updatedAt")
           VALUES
-            (${deviceId}, ${user.id}, ${Number(user.companyId)}, ${installationId}, ${deviceName}, ${platform}, ${tokenHash}, 1, ${now}, NULL, ${now}, ${now})
+            (${deviceId}, ${user.id}, ${Number(user.companyId)}, ${installationId}, ${deviceName}, ${platform}, ${accessProfile}, ${tokenHash}, 1, ${now}, NULL, ${now}, ${now})
           ON CONFLICT ("installationId") DO UPDATE SET
             "userId" = EXCLUDED."userId",
             "companyId" = EXCLUDED."companyId",
             "name" = EXCLUDED."name",
             "platform" = EXCLUDED."platform",
+            "accessProfile" = EXCLUDED."accessProfile",
             "tokenHash" = EXCLUDED."tokenHash",
             "tokenVersion" = "MobileDevice"."tokenVersion" + 1,
             "lastUsedAt" = EXCLUDED."lastUsedAt",

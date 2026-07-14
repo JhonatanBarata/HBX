@@ -19,6 +19,7 @@ class NativeAppBridge(
     ticket: String?,
     private val onRouteRequested: (String) -> Unit,
     private val onRouteStopped: () -> Unit,
+    private val onLocationPermissionRequested: () -> Unit,
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val api = NativeApiClient(activity, ticket)
@@ -47,6 +48,12 @@ class NativeAppBridge(
     fun stopRoute() {
         if (BuildConfig.APP_MODE != "logistica") return
         activity.runOnUiThread(onRouteStopped)
+    }
+
+    /** Solicitação explícita do cadastro de cliente; não inicia rastreamento. */
+    @JavascriptInterface
+    fun requestLocationPermission() {
+        activity.runOnUiThread(onLocationPermissionRequested)
     }
 
     @JavascriptInterface

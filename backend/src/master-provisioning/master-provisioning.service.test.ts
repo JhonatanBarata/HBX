@@ -54,7 +54,7 @@ test('buildProvisioningPlan creates tenant contract without platform infra privi
   assert.equal(plan.steps.find((step) => step.key === 'prepare_initial_products')?.status, 'ready');
 });
 
-test('buildProvisioningPlan defaults modules from selected plan and validates admin email', () => {
+test('buildProvisioningPlan não cria módulos por plano e valida admin email', () => {
   const service = buildService();
 
   const plan = service.buildProvisioningPlan({
@@ -65,10 +65,7 @@ test('buildProvisioningPlan defaults modules from selected plan and validates ad
 
   assert.equal(plan.tenant.companyKind, 'tenant');
   assert.equal(plan.commercial.entitlementStatus, 'pending_configuration');
-  // Plano semeia módulos do catálogo comercial; gerencial NÃO entra mais (21/06):
-  // virou admin-tier (acesso por role), fora de COMMERCIAL_PLAN_MODULE_KEYS.
-  assert.ok(plan.modules.some((moduleItem) => moduleItem.key === 'vendas'));
-  assert.equal(plan.modules.some((moduleItem) => moduleItem.key === 'gerencial'), false);
+  assert.deepEqual(plan.modules, []);
   assert.equal(plan.admin, null);
   // TASK 8 (08/07): sem produtos EXPLÍCITOS, o plano nasce SEM produto default
   // (antes semeava "oferta-principal" em rascunho). Conta nova = catálogo vazio.
@@ -185,8 +182,7 @@ test('provisionTenant WITHOUT explicit modules does NOT write CompanyModule (pos
     }),
   } as any);
 
-  // manualAccess=true (default) mas SEM modules explícitos: o full concede
-  // entitlements do plano, porém o post-it NÃO grava nenhum CompanyModule.
+  // Sem módulos explícitos, o post-it não grava nenhum CompanyModule.
   await service.provisionTenant({ companyName: 'Sem Modulos Explicitos', planKey: 'hbx_padrao' });
 
   assert.equal(moduleUpserts.length, 0);

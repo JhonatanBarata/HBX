@@ -851,6 +851,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .row-dense__seg { font-size: 0.64rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-dense__loc { font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-dense__contact { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-contact-summary { min-width: 0; display: grid; gap: 2px; color: var(--text-body); line-height: 1.25; }
+.lead-contact-summary > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-contact-summary b { color: var(--text-strong); font-size: 0.61rem; text-transform: uppercase; letter-spacing: 0.035em; }
+.lead-contact-summary small { color: var(--text-strong); font-size: 0.6rem; font-weight: 750; }
 .row-dense__temp { display: flex; justify-content: center; }
 .row-dense__owner { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 0.72rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-dense__actions { display: flex; align-items: center; gap: 6px; }
@@ -1773,62 +1777,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   font-size: 0.72rem;
   color: var(--text-muted);
 }
-
-/* ── Gate de plano — cadeado (blur + overlay) ───────────────────────────── */
-
-/* Wrapper: contém o conteúdo borrado + o overlay. Relative para o overlay absolute. */
-.dn-locked {
-  position: relative;
-  filter: blur(4px);
-  pointer-events: none;
-  user-select: none;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-
-/* Overlay: flutua sobre o conteúdo borrado, traz ícone + CTA legíveis. */
-.dn-lock-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: color-mix(in srgb, var(--hbx-surface) 72%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  pointer-events: auto;
-  filter: none; /* cancela blur herdado do pai */
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-.dn-lock-overlay__icon {
-  font-size: 1.4rem;
-  line-height: 1;
-  opacity: 0.85;
-}
-
-/* CTA de upgrade — mesma hierarquia do .plan-card button.plan-card__upgrade. */
-.dn-lock-overlay__cta {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 0 14px;
-  border: none;
-  border-radius: var(--control-radius);
-  background: var(--login-accent);
-  color: var(--hbx-action-ink);
-  font-family: var(--font-body);
-  font-size: 0.72rem;
-  font-weight: 800;
-  cursor: pointer;
-  text-align: center;
-  transition: filter var(--motion-fast);
-}
-.dn-lock-overlay__cta:hover { filter: brightness(1.06); }
 
 /* ── GLOW — card "Detalhes" (lead), pedido do dono 07/07, item #1 de
    "detalhes, tela de carregando, loading do HBX". Mesma técnica das outras

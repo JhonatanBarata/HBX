@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { CanalIcon, type Canal } from "@/components/hbx/canal-icon";
 import { vendasEngagementMeta } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { summarizeLeadContacts } from "@/components/hbx/lead-contact-summary";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { showCascaToast } from "@/lib/casca-toast";
@@ -95,6 +96,17 @@ function CanaisMiniRow({ card }: { card: VendasLeadMobile }) {
           </span>
         );
       })}
+    </span>
+  );
+}
+
+function ContactSummaryMobile({ card }: { card: VendasLeadMobile }) {
+  const summary = summarizeLeadContacts(card);
+  if (summary.total === 0) return null;
+  return (
+    <span className="lead-contact-summary vnd-m__contact-summary">
+      <span><b>Principal</b> · {summary.primary}</span>
+      {summary.extra > 0 ? <small>+{summary.extra} contatos</small> : null}
     </span>
   );
 }
@@ -245,6 +257,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                       <span className="vnd-m__row-sub">
                         {card.statusLabel} · {vendasEngagementMeta(card.engagement, card.conversation).label} · {fmtWhenMobile(card.returnAt)}
                       </span>
+                      <ContactSummaryMobile card={card} />
                       <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
@@ -271,6 +284,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                       <span className="vnd-m__row-sub">
                         {vendasEngagementMeta(card.engagement, card.conversation).label} · {card.city || "—"}{card.state ? `/${card.state}` : ""}
                       </span>
+                      <ContactSummaryMobile card={card} />
                       <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>

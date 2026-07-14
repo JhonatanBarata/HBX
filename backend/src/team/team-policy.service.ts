@@ -62,7 +62,6 @@ type TeamPolicyPatch = {
     referredByCommissionPercentSnapshot?: unknown;
   };
   limits?: {
-    enrichmentDaily?: TeamPolicyLimitPatch;
     cardDeliveryDaily?: TeamPolicyLimitPatch;
     activeCards?: TeamPolicyLimitPatch;
     monthlyCards?: TeamPolicyLimitPatch;
@@ -80,7 +79,6 @@ type TeamPolicyPatch = {
     adminCanEditLegacyFields?: unknown;
     masterCanUseUnlimited?: unknown;
   };
-  sellerDistributionDailyLimitOverride?: unknown;
 };
 
 type TeamPolicyLimitPatch = {
@@ -89,7 +87,7 @@ type TeamPolicyLimitPatch = {
 };
 
 const UNLIMITED_NUMERIC_SENTINEL = 999999;
-const LEGACY_ENRICHMENT_OVERRIDE_MAX = 500;
+const TEAM_POLICY_OPERATIONAL_LIMIT_MAX = 500;
 const TEAM_POLICY_PENDING_SCHEMA_FIELDS = [
   'commissionDueBusinessDays_per_user',
   'cardDeliveryDaily',
@@ -195,7 +193,7 @@ export class TeamPolicyService {
     if (!Number.isFinite(numeric) || numeric < 0) {
       throw new BadRequestException('Limite invalido');
     }
-    const valueNumber = Math.min(LEGACY_ENRICHMENT_OVERRIDE_MAX, numeric);
+    const valueNumber = Math.min(TEAM_POLICY_OPERATIONAL_LIMIT_MAX, numeric);
     if (valueNumber === 0) {
       return actorIsMaster
         ? { mode: 'unlimited' as TeamPolicyLimitMode, value: null as number | null, legacyValue: 0 }
@@ -612,52 +610,6 @@ export class TeamPolicyService {
     return { usage, activeCards };
   }
 
-  private buildEnrichmentLimit(target: any, usage: any): TeamPolicyLimit {
-    if (!target?.company || !isTenantCompany(target.company)) {
-      const fallback = this.buildLimit({
-        value: usage?.enrichment?.dailyLimit ?? null,
-        used: usage?.enrichment?.dailyUsed,
-        remaining: usage?.enrichment?.dailyRemaining,
-        resetAt: usage?.dailyResetAt || null,
-        source: 'usage_snapshot',
-      });
-      return this.applyStoredLimit(target?.teamPolicy, 'enrichmentDailyMode', 'enrichmentDailyLimit', fallback);
-    }
-
-    const rawOverride = target?.sellerDistributionDailyLimitOverride;
-    const override = rawOverride === undefined || rawOverride === null
-      ? null
-      : Math.max(0, Math.min(LEGACY_ENRICHMENT_OVERRIDE_MAX, Math.trunc(Number(rawOverride || 0) || 0)));
-    let fallback: TeamPolicyLimit;
-    if (override === 0) {
-      fallback = this.buildLimit({
-        value: UNLIMITED_NUMERIC_SENTINEL,
-        used: usage?.enrichment?.dailyUsed,
-        remaining: UNLIMITED_NUMERIC_SENTINEL,
-        resetAt: usage?.dailyResetAt || null,
-        source: 'legacy_user_field',
-        forceMode: 'unlimited',
-      });
-    } else if (typeof override === 'number' && override > 0) {
-      fallback = this.buildLimit({
-        value: override,
-        used: usage?.enrichment?.dailyUsed,
-        remaining: usage?.enrichment?.dailyRemaining,
-        resetAt: usage?.dailyResetAt || null,
-        source: 'legacy_user_field',
-      });
-    } else {
-      fallback = this.buildLimit({
-        value: usage?.enrichment?.dailyLimit ?? null,
-        used: usage?.enrichment?.dailyUsed,
-        remaining: usage?.enrichment?.dailyRemaining,
-        resetAt: usage?.dailyResetAt || null,
-        source: 'usage_snapshot',
-      });
-    }
-    return this.applyStoredLimit(target?.teamPolicy, 'enrichmentDailyMode', 'enrichmentDailyLimit', fallback);
-  }
-
   private buildVendasPullLimit(input: { usage: any; activeCards: any }): TeamPolicyLimit {
     const candidates = [
       this.finiteLimit(input.usage?.cards?.dailyRemaining),
@@ -765,7 +717,6 @@ export class TeamPolicyService {
           : null,
       },
       limits: {
-        enrichmentDaily: this.buildEnrichmentLimit(target, usage),
         cardDeliveryDaily: this.applyStoredLimit(storedPolicy, 'cardDeliveryDailyMode', 'cardDeliveryDailyLimit', cardDeliveryFallback),
         activeCards: this.applyStoredLimit(storedPolicy, 'activeCardsMode', 'activeCardsLimit', activeCardsFallback),
         monthlyCards: this.applyStoredLimit(storedPolicy, 'monthlyCardsMode', 'monthlyCardsLimit', monthlyCardsFallback),
@@ -792,7 +743,6 @@ export class TeamPolicyService {
           'UserTeamPolicy.commissionPercent',
           'UserTeamPolicy.commissionDueBusinessDays',
           'UserTeamPolicy.sellerNetwork',
-          'UserTeamPolicy.enrichmentDaily',
           'UserTeamPolicy.cardDeliveryDaily',
           'UserTeamPolicy.activeCards',
           'UserTeamPolicy.monthlyCards',
@@ -805,7 +755,6 @@ export class TeamPolicyService {
           'User.sellerReferralCommissionPercent',
           'User.referredByUserId',
           'User.referredByCommissionPercentSnapshot',
-          'User.sellerDistributionDailyLimitOverride',
         ],
         pendingSchemaFields: storedPolicy ? [] : TEAM_POLICY_PENDING_SCHEMA_FIELDS,
       },
@@ -923,28 +872,6 @@ export class TeamPolicyService {
       data.referredByCommissionPercentSnapshot = snapshotPercent;
     }
 
-    if (
-      patch?.sellerDistributionDailyLimitOverride !== undefined ||
-      patch?.limits?.enrichmentDaily !== undefined
-    ) {
-      const currentPolicy = await this.buildPolicy(target, requester);
-      const requestedLimit = patch?.limits?.enrichmentDaily !== undefined
-        ? patch.limits.enrichmentDaily
-        : { value: patch.sellerDistributionDailyLimitOverride };
-      const normalizedLimit = this.normalizeLimitPatch(requestedLimit, Boolean(requester?.isSystemMaster));
-      const planCap = currentPolicy.limits.enrichmentDaily.value;
-      if (
-        !requester?.isSystemMaster &&
-        normalizedLimit.mode === 'limited' &&
-        typeof planCap === 'number' &&
-        normalizedLimit.value !== null &&
-        normalizedLimit.value > planCap
-      ) {
-        throw new BadRequestException('Limite acima do plano atual.');
-      }
-      data.sellerDistributionDailyLimitOverride = normalizedLimit.legacyValue;
-    }
-
     await this.validateSellerNetworkData(target, data);
     return data;
   }
@@ -989,11 +916,6 @@ export class TeamPolicyService {
     );
     if (snapshotPercent !== undefined) data.referredByCommissionPercentSnapshot = snapshotPercent;
 
-    if (effectiveLimits.enrichmentDaily !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('enrichmentDaily', effectiveLimits.enrichmentDaily, Boolean(requester?.isSystemMaster)));
-    } else if ((patch as any)?.sellerDistributionDailyLimitOverride !== undefined) {
-      Object.assign(data, this.toStoredLimitFields('enrichmentDaily', (patch as any).sellerDistributionDailyLimitOverride, Boolean(requester?.isSystemMaster)));
-    }
     if (effectiveLimits.cardDeliveryDaily !== undefined) {
       Object.assign(data, this.toStoredLimitFields('cardDeliveryDaily', effectiveLimits.cardDeliveryDaily, Boolean(requester?.isSystemMaster)));
     }

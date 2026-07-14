@@ -49,15 +49,15 @@
         </div>
       </section>
 
-      <!-- Motor de scraping local · Fábrica de enriquecimento (PARAR vive SÓ aqui — risco de ban é do SEU IP) -->
+      <!-- Night Factory: executor SOMENTE neste HBX Owner local; nunca no VPS. -->
       <section class="card" id="fabrica-card">
         <div class="cockpit-head">
           <div class="hero-title">
-            <span class="label">Motor de scraping local · Fábrica de enriquecimento</span>
+            <span class="label">Night Factory · somente neste PC</span>
             <span id="fab-status" class="pill pill-muted">lendo…</span>
           </div>
           <div class="cockpit-actions">
-            <label class="cf-toggle" title="Orçamento obrigatório: a fábrica para sozinha depois de X leads">só scrapear
+            <label class="cf-toggle" title="Orçamento obrigatório: a fábrica para sozinha depois de X leads">crawl local
               <input id="fab-budget" class="cf-input" type="number" min="1" step="1" placeholder="X" style="width:80px;" />
             </label>
             <button id="btn-fab-start" class="btn btn-sm btn-green" title="Liga a fábrica de enriquecimento com o orçamento informado (obrigatório)">▶ Iniciar</button>
@@ -70,7 +70,7 @@
           <div class="metric"><span class="label">Lead atual</span><strong id="fab-current" style="font-size:13px;">—</strong></div>
           <div class="metric"><span class="label">Erros</span><strong id="fab-errors">—</strong></div>
         </div>
-        <p id="fab-feedback" class="delta" style="margin-top:8px;">—</p>
+        <p id="fab-feedback" class="delta" style="margin-top:8px;">Somente leads já puxados e pagos; nenhum card da vitrine é pré-enriquecido.</p>
 
         <div class="hero-strip-row" style="margin-top:12px;">
           <span class="label">Motores</span>
@@ -160,36 +160,6 @@
             </table>
           </div>
         </details>
-      </section>
-
-      <!-- Enriquecedor (roda NESTA máquina, com o SEU IP — mira o VPS) -->
-      <section class="card" id="enricher">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
-            <span class="pill pill-muted">mira o VPS</span>
-            <span id="enr-status" class="pill pill-muted">parado</span>
-          </div>
-          <div class="cockpit-actions enr-controls">
-            <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
-            <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
-            <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
-            <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
-            <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
-            <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
-          </div>
-        </div>
-        <div class="grid-3" style="margin-top:10px;">
-          <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
-          <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
-          <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
-        </div>
-        <div class="grid-3" style="margin-top:8px;">
-          <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
-          <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
-          <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
-        </div>
-        <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
       </section>
 
       <!-- Banco de leads LOCAL + transferência local → VPS -->
@@ -290,7 +260,6 @@
           <div class="cockpit-actions">
             <button id="btn-cockpit-reload" class="btn btn-sm btn-blue">↺ Recarregar</button>
             <button id="btn-cockpit-csv" class="btn btn-sm btn-green" disabled>⬇ CSV</button>
-            <button id="btn-cnpj-backfill" class="btn btn-sm btn-green" title="Descobre dono + telefone + redes pelos cards do VPS">✦ Enriquecer no VPS</button>
             <button id="btn-export-all" class="btn btn-sm btn-green" title="Baixa o banco INTEIRO da VPS em CSV compactado (.csv.gz) — stream direto do servidor, aguenta milhões de linhas">⬇ Exportar tudo (VPS)</button>
             <button id="btn-export-unclaimed" class="btn btn-sm btn-green" title="Exporta e-mails/telefones em lote que ainda não pertencem a nenhuma empresa (tabela LeadContact)">⬇ Exportar contatos não reivindicados</button>
           </div>

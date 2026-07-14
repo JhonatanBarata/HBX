@@ -19,8 +19,6 @@ import {
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import {
   COMMERCIAL_ENTITLEMENT_KEYS,
-  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
-  COMMERCIAL_PLAN_MODULE_KEYS,
   COMMERCIAL_PLAN_KEYS,
   COMMERCIAL_PRICING,
   classifyPlanChange,
@@ -594,93 +592,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
 
   private buildSubscriptionBackUrl() {
     return `${this.buildAppUrl()}/dashboard/financeiro?focus=payment`;
-  }
-
-  private async syncPaidPlanModulesTx(tx: any, companyId: number, planKey: string) {
-    const moduleKeys = COMMERCIAL_PLAN_MODULE_KEYS[this.normalizeCommercialPlanKey(planKey)] || [];
-    const moduleRows = moduleKeys.length
-      ? await tx.systemModule.findMany({
-          where: {
-            companyAssignable: true,
-            key: { in: moduleKeys },
-          },
-          select: { id: true },
-        })
-      : [];
-
-    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
-    for (const moduleRow of moduleRows) {
-      await tx.companyModule.upsert({
-        where: {
-          companyId_moduleId: {
-            companyId,
-            moduleId: moduleRow.id,
-          },
-        },
-        update: { enabled: true },
-        create: { companyId, moduleId: moduleRow.id, enabled: true },
-      });
-    }
-  }
-
-  private async upsertPaidEntitlementTx(
-    tx: any,
-    companyId: number,
-    key: string,
-    paidAt: Date,
-    periodEnd: Date,
-    metadata: Record<string, unknown>,
-  ) {
-    await tx.companyCommercialEntitlement.upsert({
-      where: {
-        companyId_key: {
-          companyId,
-          key,
-        },
-      },
-      update: {
-        status: 'paid',
-        source: 'checkout',
-        currentPeriodStart: paidAt,
-        currentPeriodEnd: periodEnd,
-        metadataJson: JSON.stringify(metadata),
-      },
-      create: {
-        companyId,
-        key,
-        status: 'paid',
-        source: 'checkout',
-        currentPeriodStart: paidAt,
-        currentPeriodEnd: periodEnd,
-        metadataJson: JSON.stringify(metadata),
-      },
-    });
-  }
-
-  private async syncPaidCommercialEntitlementsTx(tx: any, companyId: number, planKey: string, paidAt: Date, periodEnd: Date) {
-    const normalizedPlanKey = this.normalizeCommercialPlanKey(planKey);
-    const metadata = {
-      selectedPlanKey: normalizedPlanKey,
-      paidAt: paidAt.toISOString(),
-      activatedBy: 'financeiro_checkout',
-    };
-    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || []);
-    const allKeys = [
-      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
-      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-    ];
-
-    for (const key of allKeys) {
-      if (activeKeys.has(key)) {
-        await this.upsertPaidEntitlementTx(tx, companyId, key, paidAt, periodEnd, metadata);
-      } else {
-        await tx.companyCommercialEntitlement.updateMany({
-          where: { companyId, key },
-          data: { status: 'canceled', source: 'checkout', currentPeriodStart: null, currentPeriodEnd: null },
-        });
-      }
-    }
   }
 
   // R4 (FASE 2 — REMOÇÃO, definitivo): assento GRÁTIS — cobrança por assento
@@ -1307,57 +1218,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private async syncGraceCommercialEntitlementsTx(
-    tx: any,
-    companyId: number,
-    planKey: string,
-    graceStartedAt: Date,
-    graceEndsAt: Date,
-    source: string,
-  ) {
-    const normalizedPlanKey = this.normalizeCommercialPlanKey(planKey);
-    const metadata = {
-      selectedPlanKey: normalizedPlanKey,
-      graceStartedAt: graceStartedAt.toISOString(),
-      graceEndsAt: graceEndsAt.toISOString(),
-      source,
-    };
-    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || []);
-    const allKeys = [
-      COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
-      COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
-      COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
-    ];
-
-    for (const key of allKeys) {
-      const active = activeKeys.has(key);
-      await tx.companyCommercialEntitlement.upsert({
-        where: {
-          companyId_key: {
-            companyId,
-            key,
-          },
-        },
-        update: {
-          status: active ? 'grace' : 'canceled',
-          source: active ? source : 'billing_grace',
-          currentPeriodStart: active ? graceStartedAt : null,
-          currentPeriodEnd: active ? graceEndsAt : null,
-          metadataJson: JSON.stringify(metadata),
-        },
-        create: {
-          companyId,
-          key,
-          status: active ? 'grace' : 'canceled',
-          source: active ? source : 'billing_grace',
-          currentPeriodStart: active ? graceStartedAt : null,
-          currentPeriodEnd: active ? graceEndsAt : null,
-          metadataJson: JSON.stringify(metadata),
-        },
-      });
-    }
-  }
-
   private async safeSendBillingGraceEmail(company: any, subscription: any | null, stage: 1 | 2 | 3, endsAt: Date) {
     const to = this.billingGraceEmailRecipient(company, subscription);
     if (!to) {
@@ -1574,7 +1434,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         where: { id: companyId },
         data: {
           selectedPlanKey: planKey,
-          trialModuleSelection: planKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          trialModuleSelection: null,
           // Estado unico nativo (PR-002 A.3): graça = overdue com prazo
           // (billingGraceEndsAt). A leitura canonica libera enquanto a graça
           // vale — sem espelho legado (DROP).
@@ -1599,15 +1459,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      await this.syncPaidPlanModulesTx(tx, companyId, planKey);
-      await this.syncGraceCommercialEntitlementsTx(
-        tx,
-        companyId,
-        planKey,
-        graceStartedAt,
-        graceEndsAt,
-        failureGrace ? 'billing_failure_grace' : 'subscription_processing_grace',
-      );
     });
 
     let initialEmailSent = false;
@@ -1800,7 +1651,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         where: { id: companyId },
         data: {
           selectedPlanKey,
-          trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          trialModuleSelection: null,
           // Estado unico nativo (PR-002 A.3): pagamento confirmado = active
           // (sem espelho legado — DROP).
           status: 'active',
@@ -1820,8 +1671,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           deactivatedAt: null,
         },
       });
-      await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
-      await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, paidAt, periodEnd);
     });
     await this.hbxCommissionSync.syncActivatedCompany(companyId, { source: 'financeiro_charge_paid' }).catch((error: any) => {
       this.logger.warn(`commission_sync_charge_failed company=${companyId} error=${String(error?.message || error)}`);
@@ -1864,7 +1713,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         where: { id: companyId },
         data: {
           selectedPlanKey,
-          trialModuleSelection: selectedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          trialModuleSelection: null,
           // Estado unico nativo (PR-002 A.3): assinatura ativa = active
           // (sem espelho legado — DROP).
           status: 'active',
@@ -1888,8 +1737,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         },
       });
 
-      await this.syncPaidPlanModulesTx(tx, companyId, selectedPlanKey);
-      await this.syncPaidCommercialEntitlementsTx(tx, companyId, selectedPlanKey, periodStart, periodEnd);
     });
     await this.hbxCommissionSync.syncActivatedCompany(companyId, { source: 'financeiro_subscription_active' }).catch((error: any) => {
       this.logger.warn(`commission_sync_subscription_failed company=${companyId} error=${String(error?.message || error)}`);
@@ -3026,12 +2873,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     if (!company) throw new BadRequestException('Empresa nao encontrada.');
     const masterConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const selectedPlanKey = this.normalizeCommercialPlanKey(dto?.planKey || company.selectedPlanKey);
-    if (selectedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR) {
-      throw new BadRequestException({
-        code: 'ASSISTED_SETUP_REQUIRED',
-        message: 'HBX Full exige implantação assistida. Fale com a HBX para configurar bot, automação e atendimento completo.',
-      });
-    }
     const requestedBillingCycle =
       dto?.billingCycle !== undefined
         ? this.normalizeBillingCycle(dto.billingCycle)
@@ -3353,12 +3194,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     const billingContactPhone = paymentProfile?.contactPhone || this.normalizeContactPhone(dto?.contactPhone) || this.normalizeContactPhone(company.contactPhone);
     const companyContactData = paymentProfile ? this.companyContactUpdateFromPaymentProfile(paymentProfile) : null;
     const plan = this.buildCommercialPlanProviderSnapshot(dto?.planKey || company.selectedPlanKey, dto?.billingCycle || 'ANNUAL');
-    if (plan.planKey === COMMERCIAL_PLAN_KEYS.MELHOR) {
-      throw new BadRequestException({
-        code: 'ASSISTED_SETUP_REQUIRED',
-        message: 'HBX Full exige implantação assistida. Fale com a HBX para configurar bot, automação e atendimento completo.',
-      });
-    }
     const payerEmail =
       this.normalizePayerEmail(dto?.payerEmail) ||
       this.normalizePayerEmail(company.contactEmail) ||
@@ -4108,8 +3943,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
         },
       });
-      await this.syncPaidPlanModulesTx(tx, context.companyId, targetPlanKey);
-      await this.syncPaidCommercialEntitlementsTx(tx, context.companyId, targetPlanKey, periodStart, periodEnd);
     });
 
     return {
@@ -4338,8 +4171,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
         },
       });
-      await this.syncPaidPlanModulesTx(tx, context.companyId, targetPlanKey);
-      await this.syncPaidCommercialEntitlementsTx(tx, context.companyId, targetPlanKey, periodStart, periodEnd);
     });
 
     return {
@@ -4415,8 +4246,6 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           trialModuleSelection: targetPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
         },
       });
-      await this.syncPaidPlanModulesTx(tx, context.companyId, targetPlanKey);
-      await this.syncPaidCommercialEntitlementsTx(tx, context.companyId, targetPlanKey, periodStart, periodEnd);
     });
 
     // 3) LIVE: baixa o valor recorrente pro próximo ciclo.

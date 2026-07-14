@@ -17,7 +17,7 @@ type Seller = { id: number; name?: string | null; username?: string | null; emai
 
 type LimitMode = "inherit" | "limited" | "unlimited" | "blocked";
 type TeamPolicyLimit = { mode: LimitMode; value: number | null; used?: number | null; remaining?: number | null; source: string };
-type LimitKey = "enrichmentDaily" | "cardDeliveryDaily" | "activeCards" | "monthlyCards" | "vendasPullQuantity";
+type LimitKey = "cardDeliveryDaily" | "activeCards" | "monthlyCards" | "vendasPullQuantity";
 
 type PolicyModule = { key: string; name?: string | null; allowed: boolean; accessible?: boolean };
 type AccessGroup = { key: string; label: string; description: string };
@@ -75,7 +75,6 @@ type ChannelKey = keyof TeamPolicy["radar"]["requiredChannels"];
 type SellerVisKey = "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewSellerNetwork" | "sellerCanViewLimits";
 
 const LIMIT_LABELS: Array<[LimitKey, string]> = [
-  ["enrichmentDaily", "Enriquecimentos/dia"],
   ["cardDeliveryDaily", "Cards/Vendas por dia"],
   ["activeCards", "Cards ativos"],
   ["monthlyCards", "Cards por mês"],
@@ -105,7 +104,6 @@ const SELLER_VIS_LABELS: Array<[SellerVisKey, string]> = [
 ];
 
 const EMPTY_LIMIT_DRAFT: LimitDraft = {
-  enrichmentDaily: { mode: "inherit", value: "" },
   cardDeliveryDaily: { mode: "inherit", value: "" },
   activeCards: { mode: "inherit", value: "" },
   monthlyCards: { mode: "inherit", value: "" },
@@ -378,14 +376,14 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
       {/* Módulos */}
       <section className="tp-sec">
         <h4>Módulos</h4>
-        <p className="tp-desc">Entrada geral nos módulos da empresa. Cinza/desligado = fora do plano da empresa.</p>
+        <p className="tp-desc">Entrada geral nos módulos da empresa. Cinza/desligado = módulo desligado para a empresa.</p>
         <div className="tp-mods">
           {policy.modules.map((m) => {
             const on = Boolean(moduleDraft[m.key]);
             const blocked = m.accessible === false;
             return (
               <button key={m.key} type="button" className={"tp-chip" + (on ? " on" : "")} disabled={dis || blocked}
-                title={blocked ? "Módulo fora do plano da empresa" : "Alternar módulo"}
+                title={blocked ? "Módulo desligado para a empresa" : "Alternar módulo"}
                 onClick={() => setModuleDraft((d) => ({ ...d, [m.key]: !on }))}>
                 {moduleLabel(m.key, m.name)} <span className="st">{on ? "ON" : "OFF"}</span>
               </button>
@@ -591,7 +589,7 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
       {/* Limites */}
       <section className="tp-sec">
         <h4>Limites operacionais</h4>
-        <p className="tp-desc">“Herdar” usa o teto do plano. {canUseUnlimited ? "Ilimitado disponível (Master)." : "Ilimitado é exclusivo do Master."}</p>
+        <p className="tp-desc">“Usar padrão” mantém a política operacional da empresa. {canUseUnlimited ? "Ilimitado disponível (Master)." : "Ilimitado é exclusivo do Master."}</p>
         {LIMIT_LABELS.map(([key, label]) => {
           const draft = limits[key];
           return (
@@ -599,7 +597,7 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
               <div className="nm"><b>{label}</b><small>Atual: {formatLimit(policy.limits[key])}</small></div>
               <select className="field-dark" value={draft.mode} disabled={dis}
                 onChange={(e) => setLimits((c) => ({ ...c, [key]: { ...c[key], mode: e.target.value as LimitMode } }))}>
-                <option value="inherit">Herdar plano</option>
+                <option value="inherit">Usar padrão</option>
                 <option value="limited">Limitar</option>
                 <option value="blocked">Bloquear</option>
                 {canUseUnlimited && <option value="unlimited">Ilimitado</option>}

@@ -19,7 +19,7 @@ import {
   isCommercialPlanPaused,
 } from './commercial-plan-catalog';
 
-test('HBX commercial catalog exposes package prices and quotas', () => {
+test('HBX commercial catalog preserva preços, mas capacidades e envelope são universais', () => {
   assert.equal(COMMERCIAL_PRICING.liteMonthly, 49.00);
   assert.equal(COMMERCIAL_PRICING.padraoMonthly, 99.00);
   assert.equal(COMMERCIAL_PRICING.proMonthly, 249.00);
@@ -39,12 +39,12 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(lite?.includedUsers, 1);
   assert.equal(lite?.extraUserMonthlyPrice, 0);
   assert.equal(lite?.requiresCheckout, false);
-  assert.equal(lite?.quotas?.googleSearchesPerDay, 0);
-  assert.equal(lite?.quotas?.cardsPerMonth, 880);
-  assert.equal(lite?.quotas?.dailyCardSafetyLimit, 50);
-  assert.equal(lite?.quotas?.cardsPerSearch, 50);
-  assert.equal(lite?.quotas?.searchesPerCycle, 3);
-  assert.equal(lite?.quotas?.totalCards, 880);
+  assert.equal(lite?.quotas?.googleSearchesPerDay, 6);
+  assert.equal(lite?.quotas?.cardsPerMonth, 999999);
+  assert.equal(lite?.quotas?.dailyCardSafetyLimit, 999999);
+  assert.equal(lite?.quotas?.cardsPerSearch, 999999);
+  assert.equal(lite?.quotas?.searchesPerCycle, 999999);
+  assert.equal(lite?.quotas?.totalCards, 999999);
 
   const fullCatalog = buildCommercialPlansCatalog({ includeHidden: true });
   const padrao = fullCatalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PADRAO);
@@ -55,9 +55,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(padrao?.recommended, true);
   assert.equal(padrao?.includedUsers, 2);
   assert.equal(padrao?.extraUserMonthlyPrice, 24.90);
-  assert.equal(padrao?.quotas?.googleSearchesPerDay, 2);
-  assert.equal(padrao?.quotas?.cardsPerMonth, 2200);
-  assert.equal(padrao?.quotas?.dailyCardSafetyLimit, 100);
+  assert.deepEqual(padrao?.quotas, lite?.quotas);
 
   const pro = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PRO);
   assert.equal(pro?.title, 'HBX Pro');
@@ -65,7 +63,7 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(pro?.trialDays, 0);
   assert.equal(pro?.includedUsers, 3);
   assert.equal(pro?.requiresAssistedSetup, false);
-  assert.equal(pro?.quotas?.cardsPerMonth, 3500);
+  assert.deepEqual(pro?.quotas, lite?.quotas);
 
   const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
   assert.equal(melhor?.title, 'Implantação');
@@ -76,12 +74,11 @@ test('HBX commercial catalog exposes package prices and quotas', () => {
   assert.equal(melhor?.trialDays, 0);
   assert.equal(melhor?.includedUsers, 5);
   assert.equal(melhor?.extraUserMonthlyPrice, 24.90);
-  assert.equal(melhor?.requiresAssistedSetup, true);
+  assert.equal(melhor?.requiresAssistedSetup, false);
   assert.equal(melhor?.setupFeeMode, 'negotiated');
   assert.equal(melhor?.requiresCheckout, false);
-  assert.equal(melhor?.quotas?.googleSearchesPerDay, 6);
-  assert.equal(melhor?.quotas?.cardsPerMonth, 5000);
-  assert.equal(melhor?.quotas?.dailyCardSafetyLimit, 250);
+  assert.deepEqual(melhor?.quotas, lite?.quotas);
+  assert.deepEqual(melhor?.features, lite?.features);
 });
 
 test('Self-Checkout (F2): overlay editável reflete nos getters e na vitrine', () => {

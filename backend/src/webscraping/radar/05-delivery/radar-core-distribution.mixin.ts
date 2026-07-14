@@ -678,6 +678,65 @@ export class RadarCoreDistributionMixin {
     } as RadarFiltersInput;
   }
 
+  /**
+   * Distribuição automática não é um checkout. Ela só pode mover para Vendas
+   * cards que já foram adquiridos pelo tenant em uma claim explícita anterior.
+   * Leads livres nunca entram nesta consulta e não há reposição por busca.
+   */
+  private async queryOwnedRadarRowsForAutoDistribution(
+    companyId: number,
+    filters: NormalizedRadarFilters,
+    limit: number,
+  ) {
+    const readLimit = Math.min(300, Math.max(1, Math.trunc(Number(limit || 1) || 1)));
+    const baseWhere = this.buildRadarWhere(filters, null, {
+      includeHidden: true,
+      ownershipEnabled: false,
+      requirePhone: false,
+    });
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where: {
+        AND: [
+          baseWhere,
+          { ownerCompanyId: companyId },
+          { status: { notIn: [...RADAR_PROTECTED_STATUSES, 'sent_to_vendas', 'rejected', 'duplicate'] } },
+          {
+            companyStates: {
+              none: {
+                companyId,
+                OR: [
+                  { vendasLeadId: { not: null } },
+                  { status: { in: ['sent_to_vendas', 'imported_to_vendas'] } },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      orderBy: [
+        { opportunityScore: 'desc' },
+        { reviews: 'desc' },
+        { rating: 'desc' },
+        { lastSeenAt: 'desc' },
+      ],
+      take: Math.min(readLimit * 4, 1000),
+      include: {
+        contacts: { orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }] },
+        companyStates: { where: { companyId }, take: 1 },
+        events: {
+          where: { OR: [{ companyId }, { companyId: null }] },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+        },
+      },
+    }).catch(() => []);
+    const filtered = this.filterRadarRowsInMemory(rows, filters);
+    const qualityWeighted = await this.attachSourceQualityPenalty(filtered);
+    return this.sortRadarRowsByCommercialPriority(
+      this.dedupeRadarRows(this.filterRowsByLeadQuality(qualityWeighted, filters)),
+    ).slice(0, readLimit);
+  }
+
   private async executeRadarAutoDistributionRule(
     user: any,
     rule: any,
@@ -832,7 +891,10 @@ export class RadarCoreDistributionMixin {
       }
     }
 
-    let replenish: any = null;
+    const replenish = {
+      ran: false,
+      reason: 'purchase_requires_explicit_claim',
+    };
     const assignments: Array<{
       radarLeadId: string;
       vendasLeadId?: string | null;
@@ -852,28 +914,11 @@ export class RadarCoreDistributionMixin {
         queue.flatMap((recipient) => recipient.preferredSegments || []),
       ));
       const filters = this.normalizeRadarFilters(this.buildRadarAutoDistributionFilterInput(rule, queue.length, queueSegments));
-      let rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
-        limit: Math.min(300, Math.max(queue.length * 3, queue.length, 30)),
-        requirePhone: false,
-        availableOnly: true,
-      });
-      if (rows.length < queue.length) {
-        try {
-          replenish = await this.replenishRadarStockForUser(user, this.buildRadarAutoDistributionFilterInput(rule, queue.length));
-        } catch (error: any) {
-          replenish = {
-            ran: true,
-            reason: 'replenish_failed_using_database',
-            errorMessage: this.extractHbxErrorMessage(error),
-          };
-          this.logger.warn(`[radar-auto-distribution] reposicao falhou company=${context.companyId}: ${String(error?.message || error)}`);
-        }
-        rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
-          limit: Math.min(300, Math.max(queue.length * 4, queue.length, 30)),
-          requirePhone: false,
-          availableOnly: true,
-        });
-      }
+      const rows = await this.queryOwnedRadarRowsForAutoDistribution(
+        context.companyId,
+        filters,
+        Math.min(300, Math.max(queue.length * 4, queue.length, 30)),
+      );
 
       // VENDAS-REFAB S2: a fila (`queue`) tem 1 slot por card-a-entregar, na ordem
       // round-robin dos recipients — mas o CARD que cada slot recebe agora é
@@ -903,7 +948,8 @@ export class RadarCoreDistributionMixin {
         try {
           const imported = await this.importRadarLeadToVendasForUser(user, row.id, {
             skipWhatsappValidation: true,
-            debitOnImport: true,
+            debitOnImport: false,
+            transferAlreadyOwnedWithoutDebit: true,
             assignedUserId: target.assignedUserId,
             assignedByUserId: target.assignedUserId ? context.userId : null,
           });
@@ -949,7 +995,7 @@ export class RadarCoreDistributionMixin {
     const dailyBlockedCount = recipients.filter((recipient) => recipient.noDeliveryReason).length;
     const message = deliveredCount > 0
       ? blockedByLimit
-        ? `${deliveredCount} card(s) distribuídos. Parei porque o limite do plano foi atingido.`
+        ? `${deliveredCount} card(s) distribuídos. A capacidade operacional configurada foi atingida.`
         : shortageCount > 0
           ? `${deliveredCount} card(s) distribuídos. Ainda faltam ${shortageCount} para completar todos os estoques.`
           : `${deliveredCount} card(s) distribuídos automaticamente.`
@@ -958,8 +1004,8 @@ export class RadarCoreDistributionMixin {
           ? 'Distribuição sem entrega: vendedor(es) bloqueados por limite diário ou território.'
           : 'Todos os vendedores já estão no estoque configurado.'
         : blockedByLimit
-          ? 'Distribuição automática pausada pelo limite do plano.'
-          : 'Sem cards disponíveis agora para essa regra. O robô tentará novamente.';
+          ? 'Distribuição automática pausada pela capacidade operacional configurada.'
+          : 'Sem cards já adquiridos disponíveis. Novas compras exigem uma puxada explícita na tela.';
 
     return {
       ok: true,

@@ -2475,35 +2475,6 @@ test('registerAttemptForUser requires timeline access before loading the card', 
   assert.equal(findFirstCalls, 0);
 });
 
-test('enrichLeadForUser requires manual enrichment access before loading the card', async () => {
-  let findFirstCalls = 0;
-  const { service } = createService({
-    prisma: {
-      userTeamPolicy: {
-        findUnique: async () => buildRuntimePolicy({
-          access: { 'radar.enrichment.manual': false },
-        }),
-      },
-    },
-    vendasLead: {
-      findFirst: async () => {
-        findFirstCalls += 1;
-        return null;
-      },
-    },
-  });
-
-  await assert.rejects(
-    () => service.enrichLeadForUser(
-      { companyId: 7, id: 99, role: 'USER' },
-      'lead-1',
-    ),
-    /enriquecer card manualmente bloqueado/i,
-  );
-
-  assert.equal(findFirstCalls, 0);
-});
-
 test('buildPresentationEmailDraftForUser requires email access before loading the card', async () => {
   let findFirstCalls = 0;
   const { service } = createService({

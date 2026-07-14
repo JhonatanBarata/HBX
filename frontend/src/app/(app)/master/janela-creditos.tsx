@@ -103,7 +103,7 @@ type GlobalConfig = {
   dailyDeliveryCapDefault?: number;
 };
 
-// Catálogo de ações: todas são editáveis e só existem os modos Grátis/Débito.
+// A entrega de lead é fixa em 1 crédito; as demais ações podem usar Grátis/Débito.
 type CreditActionMode = "free" | "debit";
 
 type CreditActionItem = {
@@ -754,26 +754,36 @@ export function JanelaCreditos({ companies, reload }: {
                         </div>
                       </td>
                       <td>
-                        <select className="field-dark" value={form.mode}
-                          onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, mode: e.target.value as CreditActionMode, cost: e.target.value === "free" ? "0" : form.cost } }))}>
-                          {MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </select>
+                        {isLead ? (
+                          <span className="tag teal">Débito obrigatório</span>
+                        ) : (
+                          <select className="field-dark" value={form.mode}
+                            onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, mode: e.target.value as CreditActionMode, cost: e.target.value === "free" ? "0" : form.cost } }))}>
+                            {MODE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                        )}
                       </td>
                       <td>
-                        <input className="field-dark" style={{ maxWidth: 96 }} type="number" min={0} max={1000} step={0.1}
-                          disabled={form.mode === "free"} value={form.mode === "free" ? "0" : form.cost}
-                          onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, cost: e.target.value } }))} />
+                        {isLead ? (
+                          <strong>1 crédito</strong>
+                        ) : (
+                          <input className="field-dark" style={{ maxWidth: 96 }} type="number" min={0} max={1000} step={0.1}
+                            disabled={form.mode === "free"} value={form.mode === "free" ? "0" : form.cost}
+                            onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, cost: e.target.value } }))} />
+                        )}
                       </td>
                       <td>
-                        <span className={a.override ? "tag teal" : "tag"}>{a.override ? "editado" : "padrão"}</span>
+                        <span className={isLead || !a.override ? "tag" : "tag teal"}>{isLead ? "fixo" : a.override ? "editado" : "padrão"}</span>
                       </td>
                       <td>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
-                            onClick={() => salvarAcao(a.actionKey)}>{busy ? "…" : "Salvar"}</button>
-                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !a.override}
-                            onClick={() => restaurarAcao(a.actionKey)}>Restaurar padrão</button>
-                        </div>
+                        {!isLead && (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
+                              onClick={() => salvarAcao(a.actionKey)}>{busy ? "…" : "Salvar"}</button>
+                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !a.override}
+                              onClick={() => restaurarAcao(a.actionKey)}>Restaurar padrão</button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

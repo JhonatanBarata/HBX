@@ -32,6 +32,7 @@ import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
+import type { LeadContactRecord } from "@/components/hbx/lead-contact-list";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { stampOnboardingEvent } from "@/lib/onboarding";
 import { isTenantAdmin } from "@/lib/roles";
@@ -140,7 +141,8 @@ type StatusCardLead = {
   setupValueLabel: string | null;
   setupCommissionValueLabel: string | null;
   updatedAt: string | null;
-  // Empresa + dono + multi-contatos (do RadarLeadPool ligado). Telefone extra só exibe se WhatsApp-confirmado.
+  // Empresa + dono + multi-contatos (do RadarLeadPool ligado). Todos os contatos
+  // válidos são visíveis; a confirmação controla somente a ação de WhatsApp.
   cnpj?: string | null;
   cnae?: string | null;
   razaoSocial?: string | null;
@@ -152,6 +154,8 @@ type StatusCardLead = {
   companySituation?: string | null;
   emails?: string[] | null;
   phones?: string[] | null;
+  phoneContacts?: LeadContactRecord[] | null;
+  emailContacts?: LeadContactRecord[] | null;
   phonesWhatsapp?: Record<string, boolean> | null;
   // HOT-07 (empresa recém-aberta): badge de urgência. Opcional.
   isFreshCompany?: boolean | null;
@@ -2494,7 +2498,8 @@ export function AtendimentoClient() {
                 // Email: lead tem email completo; fallback pro contato do WhatsApp
                 email: card?.lead?.email || convo.customer?.email || null,
                 website: card?.lead?.website ?? null,
-                // Empresa + dono + multi-contatos (telefone extra só exibe se WhatsApp-confirmado, via phonesWhatsapp)
+                // Empresa + dono + multi-contatos. O mapa de WhatsApp controla
+                // apenas o botão; telefone fixo/secundário continua visível.
                 cnpj: card?.lead?.cnpj ?? null,
                 cnae: card?.lead?.cnae ?? null,
                 razaoSocial: card?.lead?.razaoSocial ?? null,
@@ -2506,6 +2511,8 @@ export function AtendimentoClient() {
                 companySituation: card?.lead?.companySituation ?? null,
                 emails: card?.lead?.emails ?? null,
                 phones: card?.lead?.phones ?? null,
+                phoneContacts: card?.lead?.phoneContacts ?? null,
+                emailContacts: card?.lead?.emailContacts ?? null,
                 phonesWhatsapp: card?.lead?.phonesWhatsapp ?? null,
                 isFreshCompany: card?.lead?.isFreshCompany ?? null,
                 daysSinceOpened: card?.lead?.daysSinceOpened ?? null,

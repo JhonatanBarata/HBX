@@ -22,6 +22,9 @@ import {
 } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { LeadCockpitModal } from "@/components/hbx/lead-cockpit-modal";
+import type { LeadContactRecord } from "@/components/hbx/lead-contact-list";
+import { summarizeLeadContacts } from "@/components/hbx/lead-contact-summary";
+import { whatsappIsExplicitlyConfirmed } from "@/components/hbx/lead-contact-verification";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
@@ -52,6 +55,8 @@ export type VendasLead = {
   companySituation?: string | null;
   emails?: string[] | null;
   phones?: string[] | null;
+  phoneContacts?: LeadContactRecord[] | null;
+  emailContacts?: LeadContactRecord[] | null;
   phonesWhatsapp?: Record<string, boolean> | null;
   city: string | null;
   state: string | null;
@@ -418,8 +423,8 @@ export function VendasClient() {
   const [buscarMounted, setBuscarMounted] = useState(false);
   // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
   // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
-  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }>(
-    { totalBrasil: null, disponiveis: null, cotaLabel: "Cota do mês", cotaValue: "—", cotaPct: 0 });
+  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; recorte: number | null; sellerQuotaValue: string | null }>(
+    { totalBrasil: null, disponiveis: null, recorte: null, sellerQuotaValue: null });
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
@@ -536,7 +541,8 @@ export function VendasClient() {
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       try {
-        if (sessionStorage.getItem("hbx:vendas-modo") === "buscar") {
+        const queryMode = new URLSearchParams(window.location.search).get("modo");
+        if (queryMode === "buscar" || sessionStorage.getItem("hbx:vendas-modo") === "buscar") {
           sessionStorage.removeItem("hbx:vendas-modo");
           setBuscarMounted(true);
           setModo("buscar");
@@ -947,6 +953,8 @@ export function VendasClient() {
       companySituation: d.companySituation ?? null,
       emails: d.emails ?? null,
       phones: d.phones ?? null,
+      phoneContacts: d.phoneContacts ?? null,
+      emailContacts: d.emailContacts ?? null,
       phonesWhatsapp: d.phonesWhatsapp ?? null,
       address: d.address ?? null,
       city: d.city,
@@ -1078,6 +1086,10 @@ export function VendasClient() {
 
   const summary = board?.summary;
   const deal = sel;
+  const dealWhatsappConfirmed = Boolean(deal && whatsappIsExplicitlyConfirmed(
+    { value: deal.phone, whatsappStatus: deal.leadIntelligence?.whatsappStatus },
+    deal.phonesWhatsapp || {},
+  ));
 
   // 2 botões acoplados (toggle de modo) — vivem no topo persistente da casca ÚNICA,
   // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
@@ -1102,7 +1114,7 @@ export function VendasClient() {
     <React.Fragment>
         <div className="vnd-modehost" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
 
-          {/* TOPO — UMA casca: toggle + 3 cards. Os NÚMEROS trocam por modo
+          {/* TOPO — UMA casca: toggle + KPIs. Os NÚMEROS trocam por modo
               (funil ↔ Radar) em crossfade no MESMO lugar; nada desliza. 29/06. */}
           <div className="vnd-funhead">
             {segToggle}
@@ -1119,17 +1131,13 @@ export function VendasClient() {
               </div>
               <div className={"vnd-stats__layer" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
                 <KpiRow items={[
-                  { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
-                  { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
-                  // Cota/valor/baixa só pro ADMIN — vendedor vê só a carteira dele (o
-                  // /webscraping/radar/standing-order label já vem "Em mãos" pro seller;
-                  // aqui a gente reforça no front pra nunca vazar rótulo/valor de cota
-                  // financeira da empresa por engano num futuro contrato do backend).
-                  // dataTut "leads-cota": âncora REAL do passo "Seu limite" do tour do
-                  // Radar (a âncora antiga morreu no redesign — reancorada aqui, 10/07).
-                  isSellerVnd
-                    ? { icon: "bolt", label: "Em mãos", value: buscarStats.cotaValue || "—", delta: "—", dataTut: "leads-cota" }
-                    : { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—", dataTut: "leads-cota" },
+                  { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "RFB + exclusivos do motor" },
+                  { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: buscarStats.recorte != null ? `Recorte atual: ${buscarStats.recorte.toLocaleString("pt-BR")}` : "Recorte atual: —" },
+                  // Limite de cards ativos é operacional e existe só para vendedor.
+                  // Administradores não recebem medidor mensal ou cota por plano.
+                  ...(isSellerVnd
+                    ? [{ icon: "bolt", label: "Em mãos", value: buscarStats.sellerQuotaValue || "—", delta: "—", dataTut: "leads-cota" }]
+                    : []),
                 ]} />
               </div>
             </div>
@@ -1277,6 +1285,7 @@ export function VendasClient() {
                         return flatLeads.map(card => {
                           const tagCls = card.block === "overdue" ? "tag warn" : card.block === "closed" ? "tag teal" : "tag";
                           const engagement = vendasEngagementMeta(card.engagement, card.conversation);
+                          const contactSummary = summarizeLeadContacts(card);
                           return (
                             <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}
                               onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}>
@@ -1284,7 +1293,7 @@ export function VendasClient() {
                                 <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
                                   aria-label={`Selecionar ${card.name || "card"}`} />
                               </td>
-                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}<RadarAiBadge status={aiStatusMap[card.id]} /></div></td>
+                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}{contactSummary.total > 0 ? <span className="lead-contact-summary"><span><b>Principal</b> · {contactSummary.primary}</span>{contactSummary.extra > 0 ? <small>+{contactSummary.extra} contatos</small> : null}</span> : null}<RadarAiBadge status={aiStatusMap[card.id]} /></div></td>
                               <td>{card.segment || "—"}</td>
                               <td>
                                 <span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>
@@ -1348,6 +1357,7 @@ export function VendasClient() {
                               const ag = agendaInfo(card);
                               const therm = deriveTermometro(card);
                               const engagement = vendasEngagementMeta(card.engagement, card.conversation);
+                              const contactSummary = summarizeLeadContacts(card);
                               return (
                                 <article
                                   key={card.id}
@@ -1364,6 +1374,7 @@ export function VendasClient() {
                                     {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
                                   </div>
                                   <span className="vnd-card__sub">{card.segment || card.city || card.phone || "—"}</span>
+                                  {contactSummary.total > 0 ? <span className="lead-contact-summary"><span><b>Principal</b> · {contactSummary.primary}</span>{contactSummary.extra > 0 ? <small>+{contactSummary.extra} contatos</small> : null}</span> : null}
                                   <RadarAiBadge status={aiStatusMap[card.id]} />
                                   <div className="vnd-card__row">
                                     <Termometro score={therm.score} why={therm.why} />
@@ -1400,8 +1411,8 @@ export function VendasClient() {
                 conversationLeadId={deal?.id ?? null}
                 onConversationChanged={loadBoard}
                 crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.id]} /> : undefined}
-                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
-                onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno(deal) : undefined}
+                onWaOpenExternal={deal?.phone && dealWhatsappConfirmed ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
+                onWaOpenInternal={deal?.phone && dealWhatsappConfirmed ? () => abrirWhatsAppInterno(deal) : undefined}
                 waQrActive={waQrActive}
                 waCanInternal={canAtendimento}
                 onDelete={deal ? () => { setAcaoMsg(null); setExcluirMotivoOpen("card"); } : undefined}
@@ -1701,7 +1712,7 @@ export function VendasClient() {
                 <div className="retorno-mode">
                   <span className="lbl">Tipo de retorno</span>
                   <div className="radios">
-                    {(["manual", ...(sel.email ? ["auto_email"] : []), ...(sel.phone ? ["auto_whatsapp"] : []), ...(sel.email && sel.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
+                    {(["manual", ...(sel.email ? ["auto_email"] : []), ...(dealWhatsappConfirmed ? ["auto_whatsapp"] : []), ...(sel.email && dealWhatsappConfirmed ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
                       const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
                       return (
                         <label key={mode} className="radio-lbl">

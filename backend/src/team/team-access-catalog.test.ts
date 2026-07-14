@@ -39,7 +39,6 @@ const ENFORCEMENT_DEBT: Record<string, string> = {
   'radar.filters.useStates': 'restricao de filtro por estado nao implementada',
 
   // --- Acao operacional/leitura ainda sem write-path com actor disponivel ---
-  'radar.enrichment.auto': 'enriquecimento automatico e disparado por rotina/cron sem usuario; sem toggle manual por usuario',
   'vendas.complaints.view': 'leitura de reclamacoes ainda sem gate por politica no service de vendas',
   'sellerNetwork.viewReferrals': 'listagem de indicacoes recebe Pick<User> estreito (sem id/isSystemMaster); leitura, baixo risco',
   'sellerNetwork.receiveInheritedCommission': 'vinculo de heranca configurado no cadastro do usuario, sem write-path proprio',

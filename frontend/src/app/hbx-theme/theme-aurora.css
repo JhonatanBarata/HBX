@@ -38,8 +38,8 @@
 
 /* ---- Bloco A · ESCURO ---- */
 [data-theme="aurora"][data-theme-mode="dark"] {
-  --hbx-brand: #8B5CF6; --hbx-brand-strong: #22D3EE; --hbx-brand-soft: #2A1A56; --hbx-brand-contrast: #F4F0FF;
-  --hbx-primary: #8B5CF6; --hbx-secondary: #22D3EE; --hbx-success: #2DD4BF; --hbx-accent: #E879F9;
+  --hbx-brand: #A78BFA; --hbx-brand-strong: #22D3EE; --hbx-brand-soft: #2A1A56; --hbx-brand-contrast: #F4F0FF;
+  --hbx-primary: #A78BFA; --hbx-secondary: #22D3EE; --hbx-success: #2DD4BF; --hbx-accent: #E879F9;
   --hbx-info: #38BDF8; --hbx-warning: #FBBF24; --hbx-danger: #F472B6; --hbx-danger-soft: #3A1D2E;
   --hbx-background: #0B0620; --hbx-background-alt: #120A30;
   --hbx-surface: #170E38; --hbx-surface-soft: #1C1244; --hbx-surface-raised: #251853;

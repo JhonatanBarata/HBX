@@ -9,17 +9,15 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // A família de bugs caros (pump moendo cidade esgotada, lease órfão → deadlock todos-busy, Parar que
 // não para, demanda falsa religando motor) era toda sintoma da fila improvisada.
 
-// `enrich_lead` (F2, 02/07): missão da FÁBRICA DE ENRIQUECIMENTO. Diferente das etapas da lane de
-// pesquisa (alvo→…→card), ela pega um lead JÁ existente na base (materializado da lista RFB local) e
-// completa contato/site/social/sócio — SEMPRE grátis no local (trava Lei nº1), sempre via
-// LeadContactWriteService (gate anti-alucinação). Ver RadarFabricaService.
+// `enrich_lead`: missão de um lead já existente, consumida exclusivamente pela ponte do HBX Owner
+// local e aplicada via LeadContactWriteService. Não existe executor da Night Factory no VPS.
 // `xray_note` (CHIP E1, 05/07): missão de NOTA ICP + resumo do raio-x, processada pela PONTE no 30B
 // local (o T1 provou que o 30B RANQUEIA a nota — sai do interino 4b/7b da VPS). A nota grava no lead
 // via o caminho de aplicação de resultado (MissionResultApplyService), nunca direto pelo worker.
 export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead', 'xray_note'] as const;
 export type RadarMissionStage = (typeof RADAR_MISSION_STAGES)[number];
 
-/** Estágios que a PONTE (worker local do 30B) processa por lease/HTTP. Os demais são da fábrica in-process. */
+/** Estágios que a PONTE (worker local do 30B) processa por lease/HTTP. */
 export const PONTE_MISSION_STAGES: readonly RadarMissionStage[] = ['enrich_lead', 'xray_note'];
 
 export const RADAR_MISSION_PAYLOAD_VERSION = 1;
