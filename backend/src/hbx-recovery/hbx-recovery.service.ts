@@ -933,6 +933,10 @@ export class HbxRecoveryService {
     return {
       companyId,
       channel: { notIn: RECOVERY_INTERNAL_CHANNELS },
+      // Tabelas antigas guardaram configurações de outros bots como "etapas"
+      // com canais mágicos __...__. Elas não podem impedir a criação nem entrar
+      // na execução da régua financeira canônica.
+      NOT: { channel: { startsWith: '__' } },
     };
   }
 

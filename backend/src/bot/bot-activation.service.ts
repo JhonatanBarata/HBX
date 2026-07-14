@@ -129,6 +129,7 @@ export class BotActivationService {
               channel: {
                 notIn: [RECOVERY_BOT_CONFIG_CHANNEL, 'HBX_RECOVERY_META_TEMPLATES'],
               },
+              NOT: { channel: { startsWith: '__' } },
             },
             select: { id: true },
           });
