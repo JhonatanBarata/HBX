@@ -526,10 +526,10 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     });
     const debited = rows
       .filter((row) => row.kind === 'debit' && row.usageKey === claim.debitUsageKey)
-      .reduce((sum, row) => sum + row.amount, 0);
+      .reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const refunded = rows
       .filter((row) => row.kind === 'refund' && row.usageKey === `refund:${claim.debitUsageKey}`)
-      .reduce((sum, row) => sum + row.amount, 0);
+      .reduce((sum, row) => sum + Number(row.amount || 0), 0);
     const status = refunded >= debited && debited > 0 ? 'REFUNDED' : debited >= 1 ? 'DEBITED' : claim.status;
     if (status === claim.status) return claim;
     const now = new Date();

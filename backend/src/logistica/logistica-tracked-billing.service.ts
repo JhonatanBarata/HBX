@@ -632,7 +632,7 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
     const debits = (await (this.prisma as any).creditLedgerEntry.findMany({
       where: { companyId, usageKey, kind: 'debit' },
       select: { amount: true, parentEntryId: true },
-    })) as Array<{ amount: number; parentEntryId: string | null }>;
+    })) as Array<{ amount: unknown; parentEntryId: string | null }>;
     const parentIds = Array.from(new Set(debits.map((row) => row.parentEntryId).filter(Boolean))) as string[];
     if (parentIds.length === 0) return 0;
     const lots = (await (this.prisma as any).creditLedgerEntry.findMany({
@@ -640,14 +640,17 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
       select: { id: true, grantType: true },
     })) as Array<{ id: string; grantType: string | null }>;
     const paid = new Set(lots.filter((lot) => lot.grantType === 'paid').map((lot) => lot.id));
-    return debits.reduce((sum, row) => sum + (row.parentEntryId && paid.has(row.parentEntryId) ? row.amount : 0), 0);
+    return debits.reduce(
+      (sum, row) => sum + (row.parentEntryId && paid.has(row.parentEntryId) ? Number(row.amount || 0) : 0),
+      0,
+    );
   }
 
   private async debitedCreditsForUsage(companyId: number, usageKey: string): Promise<number> {
     const rows = (await (this.prisma as any).creditLedgerEntry.findMany({
       where: { companyId, usageKey, kind: 'debit' },
       select: { amount: true },
-    })) as Array<{ amount: number }>;
+    })) as Array<{ amount: unknown }>;
     return rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
   }
 
