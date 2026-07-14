@@ -1556,14 +1556,13 @@ export function VendasClient() {
                   </span>
                 </div>
               </div>
-              <p className="text-ink-muted" style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5 }}>
+              <p className="muted-note">
                 Responde mensagens recebidas e não ocupa a automação comercial ativa do lead.
               </p>
               <button className="btn-ghost" onClick={() => { setProspOpen(false); router.push("/assistente"); }}>
                 Configurar assistente
               </button>
             </div>
-            <div style={{ height: 1, background: "var(--border-hairline)" }} />
             <div className="field-label">Bot de prospecção</div>
             {prospError && (
               <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)" }}>{prospError}</div>
