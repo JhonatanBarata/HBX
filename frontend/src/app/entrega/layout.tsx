@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
 import { EntregaSkinGate } from "./entrega-skin-gate";
-import "./mobile-layout-fixes.css";
 
 // ================================================================
 // SHELL DO APP DE ENTREGA (LOGISTICA-MOBILE M1)
