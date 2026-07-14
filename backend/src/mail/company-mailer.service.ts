@@ -16,9 +16,13 @@ type CompanyMailMessage = {
   text: string;
   html?: string | null;
   attachments?: MailAttachment[];
+  // Automações não podem tentar outro transporte após um resultado SMTP
+  // incerto, pois isso pode duplicar a mensagem já aceita pelo provedor.
+  disableTransportFallback?: boolean;
 };
 
 export const COMPANY_EMAIL_NOT_CONFIGURED = 'COMPANY_EMAIL_NOT_CONFIGURED';
+export const COMPANY_EMAIL_RECIPIENT_REJECTED = 'COMPANY_EMAIL_RECIPIENT_REJECTED';
 
 @Injectable()
 export class CompanyMailerService {
@@ -58,7 +62,7 @@ export class CompanyMailerService {
 
     if (await this.settingsService.isHbxSharedCompany(companyId)) {
       // único privilégio do HBX admin: o transporte do Master
-      return this.mailService.sendMail({
+      const result = await this.mailService.sendMail({
         to: message.to,
         cc: message.cc || undefined,
         replyTo: message.replyTo || undefined,
@@ -66,7 +70,18 @@ export class CompanyMailerService {
         text: message.text,
         html: message.html || undefined,
         attachments: message.attachments,
+        disableTransportFallback: message.disableTransportFallback,
       });
+      if (result.ok && result.accepted.length === 0 && result.rejected.length > 0) {
+        return {
+          ...result,
+          ok: false,
+          queued: false,
+          errorCode: COMPANY_EMAIL_RECIPIENT_REJECTED,
+          errorMessage: 'O provedor recusou o destinatário.',
+        };
+      }
+      return result;
     }
 
     const pass = this.settingsService.decryptPass(settings);
@@ -83,10 +98,11 @@ export class CompanyMailerService {
       if (basePort !== 587) ports.push(587);
     }
     const attempts = Array.from(new Set(ports)).filter((port) => port > 0);
+    const effectiveAttempts = message.disableTransportFallback ? attempts.slice(0, 1) : attempts;
 
     let lastError: unknown = null;
-    for (let index = 0; index < attempts.length; index += 1) {
-      const port = attempts[index];
+    for (let index = 0; index < effectiveAttempts.length; index += 1) {
+      const port = effectiveAttempts[index];
       const transporter = nodemailer.createTransport({
         host,
         port,
@@ -118,14 +134,31 @@ export class CompanyMailerService {
         if (index > 0) {
           this.logger.warn(`Company ${companyId} SMTP fallback succeeded via ${host}:${port}`);
         }
+        const accepted = Array.isArray(info?.accepted) ? info.accepted.map((item: unknown) => String(item)) : [];
+        const rejected = Array.isArray(info?.rejected) ? info.rejected.map((item: unknown) => String(item)) : [];
+        if (accepted.length === 0 && rejected.length > 0) {
+          return {
+            ok: false,
+            queued: false,
+            transport: 'smtp',
+            previewUrl: null,
+            messageId: String(info?.messageId || '').trim() || null,
+            accepted,
+            rejected,
+            from: sender.from,
+            replyTo: sender.replyTo,
+            errorCode: COMPANY_EMAIL_RECIPIENT_REJECTED,
+            errorMessage: 'O provedor recusou o destinatário.',
+          };
+        }
         return {
           ok: true,
           queued: true,
           transport: 'smtp',
           previewUrl: null,
           messageId: String(info?.messageId || '').trim() || null,
-          accepted: Array.isArray(info?.accepted) ? info.accepted.map((item: unknown) => String(item)) : [],
-          rejected: Array.isArray(info?.rejected) ? info.rejected.map((item: unknown) => String(item)) : [],
+          accepted,
+          rejected,
           from: sender.from,
           replyTo: sender.replyTo,
           errorCode: null,
@@ -139,7 +172,7 @@ export class CompanyMailerService {
           || messageText.includes('econn')
           || messageText.includes('esocket')
           || messageText.includes('greeting never received');
-        if (index >= attempts.length - 1 || !retryable) {
+        if (index >= effectiveAttempts.length - 1 || !retryable) {
           break;
         }
         this.logger.warn(`Company ${companyId} SMTP attempt ${host}:${port} failed: ${messageText}. Retrying.`);

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>HBX Vendas — Preview Interativo</title>
+<style>
+:root{
+ --brand:#7CCB00;--brand2:#B4EC62;--dark:#0D1725;--ink:#121A25;--muted:#6D7888;--bg:#EDF1EC;--card:#fff;
+ --line:#DDE5DB;--danger:#D84949;--warn:#E69A2E;--blue:#4386D8;--purple:#8B69C8;
+ --shadow:0 18px 50px rgba(22,39,16,.17);--sm:0 7px 20px rgba(23,42,16,.08)
+}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+body{background:radial-gradient(circle at 15% 10%,rgba(124,203,0,.17),transparent 25%),radial-gradient(circle at 90% 85%,rgba(67,134,216,.10),transparent 26%),linear-gradient(145deg,#F2F5F0,#DDE6DA);display:grid;place-items:center;padding:24px}
+button,input{font:inherit}button{cursor:pointer}
+.preview-shell{width:min(100%,430px)}.preview-label{display:flex;justify-content:space-between;margin:0 8px 12px;color:#405039;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}.preview-label span:last-child{font-weight:600;opacity:.65;text-transform:none;letter-spacing:0}
+.phone{height:min(880px,calc(100vh - 72px));min-height:680px;background:var(--bg);border:1px solid rgba(30,54,18,.15);border-radius:34px;overflow:hidden;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column}
+.statusbar{height:28px;background:var(--dark);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:11px;font-weight:800;flex:0 0 auto}
+.status-right{display:flex;align-items:center;gap:6px}.online-dot{width:6px;height:6px;border-radius:50%;background:var(--brand);box-shadow:0 0 8px rgba(124,203,0,.65)}
+.head{height:66px;background:rgba(251,252,250,.92);backdrop-filter:blur(18px);border-bottom:1px solid rgba(33,57,20,.08);padding:0 15px;display:flex;align-items:center;justify-content:space-between;flex:0 0 auto}
+.brand{display:flex;align-items:center;gap:10px}.mark{width:38px;height:38px;border-radius:13px;background:linear-gradient(145deg,var(--brand2),var(--brand));display:grid;place-items:center;color:#2D5100;font-weight:1000;box-shadow:0 8px 18px rgba(124,203,0,.28)}
+.brand strong{display:block;font-size:15px}.brand span{display:block;color:var(--muted);font-size:10px;margin-top:3px}
+.head-actions{display:flex;gap:8px}.icon-btn{width:38px;height:38px;border-radius:13px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;color:var(--ink);position:relative}.badge{position:absolute;right:-3px;top:-3px;background:var(--danger);color:#fff;border:2px solid #fff;border-radius:9px;min-width:17px;height:17px;font-size:9px;display:grid;place-items:center}
+.content{flex:1;overflow:auto;padding:14px 14px 100px;scroll-behavior:smooth}.content::-webkit-scrollbar{width:0}.screen{animation:in .22s ease both}@keyframes in{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.title{display:flex;align-items:flex-end;justify-content:space-between;margin:2px 2px 12px}.title h1{margin:0;font-size:22px;letter-spacing:-.04em}.title p{margin:5px 0 0;color:var(--muted);font-size:11px}.link{border:0;background:none;color:#477B09;font-size:11px;font-weight:900;padding:5px}
+.segment{background:#DDE4D9;border-radius:16px;padding:4px;display:grid;grid-template-columns:1fr 1fr;position:relative;margin-bottom:11px}
+.segment button{height:38px;border:0;border-radius:12px;background:transparent;color:#697462;font-size:11px;font-weight:900;position:relative;z-index:1}.segment button.on{background:#fff;color:#24351A;box-shadow:0 4px 13px rgba(27,49,15,.10)}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.kpi{background:#fff;border:1px solid rgba(43,72,27,.08);border-radius:17px;padding:12px;box-shadow:var(--sm)}.kpi span{display:block;color:var(--muted);font-size:9px;font-weight:800}.kpi strong{display:block;font-size:21px;margin-top:4px;letter-spacing:-.04em}.kpi em{font-style:normal;font-size:9px;font-weight:900;color:#497A11}.kpi.danger em{color:var(--danger)}
+.search{height:45px;border:1px solid var(--line);background:#fff;border-radius:15px;padding:0 12px;display:flex;align-items:center;gap:9px;box-shadow:0 6px 16px rgba(27,49,15,.05);margin-bottom:10px}.search input{border:0;outline:0;background:transparent;min-width:0;flex:1}.search input::placeholder{color:#99A296}
+.stage-tabs{display:flex;gap:7px;overflow:auto;padding:0 1px 10px}.stage-tabs::-webkit-scrollbar{display:none}.stage{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 11px;font-size:10px;font-weight:900;color:#6F7969;white-space:nowrap}.stage.on{background:var(--dark);border-color:var(--dark);color:#fff}
+.section{display:flex;align-items:center;justify-content:space-between;margin:13px 2px 8px}.section strong{font-size:14px}.section span{font-size:10px;color:var(--muted)}
+.lead-list,.conversation-list,.agenda-list,.company-list{display:grid;gap:9px}
+.lead-card,.conv-card,.agenda-card,.company-card,.panel{background:#fff;border:1px solid rgba(43,72,27,.09);border-radius:19px;box-shadow:var(--sm)}
+.lead-card{padding:13px;display:block;width:100%;text-align:left;transition:.14s}.lead-card:active{transform:scale(.995)}
+.lead-top{display:flex;gap:10px;align-items:flex-start}.avatar{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,#E4F5CE,#CDEA9E);display:grid;place-items:center;color:#487C08;font-weight:1000;flex:0 0 auto}.lead-main{flex:1;min-width:0}.lead-main strong{display:block;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lead-main span{display:block;color:var(--muted);font-size:10px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.score{min-width:40px;height:32px;padding:0 8px;border-radius:11px;background:#F0F6E9;color:#4C790D;display:grid;place-items:center;font-size:11px;font-weight:1000}.score.hot{background:#FFF0E2;color:#B65E13}
+.lead-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.chip{padding:6px 8px;border-radius:9px;background:#F3F6F1;color:#5B6854;font-size:9px;font-weight:800}.chip.today{background:#EAF5DD;color:#477B08}.chip.late{background:#FCE9E9;color:#B03939}.chip.warm{background:#FFF1E4;color:#B1641B}
+.next{margin-top:10px;padding:10px 11px;border-radius:13px;background:#F7F9F5;display:flex;align-items:center;gap:8px}.next i{width:28px;height:28px;border-radius:9px;background:#E7F3D9;display:grid;place-items:center;color:#497B0C}.next div{min-width:0;flex:1}.next b{display:block;font-size:10px}.next span{display:block;color:var(--muted);font-size:9px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.quick{display:flex;gap:7px;margin-top:10px}.quick button{height:37px;border:1px solid var(--line);background:#fff;border-radius:12px;flex:1;display:flex;align-items:center;justify-content:center;gap:5px;font-size:9px;font-weight:900}.quick button.primary{background:var(--dark);border-color:var(--dark);color:#fff}
+.pipeline{display:grid;gap:8px}.pipeline-row{background:#fff;border:1px solid var(--line);border-radius:16px;padding:11px;display:flex;align-items:center;gap:10px}.tone{width:8px;height:35px;border-radius:99px;background:var(--brand)}.tone.blue{background:var(--blue)}.tone.orange{background:var(--warn)}.tone.purple{background:var(--purple)}.tone.gray{background:#99A395}.pipeline-row div:nth-child(2){flex:1;min-width:0}.pipeline-row strong{display:block;font-size:12px}.pipeline-row span{font-size:9px;color:var(--muted)}.count{width:30px;height:30px;border-radius:10px;background:#F2F5EF;display:grid;place-items:center;font-weight:1000;font-size:11px}
+.fab{position:absolute;right:18px;bottom:89px;width:56px;height:56px;border:0;border-radius:18px;background:linear-gradient(145deg,var(--brand2),var(--brand));color:#2B4F00;box-shadow:0 15px 28px rgba(84,139,0,.34);z-index:12}
+.nav{position:absolute;left:10px;right:10px;bottom:10px;height:78px;border-radius:24px;background:rgba(253,254,252,.95);backdrop-filter:blur(18px);border:1px solid rgba(49,77,31,.1);box-shadow:0 14px 35px rgba(35,60,20,.16);padding:8px 4px;display:grid;grid-template-columns:repeat(5,1fr);z-index:20}
+.nav button{border:0;background:transparent;border-radius:18px;color:#7A8673;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:8.5px;font-weight:900}.nav button.on{background:linear-gradient(145deg,#DDF4BE,#C8EA98);color:#315900}.nav svg{width:20px;height:20px}
+.hero-search{background:linear-gradient(145deg,#172513,#243B18);color:#fff;border-radius:23px;padding:16px;margin-bottom:11px;position:relative;overflow:hidden;box-shadow:0 16px 32px rgba(22,40,14,.22)}.hero-search:after{content:"";position:absolute;width:170px;height:170px;border-radius:50%;background:rgba(124,203,0,.14);right:-55px;top:-70px}.hero-search h2{font-size:19px;margin:0 0 5px;position:relative;z-index:1}.hero-search p{margin:0 0 13px;color:#CAD7C2;font-size:11px;position:relative;z-index:1}.hero-search .search{position:relative;z-index:1;margin:0;background:rgba(255,255,255,.96)}
+.company-card{padding:13px}.company-head{display:flex;gap:10px}.company-head .avatar{background:linear-gradient(145deg,#E4EEFC,#C7DDF7);color:#356EA6}.company-main{flex:1;min-width:0}.company-main strong{display:block;font-size:13px}.company-main span{display:block;font-size:10px;color:var(--muted);margin-top:4px}.company-info{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}.company-actions{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:11px}.company-actions button{height:40px;border-radius:12px;font-weight:900;border:1px solid var(--line);background:#fff}.company-actions button:first-child{background:var(--dark);color:#fff;border-color:var(--dark)}
+.conv-card,.agenda-card{padding:12px;display:flex;align-items:center;gap:10px;width:100%;text-align:left}.conv-main,.agenda-main{flex:1;min-width:0}.conv-main strong,.agenda-main strong{display:block;font-size:12px}.conv-main span,.agenda-main span{display:block;color:var(--muted);font-size:9px;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.time{font-size:9px;color:var(--muted);align-self:flex-start}.unread{width:19px;height:19px;border-radius:10px;background:var(--brand);display:grid;place-items:center;color:#2C4E00;font-size:9px;font-weight:1000}
+.day-head{font-size:10px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.06em;margin:13px 3px 7px}.agenda-time{width:45px;font-size:10px;font-weight:900;color:#4B5A43}.agenda-status{padding:5px 7px;border-radius:8px;background:#EDF4E7;color:#4B7C10;font-size:8px;font-weight:900}
+.panel{padding:4px 13px}.row{display:flex;align-items:center;gap:11px;padding:13px 0;border-bottom:1px solid #EDF1EA}.row:last-child{border-bottom:0}.row-icon{width:37px;height:37px;border-radius:12px;background:#EEF4E9;display:grid;place-items:center}.row-copy{flex:1}.row-copy strong{display:block;font-size:12px}.row-copy span{display:block;color:var(--muted);font-size:9px;margin-top:3px}.chev{color:#84907C}
+.sheet-wrap,.modal-wrap{position:absolute;inset:0;background:rgba(8,15,8,.44);z-index:40;display:flex;align-items:flex-end;animation:fade .18s}@keyframes fade{from{opacity:0}to{opacity:1}}.sheet{width:100%;max-height:88%;overflow:auto;background:#F7F9F5;border-radius:28px 28px 0 0;padding:12px 15px 27px;box-shadow:0 -20px 60px rgba(0,0,0,.23);animation:sheet .24s}@keyframes sheet{from{transform:translateY(45px);opacity:.7}to{transform:none;opacity:1}}.handle{width:42px;height:5px;border-radius:99px;background:#D4DCCF;margin:0 auto 13px}.sheet-head{display:flex;align-items:center;gap:10px}.sheet-head .avatar{width:52px;height:52px}.sheet-head>div:nth-child(2){flex:1;min-width:0}.sheet-head h3{font-size:17px;margin:0}.sheet-head p{font-size:10px;color:var(--muted);margin:4px 0 0}.close{width:36px;height:36px;border:1px solid var(--line);background:#fff;border-radius:12px;font-size:18px}
+.tabs{display:flex;gap:6px;margin:13px 0 10px;border-bottom:1px solid var(--line);padding-bottom:7px}.tabs button{border:0;background:transparent;border-radius:10px;padding:8px 10px;color:var(--muted);font-size:10px;font-weight:900}.tabs button.on{background:#E6F3D7;color:#477A0A}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.detail{background:#fff;border:1px solid var(--line);border-radius:14px;padding:11px}.detail span{display:block;font-size:8px;color:var(--muted);font-weight:900;text-transform:uppercase}.detail strong{display:block;font-size:11px;margin-top:5px}
+.note{background:#fff;border:1px solid var(--line);border-radius:15px;padding:12px;margin-top:9px}.note b{display:block;font-size:10px}.note p{margin:5px 0 0;color:var(--muted);font-size:10px;line-height:1.45}
+.sheet-actions{display:grid;grid-template-columns:42px 42px 1fr;gap:8px;margin-top:11px}.sheet-actions button{height:44px;border-radius:13px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;font-weight:900}.sheet-actions .main{background:var(--dark);border-color:var(--dark);color:#fff;display:flex;gap:6px}
+.modal-wrap{align-items:center;padding:18px}.modal{width:100%;background:#F8FAF6;border-radius:25px;padding:17px;box-shadow:0 25px 70px rgba(0,0,0,.28)}.modal h3{margin:0 0 4px}.modal p{margin:0 0 13px;color:var(--muted);font-size:10px}.form{display:grid;gap:9px}.field{display:grid;gap:5px}.field label{font-size:9px;font-weight:900;color:#63715C}.field input,.field select{height:44px;border:1px solid var(--line);background:#fff;border-radius:13px;padding:0 12px;outline:0}.modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}.modal-actions button{height:44px;border-radius:13px;border:1px solid var(--line);background:#fff;font-weight:900}.modal-actions .save{background:linear-gradient(145deg,var(--brand2),var(--brand));border:0;color:#294B00}
+.toast{position:absolute;left:50%;bottom:100px;transform:translateX(-50%) translateY(10px);background:var(--dark);color:#fff;padding:11px 14px;border-radius:13px;font-size:10px;font-weight:900;z-index:80;box-shadow:0 12px 30px rgba(0,0,0,.22);opacity:0;pointer-events:none;transition:.22s;white-space:nowrap;max-width:88%;overflow:hidden;text-overflow:ellipsis}.toast.show{opacity:1;transform:translateX(-50%)}
+.empty{text-align:center;padding:36px 18px;color:var(--muted);font-size:11px}.empty b{display:block;color:var(--ink);margin-bottom:5px}
+svg{display:block;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:520px){body{padding:0;background:var(--bg)}.preview-label{display:none}.preview-shell{width:100%;height:100vh}.phone{height:100vh;min-height:0;border:0;border-radius:0;box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="preview-shell"><div class="preview-label"><span>HBX Vendas</span><span>Preview navegável</span></div><main class="phone" id="app"></main></div>
+<script>
+const icon=(name,size=22)=>{
+ const x={
+ funnel:'<path d="M3 4h18l-7 8v6l-4 2v-8z"/>',
+ search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+ chat:'<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 8h8M8 12h5"/>',
+ calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>',
+ more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+ bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+ phone:'<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.63a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.85.29 1.73.5 2.63.62A2 2 0 0 1 22 16.92z"/>',
+ mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ chevron:'<path d="m9 18 6-6-6-6"/>',
+ bolt:'<path d="M13 2 3 14h8l-1 8 10-12h-8z"/>',
+ users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+ gear:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 1 1-14 0 7 7 0 0 1 14 0z"/>',
+ chart:'<path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-8"/>',
+ task:'<path d="M9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'
+ };return `<svg width="${size}" height="${size}" viewBox="0 0 24 24">${x[name]||x.more}</svg>`
+}
+const leads=[
+ {id:1,name:'Clínica Horizonte',initial:'CH',segment:'Saúde · São Carlos/SP',stage:'novo',score:92,temp:'Quente',agenda:'Hoje',block:'today',next:'Ligar para a administradora',when:'09:30',phone:'(16) 99999-1101',email:'contato@clinicahorizonte.com.br',note:'Empresa recém-aberta. Interesse em organizar prospecção e atendimento.'},
+ {id:2,name:'Prime Contabilidade',initial:'PC',segment:'Contabilidade · Araraquara/SP',stage:'contato',score:78,temp:'Morno',agenda:'Atrasado',block:'overdue',next:'Enviar apresentação do HBX',when:'Ontem · 16:00',phone:'(16) 99999-1102',email:'comercial@primecont.com.br',note:'Pediu uma visão rápida do módulo de leads e automação.'},
+ {id:3,name:'Solaris Energia',initial:'SE',segment:'Energia solar · Ribeirão Preto/SP',stage:'retorno',score:85,temp:'Quente',agenda:'Hoje',block:'today',next:'Retorno sobre proposta',when:'14:30',phone:'(16) 99999-1103',email:'vendas@solarisenergia.com.br',note:'Proposta de 5 usuários enviada. Avaliar implantação.'},
+ {id:4,name:'Imobiliária Central',initial:'IC',segment:'Imobiliária · Campinas/SP',stage:'qualificado',score:69,temp:'Morno',agenda:'Amanhã',block:'scheduled',next:'Demonstrar funil da equipe',when:'Amanhã · 10:00',phone:'(19) 99999-1104',email:'gestao@imobcentral.com.br',note:'Equipe com 8 corretores; dor principal é acompanhar retorno.'},
+ {id:5,name:'TechFix Assistência',initial:'TF',segment:'Assistência técnica · Limeira/SP',stage:'novo',score:61,temp:'Frio',agenda:'Sexta',block:'scheduled',next:'Primeiro contato no WhatsApp',when:'Sex · 11:00',phone:'(19) 99999-1105',email:'atendimento@techfix.com.br',note:'Lead importado da base pública. Ainda sem contato.'},
+ {id:6,name:'Líder Segurança',initial:'LS',segment:'Segurança · Rio Claro/SP',stage:'encerrado',score:88,temp:'Quente',agenda:'Fechado',block:'closed',next:'Acompanhar ativação',when:'12/07',phone:'(19) 99999-1106',email:'diretoria@liderseg.com.br',note:'Plano fechado. Ativação aguardando dados da equipe.'}
+];
+const companies=[
+ {name:'Orbe Engenharia',initial:'OE',city:'São Carlos/SP',segment:'Engenharia',score:91,reason:'Crescimento recente · 18 funcionários'},
+ {name:'Vitta Odontologia',initial:'VO',city:'Araraquara/SP',segment:'Odontologia',score:86,reason:'Boa presença digital · WhatsApp confirmado'},
+ {name:'Nexo Imóveis',initial:'NI',city:'Ribeirão Preto/SP',segment:'Imobiliária',score:82,reason:'Equipe comercial ativa · 4 unidades'},
+ {name:'Alfa Solar',initial:'AS',city:'Campinas/SP',segment:'Energia solar',score:79,reason:'CNPJ novo · site atualizado'}
+];
+const conversations=[
+ {name:'Solaris Energia',initial:'SE',text:'Vou validar com o sócio e te retorno hoje.',time:'08:41',unread:2},
+ {name:'Prime Contabilidade',initial:'PC',text:'Pode me enviar a apresentação por aqui?',time:'Ontem',unread:1},
+ {name:'Clínica Horizonte',initial:'CH',text:'Olá, vi sua mensagem. Como funciona?',time:'Ontem',unread:0},
+ {name:'Imobiliária Central',initial:'IC',text:'Agendado para amanhã às 10h.',time:'Seg',unread:0}
+];
+let state={screen:'funnel',mode:'funnel',stage:'todos',query:'',lead:null,detailTab:'Resumo',modal:null,toast:'',companiesAdded:new Set()};
+const app=document.getElementById('app');
+function now(){return new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+function header(){const label={funnel:'Meu funil',search:'Buscar empresas',chat:'Conversas',agenda:'Agenda',more:'Mais'}[state.screen];return `<div class="statusbar"><span>${now()}</span><span class="status-right"><i class="online-dot"></i> HBX online · 4G</span></div><header class="head"><div class="brand"><div class="mark">»</div><div><strong>HBX Vendas</strong><span>${label} · celular conectado</span></div></div><div class="head-actions"><button class="icon-btn" data-action="notifications">${icon('bell',18)}<i class="badge">3</i></button></div></header>`}
+function nav(){return `<nav class="nav">${[['funnel','funnel','Funil'],['search','search','Buscar'],['chat','chat','Conversas'],['agenda','calendar','Agenda'],['more','more','Mais']].map(([s,ic,l])=>`<button class="${state.screen===s?'on':''}" data-screen="${s}">${icon(ic)}<span>${l}</span></button>`).join('')}</nav>`}
+function funnel(){
+ const q=state.query.toLowerCase();let list=leads.filter(l=>(state.stage==='todos'||l.stage===state.stage)&&(!q||[l.name,l.segment,l.next,l.phone,l.email].join(' ').toLowerCase().includes(q)));
+ const summary={total:leads.filter(l=>l.stage!=='encerrado').length,today:leads.filter(l=>l.block==='today').length,overdue:leads.filter(l=>l.block==='overdue').length,closed:leads.filter(l=>l.block==='closed').length}
+ return `<section class="screen"><div class="title"><div><h1>Bom dia, Jhonatan</h1><p>Seu próximo contato começa em 18 minutos</p></div><button class="link" data-action="new-lead">+ Novo</button></div>
+ <div class="segment"><button class="${state.mode==='funnel'?'on':''}" data-mode="funnel">Meu funil</button><button class="${state.mode==='pipeline'?'on':''}" data-mode="pipeline">Visão por etapas</button></div>
+ <div class="kpis"><div class="kpi"><span>NO FUNIL</span><strong>${summary.total}</strong><em>ativos</em></div><div class="kpi danger"><span>ATRASADOS</span><strong>${summary.overdue}</strong><em>agir agora</em></div><div class="kpi"><span>FECHADOS</span><strong>${summary.closed}</strong><em>este mês</em></div></div>
+ ${state.mode==='pipeline'?pipeline():`<div class="search">${icon('search',18)}<input id="lead-search" placeholder="Buscar nome, cidade ou ação" value="${state.query}"></div>
+ <div class="stage-tabs">${[['todos','Todos'],['novo','Prospecção'],['contato','Qualificação'],['retorno','Proposta'],['qualificado','Negociação'],['encerrado','Fechamento']].map(([s,l])=>`<button class="stage ${state.stage===s?'on':''}" data-stage="${s}">${l}</button>`).join('')}</div>
+ <div class="section"><strong>Prioridades</strong><span>${list.length} cards</span></div>
+ <div class="lead-list">${list.length?list.map(leadCard).join(''):`<div class="empty"><b>Nenhum card nesta etapa</b>Escolha outro filtro.</div>`}</div>`}
+ <button class="fab" data-action="new-lead">${icon('plus',25)}</button></section>`;
+}
+function pipeline(){
+ const stages=[
+  ['novo','Prospecção','Faça o primeiro contato','',leads.filter(x=>x.stage==='novo').length],
+  ['contato','Qualificação','Classifique e ranqueie','blue',leads.filter(x=>x.stage==='contato').length],
+  ['retorno','Proposta','Envie a oferta','orange',leads.filter(x=>x.stage==='retorno').length],
+  ['qualificado','Negociação','Follow-up até o sim','purple',leads.filter(x=>x.stage==='qualificado').length],
+  ['encerrado','Fechamento','Contrato e ativação','gray',leads.filter(x=>x.stage==='encerrado').length]
+ ];
+ return `<div class="section"><strong>Etapas reais do funil</strong><span>${leads.length} cards</span></div><div class="pipeline">${stages.map(s=>`<button class="pipeline-row" data-stage-jump="${s[0]}" style="width:100%;text-align:left"><i class="tone ${s[3]}"></i><div><strong>${s[1]}</strong><span>${s[2]}</span></div><b class="count">${s[4]}</b><span class="chev">${icon('chevron',17)}</span></button>`).join('')}</div>`;
+}
+function leadCard(l){
+ const ag=l.agenda==='Atrasado'?'late':l.agenda==='Hoje'?'today':'';
+ return `<article class="lead-card" data-lead="${l.id}"><div class="lead-top"><div class="avatar">${l.initial}</div><div class="lead-main"><strong>${l.name}</strong><span>${l.segment}</span></div><div class="score ${l.score>84?'hot':''}">${l.score}</div></div><div class="lead-meta"><span class="chip ${ag}">${l.agenda}</span><span class="chip ${l.temp==='Quente'?'warm':''}">${l.temp}</span><span class="chip">${stageLabel(l.stage)}</span></div><div class="next"><i>${icon('task',15)}</i><div><b>${l.next}</b><span>${l.when}</span></div><span class="chev">${icon('chevron',16)}</span></div><div class="quick"><button data-quick="call" data-id="${l.id}">${icon('phone',15)} Ligar</button><button data-quick="wa" data-id="${l.id}">${icon('chat',15)} WhatsApp</button><button class="primary" data-quick="open" data-id="${l.id}">Abrir</button></div></article>`;
+}
+function stageLabel(s){return {novo:'Prospecção',contato:'Qualificação',retorno:'Proposta',qualificado:'Negociação',encerrado:'Fechamento'}[s]}
+function searchScreen(){
+ return `<section class="screen"><div class="title"><div><h1>Buscar empresas</h1><p>Leads prontos para entrar no funil</p></div></div><div class="hero-search"><h2>Encontre o próximo cliente</h2><p>Pesquise por segmento, cidade ou nome da empresa.</p><div class="search">${icon('search',18)}<input id="company-search" placeholder="Ex.: clínica em São Carlos"></div></div>
+ <div class="section"><strong>Recomendadas para você</strong><span>${companies.length} resultados</span></div><div class="company-list">${companies.map((c,i)=>`<article class="company-card"><div class="company-head"><div class="avatar">${c.initial}</div><div class="company-main"><strong>${c.name}</strong><span>${c.segment} · ${c.city}</span></div><div class="score ${c.score>84?'hot':''}">${c.score}</div></div><div class="company-info"><span class="chip">WhatsApp confirmado</span><span class="chip">${c.reason}</span></div><div class="company-actions"><button data-add-company="${i}">${state.companiesAdded.has(i)?'Adicionado ao funil ✓':'Adicionar ao funil'}</button><button data-action="company-detail">${icon('chevron',17)}</button></div></article>`).join('')}</div></section>`;
+}
+function chatScreen(){
+ return `<section class="screen"><div class="title"><div><h1>Conversas</h1><p>WhatsApp e retornos do funil</p></div><button class="link">Filtrar</button></div><div class="search">${icon('search',18)}<input placeholder="Buscar conversa"></div><div class="conversation-list">${conversations.map(c=>`<button class="conv-card" data-conversation="${c.name}"><div class="avatar">${c.initial}</div><div class="conv-main"><strong>${c.name}</strong><span>${c.text}</span></div><div><span class="time">${c.time}</span>${c.unread?`<i class="unread">${c.unread}</i>`:''}</div></button>`).join('')}</div></section>`;
+}
+function agendaScreen(){
+ const today=leads.filter(l=>l.block==='today'||l.block==='overdue'),future=leads.filter(l=>l.block==='scheduled');
+ return `<section class="screen"><div class="title"><div><h1>Agenda</h1><p>Retornos e compromissos comerciais</p></div></div><div class="day-head">Hoje</div><div class="agenda-list">${today.map(l=>agendaCard(l)).join('')}</div><div class="day-head">Próximos dias</div><div class="agenda-list">${future.map(l=>agendaCard(l)).join('')}</div></section>`;
+}
+function agendaCard(l){return `<button class="agenda-card" data-lead="${l.id}"><div class="agenda-time">${l.when.split('·').pop().trim()}</div><div class="agenda-main"><strong>${l.name}</strong><span>${l.next}</span></div><span class="agenda-status">${l.agenda}</span></button>`}
+function moreScreen(){
+ return `<section class="screen"><div class="title"><div><h1>Mais</h1><p>Ferramentas do App Vendas</p></div></div><div class="panel"><button class="row" data-action="report" style="width:100%;border-left:0;border-right:0;border-top:0;background:transparent;text-align:left"><div class="row-icon">${icon('chart',18)}</div><div class="row-copy"><strong>Resumo comercial</strong><span>Desempenho, retorno e fechamentos</span></div><span class="chev">${icon('chevron',17)}</span></button><button class="row" data-action="team" style="width:100%;border-left:0;border-right:0;border-top:0;background:transparent;text-align:left"><div class="row-icon">${icon('users',18)}</div><div class="row-copy"><strong>Minha equipe</strong><span>Vendedores e distribuição de cards</span></div><span class="chev">${icon('chevron',17)}</span></button><button class="row" data-action="automation" style="width:100%;border-left:0;border-right:0;border-top:0;background:transparent;text-align:left"><div class="row-icon">${icon('bolt',18)}</div><div class="row-copy"><strong>Automações</strong><span>Cadências e recuperação</span></div><span class="chev">${icon('chevron',17)}</span></button><button class="row" data-action="settings" style="width:100%;border:0;background:transparent;text-align:left"><div class="row-icon">${icon('gear',18)}</div><div class="row-copy"><strong>Ajustes do aplicativo</strong><span>Notificações e conta conectada</span></div><span class="chev">${icon('chevron',17)}</span></button></div></section>`;
+}
+function leadSheet(l){
+ const tabContent=state.detailTab==='Resumo'?`<div class="detail-grid"><div class="detail"><span>Etapa</span><strong>${stageLabel(l.stage)}</strong></div><div class="detail"><span>Score</span><strong>${l.score}/100</strong></div><div class="detail"><span>Telefone</span><strong>${l.phone}</strong></div><div class="detail"><span>E-mail</span><strong>${l.email}</strong></div></div><div class="note"><b>Próxima ação</b><p>${l.next} · ${l.when}</p></div><div class="note"><b>Contexto</b><p>${l.note}</p></div>`:state.detailTab==='Conversa'?`<div class="note"><b>WhatsApp recente</b><p>Olá! Separei uma apresentação curta do HBX com foco no seu setor. Posso te enviar por aqui?</p></div><div class="note"><b>Resposta</b><p>Sim, pode enviar. Quero entender como funciona o acompanhamento dos vendedores.</p></div>`:`<div class="panel"><div class="row"><div class="row-icon">${icon('phone',17)}</div><div class="row-copy"><strong>Ligação registrada</strong><span>Ontem · 3 min · Retorno solicitado</span></div></div><div class="row"><div class="row-icon">${icon('mail',17)}</div><div class="row-copy"><strong>Apresentação enviada</strong><span>Segunda · E-mail aberto</span></div></div></div>`;
+ return `<div class="sheet-wrap" data-action="close-sheet"><div class="sheet" onclick="event.stopPropagation()"><div class="handle"></div><div class="sheet-head"><div class="avatar">${l.initial}</div><div><h3>${l.name}</h3><p>${l.segment}</p></div><button class="close" data-action="close-sheet">×</button></div><div class="tabs">${['Resumo','Conversa','Histórico'].map(t=>`<button class="${state.detailTab===t?'on':''}" data-detail-tab="${t}">${t}</button>`).join('')}</div>${tabContent}<div class="sheet-actions"><button data-action="call">${icon('phone',18)}</button><button data-action="whatsapp">${icon('chat',18)}</button><button class="main" data-action="advance">${icon('task',17)} Avançar etapa</button></div></div></div>`;
+}
+function modal(){
+ if(state.modal==='new')return `<div class="modal-wrap" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()"><h3>Novo card</h3><p>Cadastre um contato manualmente no funil.</p><div class="form"><div class="field"><label>Nome ou empresa</label><input id="new-lead-name" placeholder="Ex.: Empresa Modelo"></div><div class="field"><label>Telefone</label><input placeholder="(00) 00000-0000"></div><div class="field"><label>E-mail</label><input placeholder="contato@empresa.com.br"></div><div class="field"><label>Próxima ação</label><select><option>Fazer primeiro contato</option><option>Enviar apresentação</option><option>Agendar demonstração</option></select></div></div><div class="modal-actions"><button data-action="close-modal">Cancelar</button><button class="save" data-action="save-lead">Criar card</button></div></div></div>`;
+ if(state.modal==='report')return `<div class="sheet-wrap" data-action="close-modal"><div class="sheet" onclick="event.stopPropagation()"><div class="handle"></div><div class="sheet-head"><div class="row-icon">${icon('chart',20)}</div><div><h3>Resumo comercial</h3><p>Julho de 2026</p></div><button class="close" data-action="close-modal">×</button></div><div class="kpis" style="margin-top:13px"><div class="kpi"><span>CONTATOS</span><strong>42</strong><em>+18%</em></div><div class="kpi"><span>POSITIVOS</span><strong>7</strong><em>16,7%</em></div><div class="kpi"><span>FECHADOS</span><strong>3</strong><em>R$ 897</em></div></div><div class="note"><b>Principal gargalo</b><p>2 retornos estão atrasados. Priorize Prime Contabilidade e Nexo Imóveis.</p></div></div></div>`;
+ return '';
+}
+function render(){app.innerHTML=header()+`<div class="content">${state.screen==='funnel'?funnel():state.screen==='search'?searchScreen():state.screen==='chat'?chatScreen():state.screen==='agenda'?agendaScreen():moreScreen()}</div>`+nav()+(state.lead?leadSheet(state.lead):'')+modal()+`<div class="toast ${state.toast?'show':''}">${state.toast}</div>`}
+let timer;function toast(m){state.toast=m;render();clearTimeout(timer);timer=setTimeout(()=>{state.toast='';render()},1800)}
+app.addEventListener('click',e=>{
+ const b=e.target.closest('[data-screen],[data-action],[data-mode],[data-stage],[data-lead],[data-quick],[data-stage-jump],[data-detail-tab],[data-add-company],[data-conversation]');
+ if(!b)return;
+ if(b.dataset.screen){state.screen=b.dataset.screen;state.lead=null;state.modal=null;render();return}
+ if(b.dataset.mode){state.mode=b.dataset.mode;render();return}
+ if(b.dataset.stage){state.stage=b.dataset.stage;render();return}
+ if(b.dataset.stageJump){state.stage=b.dataset.stageJump;state.mode='funnel';render();return}
+ if(b.dataset.lead){state.lead=leads.find(l=>l.id==b.dataset.lead);state.detailTab='Resumo';render();return}
+ if(b.dataset.detailTab){state.detailTab=b.dataset.detailTab;render();return}
+ if(b.dataset.quick){e.stopPropagation();const l=leads.find(x=>x.id==b.dataset.id);if(b.dataset.quick==='open'){state.lead=l;render()}else toast(b.dataset.quick==='call'?`Ligação para ${l.name}`:`WhatsApp de ${l.name}`);return}
+ if(b.dataset.addCompany!==undefined){const i=Number(b.dataset.addCompany);state.companiesAdded.add(i);toast(`${companies[i].name} entrou no funil`);return}
+ if(b.dataset.conversation){toast(`Abrindo conversa com ${b.dataset.conversation}`);return}
+ const a=b.dataset.action;
+ if(a==='close-sheet')state.lead=null;
+ if(a==='close-modal')state.modal=null;
+ if(a==='new-lead')state.modal='new';
+ if(a==='save-lead'){const n=document.getElementById('new-lead-name')?.value.trim();state.modal=null;toast(n?`${n} criado no funil`:'Card criado no funil')}
+ if(a==='notifications')toast('3 ações enviadas ao celular');
+ if(a==='call')toast(`Ligação para ${state.lead?.name||'cliente'}`);
+ if(a==='whatsapp')toast(`WhatsApp preparado para ${state.lead?.name||'cliente'}`);
+ if(a==='advance'&&state.lead){const order=['novo','contato','retorno','qualificado','encerrado'];const idx=order.indexOf(state.lead.stage);state.lead.stage=order[Math.min(idx+1,order.length-1)];toast(`Movido para ${stageLabel(state.lead.stage)}`)}
+ if(a==='report')state.modal='report';
+ if(['team','automation','settings','company-detail'].includes(a))toast('Tela preparada para ligação com o HBX');
+ render();
+});
+app.addEventListener('input',e=>{if(e.target.id==='lead-search'){state.query=e.target.value;const p=e.target.selectionStart;render();const i=document.getElementById('lead-search');i.focus();i.setSelectionRange(p,p)}});
+setInterval(()=>{const s=app.querySelector('.statusbar>span');if(s)s.textContent=now()},30000);
+render();
+</script>
+</body>
+</html>

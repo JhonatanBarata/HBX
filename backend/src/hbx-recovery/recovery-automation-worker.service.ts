@@ -84,7 +84,7 @@ export class RecoveryAutomationWorkerService implements OnModuleInit, OnModuleDe
           where: { status: 'open', openAmount: { gt: 0 } },
           orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
           take: 1,
-          select: { id: true, dueDate: true, createdAt: true },
+          select: { id: true, debtCaseId: true, dueDate: true, createdAt: true },
         },
       },
       take: 200,
@@ -94,7 +94,10 @@ export class RecoveryAutomationWorkerService implements OnModuleInit, OnModuleDe
       if (!customer.company.recoveryBotLiveAt || !customer.company.logisticaConfig?.moduloRecoveryAtivo) continue;
       const anchor = customer.debtItems[0];
       const anchorDate = anchor?.dueDate || anchor?.createdAt || customer.createdAt;
-      const cycleKey = anchor?.id || `legacy-${anchorDate.toISOString().slice(0, 10)}`;
+      // Todos os itens da mesma dívida apontam para o mesmo DebtCase. Usar o item
+      // mais antigo como ciclo faria uma quitação parcial recriar toda a cadência
+      // quando o próximo item virasse a âncora.
+      const cycleKey = anchor?.debtCaseId || anchor?.id || `legacy-${anchorDate.toISOString().slice(0, 10)}`;
       const stages = await this.prisma.hbxRecoveryFlowStage.findMany({
         where: { companyId: customer.companyId, enabled: true },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -282,16 +285,16 @@ export class RecoveryAutomationWorkerService implements OnModuleInit, OnModuleDe
     const candidates = await this.prisma.hbxRecoveryCustomer.findMany({
       where: {
         companyId,
-        automationEnabled: true,
-        OR: [
-          ...(conversation.customerProfileId ? [{ customerProfileId: conversation.customerProfileId }] : []),
-          { whatsappNumber: conversation.contact },
-        ],
+        ...(conversation.customerProfileId
+          ? { customerProfileId: conversation.customerProfileId }
+          : { whatsappNumber: conversation.contact }),
       },
       select: { id: true, whatsappNumber: true },
     });
     const phone = digits(conversation.contact);
-    const ids = candidates.filter((candidate) => !phone || digits(candidate.whatsappNumber) === phone || conversation.customerProfileId).map((candidate) => candidate.id);
+    const ids = candidates
+      .filter((candidate) => Boolean(conversation.customerProfileId) || !phone || digits(candidate.whatsappNumber) === phone)
+      .map((candidate) => candidate.id);
     if (!ids.length) return;
 
     const queuedRuns = await this.prisma.recoveryAutomationStepRun.findMany({
@@ -301,16 +304,32 @@ export class RecoveryAutomationWorkerService implements OnModuleInit, OnModuleDe
     const outboundIds = queuedRuns.map((run) => run.outboundMessageId).filter((id): id is number => Boolean(id));
     await this.prisma.$transaction(async (tx) => {
       await tx.recoveryAutomationStepRun.updateMany({
-        where: { companyId, id: { in: queuedRuns.map((run) => run.id) } },
+        where: {
+          companyId,
+          id: { in: queuedRuns.map((run) => run.id) },
+          status: { in: ['pending', 'processing', 'queued'] },
+        },
         data: { status: 'canceled', canceledAt: new Date(), cancelReason: 'customer_inbound', leaseUntil: null },
+      });
+      await tx.emailOutboundMessage.updateMany({
+        where: {
+          companyId,
+          recoveryStepRunId: { in: queuedRuns.map((run) => run.id) },
+          status: 'pending',
+        },
+        data: {
+          status: 'canceled',
+          lastErrorCode: 'customer_inbound',
+          lastErrorMessage: 'Cancelado após resposta do cliente.',
+        },
       });
       if (outboundIds.length) {
         await tx.outboundMessage.updateMany({
-          where: { id: { in: outboundIds }, status: 'PENDING' },
+          where: { companyId, id: { in: outboundIds }, status: 'PENDING' },
           data: { status: 'CANCELED', lastError: 'Cancelado após resposta do cliente.' },
         });
         await tx.companyMessage.updateMany({
-          where: { outboundMessageId: { in: outboundIds }, status: 'QUEUED' },
+          where: { companyId, outboundMessageId: { in: outboundIds }, status: 'QUEUED' },
           data: { status: 'CANCELED', error: 'Cancelado após resposta do cliente.' },
         });
       }

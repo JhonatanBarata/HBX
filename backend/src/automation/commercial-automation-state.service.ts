@@ -695,6 +695,20 @@ export class CommercialAutomationStateService {
           },
         })
       : { count: 0 };
+    if (enrollmentIds.length && typeof tx?.emailOutboundMessage?.updateMany === 'function') {
+      await tx.emailOutboundMessage.updateMany({
+        where: {
+          companyId: input.companyId,
+          status: 'pending',
+          automationStepRun: { enrollmentId: { in: enrollmentIds } },
+        },
+        data: {
+          status: 'canceled',
+          lastErrorCode: AUTOMATION_INBOUND_STOP_REASON,
+          lastErrorMessage: 'Cancelado após resposta do cliente.',
+        },
+      });
+    }
     const updated = enrollmentIds.length
       ? await tx.automationEnrollment.updateMany({
           where: { id: { in: enrollmentIds }, companyId: input.companyId },

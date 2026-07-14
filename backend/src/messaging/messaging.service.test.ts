@@ -2135,3 +2135,35 @@ test('syncLogisticaEntregaWhatsappOutcome: falha do prisma.entrega.update NUNCA 
     ),
   );
 });
+
+test('créditos: prospecção, atendimento, assistente e recovery automáticos entram como Automação', () => {
+  const { service } = createService();
+  const sources = [
+    'vendas_prospeccao_bot',
+    'vendas_prospeccao_email_bot',
+    'prospeccao_bot',
+    'atendimento_bot',
+    'conversation_assistant',
+    'hbx_recovery_automation',
+  ];
+  for (const sourceModule of sources) {
+    assert.equal(
+      (service as any).isCreditAutomationMessage({ sourceModule, message: { senderType: 'bot' } }),
+      true,
+      sourceModule,
+    );
+  }
+});
+
+test('créditos: respostas humanas, manuais e mensagens fora da allowlist não entram como Automação', () => {
+  const { service } = createService();
+  const messages = [
+    { sourceModule: 'hbx_recovery_human', message: { senderType: 'human' } },
+    { sourceModule: 'atendimento_manual', message: { senderType: 'human' } },
+    { sourceModule: 'vendas', message: { senderType: 'human' } },
+    { sourceModule: 'resumo_diario', message: { senderType: 'system' } },
+  ];
+  for (const message of messages) {
+    assert.equal((service as any).isCreditAutomationMessage(message), false, message.sourceModule);
+  }
+});

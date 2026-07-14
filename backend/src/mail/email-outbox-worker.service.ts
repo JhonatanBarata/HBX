@@ -2,13 +2,13 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { CommercialAutomationStateService } from '../automation/commercial-automation-state.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { CompanyMailerService, COMPANY_EMAIL_NOT_CONFIGURED } from './company-mailer.service';
+import { CompanyMailerService } from './company-mailer.service';
 
 const LEASE_MS = 60_000;
 const TICK_MS = 4_000;
 
 function enabled() {
-  const raw = String(process.env.HBX_EMAIL_OUTBOX_WORKER_ENABLED ?? process.env.HBX_CADENCIA_EMAIL_ENABLED ?? '').trim().toLowerCase();
+  const raw = String(process.env.HBX_EMAIL_OUTBOX_WORKER_ENABLED || '').trim().toLowerCase();
   return ['1', 'true', 'yes', 'on'].includes(raw);
 }
 
@@ -51,10 +51,10 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
       }).catch(() => []);
       for (const row of rows) {
         const claim = await (this.prisma as any).emailOutboundMessage.updateMany({
-          where: { id: row.id, status: 'pending', nextAttemptAt: { lte: new Date() } },
+          where: { id: row.id, companyId: row.companyId, status: 'pending', nextAttemptAt: { lte: new Date() } },
           data: { status: 'processing', attempts: { increment: 1 }, leaseUntil: new Date(Date.now() + LEASE_MS) },
         });
-        if (claim.count === 1) await this.deliver(row.id);
+        if (claim.count === 1) await this.deliver(row.id, row.companyId);
       }
     } finally {
       this.running = false;
@@ -70,7 +70,7 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
     }).catch(() => []);
     for (const row of expired) {
       await (this.prisma as any).emailOutboundMessage.updateMany({
-        where: { id: row.id, status: 'processing' },
+        where: { id: row.id, companyId: row.companyId, status: 'processing' },
         data: {
           status: 'unknown',
           leaseUntil: null,
@@ -82,37 +82,21 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async deliver(id: string) {
-    const row = await (this.prisma as any).emailOutboundMessage.findUnique({ where: { id } });
+  private async deliver(id: string, companyId?: number) {
+    const row = await (this.prisma as any).emailOutboundMessage.findFirst({
+      where: { id, ...(companyId ? { companyId } : {}) },
+    });
     if (!row || row.status !== 'processing') return;
 
-    if (row.automationStepRunId) {
-      const step = await (this.prisma as any).automationStepRun.findFirst({
-        where: { id: row.automationStepRunId, companyId: row.companyId },
-        select: { status: true },
-      });
-      if (!step || ['canceled', 'failed', 'skipped'].includes(step.status)) {
-        await (this.prisma as any).emailOutboundMessage.update({
-          where: { id },
-          data: { status: 'canceled', leaseUntil: null, lastErrorCode: 'automation_step_inactive' },
-        });
-        return;
-      }
-    }
-    if (row.recoveryStepRunId) {
-      const step = await (this.prisma as any).recoveryAutomationStepRun.findFirst({
-        where: { id: row.recoveryStepRunId, companyId: row.companyId },
-        select: { status: true },
-      });
-      if (!step || ['canceled', 'failed'].includes(step.status)) {
-        await (this.prisma as any).emailOutboundMessage.update({
-          where: { id },
-          data: { status: 'canceled', leaseUntil: null, lastErrorCode: 'recovery_step_inactive' },
-        });
-        return;
-      }
+    const inactiveReason = await this.inactiveStepReason(row);
+    if (inactiveReason) {
+      await this.cancel(row, inactiveReason);
+      return;
     }
 
+    const attempt = await (this.prisma as any).emailOutboundAttempt.create({
+      data: { outboundMessageId: row.id, status: 'started' },
+    });
     const reservation = await this.creditUsage.authorize({
       companyId: row.companyId,
       actionKey: 'whatsapp_auto_send',
@@ -121,18 +105,33 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
       metadata: { channel: 'email', sourceModule: row.sourceModule },
     });
     if (!reservation.allowed) {
+      await (this.prisma as any).emailOutboundAttempt.update({
+        where: { id: attempt.id },
+        data: { status: 'failed', errorCode: 'credit_unavailable', finishedAt: new Date() },
+      });
       await this.fail(row, 'credit_unavailable', 'Saldo de créditos insuficiente para a Automação.');
       return;
     }
 
-    const attempt = await (this.prisma as any).emailOutboundAttempt.create({
-      data: { outboundMessageId: row.id, status: 'started' },
-    });
+    // Segunda barreira imediatamente antes do provedor. Se um inbound venceu a
+    // corrida entre claim e débito, nenhum SMTP é chamado e o crédito é estornado.
+    const inactiveAfterDebit = await this.inactiveStepReason(row);
+    if (inactiveAfterDebit) {
+      await reservation.release?.().catch(() => undefined);
+      await (this.prisma as any).emailOutboundAttempt.update({
+        where: { id: attempt.id },
+        data: { status: 'failed', errorCode: inactiveAfterDebit, finishedAt: new Date() },
+      });
+      await this.cancel(row, inactiveAfterDebit);
+      return;
+    }
+
     try {
       const result = await this.mailer.sendForCompany(row.companyId, {
         to: row.recipient,
         subject: row.subject,
         text: row.bodyText,
+        disableTransportFallback: true,
       });
       if (result.ok) {
         const now = new Date();
@@ -141,8 +140,8 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
             where: { id: attempt.id },
             data: { status: 'sent', providerMessageId: result.messageId, finishedAt: now },
           }),
-          (this.prisma as any).emailOutboundMessage.update({
-            where: { id: row.id },
+          (this.prisma as any).emailOutboundMessage.updateMany({
+            where: { id: row.id, companyId: row.companyId, status: 'processing' },
             data: { status: 'sent', sentAt: now, leaseUntil: null, providerMessageId: result.messageId, lastErrorCode: null, lastErrorMessage: null },
           }),
         ]);
@@ -161,13 +160,13 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      if (result.errorCode === COMPANY_EMAIL_NOT_CONFIGURED) {
+      if (['COMPANY_EMAIL_NOT_CONFIGURED', 'COMPANY_EMAIL_RECIPIENT_REJECTED'].includes(String(result.errorCode || ''))) {
         await reservation.release?.().catch(() => undefined);
         await (this.prisma as any).emailOutboundAttempt.update({
           where: { id: attempt.id },
           data: { status: 'failed', errorCode: result.errorCode, errorMessage: result.errorMessage, finishedAt: new Date() },
         });
-        await this.fail(row, result.errorCode, result.errorMessage || 'E-mail da empresa não configurado.');
+        await this.fail(row, result.errorCode || 'email_confirmed_failure', result.errorMessage || 'Falha confirmada no envio.');
         return;
       }
 
@@ -187,17 +186,46 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async inactiveStepReason(row: any): Promise<string | null> {
+    if (row.automationStepRunId) {
+      const step = await (this.prisma as any).automationStepRun.findFirst({
+        where: { id: row.automationStepRunId, companyId: row.companyId },
+        select: { status: true },
+      });
+      if (!step || ['canceled', 'failed', 'skipped'].includes(step.status)) {
+        return 'automation_step_inactive';
+      }
+    }
+    if (row.recoveryStepRunId) {
+      const step = await (this.prisma as any).recoveryAutomationStepRun.findFirst({
+        where: { id: row.recoveryStepRunId, companyId: row.companyId },
+        select: { status: true },
+      });
+      if (!step || ['canceled', 'failed'].includes(step.status)) {
+        return 'recovery_step_inactive';
+      }
+    }
+    return null;
+  }
+
+  private async cancel(row: any, code: string) {
+    await (this.prisma as any).emailOutboundMessage.updateMany({
+      where: { id: row.id, companyId: row.companyId, status: { in: ['pending', 'processing'] } },
+      data: { status: 'canceled', leaseUntil: null, lastErrorCode: code },
+    });
+  }
+
   private async fail(row: any, code: string, message: string) {
-    await (this.prisma as any).emailOutboundMessage.update({
-      where: { id: row.id },
+    await (this.prisma as any).emailOutboundMessage.updateMany({
+      where: { id: row.id, companyId: row.companyId, status: 'processing' },
       data: { status: 'failed', leaseUntil: null, lastErrorCode: code, lastErrorMessage: message },
     });
     await this.completeStep(row, 'failed', code, message);
   }
 
   private async unknown(row: any, code: string, message: string) {
-    await (this.prisma as any).emailOutboundMessage.update({
-      where: { id: row.id },
+    await (this.prisma as any).emailOutboundMessage.updateMany({
+      where: { id: row.id, companyId: row.companyId, status: 'processing' },
       data: { status: 'unknown', leaseUntil: null, lastErrorCode: code, lastErrorMessage: message },
     });
     await this.completeStep(row, 'failed', code, message);

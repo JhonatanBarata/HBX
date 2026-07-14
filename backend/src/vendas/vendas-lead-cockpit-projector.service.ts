@@ -382,6 +382,44 @@ function deriveProjection(
 export class VendasLeadCockpitProjectorService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Deriva o snapshot diretamente dos fatos persistidos sem atualizar a projeção.
+   * É usado pela fachada de leitura quando ela encontra uma conversa canônica ou
+   * legada diferente da que ficou salva no cockpit. Assim, abrir o card continua
+   * sendo um GET puro e ainda mostra o estado físico atual da mensagem.
+   */
+  async getCockpitStateForLeadReadOnly(
+    companyId: number,
+    leadIdRaw: string,
+    conversationId?: number,
+  ): Promise<VendasLeadCockpitSnapshot> {
+    const leadId = String(leadIdRaw || '').trim();
+    const lead = (await this.prisma.vendasLead.findFirst({
+      where: { id: leadId, companyId },
+      select: { id: true, companyId: true, phone: true, phoneNormalized: true },
+    })) as LeadProjectionInput | null;
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+
+    const forcedConversationIds = new Map<string, number>();
+    const forcedId = Number(conversationId || 0);
+    if (forcedId > 0) {
+      const forcedConversation = await this.prisma.companyConversation.findFirst({
+        where: { id: forcedId, companyId, channel: 'whatsapp' },
+        select: { id: true, vendasLeadId: true, metadata: true },
+      });
+      if (!forcedConversation) throw new NotFoundException('Conversa nao encontrada.');
+      const metadataLeadId = readMetadataLeadId(forcedConversation.metadata);
+      const linkedLeadId = String(forcedConversation.vendasLeadId || metadataLeadId || '').trim();
+      if (linkedLeadId && linkedLeadId !== lead.id) {
+        throw new BadRequestException('A conversa pertence a outro lead.');
+      }
+      forcedConversationIds.set(lead.id, forcedId);
+    }
+
+    const rebuilt = await this.buildProjectionBatch(companyId, [lead], forcedConversationIds);
+    return this.snapshotFromRow(rebuilt.get(lead.id));
+  }
+
   async getCockpitStatesForLeads(
     companyId: number,
     leadIds: string[],

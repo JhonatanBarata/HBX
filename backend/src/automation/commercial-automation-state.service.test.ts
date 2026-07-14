@@ -60,6 +60,7 @@ test('claim canônico permite uma única réplica executar o mesmo passo', async
 
 test('inbound libera o slot e cancela passos ainda não executados', async () => {
   const ledger: any[] = [];
+  const emailUpdates: any[] = [];
   const tx: any = {
     automationEnrollment: {
       findMany: async () => [{ id: 'enr-1', companyId: 7, leadId: 'lead-1', status: 'active' }],
@@ -74,6 +75,12 @@ test('inbound libera o slot e cancela passos ainda não executados', async () =>
         assert.equal(data.status, 'canceled');
         assert.equal(data.errorCode, 'inbound_received');
         return { count: 2 };
+      },
+    },
+    emailOutboundMessage: {
+      updateMany: async (input: any) => {
+        emailUpdates.push(input);
+        return { count: 1 };
       },
     },
     automationLedgerEvent: {
@@ -96,6 +103,11 @@ test('inbound libera o slot e cancela passos ainda não executados', async () =>
   assert.equal(ledger.length, 1);
   assert.equal(ledger[0].eventType, 'enrollment_interrupted_inbound');
   assert.match(ledger[0].idempotencyKey, /inbound:99/);
+  assert.equal(emailUpdates.length, 1);
+  assert.equal(emailUpdates[0].where.companyId, 7);
+  assert.equal(emailUpdates[0].where.status, 'pending');
+  assert.deepEqual(emailUpdates[0].where.automationStepRun.enrollmentId, { in: ['enr-1'] });
+  assert.equal(emailUpdates[0].data.status, 'canceled');
 });
 
 test('falha definitiva do passo libera imediatamente o slot comercial', async () => {
