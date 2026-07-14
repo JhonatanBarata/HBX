@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ModulesAccessModule } from '../modules/modules.module';
 import { AssistenteController } from './assistente.controller';
@@ -18,7 +18,7 @@ import { ConversationAssistantRuntimeService } from './conversation-assistant-ru
 // ENABLED (default OFF) e, mesmo ligado, reusa o caminho freado do bot — nunca
 // API crua de motor.
 @Module({
-  imports: [PrismaModule, ModulesAccessModule],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule)],
   controllers: [AssistenteController, CopilotoController],
   providers: [AssistenteService, AssistenteSandboxService, CopilotoService, ConversationAssistantRuntimeService],
   exports: [AssistenteService, ConversationAssistantRuntimeService],
