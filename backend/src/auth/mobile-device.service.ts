@@ -21,6 +21,7 @@ import {
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
 } from './dto/mobile-device.dto';
+import { MAX_MOBILE_DEVICES_PER_USER } from './session-policy';
 
 type PairingCodeRow = {
   id: string;
@@ -58,7 +59,7 @@ type ExistingInstallationRow = {
 export class MobileDeviceService {
   private readonly pairingTtlMs = 10 * 60 * 1000;
   private readonly webTicketTtlMs = 60 * 1000;
-  private readonly maxDevicesPerUser = 3;
+  private readonly maxDevicesPerUser = MAX_MOBILE_DEVICES_PER_USER;
 
   constructor(
     private readonly prisma: PrismaService,

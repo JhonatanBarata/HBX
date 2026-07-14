@@ -217,7 +217,7 @@ export function MobileDevicePanel() {
           <div>
             <h2>Aparelhos vinculados</h2>
             <p className={styles.description} style={{ margin: "5px 0 0" }}>
-              Cada usuário pode manter até 3 aparelhos ativos. Desconectar corta o acesso imediatamente.
+              Cada usuário pode manter até 4 aparelhos ativos. Desconectar corta o acesso imediatamente.
             </p>
           </div>
           <button className="btn-ghost" onClick={() => void loadDevices()} disabled={loading}>

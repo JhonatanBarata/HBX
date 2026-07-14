@@ -46,6 +46,7 @@ import {
 import {
   resolveOperationalAccessProjection,
 } from '../team/operational-capabilities';
+import { allowsAdminMultiSession, MAX_ADMIN_WEB_SESSIONS } from './session-policy';
 import {
   buildProvisioningLedger,
   seedTenantDefaultProductsTx,
@@ -1059,23 +1060,27 @@ export class AuthService implements OnModuleInit {
       this.assertOperationalWorkspaceCompany(company);
     }
 
+    const allowsMultipleSessions = allowsAdminMultiSession(user);
+
     const sessionContext = await this.prisma.$transaction(async (tx) => {
-      await tx.authSession.updateMany({
-        where: {
-          userId: Number(user.id),
-          revokedAt: null,
-        },
-        data: {
-          revokedAt: now,
-          revokedReason: 'replaced_by_login',
-        },
-      });
+      if (!allowsMultipleSessions) {
+        await tx.authSession.updateMany({
+          where: {
+            userId: Number(user.id),
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: now,
+            revokedReason: 'replaced_by_login',
+          },
+        });
+      }
 
       const updatedUser = await tx.user.update({
         where: { id: Number(user.id) },
         data: {
           currentSessionId: null,
-          sessionVersion: { increment: 1 },
+          ...(!allowsMultipleSessions ? { sessionVersion: { increment: 1 } } : {}),
         },
         select: {
           id: true,
@@ -1086,6 +1091,31 @@ export class AuthService implements OnModuleInit {
           sessionVersion: true,
         },
       });
+
+      if (allowsMultipleSessions) {
+        // O update do usuário acima serializa logins concorrentes desta conta.
+        // Mantemos as três sessões mais recentes antes de criar a quarta; no
+        // quinto acesso, somente a mais antiga é revogada.
+        const sessionsOverLimit = await tx.authSession.findMany({
+          where: {
+            userId: updatedUser.id,
+            revokedAt: null,
+            expiresAt: { gt: now },
+          },
+          orderBy: [
+            { lastSeenAt: 'desc' },
+            { createdAt: 'desc' },
+          ],
+          skip: MAX_ADMIN_WEB_SESSIONS - 1,
+          select: { id: true },
+        });
+        if (sessionsOverLimit.length > 0) {
+          await tx.authSession.updateMany({
+            where: { id: { in: sessionsOverLimit.map((session) => session.id) }, revokedAt: null },
+            data: { revokedAt: now, revokedReason: 'session_limit_reached' },
+          });
+        }
+      }
 
       const session = await tx.authSession.create({
         data: {

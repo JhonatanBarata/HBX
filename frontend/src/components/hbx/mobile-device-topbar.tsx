@@ -11,7 +11,8 @@ import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
 import styles from "./mobile-device-topbar.module.css";
 
-const APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
+const VENDAS_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
+const LOGISTICA_APK_URL = "/download/android-logistica";
 const ONLINE_WINDOW_MS = 90_000;
 const MOBILE_ICON = [
   "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
@@ -182,63 +183,68 @@ function MobileDeviceAction() {
                 {online ? "Online agora" : linked ? "Offline" : "Nenhum aparelho vinculado"}
               </span>
             </div>
+            <button className={styles.refreshButton} disabled={loading} onClick={() => void load()}>
+              {loading ? "Atualizando…" : "Atualizar"}
+            </button>
           </div>
 
-          {primary && (
-            <div className={styles.deviceCard}>
-              <strong>{primary.name || "Aparelho Android"}</strong>
-              <span>{primary.platform || "android"}</span>
-              <small>Último acesso: {formatDate(primary.lastUsedAt)}</small>
-            </div>
-          )}
+          <div className={styles.scrollArea}>
+            {primary && (
+              <div className={styles.deviceCard}>
+                <strong>{primary.name || "Aparelho Android"}</strong>
+                <span>{primary.platform || "android"}</span>
+                <small>Último acesso: {formatDate(primary.lastUsedAt)}</small>
+              </div>
+            )}
 
-          {linked && (
-            <div className={styles.preferences}>
-              <span className={styles.sectionLabel}>Usar o celular para</span>
-              <button
-                type="button"
-                className={`${styles.preference} ${callMode === "mobile" ? styles.preferenceOn : ""}`}
-                onClick={() => setMobileCallMode(callMode === "mobile" ? "local" : "mobile")}
-              >
-                <span><I d={ICONS.phone} size={15} /> Ligações</span>
-                <b>{callMode === "mobile" ? "Celular" : "Neste dispositivo"}</b>
-              </button>
-              <button
-                type="button"
-                className={`${styles.preference} ${waMode === "mobile" ? styles.preferenceOn : ""}`}
-                onClick={() => setWaOpenMode(waMode === "mobile" ? "external" : "mobile")}
-              >
-                <span><I d={ICONS.msg} size={15} /> WhatsApp pessoal</span>
-                <b>{waMode === "mobile" ? "Celular" : "Direto daqui"}</b>
-              </button>
-              <small className={styles.preferenceNote}>
-                O HBX prepara a ação. A ligação e o envio da mensagem ainda são confirmados pela pessoa no celular.
-              </small>
-            </div>
-          )}
+            {linked && (
+              <div className={styles.preferences}>
+                <span className={styles.sectionLabel}>Usar o celular para</span>
+                <button
+                  type="button"
+                  className={`${styles.preference} ${callMode === "mobile" ? styles.preferenceOn : ""}`}
+                  onClick={() => setMobileCallMode(callMode === "mobile" ? "local" : "mobile")}
+                >
+                  <span><I d={ICONS.phone} size={15} /> Ligações</span>
+                  <b>{callMode === "mobile" ? "Celular" : "Neste dispositivo"}</b>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.preference} ${waMode === "mobile" ? styles.preferenceOn : ""}`}
+                  onClick={() => setWaOpenMode(waMode === "mobile" ? "external" : "mobile")}
+                >
+                  <span><I d={ICONS.msg} size={15} /> WhatsApp pessoal</span>
+                  <b>{waMode === "mobile" ? "Celular" : "Direto daqui"}</b>
+                </button>
+                <small className={styles.preferenceNote}>
+                  O HBX prepara a ação. A ligação e o envio da mensagem ainda são confirmados pela pessoa no celular.
+                </small>
+              </div>
+            )}
 
-          {history.length > 0 && (
-            <div className={styles.history}>
-              <span className={styles.sectionLabel}>Histórico recente</span>
-              {history.map(action => {
-                const duration = formatDuration(action.estimatedDurationSeconds);
-                return (
-                  <div className={styles.historyItem} key={action.id}>
-                    <span className={styles.historyIcon}>
-                      <I d={action.kind === "call" ? ICONS.phone : ICONS.msg} size={13} />
-                    </span>
-                    <span className={styles.historyCopy}>
-                      <strong>{action.contactName || action.phone}</strong>
-                      <small>{actionStatus(action)}{duration ? ` · ${duration}` : ""}</small>
-                    </span>
-                    <time>{new Date(action.requestedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+            {history.length > 0 && (
+              <div className={styles.history}>
+                <span className={styles.sectionLabel}>Histórico recente</span>
+                {history.map(action => {
+                  const duration = formatDuration(action.estimatedDurationSeconds);
+                  return (
+                    <div className={styles.historyItem} key={action.id}>
+                      <span className={styles.historyIcon}>
+                        <I d={action.kind === "call" ? ICONS.phone : ICONS.msg} size={13} />
+                      </span>
+                      <span className={styles.historyCopy}>
+                        <strong>{action.contactName || action.phone}</strong>
+                        <small>{actionStatus(action)}{duration ? ` · ${duration}` : ""}</small>
+                      </span>
+                      <time>{new Date(action.requestedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-          {failed && <div className={styles.errorText}>Não foi possível atualizar o status agora.</div>}
+            {failed && <div className={styles.errorText}>Não foi possível atualizar o status agora.</div>}
+          </div>
 
           <div className={styles.actions}>
             <button
@@ -250,14 +256,14 @@ function MobileDeviceAction() {
             >
               {linked ? "Gerenciar aparelho" : "Vincular aparelho"}
             </button>
-            {APK_URL && (
-              <a className="btn-ghost" href={APK_URL} target="_blank" rel="noreferrer">
-                Baixar APK Vendas
+            <div className={styles.downloads}>
+              <a className="btn-ghost" href={VENDAS_APK_URL} target="_blank" rel="noreferrer">
+                APK Vendas
               </a>
-            )}
-            <button className="btn-ghost" disabled={loading} onClick={() => void load()}>
-              {loading ? "Atualizando…" : "Atualizar status"}
-            </button>
+              <a className="btn-ghost" href={LOGISTICA_APK_URL} target="_blank" rel="noreferrer">
+                APK Logística
+              </a>
+            </div>
           </div>
         </div>
       )}
