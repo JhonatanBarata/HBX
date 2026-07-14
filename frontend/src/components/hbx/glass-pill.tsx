@@ -37,15 +37,44 @@ export function useGlassPill<T extends HTMLElement = HTMLElement>(
 
   useLayoutEffect(() => {
     const el = activeKey != null ? itemRefs.current[activeKey] : null;
-    const next: GlassRect | null = el
-      ? { top: el.offsetTop, left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight }
-      : null;
-    setRect(next);
-    // só "assenta" quando JÁ havia posição anterior (evita animar no 1º render).
-    if (next && prevRef.current && (prevRef.current.top !== next.top || prevRef.current.left !== next.left)) {
-      setLanding(true);
-    }
-    prevRef.current = next ? { top: next.top, left: next.left } : null;
+
+    const measure = () => {
+      const next: GlassRect | null = el
+        ? { top: el.offsetTop, left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight }
+        : null;
+
+      setRect(current => {
+        if (!current && !next) return current;
+        if (current && next
+          && current.top === next.top
+          && current.left === next.left
+          && current.width === next.width
+          && current.height === next.height) return current;
+        return next;
+      });
+
+      // só "assenta" quando JÁ havia posição anterior (evita animar no 1º render).
+      if (next && prevRef.current && (prevRef.current.top !== next.top || prevRef.current.left !== next.left)) {
+        setLanding(true);
+      }
+      prevRef.current = next ? { top: next.top, left: next.left } : null;
+    };
+
+    measure();
+    if (!el) return;
+
+    // O item ativo pode mudar de tamanho sem activeKey mudar — por exemplo, quando
+    // permissões carregam e um segundo botão entra no grupo flex. Sem observar o
+    // layout, o vidro conserva a largura antiga até o primeiro clique.
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    observer?.observe(el);
+    if (el.parentElement) observer?.observe(el.parentElement);
+    window.addEventListener("resize", measure);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKey, ...deps]);
 
