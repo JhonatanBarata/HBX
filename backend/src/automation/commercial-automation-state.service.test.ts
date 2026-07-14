@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { CommercialAutomationStateService } from './commercial-automation-state.service';
 
 test('claim canônico permite uma única réplica executar o mesmo passo', async () => {
+  const lockQueries: string[] = [];
   const enrollment = {
     id: 'enr-1',
     companyId: 7,
@@ -23,7 +24,10 @@ test('claim canônico permite uma única réplica executar o mesmo passo', async
   };
   const prisma: any = {
     $transaction: async (callback: (tx: any) => Promise<any>) => callback(prisma),
-    $queryRawUnsafe: async () => [{ pg_advisory_xact_lock: null }],
+    $queryRawUnsafe: async (sql: string) => {
+      lockQueries.push(sql);
+      return [{ locked: 1 }];
+    },
     automationEnrollment: {
       findFirst: async () => enrollment,
     },
@@ -56,6 +60,8 @@ test('claim canônico permite uma única réplica executar o mesmo passo', async
   assert.equal(results.filter((result) => result.claimed).length, 1);
   assert.equal(results.filter((result) => !result.claimed).length, 1);
   assert.deepEqual(new Set(results.map((result) => result.stepRunId)), new Set(['step-1']));
+  assert.ok(lockQueries.length >= 2);
+  assert.ok(lockQueries.every((sql) => sql.includes('SELECT 1::integer AS locked FROM advisory_lock')));
 });
 
 test('inbound libera o slot e cancela passos ainda não executados', async () => {

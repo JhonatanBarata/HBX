@@ -3481,22 +3481,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
       });
       if (pendingAfterSchedule > 0) continue;
-      const campaignCity = trimOrNull(campaign.city);
-      const campaignSegment = trimOrNull(campaign.segment);
-      if (!campaignCity || !campaignSegment) {
-        await this.markCampaignStage(
-          campaign.id,
-          campaign.companyId,
-          'aguardando',
-          'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.',
-          { type: 'waiting_vendas_cards' },
-        ).catch((error) => {
-          this.logger.warn(`Falha ao marcar campanha aguardando cards campaign=${campaign.id}: ${String(error?.message || error)}`);
-        });
-        continue;
-      }
-      await this.scrapeImportAndSchedule(campaign.id, undefined, 'refill').catch((error) => {
-        this.logger.warn(`Refill falhou campaign=${campaign.id}: ${String(error?.message || error)}`);
+      // Regra de produto: o Bot Prospecção somente consome os cards já existentes
+      // no Vendas. Pesquisa no Radar e importação de novos leads não fazem parte
+      // do ciclo automático do bot.
+      await this.markCampaignStage(
+        campaign.id,
+        campaign.companyId,
+        'aguardando',
+        'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.',
+        { type: 'waiting_vendas_cards' },
+      ).catch((error) => {
+        this.logger.warn(`Falha ao marcar campanha aguardando cards campaign=${campaign.id}: ${String(error?.message || error)}`);
       });
     }
   }

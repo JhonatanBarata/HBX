@@ -88,8 +88,10 @@ export class CommercialContactControlService {
 
   private async lockLead(tx: any, companyId: number, leadId: string): Promise<void> {
     if (typeof tx?.$queryRawUnsafe !== 'function') return;
+    // A função do Postgres retorna `void`, tipo que o Prisma não desserializa.
+    // O CTE mantém o lock transacional e projeta apenas um inteiro suportado.
     await tx.$queryRawUnsafe(
-      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))',
+      'WITH advisory_lock AS (SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))) SELECT 1::integer AS locked FROM advisory_lock',
       Number(companyId),
       String(leadId),
     );

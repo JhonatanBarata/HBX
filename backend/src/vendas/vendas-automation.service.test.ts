@@ -548,6 +548,24 @@ test('scrapeImportAndSchedule records webscraping failures in campaign status', 
   assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Busca de contatos falhou')));
 });
 
+test('refillCampaignsIfNeeded somente consome cards do Vendas e nunca pesquisa ou importa leads', async () => {
+  const { service, scheduleCalls, searchCalls, importCalls, campaignStageUpdates } = createService({
+    campaign: {
+      city: 'Sao Paulo',
+      segment: 'clínica odontológica',
+      lastScrapeAt: null,
+    },
+    scheduleLeads: [],
+  });
+
+  await service.refillCampaignsIfNeeded();
+
+  assert.deepEqual(scheduleCalls, ['campaign-1']);
+  assert.equal(searchCalls.length, 0);
+  assert.equal(importCalls.length, 0);
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Aguardando cards do Vendas')));
+});
+
 test('runWorkerCycle sends due jobs before running refill', async () => {
   const campaign = buildCampaign();
   const lead = buildLead({ segment: campaign.segment });
