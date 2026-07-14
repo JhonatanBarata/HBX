@@ -23,13 +23,13 @@ DELETE FROM "CreditLedgerEntry" WHERE "kind" = 'debit_shadow';
 
 -- A conversa deixa de presumir Recovery: o fluxo é definido pelo roteamento.
 -- O vínculo ao perfil permite interromper a cadência sem depender só do telefone.
-ALTER TABLE "CompanyConversation"
+ALTER TABLE "Conversation"
   ADD COLUMN "customerProfileId" TEXT,
   ALTER COLUMN "currentFlow" SET DEFAULT 'atendimento';
-CREATE INDEX "CompanyConversation_companyId_customerProfileId_idx"
-  ON "CompanyConversation"("companyId", "customerProfileId");
-ALTER TABLE "CompanyConversation"
-  ADD CONSTRAINT "CompanyConversation_customerProfileId_fkey"
+CREATE INDEX "Conversation_companyId_customerProfileId_idx"
+  ON "Conversation"("companyId", "customerProfileId");
+ALTER TABLE "Conversation"
+  ADD CONSTRAINT "Conversation_customerProfileId_fkey"
   FOREIGN KEY ("customerProfileId") REFERENCES "CustomerProfile"("id")
   ON DELETE SET NULL ON UPDATE CASCADE;
 
