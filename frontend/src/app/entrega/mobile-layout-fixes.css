@@ -1,0 +1,26 @@
+/* Correção mínima do shell mobile.
+   A lista é um flex-column com rolagem; sem impedir shrink, muitos cartões eram
+   espremidos abaixo do próprio conteúdo e textos/chips ficavam sobrepostos. */
+[data-skin="entrega"] .ent-list > .ent-card {
+  flex: 0 0 auto;
+}
+
+[data-skin="entrega"] .ent-card {
+  align-items: flex-start;
+}
+
+[data-skin="entrega"] .ent-card-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+[data-skin="entrega"] .ent-card-name,
+[data-skin="entrega"] .ent-card-sub,
+[data-skin="entrega"] .ent-card-debito {
+  line-height: 1.25;
+}
+
+[data-skin="entrega"] .ent-card-chevron {
+  align-self: center;
+}
