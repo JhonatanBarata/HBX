@@ -1,8 +1,10 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import { isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
 import { isPedidoPublicoEnabled } from './logistica-pedido.flags';
+import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import { isResumoDiarioEnabled } from './resumo-diario.flags';
 
 /**
@@ -35,10 +37,21 @@ export class LogisticaConfigService {
    * defaults do schema (idempotente — 2 chamadas concorrentes não duplicam por
    * causa do @@unique([companyId])). company-scoped.
    */
-  async getConfig(companyId: number): Promise<LogisticaConfigDTO> {
+  async getConfig(companyId: number, actor?: ActorKindUserLike): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const cfg = await this.ensureRow(companyId);
-    return serializeConfig(cfg);
+    return serializeConfig(cfg, actor);
+  }
+
+  /**
+   * Fonte única do modo EFETIVO usado pela inicialização e pela cobrança.
+   * A preferência TRACKED fica dormente enquanto qualquer um dos dois gates
+   * (flag global + toggle do tenant) estiver desligado.
+   */
+  async resolveRouteMode(companyId: number): Promise<LogisticaRouteMode> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cfg = await this.ensureRow(companyId);
+    return effectiveRouteMode(cfg);
   }
 
   /** Linha crua da config (cria o default se não existir) — base do getConfig e
@@ -111,10 +124,38 @@ export class LogisticaConfigService {
    * mudam. Números são clampados (raio/velocidade/tempo ≥ 1) e o template é
    * limitado no tamanho. company-scoped. NÃO dispara nada.
    */
-  async updateConfig(companyId: number, input: UpdateLogisticaConfigInput): Promise<LogisticaConfigDTO> {
+  async updateConfig(
+    companyId: number,
+    input: UpdateLogisticaConfigInput,
+    actor?: ActorKindUserLike,
+  ): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
 
     const data: Record<string, unknown> = {};
+    const changesCommercialConfig = [
+      input.trackingAtivo,
+      input.modoRotaPadrao,
+      input.cobrancaNaEntrega,
+      input.moduloFinanceiroAtivo,
+      input.moduloRecoveryAtivo,
+      input.pixChave,
+      input.pixNome,
+      input.pixCidade,
+      input.cobrancaWhatsAtiva,
+      input.resumoDiarioAtivo,
+      input.resumoDiarioHora,
+    ].some((value) => value !== undefined);
+    if (changesCommercialConfig && !isBillingOwnerActor(actor)) {
+      throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
+    }
+    if (input.trackingAtivo !== undefined) data.trackingAtivo = !!input.trackingAtivo;
+    if (input.modoRotaPadrao !== undefined) {
+      const mode = String(input.modoRotaPadrao || '').trim().toUpperCase();
+      if (mode !== 'ESSENTIAL' && mode !== 'TRACKED') {
+        throw new BadRequestException('Modo de rota inválido.');
+      }
+      data.modoRotaPadrao = mode;
+    }
     if (input.avisoWhatsEnabled !== undefined) data.avisoWhatsEnabled = !!input.avisoWhatsEnabled;
     if (input.templateAviso !== undefined) {
       const t = String(input.templateAviso ?? '').trim();
@@ -187,7 +228,7 @@ export class LogisticaConfigService {
       update: data,
       create: { companyId, ...data },
     });
-    return serializeConfig(cfg);
+    return serializeConfig(cfg, actor);
   }
 
   // ── TOGGLE "avisar entrega" POR CLIENTE ──────────────────────────────────────
@@ -360,50 +401,67 @@ function normalizeDiasTrabalho(raw: unknown): string | null {
   return dias.length > 0 ? dias.join(',') : null;
 }
 
-function serializeConfig(c: any): LogisticaConfigDTO {
-  return {
+function serializeConfig(c: any, actor?: ActorKindUserLike): LogisticaConfigDTO {
+  const operational: LogisticaConfigDTO = {
     avisoWhatsEnabled: !!c.avisoWhatsEnabled,
     templateAviso: c.templateAviso ?? null,
     raioChegadaM: c.raioChegadaM,
     velocidadeMediaKmH: c.velocidadeMediaKmH,
     tempoParadaMin: c.tempoParadaMin,
-    cobrancaNaEntrega: !!c.cobrancaNaEntrega,
-    moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
-    moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
     gerarDiaAutomatico: !!c.gerarDiaAutomatico,
     diasTrabalho: c.diasTrabalho ?? null,
-    pixChave: c.pixChave ?? null,
-    pixNome: c.pixNome ?? null,
-    pixCidade: c.pixCidade ?? null,
     avisoChegandoEnabled: !!c.avisoChegandoEnabled,
     avisoChegandoTemplate: c.avisoChegandoTemplate ?? null,
     avisoChegandoDistanciaM: c.avisoChegandoDistanciaM ?? 500,
-    // S2 COBRANÇA-WHATS — o toggle do tenant + o DERIVADO da env global
-    // (cobrancaWhatsDisponivel NÃO é coluna: é a feature-flag exposta pro front
-    // decidir se mostra o card — flag OFF = card some, deploy inerte na UI).
-    cobrancaWhatsAtiva: !!c.cobrancaWhatsAtiva,
-    cobrancaWhatsDisponivel: isCobrancaWhatsEnabled(),
-    // S3 RESUMO-DIÁRIO — mesmo padrão: toggle+hora do tenant e o DERIVADO da env
-    // (resumoDiarioDisponivel NÃO é coluna; OFF = a UI esconde o card inteiro).
-    // resumoDiarioUltimoEnvio fica FORA do DTO (marca interna do scheduler).
-    resumoDiarioAtivo: !!c.resumoDiarioAtivo,
-    resumoDiarioHora: typeof c.resumoDiarioHora === 'number' ? c.resumoDiarioHora : 7,
-    resumoDiarioDisponivel: isResumoDiarioEnabled(),
-    // S6 PORTAL-PEDIDO — toggle do tenant + token do link + o DERIVADO da env
-    // global (pedidoPublicoDisponivel NÃO é coluna; OFF = a UI esconde o card
-    // inteiro, deploy inerte). O token aqui é o link que o admin copia/compartilha
-    // — vira público por design quando entregue ao cliente final.
-    pedidoPublicoAtivo: !!c.pedidoPublicoAtivo,
-    pedidoPublicoToken: c.pedidoPublicoToken ?? null,
-    pedidoPublicoDisponivel: isPedidoPublicoEnabled(),
     comprovanteFotoObrigatoria: !!c.comprovanteFotoObrigatoria,
     comprovanteAssinaturaObrigatoria: !!c.comprovanteAssinaturaObrigatoria,
     comprovanteCodigoObrigatorio: !!c.comprovanteCodigoObrigatorio,
   };
+
+  // O GET também é consumido pelo app do entregador. Campos administrativos,
+  // financeiros e comerciais precisam estar AUSENTES (não apenas null) para
+  // gerente, vendedor e motorista.
+  if (!isBillingOwnerActor(actor)) return operational;
+
+  return {
+    ...operational,
+    cobrancaNaEntrega: !!c.cobrancaNaEntrega,
+    moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
+    moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
+    pixChave: c.pixChave ?? null,
+    pixNome: c.pixNome ?? null,
+    pixCidade: c.pixCidade ?? null,
+    cobrancaWhatsAtiva: !!c.cobrancaWhatsAtiva,
+    cobrancaWhatsDisponivel: isCobrancaWhatsEnabled(),
+    resumoDiarioAtivo: !!c.resumoDiarioAtivo,
+    resumoDiarioHora: typeof c.resumoDiarioHora === 'number' ? c.resumoDiarioHora : 7,
+    resumoDiarioDisponivel: isResumoDiarioEnabled(),
+    pedidoPublicoAtivo: !!c.pedidoPublicoAtivo,
+    pedidoPublicoToken: c.pedidoPublicoToken ?? null,
+    pedidoPublicoDisponivel: isPedidoPublicoEnabled(),
+    trackingAtivo: !!c.trackingAtivo,
+    trackingDisponivel: isLogisticaTrackingEnabled(),
+    // Preferência salva (não o modo efetivo): a UI continua mostrando TRACKED
+    // enquanto a flag global está OFF. Inicialização/cobrança usam resolveRouteMode.
+    modoRotaPadrao: storedRouteMode(c.modoRotaPadrao),
+  };
+}
+
+export type LogisticaRouteMode = 'ESSENTIAL' | 'TRACKED';
+
+function storedRouteMode(value: unknown): LogisticaRouteMode {
+  return String(value || '').trim().toUpperCase() === 'TRACKED' ? 'TRACKED' : 'ESSENTIAL';
+}
+
+function effectiveRouteMode(c: any): LogisticaRouteMode {
+  if (!isLogisticaTrackingEnabled() || !c?.trackingAtivo) return 'ESSENTIAL';
+  return storedRouteMode(c?.modoRotaPadrao);
 }
 
 // ── tipos ─────────────────────────────────────────────────────────────────────
 export interface UpdateLogisticaConfigInput {
+  trackingAtivo?: boolean;
+  modoRotaPadrao?: LogisticaRouteMode;
   avisoWhatsEnabled?: boolean;
   templateAviso?: string | null;
   raioChegadaM?: number;
@@ -438,30 +496,33 @@ export interface LogisticaConfigDTO {
   raioChegadaM: number;
   velocidadeMediaKmH: number;
   tempoParadaMin: number;
-  cobrancaNaEntrega: boolean;
-  moduloFinanceiroAtivo: boolean;
-  moduloRecoveryAtivo: boolean;
+  cobrancaNaEntrega?: boolean;
+  moduloFinanceiroAtivo?: boolean;
+  moduloRecoveryAtivo?: boolean;
   gerarDiaAutomatico: boolean;
   diasTrabalho: string | null;
-  pixChave: string | null;
-  pixNome: string | null;
-  pixCidade: string | null;
+  pixChave?: string | null;
+  pixNome?: string | null;
+  pixCidade?: string | null;
   avisoChegandoEnabled: boolean;
   avisoChegandoTemplate: string | null;
   avisoChegandoDistanciaM: number;
   // S2 COBRANÇA-WHATS — toggle do tenant + derivado da env (read-only pro front).
-  cobrancaWhatsAtiva: boolean;
-  cobrancaWhatsDisponivel: boolean;
+  cobrancaWhatsAtiva?: boolean;
+  cobrancaWhatsDisponivel?: boolean;
   // S3 RESUMO-DIÁRIO — toggle+hora do tenant + derivado da env (read-only pro front).
-  resumoDiarioAtivo: boolean;
-  resumoDiarioHora: number;
-  resumoDiarioDisponivel: boolean;
+  resumoDiarioAtivo?: boolean;
+  resumoDiarioHora?: number;
+  resumoDiarioDisponivel?: boolean;
   // S6 PORTAL-PEDIDO — toggle do tenant + token do link + derivado da env
   // (pedidoPublicoToken/Disponivel são read-only pro front; token muda só por
   // ensure/rotate nos endpoints admin).
-  pedidoPublicoAtivo: boolean;
-  pedidoPublicoToken: string | null;
-  pedidoPublicoDisponivel: boolean;
+  pedidoPublicoAtivo?: boolean;
+  pedidoPublicoToken?: string | null;
+  pedidoPublicoDisponivel?: boolean;
+  trackingAtivo?: boolean;
+  trackingDisponivel?: boolean;
+  modoRotaPadrao?: LogisticaRouteMode;
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;

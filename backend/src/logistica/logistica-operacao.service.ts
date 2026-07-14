@@ -21,6 +21,7 @@ export interface LogisticaActor {
   companyId?: number | string | null;
   role?: string | null;
   isSystemMaster?: boolean | null;
+  canViewBilling?: boolean | null;
 }
 
 export interface RequisitosComprovante {

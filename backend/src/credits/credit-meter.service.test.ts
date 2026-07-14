@@ -65,15 +65,32 @@ function makeFakes() {
   return { credits, wallet, shadowCalls, debitCalls };
 }
 
-test('catálogo: decisões do dono 10/07 cravadas — whatsapp/IA/logística = track, lead = debit', () => {
+test('catálogo: logística legada fica track e os dois modos novos têm custo fixo', () => {
   assert.equal(getCreditActionDefinition('lead_delivery')?.mode, 'debit');
   assert.equal(getCreditActionDefinition('whatsapp_auto_send')?.mode, 'track');
   assert.equal(getCreditActionDefinition('ai_realtime')?.mode, 'track');
   assert.equal(getCreditActionDefinition('ai_batch')?.mode, 'track');
   assert.equal(getCreditActionDefinition('logistica_delivery')?.mode, 'track');
+  assert.deepEqual(getCreditActionDefinition('logistica_essential_block'), {
+    key: 'logistica_essential_block', mode: 'debit', cost: 1,
+    label: 'Bloco iniciado de até 5 entregas (Rota Essencial)',
+  });
+  assert.equal(getCreditActionDefinition('logistica_tracked_delivery')?.mode, 'debit');
+  assert.equal(getCreditActionDefinition('logistica_tracked_delivery')?.cost, 2);
   // ação fora do catálogo nunca vira preço inventado
   assert.equal(getCreditActionDefinition('acao_inventada'), null);
-  assert.equal(listCreditActionDefinitions().length, 5);
+  assert.equal(listCreditActionDefinitions().length, 7);
+});
+
+test('overlay injetado direto nunca muda modo/custo das ações fixas de logística', () => {
+  applyCreditActionOverrides([
+    { actionKey: 'logistica_delivery', override: { mode: 'debit', cost: 99 } },
+    { actionKey: 'logistica_essential_block', override: { mode: 'free', cost: 99 } },
+    { actionKey: 'logistica_tracked_delivery', override: { mode: 'free', cost: 99 } },
+  ]);
+  assert.equal(getCreditActionDefinition('logistica_delivery')?.mode, 'track');
+  assert.equal(getCreditActionDefinition('logistica_essential_block')?.cost, 1);
+  assert.equal(getCreditActionDefinition('logistica_tracked_delivery')?.cost, 2);
 });
 
 test('meter: flag mestra OFF = no-op absoluto (nem track, nem debit)', async () => {

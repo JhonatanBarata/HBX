@@ -20,7 +20,11 @@ export const CREDIT_ACTION_KEYS = {
   WHATSAPP_AUTO_SEND: 'whatsapp_auto_send',
   AI_REALTIME: 'ai_realtime',
   AI_BATCH: 'ai_batch',
+  // `logistica_delivery` é a chave LEGADA de telemetria pós-entrega. Ela
+  // continua track-only para não disputar débito com os dois modos novos.
   LOGISTICA_DELIVERY: 'logistica_delivery',
+  LOGISTICA_ESSENTIAL_BLOCK: 'logistica_essential_block',
+  LOGISTICA_TRACKED_DELIVERY: 'logistica_tracked_delivery',
 } as const;
 
 export type CreditActionKey = (typeof CREDIT_ACTION_KEYS)[keyof typeof CREDIT_ACTION_KEYS];
@@ -73,9 +77,35 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
     key: CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
     mode: 'track',
     cost: 1,
-    label: 'Entrega concluída (logística)',
+    label: 'Entrega concluída (logística, telemetria legada)',
+  },
+  [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK]: {
+    key: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+    mode: 'debit',
+    cost: 1,
+    label: 'Bloco iniciado de até 5 entregas (Rota Essencial)',
+  },
+  [CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY]: {
+    key: CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
+    mode: 'debit',
+    cost: 2,
+    label: 'Entrega concluída com rastreamento válido',
   },
 };
+
+// As três chaves de logística têm contrato comercial fixo. Nem escrita direta
+// em CreditActionConfig pode mudar custo/modo: a moeda em reais continua vindo
+// do catálogo de packs do Master, mas as unidades por ação são invariantes.
+const FIXED_LOGISTICS_ACTION_KEYS: ReadonlySet<CreditActionKey> = new Set([
+  CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
+  CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+  CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
+]);
+
+export function isFixedLogisticsCreditActionKey(value: unknown): boolean {
+  const key = normalizeCreditActionKey(value);
+  return key != null && FIXED_LOGISTICS_ACTION_KEYS.has(key);
+}
 
 export function normalizeCreditActionKey(value: unknown): CreditActionKey | null {
   const normalized = String(value || '').trim().toLowerCase();
@@ -115,6 +145,7 @@ export function applyCreditActionOverrides(
   for (const entry of entries || []) {
     const key = normalizeCreditActionKey(entry?.actionKey);
     if (!key) continue;
+    if (FIXED_LOGISTICS_ACTION_KEYS.has(key)) continue;
     const ov = entry?.override;
     if (!ov || typeof ov !== 'object') continue;
     const clean: CreditActionOverride = {};

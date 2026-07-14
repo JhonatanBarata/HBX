@@ -7,6 +7,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ActorKindUserLike, isBillingOwnerActor } from '../access/actor-kind';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 
 // "Cron" caseiro (o repo não usa @nestjs/schedule): varre 1×/dia + 1 passada
@@ -93,10 +94,15 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
   }
 
   // ── CRUD ClienteProduto ─────────────────────────────────────────────────────
-  async listByCliente(companyId: number, customerProfileId: string): Promise<ClienteProdutoDTO[]> {
+  async listByCliente(
+    companyId: number,
+    customerProfileId: string,
+    actor?: ActorKindUserLike,
+  ): Promise<ClienteProdutoDTO[]> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const cid = String(customerProfileId || '').trim();
     if (!cid) throw new BadRequestException('Cliente é obrigatório.');
+    const billingAudience = isBillingOwnerActor(actor);
     const rows = await this.prisma.clienteProduto.findMany({
       where: { companyId, customerProfileId: cid },
       orderBy: [{ ativo: 'desc' }, { createdAt: 'asc' }],
@@ -105,15 +111,22 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         customerProfileId: true,
         productId: true,
         qtdPadrao: true,
-        precoAcordado: true,
+        ...(billingAudience ? { precoAcordado: true as const } : {}),
         frequenciaDias: true,
         diasSemana: true,
         proximaData: true,
         ativo: true,
-        product: { select: { id: true, name: true, unidade: true, price: true, priceCents: true } },
+        product: {
+          select: {
+            id: true,
+            name: true,
+            unidade: true,
+            ...(billingAudience ? { price: true as const, priceCents: true as const } : {}),
+          },
+        },
       },
     });
-    return rows.map(serializeClienteProduto);
+    return rows.map((row) => serializeClienteProduto(row, billingAudience));
   }
 
   async create(companyId: number, input: CreateClienteProdutoInput): Promise<ClienteProdutoDTO> {
@@ -170,7 +183,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       },
       select: cpSelect,
     });
-    return serializeClienteProduto(created);
+    return serializeClienteProduto(created, true);
   }
 
   /**
@@ -225,7 +238,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       data,
       select: cpSelect,
     });
-    return serializeClienteProduto(updated);
+    return serializeClienteProduto(updated, true);
   }
 
   /** Liga/desliga o vínculo (atalho do toggle da UI). */
@@ -257,21 +270,36 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
    * Prioriza os marcados usaLogistica (item de entrega), mas devolve todos os
    * ativos para não travar o cadastro. Company-scoped.
    */
-  async listProdutos(companyId: number): Promise<ProdutoOptionDTO[]> {
+  async listProdutos(companyId: number, actor?: ActorKindUserLike): Promise<ProdutoOptionDTO[]> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const billingAudience = isBillingOwnerActor(actor);
     const rows = await this.prisma.product.findMany({
       where: { companyId, status: 'active', kind: 'tenant_product' },
       orderBy: [{ usaLogistica: 'desc' }, { sortOrder: 'asc' }, { name: 'asc' }],
       take: 500,
-      select: { id: true, name: true, unidade: true, price: true, priceCents: true, usaLogistica: true },
+      select: {
+        id: true,
+        name: true,
+        unidade: true,
+        usaLogistica: true,
+        ...(billingAudience ? { price: true as const, priceCents: true as const } : {}),
+      },
     });
     return rows.map((p) => ({
       id: p.id,
       nome: p.name,
       unidade: p.unidade ?? null,
       usaLogistica: p.usaLogistica,
-      precoCatalogo:
-        typeof p.priceCents === 'number' ? p.priceCents / 100 : typeof p.price === 'number' ? p.price : null,
+      ...(billingAudience
+        ? {
+            precoCatalogo:
+              typeof p.priceCents === 'number'
+                ? p.priceCents / 100
+                : typeof p.price === 'number'
+                  ? p.price
+                  : null,
+          }
+        : {}),
     }));
   }
 
@@ -283,7 +311,13 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
    * (que só lê — pop-up "Gerar entregas" do app). Traz `product.name` e
    * `customerProfile.name` (só usados pelo preview; gerarDia ignora).
    */
-  private async buscarVencidosPorCliente(companyId: number, dia: Date, dayEnd: Date, dow: number) {
+  private async buscarVencidosPorCliente(
+    companyId: number,
+    dia: Date,
+    dayEnd: Date,
+    dow: number,
+    includeBillingInputs = true,
+  ) {
     const vinculos = await this.prisma.clienteProduto.findMany({
       where: {
         companyId,
@@ -301,12 +335,24 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         local: { select: { apelido: true } },
         productId: true,
         qtdPadrao: true,
-        precoAcordado: true,
+        ...(includeBillingInputs ? { precoAcordado: true as const } : {}),
         frequenciaDias: true,
         diasSemana: true,
         proximaData: true,
-        product: { select: { id: true, name: true, price: true, priceCents: true } },
-        customerProfile: { select: { id: true, name: true, precoPadrao: true } },
+        product: {
+          select: {
+            id: true,
+            name: true,
+            ...(includeBillingInputs ? { price: true as const, priceCents: true as const } : {}),
+          },
+        },
+        customerProfile: {
+          select: {
+            id: true,
+            name: true,
+            ...(includeBillingInputs ? { precoPadrao: true as const } : {}),
+          },
+        },
       },
     });
 
@@ -476,13 +522,23 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
    * ganha localId/localApelido (opcionais); cliente com 1 local (pós-backfill)
    * = 1 linha idêntica ao anterior, com localApelido null.
    */
-  async getDiaPreview(companyId: number, dateInput?: string): Promise<DiaPreviewResult> {
+  async getDiaPreview(
+    companyId: number,
+    dateInput?: string,
+    actor?: ActorKindUserLike,
+  ): Promise<DiaPreviewResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
     const dayEnd = endOfDay(dia);
     const dow = isoDow(dia);
 
-    const { porCliente } = await this.buscarVencidosPorCliente(companyId, dia, dayEnd, dow);
+    const { porCliente } = await this.buscarVencidosPorCliente(
+      companyId,
+      dia,
+      dayEnd,
+      dow,
+      isBillingOwnerActor(actor),
+    );
 
     const clientes: DiaPreviewClienteDTO[] = [];
     for (const [customerProfileId, vencidos] of porCliente) {
@@ -557,7 +613,7 @@ export function nextProximaData(
 
 /** Valor unitário: preço acordado > preço do produto > precoPadrao do cliente > 0. */
 export function resolveValorUnit(v: {
-  precoAcordado: number | null;
+  precoAcordado?: number | null;
   product?: { price?: number | null; priceCents?: number | null } | null;
   customerProfile?: { precoPadrao?: number | null } | null;
 }): number {
@@ -649,13 +705,13 @@ const cpSelect = {
   product: { select: { id: true, name: true, unidade: true, price: true, priceCents: true } },
 } as const;
 
-function serializeClienteProduto(r: any): ClienteProdutoDTO {
+function serializeClienteProduto(r: any, billingAudience: boolean): ClienteProdutoDTO {
   return {
     id: r.id,
     customerProfileId: r.customerProfileId,
     productId: r.productId,
     qtdPadrao: r.qtdPadrao,
-    precoAcordado: r.precoAcordado ?? null,
+    ...(billingAudience ? { precoAcordado: r.precoAcordado ?? null } : {}),
     frequenciaDias: r.frequenciaDias ?? null,
     diasSemana: r.diasSemana ?? null,
     proximaData: r.proximaData ? r.proximaData.toISOString() : null,
@@ -666,12 +722,16 @@ function serializeClienteProduto(r: any): ClienteProdutoDTO {
           id: r.product.id,
           nome: r.product.name,
           unidade: r.product.unidade ?? null,
-          precoCatalogo:
-            typeof r.product.priceCents === 'number'
-              ? r.product.priceCents / 100
-              : typeof r.product.price === 'number'
-                ? r.product.price
-                : null,
+          ...(billingAudience
+            ? {
+                precoCatalogo:
+                  typeof r.product.priceCents === 'number'
+                    ? r.product.priceCents / 100
+                    : typeof r.product.price === 'number'
+                      ? r.product.price
+                      : null,
+              }
+            : {}),
         }
       : null,
   };
@@ -704,13 +764,13 @@ export interface ClienteProdutoDTO {
   customerProfileId: string;
   productId: number;
   qtdPadrao: number;
-  precoAcordado: number | null;
+  precoAcordado?: number | null;
   frequenciaDias: number | null;
   diasSemana: string | null;
   proximaData: string | null;
   ativo: boolean;
   localId: string | null;
-  produto: { id: number; nome: string; unidade: string | null; precoCatalogo: number | null } | null;
+  produto: { id: number; nome: string; unidade: string | null; precoCatalogo?: number | null } | null;
 }
 
 export interface GerarDiaResult {
@@ -748,5 +808,5 @@ export interface ProdutoOptionDTO {
   nome: string;
   unidade: string | null;
   usaLogistica: boolean;
-  precoCatalogo: number | null;
+  precoCatalogo?: number | null;
 }

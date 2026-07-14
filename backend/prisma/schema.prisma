@@ -291,6 +291,9 @@ model Company {
   entregas               Entrega[]
   entregaComprovantes    EntregaComprovante[]
   clienteProdutos        ClienteProduto[]
+  logisticaRoutes        LogisticaRoute[]
+  logisticaRouteStops    LogisticaRouteStop[]
+  logisticaEssentialClaims LogisticaEssentialCreditClaim[]
   // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
   locaisEntrega          LocalEntrega[]
   logisticaConfig        LogisticaConfig?
@@ -1145,7 +1148,7 @@ model Entrega {
   avisoChegandoAt   DateTime?
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
-  idempotencyKey    String?  @unique
+  idempotencyKey    String?
   // Comprovante configurável por tenant. Foto/assinatura vivem em
   // EntregaComprovante (arquivo privado + metadata); código esperado nunca é
   // persistido em claro, apenas scrypt(hash+salt). A confirmação guarda ator/data.
@@ -1161,7 +1164,10 @@ model Entrega {
   updatedAt         DateTime @updatedAt
   itens             EntregaItem[]
   comprovantes      EntregaComprovante[]
+  logisticaRouteStop LogisticaRouteStop?
 
+  @@unique([id, companyId])
+  @@unique([companyId, idempotencyKey])
   @@index([companyId, status, scheduledAt])
   @@index([companyId, customerProfileId])
   // LOGÍSTICA-MOBILE M2 — "entregas do dia" idempotentes por [empresa, cliente, dia]:
@@ -1169,6 +1175,87 @@ model Entrega {
   // mesmo dia (a checagem real é feita no serviço; este índice acelera a varredura).
   @@index([companyId, customerProfileId, scheduledAt])
   @@index([companyId, entregadorId, status, scheduledAt])
+}
+
+// LOGÍSTICA MODOS PR1 (13/07) — agregado diário da rota. O modo comercial é
+// resolvido uma única vez no início e nunca muda: alterações posteriores da
+// configuração só valem para rotas novas. `routeDate` é a data civil canônica
+// YYYY-MM-DD de America/Sao_Paulo, sem conversão UTC ambígua.
+model LogisticaRoute {
+  id                 String   @id @default(cuid())
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId          Int
+  entregador          User     @relation("LogisticaRouteDriver", fields: [entregadorId, companyId], references: [id, companyId], onDelete: Restrict)
+  entregadorId        Int
+  routeDate           String   @db.VarChar(10)
+  mode                String   @default("ESSENTIAL") // ESSENTIAL | TRACKED (congelado)
+  status              String   @default("PLANNED") // PLANNED | INITIALIZING | ACTIVE | COMPLETED | REFUNDING | FAILED
+  billingRevision     Int      @default(0) // incrementa ao reservar estorno; invalida prepares antigos
+  initializationToken String?  @unique
+  initializationLeaseUntil DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  lastError           String?  @db.VarChar(500)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  stops               LogisticaRouteStop[]
+  essentialClaims     LogisticaEssentialCreditClaim[]
+
+  @@unique([id, companyId])
+  @@unique([companyId, entregadorId, routeDate])
+  @@index([companyId, status, routeDate])
+  @@index([companyId, entregadorId, routeDate])
+}
+
+// Snapshot monotônico: uma Entrega pertence a no máximo uma rota comercial e
+// recebe uma ordem de inclusão imutável. Recalcular pode mudar Entrega.rotaOrdem
+// operacional, mas nunca remove/reinsere a entrega para reduzir cobrança.
+model LogisticaRouteStop {
+  id            String   @id @default(cuid())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     Int
+  route         LogisticaRoute @relation(fields: [routeId, companyId], references: [id, companyId], onDelete: Cascade)
+  routeId       String
+  delivery      Entrega  @relation(fields: [deliveryId, companyId], references: [id, companyId], onDelete: Restrict)
+  deliveryId    String
+  snapshotOrder Int
+  createdAt     DateTime @default(now())
+
+  @@unique([routeId, snapshotOrder])
+  @@unique([deliveryId, companyId])
+  @@index([companyId, routeId])
+  @@index([companyId, deliveryId])
+}
+
+// Claim financeiro de UM bloco iniciado (1..5 entregas únicas) da Rota
+// Essencial. A unicidade comercial é empresa+motorista+data+bloco. A tentativa
+// é versionada porque uma usageKey já estornada não pode voltar a ser usada.
+model LogisticaEssentialCreditClaim {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  route           LogisticaRoute @relation(fields: [routeId, companyId], references: [id, companyId], onDelete: Cascade)
+  routeId         String
+  entregador      User     @relation("LogisticaEssentialClaimDriver", fields: [entregadorId, companyId], references: [id, companyId], onDelete: Restrict)
+  entregadorId    Int
+  routeDate       String   @db.VarChar(10)
+  blockIndex      Int
+  status          String   @default("PENDING") // PENDING | PROCESSING | DEBITED | REFUNDED | FAILED
+  billingRevision Int      @default(0) // geração da rota na qual esta tentativa debitou
+  billingAttempt  Int      @default(0)
+  debitUsageKey   String?  @unique
+  processingToken String?  @unique
+  leaseUntil      DateTime?
+  debitedAt       DateTime?
+  refundedAt      DateTime?
+  lastError       String?  @db.VarChar(500)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, entregadorId, routeDate, blockIndex])
+  @@index([companyId, routeId, status])
+  @@index([companyId, entregadorId, routeDate])
 }
 
 // Arquivo de comprovante da entrega. Mesmo padrão de storage privado usado por
@@ -1303,6 +1390,11 @@ model LogisticaConfig {
   raioChegadaM          Int      @default(60)
   velocidadeMediaKmH    Int      @default(25)
   tempoParadaMin        Int      @default(5)
+  // LOGÍSTICA MODOS PR1 — escolha comercial exclusiva do dono. TRACKED só é
+  // efetivo quando este opt-in e a feature flag global também estão ligados.
+  // A rota copia o modo ao iniciar; mudar a config não altera rota existente.
+  trackingAtivo         Boolean  @default(false)
+  modoRotaPadrao        String   @default("ESSENTIAL") // ESSENTIAL | TRACKED
   cobrancaNaEntrega     Boolean  @default(false)
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
@@ -1733,7 +1825,10 @@ model User {
   entregasConfirmadas Entrega[] @relation("EntregaConfirmadaPor")
   entregasCodigoGeradoPorMim Entrega[] @relation("EntregaCodigoGeradoPor")
   entregaComprovantesEnviados EntregaComprovante[] @relation("EntregaComprovanteEnviadoPor")
+  logisticaRoutesComoEntregador LogisticaRoute[] @relation("LogisticaRouteDriver")
+  logisticaEssentialClaimsComoEntregador LogisticaEssentialCreditClaim[] @relation("LogisticaEssentialClaimDriver")
 
+  @@unique([id, companyId])
   @@index([referredByUserId])
   @@index([canRegisterHbxSellers])
 }

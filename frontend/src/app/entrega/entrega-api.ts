@@ -25,7 +25,7 @@ export interface RotaEntregaItem {
   qtdEntregue: number | null;
   // F1 — preço unitário (0 = sem preço): o QR Pix da chegada recalcula o valor
   // ao vivo conforme o stepper (mesma conta que o backend faz no confirmar).
-  valorUnit: number;
+  valorUnit?: number;
   produto: RotaProduto | null;
 }
 
@@ -38,23 +38,23 @@ export interface RotaCliente {
   lat: number | null;
   lng: number | null;
   phone: string | null;
-  formaPagamento: FormaPagamento;
-  metodoPadrao: string | null;
+  formaPagamento?: FormaPagamento;
+  metodoPadrao?: string | null;
   // F1 — "quanto me deve" + teto de fiado (badge da folha de chegada).
-  saldoAberto: number;
-  limiteFiado: number | null;
+  saldoAberto?: number;
+  limiteFiado?: number | null;
 }
 
 export interface RotaItem {
   id: string;
   status: string; // agendada | em_rota | entregue | cancelada
   quantidade: number;
-  valor: number;
+  valor?: number;
   scheduledAt: string | null;
   deliveredAt: string | null;
   deliveredLat: number | null;
   deliveredLng: number | null;
-  cobrancaStatus: string;
+  cobrancaStatus?: string;
   notes: string | null;
   cliente: RotaCliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
@@ -91,8 +91,8 @@ export interface RotaResult {
   date: string;
   total: number;
   effectsEnabled: boolean;
-  moduloFinanceiroAtivo: boolean;
-  pix: RotaPix | null;
+  moduloFinanceiroAtivo?: boolean;
+  pix?: RotaPix | null;
   // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST
   // inútil com o recurso OFF); avisoChegandoDistanciaM é o raio configurado (m).
   avisoChegandoAtivo?: boolean;

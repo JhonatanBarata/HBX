@@ -46,7 +46,16 @@ test('resolveTenantGuardMode: default por ambiente e override', () => {
 
 test('lista tenant-scoped tem os modelos quentes e NÃO tem os globais', () => {
   // Sanidade da lista derivada do schema.
-  for (const m of ['User', 'CompanyConversation', 'VendasLead', 'CustomerProfile', 'Product']) {
+  for (const m of [
+    'User',
+    'CompanyConversation',
+    'VendasLead',
+    'CustomerProfile',
+    'Product',
+    'LogisticaRoute',
+    'LogisticaRouteStop',
+    'LogisticaEssentialCreditClaim',
+  ]) {
     assert.ok(TENANT_SCOPED_MODELS.has(m), `${m} deveria ser tenant-scoped`);
   }
   // Globais conhecidos NÃO entram (senão a lagoa do Radar / catálogos / o próprio

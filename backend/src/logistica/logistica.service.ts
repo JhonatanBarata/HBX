@@ -10,6 +10,8 @@ import { emitMasterEvent } from '../common/master-event';
 import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-contato.util';
 import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
 import { LogisticaActor, LogisticaOperacaoService, isLogisticaAdmin } from './logistica-operacao.service';
+import { isBillingOwnerActor } from '../access/actor-kind';
+import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -47,9 +49,9 @@ export class LogisticaService {
     private readonly conversations: ConversationsService,
     private readonly rota: LogisticaRotaService,
     private readonly config: LogisticaConfigService,
-    // CRÉDITO UNIVERSAL (PR10072026): track (nunca débito) da entrega concluída. @Optional()
-    // para não quebrar testes que instanciam o serviço direto; ausente = não mede.
-    @Optional() private readonly creditMeter?: CreditMeterService,
+    // Slot legado mantido apenas para compatibilidade de DI/instanciações diretas.
+    // A medição `logistica_delivery` foi desativada: os novos modos têm cobrança própria.
+    @Optional() private readonly _legacyCreditMeter?: CreditMeterService,
     // QUITAR → RECOVERY: baixa manual de fiado PARA a cadência hbx-recovery do
     // cliente se ele zerou a dívida vencida. @Optional() (ausente nos testes/DI sem
     // funil = simplesmente não fecha a cadência). Sem ciclo: LogisticaRecoveryService
@@ -63,6 +65,9 @@ export class LogisticaService {
     // Operação por usuário/atribuição + comprovantes. Optional só preserva os
     // testes legados que instanciam o serviço diretamente; rotas HTTP sempre DI.
     @Optional() private readonly operacao?: LogisticaOperacaoService,
+    // Gate comercial dos modos de rota. Optional preserva testes unitários
+    // legados; no módulo HTTP o provider é obrigatório e sempre injetado.
+    @Optional() private readonly routeBilling?: LogisticaRouteBillingService,
   ) {}
 
   /**
@@ -117,6 +122,7 @@ export class LogisticaService {
   ): Promise<RotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const { start, end, dayISO } = resolveDayRange(dateInput);
+    const billingAudience = isBillingOwnerActor(actor);
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const updatedSince = parseUpdatedSince(updatedSinceInput);
     const comprovanteActorWhere =
@@ -143,12 +149,12 @@ export class LogisticaService {
         id: true,
         status: true,
         quantidade: true,
-        valor: true,
+        ...(billingAudience ? { valor: true as const } : {}),
         scheduledAt: true,
         deliveredAt: true,
         deliveredLat: true,
         deliveredLng: true,
-        cobrancaStatus: true,
+        ...(billingAudience ? { cobrancaStatus: true as const } : {}),
         notes: true,
         updatedAt: true,
         entregador: { select: { id: true, name: true, email: true, username: true } },
@@ -187,12 +193,15 @@ export class LogisticaService {
             lat: true,
             lng: true,
             phone: true,
-            // M4 — pagamento condicional: a folha de chegada lê formaPagamento p/
-            // decidir se mostra os chips (só 'aberto') ou some (costumeiro).
-            formaPagamento: true,
-            metodoPadrao: true,
-            // F1 — teto de fiado (o app avisa quando o saldo em aberto estoura).
-            limiteFiado: true,
+            ...(billingAudience
+              ? {
+                  // Dados comerciais são exclusivos de dono/master. A omissão no
+                  // select impede vazamento mesmo antes da serialização HTTP.
+                  formaPagamento: true as const,
+                  metodoPadrao: true as const,
+                  limiteFiado: true as const,
+                }
+              : {}),
           },
         },
         contato: { select: { id: true, nome: true, whatsapp: true, phone: true } },
@@ -204,7 +213,7 @@ export class LogisticaService {
             id: true,
             qtdPrevista: true,
             qtdEntregue: true,
-            valorUnit: true,
+            ...(billingAudience ? { valorUnit: true as const } : {}),
             product: { select: { id: true, name: true, unidade: true } },
           },
         },
@@ -231,10 +240,14 @@ export class LogisticaService {
       const cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
         select: {
-          moduloFinanceiroAtivo: true,
-          pixChave: true,
-          pixNome: true,
-          pixCidade: true,
+          ...(billingAudience
+            ? {
+                moduloFinanceiroAtivo: true as const,
+                pixChave: true as const,
+                pixNome: true as const,
+                pixCidade: true as const,
+              }
+            : {}),
           avisoChegandoEnabled: true,
           avisoChegandoDistanciaM: true,
           comprovanteFotoObrigatoria: true,
@@ -242,7 +255,7 @@ export class LogisticaService {
           comprovanteCodigoObrigatorio: true,
         },
       });
-      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
+      moduloFinanceiroAtivo = billingAudience && (cfg?.moduloFinanceiroAtivo ?? false);
       // O QR só existe com o módulo ON e a chave configurada (regra do M4 preservada:
       // financeiro OFF = nenhum pagamento aparece na entrega, nunca).
       if (moduloFinanceiroAtivo && cfg?.pixChave) {
@@ -262,7 +275,7 @@ export class LogisticaService {
     // dinheiro não aparece (nem roda) em lugar nenhum da entrega. Best-effort:
     // falha aqui NUNCA derruba a rota — o app só fica sem o badge.
     let saldoPorCliente = new Map<string, { pendente: number; aguardando: number }>();
-    if (moduloFinanceiroAtivo) {
+    if (billingAudience && moduloFinanceiroAtivo) {
       try {
         saldoPorCliente = await this.saldoAbertoPorClientes(
           companyId,
@@ -278,8 +291,7 @@ export class LogisticaService {
       total: rows.length,
       refreshedAt: new Date().toISOString(),
       effectsEnabled: this.effectsEnabled,
-      moduloFinanceiroAtivo,
-      pix,
+      ...(billingAudience ? { moduloFinanceiroAtivo, pix } : {}),
       avisoChegandoAtivo,
       avisoChegandoDistanciaM,
       comprovante,
@@ -290,12 +302,12 @@ export class LogisticaService {
           id: r.id,
         status: r.status,
         quantidade: r.quantidade,
-        valor: r.valor,
+        ...(billingAudience ? { valor: r.valor } : {}),
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         deliveredLat: r.deliveredLat ?? null,
         deliveredLng: r.deliveredLng ?? null,
-        cobrancaStatus: r.cobrancaStatus,
+        ...(billingAudience ? { cobrancaStatus: r.cobrancaStatus } : {}),
         notes: r.notes ?? null,
         updatedAt: r.updatedAt.toISOString(),
         entregador: r.entregador
@@ -332,12 +344,14 @@ export class LogisticaService {
           lat: r.local ? (r.local.lat ?? null) : (r.customerProfile.lat ?? null),
           lng: r.local ? (r.local.lng ?? null) : (r.customerProfile.lng ?? null),
           phone: r.customerProfile.phone ?? null,
-          // M4 — a folha de chegada decide os chips por aqui (só 'aberto' mostra).
-          formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
-          metodoPadrao: r.customerProfile.metodoPadrao ?? null,
-          // F1 — "quanto me deve" + teto de fiado (o badge da folha de chegada).
-          saldoAberto: somaSaldo(saldoPorCliente.get(r.customerProfile.id)),
-          limiteFiado: r.customerProfile.limiteFiado ?? null,
+          ...(billingAudience
+            ? {
+                formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
+                metodoPadrao: r.customerProfile.metodoPadrao ?? null,
+                saldoAberto: somaSaldo(saldoPorCliente.get(r.customerProfile.id)),
+                limiteFiado: r.customerProfile.limiteFiado ?? null,
+              }
+            : {}),
         },
         contato: r.contato
           ? { id: r.contato.id, nome: r.contato.nome, whatsapp: r.contato.whatsapp ?? null, phone: r.contato.phone ?? null }
@@ -351,7 +365,7 @@ export class LogisticaService {
                 id: it.id,
                 qtdPrevista: it.qtdPrevista,
                 qtdEntregue: it.qtdEntregue ?? null,
-                valorUnit: it.valorUnit ?? 0,
+                ...(billingAudience ? { valorUnit: it.valorUnit ?? 0 } : {}),
                 produto: it.product
                   ? { id: it.product.id, nome: it.product.name, unidade: it.product.unidade ?? null }
                   : null,
@@ -362,7 +376,7 @@ export class LogisticaService {
                     id: r.id,
                     qtdPrevista: r.quantidade,
                     qtdEntregue: null,
-                    valorUnit: 0,
+                    ...(billingAudience ? { valorUnit: 0 } : {}),
                     produto: { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null },
                   },
                 ]
@@ -522,6 +536,13 @@ export class LogisticaService {
         cobrancaLancada: entrega.cobrancaOutcome === 'lancada',
         replayed: true,
       };
+    }
+
+    // Antes de qualquer transação/efeito, garante que a entrega está coberta
+    // pelo bloco Essencial pago. Fecha o caso de uma 6ª parada sincronizada no
+    // snapshot cujo novo bloco não pôde ser debitado.
+    if (this.routeBilling) {
+      await this.routeBilling.assertEssentialDeliveryCovered(companyId, entrega.id);
     }
 
     const lat = typeof gps.lat === 'number' && Number.isFinite(gps.lat) ? gps.lat : null;
@@ -717,17 +738,6 @@ export class LogisticaService {
       await this.realimentarCoordenadaLocal(companyId, entrega.localId, { lat, lng, accuracy: gps.accuracy });
     } else {
       await this.realimentarCoordenadaCliente(companyId, entrega.customerProfileId, { lat, lng, accuracy: gps.accuracy });
-    }
-
-    // CRÉDITO UNIVERSAL (PR10072026): track da entrega concluída — só na PRIMEIRA confirmação
-    // e INDEPENDENTE da flag de efeitos (medir uso não dispara WhatsApp/cobrança). Idempotente
-    // por id da entrega; best-effort (o meter nunca lança).
-    if (!jaEntregue && this.creditMeter) {
-      void this.creditMeter.meter({
-        companyId,
-        actionKey: 'logistica_delivery',
-        refId: `entrega:${entrega.id}`,
-      });
     }
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
@@ -2494,12 +2504,12 @@ export interface RotaCliente {
   lat: number | null;
   lng: number | null;
   phone: string | null;
-  formaPagamento: string;
-  metodoPadrao: string | null;
+  formaPagamento?: string;
+  metodoPadrao?: string | null;
   // F1 — "quanto me deve" (charges pending da logística + mensal a fechar) e o
   // teto de fiado do cliente (null = sem limite). Base do badge da chegada.
-  saldoAberto: number;
-  limiteFiado: number | null;
+  saldoAberto?: number;
+  limiteFiado?: number | null;
 }
 
 export interface RotaProduto {
@@ -2514,7 +2524,7 @@ export interface RotaEntregaItem {
   qtdEntregue: number | null;
   // F1 — preço unitário do item (0 = sem preço): o QR Pix da chegada recalcula o
   // valor ao vivo conforme o stepper (mesma conta do backend no confirmar).
-  valorUnit: number;
+  valorUnit?: number;
   produto: RotaProduto | null;
 }
 
@@ -2522,12 +2532,12 @@ export interface RotaItem {
   id: string;
   status: string;
   quantidade: number;
-  valor: number;
+  valor?: number;
   scheduledAt: string | null;
   deliveredAt: string | null;
   deliveredLat: number | null;
   deliveredLng: number | null;
-  cobrancaStatus: string;
+  cobrancaStatus?: string;
   notes: string | null;
   updatedAt: string;
   entregador: { id: number; nome: string | null; email: string | null } | null;
@@ -2561,8 +2571,8 @@ export interface RotaResult {
   total: number;
   refreshedAt: string;
   effectsEnabled: boolean;
-  moduloFinanceiroAtivo: boolean;
-  pix: RotaPix | null;
+  moduloFinanceiroAtivo?: boolean;
+  pix?: RotaPix | null;
   // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST
   // inútil com o recurso OFF). avisoChegandoDistanciaM é o raio configurado (m).
   avisoChegandoAtivo: boolean;

@@ -2935,6 +2935,50 @@ html, body { height: 100%; }
 }
 .log-cfg__block-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .log-cfg__block-title { font-size: 0.88rem; font-weight: 800; color: var(--text-strong); }
+.log-cfg__heading-copy { display: grid; gap: 3px; }
+
+.log-cfg__mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.log-cfg__mode {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 108px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+.log-cfg__mode:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--hbx-brand); }
+.log-cfg__mode:focus-visible { outline: 2px solid var(--ring-brand); outline-offset: 2px; }
+.log-cfg__mode.is-selected {
+  border-color: var(--hbx-brand);
+  background: color-mix(in srgb, var(--hbx-brand) 9%, var(--surface-recessed));
+}
+.log-cfg__mode:disabled { cursor: not-allowed; opacity: 0.56; }
+.log-cfg__mode-title { color: var(--text-strong); font-size: 0.86rem; font-weight: 800; }
+.log-cfg__mode-copy { color: var(--text-muted); font-size: 0.74rem; line-height: 1.45; }
+.log-cfg__availability {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.log-cfg__availability.is-available { color: var(--hbx-brand-strong); }
+.log-cfg__warning {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 40%, var(--border-hairline));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hbx-warning) 8%, transparent);
+  color: var(--text-body);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
 
 .log-cfg__vars { display: flex; flex-wrap: wrap; gap: 6px; }
 .log-cfg__var { display: inline-flex; align-items: center; gap: 4px; }
@@ -2962,6 +3006,7 @@ html, body { height: 100%; }
 
 .log-cfg__switch { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
 .log-cfg__switch input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--hbx-brand); cursor: pointer; flex: none; }
+.log-cfg__switch input:disabled { cursor: not-allowed; }
 .log-cfg__switch-txt { display: grid; gap: 2px; }
 .log-cfg__switch-name { font-size: 0.82rem; font-weight: 700; color: var(--text-body); }
 .log-cfg__switch-hint { font-size: 0.72rem; color: var(--text-muted); }
@@ -3010,6 +3055,12 @@ html, body { height: 100%; }
 }
 .log-cfg__grid .f span { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); }
 .log-cfg__note { margin: 0; font-size: 0.72rem; color: var(--text-muted); }
+
+@media (max-width: 640px) {
+  .log-cfg { padding-inline: 12px; }
+  .log-cfg__mode-grid { grid-template-columns: 1fr; }
+  .log-cfg__mode { min-height: 0; }
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    LOGÍSTICA-MOBILE M6 — financeiro na tela.
