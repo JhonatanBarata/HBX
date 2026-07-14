@@ -8,6 +8,8 @@ import {
   isBotArmedForCompany,
 } from '../modules/bot-activation-state';
 import {
+  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+  ATENDIMENTO_BOT_CONFIG_CHANNEL,
   isAtendimentoBotSetupComplete,
   normalizeAtendimentoBotConfig,
 } from '../inbox/atendimento-config';
@@ -27,6 +29,15 @@ const BOT_CONFIG_DOMAINS: BotConfigDomain[] = [
   'atendimento_agenda',
   'bot_master_switch',
   'recovery_bot',
+];
+
+const RECOVERY_LEGACY_INTERNAL_CHANNELS = [
+  RECOVERY_BOT_CONFIG_CHANNEL,
+  'HBX_RECOVERY_META_TEMPLATES',
+  ATENDIMENTO_BOT_CONFIG_CHANNEL,
+  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+  '__BOT_MASTER_SWITCH__',
+  '__BOT_TESTED_META__',
 ];
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -126,10 +137,7 @@ export class BotActivationService {
             where: {
               companyId,
               enabled: true,
-              channel: {
-                notIn: [RECOVERY_BOT_CONFIG_CHANNEL, 'HBX_RECOVERY_META_TEMPLATES'],
-              },
-              NOT: { channel: { startsWith: '__' } },
+              channel: { notIn: RECOVERY_LEGACY_INTERNAL_CHANNELS },
             },
             select: { id: true },
           });

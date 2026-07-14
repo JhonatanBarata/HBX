@@ -31,7 +31,8 @@ test('Recovery aceita etapa durável habilitada quando não há template Meta', 
   const service = fixture.service;
   const complete = await (service as any).resolveConfigCompleta(5, 'recovery');
   assert.equal(complete, true);
-  assert.equal(fixture.durableStageWhere()?.NOT?.channel?.startsWith, '__');
+  assert.ok(fixture.durableStageWhere()?.channel?.notIn?.includes('__ATENDIMENTO_BOT_CONFIG__'));
+  assert.ok(fixture.durableStageWhere()?.channel?.notIn?.includes('__BOT_TESTED_META__'));
 });
 
 test('Recovery continua bloqueado sem template e sem etapa durável', async () => {

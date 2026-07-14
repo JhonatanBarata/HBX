@@ -45,6 +45,8 @@ import {
 } from '../modules/master-global-integrations.util';
 import { CadastrosService } from '../cadastros/cadastros.service';
 import {
+  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+  ATENDIMENTO_BOT_CONFIG_CHANNEL,
   META_TEMPLATES_REQUIRED_MESSAGE,
   resolveProviderCapabilitiesFromCompany,
 } from '../inbox/atendimento-config';
@@ -121,6 +123,10 @@ const RECOVERY_META_TEMPLATES_HISTORY_LIMIT = 250;
 const RECOVERY_INTERNAL_CHANNELS = [
   RECOVERY_BOT_CONFIG_CHANNEL,
   RECOVERY_META_TEMPLATES_CHANNEL,
+  ATENDIMENTO_BOT_CONFIG_CHANNEL,
+  ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
+  '__BOT_MASTER_SWITCH__',
+  '__BOT_TESTED_META__',
 ];
 const DEFAULT_RECOVERY_FLOW_STAGES = [
   { title: 'Contato inicial', channel: 'WhatsApp API', template: 'Oi {{nome}}, identificamos pendencia em aberto. Posso te ajudar a regularizar?', daysAfter: 0, enabled: true },
@@ -896,13 +902,16 @@ export class HbxRecoveryService {
       where: this.recoveryFlowStageWhere(companyId),
     });
     if (count > 0) return;
-    await this.prisma.$transaction(
-      DEFAULT_RECOVERY_FLOW_STAGES.map((stage, index) =>
-        this.prisma.hbxRecoveryFlowStage.create({
-          data: { ...stage, companyId, sortOrder: index + 1 },
-        }),
-      ),
-    );
+    await this.prisma.hbxRecoveryFlowStage.createMany({
+      data: DEFAULT_RECOVERY_FLOW_STAGES.map((stage, index) => ({
+        ...stage,
+        companyId,
+        sortOrder: index + 1,
+      })),
+      // A migration cria um índice parcial para essas etapas padrão. Assim duas
+      // requisições de primeiro acesso podem correr sem duplicar a régua.
+      skipDuplicates: true,
+    });
   }
 
   // INTENTENGINE S3: sai da tabela emprestada (HbxRecoveryFlowStage com canal mágico) e
@@ -933,10 +942,6 @@ export class HbxRecoveryService {
     return {
       companyId,
       channel: { notIn: RECOVERY_INTERNAL_CHANNELS },
-      // Tabelas antigas guardaram configurações de outros bots como "etapas"
-      // com canais mágicos __...__. Elas não podem impedir a criação nem entrar
-      // na execução da régua financeira canônica.
-      NOT: { channel: { startsWith: '__' } },
     };
   }
 
