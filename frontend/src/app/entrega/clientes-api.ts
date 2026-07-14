@@ -54,6 +54,8 @@ export interface ClienteListItem {
   diasEntrega?: number[]; // ISO 1=seg … 7=dom
   duplicataDe?: { id: string; nome: string } | null;
   debitoAtual?: number; // só vem com moduloFinanceiroAtivo
+  formaPagamento?: FormaPagamento;
+  diaFechamento?: number | null;
   entregasCount?: number;
 }
 export interface ClientesResult {

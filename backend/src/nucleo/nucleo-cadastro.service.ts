@@ -625,6 +625,8 @@ export class NucleoCadastroService {
           lat: true,
           lng: true,
           phoneNormalized: true,
+          formaPagamento: true,
+          diaFechamento: true,
           _count: { select: { contatos: true } },
         },
       }),
@@ -649,6 +651,8 @@ export class NucleoCadastroService {
         numero: row.numero ?? null,
         cidade: row.cidade ?? null,
         uf: row.uf ?? null,
+        formaPagamento: row.formaPagamento ?? 'aberto',
+        diaFechamento: row.diaFechamento ?? null,
         isLead: Boolean(row.isLead),
         isCliente: Boolean(row.isCliente),
         isFornecedor: Boolean(row.isFornecedor),
@@ -2267,6 +2271,8 @@ export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {
   phoneNormalized: string | null;
   endereco: string | null;
   numero: string | null;
+  formaPagamento: string;
+  diaFechamento: number | null;
 }
 
 export interface ListClientesResult {
