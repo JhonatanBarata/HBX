@@ -35,7 +35,7 @@ import { CreditsModule } from '../credits/credits.module';
 import { AssistenteModule } from '../assistente/assistente.module';
 
 @Module({
-  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, IntentEngineModule, BotConfigStoreModule, CreditsModule, AssistenteModule],
+  imports: [PrismaModule, forwardRef(() => ModulesAccessModule), PaymentsModule, CadastrosModule, CustomerProfileModule, MailModule, IntentEngineModule, BotConfigStoreModule, CreditsModule, forwardRef(() => AssistenteModule)],
   providers: [MessagingService, ConversationSessionsService, MessageOrchestratorService, OrderDraftsService, ConversationsService, WhatsAppStatusService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WebwhatsOutboxConsumerService, WebwhatsFleetHealthService, WhatsAppConnectionProjectionService, LegacyRulesInboundHandler],
   controllers: [MessagingController, ConversationsController, WhatsAppController, MasterPaymentNotificationsController, WebwhatsFleetHealthController],
   exports: [WhatsAppStatusService, ConversationsService, WhatsAppAuditService, WebwhatsBridgeService, InboxRealtimeService, WhatsappConsentLedgerService, WaSendThrottleService, WhatsAppConnectionProjectionService],
