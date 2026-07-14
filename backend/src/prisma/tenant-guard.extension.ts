@@ -87,6 +87,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'LogisticaTrackingSession',
   'LogisticaTrackingPoint',
   'LogisticaTrackingEvent',
+  'LogisticaTrackedCreditClaim',
+  'LogisticaTrackingBonusGrant',
   'User',
   'TeamPolicyPreset',
   'UserTeamPolicy',

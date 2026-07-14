@@ -55,6 +55,35 @@ export interface TrackingHistoryResponse {
   events: TrackingHistoryEvent[];
 }
 
+export interface TrackingCreditStatement {
+  month: string;
+  balanceCredits: number;
+  totals: {
+    essentialCredits: number;
+    trackedDeliveries: number;
+    trackedCredits: number;
+    paidTrackedCredits: number;
+    bonusCredits: number;
+  };
+  trackedDeliveries: Array<{
+    claimId: string;
+    routeId: string;
+    trackingSessionId: string;
+    deliveryId: string;
+    credits: number;
+    paidCredits: number;
+    completedAt: string;
+  }>;
+  bonuses: Array<{
+    sourceMonth: string;
+    eligiblePaidCredits: number;
+    bonusCredits: number;
+    status: string;
+    grantedAt: string | null;
+    expiresAt: string | null;
+  }>;
+}
+
 export function getTrackingLive(): Promise<TrackingLiveResponse> {
   return apiFetch<TrackingLiveResponse>("/logistica/tracking/live");
 }
@@ -62,5 +91,11 @@ export function getTrackingLive(): Promise<TrackingLiveResponse> {
 export function getTrackingHistory(sessionId: string): Promise<TrackingHistoryResponse> {
   return apiFetch<TrackingHistoryResponse>(
     `/logistica/tracking/sessions/${encodeURIComponent(sessionId)}/history?limit=500`,
+  );
+}
+
+export function getTrackingCreditStatement(month: string): Promise<TrackingCreditStatement> {
+  return apiFetch<TrackingCreditStatement>(
+    `/logistica/creditos/extrato?month=${encodeURIComponent(month)}`,
   );
 }

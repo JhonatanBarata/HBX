@@ -8,8 +8,10 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { isTenantAdmin } from "@/lib/roles";
 
 import {
+  getTrackingCreditStatement,
   getTrackingHistory,
   getTrackingLive,
+  type TrackingCreditStatement,
   type TrackingHistoryEvent,
   type TrackingHistoryEventType,
   type TrackingHistoryResponse,
@@ -23,6 +25,16 @@ const TrackingLiveMap = dynamic(() => import("./TrackingLiveMap").then((module) 
 });
 
 const POLL_INTERVAL_MS = 15_000;
+
+function currentMonth(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}`;
+}
 
 const STATUS_LABEL: Record<TrackingSignalStatus, string> = {
   ONLINE: "Online",
@@ -132,6 +144,101 @@ function TrackingKpis({ routes }: { routes: TrackingLiveRoute[] }) {
   );
 }
 
+function CreditStatement({
+  statement,
+  month,
+  error,
+  onMonthChange,
+}: {
+  statement: TrackingCreditStatement | null;
+  month: string;
+  error: string | null;
+  onMonthChange: (month: string) => void;
+}) {
+  return (
+    <section className="log-credit-statement hbx-card-enter" aria-label="Extrato de créditos da logística">
+      <header className="log-credit-statement__head">
+        <div>
+          <strong>Consumo e bônus</strong>
+          <span>Informação comercial exclusiva da administração.</span>
+        </div>
+        <label>
+          <span>Competência</span>
+          <input
+            type="month"
+            value={month}
+            max={currentMonth()}
+            onChange={(event) => onMonthChange(event.target.value)}
+          />
+        </label>
+      </header>
+
+      {error ? <div className="log-credit-statement__error" role="alert">{error}</div> : null}
+      {!statement && !error ? <div className="log-credit-statement__loading">Carregando extrato…</div> : null}
+      {statement ? (
+        <>
+          <div className="log-credit-statement__cards">
+            <article>
+              <span>Saldo disponível</span>
+              <strong>{statement.balanceCredits}</strong>
+              <small>créditos</small>
+            </article>
+            <article>
+              <span>Rota Essencial</span>
+              <strong>{statement.totals.essentialCredits}</strong>
+              <small>bloco(s) debitado(s)</small>
+            </article>
+            <article>
+              <span>Rota Rastreada</span>
+              <strong>{statement.totals.trackedCredits}</strong>
+              <small>{statement.totals.trackedDeliveries} entrega(s)</small>
+            </article>
+            <article className="is-bonus">
+              <span>Bônus da competência</span>
+              <strong>+{statement.totals.bonusCredits}</strong>
+              <small>20% dos créditos pagos elegíveis</small>
+            </article>
+          </div>
+
+          <div className="log-credit-statement__detail">
+            <div className="log-credit-statement__table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Conclusão rastreada</th><th>Rota</th><th>Débito</th><th>Pago elegível</th></tr>
+                </thead>
+                <tbody>
+                  {statement.trackedDeliveries.slice(0, 12).map((delivery) => (
+                    <tr key={delivery.claimId}>
+                      <td>{formatDateTime(delivery.completedAt)}</td>
+                      <td>#{delivery.routeId.slice(0, 8).toUpperCase()}</td>
+                      <td>{delivery.credits} cr.</td>
+                      <td>{delivery.paidCredits} cr.</td>
+                    </tr>
+                  ))}
+                  {statement.trackedDeliveries.length === 0 ? (
+                    <tr><td colSpan={4}>Nenhuma entrega rastreada concluída nesta competência.</td></tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+            <div className="log-credit-statement__bonus-list">
+              <strong>Bônus mensais</strong>
+              {statement.bonuses.length === 0 ? <span>Nenhum bônus processado ainda.</span> : null}
+              {statement.bonuses.slice(0, 6).map((bonus) => (
+                <div key={bonus.sourceMonth}>
+                  <span>{bonus.sourceMonth}</span>
+                  <b>+{bonus.bonusCredits} cr.</b>
+                  <small>{bonus.status === "GRANTED" ? "Concedido" : "Processando"}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 export function LogisticaTrackingLiveClient() {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
@@ -147,6 +254,9 @@ export function LogisticaTrackingLiveClient() {
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [updatedAtMs, setUpdatedAtMs] = useState(0);
+  const [statementMonth, setStatementMonth] = useState(currentMonth);
+  const [statement, setStatement] = useState<TrackingCreditStatement | null>(null);
+  const [statementError, setStatementError] = useState<string | null>(null);
 
   const loadHistory = useCallback(async (sessionId: string, showLoading: boolean) => {
     const requestId = ++historyRequestRef.current;
@@ -170,8 +280,24 @@ export function LogisticaTrackingLiveClient() {
     if (silent) setRefreshing(true);
     else setLoading(true);
     try {
-      const response = await getTrackingLive();
+      const [liveResult, statementResult] = await Promise.allSettled([
+        getTrackingLive(),
+        getTrackingCreditStatement(statementMonth),
+      ]);
+      if (liveResult.status === "rejected") throw liveResult.reason;
+      const response = liveResult.value;
       if (liveRequestRef.current !== requestId) return;
+
+      if (statementResult.status === "fulfilled") {
+        setStatement(statementResult.value);
+        setStatementError(null);
+      } else {
+        setStatementError(
+          statementResult.reason instanceof Error
+            ? statementResult.reason.message
+            : "Não foi possível carregar o extrato.",
+        );
+      }
 
       const currentSelection = selectedSessionRef.current;
       const nextSelection = response.routes.some((route) => route.sessionId === currentSelection)
@@ -199,7 +325,7 @@ export function LogisticaTrackingLiveClient() {
         setRefreshing(false);
       }
     }
-  }, [loadHistory]);
+  }, [loadHistory, statementMonth]);
 
   useEffect(() => {
     if (!admin) return;
@@ -328,6 +454,18 @@ export function LogisticaTrackingLiveClient() {
         ) : null}
 
         {live ? <TrackingKpis routes={routes} /> : null}
+
+        <CreditStatement
+          statement={statement}
+          month={statementMonth}
+          error={statementError}
+          onMonthChange={(month) => {
+            if (!month) return;
+            setStatement(null);
+            setStatementError(null);
+            setStatementMonth(month);
+          }}
+        />
 
         {noRoutes ? (
           <div className="emp-empty log-live-empty">

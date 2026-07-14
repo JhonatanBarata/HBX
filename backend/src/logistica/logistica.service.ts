@@ -16,6 +16,10 @@ import {
   LogisticaTrackingService,
   type OperationalRouteMetadata,
 } from './logistica-tracking.service';
+import {
+  LogisticaTrackedBillingService,
+  type PreparedTrackedDeliveryCharge,
+} from './logistica-tracked-billing.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -75,6 +79,9 @@ export class LogisticaService {
     // Metadados operacionais seguros da rota/sessão (sem preço/saldo). Optional
     // apenas para preservar instanciações diretas de testes legados.
     @Optional() private readonly tracking?: LogisticaTrackingService,
+    // Cobrança fail-closed da Rota Rastreada. Optional só mantém os testes
+    // legados com `new LogisticaService(...)`; no módulo HTTP sempre existe.
+    @Optional() private readonly trackedBilling?: LogisticaTrackedBillingService,
   ) {}
 
   /**
@@ -641,12 +648,26 @@ export class LogisticaService {
     const gravarKey = key && !entrega.idempotencyKey ? key : undefined;
     // F1 — valor que a cobrança vai usar (recalculado na tx quando o stepper mudou).
     let valorCobranca = entrega.valor;
+    // Rota Rastreada: reserva e debita antes do efeito. A claim só é concluída
+    // dentro da MESMA transação do status da Entrega; qualquer rollback abaixo
+    // aciona estorno idempotente no catch.
+    let trackedCharge: PreparedTrackedDeliveryCharge | null = null;
+    if (this.trackedBilling) {
+      trackedCharge = await this.trackedBilling.prepareDeliveryCompletion(
+        companyId,
+        entrega.id,
+        actorIdOrNull(actor),
+      );
+    }
     try {
       await this.prisma.$transaction(async (tx) => {
         const validacao = this.operacao
           ? await this.operacao.validarParaConfirmacao(tx, companyId, entrega, gps, actor)
           : { ids: [] as string[], exigiuComprovante: false };
         const confirmadoAt = new Date();
+        if (trackedCharge && this.trackedBilling) {
+          await this.trackedBilling.completeWithinTransaction(tx, trackedCharge, confirmadoAt);
+        }
         await tx.entrega.update({
           where: { id: entrega.id },
           data: {
@@ -749,6 +770,13 @@ export class LogisticaService {
         }
       });
     } catch (e: any) {
+      if (trackedCharge && this.trackedBilling) {
+        await this.trackedBilling.refundFailedCompletion(
+          trackedCharge,
+          e,
+          actorIdOrNull(actor),
+        );
+      }
       // Corrida de reentregas com a MESMA key: a unique barrou. Não re-executa efeito —
       // relê o desfecho já persistido e devolve como replay (idempotência dura do M8).
       if (isUniqueViolation(e)) {

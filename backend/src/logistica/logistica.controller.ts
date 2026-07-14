@@ -33,6 +33,7 @@ import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
+import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -82,6 +83,7 @@ export class LogisticaController {
     // no módulo Nest o provider é sempre injetado.
     private readonly operacao: LogisticaOperacaoService = null as any,
     private readonly tracking: LogisticaTrackingService = null as any,
+    private readonly trackingBonus: LogisticaTrackingBonusService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -569,6 +571,14 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const parsed = Number(limitInput || 500);
     return this.tracking.getHistory(companyId, sessionId, Number.isFinite(parsed) ? parsed : 500);
+  }
+
+  @Get('creditos/extrato')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  trackingCreditStatement(@Req() req: any, @Query('month') month?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.trackingBonus.getAdminStatement(companyId, month);
   }
 
   // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ─────────────────

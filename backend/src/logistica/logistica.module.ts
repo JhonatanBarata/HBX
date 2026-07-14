@@ -21,6 +21,8 @@ import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
+import { LogisticaTrackedBillingService } from './logistica-tracked-billing.service';
+import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -71,6 +73,8 @@ import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.c
     LogisticaOperacaoService,
     LogisticaRouteBillingService,
     LogisticaTrackingService,
+    LogisticaTrackedBillingService,
+    LogisticaTrackingBonusService,
   ],
   exports: [
     LogisticaService,
@@ -81,6 +85,8 @@ import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.c
     LogisticaRecoveryService,
     LogisticaRouteBillingService,
     LogisticaTrackingService,
+    LogisticaTrackedBillingService,
+    LogisticaTrackingBonusService,
   ],
 })
 export class LogisticaModule {}
