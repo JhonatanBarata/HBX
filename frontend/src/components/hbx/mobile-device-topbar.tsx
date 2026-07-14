@@ -252,7 +252,7 @@ function MobileDeviceAction() {
             </button>
             {APK_URL && (
               <a className="btn-ghost" href={APK_URL} target="_blank" rel="noreferrer">
-                Baixar APK
+                Baixar APK Vendas
               </a>
             )}
             <button className="btn-ghost" disabled={loading} onClick={() => void load()}>

@@ -21,30 +21,54 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
     private val backgroundCheck = Runnable {
         if (resumedActivities == 0) HbxMobileBridge.onAppBackground()
     }
+    private val logisticsHeartbeat = object : Runnable {
+        override fun run() {
+            if (BuildConfig.APP_MODE != "logistica" || resumedActivities <= 0) return
+            HbxMobileBridge.sendDeviceHeartbeat(this@HbxApplication)
+            mainHandler.postDelayed(this, 30_000L)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
-        HbxMobileBridge.initialize(this)
-        TrackingSync.rescheduleIfPending(this)
+        if (BuildConfig.APP_MODE == "vendas") {
+            // A atualização do antigo app único vira HBX Vendas. Se havia uma
+            // rota persistida na versão anterior, encerra o GPS para a experiência
+            // comercial nunca continuar rastreando por acidente.
+            RotaState.clear()
+            RotaState.persistir(this)
+            RotaService.requestStop(this)
+            HbxMobileBridge.initialize(this)
+        } else {
+            TrackingSync.rescheduleIfPending(this)
+        }
     }
 
     override fun onActivityResumed(activity: Activity) {
         mainHandler.removeCallbacks(backgroundCheck)
         resumedActivities += 1
         if (resumedActivities == 1) {
-            HbxMobileBridge.onAppForeground(this)
-            TrackingSync.requestFlush(this)
-            maybeAskNotificationPermission(activity)
+            if (BuildConfig.APP_MODE == "vendas") {
+                HbxMobileBridge.onAppForeground(this)
+                maybeAskNotificationPermission(activity)
+            } else {
+                TrackingSync.requestFlush(this)
+                mainHandler.removeCallbacks(logisticsHeartbeat)
+                mainHandler.post(logisticsHeartbeat)
+            }
         }
     }
 
     override fun onActivityPaused(activity: Activity) {
         resumedActivities = (resumedActivities - 1).coerceAtLeast(0)
         if (resumedActivities == 0) {
+            mainHandler.removeCallbacks(logisticsHeartbeat)
             // Pequeno atraso evita parar/reiniciar a ponte durante transição entre
             // PairingActivity, MainActivity, permissão e tela de ação.
-            mainHandler.postDelayed(backgroundCheck, 1_200L)
+            if (BuildConfig.APP_MODE == "vendas") {
+                mainHandler.postDelayed(backgroundCheck, 1_200L)
+            }
         }
     }
 

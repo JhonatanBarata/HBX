@@ -6,7 +6,8 @@ import { requestMobileLinkAfterLogin } from "@/lib/mobile-link-intent";
 
 import styles from "./mobile-app-login-card.module.css";
 
-const APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
+const VENDAS_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
+const LOGISTICA_APK_URL = "/download/android-logistica";
 
 const MOBILE_ICON = [
   "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
@@ -35,16 +36,15 @@ export function MobileAppLoginCard() {
       </span>
       <div className={styles.copy}>
         <strong>HBX no celular</strong>
-        <span>Baixe o APK de testes e vincule este aparelho à mesma conta do HBX.</span>
+        <span>Escolha Vendas ou Logística e vincule o aparelho à mesma conta do HBX.</span>
       </div>
       <div className={styles.actions}>
-        {APK_URL ? (
-          <a className={styles.download} href={APK_URL} target="_blank" rel="noreferrer">
-            Baixar Android
-          </a>
-        ) : (
-          <span className={styles.unavailable}>Download aguardando configuração</span>
-        )}
+        <a className={styles.download} href={VENDAS_APK_URL} target="_blank" rel="noreferrer">
+          APK Vendas
+        </a>
+        <a className={styles.download} href={LOGISTICA_APK_URL} target="_blank" rel="noreferrer">
+          APK Logística
+        </a>
         <button type="button" className={styles.linkButton} onClick={prepareLinking}>
           {linkRequested ? "Vínculo preparado" : "Entrar e vincular"}
         </button>

@@ -1,13 +1,31 @@
-# Instalar o HBX Entrega no celular
+# Aplicativos Android do HBX
 
-1. Manda o arquivo `dist/hbx-entrega.apk` pro celular (WhatsApp, USB ou Drive).
-2. Abre o arquivo no celular → o Android vai pedir permissão pra "instalar apps
-   desconhecidos" → permite.
-3. Instala e abre o app.
-4. Loga no HBX 1 vez — fica salvo.
-5. Ao iniciar a primeira rota, lê a explicação do HBX e concede Localização
-   ("Permitir durante o uso do app") e Notificações.
+O Android agora entrega duas experiências independentes. Nenhuma delas carrega
+o frontend web do HBX:
 
-Pronto. A partir daí, na rota: o Google Maps abre sozinho em cada parada, e
-quando você chega, o HBX envia um aviso com som, vibração e o botão "Abrir
-entrega". O HBX só abre por cima do Maps depois que você toca no aviso.
+- **HBX Vendas** (`br.com.hbxsystem`): atualiza o antigo APK e mantém o
+  pareamento, ligações, WhatsApp pessoal, fila persistida no VPS e despertar FCM.
+- **HBX Logística** (`br.com.hbxsystem.logistica`): rota, clientes, produtos,
+  comprovantes, GPS durante a rota, fila offline de posições e rastreamento ao vivo.
+
+## Instalação
+
+1. Instale o APK correspondente à função da pessoa.
+2. No HBX web, abra **Perfil → Aplicativo móvel** e gere um código de seis dígitos.
+3. Digite o código no aplicativo. Cada app/aparelho tem seu próprio vínculo.
+4. No Vendas, conceda notificações para receber ações com o celular bloqueado.
+5. No Logística, localização e notificações são solicitadas somente ao iniciar a
+   primeira rota. O GPS para quando a rota é encerrada.
+
+## Builds
+
+```bash
+./gradlew :app:assembleVendasRelease
+./gradlew :app:assembleLogisticaRelease
+```
+
+As interfaces ficam em `app/src/vendas/assets/app` e
+`app/src/logistica/assets/app`. CSS e cliente nativo compartilhados ficam em
+`app/src/main/assets/app`. A bridge limita Vendas a `/vendas` e Logística a
+`/logistica`, `/cadastros` e `/products`; a credencial do aparelho e o JWT nunca
+são expostos ao JavaScript.
