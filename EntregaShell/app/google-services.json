@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "768681610756",
+    "project_id": "hbxautomacoes",
+    "storage_bucket": "hbxautomacoes.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:768681610756:android:771b9daafc0ba18f10ef51",
+        "android_client_info": {
+          "package_name": "br.com.hbxsystem"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDkrYNiLhFOhIx9BAoPYlDAYAuw69lK11E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

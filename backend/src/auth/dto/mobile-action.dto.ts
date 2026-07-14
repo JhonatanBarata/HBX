@@ -66,6 +66,17 @@ export class MobileDeviceCredentialDto {
   installationId!: string;
 }
 
+export class RegisterMobilePushDto extends MobileDeviceCredentialDto {
+  @IsString()
+  @Length(20, 4096)
+  pushToken!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  appVersion?: string;
+}
+
 export class PullMobileActionsDto extends MobileDeviceCredentialDto {
   @IsOptional()
   @IsInt()

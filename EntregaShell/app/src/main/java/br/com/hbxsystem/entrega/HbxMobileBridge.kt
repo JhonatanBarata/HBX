@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import com.google.firebase.messaging.FirebaseMessaging
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -23,8 +24,8 @@ import java.util.concurrent.TimeUnit
 import java.util.UUID
 
 /**
- * Ponte nativa HBX web -> aparelho. O APK consulta a fila do VPS enquanto está
- * em primeiro plano e interrompe o polling ao ir para segundo plano.
+ * Ponte nativa HBX web -> aparelho. O VPS é a fonte da verdade; o FCM apenas
+ * acorda o processo para antecipar o mesmo pull que já roda em foreground.
  */
 object HbxMobileBridge {
     const val CHANNEL_ID = "hbx_sales_actions"
@@ -44,15 +45,19 @@ object HbxMobileBridge {
     @Volatile private var appInForeground = false
     @Volatile private var activeActionScreens = 0
     @Volatile private var foregroundTask: ScheduledFuture<*>? = null
+    @Volatile private var lastPushRegistrationAt = 0L
 
     fun initialize(context: Context) {
-        ensureNotificationChannel(context.applicationContext)
+        val app = context.applicationContext
+        ensureNotificationChannel(app)
+        requestAndRegisterPushToken(app, force = true)
     }
 
     @Synchronized
     fun onAppForeground(context: Context) {
         val app = context.applicationContext
         appInForeground = true
+        requestAndRegisterPushToken(app, force = false)
         val existing = foregroundTask
         if (existing != null && !existing.isCancelled && !existing.isDone) return
         foregroundTask = executor.scheduleAtFixedRate(
@@ -79,6 +84,22 @@ object HbxMobileBridge {
         }
     }
 
+    fun onDevicePaired(context: Context) {
+        val app = context.applicationContext
+        requestAndRegisterPushToken(app, force = true)
+        executor.execute { syncNow(app) }
+    }
+
+    fun onNewPushToken(context: Context, token: String) {
+        if (token.isBlank()) return
+        registerPushToken(context.applicationContext, token)
+    }
+
+    fun onPushWake(context: Context) {
+        val app = context.applicationContext
+        executor.execute { syncNow(app, allowBackground = true) }
+    }
+
     fun recordEvent(
         context: Context,
         actionId: String,
@@ -93,8 +114,11 @@ object HbxMobileBridge {
         executor.execute { flushPendingEvents(app) }
     }
 
-    private fun syncNow(context: Context) {
-        if (!appInForeground || activeActionScreens > 0) return
+    private fun syncNow(context: Context, allowBackground: Boolean = false) {
+        if ((!appInForeground && !allowBackground) || activeActionScreens > 0) return
+        // Sem permissão não há como exibir a ação em background. Mantemos o item
+        // como queued no VPS para o próximo pull em foreground, sem perdê-lo.
+        if (allowBackground && !appInForeground && !notificationsAvailable(context)) return
         // Não reserva novas ações enquanto um ack anterior estiver bloqueado por
         // rede, rate limit ou credencial. Isso preserva a ordem da outbox.
         if (!flushPendingEvents(context)) return
@@ -106,14 +130,14 @@ object HbxMobileBridge {
             DeviceCredentialStore(context).clearDeviceToken()
             return
         }
-        if (!appInForeground || activeActionScreens > 0) return
+        if ((!appInForeground && !allowBackground) || activeActionScreens > 0) return
 
         val take = if (notificationsAvailable(context)) 10 else 1
         val pullPayload = JSONObject(credentials.toString()).put("take", take)
         val response = runCatching { postJson("/mobile/actions/pull", pullPayload) }.getOrNull()
         val actions = response?.optJSONArray("actions") ?: JSONArray()
         for (index in 0 until actions.length()) {
-            if (!appInForeground || activeActionScreens > 0) break
+            if ((!appInForeground && !allowBackground) || activeActionScreens > 0) break
             val item = actions.optJSONObject(index) ?: continue
             val action = MobileActionPayload.fromJson(item) ?: continue
             // Persiste o ack antes de expor a Activity/notificação. Assim um toque
@@ -123,6 +147,34 @@ object HbxMobileBridge {
                 executor.execute { flushPendingEvents(context) }
             } else {
                 removePendingEvent(context, deliveryEventId)
+            }
+        }
+    }
+
+    private fun requestAndRegisterPushToken(context: Context, force: Boolean) {
+        if (credentialPayload(context) == null) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastPushRegistrationAt < 6 * 60 * 60 * 1000L) return
+        runCatching {
+            FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                if (!token.isNullOrBlank()) {
+                    lastPushRegistrationAt = System.currentTimeMillis()
+                    registerPushToken(context, token)
+                }
+            }
+        }
+    }
+
+    private fun registerPushToken(context: Context, pushToken: String) {
+        executor.execute {
+            val payload = credentialPayload(context) ?: return@execute
+            payload.put("pushToken", pushToken)
+            payload.put("appVersion", BuildConfig.VERSION_NAME)
+            val error = runCatching {
+                postJson("/mobile/actions/register-push", payload)
+            }.exceptionOrNull()
+            if (error is MobileBridgeHttpException && error.statusCode == 401) {
+                DeviceCredentialStore(context).clearDeviceToken()
             }
         }
     }

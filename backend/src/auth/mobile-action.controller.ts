@@ -4,6 +4,7 @@ import {
   CreateMobileActionDto,
   MobileActionEventDto,
   PullMobileActionsDto,
+  RegisterMobilePushDto,
 } from './dto/mobile-action.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { MobileActionService } from './mobile-action.service';
@@ -37,6 +38,12 @@ export class MobileActionController {
   @Throttle({ default: { limit: 30, ttl: 60 } })
   pull(@Body() dto: PullMobileActionsDto) {
     return this.mobileActions.pull(dto);
+  }
+
+  @Post('register-push')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  registerPush(@Body() dto: RegisterMobilePushDto) {
+    return this.mobileActions.registerPush(dto);
   }
 
   @Post(':actionId/event')

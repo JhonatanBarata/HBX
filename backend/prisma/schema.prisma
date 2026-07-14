@@ -2111,6 +2111,10 @@ model MobileDevice {
   platform           String   @default("android")
   tokenHash          String   @unique
   tokenVersion       Int      @default(1)
+  pushToken          String?
+  pushPlatform       String?
+  pushUpdatedAt      DateTime?
+  appVersion         String?
   lastUsedAt         DateTime?
   expiresAt          DateTime?
   revokedAt          DateTime?
@@ -2124,6 +2128,8 @@ model MobileDevice {
   @@unique([id, companyId])
   @@index([userId, revokedAt])
   @@index([companyId, revokedAt])
+  @@index([companyId, pushToken])
+  @@index([userId, companyId, pushUpdatedAt])
 }
 
 model MobilePairingCode {

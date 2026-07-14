@@ -37,7 +37,7 @@ class NotificationPermissionActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Ações do HBX no celular")
             .setMessage(
-                "Permita notificações para ver ligações, leads e conversas preparadas pelo HBX web enquanto o aplicativo estiver aberto."
+                "Permita notificações para receber ligações, leads e conversas preparadas pelo HBX web mesmo com o aplicativo fechado ou o celular bloqueado."
             )
             .setPositiveButton("Permitir") { _, _ ->
                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)

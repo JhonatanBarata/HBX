@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
@@ -12,6 +13,7 @@ import {
   CreateMobileActionDto,
   MobileActionEventDto,
   PullMobileActionsDto,
+  RegisterMobilePushDto,
 } from './dto/mobile-action.dto';
 import {
   canApplyMobileActionEvent,
@@ -21,6 +23,7 @@ import {
   type MobileActionKind,
 } from './mobile-action-state';
 import { MobileDevicePresenceService } from './mobile-device-presence.service';
+import { MobilePushService, type MobilePushResult } from './mobile-push.service';
 
 type WebOwner = { userId: number; companyId: number };
 type DeviceChoice = {
@@ -28,6 +31,7 @@ type DeviceChoice = {
   name: string | null;
   platform: string | null;
   lastUsedAt: Date | null;
+  pushToken: string | null;
 };
 
 type MobileActionRow = {
@@ -74,6 +78,7 @@ export class MobileActionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly devices: MobileDevicePresenceService,
+    @Optional() private readonly push?: MobilePushService,
   ) {}
 
   private normalizePhone(value: unknown) {
@@ -136,7 +141,6 @@ export class MobileActionService {
     const phone = this.normalizePhone(dto.phone);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.actionTtlMs);
-    const onlineAfter = new Date(now.getTime() - 90_000);
     const requestedDeviceId = String(dto.deviceId || '').trim();
 
     const requestedLeadId = String(dto.leadId || '').trim();
@@ -156,58 +160,28 @@ export class MobileActionService {
     const deviceRows = await withoutTenantScope('mobile action: escolher aparelho do usuário', () =>
       requestedDeviceId
         ? this.prisma.$queryRaw<DeviceChoice[]>`
-            SELECT "id", "name", "platform", "lastUsedAt"
+            SELECT "id", "name", "platform", "lastUsedAt", "pushToken"
             FROM "MobileDevice"
             WHERE "id" = ${requestedDeviceId}
               AND "userId" = ${owner.userId}
               AND "companyId" = ${owner.companyId}
               AND "revokedAt" IS NULL
               AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
-              AND "lastUsedAt" >= ${onlineAfter}
             LIMIT 1
           `
         : this.prisma.$queryRaw<DeviceChoice[]>`
-            SELECT "id", "name", "platform", "lastUsedAt"
+            SELECT "id", "name", "platform", "lastUsedAt", "pushToken"
             FROM "MobileDevice"
             WHERE "userId" = ${owner.userId}
               AND "companyId" = ${owner.companyId}
               AND "revokedAt" IS NULL
               AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
-              AND "lastUsedAt" >= ${onlineAfter}
-            ORDER BY "lastUsedAt" DESC NULLS LAST, "createdAt" DESC
+            ORDER BY ("pushToken" IS NOT NULL) DESC, "lastUsedAt" DESC NULLS LAST, "createdAt" DESC
             LIMIT 1
           `,
     );
     const device = deviceRows[0];
     if (!device) {
-      const linkedRows = await withoutTenantScope('mobile action: conferir vínculo offline', () =>
-        requestedDeviceId
-          ? this.prisma.$queryRaw<Array<{ id: string }>>`
-              SELECT "id"
-              FROM "MobileDevice"
-              WHERE "id" = ${requestedDeviceId}
-                AND "userId" = ${owner.userId}
-                AND "companyId" = ${owner.companyId}
-                AND "revokedAt" IS NULL
-                AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
-              LIMIT 1
-            `
-          : this.prisma.$queryRaw<Array<{ id: string }>>`
-              SELECT "id"
-              FROM "MobileDevice"
-              WHERE "userId" = ${owner.userId}
-                AND "companyId" = ${owner.companyId}
-                AND "revokedAt" IS NULL
-                AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
-              LIMIT 1
-            `,
-      );
-      if (linkedRows[0]) {
-        throw new ConflictException({
-          code: 'MOBILE_DEVICE_OFFLINE',
-          message: 'Abra o HBX Mobile no celular para receber esta ação.',
-        });
-      }
       throw new ConflictException({
         code: 'MOBILE_DEVICE_NOT_LINKED',
         message: 'Vincule um celular ao HBX antes de enviar ligações ou mensagens.',
@@ -259,6 +233,26 @@ export class MobileActionService {
       }),
     );
 
+    const pushResult: MobilePushResult = this.push
+      ? await this.push.sendWake(device.pushToken)
+      : { sent: false, reason: 'push_service_unavailable' };
+    if (pushResult.unregistered && device.pushToken) {
+      await withoutTenantScope('mobile action: remover token push rejeitado do aparelho', () =>
+        this.prisma.$executeRaw`
+          UPDATE "MobileDevice"
+          SET
+            "pushToken" = NULL,
+            "pushPlatform" = NULL,
+            "pushUpdatedAt" = NULL,
+            "updatedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${device.id}
+            AND "companyId" = ${owner.companyId}
+            AND "userId" = ${owner.userId}
+            AND "pushToken" = ${device.pushToken}
+        `,
+      );
+    }
+
     return {
       ok: true,
       action: {
@@ -277,8 +271,46 @@ export class MobileActionService {
         platform: device.platform || 'android',
         lastUsedAt: device.lastUsedAt?.toISOString() || null,
       },
-      delivery: 'queue',
+      delivery: pushResult.sent ? 'push' : 'queue',
     };
+  }
+
+  async registerPush(dto: RegisterMobilePushDto) {
+    const device = await this.devices.authenticateDevice(dto);
+    const pushToken = String(dto.pushToken || '').trim();
+    const appVersion = String(dto.appVersion || '').trim().slice(0, 80) || null;
+    const now = new Date();
+
+    await withoutTenantScope('mobile action: registrar token push do próprio aparelho', () =>
+      this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`
+          UPDATE "MobileDevice"
+          SET
+            "pushToken" = NULL,
+            "pushPlatform" = NULL,
+            "pushUpdatedAt" = NULL,
+            "updatedAt" = ${now}
+          WHERE "pushToken" = ${pushToken}
+            AND "companyId" = ${device.companyId}
+            AND "id" <> ${device.id}
+        `;
+        await tx.$executeRaw`
+          UPDATE "MobileDevice"
+          SET
+            "pushToken" = ${pushToken},
+            "pushPlatform" = 'fcm',
+            "pushUpdatedAt" = ${now},
+            "appVersion" = ${appVersion},
+            "updatedAt" = ${now}
+          WHERE "id" = ${device.id}
+            AND "companyId" = ${device.companyId}
+            AND "userId" = ${device.userId}
+            AND "revokedAt" IS NULL
+        `;
+      }),
+    );
+
+    return { ok: true, registeredAt: now.toISOString() };
   }
 
   async pull(dto: PullMobileActionsDto) {

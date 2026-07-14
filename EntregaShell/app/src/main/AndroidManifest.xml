@@ -96,6 +96,16 @@
             android:foregroundServiceType="location"
             android:exported="false" />
 
+        <!-- FCM só acorda a ponte; telefone, mensagem e lead continuam vindo
+             exclusivamente da fila autenticada no VPS. -->
+        <service
+            android:name=".HbxFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Reenvia a outbox SQLite somente quando o VPS volta a ficar acessível.
              JobScheduler é nativo do Android: não usa Firebase/Play Services. -->
         <service

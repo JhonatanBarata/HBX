@@ -125,6 +125,7 @@ class PairingActivity : AppCompatActivity() {
             success = { response ->
                 val deviceToken = response.getString("deviceToken")
                 credentialStore.saveDeviceToken(deviceToken)
+                HbxMobileBridge.onDevicePaired(this)
                 TrackingSessionStore(this).clearAuthBlocked()
                 TrackingSync.requestFlush(this)
                 openEntryUrl(response.getString("entryUrl"))
