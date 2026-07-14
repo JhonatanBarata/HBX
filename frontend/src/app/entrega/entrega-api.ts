@@ -91,6 +91,12 @@ export interface RotaResult {
   date: string;
   total: number;
   effectsEnabled: boolean;
+  // PR2 — o motorista recebe só a necessidade operacional de rastreamento.
+  // A escolha comercial da rota permanece restrita à administração.
+  routeId?: string | null;
+  trackingRequired: boolean;
+  trackingSessionId?: string | null;
+  trackingStatus?: "ACTIVE" | "ENDED" | null;
   moduloFinanceiroAtivo?: boolean;
   pix?: RotaPix | null;
   // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST
@@ -104,6 +110,10 @@ export interface RotaResult {
 export interface PlanejarRotaResult {
   date: string;
   total: number;
+  routeId?: string | null;
+  trackingRequired: boolean;
+  trackingSessionId?: string | null;
+  trackingStatus?: "ACTIVE" | "ENDED" | null;
   semCoordenada: number;
   distanciaTotalKm: number;
   terminoPrevisto: string | null;

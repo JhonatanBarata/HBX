@@ -39,6 +39,7 @@ const COMMERCIAL_ROUTE_KEYS = new Set([
   'pixChave',
   'pixNome',
   'pixCidade',
+  'routeMode',
 ]);
 
 function assertNoCommercialRouteKeys(value: unknown, path = 'response'): void {
@@ -2065,7 +2066,12 @@ test('resolveDayRange: "YYYY-MM-DD" válido resolve pro próprio dia (fuso local
 });
 
 function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
-  const queries: { entrega?: any; config?: any; saldo: number } = { saldo: 0 };
+  const queries: {
+    entrega?: any;
+    config?: any;
+    saldo: number;
+    trackingIncludeCommercialMode: boolean[];
+  } = { saldo: 0, trackingIncludeCommercialMode: [] };
   const row = {
     id: 'entrega-rota-1',
     status: 'em_rota',
@@ -2155,6 +2161,26 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
       codigoObrigatorio: false,
     }),
   };
+  const tracking: any = {
+    // Retorna routeMode até quando não solicitado para provar que a serialização
+    // HTTP do motorista continua fail-closed diante de um adapter permissivo.
+    getOperationalRouteMetadata: async (
+      _companyId: number,
+      _driverId: number,
+      _routeDate: string,
+      includeCommercialMode: boolean,
+    ) => {
+      queries.trackingIncludeCommercialMode.push(includeCommercialMode);
+      return {
+        routeId: 'route-1',
+        trackingRequired: true,
+        routeMode: 'TRACKED',
+        routeStatus: 'ACTIVE',
+        trackingSessionId: 'session-1',
+        trackingStatus: 'ACTIVE',
+      };
+    },
+  };
   const service = new LogisticaService(
     prisma,
     {} as any,
@@ -2164,6 +2190,8 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
     undefined,
     undefined,
     operacao,
+    undefined,
+    tracking,
   );
   return { service, queries };
 }
@@ -2180,6 +2208,8 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     const result = await service.listRota(7, '2026-07-13', actor);
 
     assertNoCommercialRouteKeys(result, nome);
+    assert.equal(result.trackingRequired, true, `${nome}: sinal operacional deve permanecer disponível`);
+    assert.deepEqual(queries.trackingIncludeCommercialMode, [false]);
     assert.equal(queries.saldo, 0, `${nome}: consulta de saldo não deve executar`);
 
     const entregaSelect = queries.entrega.select;
@@ -2209,6 +2239,9 @@ test('listRota: dono mantém a visão comercial necessária à administração',
   const item = result.items[0];
 
   assert.equal(result.moduloFinanceiroAtivo, false);
+  assert.equal(result.trackingRequired, true);
+  assert.equal(result.routeMode, 'TRACKED');
+  assert.deepEqual(queries.trackingIncludeCommercialMode, [true]);
   assert.equal(result.pix, null);
   assert.equal(item.valor, 42);
   assert.equal(item.cobrancaStatus, 'pendente');

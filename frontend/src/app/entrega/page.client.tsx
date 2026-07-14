@@ -311,25 +311,41 @@ export function EntregaHome() {
   // WEB-BRIDGE — alimenta o serviço nativo de GPS de fundo (casca Android) com
   // a rota inteira sempre que ela muda; em navegador comum (sem HBXShell) os
   // helpers são no-op — zero mudança de comportamento fora da casca.
+  const routeLoadedForShell = rota !== null;
   useEffect(() => {
-    if (view === "rota" && shellDisponivel()) {
-      const paradas = abertas
-        .filter((p) => typeof p.cliente.lat === "number" && typeof p.cliente.lng === "number")
-        .map((p) => ({
-          id: p.id,
-          nome: p.cliente.nome ?? "Cliente",
-          lat: p.cliente.lat as number,
-          lng: p.cliente.lng as number,
-        }));
-      if (paradas.length > 0) shellSetRota(raioChegadaM, paradas);
-      else shellClearRota();
+    // Na remontagem/reabertura, não encerra uma sessão persistida antes de o
+    // GET /rota informar se ela continua ACTIVE.
+    if (!routeLoadedForShell) return;
+    const paradas = abertas
+      .filter((p) => typeof p.cliente.lat === "number" && typeof p.cliente.lng === "number")
+      .map((p) => ({
+        id: p.id,
+        nome: p.cliente.nome ?? "Cliente",
+        lat: p.cliente.lat as number,
+        lng: p.cliente.lng as number,
+      }));
+    const trackingRequired = rota?.trackingRequired === true;
+    const trackedActive = trackingRequired && rota?.trackingStatus === "ACTIVE" && !!rota.routeId;
+    // Rota Rastreada pertence à sessão de backend, não à aba aberta: trocar de
+    // tela ou desmontar o React não encerra o serviço. Já a Essencial preserva
+    // o comportamento anterior (geofence nativo somente dentro da view Rota).
+    const shouldPublish = paradas.length > 0 && (trackedActive || (!trackingRequired && view === "rota"));
+
+    if (shellDisponivel() && shouldPublish) {
+      shellSetRota(raioChegadaM, paradas, {
+        routeId: rota?.routeId,
+        mode: trackingRequired ? "TRACKED" : "ESSENTIAL",
+        trackingSessionId: rota?.trackingSessionId,
+      });
     } else {
       shellClearRota();
     }
-    // Cleanup do efeito (deps mudaram) e do unmount: desliga o GPS de fundo —
-    // o corpo do efeito religa na sequência se a condição ainda valer.
-    return () => shellClearRota();
-  }, [view, abertas, raioChegadaM]);
+    // Uma sessão rastreada ATIVA deve sobreviver à navegação/unmount. O novo
+    // render encerra explicitamente quando status=ENDED ou não restam paradas.
+    return () => {
+      if (!trackedActive || paradas.length === 0) shellClearRota();
+    };
+  }, [view, abertas, raioChegadaM, routeLoadedForShell, rota?.routeId, rota?.trackingRequired, rota?.trackingSessionId, rota?.trackingStatus]);
 
   // ── ROTA-AUTOPILOT F1/F3 — countdown "abrindo navegador sozinho" ───────────
   // Dispara o countdown assim que `paradaAtual` refletir a lista pós-recarga

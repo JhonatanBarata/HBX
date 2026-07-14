@@ -53,6 +53,6 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
     MobileDevicePresenceController,
     MobileActionController,
   ],
-  exports: [AuthService],
+  exports: [AuthService, MobileDevicePresenceService],
 })
 export class AuthModule {}

@@ -7,7 +7,8 @@
 // zero mudança de comportamento fora da casca). Contrato (não desviar — o
 // lado nativo implementa exatamente isto):
 //  - HBXShell.setRota(json)   — substitui o estado inteiro da rota no GPS
-//    de fundo. JSON: {"raioM":60,"paradas":[{"id","nome","lat","lng"}]}.
+//    de fundo. JSON retrocompatível: {"routeId","mode","trackingSessionId",
+//    "raioM":60,"paradas":[{"id","nome","lat","lng"}]}.
 //  - HBXShell.clearRota()     — desliga o serviço de GPS nativo.
 //  - HBXShell.abrirMaps(url)  — abre o Google Maps via Intent nativo.
 //  - HBXShell.versao()        — presença/versão da casca (feature-detect).
@@ -20,6 +21,14 @@ interface HBXShellParada {
   nome: string;
   lat: number;
   lng: number;
+}
+
+export type HBXShellRouteMode = "ESSENTIAL" | "TRACKED";
+
+interface HBXShellRouteMetadata {
+  routeId?: string | null;
+  mode?: HBXShellRouteMode | null;
+  trackingSessionId?: string | null;
 }
 
 interface HBXShellInterface {
@@ -46,11 +55,21 @@ export function shellDisponivel(): boolean {
 }
 
 /** Substitui o estado inteiro da rota no serviço nativo de GPS. Idempotente. */
-export function shellSetRota(raioM: number, paradas: HBXShellParada[]): void {
+export function shellSetRota(
+  raioM: number,
+  paradas: HBXShellParada[],
+  metadata: HBXShellRouteMetadata = {},
+): void {
   try {
     const shell = getShell();
     if (!shell) return;
-    shell.setRota(JSON.stringify({ raioM, paradas }));
+    shell.setRota(JSON.stringify({
+      routeId: metadata.routeId ?? undefined,
+      mode: metadata.mode ?? undefined,
+      trackingSessionId: metadata.trackingSessionId ?? undefined,
+      raioM,
+      paradas,
+    }));
   } catch {
     /* no-op — interface nativa pode lançar */
   }

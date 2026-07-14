@@ -294,6 +294,9 @@ model Company {
   logisticaRoutes        LogisticaRoute[]
   logisticaRouteStops    LogisticaRouteStop[]
   logisticaEssentialClaims LogisticaEssentialCreditClaim[]
+  logisticaTrackingSessions LogisticaTrackingSession[]
+  logisticaTrackingPoints LogisticaTrackingPoint[]
+  logisticaTrackingEvents LogisticaTrackingEvent[]
   // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
   locaisEntrega          LocalEntrega[]
   logisticaConfig        LogisticaConfig?
@@ -1165,6 +1168,8 @@ model Entrega {
   itens             EntregaItem[]
   comprovantes      EntregaComprovante[]
   logisticaRouteStop LogisticaRouteStop?
+  logisticaTrackingPoints LogisticaTrackingPoint[]
+  logisticaTrackingEvents LogisticaTrackingEvent[]
 
   @@unique([id, companyId])
   @@unique([companyId, idempotencyKey])
@@ -1201,6 +1206,7 @@ model LogisticaRoute {
   updatedAt           DateTime @updatedAt
   stops               LogisticaRouteStop[]
   essentialClaims     LogisticaEssentialCreditClaim[]
+  trackingSession     LogisticaTrackingSession?
 
   @@unique([id, companyId])
   @@unique([companyId, entregadorId, routeDate])
@@ -1225,6 +1231,89 @@ model LogisticaRouteStop {
   @@unique([routeId, snapshotOrder])
   @@unique([deliveryId, companyId])
   @@index([companyId, routeId])
+  @@index([companyId, deliveryId])
+}
+
+// ROTA RASTREADA PR2 (14/07) — sessão única e congelada da rota TRACKED.
+// O aparelho e o motorista são amarrados também no banco pelo companyId; uma
+// rota nunca pode ter duas sessões concorrentes nem trocar de device no meio.
+model LogisticaTrackingSession {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  route             LogisticaRoute @relation(fields: [routeId, companyId], references: [id, companyId], onDelete: Cascade)
+  routeId           String
+  entregador        User     @relation("LogisticaTrackingSessionDriver", fields: [entregadorId, companyId], references: [id, companyId], onDelete: Restrict)
+  entregadorId      Int
+  device            MobileDevice? @relation(fields: [deviceId, companyId], references: [id, companyId], onDelete: Restrict)
+  deviceId          String?
+  deviceBoundAt     DateTime?
+  status            String   @default("ACTIVE") // ACTIVE | ENDED
+  startedAt         DateTime
+  endedAt           DateTime?
+  hasValidPositions Boolean  @default(false)
+  lastPointAt       DateTime?
+  lastLatitude      Float?
+  lastLongitude     Float?
+  lastAccuracyM     Float?
+  lastSpeedMps      Float?
+  lastBearingDeg    Float?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  points            LogisticaTrackingPoint[]
+  events            LogisticaTrackingEvent[]
+
+  @@unique([id, companyId])
+  @@unique([routeId, companyId])
+  @@index([companyId, status, lastPointAt])
+  @@index([companyId, entregadorId, status])
+  @@index([companyId, deviceId, status])
+}
+
+// Fila offline idempotente: clientPointId e sequence pertencem à sessão.
+// Apenas pontos aceitos são gravados; rejeições voltam no ACK do lote.
+model LogisticaTrackingPoint {
+  id             String   @id @default(cuid())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  session        LogisticaTrackingSession @relation(fields: [sessionId, companyId], references: [id, companyId], onDelete: Cascade)
+  sessionId      String
+  delivery       Entrega? @relation(fields: [deliveryId, companyId], references: [id, companyId], onDelete: Restrict)
+  deliveryId     String?
+  clientPointId  String   @db.VarChar(80)
+  sequence       Int
+  capturedAt     DateTime
+  receivedAt     DateTime @default(now())
+  latitude       Float
+  longitude      Float
+  accuracyM      Float
+  speedMps       Float?
+  bearingDeg     Float?
+  eventType      String   @default("PERIODIC") // START | PERIODIC | ARRIVAL | END
+  createdAt      DateTime @default(now())
+
+  @@unique([sessionId, clientPointId])
+  @@unique([sessionId, sequence])
+  @@index([companyId, sessionId, capturedAt])
+  @@index([companyId, deliveryId])
+}
+
+// Eventos de marco têm chave própria para retries offline de chegada/fim.
+model LogisticaTrackingEvent {
+  id            String   @id @default(cuid())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     Int
+  session       LogisticaTrackingSession @relation(fields: [sessionId, companyId], references: [id, companyId], onDelete: Cascade)
+  sessionId     String
+  delivery      Entrega? @relation(fields: [deliveryId, companyId], references: [id, companyId], onDelete: Restrict)
+  deliveryId    String?
+  clientEventId String   @db.VarChar(80)
+  type          String   // ARRIVAL | END
+  capturedAt    DateTime
+  createdAt     DateTime @default(now())
+
+  @@unique([sessionId, clientEventId])
+  @@index([companyId, sessionId, capturedAt])
   @@index([companyId, deliveryId])
 }
 
@@ -1827,6 +1916,7 @@ model User {
   entregaComprovantesEnviados EntregaComprovante[] @relation("EntregaComprovanteEnviadoPor")
   logisticaRoutesComoEntregador LogisticaRoute[] @relation("LogisticaRouteDriver")
   logisticaEssentialClaimsComoEntregador LogisticaEssentialCreditClaim[] @relation("LogisticaEssentialClaimDriver")
+  logisticaTrackingSessionsComoEntregador LogisticaTrackingSession[] @relation("LogisticaTrackingSessionDriver")
 
   @@unique([id, companyId])
   @@index([referredByUserId])
@@ -1852,7 +1942,9 @@ model MobileDevice {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @default(now()) @updatedAt
   actions            MobileAction[]
+  logisticaTrackingSessions LogisticaTrackingSession[]
 
+  @@unique([id, companyId])
   @@index([userId, revokedAt])
   @@index([companyId, revokedAt])
 }

@@ -15,6 +15,7 @@ import {
   getCreditActionDefinition,
 } from '../credits/credit-action-catalog';
 import { LogisticaConfigService } from './logistica-config.service';
+import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 
 export type LogisticaRouteMode = 'ESSENTIAL' | 'TRACKED';
 
@@ -133,16 +134,35 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     });
     if (!driver) throw new BadRequestException('Motorista inválido para esta empresa.');
 
-    const route = await this.ensureRoute(companyId, entregadorId, routeDate, input.createIfMissing !== false);
+    let route = await this.ensureRoute(companyId, entregadorId, routeDate, input.createIfMissing !== false);
     if (!route) return null;
     if (route.status === 'REFUNDING') {
       throw new ConflictException('A rota está concluindo um estorno. Tente novamente em instantes.');
     }
-    await this.syncSnapshot(route, input.deliveryIds);
+    if (route.status === 'COMPLETED') {
+      if (input.chargeEssential === true) {
+        throw new ConflictException('Esta rota já foi concluída e não pode ser iniciada novamente.');
+      }
+      // Planejamento após o fim é somente leitura: não anexa uma entrega tardia
+      // ao snapshot congelado e nunca volta a medir/cobrar a rota terminal.
+      const totalUniqueDeliveries = await (this.prisma as any).logisticaRouteStop.count({
+        where: { companyId, routeId: route.id },
+      });
+      return preparedRouteResult(route, totalUniqueDeliveries, []);
+    }
 
-    const totalUniqueDeliveries = await (this.prisma as any).logisticaRouteStop.count({
-      where: { companyId, routeId: route.id },
-    });
+    const snapshot = await this.syncSnapshot(
+      route,
+      input.deliveryIds,
+      input.chargeEssential === true,
+    );
+    route = snapshot.route;
+    const totalUniqueDeliveries = snapshot.totalUniqueDeliveries;
+    if (route.status === 'COMPLETED') {
+      // Cobre a corrida em que END venceu depois da primeira leitura de rota.
+      // O caminho START já lança dentro de syncSnapshot; PLAN retorna read-only.
+      return preparedRouteResult(route, totalUniqueDeliveries, []);
+    }
 
     const newlyDebitedUsageKeys: string[] = [];
     const shouldChargeEssential = route.mode === 'ESSENTIAL' && (input.chargeEssential === true || route.status === 'ACTIVE');
@@ -163,14 +183,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       }
     }
 
-    return {
-      routeId: route.id,
-      mode: route.mode as LogisticaRouteMode,
-      status: route.status,
-      totalUniqueDeliveries,
-      newlyDebitedUsageKeys,
-      billingRevision: route.billingRevision,
-    };
+    return preparedRouteResult(route, totalUniqueDeliveries, newlyDebitedUsageKeys);
   }
 
   private async ensureRoute(
@@ -198,42 +211,83 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     }
   }
 
-  private async syncSnapshot(route: RouteRow, deliveryIdsInput: string[]): Promise<void> {
+  private async syncSnapshot(
+    route: RouteRow,
+    deliveryIdsInput: string[],
+    rejectCompleted: boolean,
+  ): Promise<{ route: RouteRow; totalUniqueDeliveries: number }> {
     const deliveryIds = Array.from(new Set((deliveryIdsInput || []).map(String).filter(Boolean)));
-    if (deliveryIds.length === 0) return;
-
-    const deliveries = await this.prisma.entrega.findMany({
-      where: {
-        companyId: route.companyId,
-        id: { in: deliveryIds },
-        entregadorId: route.entregadorId,
-      },
-      select: { id: true },
-    });
-    if (deliveries.length !== deliveryIds.length) {
-      throw new BadRequestException('A rota contém entrega de outra empresa ou de outro motorista.');
-    }
-
-    const stopDelegate = (this.prisma as any).logisticaRouteStop;
-    const existing = (await stopDelegate.findMany({
-      where: { companyId: route.companyId, deliveryId: { in: deliveryIds } },
-      select: { deliveryId: true, routeId: true },
-    })) as Array<{ deliveryId: string; routeId: string }>;
-    const existingByDelivery = new Map(existing.map((row) => [row.deliveryId, row.routeId]));
-    for (const [deliveryId, routeId] of existingByDelivery) {
-      if (routeId !== route.id) {
-        throw new ConflictException(`A entrega ${deliveryId} já pertence a outra rota comercial.`);
+    return this.prisma.$transaction(async (tx: any) => {
+      await lockLogisticaRouteTransaction(tx, route.companyId, route.id);
+      const current = (await tx.logisticaRoute.findFirst({
+        where: { companyId: route.companyId, id: route.id },
+      })) as RouteRow | null;
+      if (!current) throw new BadRequestException('Rota não encontrada.');
+      if (current.status === 'REFUNDING') {
+        throw new ConflictException('A rota está concluindo um estorno. Tente novamente em instantes.');
       }
-    }
+      if (current.status === 'COMPLETED') {
+        if (rejectCompleted) {
+          throw new ConflictException('Esta rota já foi concluída e não pode ser iniciada novamente.');
+        }
+        const totalUniqueDeliveries = await tx.logisticaRouteStop.count({
+          where: { companyId: current.companyId, routeId: current.id },
+        });
+        return { route: current, totalUniqueDeliveries };
+      }
 
-    for (const deliveryId of deliveryIds) {
-      if (existingByDelivery.has(deliveryId)) continue;
-      await this.appendStop(route, deliveryId);
-    }
+      if (deliveryIds.length > 0) {
+        const deliveries = await tx.entrega.findMany({
+          where: {
+            companyId: current.companyId,
+            id: { in: deliveryIds },
+            entregadorId: current.entregadorId,
+          },
+          select: { id: true },
+        });
+        if (deliveries.length !== deliveryIds.length) {
+          throw new BadRequestException('A rota contém entrega de outra empresa ou de outro motorista.');
+        }
+
+        const existing = (await tx.logisticaRouteStop.findMany({
+          where: { companyId: current.companyId, deliveryId: { in: deliveryIds } },
+          select: { deliveryId: true, routeId: true },
+        })) as Array<{ deliveryId: string; routeId: string }>;
+        const existingByDelivery = new Map(existing.map((row) => [row.deliveryId, row.routeId]));
+        for (const [deliveryId, routeId] of existingByDelivery) {
+          if (routeId !== current.id) {
+            throw new ConflictException(`A entrega ${deliveryId} já pertence a outra rota comercial.`);
+          }
+        }
+
+        for (const deliveryId of deliveryIds) {
+          if (existingByDelivery.has(deliveryId)) continue;
+          await this.appendStop(tx, current, deliveryId);
+        }
+      }
+
+      const totalUniqueDeliveries = await tx.logisticaRouteStop.count({
+        where: { companyId: current.companyId, routeId: current.id },
+      });
+      return { route: current, totalUniqueDeliveries };
+    });
   }
 
-  private async appendStop(route: RouteRow, deliveryId: string): Promise<void> {
-    const stopDelegate = (this.prisma as any).logisticaRouteStop;
+  private async appendStop(tx: any, route: RouteRow, deliveryId: string): Promise<void> {
+    // Reentrante dentro da mesma transação: documenta e garante que nenhum
+    // chamador futuro use append sem a mesma trava adquirida pelo END.
+    await lockLogisticaRouteTransaction(tx, route.companyId, route.id);
+    const current = (await tx.logisticaRoute.findFirst({
+      where: { companyId: route.companyId, id: route.id },
+    })) as RouteRow | null;
+    if (!current) throw new BadRequestException('Rota não encontrada.');
+    if (current.status === 'COMPLETED') {
+      throw new ConflictException('Rota concluída não aceita novas entregas.');
+    }
+    if (current.status === 'REFUNDING') {
+      throw new ConflictException('A rota está concluindo um estorno. Tente novamente em instantes.');
+    }
+    const stopDelegate = tx.logisticaRouteStop;
     for (let attempt = 0; attempt < 6; attempt++) {
       const aggregate = await stopDelegate.aggregate({
         where: { companyId: route.companyId, routeId: route.id },
@@ -513,8 +567,11 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     for (let retry = 0; retry < 5; retry++) {
       const route = (await delegate.findFirst({ where: { companyId, id: routeId } })) as RouteRow | null;
       if (!route) throw new BadRequestException('Rota não encontrada.');
-      if (route.status === 'ACTIVE' || route.status === 'COMPLETED') {
+      if (route.status === 'ACTIVE') {
         return { token: null, alreadyActive: true };
+      }
+      if (route.status === 'COMPLETED') {
+        throw new ConflictException('Esta rota já foi concluída e não pode ser iniciada novamente.');
       }
       if (route.status === 'REFUNDING') {
         throw new ConflictException('A rota está concluindo um estorno. Tente novamente em instantes.');
@@ -991,6 +1048,21 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       },
     });
   }
+}
+
+function preparedRouteResult(
+  route: RouteRow,
+  totalUniqueDeliveries: number,
+  newlyDebitedUsageKeys: string[],
+): PreparedLogisticaRoute {
+  return {
+    routeId: route.id,
+    mode: route.mode as LogisticaRouteMode,
+    status: route.status,
+    totalUniqueDeliveries,
+    newlyDebitedUsageKeys,
+    billingRevision: route.billingRevision,
+  };
 }
 
 export function canonicalRouteDate(value?: string | null, now = new Date()): string {

@@ -36,25 +36,49 @@ export class MobileDevicePresenceService {
     return crypto.createHash('sha256').update(value).digest('hex');
   }
 
+  private async loadAccessibleUser(userId: number, companyId: number) {
+    const user: any = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { company: true },
+    });
+    if (
+      !user ||
+      user.isActive === false ||
+      user.isSystemMaster ||
+      Number(user.companyId || 0) !== companyId
+    ) {
+      throw new UnauthorizedException('A conta deste aparelho não está disponível.');
+    }
+    const access = resolveCompanyAccessState(user.company);
+    if (!access.canUse) throw new ForbiddenException('O acesso da empresa está pausado.');
+    return user;
+  }
+
+  private async assertCompanyModuleEnabled(companyId: number, key: string, label: string) {
+    const module = await this.prisma.systemModule.findUnique({
+      where: { key },
+      select: {
+        companyAssignable: true,
+        defaultEnabled: true,
+        companyModules: {
+          where: { companyId },
+          select: { enabled: true, masterEnabled: true },
+          take: 1,
+        },
+      },
+    });
+    const override = module?.companyModules?.[0] || null;
+    const enabled = Boolean(
+      module?.companyAssignable &&
+      override?.masterEnabled !== false &&
+      (override ? override.enabled === true : module.defaultEnabled === true),
+    );
+    if (!enabled) throw new ForbiddenException(`O módulo ${label} não está habilitado para esta empresa.`);
+  }
+
   async assertUserCanUseBridge(userId: number, companyId: number) {
     return withoutTenantScope('mobile presence: validar acesso comercial da conta', async () => {
-      const user: any = await this.prisma.user.findUnique({
-        where: { id: userId },
-        include: { company: true },
-      });
-      if (
-        !user ||
-        user.isActive === false ||
-        user.isSystemMaster ||
-        Number(user.companyId || 0) !== companyId
-      ) {
-        throw new UnauthorizedException('A conta deste aparelho não está disponível.');
-      }
-
-      const access = resolveCompanyAccessState(user.company);
-      if (!access.canUse) {
-        throw new ForbiddenException('O acesso da empresa está pausado.');
-      }
+      const user = await this.loadAccessibleUser(userId, companyId);
 
       await assertOperationalCapability(
         this.prisma,
@@ -70,27 +94,22 @@ export class MobileDevicePresenceService {
         throw new ForbiddenException('O acesso a Vendas está bloqueado pela política da equipe.');
       }
 
-      const vendasModule = await this.prisma.systemModule.findUnique({
-        where: { key: 'vendas' },
-        select: {
-          companyAssignable: true,
-          defaultEnabled: true,
-          companyModules: {
-            where: { companyId },
-            select: { enabled: true, masterEnabled: true },
-            take: 1,
-          },
-        },
-      });
-      const override = vendasModule?.companyModules?.[0] || null;
-      const moduleEnabled = Boolean(
-        vendasModule?.companyAssignable &&
-        override?.masterEnabled !== false &&
-        (override ? override.enabled === true : vendasModule.defaultEnabled === true),
+      await this.assertCompanyModuleEnabled(companyId, 'vendas', 'Vendas');
+      return user;
+    });
+  }
+
+  /** Gate próprio da logística: DRIVER + módulo da empresa, sem exigir Vendas. */
+  async assertUserCanUseLogistica(userId: number, companyId: number) {
+    return withoutTenantScope('mobile presence: validar acesso do entregador', async () => {
+      const user = await this.loadAccessibleUser(userId, companyId);
+      await assertOperationalCapability(
+        this.prisma,
+        user,
+        'DRIVER',
+        'O rastreamento exige acesso ao workspace de Entregas.',
       );
-      if (!moduleEnabled) {
-        throw new ForbiddenException('O módulo Vendas não está habilitado para esta empresa.');
-      }
+      await this.assertCompanyModuleEnabled(companyId, 'logistica', 'Logística');
       return user;
     });
   }
@@ -99,7 +118,7 @@ export class MobileDevicePresenceService {
    * Valida a credencial duradoura do APK sem emitir JWT web. É a porta única para
    * heartbeat e fila de ações móveis. Nunca confia em deviceId vindo do cliente.
    */
-  async authenticateDevice(
+  async authenticateDeviceCredential(
     dto: OpenMobileDeviceSessionDto,
     options: { touch?: boolean } = {},
   ): Promise<AuthenticatedMobileDevice> {
@@ -123,8 +142,6 @@ export class MobileDevicePresenceService {
         throw new UnauthorizedException('Aparelho não vinculado ou acesso revogado.');
       }
 
-      await this.assertUserCanUseBridge(row.userId, row.companyId);
-
       if (options.touch !== false) {
         await this.prisma.$executeRaw`
           UPDATE "MobileDevice"
@@ -145,9 +162,50 @@ export class MobileDevicePresenceService {
     });
   }
 
+  async authenticateDevice(
+    dto: OpenMobileDeviceSessionDto,
+    options: { touch?: boolean } = {},
+  ): Promise<AuthenticatedMobileDevice> {
+    const device = await this.authenticateDeviceCredential(dto, { touch: false });
+    await this.assertUserCanUseBridge(device.userId, device.companyId);
+    if (options.touch !== false) await this.touchAuthenticatedDevice(device);
+    return device;
+  }
+
+  async touchAuthenticatedDevice(device: AuthenticatedMobileDevice): Promise<void> {
+    const now = new Date();
+    await withoutTenantScope('mobile presence: atualizar aparelho autenticado', () =>
+      this.prisma.$executeRaw`
+        UPDATE "MobileDevice"
+        SET "lastUsedAt" = ${now}, "updatedAt" = ${now}
+        WHERE "id" = ${device.id}
+          AND "companyId" = ${device.companyId}
+          AND "revokedAt" IS NULL
+      `,
+    );
+  }
+
+  /** Heartbeat é infraestrutura compartilhada: aceita ponte SELLER ou rota DRIVER. */
+  async authenticateHeartbeatDevice(
+    dto: OpenMobileDeviceSessionDto,
+  ): Promise<AuthenticatedMobileDevice> {
+    const device = await this.authenticateDeviceCredential(dto, { touch: false });
+    try {
+      await this.assertUserCanUseBridge(device.userId, device.companyId);
+    } catch (bridgeError) {
+      try {
+        await this.assertUserCanUseLogistica(device.userId, device.companyId);
+      } catch {
+        throw bridgeError;
+      }
+    }
+    await this.touchAuthenticatedDevice(device);
+    return device;
+  }
+
   async heartbeat(dto: OpenMobileDeviceSessionDto) {
     const now = new Date();
-    const device = await this.authenticateDevice(dto);
+    const device = await this.authenticateHeartbeatDevice(dto);
 
     return {
       ok: true,

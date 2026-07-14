@@ -45,6 +45,7 @@ const TENANT_MODELS = new Set(
     'IntegrationSyncRun', 'ExternalWebhookEvent', 'MetaLeadConnection', 'AuvoExternalRecord', 'Conversation',
     'ConversationSession', 'OrderDraft', 'MobileDevice', 'MobilePairingCode', 'MobileAction',
     'LogisticaRoute', 'LogisticaRouteStop', 'LogisticaEssentialCreditClaim',
+    'LogisticaTrackingSession', 'LogisticaTrackingPoint', 'LogisticaTrackingEvent',
     'User', 'TeamPolicyPreset', 'UserTeamPolicy', 'TeamPolicyAuditLog',
     'HbxPartnerReferralCandidate', 'SellerOnboarding', 'CompanyBillableSeatUsage', 'MasterNotice',
     'MasterPaymentNotificationLog', 'VendasCardComplaint', 'WebscrapingSearchHistory', 'WebscrapingSearchRun',

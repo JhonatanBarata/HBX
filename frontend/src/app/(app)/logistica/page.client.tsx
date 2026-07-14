@@ -430,6 +430,11 @@ export function LogisticaClient() {
               </button>
             )}
             {admin && (
+              <Link href="/logistica/rastreamento" className="btn-ghost btn-xs">
+                <I d={ICONS.mapin} size={13} /> Ao vivo
+              </Link>
+            )}
+            {admin && (
               <Link href="/logistica/config" className="btn-ghost btn-xs">
                 <I d={ICONS.config} size={13} /> Regras
               </Link>
