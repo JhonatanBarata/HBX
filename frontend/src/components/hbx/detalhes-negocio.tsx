@@ -449,6 +449,27 @@ function fmtMoney(value: number | null | undefined) {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
+
+export function formatPhoneDisplay(value: string | null | undefined): string {
+  const original = String(value || "").trim();
+  if (!original) return "—";
+
+  let digits = original.replace(/\D/g, "");
+  let country = "";
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    country = "+55 ";
+    digits = digits.slice(2);
+  }
+
+  if (digits.length === 11) {
+    return `${country}(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `${country}(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return original;
+}
+
 function fmtSourceLabel(sourceType?: string | null, primarySource?: string | null) {
   const src = String(primarySource || sourceType || "").trim().toLowerCase();
   return humanize(src) || "—";
@@ -1795,10 +1816,17 @@ export function DetalhesNegocio({
   const [expanded, setExpanded] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
+  const [deleteArm, setDeleteArm] = useState(false);
+  useEffect(() => {
+    if (!deleteArm) return;
+    const timer = window.setTimeout(() => setDeleteArm(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [deleteArm]);
 
   // ── Gate de plano por TIER (não por entitlement opportunity_score que estava errado)
   // Enquanto não carrega: assume canSeeIntelligence=true e canSeeCompany=false
   const ent = useEntitlements();
+  const waOpenMode = useWaOpenMode();
   const canSeeIntelligence = !ent.loaded || ent.canSeeLeadIntelligence;
   const canSeeCompany = ent.loaded && ent.canSeeCompanyData;
 
@@ -1814,6 +1842,27 @@ export function DetalhesNegocio({
   const isEnriching = Boolean(enriching) && !loading && !n?.enriched;
   // Placeholder de campo pendente só faz sentido enquanto enriquece.
   const fieldPending = (has: boolean) => isEnriching && !has;
+  const primaryWaInternal = waOpenMode === "internal"
+    && waCanInternal
+    && waQrActive
+    && Boolean(onWaOpenInternal);
+
+  function openPrimaryWhatsApp() {
+    if (primaryWaInternal) {
+      onWaOpenInternal?.();
+      return;
+    }
+    if (onWaOpenExternal) {
+      onWaOpenExternal();
+      return;
+    }
+    const fallback = buildWaLink(n?.phone, {
+      text: buildWaMessage({ name: n?.name, segment: n?.segment, city: n?.city }),
+    });
+    if (fallback && typeof window !== "undefined") {
+      window.open(fallback, "_blank", "noopener");
+    }
+  }
 
   // ── Renderizadores de seção ───────────────────────────────────────────────
 
@@ -1896,11 +1945,34 @@ export function DetalhesNegocio({
       // .kv dá o layout de "tabela" (label/valor alinhados + hairline entre linhas) às
       // .row/.k/.v abaixo — sem essa classe elas caem em fluxo inline (bug: "E-mail" e
       // o valor grudados, sem separador, quebrando linha de qualquer jeito).
-      <div className="kv" style={{ gap: 6 }}>
+      <div className={"kv" + (showAgenda ? " dn-contact-block" : "")} style={{ gap: 6 }}>
         {n.phone ? (
-          <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
-            <CanalIcon canal="telefone" /> {n.phone}
-          </a>
+          showAgenda ? (
+            <div className="dn-contact-primary-card">
+                      <span className="dn-contact-eyebrow">Contato principal</span>
+                      <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone dn-contact-primary">
+                        <CanalIcon canal="telefone" />
+                        <TypedText text={formatPhoneDisplay(n.phone)} speed={46} delay={20} />
+                        {li?.whatsappStatus === "confirmed" && (
+                          <span className="dn-contact-verified">
+                            <I d={ICONS.check} size={10} /> Verificado
+                          </span>
+                        )}
+                      </a>
+                      <div className="dn-contact-primary-actions">
+                        <button type="button" className="btn-ghost" onClick={openPrimaryWhatsApp}>
+                          <WhatsAppMark size={14} /> WhatsApp
+                        </button>
+                        <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="btn-teal">
+                          <CanalIcon canal="telefone" size="sm" /> Ligar
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <a href={`tel:${n.phone.replace(/[^\d+]/g, "")}`} className="ctx-phone">
+                      <CanalIcon canal="telefone" /> {n.phone}
+                    </a>
+                  )
         ) : fieldPending(false) ? (
           // Enriquecendo: procurando telefone — placeholder, NÃO "ausente".
           <span className="dn-contact-skel" aria-label="Buscando telefone…" role="status" />
@@ -1910,7 +1982,7 @@ export function DetalhesNegocio({
 
         {extraPhones.map((p, i) => (
           <a key={`xp-${i}`} href={`tel:${p.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">
-            <CanalIcon canal="telefone" /> {p}
+            <CanalIcon canal="telefone" /> {showAgenda ? <TypedText text={formatPhoneDisplay(p)} speed={44} delay={40 + i * 25} /> : p}
           </a>
         ))}
 
@@ -1921,7 +1993,7 @@ export function DetalhesNegocio({
             rel="noopener noreferrer"
             className="ctx-phone ctx-phone--site"
           >
-            <CanalIcon canal="site" /> {n.website}
+            <CanalIcon canal="site" /> {showAgenda ? <TypedText text={n.website} speed={42} delay={70} /> : n.website}
           </a>
         )}
 
@@ -1960,7 +2032,7 @@ export function DetalhesNegocio({
                 <div className="row dn-kv-row">
                   <span className="k">Tel. do dono</span>
                   <span className="v">
-                    <a href={`tel:${n.ownerPhone.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">{n.ownerPhone}</a>
+                    <a href={`tel:${n.ownerPhone.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">{showAgenda ? formatPhoneDisplay(n.ownerPhone) : n.ownerPhone}</a>
                   </span>
                 </div>
               )}
@@ -2540,13 +2612,44 @@ export function DetalhesNegocio({
   const hasZone2 = Boolean(actions || n?.returnAt || n?.attemptCount != null || n?.owner?.name || n?.valueLabel || n?.value || n?.sale);
 
   return (
-    <div className="dn-root">
+    <div className={"dn-root" + (showAgenda ? " dn-root--vendas" : "")}>
 
       {/* ── Título com expandir (opt-in) + fechar ─────────────────────── */}
       {/* Sem onExpand o DOM é IDÊNTICO ao de antes (Atendimento/Leads intactos). */}
-      <h3>
+      <h3 className={showAgenda ? "dn-root__topbar" : undefined}>
         {title}
-        {onExpand ? (
+        {showAgenda ? (
+          <span className="dn-root__top-actions">
+            {onDelete && (
+              <button
+                type="button"
+                className={"dn-root__top-action dn-root__top-action--danger" + (deleteArm ? " is-armed" : "")}
+                onClick={() => {
+                  if (deleteArm) {
+                    onDelete?.();
+                    setDeleteArm(false);
+                  } else {
+                    setDeleteArm(true);
+                  }
+                }}
+                aria-label={deleteArm ? "Confirmar exclusão do card" : "Excluir card"}
+                title={deleteArm ? "Clique novamente para confirmar" : "Excluir card"}
+              >
+                <I d={ICONS.trash} size={15} />
+              </button>
+            )}
+            {onExpand && (
+              <button type="button" className="dn-root__top-action" onClick={onExpand} aria-label="Abrir cockpit" title="Abrir cockpit">
+                <I d={EXPAND_ICON_D} size={14} />
+              </button>
+            )}
+            {onClose && (
+              <button type="button" className="dn-root__top-action" onClick={onClose} aria-label="Fechar painel" title="Fechar">
+                <I d={ICONS.x} size={14} />
+              </button>
+            )}
+          </span>
+        ) : onExpand ? (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
             <span className="x" onClick={onExpand} role="button" aria-label="Abrir cockpit" title="Abrir cockpit">
               <I d={EXPAND_ICON_D} size={14} />
@@ -2625,7 +2728,7 @@ export function DetalhesNegocio({
                   )}
                   <div className="ctx-tags">
                     {n.statusLabel && <span className="tag">{n.statusLabel}</span>}
-                    {detailEngagementMeta && <span className={detailEngagementMeta.className}>{detailEngagementMeta.label}</span>}
+                    {detailEngagementMeta && !showAgenda && <span className={detailEngagementMeta.className}>{detailEngagementMeta.label}</span>}
                     {n.doNotCall && <span className="tag red">Não ligar</span>}
                     {n.leadTemperature && (
                       <span className={"tag" + (n.leadTemperature === "quente" ? " red" : n.leadTemperature === "morno" ? " warn" : "")}>
@@ -2652,7 +2755,7 @@ export function DetalhesNegocio({
                 onWaInternal={onWaOpenInternal ?? undefined}
                 waQrActive={waQrActive}
                 waCanInternal={waCanInternal}
-                onDelete={onDelete}
+                onDelete={showAgenda ? undefined : onDelete}
                 canSeeIntelligence={canSeeIntelligence}
               />
             </div>
@@ -2673,6 +2776,14 @@ export function DetalhesNegocio({
           {/* ── WORM-11: conversa WhatsApp embutida (centro do card) ──── */}
           {showConversation && !loading && n.phone && (
             <div className="dn-zone dn-zone--convo">
+              {showAgenda && (
+                <div className="dn-vendas-section-head">
+                  <span className="dn-section-head"><I d={ICONS.msg} size={12} /> Conversa</span>
+                  {detailEngagementMeta && (
+                    <span className={detailEngagementMeta.className}>{detailEngagementMeta.label}</span>
+                  )}
+                </div>
+              )}
               <ConversationPanel
                 key={conversationLeadId || n.phone}
                 phone={n.phone}
