@@ -21,6 +21,7 @@ const HBX_ENGINE_HARD_LIMIT = 200;
 const HBX_DEFAULT_ENGINE_CAPACITY = 20;
 const HBX_DEFAULT_PUBLISH_WARM_ENGINE_COUNT = 1;
 const rawArgs = process.argv.slice(2).map((arg) => String(arg || '').trim()).filter(Boolean);
+const skipLocalPreflight = rawArgs.some((arg) => arg.toLowerCase() === '--skip-local-preflight');
 
 function parseMode() {
   const wantsDryRun = rawArgs.some((arg) => ['d', 'dry-run', '--dry-run'].includes(arg.toLowerCase()));
@@ -905,12 +906,16 @@ async function main() {
   ensureGitBranch(branch);
   autoCommitLocalChanges(mode, 'publish');
   ensureCleanWorkingTree(mode);
-  const toolEnv = quietToolEnv();
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: toolEnv });
-  runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: toolEnv });
-  runStep('npm', ['--prefix', 'backend', 'run', 'build'], { env: toolEnv });
-  runStep('npm', ['--prefix', 'frontend', 'run', 'build'], { env: toolEnv });
-  validateWebwhatsLocal(webwhatsConfig, mode);
+  if (skipLocalPreflight) {
+    console.log('Preflight local pulado: os builds e as migrations rodarao diretamente na VPS.');
+  } else {
+    const toolEnv = quietToolEnv();
+    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:generate'], { env: toolEnv });
+    runStep('npm', ['--prefix', 'backend', 'run', 'prisma:validate'], { env: toolEnv });
+    runStep('npm', ['--prefix', 'backend', 'run', 'build'], { env: toolEnv });
+    runStep('npm', ['--prefix', 'frontend', 'run', 'build'], { env: toolEnv });
+    validateWebwhatsLocal(webwhatsConfig, mode);
+  }
 
   if (mode === 'dry-run') {
     logStage('Dry Run Plan');
