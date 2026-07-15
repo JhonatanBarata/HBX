@@ -2212,6 +2212,17 @@ model UserTeamPolicy {
   canRegisterHbxSellers                   Boolean  @default(false)
   sellerReferralCommissionPercent         Float    @default(0)
   referredByCommissionPercentSnapshot     Float    @default(0)
+  legacySellerDistributionDailyLimitOverride Int?
+  enrichmentDailyMode                     String   @default("inherit")
+  enrichmentDailyLimit                    Int?
+  cardDeliveryDailyMode                   String   @default("inherit")
+  cardDeliveryDailyLimit                  Int?
+  activeCardsMode                         String   @default("inherit")
+  activeCardsLimit                        Int?
+  monthlyCardsMode                        String   @default("inherit")
+  monthlyCardsLimit                       Int?
+  vendasPullQuantityMode                  String   @default("inherit")
+  vendasPullQuantityLimit                 Int?
   allowedSegmentsJson                     String?
   blockedSegmentsJson                     String?
   allowedCitiesJson                       String?
