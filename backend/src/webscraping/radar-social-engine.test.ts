@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { buildRadarSocialLookupQueries } from './radar/04-socials/radar-social-query-planner';
 import { RadarSocialCandidateExtractor } from './radar/04-socials/radar-social-candidate-extractor';
 import { RadarSocialCandidateScorer } from './radar/04-socials/radar-social-candidate-scorer';
+import { RadarSocialOrchestratorService } from './radar/04-socials/radar-social-orchestrator.service';
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 test('radar social query planner gera camadas agressivas', () => {
   const queries = buildRadarSocialLookupQueries({
@@ -210,4 +216,139 @@ test('google textual provider prepara social sem usar Places', () => {
   assert.equal(normalized[0].source, 'google_textual');
   assert.equal(normalized[0].sourceUrl, 'https://www.instagram.com/barbeariaxrioclaro/');
   assert.equal(normalized[0].queryText, '"Barbearia X" "Rio Claro" instagram');
+});
+
+test('radar social limita queries com clamp seguro e preserva prioridade do planner', async () => {
+  const previousMaxQueries = process.env.HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES;
+  const previousBudgetMs = process.env.HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS;
+  process.env.HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES = '999';
+  process.env.HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS = '999999';
+  try {
+    const lead = {
+      name: 'Barbearia X',
+      legalName: 'Barbearia X Servicos Ltda',
+      city: 'Rio Claro',
+      state: 'SP',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      website: 'https://barbeariax.com.br',
+      instagramUrl: 'https://instagram.com/barbeariaxrioclaro',
+      address: 'Rua Central, Centro',
+      segment: 'barbearias',
+    };
+    const expectedQueries = buildRadarSocialLookupQueries(lead)
+      .filter((entry) => entry.network === 'facebook')
+      .slice(0, 12)
+      .map((entry) => entry.query);
+    const attempted: string[] = [];
+    let writtenResult: any = null;
+    const orchestrator = new RadarSocialOrchestratorService({
+      loadRunItem: async () => ({
+        ...lead,
+        id: 'lead-1',
+        status: 'found',
+        rawJson: JSON.stringify(lead),
+      }),
+    } as any, undefined, new GoogleSearchProviderService());
+
+    await orchestrator.runForSavedLead({
+      context: { companyId: 1, userId: 2, user: {} } as any,
+      leadId: 'lead-1',
+      normalizedInput: {
+        city: 'Rio Claro',
+        state: 'SP',
+        segment: 'barbearias',
+        quantity: 1,
+        engine: 'hbx',
+        targetType: 'pj',
+      } as any,
+      host: {
+        searchHbxEngine: async (_input: any, _existing: any[], _engineUrl: string | undefined, options: any) => {
+          attempted.push(options.queryText);
+          return { results: [] };
+        },
+        normalizeRadarSocialUrl: (value: unknown, network: 'instagram' | 'facebook') => (
+          network === 'instagram' && value ? String(value) : null
+        ),
+        pickRadarSocialUrl: () => null,
+      },
+      timeoutMs: 15_000,
+      writer: {
+        markSearching: async () => undefined,
+        markSkipped: async () => undefined,
+        writeResult: async (_context: any, _leadId: string, _item: any, _base: any, _raw: any, result: any) => {
+          writtenResult = result;
+        },
+      } as any,
+    });
+
+    assert.deepEqual(attempted, expectedQueries);
+    assert.equal(attempted.length, 12);
+    assert.equal(writtenResult.status, 'partial');
+  } finally {
+    restoreEnv('HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES', previousMaxQueries);
+    restoreEnv('HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS', previousBudgetMs);
+  }
+});
+
+test('radar social encerra no deadline como missing sem transformar orçamento em erro retryable', async () => {
+  const previousMaxQueries = process.env.HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES;
+  const previousBudgetMs = process.env.HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS;
+  process.env.HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES = '12';
+  process.env.HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS = '1500';
+  try {
+    const timeouts: number[] = [];
+    let writtenResult: any = null;
+    const orchestrator = new RadarSocialOrchestratorService({
+      loadRunItem: async () => ({
+        id: 'lead-1',
+        status: 'found',
+        name: 'Barbearia X',
+        city: 'Rio Claro',
+        state: 'SP',
+        segment: 'barbearias',
+        rawJson: '{}',
+      }),
+    } as any, undefined, new GoogleSearchProviderService());
+    const startedAt = Date.now();
+
+    const result = await orchestrator.runForSavedLead({
+      context: { companyId: 1, userId: 2, user: {} } as any,
+      leadId: 'lead-1',
+      normalizedInput: {
+        city: 'Rio Claro',
+        state: 'SP',
+        segment: 'barbearias',
+        quantity: 1,
+        engine: 'hbx',
+        targetType: 'pj',
+      } as any,
+      host: {
+        searchHbxEngine: async (_input: any, _existing: any[], _engineUrl: string | undefined, options: any) => {
+          timeouts.push(options.timeoutMs);
+          return new Promise<{ results: any[] }>(() => undefined);
+        },
+        normalizeRadarSocialUrl: () => null,
+        pickRadarSocialUrl: () => null,
+      },
+      timeoutMs: 15_000,
+      writer: {
+        markSearching: async () => undefined,
+        markSkipped: async () => undefined,
+        writeResult: async (_context: any, _leadId: string, _item: any, _base: any, _raw: any, next: any) => {
+          writtenResult = next;
+        },
+      } as any,
+    });
+
+    assert.equal(Date.now() - startedAt < 3_000, true);
+    assert.equal(timeouts.length, 1);
+    assert.equal(timeouts[0] >= 1_000 && timeouts[0] <= 1_500, true);
+    assert.equal(result.status, 'missing');
+    assert.equal(writtenResult.status, 'missing');
+    assert.equal(writtenResult.reason, 'orcamento_social_esgotado_sem_resultado_confirmado');
+  } finally {
+    restoreEnv('HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES', previousMaxQueries);
+    restoreEnv('HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS', previousBudgetMs);
+  }
 });

@@ -158,9 +158,12 @@ type RunResponse = {
   runId?: string;
   status?: string;
   message?: string;
+  items?: RadarLead[];
+  total?: number;
   foundCount?: number;
   meta?: {
     progress?: number;
+    deliveredCount?: number;
     terminal?: boolean;
     operationalState?: string;
     operationalReason?: string;
@@ -507,6 +510,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   // busca ao vivo (search-on-miss)
   const [run, setRun] = useState<RunResponse>(null);
+  // O status do run já devolve apenas os cards realmente persistidos/exibíveis.
+  // Mantê-los separados da prateleira evita esperar o término da busca e também
+  // impede que candidatos provisórios (`foundCount`) apareçam como leads.
+  const [liveRunItems, setLiveRunItems] = useState<RadarLead[] | null>(null);
   const [runBusy, setRunBusy] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -716,6 +723,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         // Só carrega se está visivelmente ativo (não terminal ou operacional ativo)
         if (!isTerminal || opState === "funcionando" || opState === "pausado") {
           setRun(res);
+          setLiveRunItems(Array.isArray(res.items) ? res.items : []);
         }
       })
       .catch(() => { /* sem busca ativa */ });
@@ -788,22 +796,23 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       try {
         const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
         setRun(res);
+        setLiveRunItems(Array.isArray(res?.items) ? res.items : []);
         const resOpState = getOpState(res);
         const resStatus = String(res?.status || "");
         const resTerminal = TERMINAL_RUN.has(resStatus) || res?.meta?.terminal;
         if (resTerminal && resOpState !== "funcionando" && resOpState !== "pausado") {
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-          loadList("shelf", { page: 1 });
+          void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
           loadBank();
           loadUsage();
           // P5/EFEITO: leads ficam na vitrine "Disponíveis"; mostra quantos achou pra
           // puxar (o standing-order/auto-feed morreu — não existe mais auto-import).
-          type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number; totalAvailable?: number; deliveredCount?: number };
+          type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number; deliveredCount?: number };
           const resMeta = res?.meta as RunMetaExt | undefined;
           setTab("shelf");
           setPage(1);
           // "Apreciar o resultado": anuncia quantos leads ficaram disponíveis pra puxar.
-          const disponiveis = resMeta?.totalAvailable ?? res?.foundCount ?? 0;
+          const disponiveis = resMeta?.deliveredCount ?? res?.items?.length ?? 0;
           if (disponiveis > 0) {
             setFlyToast(`${disponiveis} lead${disponiveis > 1 ? "s" : ""} disponíve${disponiveis > 1 ? "is" : "l"} pra puxar`);
             setTimeout(() => setFlyToast(null), 3200);
@@ -962,6 +971,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     opState === "funcionando"
   );
   const runProgress = run?.meta?.progress;
+  const runVisibleCount = liveRunItems?.length ?? run?.meta?.deliveredCount ?? 0;
 
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
   function validarCamposOuPopup(effSegment?: string): boolean {
@@ -986,6 +996,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     // P4: valida e abre popup se faltando (usa o segmento efetivo)
     if (!validarCamposOuPopup(effSegment)) return;
     setSearchMsg(null);
+    setLoadError(null);
+    setLiveRunItems([]);
     setRunBusy(true);
     try {
       // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400).
@@ -1006,8 +1018,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       if (override?.segment != null) setSegment(effSegment);
       if (override?.radiusKm != null) setAlcance(String(override.radiusKm));
       setRun(res);
+      setLiveRunItems(Array.isArray(res?.items) ? res.items : []);
+      setTab("shelf");
+      setPage(1);
+      setSelected(new Set());
       if (res?.message) setSearchMsg(res.message);
     } catch (err) {
+      setLiveRunItems(null);
       setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
     } finally {
       setRunBusy(false);
@@ -1022,6 +1039,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       // atualiza run
       const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
       setRun(res);
+      setLiveRunItems(Array.isArray(res?.items) ? res.items : []);
+      void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
     } catch {
       // silencia — o poll vai pegar o estado real
     }
@@ -1080,7 +1099,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (embedded && ok > 0) onLeadPulled?.(true);
   }
 
-  const items = data?.items || [];
+  const showingLiveRun = tab === "shelf" && liveRunItems !== null;
+  const items = showingLiveRun ? (liveRunItems ?? []) : (data?.items || []);
 
   // CHIP E3 (05/07) — status de IA por lote (fila da PONTE 30B): "na fila"/"enriquecendo agora"/
   // "enriquecido", ligado por leadId. Polling leve só dos leads da página atual (nunca N chamadas
@@ -1096,7 +1116,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
     : [];
 
-  const pageTotal = data?.total || 0;
+  const pageTotal = showingLiveRun ? (liveRunItems?.length ?? 0) : (data?.total || 0);
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
 
   // CRÉDITOS FASE 2 (R5): a cota MENSAL de cards por plano (usage.cards) deixou
@@ -1119,6 +1139,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   const emptyMsg = loadError
     ? loadError
+    : runActive && tab === "shelf"
+      ? `Procurando empresas em ${city || "sua região"}…`
     : data?.meta?.available === false
       ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
       : tab === "carteira"
@@ -1644,7 +1666,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             é o disco decorativo narrando estado). */}
         {runActive && (
           <div className="radar2-live radar2-live--funcionando">
-            <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+            <span className="dot" /> Varrendo {city || "…"} · {fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
           </div>
         )}
         {savedMsg && <p className="hint" style={{ margin: 0 }}>{savedMsg}</p>}
@@ -1908,7 +1930,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
               {runActive && (
                 <div className="radar2-live radar2-live--funcionando">
-                  <span className="dot" /> Varrendo {city || "…"} · {fmtInt(run?.foundCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+                  <span className="dot" /> Varrendo {city || "…"} · {fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
                 </div>
               )}
 

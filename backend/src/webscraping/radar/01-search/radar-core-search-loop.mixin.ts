@@ -432,110 +432,130 @@ export class RadarCoreSearchLoopMixin {
   }
 
   async drainRadarPostSaveEnrichmentQueue() {
-    if ((this as any).radarPostSaveEnrichmentDrainActive) return;
-    (this as any).radarPostSaveEnrichmentDrainActive = true;
     const queue = this.getMissionQueue();
-    try {
-      if (!queue.enabled()) return;
-      const concurrency = Math.max(
-        1,
-        Math.min(6, parsePositiveIntegerEnv('HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY', 4)),
-      );
-      for (let cycle = 0; cycle < 10; cycle += 1) {
-        const leased = await queue.lease({
-          workerId: `hbx-backend-post-save:${process.pid}`,
-          stages: ['enrich_search_item'],
-          batchSize: concurrency,
-        });
-        if (!leased.supported || !leased.missions.length) break;
+    if (!queue.enabled()) return;
+    const concurrency = Math.max(
+      1,
+      Math.min(6, parsePositiveIntegerEnv('HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY', 4)),
+    );
+    const state = (this as any).radarPostSaveEnrichmentDrainState || {
+      generation: 0,
+      workers: new Set<Promise<void>>(),
+    };
+    (this as any).radarPostSaveEnrichmentDrainState = state;
+    state.generation += 1;
 
-        // Todo lease recebe heartbeat antes de qualquer enriquecimento começar. Depois o lote
-        // executa com concorrência limitada, sem deixar missões paradas expirarem na fila local.
-        const runnable = (await Promise.all(leased.missions.map(async (mission) => ({
-          mission,
-          heartbeat: await queue.heartbeat(mission.id, mission.leaseId),
-        })))).filter(({ heartbeat }) => heartbeat.ok);
+    const runMission = async (mission: any) => {
+      const initialHeartbeat = await queue.heartbeat(mission.id, mission.leaseId);
+      if (!initialHeartbeat.ok) return;
 
-        const runMission = async (
-          { mission }: (typeof runnable)[number],
-          waitForWebPhase?: Promise<unknown>,
-        ) => {
-          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-          let heartbeatInFlight: Promise<void> = Promise.resolve();
-          let leaseLost = false;
-          try {
-            const heartbeatMs = Math.max(5, Math.trunc(Number(mission.heartbeatSeconds) || 40)) * 1000;
-            heartbeatTimer = setInterval(() => {
-              heartbeatInFlight = heartbeatInFlight
-                .then(() => queue.heartbeat(mission.id, mission.leaseId))
-                .then((result) => { if (!result.ok) leaseLost = true; })
-                .catch(() => { leaseLost = true; });
-            }, heartbeatMs);
-            heartbeatTimer.unref?.();
+      let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+      let heartbeatInFlight: Promise<void> = Promise.resolve();
+      let leaseLost = false;
+      try {
+        const heartbeatMs = Math.max(5, Math.trunc(Number(mission.heartbeatSeconds) || 40)) * 1000;
+        heartbeatTimer = setInterval(() => {
+          heartbeatInFlight = heartbeatInFlight
+            .then(() => queue.heartbeat(mission.id, mission.leaseId))
+            .then((result) => { if (!result.ok) leaseLost = true; })
+            .catch(() => { leaseLost = true; });
+        }, heartbeatMs);
+        heartbeatTimer.unref?.();
 
-            // Em lote misto o social já fica com heartbeat ativo, mas só consulta depois que
-            // toda a fase web leased terminou e seus sites/domínios foram persistidos.
-            if (waitForWebPhase) await waitForWebPhase;
-            if (leaseLost) return;
-
-            const payload = mission.payload || {};
-            const mode = String(payload.mode || '');
-            const leadId = String(payload.leadId || '').trim();
-            const companyId = Math.trunc(Number(payload.companyId || 0));
-            const userId = Math.trunc(Number(payload.userId || 0));
-            const missionContext = { companyId, userId, user: null } as SearchExecutionContext;
-            const missionInput = rehydrateRadarPostSaveInput(payload.input);
-            if (!leadId || !companyId || !userId || missionInput?.targetType !== 'pj') {
-              await queue.fail(mission.id, mission.leaseId, 'payload_pos_save_invalido', false);
-              return;
-            }
-            if (mode === 'web') {
-              await this.runRadarWebEnrichmentForSavedLead(missionContext, leadId, missionInput);
-            } else if (mode === 'social') {
-              await this.runRadarSocialLookupForSavedLead(missionContext, leadId, missionInput);
-            } else {
-              await queue.fail(mission.id, mission.leaseId, 'modo_pos_save_invalido', false);
-              return;
-            }
-            await heartbeatInFlight;
-            if (!leaseLost) await queue.complete(mission.id, mission.leaseId, { mode, leadId });
-          } catch (error) {
-            await heartbeatInFlight.catch(() => undefined);
-            if (!leaseLost) {
-              const message = String((error as any)?.message || error);
-              const failed = await queue.fail(mission.id, mission.leaseId, message, true);
-              const payload = mission.payload || {};
-              const leadId = String(payload.leadId || '').trim();
-              const companyId = Math.trunc(Number(payload.companyId || 0));
-              const userId = Math.trunc(Number(payload.userId || 0));
-              const mode = String(payload.mode || '');
-              if (leadId && companyId && userId && (mode === 'web' || mode === 'social')) {
-                await this.getRadarRunRepository().markEnrichmentJobState(
-                  { companyId, userId, user: null } as SearchExecutionContext,
-                  leadId,
-                  {
-                    type: mode === 'web' ? 'radar_web_enrichment' : 'social_lookup',
-                    status: failed.status === 'dead' ? 'failed' : 'queued',
-                    error: message,
-                    traceId: mission.id,
-                  },
-                ).catch(() => null);
-              }
-            }
-          } finally {
-            if (heartbeatTimer) clearInterval(heartbeatTimer);
+        const payload = mission.payload || {};
+        const mode = String(payload.mode || '');
+        const leadId = String(payload.leadId || '').trim();
+        const companyId = Math.trunc(Number(payload.companyId || 0));
+        const userId = Math.trunc(Number(payload.userId || 0));
+        const missionContext = { companyId, userId, user: null } as SearchExecutionContext;
+        const missionInput = rehydrateRadarPostSaveInput(payload.input);
+        if (!leadId || !companyId || !userId || missionInput?.targetType !== 'pj') {
+          await queue.fail(mission.id, mission.leaseId, 'payload_pos_save_invalido', false);
+          return;
+        }
+        if (mode === 'web') {
+          await this.runRadarWebEnrichmentForSavedLead(missionContext, leadId, missionInput);
+        } else if (mode === 'social') {
+          await this.runRadarSocialLookupForSavedLead(missionContext, leadId, missionInput);
+        } else {
+          await queue.fail(mission.id, mission.leaseId, 'modo_pos_save_invalido', false);
+          return;
+        }
+        await heartbeatInFlight;
+        if (!leaseLost) await queue.complete(mission.id, mission.leaseId, { mode, leadId });
+      } catch (error) {
+        await heartbeatInFlight.catch(() => undefined);
+        if (!leaseLost) {
+          const message = String((error as any)?.message || error);
+          const failed = await queue.fail(mission.id, mission.leaseId, message, true);
+          const payload = mission.payload || {};
+          const leadId = String(payload.leadId || '').trim();
+          const companyId = Math.trunc(Number(payload.companyId || 0));
+          const userId = Math.trunc(Number(payload.userId || 0));
+          const mode = String(payload.mode || '');
+          if (leadId && companyId && userId && (mode === 'web' || mode === 'social')) {
+            await this.getRadarRunRepository().markEnrichmentJobState(
+              { companyId, userId, user: null } as SearchExecutionContext,
+              leadId,
+              {
+                type: mode === 'web' ? 'radar_web_enrichment' : 'social_lookup',
+                status: failed.status === 'dead' ? 'failed' : 'queued',
+                error: message,
+                traceId: mission.id,
+              },
+            ).catch(() => null);
           }
-        };
-
-        const webMissions = runnable.filter(({ mission }) => String(mission.payload?.mode || '') === 'web');
-        const remainingMissions = runnable.filter(({ mission }) => String(mission.payload?.mode || '') !== 'web');
-        const webPhase = Promise.all(webMissions.map((entry) => runMission(entry)));
-        const remainingPhase = Promise.all(remainingMissions.map((entry) => runMission(entry, webPhase)));
-        await Promise.all([webPhase, remainingPhase]);
+        }
+      } finally {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
       }
-    } finally {
-      (this as any).radarPostSaveEnrichmentDrainActive = false;
+    };
+
+    const runSlot = async (slot: number) => {
+      let consecutiveEmptyLeases = 0;
+      while (true) {
+        const leaseGeneration = state.generation;
+        const leased = await queue.lease({
+          workerId: `hbx-backend-post-save:${process.pid}:${slot}`,
+          stages: ['enrich_search_item'],
+          batchSize: 1,
+        });
+        if (!leased.supported) return;
+        if (!leased.missions.length) {
+          // Com lease unitário, slots concorrentes podem ler os mesmos três candidatos e um deles
+          // perder todos os claims. Confirma o vazio uma vez antes de encerrar, sem hot loop.
+          if (leaseGeneration < state.generation) consecutiveEmptyLeases = 0;
+          else consecutiveEmptyLeases += 1;
+          if (consecutiveEmptyLeases < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            continue;
+          }
+          return;
+        }
+        consecutiveEmptyLeases = 0;
+        await runMission(leased.missions[0]);
+        // O próprio slot repõe sua capacidade assim que termina; nenhum job aguarda os demais.
+      }
+    };
+
+    const started: Promise<void>[] = [];
+    while (state.workers.size < concurrency) {
+      const slot = state.workers.size + 1;
+      let worker: Promise<void>;
+      worker = runSlot(slot)
+        .catch((error) => {
+          this.logger?.warn?.(`[radar-post-save] worker ${slot} falhou: ${String((error as any)?.message || error)}`);
+        })
+        .finally(() => {
+          state.workers.delete(worker);
+          if (!state.workers.size && (this as any).radarPostSaveEnrichmentDrainState === state) {
+            delete (this as any).radarPostSaveEnrichmentDrainState;
+          }
+        });
+      state.workers.add(worker);
+      started.push(worker);
     }
+    await Promise.allSettled(started);
   }
 
   private async drainRadarSocialLookupQueue() {

@@ -21,6 +21,35 @@ function safeInteger(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }
 
+function clampedPositiveIntegerEnv(name: string, fallback: number, minimum: number, maximum: number) {
+  const parsed = Number(process.env[name]);
+  const value = Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+class RadarSocialBudgetDeadlineError extends Error {
+  constructor() {
+    super('radar_social_budget_deadline');
+    this.name = 'RadarSocialBudgetDeadlineError';
+  }
+}
+
+function runWithinDeadline<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new RadarSocialBudgetDeadlineError()), timeoutMs);
+    operation.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 function parseMaybeJsonObject(value: unknown): Record<string, any> {
   if (!value) return {};
   if (typeof value === 'object') return value as Record<string, any>;
@@ -47,6 +76,14 @@ export class RadarSocialOrchestratorService {
 
   private getGoogleSearchProvider() {
     return this.googleSearchProvider || new GoogleSearchProviderService();
+  }
+
+  private getMaxQueriesPerJob() {
+    return clampedPositiveIntegerEnv('HBX_RADAR_SOCIAL_LOOKUP_MAX_QUERIES', 8, 1, 12);
+  }
+
+  private getJobBudgetMs() {
+    return clampedPositiveIntegerEnv('HBX_RADAR_SOCIAL_LOOKUP_BUDGET_MS', 45_000, 1_000, 90_000);
   }
 
   private buildRunItemSocialLookupBase(item: any) {
@@ -90,19 +127,25 @@ export class RadarSocialOrchestratorService {
       return { status: 'skipped', reason: 'social_ja_presente' };
     }
 
-    const queries = buildRadarSocialLookupQueries(baseLead);
-    if (!queries.length) {
+    // O planner continua produzindo todas as estratégias em ordem de prioridade, mas um job
+    // nunca pode monopolizar a fila: quantidade e relógio têm limites independentes e seguros.
+    const plannedQueries = buildRadarSocialLookupQueries(baseLead);
+    const maxQueries = this.getMaxQueriesPerJob();
+    if (!plannedQueries.length) {
       await input.writer.markSkipped(input.context, input.leadId, item, raw, 'identidade_incompleta');
       return { status: 'skipped', reason: 'identidade_incompleta' };
     }
-    const socialRequests = this.getGoogleSearchProvider().buildSocialRequests(baseLead, queries, {
+    const socialRequests = this.getGoogleSearchProvider().buildSocialRequests(baseLead, plannedQueries, {
       limit: 5,
       timeoutMs: input.timeoutMs,
     });
     const socialRequestsByKey = new Map(
       socialRequests.map((request) => [`${request.network || ''}:${request.queryText.toLowerCase()}`, request]),
     );
-    await input.writer.markSearching(input.context, input.leadId, item, raw, queries.map((entry) => entry.query));
+    const safeQueryWindow = plannedQueries
+      .filter((entry) => !(entry.network === 'instagram' ? existingInstagram : existingFacebook))
+      .slice(0, maxQueries);
+    await input.writer.markSearching(input.context, input.leadId, item, raw, safeQueryWindow.map((entry) => entry.query));
 
     const attemptedQueries: string[] = [];
     const rejectedReasons: string[] = [];
@@ -114,11 +157,27 @@ export class RadarSocialOrchestratorService {
     let bestFacebook = existingFacebook || null;
     let bestConfidence = Math.max(0, safeInteger(raw.socialConfidence));
     let consecutiveEngineFailures = 0;
+    let budgetExhausted = false;
+    const deadlineAt = Date.now() + this.getJobBudgetMs();
 
-    for (const entry of queries) {
+    for (const entry of plannedQueries) {
+      if (entry.network === 'instagram' ? bestInstagram : bestFacebook) continue;
+      if (attemptedQueries.length >= maxQueries) break;
+      const remainingMs = deadlineAt - Date.now();
+      // searchHbxEngine usa timeout mínimo de 1s. Não começa uma nova consulta quando não há
+      // janela suficiente, evitando ultrapassar o orçamento por causa desse clamp inferior.
+      if (remainingMs < 1_000) {
+        budgetExhausted = true;
+        break;
+      }
       attemptedQueries.push(entry.query);
       try {
         const textualRequest = socialRequestsByKey.get(`${entry.network}:${entry.query.toLowerCase()}`);
+        const queryTimeoutMs = Math.max(1_000, Math.min(
+          remainingMs,
+          safeInteger(textualRequest?.timeoutMs, input.timeoutMs),
+          input.timeoutMs,
+        ));
         const lookupInput: NormalizedSearchInput = {
           ...input.normalizedInput,
           city: baseLead.city || input.normalizedInput.city,
@@ -129,16 +188,18 @@ export class RadarSocialOrchestratorService {
           requiredChannels: [entry.network],
           channelMatchMode: 'any_required',
         };
-        const output = await input.host.searchHbxEngine(
+        const output = await runWithinDeadline(input.host.searchHbxEngine(
           lookupInput,
           [],
           input.engineUrl || undefined,
           {
             queryText: textualRequest?.queryText || entry.query,
             batchLimit: textualRequest?.limit || 5,
-            timeoutMs: textualRequest?.timeoutMs || input.timeoutMs,
+            timeoutMs: queryTimeoutMs,
           },
-        );
+        // O motor recebe o timeout da consulta; esta segunda barreira cobre somente o relógio
+        // total do job caso algum adaptador ignore ou não consiga abortar o request individual.
+        ), remainingMs);
         const normalizedResults = textualRequest
           ? this.getGoogleSearchProvider().normalizeTextualResults(output.results || [], textualRequest)
           : output.results || [];
@@ -173,6 +234,11 @@ export class RadarSocialOrchestratorService {
           }
         }
       } catch (error: any) {
+        if (error instanceof RadarSocialBudgetDeadlineError) {
+          budgetExhausted = true;
+          rejectedReasons.push('orcamento_social_esgotado');
+          break;
+        }
         engineFailed = true;
         consecutiveEngineFailures += 1;
         rejectedReasons.push(`${entry.network}:erro_motor:${String(error?.message || error).slice(0, 120)}`);
@@ -188,7 +254,7 @@ export class RadarSocialOrchestratorService {
         ? 'partial'
         : reviewCandidates.length
           ? 'candidate_review'
-          : engineFailed
+          : engineFailed && !budgetExhausted
             ? 'error'
             : 'missing';
     const confidence = hasConfirmed
@@ -202,7 +268,9 @@ export class RadarSocialOrchestratorService {
         ? 'perfil_social_parcial_confirmado'
         : status === 'candidate_review'
           ? 'perfil_social_para_revisao'
-          : rejectedReasons.slice(0, 6).join('; ') || 'sem_resultado_social_confiavel';
+          : budgetExhausted
+            ? 'orcamento_social_esgotado_sem_resultado_confirmado'
+            : rejectedReasons.slice(0, 6).join('; ') || 'sem_resultado_social_confiavel';
     const result: RadarSocialLookupResult = {
       status,
       instagramUrl: bestInstagram,

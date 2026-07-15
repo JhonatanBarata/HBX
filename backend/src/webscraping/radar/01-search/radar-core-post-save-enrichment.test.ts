@@ -237,3 +237,81 @@ test('drain nao processa nem completa missao com lease stale no heartbeat inicia
   assert.equal(workerCalls, 0);
   assert.equal(completeCalls, 0);
 });
+
+test('slot livre processa proximas missoes sem aguardar um job social lento', async () => {
+  const instance: any = new (RadarCoreSearchLoopMixin as any)();
+  const previousConcurrency = process.env.HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY;
+  process.env.HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY = '2';
+
+  let releaseSlow!: () => void;
+  const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve; });
+  let reportNextStarted!: () => void;
+  const nextStarted = new Promise<void>((resolve) => { reportNextStarted = resolve; });
+  let reportFastSlotEmpty!: () => void;
+  const fastSlotEmpty = new Promise<void>((resolve) => { reportFastSlotEmpty = resolve; });
+  const completed: string[] = [];
+  const leasedBatchSizes: number[] = [];
+  let simulateClaimCollision = true;
+  const missions = [
+    {
+      id: 'm-social-lenta', leaseId: 'lease-social-lenta', heartbeatSeconds: 10,
+      payload: { mode: 'social', companyId: 3, userId: 4, runId: 'r1', leadId: 'social-lenta', input: input() },
+    },
+    {
+      id: 'm-web-rapida', leaseId: 'lease-web-rapida', heartbeatSeconds: 10,
+      payload: { mode: 'web', companyId: 3, userId: 4, runId: 'r1', leadId: 'web-rapida', input: input() },
+    },
+  ];
+  instance.getMissionQueue = () => ({
+    enabled: () => true,
+    lease: async ({ batchSize }: any) => {
+      leasedBatchSizes.push(batchSize);
+      if (simulateClaimCollision && leasedBatchSizes.length === 2) {
+        simulateClaimCollision = false;
+        return { supported: true, paused: false, missions: [] };
+      }
+      const mission = missions.shift();
+      if (!mission && completed.includes('m-web-rapida')) reportFastSlotEmpty();
+      return { supported: true, paused: false, missions: mission ? [mission] : [] };
+    },
+    heartbeat: async () => ({ ok: true }),
+    complete: async (missionId: string) => { completed.push(missionId); return { ok: true }; },
+    fail: async () => ({ ok: true }),
+  });
+  instance.runRadarSocialLookupForSavedLead = async (_context: any, leadId: string) => {
+    if (leadId === 'social-lenta') await slowGate;
+  };
+  instance.runRadarWebEnrichmentForSavedLead = async (_context: any, leadId: string) => {
+    if (leadId === 'web-seguinte') reportNextStarted();
+  };
+
+  let draining: Promise<void> | null = null;
+  let refill: Promise<void> | null = null;
+  try {
+    draining = instance.drainRadarPostSaveEnrichmentQueue();
+    await fastSlotEmpty;
+    missions.push({
+      id: 'm-web-seguinte', leaseId: 'lease-web-seguinte', heartbeatSeconds: 10,
+      payload: { mode: 'web', companyId: 3, userId: 4, runId: 'r1', leadId: 'web-seguinte', input: input() },
+    });
+    refill = instance.drainRadarPostSaveEnrichmentQueue();
+    const progressed = await Promise.race([
+      nextStarted.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 200)),
+    ]);
+
+    assert.equal(progressed, true, 'o slot rapido deve repor capacidade antes do social lento terminar');
+    assert.equal(simulateClaimCollision, false, 'o falso vazio concorrente foi exercitado');
+    assert.ok(completed.includes('m-web-rapida'));
+    assert.ok(leasedBatchSizes.every((size) => size === 1), 'cada slot deve alugar uma unica missao');
+  } finally {
+    releaseSlow();
+    await draining?.catch(() => undefined);
+    await refill?.catch(() => undefined);
+    if (previousConcurrency === undefined) delete process.env.HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY;
+    else process.env.HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY = previousConcurrency;
+  }
+
+  assert.ok(completed.includes('m-social-lenta'));
+  assert.ok(completed.includes('m-web-seguinte'));
+});
