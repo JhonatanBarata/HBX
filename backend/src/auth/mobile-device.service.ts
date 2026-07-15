@@ -7,6 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import type { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { withoutTenantScope } from '../prisma/tenant-context';
@@ -18,9 +19,14 @@ import {
 } from '../team/team-policy-persistence';
 import {
   ConsumeMobileWebTicketDto,
+  GooglePairMobileDeviceDto,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
 } from './dto/mobile-device.dto';
+import {
+  GoogleIdTokenVerifierService,
+  type VerifiedGoogleIdentity,
+} from './google-id-token-verifier.service';
 import { MAX_MOBILE_DEVICES_PER_USER } from './session-policy';
 
 type PairingCodeRow = {
@@ -55,6 +61,33 @@ type ExistingInstallationRow = {
   revokedAt: Date | null;
 };
 
+type LockedPairingUserRow = {
+  id: number;
+  companyId: number | null;
+  isActive: boolean;
+  isSystemMaster: boolean;
+};
+
+type MobilePairingUserRow = {
+  id: number;
+  email: string | null;
+  emailConfirmedAt: Date | null;
+  googleId: string | null;
+  companyId: number | null;
+  isActive: boolean;
+  isSystemMaster: boolean;
+  mustChangePassword: boolean;
+};
+
+type PreparedDevicePairing = {
+  rawDeviceToken: string;
+  tokenHash: string;
+  installationId: string;
+  deviceName: string;
+  platform: string;
+  now: Date;
+};
+
 @Injectable()
 export class MobileDeviceService {
   private readonly pairingTtlMs = 10 * 60 * 1000;
@@ -64,6 +97,7 @@ export class MobileDeviceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly googleIdTokens: GoogleIdTokenVerifierService,
   ) {}
 
   /** Hash para segredos aleatórios de alta entropia (token do aparelho/ticket). */
@@ -217,17 +251,249 @@ export class MobileDeviceService {
     return { ok: true };
   }
 
+  private prepareDevicePairing(dto: {
+    installationId: string;
+    deviceName?: string;
+    platform?: string;
+  }): PreparedDevicePairing {
+    const rawDeviceToken = `hbx_device_${crypto.randomBytes(32).toString('base64url')}`;
+    return {
+      rawDeviceToken,
+      tokenHash: this.hashOpaqueSecret(rawDeviceToken),
+      installationId: String(dto.installationId || '').trim(),
+      deviceName: String(dto.deviceName || 'Aparelho Android').trim().slice(0, 120) || 'Aparelho Android',
+      platform: this.normalizePlatform(dto.platform),
+      now: new Date(),
+    };
+  }
+
+  private async lockPairingInstallationTx(
+    tx: Prisma.TransactionClient,
+    installationId: string,
+  ) {
+    // A instalação ainda pode não ter linha para receber FOR UPDATE. A trava
+    // transacional por chave serializa também o primeiro INSERT concorrente.
+    // O CTE projeta inteiro porque o Prisma não desserializa o retorno void de
+    // pg_advisory_xact_lock. Parâmetros continuam separados do SQL.
+    await tx.$queryRawUnsafe(
+      'WITH pairing_lock AS (SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))) SELECT 1::integer AS locked FROM pairing_lock',
+      0x4842584d,
+      installationId,
+    );
+  }
+
+  /**
+   * Única implementação de limite, transferência da installationId e rotação da
+   * credencial. Tanto o código de seis dígitos quanto o Google passam por aqui.
+   */
+  private async upsertPairedInstallationTx(
+    tx: Prisma.TransactionClient,
+    user: { id: number; companyId: number },
+    prepared: PreparedDevicePairing,
+  ) {
+    const {
+      installationId,
+      deviceName,
+      platform,
+      tokenHash,
+      now,
+    } = prepared;
+
+    // Serializa a contagem por usuário. Sem esta trava, duas instalações novas
+    // poderiam enxergar a mesma vaga e ultrapassar juntas o limite.
+    // tenant-raw-allow: usuário/empresa foram resolvidos por identidade móvel autenticada; a linha é travada por PK + tenant.
+    const lockedUsers = await tx.$queryRaw<LockedPairingUserRow[]>`
+      SELECT "id", "companyId", "isActive", "isSystemMaster"
+      FROM "User"
+      WHERE "id" = ${user.id}
+        AND "companyId" = ${user.companyId}
+      FOR UPDATE
+    `;
+    const lockedUser = lockedUsers[0];
+    if (!lockedUser || lockedUser.isActive === false || lockedUser.isSystemMaster) {
+      throw new UnauthorizedException('A conta vinculada não está disponível.');
+    }
+
+    // tenant-raw-allow: installationId é chave global do hardware; um
+    // pareamento autenticado pode transferi-la entre contas.
+    const existingRows = await tx.$queryRaw<ExistingInstallationRow[]>`
+      SELECT "id", "userId", "companyId", "revokedAt"
+      FROM "MobileDevice"
+      WHERE "installationId" = ${installationId}
+      FOR UPDATE
+    `;
+    const existing = existingRows[0];
+
+    // Conta todos os OUTROS aparelhos ativos. Reemitir a credencial para esta
+    // instalação não consome vaga; transferi-la de outra conta não burla o teto.
+    const counts = await tx.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS "count"
+      FROM "MobileDevice"
+      WHERE "userId" = ${user.id}
+        AND "companyId" = ${user.companyId}
+        AND "revokedAt" IS NULL
+        AND (${existing?.id || null}::text IS NULL OR "id" <> ${existing?.id || null})
+    `;
+    if (Number(counts[0]?.count || 0) >= this.maxDevicesPerUser) {
+      throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
+    }
+
+    const deviceId = existing?.id || crypto.randomUUID();
+    const rows = await tx.$queryRaw<MobileDeviceRow[]>`
+      INSERT INTO "MobileDevice"
+        ("id", "userId", "companyId", "installationId", "name", "platform", "tokenHash", "tokenVersion", "lastUsedAt", "revokedAt", "createdAt", "updatedAt")
+      VALUES
+        (${deviceId}, ${user.id}, ${user.companyId}, ${installationId}, ${deviceName}, ${platform}, ${tokenHash}, 1, ${now}, NULL, ${now}, ${now})
+      ON CONFLICT ("installationId") DO UPDATE SET
+        "userId" = EXCLUDED."userId",
+        "companyId" = EXCLUDED."companyId",
+        "name" = EXCLUDED."name",
+        "platform" = EXCLUDED."platform",
+        "tokenHash" = EXCLUDED."tokenHash",
+        "tokenVersion" = "MobileDevice"."tokenVersion" + 1,
+        "lastUsedAt" = EXCLUDED."lastUsedAt",
+        "expiresAt" = NULL,
+        "revokedAt" = NULL,
+        "webTicketHash" = NULL,
+        "webTicketExpiresAt" = NULL,
+        "updatedAt" = EXCLUDED."updatedAt"
+      RETURNING *
+    `;
+    return rows[0];
+  }
+
+  private async completeDevicePairing(device: MobileDeviceRow | undefined, rawDeviceToken: string) {
+    if (!device) throw new UnauthorizedException('Não foi possível vincular este aparelho.');
+    const entry = await this.issueWebTicket(device.id, device.companyId);
+    return {
+      ok: true,
+      deviceToken: rawDeviceToken,
+      entryUrl: entry.entryUrl,
+      device: {
+        id: device.id,
+        name: device.name,
+        platform: device.platform,
+      },
+    };
+  }
+
+  private assertGooglePairingUserAvailable(user: MobilePairingUserRow | null | undefined) {
+    if (!user) {
+      throw new UnauthorizedException('Não existe uma conta HBX vinculada a este e-mail Google.');
+    }
+    if (user.isActive === false) {
+      throw new UnauthorizedException('Conta desativada. Contate seu Administrador.');
+    }
+    if (user.isSystemMaster) {
+      throw new ForbiddenException('A conta Master do sistema não pode ser vinculada ao aplicativo móvel.');
+    }
+    const companyId = Number(user.companyId || 0);
+    if (!Number.isInteger(companyId) || companyId <= 0) {
+      throw new BadRequestException('Vinculação móvel exige uma conta vinculada a uma empresa.');
+    }
+    return { id: user.id, companyId };
+  }
+
+  private async clearPasswordGateForGoogleTx(
+    tx: Prisma.TransactionClient,
+    user: MobilePairingUserRow,
+  ) {
+    if (!user.mustChangePassword) return;
+    // A identidade federada já foi provada pelo Google; reproduz a regra do
+    // login Google web sem criar/revogar qualquer AuthSession.
+    await tx.user.update({
+      where: { id: user.id },
+      data: { mustChangePassword: false },
+    });
+  }
+
+  private async resolveGooglePairingUserTx(
+    tx: Prisma.TransactionClient,
+    identity: VerifiedGoogleIdentity,
+  ) {
+    const select = {
+      id: true,
+      email: true,
+      emailConfirmedAt: true,
+      googleId: true,
+      companyId: true,
+      isActive: true,
+      isSystemMaster: true,
+      mustChangePassword: true,
+    } as const;
+
+    const byGoogleId = await tx.user.findUnique({
+      where: { googleId: identity.googleId },
+      select,
+    });
+    if (byGoogleId) {
+      const owner = this.assertGooglePairingUserAvailable(byGoogleId);
+      await this.clearPasswordGateForGoogleTx(tx, byGoogleId);
+      return owner;
+    }
+
+    // `email @unique` no legado é sensível a maiúsculas. Se houver duas contas
+    // equivalentes por caixa, não escolhemos uma arbitrariamente.
+    // tenant-scope-allow: identidade Google verificada ainda não possui companyId; a empresa vem da única conta encontrada.
+    const byEmail = await tx.user.findMany({
+      where: { email: { equals: identity.email, mode: 'insensitive' } },
+      select,
+      orderBy: { id: 'asc' },
+      take: 2,
+    });
+    if (byEmail.length === 0) {
+      throw new UnauthorizedException('Não existe uma conta HBX vinculada a este e-mail Google.');
+    }
+    if (byEmail.length > 1) {
+      throw new ConflictException('Há mais de uma conta HBX com este e-mail. Contate o suporte antes de vincular o aparelho.');
+    }
+
+    const user = byEmail[0] as MobilePairingUserRow;
+    const owner = this.assertGooglePairingUserAvailable(user);
+    if (user.googleId && user.googleId !== identity.googleId) {
+      throw new ConflictException('Este e-mail HBX já está vinculado a outra identidade Google.');
+    }
+    if (user.googleId === identity.googleId) {
+      await this.clearPasswordGateForGoogleTx(tx, user);
+      return owner;
+    }
+
+    // Só reivindica uma linha ainda sem Google. O filtro googleId:null impede
+    // sobrescrita se outra requisição vencer a corrida; o unique global impede
+    // o mesmo sub do Google de terminar em dois usuários.
+    // tenant-scope-allow: PK veio da busca cross-tenant por e-mail Google verificado e a atualização não troca companyId.
+    const linked = await tx.user.updateMany({
+      where: { id: user.id, googleId: null },
+      data: {
+        googleId: identity.googleId,
+        emailConfirmedAt: user.emailConfirmedAt || new Date(),
+        emailConfirmationToken: null,
+        emailConfirmationSentAt: null,
+        emailConfirmationExpiresAt: null,
+        mustChangePassword: false,
+      },
+    });
+    if (Number(linked.count || 0) !== 1) {
+      const refreshed = await tx.user.findUnique({ where: { id: user.id }, select });
+      if (!refreshed || refreshed.googleId !== identity.googleId) {
+        throw new ConflictException('Esta conta HBX foi vinculada a outra identidade Google. Tente novamente ou contate o suporte.');
+      }
+      const refreshedOwner = this.assertGooglePairingUserAvailable(refreshed);
+      await this.clearPasswordGateForGoogleTx(tx, refreshed);
+      return refreshedOwner;
+    }
+
+    return owner;
+  }
+
   async pairDevice(dto: PairMobileDeviceDto) {
     const codeHash = this.hashPairingCode(String(dto.code || '').trim());
-    const now = new Date();
-    const rawDeviceToken = `hbx_device_${crypto.randomBytes(32).toString('base64url')}`;
-    const tokenHash = this.hashOpaqueSecret(rawDeviceToken);
-    const installationId = String(dto.installationId || '').trim();
-    const deviceName = String(dto.deviceName || 'Aparelho Android').trim().slice(0, 120) || 'Aparelho Android';
-    const platform = this.normalizePlatform(dto.platform);
+    const prepared = this.prepareDevicePairing(dto);
+    const { now } = prepared;
 
     const device = await withoutTenantScope('mobile pairing: consumir código e vincular instalação', () =>
       this.prisma.$transaction(async (tx) => {
+        await this.lockPairingInstallationTx(tx, prepared.installationId);
         // tenant-raw-allow: codeHash é segredo opaco de uso único; a empresa só é conhecida após encontrar o código.
         const codes = await tx.$queryRaw<PairingCodeRow[]>`
           SELECT "id", "userId", "companyId", "expiresAt", "consumedAt"
@@ -253,50 +519,11 @@ export class MobileDeviceService {
           throw new UnauthorizedException('A conta vinculada ao código não está disponível.');
         }
 
-        // tenant-raw-allow: installationId é chave global do hardware; o pareamento autorizado pode transferi-lo entre contas.
-        const existingRows = await tx.$queryRaw<ExistingInstallationRow[]>`
-          SELECT "id", "userId", "companyId", "revokedAt"
-          FROM "MobileDevice"
-          WHERE "installationId" = ${installationId}
-          FOR UPDATE
-        `;
-        const existing = existingRows[0];
-
-        // Conta todos os OUTROS aparelhos ativos do usuário. Assim reemitir a
-        // credencial para o mesmo aparelho não consome vaga, mas transferir uma
-        // instalação de outra conta não permite contornar o limite.
-        const counts = await tx.$queryRaw<Array<{ count: bigint }>>`
-          SELECT COUNT(*)::bigint AS "count"
-          FROM "MobileDevice"
-          WHERE "userId" = ${user.id}
-            AND "companyId" = ${Number(user.companyId)}
-            AND "revokedAt" IS NULL
-            AND (${existing?.id || null}::text IS NULL OR "id" <> ${existing?.id || null})
-        `;
-        if (Number(counts[0]?.count || 0) >= this.maxDevicesPerUser) {
-          throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
-        }
-
-        const deviceId = existing?.id || crypto.randomUUID();
-        await tx.$executeRaw`
-          INSERT INTO "MobileDevice"
-            ("id", "userId", "companyId", "installationId", "name", "platform", "tokenHash", "tokenVersion", "lastUsedAt", "revokedAt", "createdAt", "updatedAt")
-          VALUES
-            (${deviceId}, ${user.id}, ${Number(user.companyId)}, ${installationId}, ${deviceName}, ${platform}, ${tokenHash}, 1, ${now}, NULL, ${now}, ${now})
-          ON CONFLICT ("installationId") DO UPDATE SET
-            "userId" = EXCLUDED."userId",
-            "companyId" = EXCLUDED."companyId",
-            "name" = EXCLUDED."name",
-            "platform" = EXCLUDED."platform",
-            "tokenHash" = EXCLUDED."tokenHash",
-            "tokenVersion" = "MobileDevice"."tokenVersion" + 1,
-            "lastUsedAt" = EXCLUDED."lastUsedAt",
-            "expiresAt" = NULL,
-            "revokedAt" = NULL,
-            "webTicketHash" = NULL,
-            "webTicketExpiresAt" = NULL,
-            "updatedAt" = EXCLUDED."updatedAt"
-        `;
+        const device = await this.upsertPairedInstallationTx(
+          tx,
+          { id: user.id, companyId: Number(user.companyId) },
+          prepared,
+        );
 
         await tx.$executeRaw`
           UPDATE "MobilePairingCode"
@@ -305,28 +532,36 @@ export class MobileDeviceService {
             AND "companyId" = ${pairing.companyId}
         `;
 
-        const rows = await tx.$queryRaw<MobileDeviceRow[]>`
-          SELECT *
-          FROM "MobileDevice"
-          WHERE "id" = ${deviceId}
-            AND "companyId" = ${Number(user.companyId)}
-        `;
-        return rows[0];
+        return device;
       }),
     );
 
-    if (!device) throw new UnauthorizedException('Não foi possível vincular este aparelho.');
-    const entry = await this.issueWebTicket(device.id, device.companyId);
-    return {
-      ok: true,
-      deviceToken: rawDeviceToken,
-      entryUrl: entry.entryUrl,
-      device: {
-        id: device.id,
-        name: device.name,
-        platform: device.platform,
-      },
-    };
+    return this.completeDevicePairing(device, prepared.rawDeviceToken);
+  }
+
+  async googlePairDevice(dto: GooglePairMobileDeviceDto) {
+    const identity = await this.googleIdTokens.verify(dto.idToken);
+    const prepared = this.prepareDevicePairing(dto);
+
+    let device: MobileDeviceRow | undefined;
+    try {
+      device = await withoutTenantScope('mobile pairing: validar Google e vincular instalação', () =>
+        this.prisma.$transaction(async (tx) => {
+          await this.lockPairingInstallationTx(tx, prepared.installationId);
+          const user = await this.resolveGooglePairingUserTx(tx, identity);
+          return this.upsertPairedInstallationTx(tx, user, prepared);
+        }),
+      );
+    } catch (error) {
+      const code = String((error as any)?.code || '').trim().toUpperCase();
+      const target = JSON.stringify((error as any)?.meta?.target || '').toLowerCase();
+      if (code === 'P2002' && target.includes('googleid')) {
+        throw new ConflictException('Esta identidade Google já está vinculada a outra conta HBX.');
+      }
+      throw error;
+    }
+
+    return this.completeDevicePairing(device, prepared.rawDeviceToken);
   }
 
   async openDeviceSession(dto: OpenMobileDeviceSessionDto) {

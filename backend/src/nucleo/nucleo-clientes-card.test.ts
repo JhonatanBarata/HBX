@@ -165,6 +165,22 @@ test('W5 listClientes: pendências na ordem fixa endereco→numero→gps→dia�
   assert.equal(res.items[0].entregasCount, 0);
 });
 
+test('W5 listClientes: telefone do contato principal limpa Tel e aparece no card', async () => {
+  const row = baseRow({
+    phone: null,
+    phoneNormalized: null,
+    contatos: [{ whatsapp: '19997024884', phone: '19997024884' }],
+  });
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '3', frequenciaDias: null }],
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.equal(res.items[0].phone, '19997024884');
+  assert.ok(!res.items[0].pendencias.includes('whatsapp'));
+});
+
 // ── MULTILOCAL (10/07) — endereco/numero/gps olham o LOCAL PRINCIPAL ───────────
 test('MULTILOCAL card: SEM local ativo → acende endereco+numero+gps (ignora o perfil)', async () => {
   // o PERFIL tem endereço/numero/gps completos, mas NÃO há local ativo → as 3 acendem.

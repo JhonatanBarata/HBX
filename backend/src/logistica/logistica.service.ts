@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
@@ -565,7 +565,7 @@ export class LogisticaService {
         id: true, status: true, customerProfileId: true, contatoId: true, valor: true,
         // MULTILOCAL (10/07) — o local da entrega decide ONDE o GPS de ouro converge.
         localId: true,
-        cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true,
+        cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true, deliveredAt: true,
         comprovanteCodigoHash: true, comprovanteCodigoSalt: true,
       },
     });
@@ -649,6 +649,10 @@ export class LogisticaService {
     // cobrança) ficam FORA da tx, como antes — nada de I/O externo dentro de transação.
     // Idempotente: reconfirmar não duplica efeito (jaEntregue barra o Passo 2).
     const jaEntregue = entrega.status === 'entregue';
+    // Reabertura é uma correção operacional da MESMA entrega. Permite alterar
+    // itens/quantidades, mas não cobra crédito rastreado nem dispara WhatsApp e
+    // cobrança externa uma segunda vez.
+    const reabertaParaCorrecao = !jaEntregue && entrega.deliveredAt != null;
     const itensValidos = Array.isArray(gps.itens)
       ? gps.itens
           .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue) }))
@@ -673,7 +677,7 @@ export class LogisticaService {
     // dentro da MESMA transação do status da Entrega; qualquer rollback abaixo
     // aciona estorno idempotente no catch.
     let trackedCharge: PreparedTrackedDeliveryCharge | null = null;
-    if (this.trackedBilling) {
+    if (this.trackedBilling && !reabertaParaCorrecao) {
       trackedCharge = await this.trackedBilling.prepareDeliveryCompletion(
         companyId,
         entrega.id,
@@ -836,7 +840,7 @@ export class LogisticaService {
     // gravar o desfecho/emitir o evento NUNCA pode derrubar o confirmar.
     let whatsappSent = false;
     let cobrancaLancada = false;
-    if (this.effectsEnabled && !jaEntregue) {
+    if (this.effectsEnabled && !jaEntregue && !reabertaParaCorrecao) {
       const wa = await this.dispararWhatsappEntregue(companyId, entrega).catch((e) => {
         this.logger.warn(`[logistica] whatsapp entregue falhou entrega=${entrega.id}: ${String(e?.message || e)}`);
         return { status: 'falhou' as WhatsappStatus, motivo: 'erro' };
@@ -862,6 +866,37 @@ export class LogisticaService {
     await this.recalcularEtaSilencioso(companyId, actor);
 
     return { id: entrega.id, status: 'entregue', effectsEnabled: this.effectsEnabled, whatsappSent, cobrancaLancada };
+  }
+
+  // ── REABRIR ENTREGA CONCLUÍDA ─────────────────────────────────────────────
+  async reabrirEntrega(
+    companyId: number,
+    id: string,
+    actor?: LogisticaActor | null,
+  ): Promise<{ id: string; status: string } | null> {
+    if (!companyId || !id) return null;
+    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
+    const entrega = await this.prisma.entrega.findFirst({
+      where: { id: String(id).trim(), companyId, ...actorWhere },
+      select: { id: true, status: true },
+    });
+    if (!entrega) return null;
+    if (entrega.status === 'cancelada') throw new BadRequestException('Entrega cancelada não pode ser reaberta.');
+    if (entrega.status !== 'entregue') return { id: entrega.id, status: entrega.status };
+
+    const changed = await this.prisma.entrega.updateMany({
+      where: { id: entrega.id, companyId, status: 'entregue' },
+      data: {
+        status: 'agendada',
+        startedAt: null,
+        // deliveredAt permanece como marca interna de correção. Ao confirmar de
+        // novo ele recebe o horário novo; isso evita efeitos/cobranças duplicados.
+        idempotencyKey: null,
+      },
+    });
+    if (changed.count !== 1) throw new ConflictException('A entrega mudou enquanto era reaberta. Atualize e tente novamente.');
+    await this.recalcularEtaSilencioso(companyId, actor);
+    return { id: entrega.id, status: 'agendada' };
   }
 
   // ── R4 — persistir o desfecho dos efeitos (não só logar) ────────────────────

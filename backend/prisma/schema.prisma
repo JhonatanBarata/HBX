@@ -126,16 +126,7 @@ model Company {
   tasteGrantedByUserId    Int?
   commercialCardsMonthlyLimitOverride Int?
   commercialCardsDailyLimitOverride   Int?
-  // GUARDRAILS S3 (10/07, docs/PLANEJAMENTOS/MASTER-REFAB/PLANO.md) — teto anti-scraper de
-  // ENTREGAS de lead por dia, mesmo com saldo de crédito sobrando. null = herda o default
-  // global (CreditGlobalConfig.dailyDeliveryCapDefault); valor <=0 = SEM teto (desligado só
-  // para esta empresa). Migration ADITIVA, nullable, sem default — não muda nenhum comportamento
-  // até o master preencher.
   dailyDeliveryCapOverride Int?
-  // CRÉDITOS R1 (docs/PLANEJAMENTOS/CREDITOS/R1-SPEC-GATE-ENFORCE.md): gate por-empresa do
-  // enforcement real de crédito. Só entra em vigor quando HBX_CREDITS_ENFORCE (env, mestre)
-  // TAMBÉM está ON — as duas precisam ser true. Default false: nenhuma empresa é afetada até
-  // o dono ligar manualmente por tenant (cutover gradual do S7).
   creditsEnforceEnabled   Boolean   @default(false)
   seatCap                 Int?     // teto RÍGIDO de assentos por empresa (master) — PR13062026005
   commissionDueBusinessDays Int      @default(3)
@@ -261,6 +252,7 @@ model Company {
   webscrapingSearchRuns WebscrapingSearchRun[]
   webscrapingSearchRunItems WebscrapingSearchRunItem[]
   webscrapingCampaigns WebscrapingCampaign[]
+  radarLeadProcessRuns RadarLeadProcessRun[]
   hbxEngineLocks HbxEngineLock[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadPools RadarLeadPool[]
@@ -417,9 +409,9 @@ model NightOrder {
   requireWhatsapp    Boolean  @default(false)
   onlyWithoutWebsite Boolean  @default(false)
   dailyQuota         Int      @default(10)
-  status             String   @default("open") // open | paused | done | canceled
+  status             String   @default("open")
   deliveredTotal     Int      @default(0)
-  lastDeliveryDate   String?  // YYYY-MM-DD America/Sao_Paulo
+  lastDeliveryDate   String?
   idempotencyKey     String?  @unique
   metadataJson       String?
   createdAt          DateTime @default(now())
@@ -433,7 +425,7 @@ model NightOrderDelivery {
   id           String   @id @default(cuid())
   nightOrderId String
   companyId    Int
-  reportDate   String // YYYY-MM-DD America/Sao_Paulo
+  reportDate   String
   quantity     Int      @default(0)
   leadIdsJson  String
   statsJson    String?
@@ -476,27 +468,6 @@ model CompanyCommercialUsageLog {
   @@index([companyId, eventType, createdAt])
   @@index([companyId, userId, eventType, createdAt])
   @@index([planKey, eventType, createdAt])
-}
-
-model EnrichmentCostLedger {
-  id               String   @id @default(cuid())
-  companyId        Int?
-  leadId           String?
-  provider         String
-  sku              String
-  estimatedCostUsd Float    @default(0)
-  estimatedCostBrl Float    @default(0)
-  cacheHit         Boolean  @default(false)
-  reason           String?
-  planKey          String?
-  triggeredBy      String
-  metadataJson     String?
-  createdAt        DateTime @default(now())
-
-  @@index([companyId, createdAt])
-  @@index([provider, createdAt])
-  @@index([leadId, createdAt])
-  @@index([planKey, createdAt])
 }
 
 model TrialPhoneUsage {
@@ -2022,10 +1993,6 @@ model User {
   segmentAffinityJson String?
   // Sellers Brains (17/06): null = push ligado; preenchido = push mutado (sino vermelho).
   brainPushMutedAt DateTime?
-  // Radar Automático (18/06): JSON = { active, city, state, segment, alcance, quantos }.
-  // ÓRFÃ (LIMPEZA-DESTRUTIVA L4, 04/07): standing-order deletado (endpoints +
-  // service). Coluna mantida sem migration; nenhum código lê/grava mais aqui.
-  radarSellerStandingOrderJson String?
   botAccessEnabled  Boolean  @default(false)
   referredByUser  User?            @relation("UserSellerReferralNetwork", fields: [referredByUserId], references: [id], onDelete: SetNull)
   referredUsers   User[]           @relation("UserSellerReferralNetwork")
@@ -2065,6 +2032,7 @@ model User {
   webscrapingSearchHistories WebscrapingSearchHistory[]
   webscrapingSearchRuns WebscrapingSearchRun[]
   webscrapingCampaigns WebscrapingCampaign[]
+  radarLeadProcessRuns RadarLeadProcessRun[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadEventsCreated RadarLeadEvent[] @relation("RadarLeadEventCreatedBy")
   nightFactoryRewardClaims NightFactoryRewardClaim[]
@@ -2073,8 +2041,8 @@ model User {
   createdMasterNotices MasterNotice[] @relation("MasterNoticeCreatedBy")
   masterNoticeAcks MasterNoticeAck[]
   billableSeatUsages CompanyBillableSeatUsage[]
-  radarDistributionDailyUsages RadarDistributionDailyUsage[]
   sellerOnboardings SellerOnboarding[] @relation("SellerOnboardingUser")
+  radarDistributionDailyUsages RadarDistributionDailyUsage[]
   createdSellerOnboardings SellerOnboarding[] @relation("SellerOnboardingCreatedBy")
   partnerContracts PartnerContract[] @relation("PartnerContractPartner")
   approvedPartnerContracts PartnerContract[] @relation("PartnerContractApprovedBy")
@@ -2109,6 +2077,9 @@ model MobileDevice {
   installationId     String   @unique
   name               String?
   platform           String   @default("android")
+  // Perfil do aparelho: ADMIN = acesso total; STANDARD = operação sem financeiro.
+  // A coluna é persistida agora; o motor de cortes será aplicado posteriormente.
+  accessProfile      String   @default("ADMIN")
   tokenHash          String   @unique
   tokenVersion       Int      @default(1)
   pushToken          String?
@@ -2133,15 +2104,17 @@ model MobileDevice {
 }
 
 model MobilePairingCode {
-  id         String   @id
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId     Int
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId  Int
-  codeHash   String   @unique
-  expiresAt  DateTime
-  consumedAt DateTime?
-  createdAt  DateTime @default(now())
+  id            String   @id
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        Int
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     Int
+  codeHash      String   @unique
+  // Copiado para MobileDevice no consumo do código; não altera o papel da conta web.
+  accessProfile String @default("ADMIN")
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime @default(now())
 
   @@index([userId, expiresAt])
   @@index([expiresAt, consumedAt])
@@ -2239,17 +2212,6 @@ model UserTeamPolicy {
   canRegisterHbxSellers                   Boolean  @default(false)
   sellerReferralCommissionPercent         Float    @default(0)
   referredByCommissionPercentSnapshot     Float    @default(0)
-  legacySellerDistributionDailyLimitOverride Int?
-  enrichmentDailyMode                     String   @default("inherit")
-  enrichmentDailyLimit                    Int?
-  cardDeliveryDailyMode                   String   @default("inherit")
-  cardDeliveryDailyLimit                  Int?
-  activeCardsMode                         String   @default("inherit")
-  activeCardsLimit                        Int?
-  monthlyCardsMode                        String   @default("inherit")
-  monthlyCardsLimit                       Int?
-  vendasPullQuantityMode                  String   @default("inherit")
-  vendasPullQuantityLimit                 Int?
   allowedSegmentsJson                     String?
   blockedSegmentsJson                     String?
   allowedCitiesJson                       String?
@@ -2634,6 +2596,39 @@ model WebscrapingSearchRun {
   @@index([userId, createdAt])
 }
 
+// Snapshot persistente do processamento visual do Radar. `mode=search` acompanha
+// uma busca; `mode=claim` acompanha a puxada paga até o Vendas. Os contatos não
+// vivem aqui: stages/events/snapshot guardam somente telemetria e referências.
+model RadarLeadProcessRun {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          Int
+  radarLead       RadarLeadPool? @relation(fields: [radarLeadId], references: [id], onDelete: SetNull)
+  radarLeadId     String?
+  mode            String   // claim | search
+  status          String   @default("queued") // queued | validating | debit_pending | credit_debited | ownership_claimed | rfb_hydrating | base_revealed | motor_enriching | vendas_creating | completed | partial | failed | refund_pending | refunded
+  idempotencyKey  String?
+  stagesJson      String   @default("[]")
+  eventsJson      String   @default("[]")
+  snapshotJson    String   @default("{}")
+  errorCode       String?
+  errorMessage    String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  workerToken     String?  @unique
+  workerLeaseUntil DateTime?
+  version         Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, status, updatedAt])
+  @@index([companyId, userId, createdAt])
+  @@index([companyId, radarLeadId, createdAt])
+}
+
 model WebscrapingSourceQuality {
   id              String   @id @default(cuid())
   domain          String
@@ -2755,7 +2750,7 @@ model WebscrapingUsageLog {
   companyId       Int
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId          Int
-  eventType       String   @default("EXECUTED") // EXECUTED | BLOCKED_DAILY_LIMIT
+  eventType       String   @default("EXECUTED")
   source          String? // history | google | hybrid | global_cache
   city            String?
   segment         String?
@@ -2778,6 +2773,8 @@ model RadarLeadPool {
   id                   String   @id @default(cuid())
   company              Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   companyId            Int?
+  campaign             WebscrapingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaignId           String?
   ownerCompanyId       Int?
   claimedAt            DateTime?
   placeId              String?  @unique
@@ -2838,8 +2835,6 @@ model RadarLeadPool {
   globalNegativeCount  Int      @default(0)
   globalImportedCount  Int      @default(0)
   globalContactedCount Int      @default(0)
-  campaign             WebscrapingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  campaignId           String?
   metadataJson         String?
   firstSeenAt          DateTime @default(now())
   lastSeenAt           DateTime @default(now())
@@ -2849,15 +2844,16 @@ model RadarLeadPool {
   events               RadarLeadEvent[]
   contacts             LeadContact[]
   people               LeadPerson[]
+  processRuns          RadarLeadProcessRun[]
 
   @@index([companyId, status])
+  @@index([campaignId])
   @@index([ownerCompanyId, status])
   @@index([claimedAt])
   @@index([normalizedCity, normalizedSegment, opportunityScore])
   @@index([normalizedCity, state, normalizedSegment])
   @@index([websiteStatus])
   @@index([ddd, state])
-  @@index([campaignId])
   @@index([lastSeenAt])
 }
 
@@ -2881,6 +2877,7 @@ model LeadContact {
   @@index([radarLeadId, kind, rank])
   @@index([kind, valueNormalized])
   @@index([claimedByCompanyId])
+  @@unique([radarLeadId, kind, valueNormalized])
 }
 
 // WORM-16 (02/07, docs/PLANEJAMENTOS/worm/16-tela-contatos-empresas-crm.md): contato por PESSOA
@@ -2961,6 +2958,11 @@ model RadarLeadCompanyState {
   radarLeadId    String
   vendasLead     VendasLead? @relation(fields: [vendasLeadId], references: [id], onDelete: SetNull)
   vendasLeadId   String?
+  // Prova materializada de aquisição. ownerCompanyId isolado nunca autoriza
+  // revelar dados; estes campos só são gravados após o ledger confirmar débito.
+  paidClaimOperationId String?
+  claimUsageKey        String?
+  acquiredAt           DateTime?
   status         String   @default("new") // new | delivered | imported_to_vendas | contacted | negative | discarded | won | lost
   assignedUserId Int?
   assignedByUserId Int?
@@ -2981,6 +2983,7 @@ model RadarLeadCompanyState {
   @@index([assignedUserId, status])
   @@index([radarLeadId, status])
   @@index([vendasLeadId])
+  @@index([companyId, acquiredAt])
 }
 
 model RadarLeadEvent {
@@ -3005,8 +3008,8 @@ model RadarAutoDistributionRule {
   id                   String   @id @default(cuid())
   company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId            Int
-  scope                String   @default("company") // company | hbx_master
-  status               String   @default("draft") // draft | active | paused
+  scope                String   @default("company")
+  status               String   @default("draft")
   includeAdmin         Boolean  @default(false)
   adminUserId          Int?
   adminTargetStock     Int      @default(0)
@@ -3128,7 +3131,7 @@ model WebscrapingCampaign {
   companyId                  Int
   user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId                     Int
-  status                     String   @default("queued") // queued | running | paused | sleeping | completed | completed_insufficient_results | partial_error | failed | canceled
+  status                     String   @default("queued")
   mode                       String   @default("radar_database")
   city                       String
   state                      String?
@@ -3178,7 +3181,7 @@ model WebscrapingCampaignTask {
   segment          String
   targetType       String   @default("pj")
   query            String
-  status           String   @default("queued") // queued | running | completed | exhausted | failed | canceled
+  status           String   @default("queued")
   attemptCount     Int      @default(0)
   maxAttempts      Int      @default(3)
   foundCount       Int      @default(0)
@@ -3197,162 +3200,7 @@ model WebscrapingCampaignTask {
   @@index([campaignId, status, updatedAt])
   @@index([status, lockedUntil])
   @@index([campaignId, city, status])
-  // Lookup de dedup CROSS-campanha (state+city+segment+targetType, SEM campaignId): a fábrica
-  // consultava isto a cada ciclo e, sem este índice, fazia Seq Scan de ~19k linhas em loop →
-  // Postgres preso em ~120% de CPU. Os índices acima começam por campaignId e não servem.
   @@index([state, city, segment, targetType])
-}
-
-model WebscrapingOperationalConfig {
-  key                String   @id
-  enabled            Boolean  @default(false)
-  preset             String   @default("turbo_noturno")
-  startHour          Int      @default(20)
-  startMinute        Int      @default(0)
-  endHour            Int      @default(8)
-  endMinute          Int      @default(0)
-  engineCount        Int      @default(4)
-  intensity          String   @default("turbo") // economico | normal | turbo
-  memoryTargetGb     Int      @default(16)
-  batchSize          Int      @default(20)
-  maxAttemptsPerTask Int      @default(3)
-  engineUrlsJson     String   @default("[]")
-  metadataJson       String?
-  createdByUserId    Int?
-  updatedByUserId    Int?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  @@index([enabled, preset])
-}
-
-model RadarFactoryCursor {
-  id                     String    @id @default(cuid())
-  key                    String    @unique @default("main")
-  enabled                Boolean   @default(true)
-  forcedOn              Boolean   @default(false)
-  status                 String    @default("idle") // idle | running | paused | error
-  currentState           String?
-  currentCity            String?
-  currentSegment         String?
-  currentTargetType      String    @default("pj") // pj | pf
-  currentStateIndex      Int       @default(0)
-  currentCityIndex       Int       @default(0)
-  currentSegmentIndex    Int       @default(0)
-  currentTargetTypeIndex Int       @default(0)
-  lastCampaignId         String?
-  lastRunId              String?
-  lastSavedCount         Int       @default(0)
-  lastDuplicateCount     Int       @default(0)
-  lastRejectedCount      Int       @default(0)
-  consecutiveEmptyCount  Int       @default(0)
-  consecutiveFailureCount Int      @default(0)
-  lastError              String?
-  reasonStopped          String?
-  lastWorkedAt           DateTime?
-  nextRunAt              DateTime?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
-}
-
-model RadarFactoryWorkLog {
-  id             String    @id @default(cuid())
-  state          String
-  city           String
-  segment        String
-  targetType     String
-  campaignId     String?
-  runId          String?
-  status         String
-  savedCount     Int       @default(0)
-  duplicateCount Int       @default(0)
-  rejectedCount  Int       @default(0)
-  errorMessage   String?
-  startedAt      DateTime  @default(now())
-  finishedAt     DateTime?
-  createdAt      DateTime  @default(now())
-
-  @@index([state, city, segment, targetType])
-  @@index([status, createdAt])
-}
-
-// SPRINT 4 MOTOR-RFB-FILA (02/07): fila de missões REAL substituindo o controle por loops da fábrica.
-// Lease com TTL + heartbeat (lease vencido volta pra fila sozinho), retry com backoff (nextAttemptAt),
-// dead-letter (status 'dead'). O nó LOCAL PUXA missão por HTTP (pull; ver /modules/owner/missions).
-// `correlationId` = chave de agrupamento do estágio (ex.: campaignId no estágio 'alvo').
-model RadarMission {
-  id             String    @id @default(cuid())
-  stage          String    // alvo | receita | base_rica | cerebro | validacao_zap | card
-  status         String    @default("queued") // queued | leased | completed | dead | canceled
-  priority       Int       @default(0)
-  payloadVersion Int       @default(1)
-  payloadJson    Json
-  dedupeKey      String?
-  correlationId  String?
-  attempts       Int       @default(0)
-  maxAttempts    Int       @default(3)
-  nextAttemptAt  DateTime  @default(now())
-  leaseId        String?
-  leasedBy       String?
-  leaseExpiresAt DateTime?
-  heartbeatAt    DateTime?
-  lastError      String?
-  resultJson     Json?
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@unique([stage, dedupeKey])
-  @@index([stage, status, nextAttemptAt])
-  @@index([status, leaseExpiresAt])
-  @@index([correlationId, status])
-}
-
-// SPRINT 4 MOTOR-RFB-FILA (02/07): plano de cobertura durável por combo (evolui o freio combo-morto,
-// que era permanente). `exhausted` REABRE sozinho no nextRevisitAt (default 90d) — cidade esgotada
-// nunca volta antes disso, mas também não morre pra sempre.
-model RadarCoverage {
-  id             String    @id @default(cuid())
-  state          String
-  city           String
-  segment        String
-  targetType     String    @default("pj")
-  status         String    @default("fresh") // fresh | partial | exhausted
-  attempts       Int       @default(0)
-  approvedTotal  Int       @default(0)
-  duplicateTotal Int       @default(0)
-  lastResultAt   DateTime?
-  nextRevisitAt  DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  @@unique([state, city, segment, targetType])
-  @@index([status, nextRevisitAt])
-}
-
-// FÁBRICA DE ENRIQUECIMENTO (F2, 02/07 — docs/PLANEJAMENTOS/ARVORE-MESTRA lane FÁBRICA). Estado
-// durável de uma corrida da fábrica: ela LÊ a lista RFB local (CnpjPublicCompany) e enriquece TUDO
-// (tel/email/insta/fb/site/sócio) atrás da fila `enrich_lead`. Linha única (key='main').
-// `budget` = quantos leads processar nesta corrida; para SOZINHA ao atingir. `stopRequested` = PARE
-// AGORA (congela com segurança). É crash-safe/idempotente: sobrevive a restart e o start retoma sem
-// duplicar (lead materializado por placeId `cnpj_public:<cnpj>` único; missão idempotente por dedupeKey).
-// NÃO substitui o PARAR TUDO global (RadarFactoryCursor.enabled) — a fábrica RESPEITA os dois freios.
-model RadarFabricaRun {
-  id             String    @id @default(cuid())
-  key            String    @unique @default("main")
-  running        Boolean   @default(false)
-  stopRequested  Boolean   @default(false)
-  budget         Int       @default(0) // alvo desta corrida (leads a enriquecer)
-  processed      Int       @default(0) // já enriquecidos nesta corrida
-  materialized   Int       @default(0) // leads criados a partir da RFB nesta corrida
-  contactsWritten Int      @default(0) // linhas LeadContact gravadas (grátis) nesta corrida
-  paidAttempts   Int       @default(0) // DEVE ficar 0 no local (prova de R$0)
-  lastLeadId     String?
-  lastError      String?
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
 }
 
 model WebscrapingCampaignBatch {
@@ -3380,6 +3228,59 @@ model WebscrapingCampaignBatch {
   @@index([campaignId, attemptNumber])
   @@index([campaignId, status])
   @@index([taskId, attemptNumber])
+}
+
+model WebscrapingOperationalConfig {
+  key                String   @id
+  enabled            Boolean  @default(false)
+  preset             String   @default("hbx_engine_pool")
+  startHour          Int      @default(0)
+  startMinute        Int      @default(0)
+  endHour            Int      @default(0)
+  endMinute          Int      @default(0)
+  engineCount        Int      @default(4)
+  intensity          String   @default("turbo") // economico | normal | turbo
+  memoryTargetGb     Int      @default(16)
+  batchSize          Int      @default(20)
+  maxAttemptsPerTask Int      @default(3)
+  engineUrlsJson     String   @default("[]")
+  metadataJson       String?
+  createdByUserId    Int?
+  updatedByUserId    Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([enabled, preset])
+}
+
+// Fila durável da PONTE local do HBX Owner. O VPS só persiste lease/retry; o nó local
+// puxa por HTTP e executa exclusivamente enrich_lead/xray_note produzidas pela saga paga.
+model RadarMission {
+  id             String    @id @default(cuid())
+  stage          String    // enrich_lead | xray_note
+  status         String    @default("queued") // queued | leased | completed | dead | canceled
+  priority       Int       @default(0)
+  payloadVersion Int       @default(1)
+  payloadJson    Json
+  dedupeKey      String?
+  correlationId  String?
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  nextAttemptAt  DateTime  @default(now())
+  leaseId        String?
+  leasedBy       String?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  lastError      String?
+  resultJson     Json?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([stage, dedupeKey])
+  @@index([stage, status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@index([correlationId, status])
 }
 
 model HarvestImportBatch {
@@ -3466,6 +3367,12 @@ model VendasLead {
   sourceType        String   @default("manual") // manual | webscraping
   primarySource     String   @default("manual")
   sourceHistoryId   String?
+  // Ponto de não-retorno da aquisição Radar: uma saga paga materializa no
+  // máximo um card core e recovery só confia neste vínculo explícito.
+  claimOperationId  String?  @unique
+  // Snapshot canônico dos contatos adquiridos (até 3 telefones + 3 e-mails,
+  // com origem/rank). Não depende de CustomerProfile/Inbox auxiliares.
+  contactSnapshotJson String?
   sourceSignature   String?
   timesSeen         Int      @default(1)
   name              String?
@@ -3553,6 +3460,7 @@ model VendasLead {
   @@unique([companyId, phoneNormalized])
   @@index([companyId, status, returnAt])
   @@index([companyId, updatedAt])
+  @@index([companyId, claimOperationId])
   @@index([assignedUserId, status])
   @@index([assignedUserId, commissionStatus])
   @@index([companyId, saleStatus])
@@ -4380,11 +4288,9 @@ model CompanyModule {
 model PlanModuleConfig {
   planKey     String   @id
   modulesJson String   @default("{}")
-  // PR13062026008: override editável dos VALORES do plano (assentos inclusos,
-  // valor do assento extra, parcela, trial e quotas deep/enriquecimento/cards).
-  // null = segue o catálogo (commercial-plan-catalog). É a CAIXA editável do
-  // plano; o enforcement de quota/cobrança continua no catálogo até a régua de
-  // limites ser refeita.
+  // Override editável dos metadados comerciais do plano (preço, assentos e trial).
+  // Capacidades do lead não variam por plano e não são persistidas neste JSON.
+  // null = segue o catálogo (commercial-plan-catalog).
   planInfoJson String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -4760,6 +4666,9 @@ model CnpjPublicCompany {
   openedAt        DateTime?
   phone           String?
   phoneDigits     String?
+  // Fax cadastral da RFB permanece separado e nunca entra nos contatos comerciais.
+  fax             String?
+  faxDigits       String?
   email           String?
   website         String?
   address         String?
@@ -4845,21 +4754,17 @@ model CnpjPublicPartner {
 }
 
 // RAIO-X DE CNPJ EM LOTE (HOT-04, 02/07 — docs/PLANEJAMENTOS/hot/04-enriquecimento-lote.md).
-// Histórico/estado de um job de lote colado no painel Owner (:3107): cola até 10k CNPJs → cadastral
-// instantâneo (CnpjPublicCompany/BrasilAPI) + enfileira `enrich_lead` (camada vivo, mesma fila da
-// fábrica) + IA opcional → gera XLSX em background. ADITIVA: tabela nova isolada, não toca em
-// CnpjPublicCompany/Partner (outro worker mexe nelas) nem em RadarFabricaRun/RadarMission.
+// Historico/estado de um job de lote colado no painel Owner (:3107): cola ate 10k CNPJs e exporta
+// somente o cadastro ja carregado em CnpjPublicCompany/Partner. Nao busca rede, nao materializa lead,
+// nao faz IA e nao toca RadarMission. Enriquecimento pertence exclusivamente a saga paga de claim.
 model CnpjXrayJob {
   id              String    @id @default(cuid())
-  status          String    @default("queued") // queued | running_cadastral | running_vivo | running_ia | done | error
-  layers          String    // JSON string ["cadastral","vivo","ia"]
+  status          String    @default("queued") // queued | running_cadastral | done | error
+  layers          String    // JSON string fixo ["cadastral"]
   requestedCount  Int       @default(0) // linhas coladas (bruto, antes de validar)
   validCount      Int       @default(0) // CNPJs válidos após DV mod-11 + dedup
   invalidCount    Int       @default(0)
   processedCount  Int       @default(0) // já resolvidos na camada cadastral
-  missionsQueued  Int       @default(0) // missões enrich_lead enfileiradas (camada vivo)
-  missionsDone    Int       @default(0) // missões enrich_lead já completas
-  aiDone          Int       @default(0) // notas/resumo IA já gerados
   invalidReportJson Json?   // relatório do que caiu na validação: [{ raw, reason }]
   resultFileName  String?   // nome do XLSX gerado (histórico/download)
   resultPath      String?   // caminho relativo no disco onde o XLSX foi salvo
@@ -5209,10 +5114,6 @@ model CreditGlobalConfig {
   // defaultExpiryDays acima. Migration ADITIVA (2 colunas com DEFAULT, nenhuma existente muda).
   welcomeCredits           Int      @default(30)
   welcomeExpiryDays        Int      @default(30)
-  // GUARDRAILS S3 (10/07) — teto GLOBAL default de entregas/dia por empresa (anti-scraper),
-  // usado quando a empresa não tem Company.dailyDeliveryCapOverride próprio. <=0 = sem teto
-  // global (empresas sem override próprio ficam sem teto). Migration ADITIVA com DEFAULT.
-  dailyDeliveryCapDefault  Int      @default(500)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 }

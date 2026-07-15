@@ -1,5 +1,7 @@
 package br.com.hbxsystem.entrega
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -13,6 +15,8 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebStorage
 import android.widget.Button
 import android.widget.EditText
@@ -20,9 +24,19 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.net.HttpURLConnection
@@ -50,7 +64,10 @@ class PairingActivity : AppCompatActivity() {
     private lateinit var root: FrameLayout
     private var codeInput: EditText? = null
     private var actionButton: Button? = null
+    private var googleButton: Button? = null
     private var feedback: TextView? = null
+    private var closing = false
+    private var loadingAnimator: ObjectAnimator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,6 +83,15 @@ class PairingActivity : AppCompatActivity() {
             insets
         }
         setContentView(root)
+        if (HbxMobileExperience.premiumShell) {
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (closing) return
+                    closing = true
+                    ClosingActivity.start(this@PairingActivity, nextPairing = false)
+                }
+            })
+        }
 
         val savedToken = credentialStore.readDeviceToken()
         if (savedToken.isNullOrBlank()) {
@@ -77,6 +103,8 @@ class PairingActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        loadingAnimator?.cancel()
+        loadingAnimator = null
         executor.shutdownNow()
         super.onDestroy()
     }
@@ -110,7 +138,7 @@ class PairingActivity : AppCompatActivity() {
             return
         }
 
-        setBusy(true)
+        setBusy(true, google = false)
         setFeedback("Vinculando este aparelho…", false)
         runNetwork(
             request = {
@@ -123,26 +151,81 @@ class PairingActivity : AppCompatActivity() {
                         .put("platform", "android-${BuildConfig.APP_MODE}")
                 )
             },
-            success = { response ->
-                val deviceToken = response.getString("deviceToken")
-                // Um novo código pode apontar para outra empresa/usuário. O WebView
-                // não pode herdar localStorage, IndexedDB ou cache do vínculo anterior.
-                WebStorage.getInstance().deleteAllData()
-                credentialStore.saveDeviceToken(deviceToken)
-                if (BuildConfig.APP_MODE == "vendas") {
-                    HbxMobileBridge.onDevicePaired(this)
-                }
-                TrackingSessionStore(this).clearAuthBlocked()
-                if (BuildConfig.APP_MODE == "logistica") {
-                    TrackingSync.requestFlush(this)
-                }
-                openEntryUrl(response.getString("entryUrl"))
-            },
+            success = ::completePairing,
             failure = { error ->
                 setBusy(false)
                 setFeedback(error.message ?: "Código inválido ou expirado.", true)
             }
         )
+    }
+
+    private fun startGoogleSignIn() {
+        setBusy(true, google = true)
+        setFeedback("Escolha sua conta Google…", false)
+        lifecycleScope.launch {
+            try {
+                val option = GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_WEB_CLIENT_ID).build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(option)
+                    .build()
+                val result = CredentialManager.create(this@PairingActivity).getCredential(
+                    context = this@PairingActivity,
+                    request = request,
+                )
+                val credential = result.credential
+                if (credential !is CustomCredential ||
+                    credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    throw IllegalStateException("O Google não devolveu uma conta válida.")
+                }
+                val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                submitGoogleIdToken(googleCredential.idToken)
+            } catch (_: GetCredentialCancellationException) {
+                setBusy(false)
+                setFeedback("Entrada com Google cancelada.", false)
+            } catch (_: GoogleIdTokenParsingException) {
+                setBusy(false)
+                setFeedback("Não foi possível ler a conta Google. Tente novamente.", true)
+            } catch (error: Throwable) {
+                setBusy(false)
+                setFeedback(error.message ?: "Não foi possível entrar com Google.", true)
+            }
+        }
+    }
+
+    private fun submitGoogleIdToken(idToken: String) {
+        setFeedback("Entrando no HBX com Google…", false)
+        runNetwork(
+            request = {
+                postJson(
+                    "/mobile/devices/google-pair",
+                    JSONObject()
+                        .put("idToken", idToken)
+                        .put("installationId", credentialStore.installationId())
+                        .put("deviceName", deviceDisplayName())
+                        .put("platform", "android-${BuildConfig.APP_MODE}")
+                )
+            },
+            success = ::completePairing,
+            failure = { error ->
+                setBusy(false)
+                setFeedback(error.message ?: "Não foi possível entrar com Google.", true)
+            },
+        )
+    }
+
+    private fun completePairing(response: JSONObject) {
+        val deviceToken = response.getString("deviceToken")
+        // A nova identidade pode apontar para outra empresa/usuário. O WebView
+        // não pode herdar localStorage, IndexedDB ou cache do vínculo anterior.
+        WebStorage.getInstance().deleteAllData()
+        credentialStore.saveDeviceToken(deviceToken)
+        HbxMobileBridge.onDevicePaired(this)
+        TrackingSessionStore(this).clearAuthBlocked()
+        if (BuildConfig.APP_MODE == "logistica") {
+            TrackingSync.requestFlush(this)
+        }
+        openEntryUrl(response.getString("entryUrl"))
     }
 
     private fun runNetwork(
@@ -232,6 +315,12 @@ class PairingActivity : AppCompatActivity() {
     }
 
     private fun showLoadingScreen(message: String) {
+        loadingAnimator?.cancel()
+        loadingAnimator = null
+        if (HbxMobileExperience.premiumShell) {
+            showMobileLoadingScreen(message)
+            return
+        }
         root.removeAllViews()
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -252,7 +341,76 @@ class PairingActivity : AppCompatActivity() {
         root.addView(column, FrameLayout.LayoutParams(-1, -1))
     }
 
+    private fun showMobileLoadingScreen(message: String) {
+        root.removeAllViews()
+        root.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(Color.parseColor("#080D20"), Color.parseColor("#050713"), Color.parseColor("#02040B")),
+        )
+
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        val logo = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#E6080D20"))
+                setStroke(dp(1), Color.parseColor("#7700E5FF"))
+            }
+            alpha = 0f
+            scaleX = .82f
+            scaleY = .82f
+        }
+        logo.addView(TextView(this).apply {
+            text = "HBX"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            letterSpacing = -.045f
+        }, FrameLayout.LayoutParams(-1, -1))
+        column.addView(logo, LinearLayout.LayoutParams(dp(86), dp(86)))
+
+        column.addView(TextView(this).apply {
+            text = message.removeSuffix("…").uppercase()
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#8194B5"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+            letterSpacing = .18f
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(24) })
+
+        val rail = FrameLayout(this).apply {
+            clipChildren = true
+            background = roundedBackground("#17233D", 3)
+        }
+        val beam = View(this).apply {
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#2E5BFF"), Color.parseColor("#00E5FF"), Color.parseColor("#9AEA35")),
+            ).apply { cornerRadius = dp(3).toFloat() }
+        }
+        rail.addView(beam, FrameLayout.LayoutParams(dp(52), dp(3)))
+        column.addView(rail, LinearLayout.LayoutParams(dp(168), dp(3)).apply { topMargin = dp(13) })
+        root.addView(column, FrameLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER })
+
+        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(520L).start()
+        loadingAnimator = ObjectAnimator.ofFloat(beam, View.TRANSLATION_X, -dp(52).toFloat(), dp(168).toFloat()).apply {
+            duration = 1_250L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+            start()
+        }
+    }
+
     private fun showPairingScreen(initialMessage: String? = null) {
+        loadingAnimator?.cancel()
+        loadingAnimator = null
+        if (HbxMobileExperience.premiumShell) {
+            showMobilePairingScreen(initialMessage)
+            return
+        }
         root.removeAllViews()
 
         val card = LinearLayout(this).apply {
@@ -263,7 +421,7 @@ class PairingActivity : AppCompatActivity() {
         }
 
         card.addView(TextView(this).apply {
-            text = if (BuildConfig.APP_MODE == "logistica") "HBX Logística" else "HBX Vendas"
+            text = if (BuildConfig.APP_MODE == "logistica") "HBX Mobile" else "HBX Vendas"
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
@@ -295,6 +453,15 @@ class PairingActivity : AppCompatActivity() {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 25f)
             letterSpacing = 0.18f
             setSingleLine(true)
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    submitPairingCode()
+                    true
+                } else {
+                    false
+                }
+            }
             background = roundedStrokeBackground("#0B1020", "#31415F", 14)
             layoutParams = LinearLayout.LayoutParams(-1, dp(62)).apply { topMargin = dp(24) }
         }
@@ -311,6 +478,18 @@ class PairingActivity : AppCompatActivity() {
             setOnClickListener { submitPairingCode() }
         }
         card.addView(actionButton)
+
+        googleButton = Button(this).apply {
+            text = "Entrar com Google"
+            isAllCaps = false
+            setTextColor(Color.parseColor("#172033"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            background = roundedStrokeBackground("#FFFFFF", "#D7DEEA", 14)
+            layoutParams = LinearLayout.LayoutParams(-1, dp(54)).apply { topMargin = dp(10) }
+            setOnClickListener { startGoogleSignIn() }
+        }
+        card.addView(googleButton)
 
         feedback = TextView(this).apply {
             text = initialMessage.orEmpty()
@@ -330,11 +509,180 @@ class PairingActivity : AppCompatActivity() {
         root.addView(card, outer)
     }
 
-    private fun setBusy(busy: Boolean) {
+    private fun showMobilePairingScreen(initialMessage: String?) {
+        root.removeAllViews()
+        root.background = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(Color.parseColor("#080D20"), Color.parseColor("#050713"), Color.parseColor("#02040B")),
+        )
+
+        root.addView(View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                gradientType = GradientDrawable.RADIAL_GRADIENT
+                gradientRadius = dp(180).toFloat()
+                colors = intArrayOf(Color.parseColor("#272E5BFF"), Color.TRANSPARENT)
+            }
+        }, FrameLayout.LayoutParams(dp(360), dp(360)).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            topMargin = dp(24)
+        })
+
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        val logo = FrameLayout(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#E6080D20"))
+                setStroke(dp(1), Color.parseColor("#6600E5FF"))
+            }
+            alpha = 0f
+            scaleX = .72f
+            scaleY = .72f
+        }
+        logo.addView(TextView(this).apply {
+            text = "HBX"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            letterSpacing = -.045f
+        }, FrameLayout.LayoutParams(-1, -1))
+        column.addView(logo, LinearLayout.LayoutParams(dp(82), dp(82)).apply { bottomMargin = dp(28) })
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(22), dp(20), dp(20))
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#F0182646"), Color.parseColor("#EE0B1126")),
+            ).apply {
+                cornerRadius = dp(26).toFloat()
+                setStroke(dp(1), Color.parseColor("#2B83ADD8"))
+            }
+            alpha = 0f
+            translationY = dp(18).toFloat()
+        }
+
+        card.addView(TextView(this).apply {
+            text = "CÓDIGO"
+            setTextColor(Color.parseColor("#8296B7"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+            letterSpacing = .18f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) })
+
+        codeInput = EditText(this).apply {
+            hint = "000000"
+            gravity = Gravity.CENTER
+            inputType = InputType.TYPE_CLASS_NUMBER
+            filters = arrayOf(InputFilter.LengthFilter(6))
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#4F607F"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = .2f
+            setSingleLine(true)
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    submitPairingCode()
+                    true
+                } else {
+                    false
+                }
+            }
+            setPadding(dp(14), 0, dp(10), 0)
+            background = roundedStrokeBackground("#B0060A18", "#415479", 16)
+        }
+        card.addView(codeInput, LinearLayout.LayoutParams(-1, dp(64)))
+
+        actionButton = Button(this).apply {
+            text = "Vincular aparelho"
+            isAllCaps = false
+            stateListAnimator = null
+            minimumHeight = 0
+            minHeight = 0
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#2E5BFF"), Color.parseColor("#4174FF"), Color.parseColor("#08BFD9")),
+            ).apply { cornerRadius = dp(16).toFloat() }
+            setOnClickListener { submitPairingCode() }
+        }
+        card.addView(actionButton, LinearLayout.LayoutParams(-1, dp(54)).apply { topMargin = dp(12) })
+
+        val divider = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        divider.addView(View(this).apply { setBackgroundColor(Color.parseColor("#263450")) }, LinearLayout.LayoutParams(0, dp(1), 1f))
+        divider.addView(TextView(this).apply {
+            text = "OU"
+            setTextColor(Color.parseColor("#7889A7"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+            letterSpacing = .16f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(dp(54), dp(36)))
+        divider.addView(View(this).apply { setBackgroundColor(Color.parseColor("#263450")) }, LinearLayout.LayoutParams(0, dp(1), 1f))
+        card.addView(divider, LinearLayout.LayoutParams(-1, dp(36)).apply { topMargin = dp(5) })
+
+        googleButton = Button(this).apply {
+            text = "Entrar com Google Play"
+            isAllCaps = false
+            stateListAnimator = null
+            minimumHeight = 0
+            minHeight = 0
+            setTextColor(Color.parseColor("#293041"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_google_play, 0, 0, 0)
+            compoundDrawableTintList = null
+            compoundDrawablePadding = dp(11)
+            background = roundedStrokeBackground("#FFFFFF", "#D7DEEA", 16)
+            setOnClickListener { startGoogleSignIn() }
+        }
+        card.addView(googleButton, LinearLayout.LayoutParams(-1, dp(54)))
+
+        feedback = TextView(this).apply {
+            text = initialMessage.orEmpty()
+            visibility = if (initialMessage.isNullOrBlank()) View.GONE else View.VISIBLE
+            setTextColor(Color.parseColor("#FFB4AB"))
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        }
+        card.addView(feedback, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(13) })
+        column.addView(card, LinearLayout.LayoutParams(-1, -2))
+
+        val width = (resources.displayMetrics.widthPixels - dp(44)).coerceAtMost(dp(380))
+        root.addView(column, FrameLayout.LayoutParams(width, -2).apply { gravity = Gravity.CENTER })
+
+        logo.animate().alpha(1f).scaleX(1f).scaleY(1f).setStartDelay(80).setDuration(620).start()
+        card.animate().alpha(1f).translationY(0f).setStartDelay(190).setDuration(620).start()
+    }
+
+    private fun setBusy(busy: Boolean, google: Boolean = false) {
         actionButton?.isEnabled = !busy
+        googleButton?.isEnabled = !busy
         codeInput?.isEnabled = !busy
-        actionButton?.text = if (busy) "Vinculando…" else "Vincular aparelho"
+        actionButton?.text = if (busy && !google) "Vinculando…" else "Vincular aparelho"
+        googleButton?.text = if (busy && google) {
+            "Entrando…"
+        } else if (HbxMobileExperience.premiumShell) {
+            "Entrar com Google Play"
+        } else {
+            "Entrar com Google"
+        }
         actionButton?.alpha = if (busy) 0.7f else 1f
+        googleButton?.alpha = if (busy) 0.7f else 1f
     }
 
     private fun setFeedback(message: String, error: Boolean) {

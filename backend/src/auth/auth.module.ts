@@ -21,6 +21,7 @@ import { MobileDevicePresenceService } from './mobile-device-presence.service';
 import { MobileActionController } from './mobile-action.controller';
 import { MobileActionService } from './mobile-action.service';
 import { MobilePushService } from './mobile-push.service';
+import { GoogleIdTokenVerifierService } from './google-id-token-verifier.service';
 
 const jwtSecret = String(process.env.JWT_SECRET || '').trim();
 
@@ -45,6 +46,7 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
     MobileDevicePresenceService,
     MobileActionService,
     MobilePushService,
+    GoogleIdTokenVerifierService,
   ],
   controllers: [
     AuthController,

@@ -627,6 +627,14 @@ export class NucleoCadastroService {
           phoneNormalized: true,
           formaPagamento: true,
           diaFechamento: true,
+          // O telefone operacional pode viver no Contato principal. O app edita
+          // esse registro; usar só CustomerProfile mantinha o alerta vermelho
+          // mesmo depois de salvar corretamente o número.
+          contatos: {
+            orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
+            take: 1,
+            select: { whatsapp: true, phone: true },
+          },
           _count: { select: { contatos: true } },
         },
       }),
@@ -645,7 +653,7 @@ export class NucleoCadastroService {
         id: row.id,
         name: row.name ?? null,
         cnpj: row.cnpj ?? null,
-        phone: row.phone ?? null,
+        phone: row.phone ?? row.contatos?.[0]?.whatsapp ?? row.contatos?.[0]?.phone ?? null,
         phoneNormalized: row.phoneNormalized ?? null,
         endereco: row.endereco ?? null,
         numero: row.numero ?? null,
@@ -685,6 +693,7 @@ export class NucleoCadastroService {
       lat: number | null;
       lng: number | null;
       phoneNormalized: string | null;
+      contatos?: Array<{ whatsapp: string | null; phone: string | null }>;
     }>,
   ): Promise<Map<string, ClienteCardExtras>> {
     const result = new Map<string, ClienteCardExtras>();
@@ -795,7 +804,8 @@ export class NucleoCadastroService {
         if (local.lat == null || local.lng == null) pendencias.push('gps');
       }
       if (!vinc?.temDia) pendencias.push('dia'); // sem NENHUM vínculo → pendente
-      if (!String(row.phoneNormalized ?? '').trim()) pendencias.push('whatsapp');
+      const contatoPhone = row.contatos?.[0]?.whatsapp ?? row.contatos?.[0]?.phone;
+      if (!String(row.phoneNormalized ?? contatoPhone ?? '').trim()) pendencias.push('whatsapp');
 
       // duplicata: o OUTRO lado do par (só entre clientes ATIVOS — os dois lados).
       let duplicataDe: { id: string; nome: string } | null = null;

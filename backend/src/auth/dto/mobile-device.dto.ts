@@ -20,6 +20,26 @@ export class PairMobileDeviceDto {
   platform?: string;
 }
 
+export class GooglePairMobileDeviceDto {
+  @IsString()
+  @Length(32, 8192)
+  idToken!: string;
+
+  @IsString()
+  @Length(16, 120)
+  installationId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  deviceName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  platform?: string;
+}
+
 export class OpenMobileDeviceSessionDto {
   @IsString()
   @Length(32, 512)

@@ -69,11 +69,12 @@ export class LogisticaRotaService {
     const config = await this.loadConfig(companyId);
     const origem = coordFromInput(input.origemLat, input.origemLng);
 
-    const rows = await this.fetchParadasAbertas(companyId, start, end, entregadorId);
+    const deliveryIds = normalizeDeliveryIds(input.deliveryIds);
+    const rows = await this.fetchParadasAbertas(companyId, start, end, entregadorId, deliveryIds);
 
     // Ordena (NN + 2-opt) e calcula ETA cumulativo a partir de AGORA (ou input.startAt).
     const partida = parseDateOrNull(input.startAt) ?? new Date();
-    const plan = planRoute(
+    const plan = await planRouteByRoads(
       rows.map((r) => toStop(r)),
       { origem, velocidadeKmH: config.velocidadeMediaKmH, paradaMin: config.tempoParadaMin, partida },
     );
@@ -177,6 +178,7 @@ export class LogisticaRotaService {
       date: input.date,
       origemLat: input.origemLat,
       origemLng: input.origemLng,
+      deliveryIds: input.deliveryIds,
     }, effectiveDriverId, actorUserId, true);
 
     if (plan.paradas.length === 0) throw new BadRequestException('Não há entregas abertas para iniciar.');
@@ -343,11 +345,12 @@ export class LogisticaRotaService {
     return { velocidadeMediaKmH, tempoParadaMin };
   }
 
-  private async fetchParadasAbertas(companyId: number, start: Date, end: Date, entregadorId?: number): Promise<ParadaRow[]> {
+  private async fetchParadasAbertas(companyId: number, start: Date, end: Date, entregadorId?: number, deliveryIds?: string[]): Promise<ParadaRow[]> {
     return this.prisma.entrega.findMany({
       where: {
         companyId,
         ...(entregadorId ? { entregadorId } : {}),
+        ...(deliveryIds?.length ? { id: { in: deliveryIds } } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },
@@ -422,7 +425,10 @@ export function hasCoord(s: Stop): boolean {
     typeof s.lat === 'number' &&
     typeof s.lng === 'number' &&
     Number.isFinite(s.lat) &&
-    Number.isFinite(s.lng)
+    Number.isFinite(s.lng) &&
+    Math.abs(s.lat) <= 90 &&
+    Math.abs(s.lng) <= 180 &&
+    !(s.lat === 0 && s.lng === 0)
   );
 }
 
@@ -615,6 +621,113 @@ export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResul
   return { paradas, distanciaTotalKm, terminoPrevisto };
 }
 
+/**
+ * Planejamento real por ruas. A matriz do OSRM contém o tempo/distância da
+ * malha viária entre cada par de paradas; portanto sentidos, retornos, pontes e
+ * bairros entram na ordem. Haversine permanece apenas como fallback resiliente.
+ */
+export async function planRouteByRoads(stops: Stop[], opts: PlanRouteOptions): Promise<PlanRouteResult> {
+  const valid = filtrarComCoord(stops);
+  if (valid.length < 2) return planRoute(stops, opts);
+
+  const hasOrigin = !!opts.origem && Number.isFinite(opts.origem.lat) && Number.isFinite(opts.origem.lng) && Math.abs(opts.origem.lat) <= 90 && Math.abs(opts.origem.lng) <= 180 && !(opts.origem.lat === 0 && opts.origem.lng === 0);
+  const coordinates: Coord[] = [...(hasOrigin ? [opts.origem as Coord] : []), ...valid.map((stop) => ({ lat: stop.lat, lng: stop.lng }))];
+  const encoded = coordinates.map((point) => `${point.lng},${point.lat}`).join(';');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    const response = await fetch(`https://router.project-osrm.org/table/v1/driving/${encoded}?annotations=duration,distance`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'HBX-Logistica/1.0' },
+    });
+    if (!response.ok) throw new Error(`OSRM table HTTP ${response.status}`);
+    const payload = await response.json() as { code?: string; durations?: Array<Array<number | null>>; distances?: Array<Array<number | null>> };
+    if (payload.code !== 'Ok' || !matrixIsUsable(payload.durations, coordinates.length) || !matrixIsUsable(payload.distances, coordinates.length)) {
+      throw new Error(`OSRM table inválida (${payload.code || 'sem código'})`);
+    }
+
+    const offset = hasOrigin ? 1 : 0;
+    const order = greedyRoadOrder(valid.length, payload.durations!, offset, hasOrigin);
+    const improved = improveRoadOrder(order, payload.durations!, offset, hasOrigin);
+    const orderedValid = improved.map((index) => valid[index]);
+    const invalid = stops.filter((stop) => !hasCoord(stop));
+    const ordered: Stop[] = [...orderedValid, ...invalid].map((stop, index) => ({ ...stop, rotaOrdem: index }));
+
+    let elapsedMinutes = 0;
+    let distanceMeters = 0;
+    let previousMatrixIndex = hasOrigin ? 0 : null;
+    const paradas: PlannedStop[] = ordered.map((stop, index) => {
+      if (!hasCoord(stop)) return { ...stop, rotaOrdem: index, etaAt: null, semCoordenada: true };
+      const validIndex = valid.findIndex((candidate) => candidate.id === stop.id);
+      const matrixIndex = validIndex + offset;
+      if (previousMatrixIndex != null) {
+        elapsedMinutes += Number(payload.durations![previousMatrixIndex][matrixIndex] || 0) / 60;
+        distanceMeters += Number(payload.distances![previousMatrixIndex][matrixIndex] || 0);
+      }
+      elapsedMinutes += Math.max(0, opts.paradaMin);
+      previousMatrixIndex = matrixIndex;
+      return { ...stop, rotaOrdem: index, etaAt: new Date(opts.partida.getTime() + elapsedMinutes * 60_000), semCoordenada: false };
+    });
+    const withEta = paradas.filter((stop) => stop.etaAt != null);
+    return { paradas, distanciaTotalKm: distanceMeters / 1_000, terminoPrevisto: withEta.at(-1)?.etaAt ?? null };
+  } catch (error) {
+    return planRoute(stops, opts);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function matrixIsUsable(matrix: Array<Array<number | null>> | undefined, size: number): boolean {
+  return Array.isArray(matrix) && matrix.length === size && matrix.every((row) => Array.isArray(row) && row.length === size);
+}
+
+function roadPathCost(order: number[], matrix: Array<Array<number | null>>, offset: number, hasOrigin: boolean): number {
+  let current = hasOrigin ? 0 : order[0] + offset;
+  let cost = 0;
+  for (let position = hasOrigin ? 0 : 1; position < order.length; position++) {
+    const next = order[position] + offset;
+    const leg = matrix[current]?.[next];
+    if (leg == null || !Number.isFinite(leg)) return Number.POSITIVE_INFINITY;
+    cost += leg;
+    current = next;
+  }
+  return cost;
+}
+
+function greedyRoadOrder(count: number, matrix: Array<Array<number | null>>, offset: number, hasOrigin: boolean): number[] {
+  const remaining = new Set(Array.from({ length: count }, (_, index) => index));
+  const order: number[] = [];
+  let current = hasOrigin ? 0 : offset;
+  if (!hasOrigin) { order.push(0); remaining.delete(0); }
+  while (remaining.size) {
+    let best = -1; let bestCost = Number.POSITIVE_INFINITY;
+    for (const candidate of remaining) {
+      const cost = matrix[current]?.[candidate + offset];
+      if (cost != null && Number.isFinite(cost) && cost < bestCost) { best = candidate; bestCost = cost; }
+    }
+    if (best < 0) best = remaining.values().next().value;
+    order.push(best); remaining.delete(best); current = best + offset;
+  }
+  return order;
+}
+
+function improveRoadOrder(order: number[], matrix: Array<Array<number | null>>, offset: number, hasOrigin: boolean): number[] {
+  let best = [...order]; let bestCost = roadPathCost(best, matrix, offset, hasOrigin);
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    for (let from = hasOrigin ? 0 : 1; from < best.length - 1; from++) {
+      for (let to = from + 1; to < best.length; to++) {
+        const candidate = [...best.slice(0, from), ...best.slice(from, to + 1).reverse(), ...best.slice(to + 1)];
+        const cost = roadPathCost(candidate, matrix, offset, hasOrigin);
+        if (cost + 0.5 < bestCost) { best = candidate; bestCost = cost; changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
+  return best;
+}
+
 // ── helpers de mapeamento / data ────────────────────────────────────────────────
 function toStop(r: ParadaRow): Stop {
   return {
@@ -638,7 +751,7 @@ function compareByRotaOrdem(a: Stop, b: Stop): number {
 }
 
 function coordFromInput(lat?: number | null, lng?: number | null): Coord | null {
-  if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng)) {
+  if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0)) {
     return { lat, lng };
   }
   return null;
@@ -707,6 +820,7 @@ export interface PlanejarRotaInput {
   date?: string;
   origemLat?: number;
   origemLng?: number;
+  deliveryIds?: string[];
   startAt?: string; // hora de partida (default: agora) — usado no cálculo do ETA
 }
 
@@ -714,6 +828,13 @@ export interface IniciarRotaInput {
   date?: string;
   origemLat?: number;
   origemLng?: number;
+  deliveryIds?: string[];
+}
+
+function normalizeDeliveryIds(value?: string[]): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = [...new Set(value.map(id => String(id || '').trim()).filter(id => id.length > 0 && id.length <= 80))].slice(0, 300);
+  return ids.length ? ids : undefined;
 }
 
 export interface PlanejarRotaParada {

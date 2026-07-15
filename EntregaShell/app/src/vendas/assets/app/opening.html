@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#050713">
+  <title>HBX Mobile</title>
+  <script>
+    const openingParams = new URLSearchParams(location.search);
+    const openingExit = openingParams.get('mode') === 'exit';
+    const openingPaused = openingExit && openingParams.get('paused') === '1';
+    document.documentElement.dataset.mode = openingExit ? 'exit' : 'entry';
+    document.documentElement.dataset.paused = openingPaused ? 'true' : 'false';
+    if (openingExit && !openingPaused) {
+      document.documentElement.classList.add('exit');
+    }
+  </script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#050713;
+      --bg-deep:#02040b;
+      --ink:#f7fbff;
+      --muted:#91a0bd;
+      --blue:#2e5bff;
+      --cyan:#00e5ff;
+      --violet:#8a5cff;
+      --lime:#9aea35;
+      --spring:cubic-bezier(.22,1,.36,1);
+    }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:var(--bg-deep); }
+    body {
+      color:var(--ink);
+      font-family:"Plus Jakarta Sans",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+      -webkit-font-smoothing:antialiased;
+      text-rendering:geometricPrecision;
+    }
+    .stage {
+      position:relative;
+      width:100vw;
+      height:100dvh;
+      min-height:620px;
+      overflow:hidden;
+      isolation:isolate;
+      background:
+        radial-gradient(circle at 50% 35%,rgba(46,91,255,.22),transparent 28%),
+        radial-gradient(circle at 88% 13%,rgba(0,229,255,.10),transparent 23%),
+        radial-gradient(circle at 10% 78%,rgba(138,92,255,.13),transparent 27%),
+        linear-gradient(180deg,#080d20 0%,var(--bg) 64%,#03050d 100%);
+    }
+    .stage::before {
+      content:"";
+      position:absolute;
+      inset:40% -25% -30%;
+      z-index:-1;
+      opacity:.24;
+      background-image:
+        linear-gradient(rgba(255,255,255,.024) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(255,255,255,.024) 1px,transparent 1px);
+      background-size:29px 29px;
+      transform:perspective(560px) rotateX(62deg);
+      transform-origin:50% 100%;
+      -webkit-mask-image:linear-gradient(to top,#000,transparent 82%);
+      mask-image:linear-gradient(to top,#000,transparent 82%);
+    }
+    .stage::after {
+      content:"";
+      position:absolute;
+      inset:0;
+      z-index:30;
+      pointer-events:none;
+      opacity:.055;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 120 120' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='2' stitchTiles='stitchTiles'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      mix-blend-mode:soft-light;
+    }
+    .top {
+      position:absolute;
+      z-index:12;
+      top:max(18px,env(safe-area-inset-top));
+      left:19px;
+      right:19px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      color:rgba(200,216,241,.68);
+      font-size:8px;
+      font-weight:750;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      opacity:0;
+      transform:translateY(-8px);
+      animation:topIn .62s .14s var(--spring) forwards;
+    }
+    .top b { display:inline-flex; align-items:center; gap:8px; font-weight:750; }
+    .top b::before {
+      content:"";
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      background:var(--lime);
+      box-shadow:0 0 0 5px rgba(154,234,53,.07),0 0 15px rgba(154,234,53,.72);
+      animation:status 1.45s 1s ease-in-out infinite;
+    }
+    .top span { color:rgba(126,145,177,.42); }
+    @keyframes topIn { to { opacity:1; transform:none; } }
+    @keyframes status { 50% { opacity:.5; transform:scale(.72); } }
+
+    .network { position:absolute; inset:0; z-index:2; width:100%; height:100%; overflow:visible; }
+    .ghost { fill:none; stroke:rgba(93,125,181,.12); stroke-width:1; }
+    .route {
+      fill:none;
+      stroke:url(#flow);
+      stroke-width:2.25;
+      stroke-linecap:round;
+      path-length:1;
+      stroke-dasharray:1;
+      stroke-dashoffset:1;
+      filter:url(#lineGlow);
+      opacity:0;
+    }
+    .route.r1 { animation:routeWake .95s .92s var(--spring) forwards; }
+    .route.r2 { animation:routeWake .95s 1.52s var(--spring) forwards; }
+    .route.r3 { animation:routeWake .95s 2.12s var(--spring) forwards; }
+    .route.r4 { animation:routeWake 1s 2.72s var(--spring) forwards; }
+    @keyframes routeWake { 8% { opacity:1; } 100% { opacity:.9; stroke-dashoffset:0; } }
+    .stream {
+      fill:none;
+      stroke:#efffff;
+      stroke-width:4.4;
+      stroke-linecap:round;
+      stroke-dasharray:.13 1;
+      opacity:0;
+      filter:url(#lineGlow);
+    }
+    .stream.s1 { animation:streamRun .95s .92s linear forwards; }
+    .stream.s2 { animation:streamRun .95s 1.52s linear forwards; }
+    .stream.s3 { animation:streamRun .95s 2.12s linear forwards; }
+    .stream.s4 { animation:streamRun 1s 2.72s linear forwards; }
+    @keyframes streamRun { 8% { opacity:1; } 86% { opacity:1; } 100% { opacity:0; stroke-dashoffset:-1; } }
+    .packet { opacity:0; filter:url(#dotGlow); }
+    .packet.d1 { animation:packet .95s .92s linear forwards; }
+    .packet.d2 { animation:packet .95s 1.52s linear forwards; }
+    .packet.d3 { animation:packet .95s 2.12s linear forwards; }
+    .packet.d4 { animation:packet 1s 2.72s linear forwards; }
+    @keyframes packet { 8%,86% { opacity:1; } 100% { opacity:0; } }
+    .node {
+      fill:#071020;
+      stroke:rgba(0,229,255,.78);
+      stroke-width:1.25;
+      opacity:0;
+      transform-box:fill-box;
+      transform-origin:center;
+      filter:url(#dotGlow);
+    }
+    .node.n1 { animation:nodeOn .5s 1.82s var(--spring) forwards; }
+    .node.n2 { animation:nodeOn .5s 2.42s var(--spring) forwards; }
+    .node.n3 { animation:nodeOn .5s 3.02s var(--spring) forwards; }
+    .node.n4 { animation:nodeOn .5s 3.67s var(--spring) forwards; }
+    @keyframes nodeOn { 55% { opacity:1; transform:scale(1.55); fill:#eaffff; } 100% { opacity:1; transform:scale(1); fill:#071020; } }
+
+    .hub-wrap {
+      position:absolute;
+      z-index:8;
+      top:31.6%;
+      left:50%;
+      width:142px;
+      height:142px;
+      transform:translate(-50%,-50%);
+    }
+    .hub-wrap::before,.hub-wrap::after {
+      content:"";
+      position:absolute;
+      inset:2px;
+      border:1px solid rgba(0,229,255,.18);
+      border-radius:50%;
+      opacity:0;
+      animation:shockwave 2.4s 1.1s ease-out infinite;
+    }
+    .hub-wrap::after { animation-delay:1.75s; }
+    @keyframes shockwave { 0% { opacity:0; transform:scale(.42); } 18% { opacity:.6; } 100% { opacity:0; transform:scale(1.7); } }
+    .hub-glow {
+      position:absolute;
+      inset:18px;
+      border-radius:50%;
+      background:radial-gradient(circle,rgba(0,229,255,.31),rgba(46,91,255,.14) 44%,transparent 72%);
+      opacity:0;
+      transform:scale(.6);
+      animation:glowIn .75s .08s ease forwards,hubBreathe 1.7s 1.1s ease-in-out infinite;
+    }
+    @keyframes glowIn { to { opacity:1; transform:scale(1); } }
+    @keyframes hubBreathe { 50% { opacity:.65; transform:scale(1.12); } }
+    .hub {
+      position:absolute;
+      inset:10px;
+      display:grid;
+      place-items:center;
+      border-radius:50%;
+      opacity:0;
+      transform:scale(.54) rotate(-12deg);
+      background:rgba(7,11,25,.94);
+      border:1px solid rgba(255,255,255,.065);
+      box-shadow:0 18px 70px rgba(0,0,0,.48),inset 0 1px 0 rgba(255,255,255,.06);
+      animation:hubBoot 1.28s .06s var(--spring) forwards;
+    }
+    @keyframes hubBoot {
+      0% { opacity:0; transform:scale(.54) rotate(-12deg); }
+      48% { opacity:1; transform:scale(1.08) rotate(3deg); }
+      68% { transform:scale(.94) rotate(-1deg); }
+      100% { opacity:1; transform:scale(1); }
+    }
+    .hub svg { width:112px; height:112px; overflow:visible; }
+    .ring-base { fill:none; stroke:rgba(255,255,255,.055); stroke-width:5; }
+    .ring-main {
+      fill:none;
+      stroke:url(#logo);
+      stroke-width:5;
+      stroke-linecap:round;
+      stroke-dasharray:170;
+      stroke-dashoffset:170;
+      transform-origin:56px 56px;
+      transform:rotate(-90deg);
+      filter:url(#logoGlow);
+      animation:ringDraw .8s .22s var(--spring) forwards,ringSpin 8s 1.02s linear infinite;
+    }
+    .ring-spark {
+      fill:none;
+      stroke:white;
+      stroke-width:1.8;
+      stroke-linecap:round;
+      stroke-dasharray:19 151;
+      opacity:0;
+      transform-origin:56px 56px;
+      transform:rotate(-90deg);
+      filter:url(#logoGlow);
+      animation:sparkIn .25s .64s ease forwards,sparkSpin 2.8s .76s linear infinite;
+    }
+    .hbx-word { opacity:0; transform-origin:56px 56px; transform:scale(.88); animation:wordIn .42s .34s var(--spring) forwards; }
+    @keyframes ringDraw { to { stroke-dashoffset:0; } }
+    @keyframes ringSpin { to { transform:rotate(270deg); } }
+    @keyframes sparkIn { to { opacity:.9; } }
+    @keyframes sparkSpin { to { transform:rotate(270deg); } }
+    @keyframes wordIn { to { opacity:1; transform:scale(1); } }
+
+    .vehicle {
+      --arrival:1.82s;
+      --rgb:0,229,255;
+      position:absolute;
+      z-index:6;
+      width:66px;
+      text-align:center;
+      opacity:0;
+      transform:scale(.76) translateY(8px);
+      filter:saturate(.3) brightness(.68);
+      animation:vehicleStandby .5s .48s var(--spring) forwards,vehicleIgnite .62s var(--arrival) var(--spring) forwards;
+    }
+    .vehicle.truck { top:15.6%; right:9%; --arrival:1.82s; --rgb:0,229,255; }
+    .vehicle.car { top:22.6%; left:7%; --arrival:2.42s; --rgb:46,91,255; }
+    .vehicle.bike { top:48.2%; right:7%; --arrival:3.02s; --rgb:154,234,53; }
+    .vehicle.package { top:49.8%; left:8%; --arrival:3.67s; --rgb:138,92,255; }
+    @keyframes vehicleStandby { to { opacity:.46; transform:scale(1); } }
+    @keyframes vehicleIgnite {
+      0% { opacity:.46; transform:scale(1); filter:saturate(.3) brightness(.68); }
+      44% { opacity:1; transform:scale(1.12); filter:saturate(1.25) brightness(1.2); }
+      100% { opacity:1; transform:scale(1); filter:saturate(1) brightness(1); }
+    }
+    .orb {
+      position:relative;
+      width:62px;
+      height:62px;
+      margin:auto;
+      display:grid;
+      place-items:center;
+      border-radius:21px;
+      border:1px solid rgba(124,217,255,.11);
+      background:linear-gradient(145deg,rgba(13,20,42,.96),rgba(6,10,24,.94));
+      box-shadow:0 14px 32px rgba(0,0,0,.31),inset 0 1px 0 rgba(255,255,255,.045);
+      animation:orbOn .62s var(--arrival) var(--spring) forwards;
+    }
+    .orb::after {
+      content:"";
+      position:absolute;
+      inset:-7px;
+      border-radius:27px;
+      border:1px solid rgba(var(--rgb),.78);
+      box-shadow:0 0 23px rgba(var(--rgb),.25);
+      opacity:0;
+      transform:scale(.72);
+      animation:arrivalRing .78s var(--arrival) ease-out forwards;
+    }
+    @keyframes orbOn {
+      45% { border-color:rgba(var(--rgb),.88); box-shadow:0 0 34px rgba(var(--rgb),.4),0 14px 32px rgba(0,0,0,.28); }
+      100% { border-color:rgba(var(--rgb),.42); box-shadow:0 0 22px rgba(var(--rgb),.18),0 14px 32px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.08); }
+    }
+    @keyframes arrivalRing { 22% { opacity:.92; } 100% { opacity:0; transform:scale(1.42); } }
+    .orb svg { width:35px; height:35px; fill:none; stroke:#f0faff; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    .vehicle small { display:block; margin-top:7px; color:rgba(205,225,247,.68); font-size:7px; font-weight:750; letter-spacing:.14em; }
+
+    .copy {
+      position:absolute;
+      z-index:9;
+      top:62.8%;
+      left:20px;
+      right:20px;
+      text-align:center;
+      opacity:0;
+      transform:translateY(14px);
+      animation:copyIn .62s 3.46s var(--spring) forwards;
+    }
+    .copy h1 { margin:0; font-size:clamp(39px,11vw,50px); line-height:.92; letter-spacing:-.06em; font-weight:800; }
+    .copy h1 b { font-weight:800; background:linear-gradient(90deg,#fff 10%,#d8efff 48%,#aebdff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+    .copy h1 span { display:block; margin-top:10px; color:rgba(211,226,248,.75); font-size:11px; font-weight:700; letter-spacing:.44em; text-indent:.44em; }
+    @keyframes copyIn { to { opacity:1; transform:none; } }
+
+    .systems {
+      position:absolute;
+      z-index:10;
+      left:24px;
+      right:24px;
+      bottom:max(26px,calc(env(safe-area-inset-bottom) + 18px));
+      opacity:0;
+      transform:translateY(10px);
+      animation:systemsIn .52s 3.15s var(--spring) forwards;
+    }
+    .systems-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; color:rgba(142,162,196,.56); font-size:8px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
+    .systems-head strong { color:rgba(205,232,249,.8); font-weight:750; font-variant-numeric:tabular-nums; }
+    .rail { position:relative; height:3px; overflow:hidden; border-radius:99px; background:rgba(255,255,255,.055); }
+    .rail i { position:absolute; inset:0; border-radius:inherit; transform:scaleX(0); transform-origin:left; background:linear-gradient(90deg,var(--blue),var(--cyan) 64%,var(--lime)); box-shadow:0 0 14px rgba(0,229,255,.52); animation:load 1.5s 3.25s var(--spring) forwards; }
+    .modules { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:13px; }
+    .module { height:29px; display:grid; place-items:center; border:1px solid rgba(130,171,229,.1); border-radius:10px; color:rgba(178,199,226,.44); background:rgba(10,16,34,.48); font-size:7px; font-weight:750; letter-spacing:.075em; text-transform:uppercase; }
+    .module:nth-child(1) { animation:moduleOn .35s 3.48s ease forwards; }
+    .module:nth-child(2) { animation:moduleOn .35s 3.79s ease forwards; }
+    .module:nth-child(3) { animation:moduleOn .35s 4.10s ease forwards; }
+    .module:nth-child(4) { animation:moduleOn .35s 4.41s ease forwards; }
+    @keyframes systemsIn { to { opacity:1; transform:none; } }
+    @keyframes load { to { transform:scaleX(1); } }
+    @keyframes moduleOn { to { color:#e1faff; border-color:rgba(0,229,255,.27); background:rgba(0,229,255,.052); box-shadow:inset 0 0 13px rgba(0,229,255,.045); } }
+
+    .handoff {
+      position:absolute;
+      inset:0;
+      z-index:20;
+      pointer-events:none;
+      opacity:0;
+      background:radial-gradient(circle at 50% 31.6%,rgba(0,229,255,.09),transparent 24%),linear-gradient(180deg,#080d1e,#050713);
+      animation:handoff .45s 5.08s ease forwards;
+    }
+    .scene { position:absolute; inset:0; animation:sceneOut .5s 5.12s ease forwards; }
+    @keyframes handoff { to { opacity:1; } }
+    @keyframes sceneOut { to { opacity:0; transform:scale(1.025); } }
+
+    /* Saída: parte do sistema totalmente ligado e desfaz a sequência. */
+    .exit .top,.exit .hub,.exit .hub-glow,.exit .vehicle,.exit .copy,.exit .systems,.exit .node { opacity:1; transform:none; animation:none; }
+    .exit .hub { transform:scale(1); }
+    .exit .hub-wrap { transform:translate(-50%,-50%); }
+    .exit .hub-wrap::before,.exit .hub-wrap::after { display:none; }
+    .exit .ring-main { stroke-dashoffset:0; animation:ringBack 2.3s linear forwards; }
+    .exit .ring-spark { opacity:.9; animation:sparkBack 1.35s linear forwards; }
+    .exit .hbx-word { opacity:1; transform:none; animation:none; }
+    .exit .route { opacity:.9; stroke-dashoffset:0; }
+    .exit .route.r4 { animation:routeSleep .68s .32s ease-in forwards; }
+    .exit .route.r3 { animation:routeSleep .68s .66s ease-in forwards; }
+    .exit .route.r2 { animation:routeSleep .68s 1s ease-in forwards; }
+    .exit .route.r1 { animation:routeSleep .68s 1.34s ease-in forwards; }
+    .exit .stream { opacity:0; }
+    .exit .stream.s4 { animation:streamBack .62s .32s linear forwards; }
+    .exit .stream.s3 { animation:streamBack .62s .66s linear forwards; }
+    .exit .stream.s2 { animation:streamBack .62s 1s linear forwards; }
+    .exit .stream.s1 { animation:streamBack .62s 1.34s linear forwards; }
+    .exit .packet { display:none; }
+    .exit .vehicle.package { animation:vehicleOff .48s .38s var(--spring) forwards; }
+    .exit .vehicle.bike { animation:vehicleOff .48s .72s var(--spring) forwards; }
+    .exit .vehicle.car { animation:vehicleOff .48s 1.06s var(--spring) forwards; }
+    .exit .vehicle.truck { animation:vehicleOff .48s 1.4s var(--spring) forwards; }
+    .exit .node.n4 { animation:nodeOff .32s .66s ease forwards; }
+    .exit .node.n3 { animation:nodeOff .32s 1s ease forwards; }
+    .exit .node.n2 { animation:nodeOff .32s 1.34s ease forwards; }
+    .exit .node.n1 { animation:nodeOff .32s 1.68s ease forwards; }
+    .exit .copy { animation:copyOff .42s .02s ease forwards; }
+    .exit .systems { animation:systemsOff 1.25s .02s ease forwards; }
+    .exit .rail i { transform:scaleX(1); animation:unload 1.05s .06s ease-in forwards; }
+    .exit .module { color:#e1faff; border-color:rgba(0,229,255,.27); background:rgba(0,229,255,.052); }
+    .exit .module:nth-child(4) { animation:moduleOff .25s .08s ease forwards; }
+    .exit .module:nth-child(3) { animation:moduleOff .25s .23s ease forwards; }
+    .exit .module:nth-child(2) { animation:moduleOff .25s .38s ease forwards; }
+    .exit .module:nth-child(1) { animation:moduleOff .25s .53s ease forwards; }
+    .exit .top { animation:topOff .38s 1.72s ease forwards; }
+    .exit .hub-wrap { animation:hubAbsorb .82s 1.66s var(--spring) forwards; }
+    .exit .scene { animation:exitScene .58s 2.45s ease forwards; }
+    .exit .handoff { display:none; }
+    @keyframes ringBack { to { transform:rotate(-450deg); stroke-dashoffset:170; } }
+    @keyframes sparkBack { to { transform:rotate(-450deg); opacity:0; } }
+    @keyframes routeSleep { to { opacity:0; stroke-dashoffset:1; } }
+    @keyframes streamBack { 8% { opacity:1; } 88% { opacity:1; } 100% { opacity:0; stroke-dashoffset:1; } }
+    @keyframes vehicleOff { 45% { opacity:1; transform:scale(.9); filter:saturate(.25) brightness(.7); } 100% { opacity:0; transform:scale(.66) translateY(7px); filter:saturate(0) brightness(.4); } }
+    @keyframes nodeOff { 45% { fill:#eaffff; transform:scale(1.55); } 100% { opacity:0; transform:scale(.1); } }
+    @keyframes copyOff { to { opacity:0; transform:translateY(12px); } }
+    @keyframes systemsOff { 84% { opacity:1; transform:none; } 100% { opacity:0; transform:translateY(9px); } }
+    @keyframes unload { to { transform:scaleX(0); } }
+    @keyframes moduleOff { to { color:rgba(178,199,226,.2); border-color:rgba(130,171,229,.055); background:rgba(10,16,34,.25); } }
+    @keyframes topOff { to { opacity:0; transform:translateY(-8px); } }
+    @keyframes hubAbsorb { 35% { transform:translate(-50%,-50%) scale(1.12); } 62% { filter:brightness(1.45); } 100% { opacity:0; transform:translate(-50%,-50%) scale(.28); filter:brightness(2); } }
+    @keyframes exitScene { to { opacity:0; transform:scale(.985); } }
+
+    @media (max-height:700px) {
+      .hub-wrap { top:29.2%; transform:translate(-50%,-50%) scale(.88); }
+      .copy { top:59.5%; }
+      .systems { bottom:18px; }
+      .modules { margin-top:9px; }
+      .exit .hub-wrap { transform:translate(-50%,-50%) scale(.88); }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      * { animation-duration:.001ms!important; animation-delay:0ms!important; animation-iteration-count:1!important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" aria-label="HBX Mobile">
+    <div class="scene">
+      <header class="top"><b>HBX SYSTEM</b><span>MOBILE / LIVE</span></header>
+
+      <svg class="network" viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="flow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2e5bff"/><stop offset=".55" stop-color="#00e5ff"/><stop offset="1" stop-color="#9aea35"/></linearGradient>
+          <linearGradient id="logo" x1="8" y1="8" x2="104" y2="104"><stop stop-color="#2e5bff"/><stop offset=".48" stop-color="#00e5ff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient>
+          <filter id="lineGlow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="dotGlow" x="-180%" y="-180%" width="460%" height="460%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="logoGlow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="2.8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <path id="toTruck" d="M195 267 C230 238 259 197 310 159"/>
+          <path id="toCar" d="M195 267 C162 246 135 225 76 220"/>
+          <path id="toBike" d="M195 267 C239 310 261 365 315 441"/>
+          <path id="toPack" d="M195 267 C154 315 123 366 77 453"/>
+        </defs>
+        <path class="ghost" d="M195 267 C230 238 259 197 310 159"/><path class="ghost" d="M195 267 C162 246 135 225 76 220"/><path class="ghost" d="M195 267 C239 310 261 365 315 441"/><path class="ghost" d="M195 267 C154 315 123 366 77 453"/>
+        <path class="route r1" pathLength="1" d="M195 267 C230 238 259 197 310 159"/><path class="route r2" pathLength="1" d="M195 267 C162 246 135 225 76 220"/><path class="route r3" pathLength="1" d="M195 267 C239 310 261 365 315 441"/><path class="route r4" pathLength="1" d="M195 267 C154 315 123 366 77 453"/>
+        <path class="stream s1" pathLength="1" d="M195 267 C230 238 259 197 310 159"/><path class="stream s2" pathLength="1" d="M195 267 C162 246 135 225 76 220"/><path class="stream s3" pathLength="1" d="M195 267 C239 310 261 365 315 441"/><path class="stream s4" pathLength="1" d="M195 267 C154 315 123 366 77 453"/>
+        <circle class="node n1" cx="310" cy="159" r="4"/><circle class="node n2" cx="76" cy="220" r="4"/><circle class="node n3" cx="315" cy="441" r="4"/><circle class="node n4" cx="77" cy="453" r="4"/>
+        <circle class="packet d1" r="3.1" fill="#efffff"><animateMotion dur=".95s" begin=".92s" fill="freeze"><mpath href="#toTruck"/></animateMotion></circle>
+        <circle class="packet d2" r="3" fill="#e1e8ff"><animateMotion dur=".95s" begin="1.52s" fill="freeze"><mpath href="#toCar"/></animateMotion></circle>
+        <circle class="packet d3" r="3.1" fill="#ecffd4"><animateMotion dur=".95s" begin="2.12s" fill="freeze"><mpath href="#toBike"/></animateMotion></circle>
+        <circle class="packet d4" r="3" fill="#f0e7ff"><animateMotion dur="1s" begin="2.72s" fill="freeze"><mpath href="#toPack"/></animateMotion></circle>
+      </svg>
+
+      <div class="vehicle truck"><div class="orb"><svg viewBox="0 0 40 40"><path d="M5.5 12.5h18.2v14H5.5zM23.7 17h5.7l4.6 5.2v4.3H23.7z"/><circle cx="12" cy="28" r="3.2"/><circle cx="29" cy="28" r="3.2"/></svg></div><small>CAMINHÃO</small></div>
+      <div class="vehicle car"><div class="orb"><svg viewBox="0 0 40 40"><path d="M6 23.5l3-7c.5-1.3 1.4-2 2.8-2h16c1.2 0 2.1.6 2.7 1.8l3.5 7v4.3H6z"/><circle cx="12" cy="28" r="3"/><circle cx="29" cy="28" r="3"/></svg></div><small>CARRO</small></div>
+      <div class="vehicle bike"><div class="orb"><svg viewBox="0 0 40 40"><circle cx="10" cy="28.5" r="5"/><circle cx="30" cy="28.5" r="5"/><path d="M10 28.5l6.5-10h6.2l4.4 10M16.5 18.5l5 10M14 22h11.4M22.7 18.5l2.1-3.2h4.7"/></svg></div><small>MOTO</small></div>
+      <div class="vehicle package"><div class="orb"><svg viewBox="0 0 40 40"><path d="M7.5 13.5L20 7l12.5 6.5v14L20 34 7.5 27.5zM7.5 13.5L20 20l12.5-6.5M20 20v14"/></svg></div><small>ENTREGAS</small></div>
+
+      <div class="hub-wrap">
+        <div class="hub-glow"></div>
+        <div class="hub">
+          <svg viewBox="0 0 112 112" aria-label="HBX">
+            <circle class="ring-base" cx="56" cy="56" r="27"/><circle class="ring-main" cx="56" cy="56" r="27"/><circle class="ring-spark" cx="56" cy="56" r="27"/>
+            <g class="hbx-word" fill="#fff"><path d="M34 47h4v7h4.3v-7h4v18h-4v-7h-4.3v7h-4z"/><path d="M49.5 47h4v18h-4z"/><path d="M51.5 49h5.3c3.1 0 5 1.5 5 4.1 0 1.6-.8 2.8-2.2 3.4 1.8.5 2.8 1.8 2.8 3.7 0 3-2.1 4.8-5.7 4.8h-5.2v-3.5h5c1.2 0 1.9-.6 1.9-1.6s-.7-1.6-1.9-1.6h-5v-3.4h4.8c1 0 1.6-.5 1.6-1.4s-.6-1.4-1.6-1.4h-4.8z"/><path d="M64 47h4.2l2.4 5.5L73 47h4.2l-4.5 9 4.5 9H73l-2.4-5.5-2.4 5.5H64l4.5-9z"/></g>
+          </svg>
+        </div>
+      </div>
+
+      <section class="copy"><h1><b>HBX</b><span>MOBILE</span></h1></section>
+      <section class="systems">
+        <div class="systems-head"><span>Sincronizando módulos</span><strong id="progress">0%</strong></div>
+        <div class="rail"><i></i></div>
+        <div class="modules"><div class="module">Vendas</div><div class="module">Conversas</div><div class="module">Empresas</div><div class="module">Rotas</div></div>
+      </section>
+    </div>
+    <div class="handoff"></div>
+  </main>
+  <script>
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const exiting = document.documentElement.dataset.mode === 'exit';
+    const pausedExit = exiting && document.documentElement.dataset.paused === 'true';
+    const progress = document.getElementById('progress');
+    const railFill = document.querySelector('.rail i');
+    let timelineStarted = false;
+    const startTimeline = () => {
+      if (timelineStarted) return false;
+      timelineStarted = true;
+      if (exiting) document.documentElement.classList.add('exit');
+      railFill.style.animation = 'none';
+      progress.textContent = exiting ? '100%' : '0%';
+      railFill.style.transform = `scaleX(${exiting ? 1 : 0})`;
+      if (!reduced) {
+        const startAt = performance.now() + (exiting ? 0 : 3250);
+        const duration = exiting ? 1050 : 1500;
+        const tick = now => {
+          const elapsed = Math.max(0, now - startAt);
+          const ratio = Math.min(1, elapsed / duration);
+          const eased = ratio * ratio * (3 - 2 * ratio);
+          const value = exiting ? 1 - eased : eased;
+          progress.textContent = `${Math.round(value * 100)}%`;
+          railFill.style.transform = `scaleX(${value})`;
+          if (elapsed < duration) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      } else {
+        progress.textContent = exiting ? '0%' : '100%';
+        railFill.style.transform = `scaleX(${exiting ? 0 : 1})`;
+      }
+      const wait = reduced ? 80 : (exiting ? 3100 : 5580);
+      setTimeout(() => location.replace(exiting ? 'done.html' : 'index.html'), wait);
+      return true;
+    };
+    window.HBXStartExit = startTimeline;
+    if (!pausedExit) startTimeline();
+  </script>
+</body>
+</html>

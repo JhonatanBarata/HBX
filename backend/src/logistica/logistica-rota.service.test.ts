@@ -113,6 +113,23 @@ test('(c) parada sem coordenada vai pro FIM da fila (semCoordenada=true)', () =>
   assert.equal(ordenadas.filter((p) => p.semCoordenada).length, 2);
 });
 
+test('(c2) coordenada 0,0 é inválida e nunca leva a rota para o oceano', () => {
+  const plan = planRoute([
+    FIXTURE[0],
+    { id: 'zero-zero', lat: 0, lng: 0, status: 'agendada', nome: 'GPS inválido' },
+  ], {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-06T08:00:00'),
+  });
+
+  const zero = plan.paradas.find((p) => p.id === 'zero-zero');
+  assert.equal(zero?.semCoordenada, true);
+  assert.equal(zero?.etaAt, null);
+  assert.ok(plan.distanciaTotalKm < 100, '0,0 não pode entrar no cálculo da distância');
+});
+
 test('computeEta: sem paradas → lista vazia; velocidade/parada default aplicados', () => {
   assert.deepEqual(computeEta([], { velocidadeKmH: 25, paradaMin: 5, partida: new Date() }), []);
   // 1 parada: ETA = partida + tempoParada (sem trajeto anterior).

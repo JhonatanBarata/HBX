@@ -19,6 +19,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -53,12 +55,21 @@ class MainActivity : AppCompatActivity() {
     private var rotaPendente: NativeRouteRequest? = null
     private var solicitacaoSistemaEmAndamento = false
     private var dialogoPermissao: AlertDialog? = null
+    private var ultimoVoltarEm = 0L
+    private var saidaEmAndamento = false
 
     private val localizacaoLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         solicitacaoSistemaEmAndamento = false
         if (temLocalizacao()) solicitarNotificacaoOuAtivar() else mostrarAvisoPermissoesNegadas()
+    }
+
+    // Cadastro de cliente pode usar GPS sem iniciar rota nem pedir notificação.
+    private val cadastroLocalizacaoLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        notificarPermissaoCadastroLocalizacao(temLocalizacao())
     }
 
     private val notificacaoLauncher = registerForActivityResult(
@@ -168,6 +179,7 @@ class MainActivity : AppCompatActivity() {
             ticket = intent?.data?.getQueryParameter("ticket"),
             onRouteRequested = routeBridge::setRota,
             onRouteStopped = routeBridge::clearRota,
+            onLocationPermissionRequested = ::solicitarLocalizacaoParaCadastro,
         )
         webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
 
@@ -181,7 +193,34 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         setContentView(root)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (saidaEmAndamento) return
+                webView.evaluateJavascript(
+                    "Boolean(window.HBXApp && window.HBXApp.handleBack && window.HBXApp.handleBack())",
+                ) backResult@{ handled ->
+                    if (saidaEmAndamento || isFinishing || isDestroyed) return@backResult
+                    if (handled == "true") ultimoVoltarEm = 0L else confirmarSaida()
+                }
+            }
+        })
         webView.loadUrl(LOCAL_ENTRY)
+    }
+
+    private fun confirmarSaida() {
+        if (saidaEmAndamento || isFinishing || isDestroyed) return
+        val agora = System.currentTimeMillis()
+        if (agora - ultimoVoltarEm <= 2_000L) {
+            saidaEmAndamento = true
+            if (HbxMobileExperience.premiumShell) {
+                ClosingActivity.start(this, nextPairing = false)
+            } else {
+                finish()
+            }
+            return
+        }
+        ultimoVoltarEm = agora
+        Toast.makeText(this, "Pressione voltar novamente para sair", Toast.LENGTH_SHORT).show()
     }
 
     override fun onResume() {
@@ -257,6 +296,23 @@ class MainActivity : AppCompatActivity() {
     private fun temNotificacoes(): Boolean =
         (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || temPermissao(Manifest.permission.POST_NOTIFICATIONS)) &&
             NotificationManagerCompat.from(this).areNotificationsEnabled()
+
+    private fun solicitarLocalizacaoParaCadastro() {
+        if (temLocalizacao()) {
+            notificarPermissaoCadastroLocalizacao(true)
+            return
+        }
+        cadastroLocalizacaoLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+        )
+    }
+
+    private fun notificarPermissaoCadastroLocalizacao(concedida: Boolean) {
+        webView.evaluateJavascript(
+            "window.HBXApp&&window.HBXApp.locationPermissionChanged&&window.HBXApp.locationPermissionChanged($concedida);",
+            null,
+        )
+    }
 
     private fun solicitarAtivacaoRota(route: NativeRouteRequest) {
         rotaPendente = route

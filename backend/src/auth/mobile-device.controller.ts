@@ -12,6 +12,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import {
   ConsumeMobileWebTicketDto,
+  GooglePairMobileDeviceDto,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
 } from './dto/mobile-device.dto';
@@ -44,6 +45,12 @@ export class MobileDeviceController {
   @Throttle({ default: { limit: 10, ttl: 60 } })
   pairDevice(@Body() dto: PairMobileDeviceDto) {
     return this.mobileDevices.pairDevice(dto);
+  }
+
+  @Post('google-pair')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  googlePairDevice(@Body() dto: GooglePairMobileDeviceDto) {
+    return this.mobileDevices.googlePairDevice(dto);
   }
 
   @Post('session')

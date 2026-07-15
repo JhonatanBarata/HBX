@@ -156,6 +156,15 @@ export class LogisticaController {
     return res;
   }
 
+  /** Reabre uma entrega concluída para corrigir quantidade ou incluir itens. */
+  @Post('entregas/:id/reabrir')
+  async reabrir(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.reabrirEntrega(companyId, id, req.user);
+    if (!res) throw new NotFoundException('Entrega não encontrada');
+    return res;
+  }
+
   /**
    * AVISO-CHEGANDO — dispara o "tô chegando" (~500m) pelo caminho BLINDADO
    * (queueOutboundForCompany). Trava tripla (flag + config + opt-out do cliente)
@@ -531,6 +540,7 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
+      deliveryIds: dto?.deliveryIds,
     }, entregadorId, Number(req.user?.id) || null);
   }
 
@@ -547,6 +557,7 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
+      deliveryIds: dto?.deliveryIds,
     }, entregadorId, Number(req.user?.id) || null, isBillingOwnerActor(req.user));
   }
 

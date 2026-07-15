@@ -11,6 +11,7 @@ import android.webkit.WebView
 import org.json.JSONObject
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** API estreita exposta somente à página local appassets. */
 class NativeAppBridge(
@@ -19,9 +20,11 @@ class NativeAppBridge(
     ticket: String?,
     private val onRouteRequested: (String) -> Unit,
     private val onRouteStopped: () -> Unit,
+    private val onLocationPermissionRequested: () -> Unit,
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val api = NativeApiClient(activity, ticket)
+    private val logoutEmAndamento = AtomicBoolean(false)
 
     @JavascriptInterface
     fun request(id: String, method: String, path: String, body: String?) {
@@ -47,6 +50,12 @@ class NativeAppBridge(
     fun stopRoute() {
         if (BuildConfig.APP_MODE != "logistica") return
         activity.runOnUiThread(onRouteStopped)
+    }
+
+    @JavascriptInterface
+    fun requestLocationPermission() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread(onLocationPermissionRequested)
     }
 
     @JavascriptInterface
@@ -108,15 +117,20 @@ class NativeAppBridge(
 
     @JavascriptInterface
     fun logout() {
+        if (!logoutEmAndamento.compareAndSet(false, true)) return
         api.clearSession()
         DeviceCredentialStore(activity).clearDeviceToken()
         activity.runOnUiThread {
             WebStorage.getInstance().deleteAllData()
-            activity.startActivity(
-                Intent(activity, PairingActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
-            )
-            activity.finish()
+            if (HbxMobileExperience.premiumShell) {
+                ClosingActivity.start(activity, nextPairing = true)
+            } else {
+                activity.startActivity(
+                    Intent(activity, PairingActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                )
+                activity.finish()
+            }
         }
     }
 
