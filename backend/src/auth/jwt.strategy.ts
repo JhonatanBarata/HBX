@@ -5,6 +5,7 @@ import { UsersService } from '../users/users.service';
 import { MasterContextService } from '../master-context/master-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SESSION_IDLE_TTL_MS } from './session-ttl';
+import { allowsAdminMultiSession } from './session-policy';
 import { withoutTenantScope } from '../prisma/tenant-context';
 
 @Injectable()
@@ -103,7 +104,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         throw new UnauthorizedException('Sessão inválida');
       }
 
-      // Trava de sessão-única + ciclo de vida da AuthSession rodam SÓ em produção.
+      // Política de sessões + ciclo de vida da AuthSession rodam SÓ em produção.
+      // Administradores podem manter até quatro sessões; vendedores continuam
+      // com sessão única e precisam casar com currentSessionId.
       // No localhost (dev) ficam desligadas de propósito: o release.js/deploy
       // abortam se o VPS não tiver NODE_ENV=production, então este atalho jamais
       // vale lá. Sem isso, o respawn do ts-node-dev (system_master_bootstrap), o
@@ -111,8 +114,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // dono do /master (revokedReason=replaced_by_login). Em dev o JWT (1 dia)
       // basta; o logout continua funcionando porque o cliente limpa o token.
       if (process.env.NODE_ENV === 'production') {
+        const allowsMultipleSessions = allowsAdminMultiSession(user);
         if (
-          user.currentSessionId !== sessionId ||
+          (!allowsMultipleSessions && user.currentSessionId !== sessionId) ||
           Number(user.sessionVersion || 0) !== sessionVersion
         ) {
           throw new UnauthorizedException('Sessão revogada');

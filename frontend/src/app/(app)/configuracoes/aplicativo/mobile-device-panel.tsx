@@ -23,7 +23,8 @@ type MobileDevice = {
   active: boolean;
 };
 
-const APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
+const VENDAS_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
+const LOGISTICA_APK_URL = "/download/android-logistica";
 
 function formatDate(value?: string | null) {
   if (!value) return "Ainda não usado";
@@ -153,19 +154,18 @@ export function MobileDevicePanel() {
         <div style={{ padding: 18, display: "grid", gap: 18 }}>
           <div className={styles.setupGrid}>
             <article className={styles.setupCard}>
-              <strong>1. Instale o aplicativo</strong>
+              <strong>1. Instale o aplicativo da função</strong>
               <p className={styles.description}>
-                Use o APK de testes do HBX. O aplicativo não exibirá a página pública nem pedirá e-mail e senha.
+                Vendas e Logística têm interfaces próprias. Nenhum deles exibe o site HBX nem pede e-mail e senha.
               </p>
-              {APK_URL ? (
-                <a className="btn-ghost" href={APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
-                  Baixar aplicativo Android
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+                <a className="btn-ghost" href={VENDAS_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
+                  Baixar HBX Vendas
                 </a>
-              ) : (
-                <small className={styles.muted}>
-                  O link de download será exibido aqui quando NEXT_PUBLIC_ANDROID_APK_URL estiver configurada.
-                </small>
-              )}
+                <a className="btn-ghost" href={LOGISTICA_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
+                  Baixar HBX Logística
+                </a>
+              </div>
             </article>
 
             <article className={styles.setupCard}>
@@ -217,7 +217,7 @@ export function MobileDevicePanel() {
           <div>
             <h2>Aparelhos vinculados</h2>
             <p className={styles.description} style={{ margin: "5px 0 0" }}>
-              Cada usuário pode manter até 3 aparelhos ativos. Desconectar corta o acesso imediatamente.
+              Cada usuário pode manter até 4 aparelhos ativos. Desconectar corta o acesso imediatamente.
             </p>
           </div>
           <button className="btn-ghost" onClick={() => void loadDevices()} disabled={loading}>

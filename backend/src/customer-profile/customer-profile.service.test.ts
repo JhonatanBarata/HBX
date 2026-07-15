@@ -117,6 +117,35 @@ test('createProfile drops weak provisional whatsapp names instead of freezing th
   assert.equal(result.name, null);
 });
 
+test('createProfile stores the address used by the native logistics app', async () => {
+  const createCalls: Array<Record<string, unknown>> = [];
+  const prisma = {
+    customerProfile: {
+      create: async ({ data }: any) => {
+        createCalls.push(data);
+        return buildProfileRow({ ...data });
+      },
+    },
+  } as any;
+
+  const service = new CustomerProfileService(prisma);
+  const result = await service.createProfile(7, {
+    name: 'Cliente da rota',
+    phone: '+55 19 99887-7766',
+    endereco: '  Rua Sete, 189  ',
+    cidade: '  Rio Claro ',
+    uf: 'sp',
+    externalSource: 'logistica_mobile',
+  });
+
+  assert.equal(createCalls[0].endereco, 'Rua Sete, 189');
+  assert.equal(createCalls[0].cidade, 'Rio Claro');
+  assert.equal(createCalls[0].uf, 'SP');
+  assert.equal(result.endereco, 'Rua Sete, 189');
+  assert.equal(result.cidade, 'Rio Claro');
+  assert.equal(result.uf, 'SP');
+});
+
 test('upsertProfile retifies provisional whatsapp name when a better name arrives', async () => {
   const updateCalls: Array<Record<string, unknown>> = [];
   const existingRow = buildProfileRow({

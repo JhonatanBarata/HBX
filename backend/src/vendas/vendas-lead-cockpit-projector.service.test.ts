@@ -361,6 +361,31 @@ test('dual-read uses an explicit automation job without writing the canonical FK
   assert.equal(calls.cockpitWrites, 0);
 });
 
+test('read-only snapshot bypasses stale persisted projection for an existing conversation', async () => {
+  const existing = conversation({
+    id: 302,
+    leadId: null,
+    messages: [message({ id: 31, conversationId: 302, direction: 'OUTBOUND', status: 'SENT', minute: 3 })],
+  });
+  const { service, calls } = harness({
+    conversations: [existing],
+    persisted: [{
+      leadId: 'lead-1',
+      companyId: 7,
+      conversationId: null,
+      engagementState: 'no_conversation',
+      version: 1,
+    }],
+  });
+
+  const snapshot = await service.getCockpitStateForLeadReadOnly(7, 'lead-1', 302);
+
+  assert.deepEqual(snapshot.conversation, { id: '302', exists: true });
+  assert.equal(snapshot.engagement.state, 'awaiting_reply');
+  assert.equal(snapshot.engagement.lastMessageStatus, 'SENT');
+  assert.equal(calls.cockpitWrites, 0);
+});
+
 test('phone fallback is fail-closed when more than one conversation matches in the tenant', async () => {
   const leads = [{ id: 'lead-1', companyId: 7, phone: '+55 11 99999-0000', phoneNormalized: '5511999990000' }];
   const { service } = harness({

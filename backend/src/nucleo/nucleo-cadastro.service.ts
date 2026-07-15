@@ -587,6 +587,7 @@ export class NucleoCadastroService {
       const or: any[] = [
         { name: { contains: query, mode: 'insensitive' } },
         { cidade: { contains: query, mode: 'insensitive' } },
+        { endereco: { contains: query, mode: 'insensitive' } },
       ];
       // BUG 1 (11/07) — mesma lacuna de acento do listEmpresas acima (ADITIVO).
       const searchQuery = normalizeSearch(query);
@@ -594,6 +595,7 @@ export class NucleoCadastroService {
       if (queryDigits) {
         or.push({ cnpj: { contains: queryDigits } });
         or.push({ document: { contains: queryDigits } });
+        or.push({ phoneNormalized: { contains: queryDigits } });
       }
       where.OR = or;
     }
@@ -617,11 +619,14 @@ export class NucleoCadastroService {
           origin: true,
           // W5 (10/07) — insumos do card de clientes do /entrega (pendências/duplicidade).
           status: true,
+          phone: true,
           endereco: true,
           numero: true,
           lat: true,
           lng: true,
           phoneNormalized: true,
+          formaPagamento: true,
+          diaFechamento: true,
           _count: { select: { contatos: true } },
         },
       }),
@@ -640,8 +645,14 @@ export class NucleoCadastroService {
         id: row.id,
         name: row.name ?? null,
         cnpj: row.cnpj ?? null,
+        phone: row.phone ?? null,
+        phoneNormalized: row.phoneNormalized ?? null,
+        endereco: row.endereco ?? null,
+        numero: row.numero ?? null,
         cidade: row.cidade ?? null,
         uf: row.uf ?? null,
+        formaPagamento: row.formaPagamento ?? 'aberto',
+        diaFechamento: row.diaFechamento ?? null,
         isLead: Boolean(row.isLead),
         isCliente: Boolean(row.isCliente),
         isFornecedor: Boolean(row.isFornecedor),
@@ -2255,7 +2266,14 @@ const EMPTY_CLIENTE_CARD_EXTRAS: ClienteCardExtras = {
   entregasCount: 0,
 };
 
-export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {}
+export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {
+  phone: string | null;
+  phoneNormalized: string | null;
+  endereco: string | null;
+  numero: string | null;
+  formaPagamento: string;
+  diaFechamento: number | null;
+}
 
 export interface ListClientesResult {
   page: number;

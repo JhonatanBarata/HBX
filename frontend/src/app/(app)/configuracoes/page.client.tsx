@@ -25,6 +25,7 @@
 // (CNPJ, segmento, cidade, telefone do perfil) mostram vazio/“—”.
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
@@ -349,6 +350,11 @@ export function ConfiguracoesClient() {
                 <I d={ICONS[SEC_IC[s]] || ICONS.config} size={15} />{s}
               </button>
             ))}
+            <Link className="set-link set-link-shortcut" href="/configuracoes/aplicativo">
+              <I d={ICONS.phone} size={15} />
+              <span>Aplicativo móvel</span>
+              <I d={ICONS.arrow} size={13} />
+            </Link>
           </nav>
 
           <div className="cfg-body" style={{ display: "grid", gap: 14 }}>

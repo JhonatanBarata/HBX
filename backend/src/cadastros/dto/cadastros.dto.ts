@@ -109,6 +109,21 @@ export class CreateCustomerProfileDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(280)
+  endereco?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cidade?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  uf?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(40)
   document?: string;
 
@@ -153,6 +168,21 @@ export class UpdateCustomerProfileDto {
   @IsString()
   @MaxLength(160)
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(280)
+  endereco?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cidade?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2)
+  uf?: string;
 
   @IsOptional()
   @IsString()

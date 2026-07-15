@@ -10,7 +10,7 @@
 import { usePathname } from "next/navigation";
 import React from "react";
 
-import { Sidebar, Topbar, toggleRailState, useRailState } from "@/components/hbx/shell";
+import { ICONS, Sidebar, Topbar, toggleRailState, useRailState } from "@/components/hbx/shell";
 import { SoLogisticaGate } from "@/components/hbx/so-logistica-gate";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
@@ -20,6 +20,10 @@ import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-
 import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
 import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
 import { MobileShell } from "@/components/casca/mobile-shell";
+
+// FINANCEIRO-UNIVERSAL: o id da navegação precisa de um glifo no registry do shell.
+// Reusa o ícone monetário central e preserva um futuro desenho dedicado.
+ICONS.financeiro ??= ICONS.money;
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
 

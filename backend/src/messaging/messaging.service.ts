@@ -8568,6 +8568,8 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (source.endsWith('_human') || source.endsWith('_manual')) return false;
     return (
       source === 'vendas_prospeccao_bot' ||
+      source === 'vendas_prospeccao_email_bot' ||
+      source === 'prospeccao_bot' ||
       source === 'atendimento_bot' ||
       source === 'conversation_assistant' ||
       source.startsWith('hbx_recovery')

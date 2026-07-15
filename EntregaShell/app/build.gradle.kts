@@ -50,18 +50,34 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        // Decisão batida do dono: app Android ÚNICO do HBX na Play.
-        // O applicationId é IMUTÁVEL após o 1º upload — tem que ir certo aqui.
-        // O namespace Kotlin (br.com.hbxsystem.entrega) fica como está: só o
-        // applicationId importa pra Play; evita refactor de packages.
         applicationId = "br.com.hbxsystem"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.4.0"
+        versionCode = 9
+        versionName = "2.0.1"
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
+        buildConfigField("String", "APP_MODE", buildConfigString("vendas"))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
+        manifestPlaceholders["hbxAppLabel"] = "HBX Vendas"
+    }
+
+    flavorDimensions += "experience"
+    productFlavors {
+        create("vendas") {
+            dimension = "experience"
+            applicationId = "br.com.hbxsystem"
+            buildConfigField("String", "APP_MODE", buildConfigString("vendas"))
+            manifestPlaceholders["hbxAppLabel"] = "HBX Vendas"
+        }
+        create("logistica") {
+            dimension = "experience"
+            applicationId = "br.com.hbxsystem.logistica"
+            versionCode = 3
+            versionName = "1.0.2"
+            buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
+            manifestPlaceholders["hbxAppLabel"] = "HBX Logística"
+        }
     }
 
     signingConfigs {

@@ -7,6 +7,9 @@ type CustomerProfileInput = {
   name?: string | null;
   phone?: string | null;
   email?: string | null;
+  endereco?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
   document?: string | null;
   externalSource?: string | null;
   externalCustomerId?: string | null;
@@ -205,6 +208,9 @@ export class CustomerProfileService {
       phone: row.phone ? String(row.phone) : null,
       phoneNormalized: row.phoneNormalized ? String(row.phoneNormalized) : null,
       email: row.email ? String(row.email) : null,
+      endereco: row.endereco ? String(row.endereco) : null,
+      cidade: row.cidade ? String(row.cidade) : null,
+      uf: row.uf ? String(row.uf) : null,
       document: row.document ? String(row.document) : null,
       externalSource: row.externalSource ? String(row.externalSource) : null,
       externalCustomerId: row.externalCustomerId ? String(row.externalCustomerId) : null,
@@ -855,6 +861,9 @@ export class CustomerProfileService {
       phone: this.normalizeText(input.phone),
       phoneNormalized: this.normalizePhone(input.phone),
       email: this.normalizeEmail(input.email),
+      endereco: this.normalizeText(input.endereco),
+      cidade: this.normalizeText(input.cidade),
+      uf: this.normalizeText(input.uf)?.slice(0, 2).toUpperCase() || null,
       document: this.normalizeDocument(input.document),
       externalSource: normalizedSource,
       externalCustomerId: this.normalizeText(input.externalCustomerId),
@@ -888,6 +897,9 @@ export class CustomerProfileService {
             }
           : {}),
         ...(input.email !== undefined ? { email: payload.email } : {}),
+        ...(input.endereco !== undefined ? { endereco: payload.endereco } : {}),
+        ...(input.cidade !== undefined ? { cidade: payload.cidade } : {}),
+        ...(input.uf !== undefined ? { uf: payload.uf } : {}),
         ...(input.document !== undefined ? { document: payload.document } : {}),
         ...(input.externalSource !== undefined ? { externalSource: payload.externalSource } : {}),
         ...(input.externalCustomerId !== undefined ? { externalCustomerId: payload.externalCustomerId } : {}),

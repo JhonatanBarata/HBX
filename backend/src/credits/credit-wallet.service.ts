@@ -202,7 +202,7 @@ export class CreditWalletService {
     const wallet = await this.prisma.creditWallet.findUnique({ where: { companyId } });
     if (!wallet) return 0;
     const lots = await this.openLotsFifo(wallet.id, now);
-    return lots.reduce((sum, lot) => sum + lot.remaining, 0);
+    return lots.reduce((sum, lot) => addCredits(sum, lot.remaining), 0);
   }
 
   /** Saldo + lista de lotes (p/ o painel do S6). */
@@ -213,7 +213,7 @@ export class CreditWalletService {
     return {
       companyId,
       walletId: wallet.id,
-      balance: lots.reduce((sum, lot) => sum + lot.remaining, 0),
+      balance: lots.reduce((sum, lot) => addCredits(sum, lot.remaining), 0),
       chargebackDebtCredits: debt,
       lots,
     };
@@ -459,13 +459,13 @@ export class CreditWalletService {
             const committedRows = await tx.creditLedgerEntry.findMany({
               where: { usageKey: input.usageKey, kind: input.movementKind },
             });
-            const alreadyCommitted = committedRows.reduce((sum, row) => sum + Number(row.amount), 0);
+            const alreadyCommitted = committedRows.reduce((sum, row) => addCredits(sum, row.amount), 0);
             if (alreadyCommitted > totalConsumed) {
               // Há linhas desta usageKey que NÃO são desta chamada — o resultado final tem
               // que vir do ledger (soma global), não do contador local.
               duplicateDetected = true;
             }
-            const allowed = input.amount - alreadyCommitted;
+            const allowed = subtractCredits(input.amount, alreadyCommitted);
             if (allowed <= 0) throw new UsageKeySatisfiedSignal();
             const consumeCapped = Math.min(consume, allowed);
 

@@ -29,7 +29,7 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
-        android:label="@string/app_name"
+        android:label="${hbxAppLabel}"
         android:usesCleartextTraffic="${hbxUsesCleartextTraffic}"
         android:theme="@style/Theme.EntregaShell"
         tools:targetApi="s">
@@ -44,8 +44,8 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Única porta pública do APK: código de vinculação no primeiro acesso
-             e reentrada automática pelo aparelho pareado nas próximas aberturas. -->
+        <!-- Única porta pública de cada APK: código de vinculação no primeiro
+             acesso e reentrada automática nas próximas aberturas. -->
         <activity
             android:name=".PairingActivity"
             android:exported="true"
@@ -58,8 +58,8 @@
             </intent-filter>
         </activity>
 
-        <!-- WebView interna: só a PairingActivity abre esta tela com um ticket
-             descartável do nosso domínio. Não recebe mais launcher/deep link externo. -->
+        <!-- Interface local do flavor. O ticket descartável é consumido pela
+             camada nativa e nunca é exposto ao JavaScript empacotado. -->
         <activity
             android:name=".MainActivity"
             android:exported="false"

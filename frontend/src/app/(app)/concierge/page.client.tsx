@@ -27,7 +27,7 @@ type Preview = {
   clamped: boolean;
   blocked: boolean;
   costCredits: number | null;
-  mode: "track" | "debit" | null;
+  mode: "free" | "debit" | null;
 };
 
 type Draft = {
@@ -331,7 +331,6 @@ export function ConciergeClient() {
                 {preview.costCredits != null && (
                   <span className="cg-preview__cost">
                     {preview.costCredits} crédito{preview.costCredits === 1 ? "" : "s"}
-                    {preview.mode === "track" ? " (só medição)" : ""}
                   </span>
                 )}
               </div>

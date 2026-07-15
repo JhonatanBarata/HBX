@@ -3842,13 +3842,11 @@ export class HbxRecoveryService {
     const cid = Number(companyId) || 0;
     const pid = String(customerProfileId || '').trim();
     if (!cid || !pid) return { changed: false, resolved: 0 };
-    // ESCOPO DE ORIGEM (fix pós-revisão adversarial): SÓ casos injetados pela
-    // logística (sourceModule='logistica'). Um caso MANUAL/externo do mesmo cliente
-    // (dívida não-logística) NUNCA é zerado por uma baixa de fiado da logística —
-    // sem isso, pagar 1 fiado quitava silenciosamente a dívida manual (openAmount é
-    // 1 por cliente, monofonte pela idempotência do varrer).
+    // ESCOPO DE ORIGEM: somente casos materializados pelo gancho financeiro.
+    // Casos manuais/externos do mesmo cliente continuam protegidos. O materializador
+    // canônico usa `financeiro`; `logistica` permanece aceito para dados legados.
     const customers = await this.prisma.hbxRecoveryCustomer.findMany({
-      where: { companyId: cid, customerProfileId: pid, sourceModule: 'logistica' },
+      where: { companyId: cid, customerProfileId: pid, sourceModule: { in: ['financeiro', 'logistica'] } },
       select: { id: true, openAmount: true },
     });
     let resolved = 0;
