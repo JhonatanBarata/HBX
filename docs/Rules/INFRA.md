@@ -18,7 +18,7 @@
 |---|---|
 | `npm run up` | sobe ambiente local (backend, banco, webscraping legado, fallback engine, Webwhats local, frontend, Prisma Studio) |
 | `npm run down` | derruba o local (e o warm pool `hbx-engine-*`, salvo `HBX_DOWN_KEEP_ENGINES=true`) |
-| `npm run publish` | deploy Hostinger normal: diff, commit automático datado, preflight Prisma/build, push, atualiza VPS, migrations no container `hbx-backend` |
+| `npm run publish` | fluxo único completo: adiciona e commita tudo no `master`, faz push, rebuild/restart de backend, frontend, scraping, motores e Webwhats na VPS; migrations rodam nos serviços correspondentes |
 | `npm run new` | deploy seletivo: detecta arquivos mudados vs `origin/master` e rebuilda só os serviços afetados |
 | `npm run force` | recuperação/rebuild completo COM backup prévio em `backups/ops/<timestamp>` e dump de produção quando possível |
 | `npm run verify:prod` | verificação de produção (health backend, e-mail, WhatsApp, banco, frontend) — separada do publish |

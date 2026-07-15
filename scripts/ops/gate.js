@@ -9,8 +9,7 @@
 //   npm run gate            (raiz)
 //   node ./scripts/ops/gate.js
 //
-// Chamado automaticamente pelo `npm run publish` antes do deploy (ver scripts/ops/publish.js).
-// Escape de emergencia (NAO usar por rotina): --skip-gate ou HBX_SKIP_GATE=1 no publish —
+// Rodado sob demanda com `npm run gate`; o publish completo evita repetir builds locais.
 // o proprio `npm run gate` sempre roda tudo quando chamado direto.
 
 const path = require('path');
