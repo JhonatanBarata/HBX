@@ -52,6 +52,7 @@ import { RadarRunRepositoryService } from './radar/persistence/radar-run-reposit
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
+import { CnpjBaseQueryService } from './radar/providers/cnpj-public/cnpj-base-query.service';
 import { normalizeLookupValue, normalizePhoneDigits, buildWaLink } from './radar/shared/radar-core-shared';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { RadarWebscrapingCoreService } from './radar/radar-webscraping-core.service';
@@ -102,6 +103,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() googleSearchProvider?: GoogleSearchProviderService,
     @Optional() radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() radarHbxEngineErrors?: RadarHbxEngineErrorsService,
+    @Optional() cnpjBaseQuery?: CnpjBaseQueryService,
   ) {
     super(
       internalPrisma,
@@ -144,6 +146,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       googleSearchProvider,
       radarGoogleResponse,
       radarHbxEngineErrors,
+      cnpjBaseQuery,
     );
   }
 

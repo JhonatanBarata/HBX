@@ -2242,6 +2242,7 @@ export class RadarCorePresentationMixin {
     const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson);
     const quality = this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson);
     const evidenceJson = this.parseMaybeJsonObject(row?.evidenceJson || enrichmentParsed?.evidenceJson);
+    const meta = this.parseMaybeJsonObject(row?.metadataJson) || {};
     const rejectReasons = parseJsonArray(row?.rejectReasons);
     const safeWebsite = row?.website
       && !this.isBlockedLeadOfficialWebsite(row.website)
@@ -2264,6 +2265,17 @@ export class RadarCorePresentationMixin {
       : null;
     const safeSocialStatus = safeInstagramUrl || safeFacebookUrl ? row?.socialStatus || enrichmentParsed?.signals?.socialStatus || 'found' : 'missing';
     const safeSocialConfidence = safeInstagramUrl || safeFacebookUrl ? safeInteger(row?.socialConfidence) : 0;
+    // Calculado ANTES da máscara. É o único contrato de disponibilidade que a
+    // vitrine precisa; não contém telefone, e-mail, URL ou pessoa.
+    const channelPresence = {
+      whatsapp: whatsappStatus === 'confirmed'
+        || Object.values((meta as any)?.phonesWhatsapp || {}).some((value) => value === true),
+      telefone: Boolean(row?.phoneDigits || row?.phone || (Array.isArray((meta as any)?.phones) && (meta as any).phones.length)),
+      email: Boolean(safeEmail || (Array.isArray((meta as any)?.emails) && (meta as any).emails.length)),
+      instagram: Boolean(safeInstagramUrl),
+      facebook: Boolean(safeFacebookUrl),
+      site: Boolean(safeWebsite),
+    };
     const possibleSocialCandidates = Array.isArray(row?.possibleSocialCandidates)
       ? row.possibleSocialCandidates
       : Array.isArray(enrichmentParsed?.signals?.possibleSocialCandidates)
@@ -2337,7 +2349,6 @@ export class RadarCorePresentationMixin {
       channelMatchMode: 'prefer',
       salesProfile: null,
     } as NormalizedRadarFilters;
-    const meta = this.parseMaybeJsonObject(row?.metadataJson) || {};
     const publicLead = {
       id: String(row?.id || ''),
       placeId: row?.placeId || null,
@@ -2454,11 +2465,48 @@ export class RadarCorePresentationMixin {
       vendasSaleStatus: companyState?.vendasLead?.saleStatus || null,
       vendasSaleValue: companyState?.vendasLead?.saleValue != null ? Number(companyState.vendasLead.saleValue) : null,
       // Sinais de presença (sempre): a vitrine mostra ✓ sem o valor cru.
-      hasPhone: Boolean(row?.phoneDigits || row?.phone),
-      hasEmail: Boolean(safeEmail),
-      hasWhatsapp: whatsappStatus === 'confirmed',
+      channelPresence,
+      hasPhone: channelPresence.telefone,
+      hasEmail: channelPresence.email,
+      hasWhatsapp: channelPresence.whatsapp,
       // Máscara do contato direto na vitrine (revela ao puxar).
-      ...(maskContact ? { phone: '', phoneDigits: '', email: null, emailSource: null } : {}),
+      ...(maskContact ? {
+        phone: '',
+        phoneDigits: '',
+        email: null,
+        emailSource: null,
+        emails: [],
+        phones: [],
+        phonesWhatsapp: {},
+        website: null,
+        instagramUrl: null,
+        facebookUrl: null,
+        googleMapsUrl: null,
+        sourceUrl: null,
+        possibleSocialCandidates: [],
+        confirmedSocialCandidates: [],
+        ownerName: null,
+        ownerNames: [],
+        ownerPhone: null,
+        ownerInstagram: null,
+        ownerFacebook: null,
+        ownerSocialCandidates: [],
+        people: [],
+        enrichmentJson: null,
+        evidenceJson: null,
+        extractedFields: null,
+        quality: null,
+        qualityV2: null,
+        qualityReason: null,
+        rejectReasons: [],
+        opportunityReason: null,
+        historySummary: [],
+        rejectionReason: null,
+        complaintReason: null,
+        deniedReason: null,
+        vendasShortNote: null,
+        vendasLastResult: null,
+      } : {}),
       premiumLocked: !includeSmartFields,
       premiumFeatureStatus: includeSmartFields ? 'available' : 'locked',
       premiumTeaser: !includeSmartFields && Boolean(safeEmail || safeInstagramUrl || safeFacebookUrl || row?.recommendedChannel || row?.enrichmentScore || qualityV2),
@@ -3263,6 +3311,7 @@ export class RadarCorePresentationMixin {
   private buildCompactVendasEnrichmentJson(leadRow: any, quality: any, qualityV2: any, delivery: any) {
     const enrichment = parseJsonObject(leadRow?.enrichmentJson);
     const signals = parseJsonObject(enrichment?.signals);
+    const metadata = parseJsonObject(leadRow?.metadataJson);
     return {
       version: enrichment?.version || enrichment?.enrichmentVersion || RADAR_LEAD_ENRICHMENT_VERSION,
       whatsappStatus: enrichment?.whatsappStatus || null,
@@ -3275,6 +3324,11 @@ export class RadarCorePresentationMixin {
       quality: quality || null,
       qualityV2: qualityV2 || null,
       delivery: delivery || null,
+      emails: Array.isArray(metadata?.emails) ? metadata.emails.slice(0, 3) : [],
+      phones: Array.isArray(metadata?.phones) ? metadata.phones.slice(0, 3) : [],
+      phonesWhatsapp: metadata?.phonesWhatsapp && typeof metadata.phonesWhatsapp === 'object'
+        ? metadata.phonesWhatsapp
+        : {},
       signals: {
         recommendedChannel: signals?.recommendedChannel || leadRow?.recommendedChannel || null,
         painType: signals?.painType || leadRow?.painType || null,

@@ -174,6 +174,7 @@ import {
 } from '../../../team/team-policy-persistence';
 import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enrichment.service';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
+import { buildRankedRadarContacts } from '../persistence/radar-ranked-contacts';
 import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
 
 export class RadarCoreDeliveryMixin {
@@ -2358,6 +2359,14 @@ export class RadarCoreDeliveryMixin {
         : null;
       const mergedWebsite = resultWebsite || existingWebsite || null;
       const mergedEmail = normalizeBusinessEmail((result as any).email || existing?.email || '');
+      const rankedContacts = buildRankedRadarContacts({
+        primaryEmail: mergedEmail,
+        primaryPhone: result.phone || phoneDigits || existing?.phone || existing?.phoneDigits,
+        evidenceJson,
+        existingMetadataJson: existing?.metadataJson,
+        sourceEngine,
+        emailConfidence: (result as any).emailConfidence || existing?.emailConfidence,
+      });
       const mergedGoogleMapsUrl = String((result as any).googleMapsUrl || (result as any).mapsUrl || existing?.googleMapsUrl || '').trim() || null;
       const mergedWhatsappStatus = String(
         (result as any).whatsappStatus
@@ -2430,6 +2439,8 @@ export class RadarCoreDeliveryMixin {
           lastSourceEngine: sourceEngine,
           quality,
           delivery,
+          ...(rankedContacts.emails.length ? { emails: rankedContacts.emails } : {}),
+          ...(rankedContacts.phones.length ? { phones: rankedContacts.phones } : {}),
           ...(persistedEnrichmentEngines.length ? { enrichmentEngines: persistedEnrichmentEngines } : {}),
           // Preserve CNPJ fields from motor (never overwrite existing non-null value with null)
           ...(((result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj) ? { cnpj: (result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj } : {}),
@@ -2502,6 +2513,8 @@ export class RadarCoreDeliveryMixin {
           lastSourceEngine: sourceEngine,
           quality,
           delivery: finalDelivery,
+          ...(rankedContacts.emails.length ? { emails: rankedContacts.emails } : {}),
+          ...(rankedContacts.phones.length ? { phones: rankedContacts.phones } : {}),
           ...(persistedEnrichmentEngines.length ? { enrichmentEngines: persistedEnrichmentEngines } : {}),
           // Preserve CNPJ fields (never overwrite existing non-null with null)
           ...(((result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj) ? { cnpj: (result as any).cnpj || this.parseMaybeJsonObject(existing?.metadataJson)?.cnpj } : {}),
@@ -2543,8 +2556,7 @@ export class RadarCoreDeliveryMixin {
       // Fire-and-forget: nunca atrasa nem falha a persistência do lote.
       if (savedId) {
         const contactCandidates = [
-          ...((data as any).email ? [{ kind: 'email' as const, value: String((data as any).email), source: sourceEngine, confidence: safeInteger((data as any).emailConfidence) || 60 }] : []),
-          ...(phoneDigits ? [{ kind: 'phone' as const, value: phoneDigits, source: sourceEngine, confidence: 75 }] : []),
+          ...rankedContacts.candidates,
           ...((data as any).instagramUrl ? [{ kind: 'instagram' as const, value: String((data as any).instagramUrl), source: sourceEngine, confidence: safeInteger((data as any).socialConfidence) || 60 }] : []),
           ...((data as any).facebookUrl ? [{ kind: 'facebook' as const, value: String((data as any).facebookUrl), source: sourceEngine, confidence: safeInteger((data as any).socialConfidence) || 60 }] : []),
         ];

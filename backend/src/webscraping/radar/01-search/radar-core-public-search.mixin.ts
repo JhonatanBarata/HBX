@@ -337,6 +337,13 @@ export class RadarCorePublicSearchMixin {
         databaseResults.slice(0, normalized.quantity),
         'radar_database',
       );
+      await this.enqueueRadarPostSaveEnrichmentForSavedLeads(
+        context,
+        run.id,
+        normalized,
+        savedCounts?.savedLeadIds,
+        savedCounts?.savedWebEnrichmentLeadIds,
+      );
       await this.recalculateSearchRunCounters(run.id);
       await this.updateSearchRunMetrics(run.id, {
         sourceEngine: 'radar_database',

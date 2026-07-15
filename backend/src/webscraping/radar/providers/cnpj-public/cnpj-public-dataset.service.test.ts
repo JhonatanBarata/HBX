@@ -84,3 +84,16 @@ test('fetchRecords: prioriza registros COM contato antes dos sem contato', async
     ['Sem Fone A', 'Sem Fone B'],
   );
 });
+
+test('fetchRecords: erro do delegate nao vira base vazia silenciosa', async () => {
+  const service = new CnpjPublicDatasetService();
+  const prisma = {
+    cnpjPublicCompany: {
+      findMany: async () => { throw new Error('coluna ausente'); },
+    },
+  };
+  await assert.rejects(
+    () => service.fetchRecords({ prisma, normalized: baseNormalized }),
+    /Falha ao consultar CnpjPublicCompany: coluna ausente/,
+  );
+});

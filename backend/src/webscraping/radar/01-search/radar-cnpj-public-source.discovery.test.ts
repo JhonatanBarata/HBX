@@ -127,6 +127,29 @@ test('discovery com erro: degrade gracioso, devolve so o dataset (nao derruba a 
   else process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = originalDiscovery;
 });
 
+test('dataset indisponivel: marca partial_error e nao mascara a falha com discovery', async () => {
+  const original = process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
+  const originalDiscovery = process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
+  process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'true';
+  process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = 'true';
+  let discoveryCalled = false;
+  const dataset = { fetchRecords: async () => { throw new Error('delegate indisponivel'); } } as any;
+  const discovery = { discover: async () => { discoveryCalled = true; return []; } } as any;
+  const service = new RadarCnpjPublicSourceService(makeProviderStub(), dataset, discovery);
+
+  const result = await service.run({ normalized: baseNormalized(), limit: 20, prisma: {} });
+
+  assert.equal(result.status, 'partial_error');
+  assert.equal(result.retryable, true);
+  assert.equal(discoveryCalled, false);
+  assert.match(String(result.reason), /delegate indisponivel/);
+
+  if (original === undefined) delete process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
+  else process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = original;
+  if (originalDiscovery === undefined) delete process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
+  else process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = originalDiscovery;
+});
+
 test('merge dedup por cnpj: dataset primeiro, discovery so completa (sem duplicar)', async () => {
   const original = process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
   const originalDiscovery = process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;

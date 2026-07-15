@@ -4,6 +4,7 @@ import { MasterGuard } from '../../../auth/guards/master.guard';
 import {
   RadarMissionQueueService,
   RadarMissionStage,
+  PONTE_MISSION_STAGES,
 } from './radar-mission-queue.service';
 import { MissionResultApplyService } from './mission-result-apply.service';
 
@@ -35,9 +36,18 @@ export class RadarMissionsController {
     leaseTtlSeconds?: number;
   }) {
     const leaseTtlSeconds = Number(body?.leaseTtlSeconds);
+    const requestedStages = Array.isArray(body?.stages) ? body.stages.map(String) : [];
+    const allowedRequestedStages = requestedStages
+      .filter((stage): stage is RadarMissionStage => (PONTE_MISSION_STAGES as readonly string[]).includes(stage));
+    // Lista explícita sem nenhum stage público não pode virar `stages=[]` no serviço: lá vazio
+    // significa "sem filtro" e poderia capturar missão interna. Responde vazio sem tocar a fila.
+    if (requestedStages.length > 0 && allowedRequestedStages.length === 0) {
+      return { supported: true, paused: false, missions: [] };
+    }
+    const stages = requestedStages.length > 0 ? allowedRequestedStages : [...PONTE_MISSION_STAGES];
     return this.missionQueue.lease({
       workerId: String(body?.workerId || 'local-node'),
-      stages: Array.isArray(body?.stages) ? (body.stages as RadarMissionStage[]) : null,
+      stages,
       batchSize: Number(body?.batchSize) || 1,
       correlationId: body?.correlationId || null,
       leaseTtlMs: Number.isFinite(leaseTtlSeconds) && leaseTtlSeconds > 0 ? leaseTtlSeconds * 1000 : null,

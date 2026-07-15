@@ -35,7 +35,9 @@ export class CnpjPublicDatasetService {
     limit?: number;
   }): Promise<CnpjPublicCompanyRecord[]> {
     const prisma = input.prisma;
-    if (!prisma?.cnpjPublicCompany?.findMany) return [];
+    if (!prisma?.cnpjPublicCompany?.findMany) {
+      throw new Error('CnpjPublicCompany indisponível neste processo.');
+    }
 
     const city = normalizeText(input.normalized?.city);
     const state = String(input.normalized?.state || '').trim().toUpperCase();
@@ -87,8 +89,10 @@ export class CnpjPublicDatasetService {
         });
         rows = rows.concat(fill || []);
       }
-    } catch {
-      return [];
+    } catch (error) {
+      // Ausência real de linhas é `[]`; erro de delegate/schema precisa subir para a fonte
+      // marcar partial_error. Silenciar aqui acionava discovery e fingia base vazia.
+      throw new Error(`Falha ao consultar CnpjPublicCompany: ${String((error as any)?.message || error)}`);
     }
 
     return (rows || []).map((row) => ({

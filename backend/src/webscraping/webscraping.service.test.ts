@@ -2991,7 +2991,7 @@ test('mapHbxContactResult preserva contrato de enriquecimento vindo do HBX engin
   assert.equal((mapped.enrichmentJson as any).social.instagramUrl.score, 78);
 });
 
-test('processSearchRun nao enfileira lookup social automatico na busca primaria', async () => {
+test('processSearchRun enfileira enriquecimento pos-save para o item aprovado', async () => {
   const previousFetch = global.fetch;
   global.fetch = (async () =>
     createResponse(200, {
@@ -3015,9 +3015,18 @@ test('processSearchRun nao enfileira lookup social automatico na busca primaria'
   });
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
-  let enqueued = false;
+  service.getMissionQueue = () => ({
+    enabled: () => true,
+    supportsMissionPersistence: async () => false,
+    isQueuePaused: async () => false,
+  });
+  let socialEnqueued = false;
+  let webEnqueued = false;
   service.enqueueRadarSocialLookupForSavedLeads = (context: any, runId: string, input: any, leadIds: string[]) => {
-    enqueued = true;
+    socialEnqueued = leadIds.length > 0;
+  };
+  service.enqueueRadarWebEnrichmentForSavedLeads = (context: any, runId: string, input: any, leadIds: string[]) => {
+    webEnqueued = leadIds.length > 0;
   };
 
   try {
@@ -3031,7 +3040,8 @@ test('processSearchRun nao enfileira lookup social automatico na busca primaria'
 
     assert.equal(items.length, 1);
     assert.equal(items[0].status, 'found');
-    assert.equal(enqueued, false);
+    assert.equal(socialEnqueued, true);
+    assert.equal(webEnqueued, true);
     assert.equal(JSON.parse(items[0].rawJson).socialStatus, 'pending');
     assert.notEqual(run.status, 'failed');
   } finally {

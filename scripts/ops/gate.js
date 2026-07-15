@@ -49,6 +49,12 @@ const steps = [
     args: ['run', 'build'],
   },
   {
+    label: 'backend: contrato Prisma do fencing Radar (schema + migration aditiva)',
+    cwd: path.join(repoRoot, 'backend'),
+    command: 'npm',
+    args: ['run', 'test:prisma-contract'],
+  },
+  {
     label: 'backend: test:credits (créditos, carteira, débito master, estorno)',
     cwd: path.join(repoRoot, 'backend'),
     command: 'npm',

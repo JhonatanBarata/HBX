@@ -159,6 +159,29 @@ test('pausa real: cursor desligado/ausente → lease devolve vazio e nada drena'
   }
 });
 
+test('job interno enrich_search_item respeita a pausa absoluta da fila', async () => {
+  const { service } = buildService({ cursorEnabled: false });
+  await service.enqueue({
+    stage: 'enrich_search_item',
+    payload: { mode: 'web', leadId: 'item-1' },
+    dedupeKey: 'run:r1:item:item-1:web',
+  });
+  const result = await service.lease({
+    workerId: 'backend-post-save',
+    stages: ['enrich_search_item'],
+    batchSize: 1,
+  });
+  assert.equal(result.paused, true);
+  assert.equal(result.missions.length, 0);
+});
+
+test('pausa falha fechada quando tabela existe mas delegate Prisma legado nao existe', async () => {
+  const service = new RadarMissionQueueService({
+    hasTable: async (name: string) => name === 'RadarFactoryCursor',
+  } as any);
+  assert.equal(await service.isQueuePaused(), true);
+});
+
 test('lease: claim otimista, attempts incrementa, segunda passada não pega a mesma missão', async () => {
   const { fake, service } = buildService();
   await service.enqueue({ stage: 'alvo', payload: { taskId: 't1' }, dedupeKey: 'task:t1' });

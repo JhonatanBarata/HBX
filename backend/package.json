@@ -9,6 +9,7 @@
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma --no-hints",
     "prisma:validate": "prisma validate --schema=./prisma/schema.prisma",
+    "test:prisma-contract": "node --test ./scripts/radar-schema-migration.contract.test.js",
     "prebuild": "npm run prisma:generate",
     "build": "tsc -p tsconfig.json",
     "test:credits": "npm run build && node --test dist/credits/credit-action-config.service.test.js dist/credits/credit-action-usage.service.test.js dist/credits/credit-pack-catalog.test.js dist/credits/credit-pack-config.service.test.js dist/credits/credit-wallet.service.test.js dist/credits/credits.service.test.js dist/credits/credits-master-debit.controller.test.js dist/financeiro/financeiro-credit-reversal.test.js dist/commercial-plans/commercial-usage-limits.service.test.js",

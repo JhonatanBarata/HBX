@@ -30,6 +30,11 @@ import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
+import {
+  RADAR_CHANNEL_ORDER,
+  resolveRadarChannelPresence,
+  type ChannelPresence,
+} from "@/lib/radar-channel-presence";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };
@@ -53,6 +58,7 @@ export type RadarLead = {
   hasPhone?: boolean;
   hasEmail?: boolean;
   hasWhatsapp?: boolean;
+  channelPresence?: Partial<ChannelPresence> | null;
   instagramUrl?: string | null;
   facebookUrl?: string | null;
   website?: string | null;
@@ -401,6 +407,7 @@ export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: bo
     phone: revealed ? lead.phone : null,
     email: revealed ? (lead.email ?? null) : null,
     website: revealed ? (lead.website ?? null) : null,
+    channelPresence: resolveRadarChannelPresence(lead),
     // Multi-contatos e empresa/dono — revelados junto do contato; o card ainda
     // aplica o cadeado por tier (canSeeCompany) sobre os dados pessoais do dono.
     people: revealed ? (lead.people ?? null) : null,
@@ -1144,17 +1151,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct]);
 
   function contatoMascarado(row: RadarLead) {
-    const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
-      || Boolean(row.instagramUrl) || Boolean(row.facebookUrl) || Boolean(row.website);
+    const channelPresence = resolveRadarChannelPresence(row);
+    const visibleChannels = RADAR_CHANNEL_ORDER.filter(canal => channelPresence[canal]);
     return (
-      <span className="radar2-locked">
-        {row.hasWhatsapp && <CanalIcon canal="whatsapp" size="sm" />}
-        {row.hasEmail && <CanalIcon canal="email" size="sm" />}
-        {row.hasPhone && !row.hasWhatsapp && <CanalIcon canal="telefone" size="sm" />}
-        {row.instagramUrl && <CanalIcon canal="instagram" size="sm" />}
-        {row.facebookUrl && <CanalIcon canal="facebook" size="sm" />}
-        {row.website && !row.instagramUrl && !row.facebookUrl && <CanalIcon canal="site" size="sm" />}
-        <span>{has ? "revela no Puxar" : "sem contato"}</span>
+      <span className="radar2-locked" aria-label="Canais encontrados">
+        {visibleChannels.map(canal => <CanalIcon key={canal} canal={canal} size="sm" />)}
+        <span>{visibleChannels.length > 0 ? "revela no Puxar" : "sem contato"}</span>
       </span>
     );
   }

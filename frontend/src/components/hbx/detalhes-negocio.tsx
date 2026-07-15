@@ -29,6 +29,7 @@ import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
 import { apiFetch, type ApiError } from "@/lib/api";
+import type { ChannelPresence } from "@/lib/radar-channel-presence";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 // ── Humanização: mapa de snake_case → label legível ──────────────────────────
@@ -228,6 +229,8 @@ export type NegocioDetail = {
   email?: string | null;
   website?: string | null;
   channel?: string | null;
+  /** Presença sanitizada: colore canais sem revelar valores ou criar links. */
+  channelPresence?: ChannelPresence | null;
   // Multi-contatos acumulados pelo scraper (até 3) — captura-e-acumula, nunca descarta.
   emails?: string[] | null;
   phones?: string[] | null;
@@ -746,6 +749,9 @@ function ChannelRow({
   }
 
   function getCanalState(canal: Canal): CanalState {
+    const presence = n.channelPresence?.[canal];
+    if (typeof presence === "boolean") return presence ? "active" : "missing";
+
     switch (canal) {
       case "whatsapp": {
         if (!n.phone) return "missing";
@@ -815,7 +821,7 @@ function ChannelRow({
           canalState === "missing" ? "chan-ico--missing" :
           "chan-ico--off";
 
-        if (canal === "whatsapp" && canalState === "active" && (onWaExternal || onWaInternal)) {
+        if (canal === "whatsapp" && canalState === "active" && Boolean(n.phone) && (onWaExternal || onWaInternal)) {
           return (
             <span key={canal} className={cls} style={{ cursor: "pointer" }}
               onClick={() => { if (useInternal) onWaInternal!(); else if (onWaExternal) onWaExternal(); }}

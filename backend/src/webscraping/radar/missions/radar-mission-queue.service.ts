@@ -16,7 +16,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // `xray_note` (CHIP E1, 05/07): missão de NOTA ICP + resumo do raio-x, processada pela PONTE no 30B
 // local (o T1 provou que o 30B RANQUEIA a nota — sai do interino 4b/7b da VPS). A nota grava no lead
 // via o caminho de aplicação de resultado (MissionResultApplyService), nunca direto pelo worker.
-export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead', 'xray_note'] as const;
+export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead', 'enrich_search_item', 'xray_note'] as const;
 export type RadarMissionStage = (typeof RADAR_MISSION_STAGES)[number];
 
 /** Estágios que a PONTE (worker local do 30B) processa por lease/HTTP. Os demais são da fábrica in-process. */
@@ -163,7 +163,9 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   async isQueuePaused(): Promise<boolean> {
     const hasCursor = await this.prisma.hasTable('RadarFactoryCursor').catch(() => false);
     if (!hasCursor) return true;
-    const cursor = await (this.prisma as any).radarFactoryCursor
+    const cursorDelegate = (this.prisma as any).radarFactoryCursor;
+    if (!cursorDelegate?.findUnique) return true;
+    const cursor = await cursorDelegate
       .findUnique({ where: { key: 'main' }, select: { enabled: true } })
       .catch(() => null);
     return !cursor || cursor.enabled !== true;

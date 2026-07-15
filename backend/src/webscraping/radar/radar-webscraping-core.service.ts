@@ -218,6 +218,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   private searchRunQueuePumpActive = false;
   private radarAutoDistributionPumpActive = false;
   private radarAutoDistributionTimer: NodeJS.Timeout | null = null;
+  private radarPostSaveEnrichmentTimer: NodeJS.Timeout | null = null;
   private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
   private readonly leadPlusSignalEnrichmentInFlight = new Set<string>();
   private readonly requiredChannelEnrichmentInFlight = new Set<string>();
@@ -285,12 +286,23 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     setTimeout(() => {
       void this.processNextQueuedSearchRun();
     }, 2_000);
+    setTimeout(() => {
+      void this.drainRadarPostSaveEnrichmentQueue();
+    }, 3_000);
+    this.radarPostSaveEnrichmentTimer = setInterval(() => {
+      void this.drainRadarPostSaveEnrichmentQueue();
+    }, 30_000);
+    this.radarPostSaveEnrichmentTimer.unref?.();
   }
 
   onModuleDestroy() {
     if (this.radarAutoDistributionTimer) {
       clearInterval(this.radarAutoDistributionTimer);
       this.radarAutoDistributionTimer = null;
+    }
+    if (this.radarPostSaveEnrichmentTimer) {
+      clearInterval(this.radarPostSaveEnrichmentTimer);
+      this.radarPostSaveEnrichmentTimer = null;
     }
   }
 

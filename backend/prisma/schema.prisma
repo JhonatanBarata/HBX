@@ -3257,7 +3257,7 @@ model WebscrapingOperationalConfig {
 // puxa por HTTP e executa exclusivamente enrich_lead/xray_note produzidas pela saga paga.
 model RadarMission {
   id             String    @id @default(cuid())
-  stage          String    // enrich_lead | xray_note
+  stage          String    // enrich_lead | enrich_search_item | xray_note
   status         String    @default("queued") // queued | leased | completed | dead | canceled
   priority       Int       @default(0)
   payloadVersion Int       @default(1)

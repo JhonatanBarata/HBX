@@ -180,6 +180,56 @@ function pruneRadarCnpjPublicClientRunState(now: number) {
   }
 }
 
+function sanitizeRadarPostSaveInput(input: NormalizedSearchInput) {
+  const filters = input?.filters || ({} as any);
+  const allowedChannels = new Set(['whatsapp', 'instagram', 'email', 'website', 'phone', 'facebook']);
+  const channelMatchMode = ['prefer', 'any_required', 'all_required'].includes(String(input?.channelMatchMode))
+    ? input.channelMatchMode
+    : 'prefer';
+  const freshness = ['live', 'database_first', 'hybrid'].includes(String(input?.freshness)) ? input.freshness : 'live';
+  return {
+    city: String(input?.city || '').trim(),
+    state: String(input?.state || '').trim().toUpperCase(),
+    segment: String(input?.segment || '').trim(),
+    radiusKm: Number(input?.radiusKm) || 0,
+    originLat: input?.originLat == null ? null : Number.isFinite(Number(input.originLat)) ? Number(input.originLat) : null,
+    originLng: input?.originLng == null ? null : Number.isFinite(Number(input.originLng)) ? Number(input.originLng) : null,
+    regionalCities: (Array.isArray(input?.regionalCities) ? input.regionalCities : []).slice(0, 50).map((row) => ({
+      city: String(row?.city || '').trim(),
+      state: String(row?.state || '').trim().toUpperCase(),
+      normalizedCity: String(row?.normalizedCity || '').trim(),
+      distanceKm: Number(row?.distanceKm) || 0,
+    })),
+    quantity: Math.max(1, Math.trunc(Number(input?.quantity) || 1)),
+    engine: input?.engine || 'hbx',
+    targetType: input?.targetType || 'pj',
+    filters: {
+      minRating: filters.minRating == null ? null : Number(filters.minRating),
+      minReviews: filters.minReviews == null ? null : Math.trunc(Number(filters.minReviews)),
+      onlyWithWebsite: filters.onlyWithWebsite === true,
+      ...(filters.radiusKm == null ? {} : { radiusKm: Number(filters.radiusKm) || 0 }),
+    },
+    normalizedCity: String(input?.normalizedCity || '').trim(),
+    normalizedSegment: String(input?.normalizedSegment || '').trim(),
+    preferredChannels: (Array.isArray(input?.preferredChannels) ? input.preferredChannels : []).map(String).filter((value) => allowedChannels.has(value)),
+    requiredChannels: (Array.isArray(input?.requiredChannels) ? input.requiredChannels : []).map(String).filter((value) => allowedChannels.has(value)),
+    channelMatchMode,
+    freshness,
+  };
+}
+
+function rehydrateRadarPostSaveInput(value: any): NormalizedSearchInput {
+  const safe = sanitizeRadarPostSaveInput(value as NormalizedSearchInput);
+  return {
+    ...safe,
+    filtersJson: JSON.stringify(safe.filters),
+    searchSignature: '',
+    cacheSignature: '',
+    excludePhoneDigits: [],
+    salesProfile: null,
+  } as NormalizedSearchInput;
+}
+
 export class RadarCoreSearchLoopMixin {
   [key: string]: any;
   private enqueueRadarSocialLookupForSavedLeads(
@@ -245,6 +295,13 @@ export class RadarCoreSearchLoopMixin {
           results,
           'cnpj_public',
         );
+        await this.enqueueRadarPostSaveEnrichmentForSavedLeads(
+          context,
+          runId,
+          normalized,
+          savedCounts?.savedLeadIds,
+          savedCounts?.savedWebEnrichmentLeadIds,
+        );
         accepted = safeInteger(savedCounts?.found);
       }
       if (accepted === 0) {
@@ -277,6 +334,145 @@ export class RadarCoreSearchLoopMixin {
       engineUrl,
       this.buildRadarWebEnrichmentJobHost(),
     );
+  }
+
+  /**
+   * Fila durável do pós-save. O payload contém apenas contexto técnico e o filtro normalizado;
+   * contato continua no item persistido e só é revelado pelos presenters depois da aquisição.
+   * Sem RadarMission no ambiente, mantém o comportamento legado em memória como degradação.
+   */
+  private async enqueueRadarPostSaveEnrichmentForSavedLeads(
+    context: SearchExecutionContext,
+    runId: string,
+    input: NormalizedSearchInput,
+    socialLeadIds: string[] = [],
+    webLeadIds: string[] = [],
+    engineUrl?: string | null,
+  ) {
+    const socialIds = Array.from(new Set((socialLeadIds || []).map(String).filter(Boolean)));
+    const webIds = Array.from(new Set((webLeadIds || []).map(String).filter(Boolean)));
+    if (input.targetType !== 'pj' || (!socialIds.length && !webIds.length)) return;
+
+    const queue = this.getMissionQueue();
+    if (!queue.enabled()) {
+      const paused = await queue.isQueuePaused();
+      if (!paused) {
+        this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, input, webIds, engineUrl);
+        this.enqueueRadarSocialLookupForSavedLeads(context, runId, input, socialIds, engineUrl);
+      }
+      return;
+    }
+    const durable = await queue.supportsMissionPersistence().catch(() => false);
+    if (!durable) {
+      const pausedWithoutPersistence = await queue.isQueuePaused();
+      if (!pausedWithoutPersistence) {
+        this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, input, webIds, engineUrl);
+        this.enqueueRadarSocialLookupForSavedLeads(context, runId, input, socialIds, engineUrl);
+      }
+      return;
+    }
+    const paused = await queue.isQueuePaused();
+
+    const enqueueMode = async (mode: 'web' | 'social', leadId: string) => {
+      const result = await queue.enqueue({
+        stage: 'enrich_search_item',
+        payload: {
+          mode,
+          companyId: Math.trunc(Number(context.companyId)),
+          userId: Math.trunc(Number(context.userId)),
+          runId,
+          leadId,
+          input: sanitizeRadarPostSaveInput(input),
+        },
+        dedupeKey: `run:${runId}:item:${leadId}:${mode}`,
+        correlationId: runId,
+        priority: mode === 'web' ? 20 : 10,
+      });
+      if (!result.missionId) throw new Error('RadarMission indisponível para o job pós-save.');
+    };
+
+    let durableQueued = 0;
+    for (const leadId of webIds) {
+      try {
+        await enqueueMode('web', leadId);
+        durableQueued += 1;
+      } catch (error) {
+        this.logger?.warn?.(`[radar-post-save] fila durável web falhou item=${leadId}: ${String((error as any)?.message || error)}`);
+        if (!paused) this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, input, [leadId], engineUrl);
+      }
+    }
+    for (const leadId of socialIds) {
+      try {
+        await enqueueMode('social', leadId);
+        durableQueued += 1;
+      } catch (error) {
+        this.logger?.warn?.(`[radar-post-save] fila durável social falhou item=${leadId}: ${String((error as any)?.message || error)}`);
+        if (!paused) this.enqueueRadarSocialLookupForSavedLeads(context, runId, input, [leadId], engineUrl);
+      }
+    }
+    if (!paused && durableQueued > 0) setTimeout(() => { void this.drainRadarPostSaveEnrichmentQueue(); }, 0);
+  }
+
+  async drainRadarPostSaveEnrichmentQueue() {
+    if ((this as any).radarPostSaveEnrichmentDrainActive) return;
+    (this as any).radarPostSaveEnrichmentDrainActive = true;
+    const queue = this.getMissionQueue();
+    try {
+      if (!queue.enabled()) return;
+      for (let cycle = 0; cycle < 10; cycle += 1) {
+        const leased = await queue.lease({
+          workerId: `hbx-backend-post-save:${process.pid}`,
+          stages: ['enrich_search_item'],
+          batchSize: 10,
+        });
+        if (!leased.supported || !leased.missions.length) break;
+        for (const mission of leased.missions) {
+          let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+          let heartbeatInFlight: Promise<void> = Promise.resolve();
+          let leaseLost = false;
+          try {
+            const firstHeartbeat = await queue.heartbeat(mission.id, mission.leaseId);
+            if (!firstHeartbeat.ok) continue;
+            const heartbeatMs = Math.max(5, Math.trunc(Number(mission.heartbeatSeconds) || 40)) * 1000;
+            heartbeatTimer = setInterval(() => {
+              heartbeatInFlight = queue.heartbeat(mission.id, mission.leaseId)
+                .then((result) => { if (!result.ok) leaseLost = true; })
+                .catch(() => { leaseLost = true; });
+            }, heartbeatMs);
+            heartbeatTimer.unref?.();
+
+            const payload = mission.payload || {};
+            const mode = String(payload.mode || '');
+            const leadId = String(payload.leadId || '').trim();
+            const companyId = Math.trunc(Number(payload.companyId || 0));
+            const userId = Math.trunc(Number(payload.userId || 0));
+            const missionContext = { companyId, userId, user: null } as SearchExecutionContext;
+            const missionInput = rehydrateRadarPostSaveInput(payload.input);
+            if (!leadId || !companyId || !userId || missionInput?.targetType !== 'pj') {
+              await queue.fail(mission.id, mission.leaseId, 'payload_pos_save_invalido', false);
+              continue;
+            }
+            if (mode === 'web') {
+              await this.runRadarWebEnrichmentForSavedLead(missionContext, leadId, missionInput);
+            } else if (mode === 'social') {
+              await this.runRadarSocialLookupForSavedLead(missionContext, leadId, missionInput);
+            } else {
+              await queue.fail(mission.id, mission.leaseId, 'modo_pos_save_invalido', false);
+              continue;
+            }
+            await heartbeatInFlight;
+            if (!leaseLost) await queue.complete(mission.id, mission.leaseId, { mode, leadId });
+          } catch (error) {
+            await heartbeatInFlight.catch(() => undefined);
+            if (!leaseLost) await queue.fail(mission.id, mission.leaseId, String((error as any)?.message || error), true);
+          } finally {
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+          }
+        }
+      }
+    } finally {
+      (this as any).radarPostSaveEnrichmentDrainActive = false;
+    }
   }
 
   private async drainRadarSocialLookupQueue() {
@@ -538,6 +734,13 @@ export class RadarCoreSearchLoopMixin {
       const incoming = Array.isArray(response.results) ? response.results : [];
       if (incoming.length > 0) {
         const savedCounts = await this.saveSearchRunResults(context, normalized, runId, incoming, 'google_emergency');
+        await this.enqueueRadarPostSaveEnrichmentForSavedLeads(
+          context,
+          runId,
+          normalized,
+          savedCounts?.savedLeadIds,
+          savedCounts?.savedWebEnrichmentLeadIds,
+        );
         await this.recalculateSearchRunCounters(runId);
       }
       await this.prisma.webscrapingSearchRun.update({
@@ -1031,6 +1234,14 @@ export class RadarCoreSearchLoopMixin {
         incoming,
         'hbx',
         safeInteger(current.attemptCount) * batchLimit,
+        engineUrl,
+      );
+      await this.enqueueRadarPostSaveEnrichmentForSavedLeads(
+        context,
+        runId,
+        batchInput,
+        savedCounts?.savedLeadIds,
+        savedCounts?.savedWebEnrichmentLeadIds,
         engineUrl,
       );
       if (lease) {

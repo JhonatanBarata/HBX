@@ -1,5 +1,6 @@
 import { Injectable, Optional } from '@nestjs/common';
 import type { LeadQualityResult, WebscrapingContactResult } from '../../webscraping.service';
+import { resolveLeadQualityV2FinalRankScore } from '../../lead-quality-v2-resolver';
 import type { NormalizedSearchInput, RadarWebsiteStatus } from '../shared/radar-types';
 import { RadarOpportunitySignalService, type RadarOpportunitySignalResult } from './radar-opportunity-signal.service';
 
@@ -32,6 +33,8 @@ export class RadarScoreEnrichmentService {
   }
 
   buildOpportunityScore(result: WebscrapingContactResult, quality: LeadQualityResult | null | undefined, host: RadarScoreEnrichmentHost) {
+    const qualityV2Score = resolveLeadQualityV2FinalRankScore(result);
+    if (qualityV2Score !== null) return qualityV2Score;
     if (this.hasOpportunitySignalEvidence(result)) {
       const analysis = this.opportunitySignalService.analyze(result, { segment: (result as any).segment, city: (result as any).city, state: (result as any).state }, host);
       return analysis.opportunityScore;
