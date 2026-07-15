@@ -19,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - name: Checkout patch branch
+      - name: Checkout latest master
         uses: actions/checkout@v4
         with:
-          ref: agent/search-bulk-toolbar-top
+          ref: master
           fetch-depth: 0
 
       - name: Use Node.js
@@ -235,7 +235,7 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Commit validated change
+      - name: Commit validated change to master
         shell: bash
         run: |
           git config user.name "HBX Agent"
@@ -243,4 +243,11 @@ jobs:
           git add "frontend/src/app/(app)/leads/page.client.tsx" frontend/src/app/hbx-theme/screens.css
           git diff --cached --quiet && { echo "No changes produced"; exit 1; }
           git commit -m "feat: move lead bulk actions above results"
-          git push origin HEAD:agent/search-bulk-toolbar-top
+          PARENT_SHA="$(git rev-parse HEAD^)"
+          git fetch origin master
+          CURRENT_MASTER="$(git rev-parse origin/master)"
+          if [ "$CURRENT_MASTER" != "$PARENT_SHA" ]; then
+            echo "master advanced during validation: expected $PARENT_SHA, found $CURRENT_MASTER"
+            exit 1
+          fi
+          git push origin HEAD:master
