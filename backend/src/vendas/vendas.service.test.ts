@@ -3193,3 +3193,45 @@ test('intakeAdvertisingLead: sem coluna leadTemperature grava origem sem explodi
   assert.equal(created[0].leadTemperature, undefined);
   assert.equal(leadUpdates.length, 0);
 });
+
+test('findCockpitCompanyByLead: telefone inequívoco encerra antes das buscas caras', async () => {
+  const queriedLanes: any[] = [];
+  const { service } = createService({
+    prisma: {
+      cnpjPublicCompany: {
+        findMany: async ({ where }: any) => {
+          queriedLanes.push(where);
+          if (where?.phoneDigits) {
+            return [{
+              cnpj: '63240944000100',
+              phoneDigits: '5563999998888',
+              phone: '63999998888',
+              nomeFantasia: 'Empresa Encontrada',
+              razaoSocial: 'Empresa Encontrada LTDA',
+              city: 'Tocantinopolis',
+              normalizedCity: 'tocantinopolis',
+              state: 'TO',
+              situacao: 'ativa',
+            }];
+          }
+          throw new Error('busca cara nao deveria ser executada');
+        },
+      },
+    },
+  });
+
+  const result = await (service as any).findCockpitCompanyByLead({
+    id: 'lead-cockpit-1',
+    name: 'Empresa Encontrada',
+    phone: '63999998888',
+    phoneNormalized: '5563999998888',
+    email: 'contato@empresa.test',
+    city: 'Tocantinopolis',
+    state: 'TO',
+    address: 'Rua Central, 100',
+  });
+
+  assert.equal(result?.company?.cnpj, '63240944000100');
+  assert.equal(queriedLanes.length, 1);
+  assert.ok(queriedLanes[0]?.phoneDigits, 'a única lane consultada deve ser a indexada por telefone');
+});

@@ -5499,6 +5499,12 @@ export class VendasService {
 
     if (phoneCandidates.length) {
       await collect({ phoneDigits: { in: phoneCandidates } }, 30);
+
+      // Telefone e indexado e vale como contato forte no seletor. Se ele ja produziu um
+      // vencedor inequívoco, encerra aqui: continuar por e-mail/nome/endereco pode varrer a
+      // base RFB inteira e fazer o proxy expirar antes de o cockpit responder.
+      const phoneMatch = selectVendasRfbMatch(lead || {}, Array.from(byCnpj.values()));
+      if (phoneMatch) return phoneMatch;
     }
 
     const email = String(lead?.email || '').trim().toLowerCase();
