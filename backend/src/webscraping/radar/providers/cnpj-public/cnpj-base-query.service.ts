@@ -65,6 +65,7 @@ export type CnpjBaseQueryInput = {
   ownerQualifications?: string[];
   excluirJaEntregues?: boolean;
   limit?: number;
+  includeCount?: boolean;
   cursor?: string | null;
 };
 
@@ -111,6 +112,28 @@ function isLikelyCelular(phoneDigits: string | null | undefined): boolean {
   // Regra-do-9: DDD (2) + 9 dígitos, 1º dígito do número = 9.
   const local = digits.length > 11 ? digits.slice(-11) : digits;
   return local.length === 11 && local[2] === '9';
+}
+
+// Mesmo princípio da busca principal do Radar: a palavra digitada pelo usuário é pesquisada
+// diretamente no texto normalizado da Receita (fantasia, razão social e atividade). Não exige
+// que a pessoa conheça o código ou a nomenclatura oficial do CNAE. Para termos longos, também
+// usa um radical curto: "sorveteria" encontra "sorvetes" na descrição da atividade.
+function keywordVariants(value: unknown): string[] {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  const tokens = normalized.split(/\s+/).filter((token) => token.length >= 4);
+  return Array.from(new Set(tokens.flatMap((token) => {
+    const singularPlural = token.endsWith('s') ? [token, token.slice(0, -1)] : [token, `${token}s`];
+    // Cinco a oito caracteres preservam contexto suficiente e conectam variações naturais de
+    // atividade (transportadora/transporte, sorveteria/sorvetes) sem precisar de uma lista de CNAEs.
+    const radicalLength = Math.max(5, Math.min(8, token.length - 3));
+    const radical = token.length >= 7 ? token.slice(0, radicalLength) : null;
+    return radical ? [...singularPlural, radical] : singularPlural;
+  })));
 }
 
 function selarQualidade(row: { phone: string | null; email: string | null; phoneShareCount: number | null; emailShareCount: number | null; whatsappValidado?: boolean }, maxShare: number): CnpjBaseSampleRow['selo'] {
@@ -192,11 +215,13 @@ export class CnpjBaseQueryService {
       if (input.capitalMax != null) where.capitalSocial.lte = input.capitalMax;
     }
     if (input.keyword) {
+      const keyword = String(input.keyword).trim();
+      const variants = keywordVariants(keyword);
       and.push({
         OR: [
-          { razaoSocial: { contains: input.keyword, mode: 'insensitive' } },
-          { nomeFantasia: { contains: input.keyword, mode: 'insensitive' } },
-          { searchText: { contains: String(input.keyword).toLowerCase() } },
+          { razaoSocial: { contains: keyword, mode: 'insensitive' } },
+          { nomeFantasia: { contains: keyword, mode: 'insensitive' } },
+          ...variants.map((token) => ({ searchText: { contains: token } })),
         ],
       });
     }
@@ -296,7 +321,7 @@ export class CnpjBaseQueryService {
     if (!(await this.supports())) {
       throw new ServiceUnavailableException('Base Receita (CnpjPublicCompany) ainda nao foi carregada neste ambiente.');
     }
-    const limit = Math.min(Math.max(Math.trunc(Number(input.limit) || 20), 1), 20);
+    const limit = Math.min(Math.max(Math.trunc(Number(input.limit) || 20), 1), 1000);
     const where = this.buildWhere(input);
 
     let excludeCnpjs: string[] = [];
@@ -308,9 +333,7 @@ export class CnpjBaseQueryService {
     const cursorClause = input.cursor ? { cnpj: { gt: input.cursor } } : {};
     const finalWhere = cursorClause.cnpj ? { AND: [where, cursorClause] } : where;
 
-    const [count, rows] = await Promise.all([
-      this.db().cnpjPublicCompany.count({ where }).catch(() => 0),
-      this.db().cnpjPublicCompany.findMany({
+    const rowsPromise = this.db().cnpjPublicCompany.findMany({
         where: finalWhere,
         orderBy: { cnpj: 'asc' },
         take: limit,
@@ -321,8 +344,11 @@ export class CnpjBaseQueryService {
           website: true, openedAt: true, firstSeenAt: true, phoneShareCount: true, emailShareCount: true,
           phoneDigits: true, ownerName: true, ownerQualification: true,
         },
-      }).catch(() => []),
-    ]);
+      }).catch(() => []);
+    const countPromise = input.includeCount === false
+      ? Promise.resolve<number | null>(null)
+      : this.db().cnpjPublicCompany.count({ where }).catch(() => 0);
+    const [count, rows] = await Promise.all([countPromise, rowsPromise]);
 
     const whatsappValidados = await this.lookupWhatsappValidated(rows.map((r: any) => r.phoneDigits).filter(Boolean));
 

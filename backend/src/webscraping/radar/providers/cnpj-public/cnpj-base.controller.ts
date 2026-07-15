@@ -53,7 +53,8 @@ export class CnpjBaseQueryDto implements CnpjBaseQueryInput {
   @IsOptional() @IsString() ownerNameKeyword?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) ownerQualifications?: string[];
   @IsOptional() @IsBoolean() excluirJaEntregues?: boolean;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(20) limit?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(1000) limit?: number;
+  @IsOptional() @IsBoolean() includeCount?: boolean;
   @IsOptional() @IsString() cursor?: string | null;
 }
 

@@ -332,131 +332,27 @@
 
   </div><!-- /v2-cols -->
 
-  <!-- ============ HOT-02+03 — BASE RECEITA (pesquisa avançada + anti-contador) ============ -->
+  <!-- ============ BASE RECEITA — lista rápida de e-mails ============ -->
   <section class="card" id="cnpj-base">
     <div class="cockpit-head">
       <div class="hero-title">
-        <span class="label">Base Receita · pesquisa avançada</span>
+        <span class="label">Base Receita · contatos com e-mail</span>
         <span id="cb-status" class="pill pill-muted">pronta</span>
       </div>
     </div>
-    <p class="delta" style="margin:0 0 12px;">Monta lista fria segmentada da base local da RFB (CnpjPublicCompany) sem gastar motor/scraping. Anti-contador (selo 🟢🟡🟠🔴) é o que a Receita/CNPJ Biz não têm — presença digital (site/Instagram/nota IA) é OUTPUT do enriquecimento do Radar, não filtro desta base fria.</p>
-
-    <!-- Presets de 1 clique (só o que tem lastro em coluna populada da base fria) -->
-    <div class="chk-row" id="cb-presets">
-      <button class="chk cb-preset" data-preset="abriu-mes-cidade" title="Empresas abertas este mês (firstSeenAt) — combine com sua cidade no bloco Localização">Abriu este mês</button>
-      <button class="chk cb-preset" data-preset="mei-crescendo" title="MEI com capital social declarado — sinal de virada pra ME">MEI virando ME</button>
-      <button class="chk cb-preset" data-preset="capital-alto" title="Capital > R$100k — empresa com dinheiro pra investir">Capital&gt;100k</button>
+    <p class="delta" style="margin:0 0 12px;">Digite o nome comum da atividade — sem CNAE nem palavra exata. A busca considera nomes, atividades e variações relacionadas da Receita. Use vírgula para mais de um segmento; escolha qualquer quantidade.</p>
+    <div class="form-grid">
+      <label>O que você quer pesquisar na Receita
+        <input id="cb-segment" class="cf-input" placeholder="ex. solar, sorveteria, logística, transportadora" autocomplete="off" />
+      </label>
+      <label>Quantidade por segmento
+        <input id="cb-limit" class="cf-input" type="number" min="1" step="1" value="1000" inputmode="numeric" />
+      </label>
     </div>
 
-    <details class="motor-details" open>
-      <summary class="label" data-tutorial="cb-caracteristicas">Características da empresa</summary>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>CNAE (código ou texto)
-          <input id="cb-cnae-search" class="cf-input" placeholder="ex. salão de beleza ou 9602-5" autocomplete="off" />
-        </label>
-        <label class="cf-toggle" style="margin-top:22px;"><input type="checkbox" id="cb-cnae-principal" /> Só atividade principal</label>
-        <label>Natureza jurídica
-          <select id="cb-natureza" multiple size="3"></select>
-        </label>
-        <label>Situação
-          <select id="cb-situacao" multiple size="3"><option value="ativa" selected>Ativa</option><option value="baixada">Baixada</option><option value="suspensa">Suspensa</option><option value="inapta">Inapta</option></select>
-        </label>
-        <label>Porte
-          <select id="cb-porte" multiple size="3"></select>
-        </label>
-        <label>Matriz/Filial
-          <select id="cb-matriz-filial"><option value="">Todos</option><option value="matriz">Matriz</option><option value="filial">Filial</option></select>
-        </label>
-        <label>Regime tributário
-          <input id="cb-regime" class="cf-input" placeholder="em breve (fase 2 RFB — dataset separado)" disabled title="Lucro Real/Presumido não vem no dump padrão da RFB — coluna existe mas está sempre vazia na carga atual. Filtro não tem efeito ainda." />
-        </label>
-        <label>Capital social mín.
-          <input id="cb-capital-min" class="cf-input" type="number" min="0" step="1000" />
-        </label>
-        <label>Capital social máx.
-          <input id="cb-capital-max" class="cf-input" type="number" min="0" step="1000" />
-        </label>
-        <label class="cf-toggle" style="margin-top:22px;"><input type="checkbox" id="cb-mei" /> Só MEI</label>
-        <label class="cf-toggle" style="margin-top:22px;"><input type="checkbox" id="cb-simples" /> Só Simples Nacional</label>
-        <label>Palavra na razão/fantasia
-          <input id="cb-keyword" class="cf-input" placeholder="ex. pizzaria" />
-        </label>
-      </div>
-    </details>
-
-    <details class="motor-details">
-      <summary class="label" data-tutorial="cb-localizacao">Localização</summary>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Cidade (autocomplete)
-          <input id="cb-city-search" class="cf-input" placeholder="digite pra buscar…" autocomplete="off" />
-        </label>
-        <div id="cb-cities-chips" class="chk-row" style="margin-top:0;"></div>
-        <label>Estado (UF, separado por vírgula)
-          <input id="cb-states" class="cf-input" placeholder="ex. CE,PE" />
-        </label>
-        <label>DDD
-          <input id="cb-ddd" class="cf-input" placeholder="ex. 85" maxlength="2" />
-        </label>
-      </div>
-    </details>
-
-    <details class="motor-details">
-      <summary class="label" data-tutorial="cb-datas">Datas de abertura</summary>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Abrangência
-          <select id="cb-data-slider">
-            <option value="">Todos</option>
-            <option value="5y">Últimos 5 anos</option>
-            <option value="3y">Últimos 3 anos</option>
-            <option value="1y">Último ano</option>
-            <option value="6m">Últimos 6 meses</option>
-            <option value="1m">Último mês</option>
-            <option value="7d">Última semana</option>
-            <option value="today">Hoje</option>
-          </select>
-        </label>
-        <label>Data exata de
-          <input id="cb-data-de" class="cf-input" type="date" />
-        </label>
-        <label>Data exata até
-          <input id="cb-data-ate" class="cf-input" type="date" />
-        </label>
-      </div>
-    </details>
-
-    <details class="motor-details">
-      <summary class="label" data-tutorial="cb-contato">Opções de contato (anti-contador — HOT-03)</summary>
-      <div class="form-grid" style="margin-top:10px;">
-        <label>Apenas empresas com
-          <select id="cb-contato-tipo">
-            <option value="">Com ou sem contato</option>
-            <option value="email">E-mail</option>
-            <option value="celular">Celular</option>
-            <option value="celular_email">Celular e e-mail</option>
-            <option value="telefone">Telefone comercial</option>
-            <option value="tel_ou_celular">Tel ou celular</option>
-            <option value="tel_ou_celular_email">Tel ou celular e e-mail</option>
-            <option value="tel_ou_celular_ou_email">Tel ou celular ou e-mail</option>
-          </select>
-        </label>
-        <label>Máx. empresas por telefone (anti-contador)
-          <input id="cb-max-phone-share" class="cf-input" type="number" min="1" step="1" value="3" />
-        </label>
-        <label class="cf-toggle" style="margin-top:22px;"><input type="checkbox" id="cb-blocklist-email" checked /> Remover e-mail de escritório contábil</label>
-        <label class="cf-toggle" style="margin-top:22px;"><input type="checkbox" id="cb-excluir-entregues" checked /> Desconsiderar já entregues</label>
-      </div>
-    </details>
-
-    <!-- Filtros de presença digital (site/Instagram/nota IA/WhatsApp validado) NÃO entram aqui:
-         CnpjPublicCompany (base fria RFB) nunca populada essas colunas — são OUTPUT do
-         enriquecimento (RadarLeadPool), não filtro da base fria dos 28M (correção de escopo
-         02/07). Se precisar cruzar com leads já enriquecidos, é uma visão SEPARADA — não esta. -->
-
     <div class="btn-row hero-foot" style="margin-top:14px;">
-      <button id="btn-cb-count" class="btn btn-sm btn-blue">🔎 Contar</button>
-      <button id="btn-cb-materialize" class="btn btn-sm btn-green" disabled>➜ Virar leads no Radar</button>
-      <button id="btn-cb-export" class="btn btn-sm btn-green" disabled>⬇ Exportar planilha</button>
+      <button id="btn-cb-count" class="btn btn-sm btn-blue">🔎 Ver prévia</button>
+      <button id="btn-cb-export" class="btn btn-sm btn-green">⬇ Baixar planilha .xls</button>
       <span id="cb-feedback" class="delta"></span>
     </div>
 

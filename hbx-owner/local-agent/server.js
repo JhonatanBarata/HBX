@@ -1447,7 +1447,7 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
       (response) => {
         let body = "";
         response.on("data", (chunk) => {
-          if (body.length < 400000) body += chunk.toString("utf8");
+          if (body.length < 8_000_000) body += chunk.toString("utf8");
         });
         response.on("end", () => {
           recordOpsHealthy(); // resposta completa do :3099 → listener vivo, zera o disjuntor do auto-heal
@@ -3202,10 +3202,9 @@ async function route(req, res) {
   if (req.method === "POST" && url.pathname === "/owner/cnpj-base/query") {
     const body = await readBody(req).catch((err) => ({ __error: err.message }));
     if (body && body.__error) { sendJson(res, 400, { ok: false, reason: body.__error }); return; }
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/cnpj-base/query", body, { timeoutMs: 20000 });
-    if (!r.ok) { sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || `http_${r.statusCode || "?"}` }); return; }
-    sendJson(res, 200, { ok: true, data: r.data });
+    const r = await opsRequest("POST", "/api/radar/vps/cnpj-base/query", body, 300000);
+    if (!r.ok) { sendJson(res, 200, { ok: false, configured: Boolean(backendToken), reason: r.error || r.reason || `http_${r.statusCode || "?"}` }); return; }
+    sendJson(res, 200, { ok: true, data: r.data?.data ?? r.data });
     return;
   }
 
@@ -3229,11 +3228,10 @@ async function route(req, res) {
   }
 
   if (req.method === "GET" && url.pathname === "/owner/cnpj-base/cnaes") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
     const q = url.searchParams.get("q") || "";
-    const r = await backendRequest("GET", `/modules/owner/cnpj-base/cnaes?q=${encodeURIComponent(q)}`, null, { timeoutMs: 10000 });
+    const r = await opsRequest("GET", `/api/radar/vps/cnpj-base/cnaes?q=${encodeURIComponent(q)}`, null, 30000);
     if (!r.ok) { sendJson(res, 200, { ok: false, reason: r.error || `http_${r.statusCode || "?"}` }); return; }
-    sendJson(res, 200, { ok: true, data: r.data });
+    sendJson(res, 200, { ok: true, data: r.data?.data ?? r.data });
     return;
   }
 

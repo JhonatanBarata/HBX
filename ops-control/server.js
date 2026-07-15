@@ -723,7 +723,7 @@ async function resolveBackendAuthToken(environment, config, force = false) {
   return token;
 }
 
-async function fetchBackendWithAuth(environment, config, method, route, payload, forceLogin = false) {
+async function fetchBackendWithAuth(environment, config, method, route, payload, forceLogin = false, timeoutMs = 30000) {
   const authToken = await resolveBackendAuthToken(environment, config, forceLogin);
   const response = await fetch(joinUrl(config.baseUrl, route), {
     method,
@@ -732,7 +732,7 @@ async function fetchBackendWithAuth(environment, config, method, route, payload,
       Authorization: `Bearer ${authToken}`,
     },
     body: payload ? JSON.stringify(payload) : undefined,
-    signal: timeoutSignal(30000),
+    signal: timeoutSignal(timeoutMs),
   });
   const text = await response.text();
   let data = null;
@@ -744,7 +744,7 @@ async function fetchBackendWithAuth(environment, config, method, route, payload,
   return { response, data };
 }
 
-async function callBackendForEnvironment(environment, scope, method, route, payload) {
+async function callBackendForEnvironment(environment, scope, method, route, payload, options = {}) {
   const config = backendConfigForEnvironment(environment, scope);
   if (!config.baseUrl || !backendHasAuth(config)) {
     return {
@@ -757,17 +757,19 @@ async function callBackendForEnvironment(environment, scope, method, route, payl
   }
 
   try {
-    let result = await fetchBackendWithAuth(environment, config, method, route, payload);
+    let result = await fetchBackendWithAuth(environment, config, method, route, payload, false, options.timeoutMs);
     if (!config.authToken && result.response.status === 401) {
       backendLoginCache.delete(backendLoginCacheKey(environment, config));
-      result = await fetchBackendWithAuth(environment, config, method, route, payload, true);
+      result = await fetchBackendWithAuth(environment, config, method, route, payload, true, options.timeoutMs);
     }
     return {
       environment,
       label: environmentLabel(environment),
       ok: result.response.ok,
       statusCode: result.response.status,
-      data: redactSensitive(result.data),
+      // Listas da Base Receita são dados solicitados explicitamente pelo Owner. Não passam pela
+      // redução de arrays usada em respostas operacionais/logs (que corta em 20 itens).
+      data: options.preserveData === true ? result.data : redactSensitive(result.data),
     };
   } catch (error) {
     return {
@@ -2461,6 +2463,29 @@ app.get('/api/radar/vps/database-cards', async (req, res) => {
     res.json({ ok: true, data: result.data });
   } catch (error) {
     res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao consultar cards VPS.' });
+  }
+});
+
+// Base Receita mora na VPS. O Owner local usa esta ponte autenticada para pesquisar e
+// exportar contatos sem depender do banco de desenvolvimento, que pode estar vazio.
+app.get('/api/radar/vps/cnpj-base/cnaes', async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const result = await callBackendForEnvironment('vps', 'vps', 'GET', `/modules/owner/cnpj-base/cnaes?q=${encodeURIComponent(q)}`);
+    if (!result.ok) return res.status(result.statusCode || 502).json({ ok: false, error: result.reason || result.error || 'Falha ao consultar CNAEs na VPS.' });
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao consultar CNAEs na VPS.' });
+  }
+});
+
+app.post('/api/radar/vps/cnpj-base/query', async (req, res) => {
+  try {
+    const result = await callBackendForEnvironment('vps', 'vps', 'POST', '/modules/owner/cnpj-base/query', req.body || {}, { timeoutMs: 300000, preserveData: true });
+    if (!result.ok) return res.status(result.statusCode || 502).json({ ok: false, error: result.reason || result.error || 'Falha ao consultar a Base Receita na VPS.' });
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao consultar a Base Receita na VPS.' });
   }
 });
 

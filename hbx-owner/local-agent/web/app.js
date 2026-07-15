@@ -2396,42 +2396,16 @@ function cbDatePresetToRange(preset) {
   return { de, ate };
 }
 
-function cbBuildFilters() {
-  const cnaeRaw = ($("#cb-cnae-search")?.value || "").trim();
-  const cnaeCodes = /^\d[\d-]*$/.test(cnaeRaw) ? [cnaeRaw.replace(/\D/g, "")] : [];
-  const selMulti = (sel) => Array.from(sel?.selectedOptions || []).map((o) => o.value).filter(Boolean);
-  const dateSlider = $("#cb-data-slider")?.value || "";
-  const sliderRange = cbDatePresetToRange(dateSlider);
-  const contatoTipo = $("#cb-contato-tipo")?.value || "";
-  const contato = {
-    comEmail: ["celular_email", "tel_ou_celular_email", "tel_ou_celular_ou_email"].includes(contatoTipo) || contatoTipo === "email" ? true : undefined,
-    comCelular: ["celular", "celular_email"].includes(contatoTipo) ? true : undefined,
-    comTelefone: ["telefone", "tel_ou_celular", "tel_ou_celular_email", "tel_ou_celular_ou_email"].includes(contatoTipo) ? true : undefined,
-    maxPhoneShare: Number($("#cb-max-phone-share")?.value || 3),
-    blocklistEmail: Boolean($("#cb-blocklist-email")?.checked),
-  };
+async function cbBuildFilters(segmentTerm) {
+  const segment = String(segmentTerm || "").trim();
+  if (!segment) throw new Error("digite ao menos um segmento");
   return {
-    cnaes: cnaeCodes.length ? cnaeCodes : undefined,
-    cnaePrincipalOnly: Boolean($("#cb-cnae-principal")?.checked) || undefined,
-    naturezas: selMulti($("#cb-natureza")).length ? selMulti($("#cb-natureza")) : undefined,
-    situacoes: selMulti($("#cb-situacao")).length ? selMulti($("#cb-situacao")) : undefined,
-    porte: selMulti($("#cb-porte")).length ? selMulti($("#cb-porte")) : undefined,
-    matrizFilial: $("#cb-matriz-filial")?.value || undefined,
-    // cb-regime fica desabilitado no HTML (fase 2 RFB, coluna sempre NULL hoje) — não envia.
-    capitalMin: $("#cb-capital-min")?.value ? Number($("#cb-capital-min").value) : undefined,
-    capitalMax: $("#cb-capital-max")?.value ? Number($("#cb-capital-max").value) : undefined,
-    mei: $("#cb-mei")?.checked || undefined,
-    simples: $("#cb-simples")?.checked || undefined,
-    keyword: ($("#cb-keyword")?.value || "").trim() || undefined,
-    cities: cbSelectedCities.length ? cbSelectedCities.map((c) => c.normalizedCity) : undefined,
-    states: ($("#cb-states")?.value || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).length
-      ? ($("#cb-states").value || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean) : undefined,
-    ddd: ($("#cb-ddd")?.value || "").trim() || undefined,
-    abertaDe: $("#cb-data-de")?.value || sliderRange.de || undefined,
-    abertaAte: $("#cb-data-ate")?.value || sliderRange.ate || undefined,
-    contato,
-    excluirJaEntregues: Boolean($("#cb-excluir-entregues")?.checked),
-    limit: 20,
+    keyword: segment,
+    situacoes: ["ativa"],
+    contato: { comEmail: true, blocklistEmail: true },
+    // A busca rápida não varre os já entregues antes de responder: evita uma leitura extra de 5 mil registros.
+    excluirJaEntregues: false,
+    includeCount: false,
   };
 }
 
@@ -2450,18 +2424,20 @@ async function cbCount() {
   if (btn) btn.disabled = true;
   if (fb) { fb.textContent = "contando…"; fb.className = "delta"; }
   try {
-    const filters = cbBuildFilters();
+    const segment = $("#cb-segment")?.value || "";
+    const filters = await cbBuildFilters(segment.split(",")[0]);
+    filters.limit = 20;
     cbLastQuery = filters;
     const r = await api("POST", "/owner/cnpj-base/query", filters);
     if (!r.ok) throw new Error(r.reason || "falha ao contar");
     const data = r.data || {};
     if (result) result.style.display = "";
     const countBig = $("#cb-count-big");
-    if (countBig) countBig.textContent = Number(data.count || 0).toLocaleString("pt-BR");
+    if (countBig) countBig.textContent = `${Array.isArray(data.sample) ? data.sample.length : 0}`;
     const statsLine = $("#cb-stats-line");
     if (statsLine) {
       const s = data.statsAmostra || {};
-      statsLine.textContent = `da amostra: ${s.comCelularProprio || 0} com celular próprio, ${s.provavelContador || 0} prováveis contador` + (data.excludedJaEntregues ? ` · ${data.excludedJaEntregues} já entregues excluídas` : "");
+      statsLine.textContent = `contatos carregados na prévia: ${s.comCelularProprio || 0} com celular próprio, ${s.provavelContador || 0} prováveis contador`;
     }
     const tbody = $("#cb-sample-tbody");
     if (tbody) {
@@ -2476,12 +2452,7 @@ async function cbCount() {
         <td>${row.website ? `<a href="${esc(row.website)}" target="_blank" rel="noopener">site</a>` : "—"}</td>
       </tr>`).join("") : `<tr><td colspan="7" class="delta">nenhuma empresa encontrada com estes filtros.</td></tr>`;
     }
-    if (fb) { fb.textContent = `${Number(data.count || 0).toLocaleString("pt-BR")} empresas encontradas.`; fb.className = "delta up"; }
-    const matBtn = $("#btn-cb-materialize");
-    const expBtn = $("#btn-cb-export");
-    const hasResults = Number(data.count || 0) > 0;
-    if (matBtn) matBtn.disabled = !hasResults;
-    if (expBtn) expBtn.disabled = !hasResults;
+    if (fb) { fb.textContent = `${Array.isArray(data.sample) ? data.sample.length : 0} contatos carregados na prévia.`; fb.className = "delta up"; }
   } catch (err) {
     if (fb) { fb.textContent = `erro: ${err.message}`; fb.className = "delta"; }
   } finally {
@@ -2509,30 +2480,70 @@ async function cbMaterialize() {
   }
 }
 
+function cbDownloadXls(rows, filename) {
+  const columns = [
+    ["Segmento", "segment"], ["CNPJ", "cnpj"], ["Razão social", "razaoSocial"], ["Nome fantasia", "nomeFantasia"],
+    ["CNAE", "cnae"], ["Descrição CNAE", "cnaeDescription"], ["Cidade", "city"], ["UF", "state"], ["E-mail", "email"],
+    ["Telefone", "phone"], ["Porte", "porte"], ["Situação", "situacao"], ["Selo", "selo"],
+  ];
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse;font-family:Arial}th{background:#0f766e;color:#fff;font-weight:bold}td,th{border:1px solid #cbd5e1;padding:6px;white-space:nowrap}</style></head><body><table><thead><tr>${columns.map(([label]) => `<th>${esc(label)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map(([, key]) => `<td>${esc(row[key] == null ? "" : String(row[key]))}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
+  const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function cbExport() {
-  if (!cbLastQuery) return;
   const fb = $("#cb-feedback");
+  const buttons = [$("#btn-cb-export")].filter(Boolean);
+  buttons.forEach((button) => { button.disabled = true; });
   try {
-    const r = await api("POST", "/owner/cnpj-base/query", { ...cbLastQuery, limit: 20 });
-    if (!r.ok) throw new Error(r.reason || "falha ao exportar");
-    const sample = (r.data && r.data.sample) || [];
-    if (!sample.length) { if (fb) fb.textContent = "nada para exportar."; return; }
-    const cols = ["cnpj", "razaoSocial", "nomeFantasia", "cnae", "cnaeDescription", "porte", "situacao", "city", "state", "phone", "email", "website", "selo"];
-    const csvCell = (v) => { const s = v == null ? "" : String(v); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const bom = "﻿";
-    const csv = bom + [cols.join(";"), ...sample.map((row) => cols.map((c) => csvCell(row[c])).join(";"))].join("\r\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `base_receita_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    if (fb) { fb.textContent = `${sample.length} linhas exportadas (amostra — refine os filtros p/ recortes maiores).`; fb.className = "delta up"; }
+    const segmentTerms = String($("#cb-segment")?.value || "").split(",").map((term) => term.trim()).filter(Boolean);
+    const requested = Math.trunc(Number($("#cb-limit")?.value));
+    if (!segmentTerms.length) throw new Error("digite ao menos um segmento");
+    if (!Number.isFinite(requested) || requested < 1) throw new Error("informe uma quantidade válida");
+    const rows = [];
+    const seenCnpjs = new Set();
+    const seenEmails = new Set();
+    for (const segment of segmentTerms) {
+      const filters = await cbBuildFilters(segment);
+      let cursor = null;
+      let added = 0;
+      while (added < requested) {
+        // A quantidade é livre para o usuário; internamente quebramos em páginas menores para
+        // atravessar com estabilidade o proxy da VPS, que encerra respostas muito grandes.
+        const pageSize = Math.min(100, Math.max(20, requested - added));
+        if (fb) fb.textContent = `buscando ${segment}: ${added.toLocaleString("pt-BR")} únicos de ${requested.toLocaleString("pt-BR")}…`;
+        const r = await api("POST", "/owner/cnpj-base/query", { ...filters, limit: pageSize, cursor });
+        if (!r.ok) throw new Error(r.reason || "falha ao buscar contatos");
+        const batch = r.data?.sample || [];
+        for (const row of batch) {
+          const cnpj = String(row.cnpj || "").replace(/\D/g, "");
+          const email = String(row.email || "").trim().toLowerCase();
+          if (!cnpj || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+          if (seenCnpjs.has(cnpj) || seenEmails.has(email)) continue;
+          seenCnpjs.add(cnpj);
+          seenEmails.add(email);
+          rows.push({ ...row, segment, cnpj, email });
+          added += 1;
+          if (added >= requested) break;
+        }
+        cursor = r.data?.cursorNext || null;
+        if (!batch.length || !cursor) break;
+      }
+    }
+    if (!rows.length) throw new Error("nenhum contato com e-mail foi encontrado");
+    cbDownloadXls(rows, `contatos_${new Date().toISOString().slice(0, 10)}.xls`);
+    if (fb) { fb.textContent = `${rows.length} contatos exportados em .xls.`; fb.className = "delta up"; }
   } catch (err) {
     if (fb) fb.textContent = `erro: ${err.message}`;
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
   }
 }
 
@@ -2573,7 +2584,6 @@ async function cbLoadStaticOptions() {
 }
 
 { const b = $("#btn-cb-count"); if (b) b.addEventListener("click", cbCount); }
-{ const b = $("#btn-cb-materialize"); if (b) b.addEventListener("click", cbMaterialize); }
 { const b = $("#btn-cb-export"); if (b) b.addEventListener("click", cbExport); }
 {
   const input = $("#cb-city-search");
