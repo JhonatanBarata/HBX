@@ -2409,6 +2409,31 @@ async function cbBuildFilters(segmentTerm) {
   };
 }
 
+function cbNormalizeContact(row) {
+  const cnpj = String(row?.cnpj || "").replace(/\D/g, "");
+  // Alguns registros antigos trazem o e-mail com apóstrofo/aspas de planilha. Isso não pode
+  // criar um segundo contato na prévia nem na exportação.
+  const email = String(row?.email || "")
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim()
+    .toLowerCase();
+  if (!cnpj || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return { ...row, cnpj, email };
+}
+
+function cbUniqueContactRows(sourceRows) {
+  const seenCnpjs = new Set();
+  const seenEmails = new Set();
+  return (Array.isArray(sourceRows) ? sourceRows : []).flatMap((row) => {
+    const contact = cbNormalizeContact(row);
+    if (!contact || seenCnpjs.has(contact.cnpj) || seenEmails.has(contact.email)) return [];
+    seenCnpjs.add(contact.cnpj);
+    seenEmails.add(contact.email);
+    return [contact];
+  });
+}
+
 function cbApplyPreset(preset) {
   // Presets de 1 clique — só os que mapeiam em filtro real da base fria (correção de escopo 02/07).
   if (preset === "abriu-mes-cidade") { $("#cb-data-slider").value = "1m"; }
@@ -2433,15 +2458,16 @@ async function cbCount() {
     const data = r.data || {};
     if (result) result.style.display = "";
     const countBig = $("#cb-count-big");
-    if (countBig) countBig.textContent = `${Array.isArray(data.sample) ? data.sample.length : 0}`;
+    const sample = cbUniqueContactRows(data.sample);
+    if (countBig) countBig.textContent = `${sample.length}`;
     const statsLine = $("#cb-stats-line");
     if (statsLine) {
-      const s = data.statsAmostra || {};
-      statsLine.textContent = `contatos carregados na prévia: ${s.comCelularProprio || 0} com celular próprio, ${s.provavelContador || 0} prováveis contador`;
+      const comCelularProprio = sample.filter((row) => row.selo === "celular_provavel").length;
+      const provavelContador = sample.filter((row) => row.selo === "provavel_contador").length;
+      statsLine.textContent = `contatos únicos na prévia: ${comCelularProprio} com celular próprio, ${provavelContador} prováveis contador`;
     }
     const tbody = $("#cb-sample-tbody");
     if (tbody) {
-      const sample = Array.isArray(data.sample) ? data.sample : [];
       tbody.innerHTML = sample.length ? sample.map((row) => `<tr>
         <td>${esc(cbSeloLabel(row.selo))}</td>
         <td>${esc(row.nomeFantasia || row.razaoSocial)}</td>
@@ -2452,7 +2478,7 @@ async function cbCount() {
         <td>${row.website ? `<a href="${esc(row.website)}" target="_blank" rel="noopener">site</a>` : "—"}</td>
       </tr>`).join("") : `<tr><td colspan="7" class="delta">nenhuma empresa encontrada com estes filtros.</td></tr>`;
     }
-    if (fb) { fb.textContent = `${Array.isArray(data.sample) ? data.sample.length : 0} contatos carregados na prévia.`; fb.className = "delta up"; }
+    if (fb) { fb.textContent = `${sample.length} contatos únicos carregados na prévia.`; fb.className = "delta up"; }
   } catch (err) {
     if (fb) { fb.textContent = `erro: ${err.message}`; fb.className = "delta"; }
   } finally {
@@ -2523,13 +2549,11 @@ async function cbExport() {
         if (!r.ok) throw new Error(r.reason || "falha ao buscar contatos");
         const batch = r.data?.sample || [];
         for (const row of batch) {
-          const cnpj = String(row.cnpj || "").replace(/\D/g, "");
-          const email = String(row.email || "").trim().toLowerCase();
-          if (!cnpj || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
-          if (seenCnpjs.has(cnpj) || seenEmails.has(email)) continue;
-          seenCnpjs.add(cnpj);
-          seenEmails.add(email);
-          rows.push({ ...row, segment, cnpj, email });
+          const contact = cbNormalizeContact(row);
+          if (!contact || seenCnpjs.has(contact.cnpj) || seenEmails.has(contact.email)) continue;
+          seenCnpjs.add(contact.cnpj);
+          seenEmails.add(contact.email);
+          rows.push({ ...contact, segment });
           added += 1;
           if (added >= requested) break;
         }
