@@ -7,9 +7,9 @@ internal object HbxMobileExperience {
 
     val openingUrl: String
         get() = if (BuildConfig.APP_MODE == "logistica") {
-            // O HBX Mobile consolidado já empacota o frontend canônico de Vendas
-            // em /assets/vendas; a abertura usa a mesma fonte para não divergir.
-            "https://appassets.androidplatform.net/assets/vendas/opening.html"
+            // O HBX Mobile consolidado usa a abertura aprovada do próprio app;
+            // /assets/vendas fica reservado à experiência comercial interna.
+            "https://appassets.androidplatform.net/assets/app/opening.html"
         } else {
             "https://appassets.androidplatform.net/assets/app/opening.html"
         }
