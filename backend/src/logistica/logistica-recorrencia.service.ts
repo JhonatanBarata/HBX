@@ -330,9 +330,10 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         // MULTILOCAL (10/07) — em qual local do cliente este vínculo entrega (null =
         // perfil/legado). É a chave da sub-agregação por local no gerarDia.
         localId: true,
-        // MULTILOCAL (11/07) — apelido do local ("Casa"|"Loja"…) pro preview mostrar
-        // 1 linha por (cliente, local). gerarDia ignora; só o getDiaPreview lê.
-        local: { select: { apelido: true } },
+        // MULTILOCAL (11/07) — o preview precisa receber também as coordenadas do
+        // local. Sem elas o Android pinta a parada de vermelho antes da geração,
+        // embora a entrega tenha GPS válido no banco.
+        local: { select: { apelido: true, lat: true, lng: true, geoFonte: true } },
         productId: true,
         qtdPadrao: true,
         ...(includeBillingInputs ? { precoAcordado: true as const } : {}),
@@ -350,6 +351,11 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
           select: {
             id: true,
             name: true,
+            // Fallback de legado: vínculos sem LocalEntrega continuam usando o
+            // pino da ficha do cliente na prévia da rota.
+            lat: true,
+            lng: true,
+            geoFonte: true,
             ...(includeBillingInputs ? { precoPadrao: true as const } : {}),
           },
         },
@@ -562,6 +568,9 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
           // MULTILOCAL — a porta desta linha (null = perfil/legado) + o apelido.
           localId: vencidosDoLocal[0]?.localId ?? null,
           localApelido: vencidosDoLocal[0]?.local?.apelido ?? null,
+          lat: vencidosDoLocal[0]?.local?.lat ?? vencidosDoLocal[0]?.customerProfile?.lat ?? null,
+          lng: vencidosDoLocal[0]?.local?.lng ?? vencidosDoLocal[0]?.customerProfile?.lng ?? null,
+          geoFonte: vencidosDoLocal[0]?.local?.geoFonte ?? vencidosDoLocal[0]?.customerProfile?.geoFonte ?? null,
           itens: vencidosDoLocal.map((v) => ({
             productId: v.productId,
             nome: String(v.product?.name ?? '').trim(),
@@ -799,6 +808,11 @@ export interface DiaPreviewClienteDTO {
   // localId null = perfil/legado; localApelido null quando o local não tem apelido.
   localId?: string | null;
   localApelido?: string | null;
+  // Coordenadas do local da parada (ou da ficha, em legado). O app usa estes
+  // campos para validar a localização e desenhar a prévia antes de gerar.
+  lat?: number | null;
+  lng?: number | null;
+  geoFonte?: string | null;
   itens: DiaPreviewItemDTO[];
 }
 

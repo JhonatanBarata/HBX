@@ -323,8 +323,10 @@
     // de processamento não pode sobreviver à abertura seguinte, senão o
     // botão "Próximo" permanece desabilitado até o aplicativo reiniciar.
     state.dayStarting = false;
-    const today = todayIso(); const permitted = workDays();
-    state.daySelection = permitted.includes(today) ? [today] : [];
+    // A seleção precisa ser inteiramente explícita. Pré-selecionar hoje fazia
+    // uma escolha posterior (ex.: quinta) somar a quarta sem o operador pedir.
+    // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
+    state.daySelection = [];
     state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
     refreshDayPreview();
   }
