@@ -4,7 +4,7 @@
    ============================================================ */
 
 [data-theme="login"] {
-  --hbx-brand: #4F7600; --hbx-brand-strong: #4F7600; --hbx-brand-soft: #E3E7DC; --hbx-brand-contrast: #121A05;
+  --hbx-brand: #8FCF16; --hbx-brand-strong: #8FCF16; --hbx-brand-soft: #E3E7DC; --hbx-brand-contrast: #121A05;
   --hbx-primary: #8FCF16; --hbx-secondary: #667064; --hbx-success: #8FCF16; --hbx-accent: #C8FF5A;
   --hbx-info: #8FCF16; --hbx-warning: #667064; --hbx-danger: #667064; --hbx-danger-soft: #E3E7DC;
   --hbx-background: #EFF1E9; --hbx-background-alt: #E3E7DC;
@@ -14,7 +14,7 @@
   --hbx-chat-inbound: #FBFCF7; --hbx-chat-outbound: #E3E7DC; --hbx-chat-system: #EEF1E8;
   --hbx-foreground: #11140F; --hbx-foreground-soft: #667064; --hbx-muted: #667064;
   --hbx-line: rgba(17,20,15,0.2); --hbx-shadow: #1E261A; --hbx-overlay: rgba(17,20,15,0.35);
-  --border-hairline: rgba(17,20,15,0.11); --border-strong: rgba(17,20,15,0.2); --ring-brand: #4F7600;
+  --border-hairline: rgba(17,20,15,0.11); --border-strong: rgba(17,20,15,0.2); --ring-brand: rgba(143,207,22,0.22);
   --hbx-action-ink: #121A05; --hbx-avatar-from: #8FCF16; --hbx-avatar-to: #C8FF5A;
   --font-display: "Sora", system-ui, sans-serif; --font-body: "Plus Jakarta Sans", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -40,7 +40,7 @@
   --hbx-header-surface: rgba(8,10,9,0.8); --hbx-nav-surface: rgba(15,18,16,0.9);
   --hbx-field-surface: #121613; --hbx-table-head: #0F1210;
   --hbx-chat-inbound: #121613; --hbx-chat-outbound: #1A201B; --hbx-chat-system: #0F1210;
-  --hbx-foreground: #F5F8F1; --hbx-foreground-soft: #A0AAA0; --hbx-muted: #879287;
+  --hbx-foreground: #F5F8F1; --hbx-foreground-soft: #A0AAA0; --hbx-muted: #667064;
   --hbx-line: rgba(245,248,241,0.2); --hbx-shadow: #000000; --hbx-overlay: rgba(0,0,0,0.7);
   --border-hairline: rgba(245,248,241,0.11); --border-strong: rgba(245,248,241,0.2); --ring-brand: rgba(200,255,90,0.3);
   --hbx-action-ink: #101605; --hbx-avatar-from: #C8FF5A; --hbx-avatar-to: #A0AAA0;
@@ -49,12 +49,12 @@
 }
 
 [data-theme="login"] .glass-pill__glass {
-  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-accent));
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
   border: 1px solid color-mix(in srgb, #fff 26%, transparent);
   box-shadow: 0 14px 32px -16px color-mix(in srgb, var(--hbx-brand) 62%, transparent);
 }
 [data-theme="login"] .btn-teal {
-  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-accent));
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
   box-shadow: var(--shadow-inset), 0 16px 30px -18px color-mix(in srgb, var(--hbx-brand) 75%, transparent);
 }
 [data-theme="login"] .btn-ghost,

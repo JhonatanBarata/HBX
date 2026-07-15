@@ -22,6 +22,8 @@ function buildStoredPolicy(overrides: Record<string, any> = {}) {
       { key: 'webscraping', allowed: true },
       { key: 'atendimento', allowed: true },
     ]),
+    enrichmentDailyMode: 'inherit',
+    enrichmentDailyLimit: null,
     cardDeliveryDailyMode: 'inherit',
     cardDeliveryDailyLimit: null,
     activeCardsMode: 'inherit',
@@ -68,6 +70,7 @@ function buildUser(overrides: Record<string, any> = {}) {
     sellerReferralCommissionPercent: 0,
     referredByUserId: null,
     referredByCommissionPercentSnapshot: 0,
+    sellerDistributionDailyLimitOverride: null,
     company,
     teamPolicy: buildStoredPolicy({ companyId: company.id }),
     referredByUser: null,
@@ -203,6 +206,8 @@ test('team access catalog contains planned canonical keys without duplicates', (
     'radar.filters.useSegments',
     'radar.filters.useCities',
     'radar.filters.useStates',
+    'radar.enrichment.manual',
+    'radar.enrichment.auto',
     'vendas.cards.edit',
     'vendas.cards.transfer',
     'vendas.cards.close',
@@ -266,7 +271,7 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
       { key: 'atendimento', allowed: false },
     ],
     limits: {
-      activeCards: { mode: 'unlimited', value: 'unlimited' },
+      enrichmentDaily: { mode: 'unlimited', value: 'unlimited' },
     },
     audit: {
       batch: true,
@@ -275,9 +280,10 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
     },
   } as any);
 
-  assert.equal(result.limits.activeCards.mode, 'unlimited');
-  assert.equal(state.user.teamPolicy.activeCardsMode, 'unlimited');
-  assert.equal(state.user.teamPolicy.activeCardsLimit, null);
+  assert.equal(result.limits.enrichmentDaily.mode, 'unlimited');
+  assert.equal(state.user.sellerDistributionDailyLimitOverride, 0);
+  assert.equal(state.user.teamPolicy.enrichmentDailyMode, 'unlimited');
+  assert.equal(state.user.teamPolicy.enrichmentDailyLimit, null);
   assert.equal(result.modules.find((moduleItem) => moduleItem.key === 'atendimento')?.allowed, false);
 
   const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
@@ -291,12 +297,12 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
   assert.equal(metadata.targetUserId, 7);
   assert.equal(metadata.batch, true);
   assert.deepEqual(metadata.modulesChanged, ['atendimento']);
-  assert.deepEqual(metadata.limitsChanged, ['activeCards']);
+  assert.deepEqual(metadata.limitsChanged, ['enrichmentDaily']);
   assert.equal(metadata.before.modules.atendimento, true);
   assert.equal(metadata.after.modules.atendimento, false);
 });
 
-test('ADMIN can edit tenant seller operational card policy', async () => {
+test('ADMIN can edit tenant seller policy inside current plan cap', async () => {
   const { service } = createService({
     requester: {
       id: 22,
@@ -308,10 +314,10 @@ test('ADMIN can edit tenant seller operational card policy', async () => {
   });
 
   const result = await service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 1 }, 7, {
-    limits: { activeCards: { mode: 'limited', value: 20 } },
+    limits: { enrichmentDaily: { mode: 'limited', value: 20 } },
   } as any);
 
-  assert.equal(result.limits.activeCards.value, 20);
+  assert.equal(result.limits.enrichmentDaily.value, 20);
 });
 
 test('policy update persists seller visibility and keeps system visibility derived', async () => {
@@ -392,7 +398,7 @@ test('policy update persists explicit team access map over legacy modules', asyn
   ]);
 });
 
-test('selectedPlanKey histórico não limita a cota operacional de cards do vendedor', async () => {
+test('ADMIN cannot set individual enrichment above current plan cap', async () => {
   const company = {
     id: 10,
     name: 'Cliente A',
@@ -417,12 +423,12 @@ test('selectedPlanKey histórico não limita a cota operacional de cards do vend
     },
   });
 
-  const result = await service.updatePolicy(
-    { id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 10 },
-    7,
-    { limits: { activeCards: { mode: 'limited', value: 250 } } } as any,
+  await assert.rejects(
+    () => service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 10 }, 7, {
+      limits: { enrichmentDaily: { mode: 'limited', value: 250 } },
+    } as any),
+    BadRequestException,
   );
-  assert.equal(result.limits.activeCards.value, 250);
 });
 
 test('policy update refuses USERMASTER target, including batch payload', async () => {

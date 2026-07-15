@@ -10,10 +10,9 @@ const USER = {
   isSystemMaster: false,
 };
 
-function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: any } = {}) {
+function createHarness() {
   let writes = 0;
   let rebuilds = 0;
-  let readOnlyDerivations = 0;
   const sends: any[] = [];
   const conversation = {
     id: 44,
@@ -26,7 +25,7 @@ function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: an
     lastMessageAt: new Date('2026-07-13T12:01:00.000Z'),
     updatedAt: new Date('2026-07-13T12:01:00.000Z'),
   };
-  const snapshot = options.projectedSnapshot || {
+  const snapshot = {
     conversation: { id: '44', exists: true },
     engagement: {
       state: 'awaiting_reply',
@@ -90,10 +89,6 @@ function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: an
   } as any;
   const projector = {
     getCockpitStatesForLeads: async () => new Map([['lead-1', snapshot]]),
-    getCockpitStateForLeadReadOnly: async () => {
-      readOnlyDerivations += 1;
-      return options.readOnlySnapshot || snapshot;
-    },
     rebuildLead: async () => {
       rebuilds += 1;
       return snapshot;
@@ -104,7 +99,6 @@ function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: an
     service: new VendasConversationService(prisma, inbox, projector),
     get writes() { return writes; },
     get rebuilds() { return rebuilds; },
-    get readOnlyDerivations() { return readOnlyDerivations; },
     sends,
   };
 }
@@ -118,32 +112,6 @@ test('abrir conversa vinculada e uma leitura pura', async () => {
   assert.equal(harness.writes, 0);
   assert.equal(harness.rebuilds, 0);
   assert.equal(harness.sends.length, 0);
-});
-
-test('GET deriva estado atual sem escrita quando a projeção persistida aponta para outra conversa', async () => {
-  const harness = createHarness({
-    projectedSnapshot: {
-      conversation: { id: null, exists: false },
-      engagement: { state: 'no_conversation' },
-    },
-    readOnlySnapshot: {
-      conversation: { id: '44', exists: true },
-      engagement: {
-        state: 'failed',
-        lastMessageStatus: 'FAILED',
-        failureReason: 'provider down',
-      },
-    },
-  });
-
-  const result = await harness.service.getConversationForUser({ ...USER }, 'lead-1');
-
-  assert.equal(result.conversation.id, '44');
-  assert.equal(result.engagement.state, 'failed');
-  assert.equal(result.engagement.failureReason, 'provider down');
-  assert.equal(harness.readOnlyDerivations, 1);
-  assert.equal(harness.writes, 0);
-  assert.equal(harness.rebuilds, 0);
 });
 
 test('envio pelo Vendas permanece humano e entra pela outbox do Inbox', async () => {

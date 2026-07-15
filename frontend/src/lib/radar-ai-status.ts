@@ -7,7 +7,7 @@
 // (vendas/page.client.tsx). Fonte real: POST /webscraping/radar/ai-status (RadarPonteStatusService,
 // backend/src/webscraping/radar/missions/radar-ponte-status.service.ts) — status da fila da PONTE
 // 30B (RadarMission stages enrich_lead/xray_note), DIFERENTE do enrichmentStatus do pipeline
-// genérico que a vitrine já expõe. Flag da fila OFF no backend → 'none' pra tudo,
+// genérico (night-factory) que a vitrine já expõe. Flag da fila OFF no backend → 'none' pra tudo,
 // nenhuma tela muda (degrade invisível).
 
 import { useEffect, useRef, useState } from "react";

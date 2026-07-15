@@ -1,5 +1,6 @@
 import {
   COMMERCIAL_PLAN_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../commercial-plans/commercial-plan-catalog';
@@ -51,7 +52,8 @@ export type ModuleAccessCompanySnapshot = {
   courtesyReason?: string | null;
 };
 
-// Uma entrada por SystemModule atribuível à empresa. `enabled=null`
+// R2 (CREDITOS — kill-switch puro do master, atras de HBX_MODULES_KILLSWITCH_ONLY,
+// default OFF): 1 entrada por SystemModule assignable a empresa. `enabled=null`
 // = sem post-it da empresa (CompanyModule) -> segue `defaultEnabled` do master;
 // `enabled=true/false` = override explicito da empresa (post-it), sempre manda.
 // PR10072026 W1: `masterEnabled` = TETO do master na linha (false mata o módulo
@@ -69,11 +71,12 @@ export type KillSwitchModuleSnapshot = {
   modules: KillSwitchModuleEntry[];
 };
 
-// Helper PURO (sem banco) que aplica o kill-switch do master sobre um
+// R2: helper PURO (sem banco) que aplica o kill-switch do master sobre um
 // snapshot ja carregado pelo chamador (modules.service.ts monta o snapshot
 // lendo SystemModule/CompanyModule e injeta aqui). Regra: modulo comercial
 // disponivel = companyAssignable && masterEnabled!==false && (override===true
-// || (override===null && defaultEnabled)). Não deriva de plano/tier.
+// || (override===null && defaultEnabled)). Nao deriva mais de
+// COMMERCIAL_PLAN_MODULE_KEYS.
 export function resolveKillSwitchModuleKeys(snapshot: KillSwitchModuleSnapshot | null | undefined): Set<string> {
   const result = new Set<string>();
   for (const moduleItem of snapshot?.modules || []) {
@@ -90,9 +93,10 @@ export function resolveKillSwitchModuleKeys(snapshot: KillSwitchModuleSnapshot |
   return result;
 }
 
-// Kill-switch deixou de ser opt-in: é o único comportamento.
-// Esta função existe para diagnóstico de configuração, não para selecionar
-// uma política alternativa.
+// FASE 2 (REMOÇÃO) — kill-switch deixou de ser opt-in: é o único comportamento.
+// Função mantida só por compatibilidade de import (não gateia mais nada em
+// resolveCompanyModuleAccessPolicy); a env HBX_MODULES_KILLSWITCH_ONLY não é
+// mais lida em nenhum ponto de decisão. Não usar em código novo.
 export function isModulesKillSwitchOnlyEnabled(): boolean {
   return true;
 }
@@ -134,6 +138,14 @@ export function presentModuleBlockForRole(
     };
   }
 
+  if (block.blockedCode === 'plan_required') {
+    return {
+      blockedReason: 'Modulo nao habilitado para esta conta.',
+      blockedCode: 'module_not_enabled',
+      criticalEngine: null,
+    };
+  }
+
   return block;
 }
 
@@ -141,10 +153,16 @@ function hasSelectedPlan(value: unknown) {
   return Boolean(String(value || '').trim());
 }
 
-// Projeção do estado canônico (company-access-state.ts) para o contrato de
-// módulos. `selectedPlanKey` permanece apenas como metadado histórico de
-// cobrança no payload; ele nunca decide capacidade. Sem snapshot do
-// kill-switch a decisão é fail-closed, sem fallback para plano/tier.
+// Projecao do estado canonico (company-access-state.ts) para o contrato de
+// modulos. Nenhuma regra de cobranca e re-derivada aqui: este arquivo so
+// decide planKey/moduleKeys e traduz o vocabulario.
+//
+// R2 (kill-switch, atras de HBX_MODULES_KILLSWITCH_ONLY default OFF):
+// `moduleSnapshot` e OPCIONAL e so tem efeito quando a flag esta ON — quem
+// chama (modules.service.ts) ja resolveu SystemModule/CompanyModule e injeta
+// aqui. Com a flag OFF (ou sem snapshot), o calculo e IDENTICO ao anterior
+// (moduleKeys deriva so de COMMERCIAL_PLAN_MODULE_KEYS[planKey]) — a funcao
+// permanece PURA (nenhum acesso a banco daqui).
 export function resolveCompanyModuleAccessPolicy(
   company: ModuleAccessCompanySnapshot | null | undefined,
   nowMs = Date.now(),
@@ -221,12 +239,15 @@ export function resolveCompanyModuleAccessPolicy(
               ? 'grace'
               : 'open';
 
-  // Módulo é kill-switch PURO do master. Ausência de snapshot nunca ressuscita
-  // a antiga caixa de plano: falha fechada até o chamador fornecer a fonte
-  // canônica SystemModule + CompanyModule.
+  // R2 (FASE 2 — REMOÇÃO, definitivo): módulo é kill-switch PURO do master.
+  // Não deriva mais de plano/tier (COMMERCIAL_PLAN_MODULE_KEYS morreu como
+  // driver de acesso). `HBX_MODULES_KILLSWITCH_ONLY` deixou de gatear — o
+  // caminho por snapshot é o ÚNICO agora; a env fica só como interruptor de
+  // emergência caso o chamador ainda não tenha migrado para passar o
+  // snapshot (fallback abaixo cobre esse caso defensivamente, não por flag).
   const moduleKeys = moduleSnapshot
     ? resolveKillSwitchModuleKeys(moduleSnapshot)
-    : new Set<string>();
+    : new Set<string>(COMMERCIAL_PLAN_MODULE_KEYS[planKey] || []);
 
   return {
     accessState,

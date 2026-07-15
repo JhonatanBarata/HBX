@@ -27,4 +27,5 @@ test('lead harvest official routes stay under webscraping guards', () => {
   assert.equal(guards.includes(JwtAuthGuard), true);
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.importLeadHarvest), 'lead-harvest/import');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getLeadHarvestImport), 'lead-harvest/imports/:id');
+  assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.enrichmentCostSummary), 'enrichment-cost/summary');
 });

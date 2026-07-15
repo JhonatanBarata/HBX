@@ -15,13 +15,10 @@ export async function lockLogisticaRouteTransaction(
   if (!Number.isInteger(companyId) || companyId <= 0 || !routeId) {
     throw new Error('Chave de trava da rota inválida.');
   }
-  if (typeof tx?.$executeRawUnsafe !== 'function') {
+  if (typeof tx?.$queryRawUnsafe !== 'function') {
     throw new Error('A trava da rota exige uma transação PostgreSQL ativa.');
   }
-  // pg_advisory_xact_lock retorna `void`. No PostgreSQL em produção, $queryRaw
-  // tenta desserializar esse retorno e o Prisma falha antes de adquirir a trava.
-  // A função é executada pelo efeito, então executeRaw é a API apropriada.
-  await tx.$executeRawUnsafe(
+  await tx.$queryRawUnsafe(
     'SELECT pg_advisory_xact_lock($1::integer, hashtext($2)::integer)',
     companyId,
     routeId,

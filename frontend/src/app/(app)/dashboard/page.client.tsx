@@ -138,12 +138,15 @@ export function DashboardClient() {
     apiFetch<Board>("/vendas/board")
       .then(res => { if (alive) { setBoard(res); setLoadError(null); } })
       .catch((err: unknown) => { if (alive) setLoadError(err instanceof Error ? err.message : "Falha ao carregar o painel."); });
-    // Universo único e deduplicado: RFB ativa + leads exclusivos do motor.
-    // Sem prova exata da união, o backend devolve null e a UI mantém "—".
-    apiFetch<{ universeTotal?: number | null }>("/leads-bank")
+    // Contrato S3 (VENDAS-REFAB): /night-factory/leads-bank devolve baseTotal/
+    // baseAvailable (contagem REAL da base 28M). Cai pro total do pool (antigo)
+    // só quando baseAvailable===false (ambiente sem a carga da RFB) — nunca
+    // inventa 28M fixo.
+    apiFetch<{ total?: number; baseAvailable?: boolean; baseTotal?: number | null }>("/night-factory/leads-bank")
       .then(res => {
         if (!alive) return;
-        setRadarTotal(res?.universeTotal ?? null);
+        const real = res?.baseAvailable ? (res?.baseTotal ?? null) : (res?.total ?? null);
+        setRadarTotal(real);
       })
       .catch(() => { /* sem base */ })
       .finally(() => { if (alive) setRadarDone(true); });

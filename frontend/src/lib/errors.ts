@@ -12,6 +12,7 @@ export type ErrorAction =
   | "login"
   | "fix_input"
   | "contact_support"
+  | "upgrade_plan"
   | "pay"
   | "wait"
   | "go_back";
@@ -30,6 +31,7 @@ const ACTION_LABEL: Record<ErrorAction, string> = {
   login: "Entrar de novo",
   fix_input: "Entendi",
   contact_support: "Falar com o técnico",
+  upgrade_plan: "Ver planos",
   pay: "Regularizar",
   wait: "Tentar de novo",
   go_back: "Voltar",

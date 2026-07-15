@@ -20,10 +20,6 @@ import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { RadarDisc } from "@/components/hbx/radar-disc";
-import { useLeadClaim } from "@/components/hbx/lead-pull-progress-overlay";
-import type { LeadContactRecord } from "@/components/hbx/lead-contact-list";
-import { summarizeLeadContacts } from "@/components/hbx/lead-contact-summary";
-import { whatsappIsExplicitlyConfirmed } from "@/components/hbx/lead-contact-verification";
 import {
   FILTRO_AVANCADO_VAZIO,
   FiltroAvancadoModal,
@@ -77,8 +73,6 @@ export type RadarLead = {
   people?: Array<{ name: string; role?: string | null; source?: string | null; phoneDigits?: string | null }> | null;
   emails?: string[] | null;
   phones?: string[] | null;
-  phoneContacts?: LeadContactRecord[] | null;
-  emailContacts?: LeadContactRecord[] | null;
   phonesWhatsapp?: Record<string, boolean> | null;
   enrichmentScore?: number | null;
   lastEnrichedAt?: string | null;
@@ -104,9 +98,9 @@ export type RadarLead = {
   daysSinceOpened?: number | null;
   // Posse do lead (LEADS-FINAL/02): 'mine' = a empresa já puxou (contato revelado
   // pelo backend); 'available'/'in_attendance'/'negative' = ainda não. A página
-  // /leads/[id] usa isto sem fallback por conteúdo pra decidir entre a
+  // /leads/[id] usa isto (com fallback em Boolean(phone)) pra decidir entre a
   // página cheia e o aside mascarado + CTA "Puxar".
-  ownershipStatus?: "mine" | "available" | "in_attendance" | "negative" | "owned_by_other" | null;
+  ownershipStatus?: "mine" | "available" | "in_attendance" | "negative" | null;
 };
 
 type LeadsResponse = {
@@ -116,7 +110,11 @@ type LeadsResponse = {
     available?: boolean;
     message?: string;
     totalAvailable?: number;
-    universeTotal?: number | null;
+    // Contrato S3 (VENDAS-REFAB): contagem REAL da base 28M (CnpjPublicCompany) já
+    // filtrada. baseAvailable=false = base não carregada neste ambiente → cai pro
+    // totalAvailable/total (pool) no consumo.
+    baseAvailable?: boolean;
+    baseTotal?: number | null;
     limit?: number;
     filteredOut?: number;
     whatsappVerified?: number;
@@ -169,12 +167,10 @@ type BankResponse = {
   total?: number;
   deltaToday?: number;
   available?: boolean;
-  universeTotal?: number | null;
-  availableTotal?: number | null;
-  nationalActiveTotal?: number | null;
-  operationalPoolTotal?: number | null;
-  poolExclusiveTotal?: number | null;
-  unionExact?: boolean;
+  // Contrato S3: mesmo par baseAvailable/baseTotal do /webscraping/radar/leads,
+  // aqui sem filtro (visão global do banco).
+  baseAvailable?: boolean;
+  baseTotal?: number | null;
 } | null;
 
 type SellerActiveQuota = {
@@ -405,13 +401,11 @@ export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: bo
     phone: revealed ? lead.phone : null,
     email: revealed ? (lead.email ?? null) : null,
     website: revealed ? (lead.website ?? null) : null,
-    // Multi-contatos e empresa/dono — todos seguem o mesmo cadeado de posse:
-    // nenhum dado pessoal é projetado antes do débito e da liberação do lead.
+    // Multi-contatos e empresa/dono — revelados junto do contato; o card ainda
+    // aplica o cadeado por tier (canSeeCompany) sobre os dados pessoais do dono.
     people: revealed ? (lead.people ?? null) : null,
     emails: revealed ? (lead.emails ?? null) : null,
     phones: revealed ? (lead.phones ?? null) : null,
-    phoneContacts: revealed ? (lead.phoneContacts ?? null) : null,
-    emailContacts: revealed ? (lead.emailContacts ?? null) : null,
     phonesWhatsapp: revealed ? (lead.phonesWhatsapp ?? null) : null,
     cnpj: revealed ? (lead.cnpj ?? null) : null,
     cnae: revealed ? (lead.cnae ?? null) : null,
@@ -446,30 +440,6 @@ export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: bo
   };
 }
 
-export function isRadarLeadOwned(lead: Pick<RadarLead, "ownershipStatus"> | null | undefined): boolean {
-  return lead?.ownershipStatus === "mine";
-}
-
-function leadPrimaryWhatsappConfirmed(lead: RadarLead) {
-  return whatsappIsExplicitlyConfirmed(
-    {
-      value: lead.phone,
-      whatsappStatus: lead.hasWhatsapp === true ? "confirmed" : null,
-    },
-    lead.phonesWhatsapp || {},
-  );
-}
-
-function OwnedContactSummary({ lead }: { lead: RadarLead }) {
-  const summary = summarizeLeadContacts(lead);
-  return (
-    <span className="lead-contact-summary" title={summary.extra ? `${summary.extra} contato(s) adicional(is)` : "Contato principal"}>
-      <span><b>Principal</b> · {summary.primary}</span>
-      {summary.extra > 0 ? <small>+{summary.extra} contatos</small> : null}
-    </span>
-  );
-}
-
 type ViewMode = "linhas" | "cards";
 function getStoredViewMode(): ViewMode {
   if (typeof window === "undefined") return "linhas";
@@ -479,9 +449,8 @@ function getStoredViewMode(): ViewMode {
   } catch { return "linhas"; }
 }
 
-export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; recorte: number | null; sellerQuotaValue: string | null }) => void; embedTitle?: ReactNode } = {}) {
+export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }) => void; embedTitle?: ReactNode } = {}) {
   const router = useRouter();
-  const { claimLead } = useLeadClaim();
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const viewPill = useGlassPill<HTMLButtonElement>(viewMode);
   useEffect(() => {
@@ -683,7 +652,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   const loadBank = useCallback(() => {
-    apiFetch<BankResponse>("/leads-bank").then(setBank).catch(() => setBank(null));
+    apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
   }, []);
 
   const loadUsage = useCallback(() => {
@@ -1032,8 +1001,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       if (override?.radiusKm != null) setAlcance(String(override.radiusKm));
       setRun(res);
       if (res?.message) setSearchMsg(res.message);
-      const startedRunId = res?.id || res?.runId;
-      if (startedRunId) router.push(`/leads/runs/${encodeURIComponent(startedRunId)}`);
     } catch (err) {
       setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
     } finally {
@@ -1059,8 +1026,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setPullBusyId(id);
     setPullMsg(null);
     try {
-      const row = data?.items?.find(item => item.id === id);
-      await claimLead(id, { lead: row ? { id: row.id, name: row.name, city: row.city, state: row.state, segment: row.segment } : { id } });
+      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
       if (selLead?.id === id) setSelLead(null);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
@@ -1084,11 +1053,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     let stopMsg: string | null = null;
     for (const id of Array.from(selected)) {
       try {
-        const row = data?.items?.find(item => item.id === id);
-        await claimLead(id, { lead: row ? { id: row.id, name: row.name, city: row.city, state: row.state, segment: row.segment } : { id } });
+        await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
         ok += 1;
       } catch (err) {
-        stopMsg = err instanceof Error ? err.message : "Limite operacional atingido — parei aqui.";
+        stopMsg = err instanceof Error ? err.message : "Cota atingida — parei aqui.";
         break;
       }
     }
@@ -1122,13 +1093,20 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const pageTotal = data?.total || 0;
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
 
-  // O único medidor exibido é o teto operacional do vendedor (saq/RBAC —
-  // "carteira cheia"). Uso mensal por plano não é gate nem métrica de produto.
+  // CRÉDITOS FASE 2 (R5): a cota MENSAL de cards por plano (usage.cards) deixou
+  // de bloquear no backend (CommercialUsageLimitsService — telemetria, não gate).
+  // O teto real agora é o saldo de crédito (débito no puxar, backend fail-closed
+  // sem saldo) — o front não replica mais o bloqueio por contagem de plano aqui.
+  // O teto de vendedor (saq/RBAC — "carteira cheia") continua bloqueando: isso
+  // não é paywall de tier, é limite operacional por cargo.
   const saq = usage?.sellerActiveQuota;
   const isSeller = Boolean(saq?.seller);
-  const sellerQuotaValue = isSeller
+  const meterLabel = isSeller ? "Em mãos" : "Cards puxados (mês)";
+  const meterValue = isSeller
     ? `${fmtInt(saq?.activeCount)} / ${fmtInt(saq?.effectiveLimit)}`
-    : null;
+    : usage?.cards
+      ? `${fmtInt(usage.cards.used)} / ${fmtInt(usage.cards.limit)}`
+      : "—";
   const meterBlocked = isSeller
     ? Boolean(saq?.paused) || Number(saq?.availableSlots ?? 1) <= 0
     : false;
@@ -1143,21 +1121,28 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           ? `Nenhuma empresa disponível em ${city} ainda. Use o Radar ao lado para buscar.`
           : "Escolha cidade + segmento no painel ao lado e busque leads.";
 
-  // Universo único comprovado pelo backend: RFB ativa + leads exclusivos do motor,
-  // com deduplicação. Se a união não for exata, o backend devolve null e a UI não
-  // inventa um número. "Total" e "Disponíveis" usam a MESMA grandeza.
-  const totalBrasilReal = bank?.universeTotal ?? null;
+  const meterPct = Math.min(100, Math.round(
+    isSeller
+      ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100
+      : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
+  ));
+
+  // "Total no Brasil" (contrato S3, VENDAS-REFAB): a base 28M (CnpjPublicCompany)
+  // quando carregada no ambiente; cai pro pool antigo (bank.total) só quando
+  // baseAvailable===false (ex.: local, sem a carga da RFB). Nunca inventa 28M fixo.
+  const totalBrasilReal = bank?.baseAvailable ? (bank?.baseTotal ?? null) : (bank?.total ?? null);
 
   // Embutido no Vendas: espelha os 3 números pro topo da casca única. setState do
   // pai é estável (não dispara loop). 29/06.
   useEffect(() => {
     onEmbedStats?.({
       totalBrasil: totalBrasilReal,
-      disponiveis: totalBrasilReal,
-      recorte: counts.shelf,
-      sellerQuotaValue,
+      disponiveis: counts.shelf,
+      cotaLabel: meterLabel,
+      cotaValue: meterValue,
+      cotaPct: meterPct,
     });
-  }, [onEmbedStats, totalBrasilReal, counts.shelf, sellerQuotaValue]);
+  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct]);
 
   function contatoMascarado(row: RadarLead) {
     const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
@@ -1204,13 +1189,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   function buildNegocioDetail(lead: RadarLead): NegocioDetail {
-    const revealed = isRadarLeadOwned(lead);
+    const revealed = tab === "carteira" && Boolean(lead.phone);
     return buildNegocioDetailFromLead(lead, { revealed });
   }
 
   function renderLeadDetail(lead: RadarLead, opts?: { title?: string; onClose?: () => void }) {
     const detail = buildNegocioDetail(lead);
-    const revealed = isRadarLeadOwned(lead);
+    const revealed = tab === "carteira" && Boolean(lead.phone);
     // "Enriquecendo agora" = pipeline em pending/partial e ainda não enriquecido.
     // FIX-ENRICHMENT-STATUS-SHELF (05/07): sinal agora vem do GET /webscraping/radar/leads
     // (e do detalhe :id), já normalizado pending|completed|failed — queued/running da fila
@@ -1226,8 +1211,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         onClose={opts?.onClose}
         crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
-        onWaOpenExternal={revealed && leadPrimaryWhatsappConfirmed(lead) ? () => abrirWhatsAppExterno(lead.phone, buildWaMessage({ name: lead.name, segment: lead.segment, city: lead.city })) : undefined}
-        onWaOpenInternal={revealed && leadPrimaryWhatsappConfirmed(lead) ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
+        onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone, buildWaMessage({ name: lead.name, segment: lead.segment, city: lead.city })) : undefined}
+        onWaOpenInternal={revealed ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
         waQrActive={waQrActive}
         waCanInternal={canAtendimento}
         kvExtra={
@@ -1272,10 +1257,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               </button>
             )}
             {/* "Ver mais" abre a página cheia /leads/[id] — SÓ pra lead já POSSUÍDO
-                (regra dura de posse: card ainda não puxado nunca vê a página cheia,
+                (regra dura do plano: card ainda não puxado nunca vê a página cheia,
                 fica no aside mascarado + CTA Puxar, que é exatamente o que já
                 acontece acima quando tab==="shelf"). revealed usa o mesmo critério
-                de buildNegocioDetail (`ownershipStatus === "mine"`). */}
+                de buildNegocioDetail (tab==="carteira" && Boolean(phone)). */}
             {revealed && (
               <button className="btn-ghost" onClick={() => router.push(`/leads/${encodeURIComponent(lead.id)}`)}>
                 Ver mais →
@@ -1659,7 +1644,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // MESMO items, MESMAS funções de dado da grade de cards (renderOriginBadge/
   // contatoMascarado/puxar/toggleSel) — só a moldura muda. "Ver mais" navega
   // pra /leads/[id] SÓ quando o lead já está POSSUÍDO (revealed) — regra dura
-  // de posse: card ainda não puxado nunca vê a página cheia, o clique na linha
+  // do plano: card ainda não puxado nunca vê a página cheia, o clique na linha
   // (setSelLead) já abre o aside mascarado + CTA "Puxar", que é o caminho certo.
   function renderRowsDense() {
     return (
@@ -1679,7 +1664,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             {items.map(row => {
               const isSel = selLead?.id === row.id;
               const checked = selected.has(row.id);
-              const revealed = isRadarLeadOwned(row);
+              const revealed = tab === "carteira" && Boolean(row.phone);
               return (
                 // Linha é um wrapper clicável, mas carrega botões reais de ação
                 // (Puxar/Ver mais/WhatsApp) — <button> não pode conter <button>
@@ -1720,7 +1705,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                     {row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "Brasil"}
                   </span>
                   <span className="row-dense__contact">
-                    {revealed ? <OwnedContactSummary lead={row} /> : contatoMascarado(row)}
+                    {tab === "shelf" ? contatoMascarado(row) : <span>{row.phone || row.email || "—"}</span>}
                   </span>
                   <span className="row-dense__temp">
                     {row.opportunityScore != null && row.opportunityScore > 0 ? (
@@ -1733,7 +1718,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       (assignedUserId sem nome) — "—" em vez de inventar dado. */}
                   <span className="row-dense__owner">—</span>
                   <span className="row-dense__actions" onClick={e => e.stopPropagation()}>
-                    {revealed && leadPrimaryWhatsappConfirmed(row) && (
+                    {revealed && (
                       <button
                         type="button"
                         className="btn-ghost btn-xs"
@@ -1820,7 +1805,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 {!embedded ? (
                   <div className="tabs" data-tut="leads-abas">
                     <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
-                      Recorte atual <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                      Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
                     </button>
                     {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
                         o que você puxa aparece no "Meu funil" do slide. 27/06. */}
@@ -1942,9 +1927,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
                               <div className="be-card__foot">
                                 <div className="be-card__contact">
-                                  {isRadarLeadOwned(row)
-                                    ? <OwnedContactSummary lead={row} />
-                                    : contatoMascarado(row)}
+                                  {tab === "shelf"
+                                    ? contatoMascarado(row)
+                                    : <span>{row.phone || row.email || "—"}</span>}
                                 </div>
                                 <div onClick={e => e.stopPropagation()}>
                                   {tab === "shelf"

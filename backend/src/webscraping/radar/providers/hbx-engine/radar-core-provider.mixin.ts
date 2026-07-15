@@ -97,6 +97,7 @@ import {
   formatCityWithState,
 } from '../../radar-core-method-imports';
 
+import { resolveEnrichmentPaidFlags } from '../../../enrichment-cost/enrichment-paid-policy';
 import { SourceBudgetService } from '../../../source-budget/source-budget.service';
 
 import type {
@@ -405,6 +406,7 @@ export class RadarCoreProviderMixin {
             preferredChannels: ['instagram'],
             requiredChannels: [],
             timeBudgetSeconds: budgetSeconds,
+            ...resolveEnrichmentPaidFlags(),
           }),
           signal: AbortSignal.timeout(timeoutMs),
         });
@@ -545,8 +547,9 @@ export class RadarCoreProviderMixin {
   private async searchPlaces(query: string, limit: number): Promise<SearchPlacesCandidate[]> {
     const apiKey = this.getApiKey();
 
-    // Teto FÍSICO diário global do Google Places, igual para todo cliente e FAIL-CLOSED:
-    // sem contador disponível a chamada paga não acontece.
+    // GOVERNOR POR FONTE (Sprint 3): teto FÍSICO diário do Google Places, FAIL-CLOSED (pago sem
+    // contador NÃO chama). NÃO substitui o enrichment-cost — aquele é o orçamento comercial por
+    // plano do cliente; este é o freio da fonte em si (HBX_GOOGLE_PLACES_DAILY_CAP, default 200).
     if (!(await SourceBudgetService.tryConsumePaid('google_places'))) {
       throw new ServiceUnavailableException('Google Places pausado pelo governor por fonte (teto físico diário).');
     }

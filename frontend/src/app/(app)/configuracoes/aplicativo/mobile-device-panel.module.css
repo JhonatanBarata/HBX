@@ -10,13 +10,6 @@
 .muted { font-size: .75rem; }
 .setupGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .setupCard { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-2, transparent); }
-.profileChoices { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
-.profileChoices legend { padding: 0; color: var(--text-muted); font-size: .75rem; font-weight: 700; }
-.profileChoice { display: flex; gap: 9px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; }
-.profileChoice input { margin: 3px 0 0; accent-color: var(--hbx-brand); }
-.profileChoice span { display: grid; gap: 2px; }
-.profileChoice small { color: var(--text-muted); font-size: .72rem; line-height: 1.35; }
-.profileChoiceSelected { border-color: var(--hbx-brand); background: color-mix(in srgb, var(--hbx-brand) 8%, transparent); }
 .pairingCard { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--hbx-brand); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--hbx-brand) 9%, transparent); text-align: center; }
 .pairingLabel { color: var(--text-muted); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .pairingCode { border: 0; background: transparent; color: var(--text); font-size: clamp(2rem, 8vw, 3.8rem); font-weight: 900; letter-spacing: .15em; cursor: pointer; }

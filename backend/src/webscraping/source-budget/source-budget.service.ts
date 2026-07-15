@@ -16,17 +16,23 @@ import { paidSourcesAllowed, logRoleBlocked } from './role-guard';
  * persistido em banco (tabela SourceApiUsage) sobrevive a restart/recreate.
  *
  * POLÍTICA DE FALHA (regra do sprint):
- *   PAGO  (brave, google_places) → FAIL-CLOSED: erro ao ler o contador = NÃO chama.
+ *   PAGO  (brave, google_places, serper) → FAIL-CLOSED: erro ao ler o contador = NÃO chama.
  *   GRÁTIS (brasilapi, ddg, bing, searxng) → FAIL-OPEN: contagem é best-effort; blip de banco
  *   nunca derruba o fluxo grátis.
  *
- * Este é o teto FÍSICO por fonte (chave/IP), igual para todos os clientes. Não há orçamento,
- * permissão ou qualidade de enriquecimento diferente por plano comercial.
+ * NÃO confundir com enrichment-cost: aquele é orçamento COMERCIAL por plano do cliente; este é
+ * o teto FÍSICO por fonte (chave/IP). Os dois coexistem — um lead pode ter saldo no plano e a
+ * fonte estar fisicamente esgotada (e vice-versa).
+ *
+ * Serper NÃO é interceptado aqui: a chamada vive no motor Python. O governor só REPASSA o
+ * orçamento por env (HBX_ENRICH_ALLOW_PAID via resolveEnrichmentPaidFlags → request do motor)
+ * e reflete o estado no gauge.
  */
 
 export type SourceBudgetSource =
   | 'brave'
   | 'brasilapi'
+  | 'serper'
   | 'google_places'
   | 'ddg'
   | 'bing'
@@ -35,7 +41,7 @@ export type SourceBudgetSource =
 type SourceUsageGauge = {
   source: SourceBudgetSource;
   tier: 'paid' | 'free';
-  period: 'month' | 'day';
+  period: 'month' | 'day' | 'engine';
   cap: number | null;
   used: number | null;
   usedMonth: number | null;
@@ -48,8 +54,9 @@ type SourceUsageGauge = {
   counterError: boolean;
 };
 
-const PAID_SOURCES = new Set<SourceBudgetSource>(['brave', 'google_places']);
+const PAID_SOURCES = new Set<SourceBudgetSource>(['brave', 'google_places', 'serper']);
 const FREE_SEARCH_SOURCES: SourceBudgetSource[] = ['ddg', 'bing', 'searxng'];
+const TRUTHY = new Set(['true', '1', 'on', 'yes', 'sim']);
 
 function integerEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -85,6 +92,13 @@ export class SourceBudgetService {
   /** Google Places: teto DIÁRIO físico (fonte de emergência — nunca metralhar buscador pago). */
   static googlePlacesDailyCap(): number {
     return integerEnv('HBX_GOOGLE_PLACES_DAILY_CAP', 200);
+  }
+  /** Serper: OFF por default — mesma env que o resolveEnrichmentPaidFlags repassa ao motor. */
+  static serperAllowed(): boolean {
+    // TRAVA FÍSICA ANTI-PAGO (Lei nº1): em localhost, Serper fica OFF por código — o repasse ao
+    // motor Python nunca liga a torneira paga, independente de HBX_ENRICH_ALLOW_PAID.
+    if (!paidSourcesAllowed()) return false;
+    return TRUTHY.has(String(process.env.HBX_ENRICH_ALLOW_PAID ?? '').trim().toLowerCase());
   }
   /**
    * Teto de CONCORRÊNCIA por fonte GRÁTIS (GATE G2 — número final é decisão do dono; default 8,
@@ -314,6 +328,14 @@ export class SourceBudgetService {
         backoffUntil: backoffIso('google_places'),
         allowed: !counterError && (placesCap <= 0 || Number(usedFor('google_places', today) || 0) < placesCap),
         counterError,
+      },
+      {
+        // Serper roda DENTRO do motor Python — aqui só o repasse (env) e a visibilidade.
+        source: 'serper', tier: 'paid', period: 'engine',
+        cap: null, used: null, usedMonth: null, periodKey: month,
+        concurrencyCap: null, activeNow: null, minIntervalMs: null, backoffUntil: null,
+        allowed: SourceBudgetService.serperAllowed(),
+        counterError: false,
       },
       {
         source: 'brasilapi', tier: 'free', period: 'month',

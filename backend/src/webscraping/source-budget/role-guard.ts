@@ -3,7 +3,7 @@
  *
  * "localhost NUNCA acessa fonte paga." Não é uma preferência de env que alguém pode inverter
  * sem querer — é uma trava em CÓDIGO. Quando `HBX_ROLE=local`, qualquer tentativa de consumir
- * uma fonte PAGA permitida (brave / google_places) é RECUSADA aqui, ANTES de tocar a API — mesmo
+ * uma fonte PAGA (brave / google_places / serper) é RECUSADA aqui, ANTES de tocar a API — mesmo
  * que uma chave paga tenha vazado pro `.env` local por engano.
  *
  * Camadas de defesa (cinto + suspensório):
@@ -16,7 +16,7 @@
  * o reforço pago (Lei nº2: pago = só reforço, só VPS, só pós-score).
  */
 
-export type PaidSourceName = 'brave' | 'google_places';
+export type PaidSourceName = 'brave' | 'google_places' | 'serper';
 
 const VPS_ROLES = new Set(['vps', 'production', 'prod', 'server']);
 

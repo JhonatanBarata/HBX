@@ -100,20 +100,6 @@ object HbxMobileBridge {
         executor.execute { syncNow(app, allowBackground = true) }
     }
 
-    /** Heartbeat isolado para o flavor Logística, sem consultar a fila de Vendas. */
-    fun sendDeviceHeartbeat(context: Context) {
-        val app = context.applicationContext
-        executor.execute {
-            val credentials = credentialPayload(app) ?: return@execute
-            val error = runCatching {
-                postJson("/mobile/devices/heartbeat", JSONObject(credentials.toString()))
-            }.exceptionOrNull()
-            if (error is MobileBridgeHttpException && error.statusCode == 401) {
-                DeviceCredentialStore(app).clearDeviceToken()
-            }
-        }
-    }
-
     fun recordEvent(
         context: Context,
         actionId: String,

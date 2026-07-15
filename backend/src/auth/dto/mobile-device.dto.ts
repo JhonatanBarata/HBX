@@ -1,15 +1,4 @@
-import { IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
-
-export const MOBILE_ACCESS_PROFILES = ['ADMIN', 'STANDARD'] as const;
-export type MobileAccessProfile = (typeof MOBILE_ACCESS_PROFILES)[number];
-
-export class CreateMobilePairingCodeDto {
-  // Ausente preserva os clientes/webs já integrados; a tela atual sempre envia a escolha.
-  @IsOptional()
-  @IsString()
-  @IsIn([...MOBILE_ACCESS_PROFILES], { message: 'O perfil de acesso deve ser ADMIN ou STANDARD.' })
-  accessProfile?: MobileAccessProfile;
-}
+import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
 
 export class PairMobileDeviceDto {
   @IsString()

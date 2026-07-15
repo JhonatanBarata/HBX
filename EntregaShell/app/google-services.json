@@ -23,25 +23,6 @@
           "other_platform_oauth_client": []
         }
       }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:768681610756:android:f16db45fad0ca9b210ef51",
-        "android_client_info": {
-          "package_name": "br.com.hbxsystem.logistica"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyDkrYNiLhFOhIx9BAoPYlDAYAuw69lK11E"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
     }
   ],
   "configuration_version": "1"

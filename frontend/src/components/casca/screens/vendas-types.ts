@@ -10,7 +10,6 @@ import type {
   VendasConversationRef,
   VendasEngagementSnapshot,
 } from "@/components/hbx/detalhes-negocio";
-import type { LeadContactRecord } from "@/components/hbx/lead-contact-list";
 
 export type VendasBlockKey = "today" | "overdue" | "scheduled" | "closed";
 
@@ -33,8 +32,6 @@ export type VendasLeadMobile = {
   companySituation?: string | null;
   emails?: string[] | null;
   phones?: string[] | null;
-  phoneContacts?: LeadContactRecord[] | null;
-  emailContacts?: LeadContactRecord[] | null;
   phonesWhatsapp?: Record<string, boolean> | null;
   city: string | null;
   state: string | null;
@@ -165,8 +162,6 @@ export function vendasLeadToDetail(d: VendasLeadMobile): NegocioDetail {
     companySituation: d.companySituation ?? null,
     emails: d.emails ?? null,
     phones: d.phones ?? null,
-    phoneContacts: d.phoneContacts ?? null,
-    emailContacts: d.emailContacts ?? null,
     phonesWhatsapp: d.phonesWhatsapp ?? null,
     address: d.address ?? null,
     city: d.city,

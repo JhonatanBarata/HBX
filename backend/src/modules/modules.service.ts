@@ -32,7 +32,13 @@ import {
   serializeMasterIntegrationLibrariesForStorage,
 } from './master-global-integrations.util';
 import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_EXTRA_USER_MONTHLY,
+  COMMERCIAL_PLAN_INCLUDED_USERS,
   COMMERCIAL_PLAN_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
+  COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_TRIAL_DAYS,
   applyCommercialAnnualDiscountOverride,
   applyCommercialCatalogOverrides,
@@ -53,6 +59,8 @@ import {
 } from '../access/seller-access-governance';
 import { resolveActorKind, isAdminTierActor } from '../access/actor-kind';
 import {
+  PRIMARY_COMMERCIAL_MODULE_KEYS,
+  ROUTE_GUARDED_MODULE_KEYS,
   effectiveCompanyModuleEnabled,
   isCompanyLevelModuleKey,
   presentModuleBlockForRole,
@@ -66,6 +74,7 @@ import {
   resolveCompanyAccessState,
   storedCompanyStatusFromAccessState,
 } from './company-access-state';
+import { CATEGORY_MANAGED_MODULE_KEYS } from './module-categories';
 import {
   ensureUserTeamPolicyForUser,
   parseTeamPolicyAccessMap,
@@ -109,6 +118,17 @@ const LEGACY_MODULE_KEYS = structuralDefaults.legacyModuleKeys as string[];
 const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredModuleKeys)
   ? ((structuralDefaults as any).retiredModuleKeys as string[])
   : [];
+// CORREÇÃO 11/07 (pós-revisão PR10072026): universo de chaves que a régua de
+// PLANO conhece (caixa de algum plano). Módulo FORA deste universo (logistica,
+// empresas, contatos, produtos — "kill-switch por empresa; nasce ligado") sem
+// post-it segue SystemModule.defaultEnabled, mesmo contrato do
+// resolveKillSwitchModuleKeys. Antes, o fallback sem-linha era SÓ a caixa do
+// plano e o @ModuleAccess('logistica') dava 403 pra empresa antiga sem post-it.
+const PLAN_MANAGED_MODULE_KEYS = new Set(
+  Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+    .flat()
+    .map((key) => String(key || '').trim().toLowerCase()),
+);
 const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'atendimento',
   'vendas',
@@ -676,16 +696,17 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
   private resolveCommercialCardQuota(company: any) {
     const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const planQuota = COMMERCIAL_PLAN_QUOTAS[planKey as ActiveCommercialPlanKey] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
     const monthlyOverride = this.normalizeQuotaOverride(company?.commercialCardsMonthlyLimitOverride);
     const dailyOverride = this.normalizeQuotaOverride(company?.commercialCardsDailyLimitOverride);
     return {
       planKey,
-      monthlyDefault: 0,
-      dailyDefault: 0,
+      monthlyDefault: Number(planQuota.cardsPerMonth || planQuota.totalCards || 0) || 0,
+      dailyDefault: Number(planQuota.dailyCardSafetyLimit || 0) || 0,
       monthlyOverride,
       dailyOverride,
-      monthlyEffective: monthlyOverride || 0,
-      dailyEffective: dailyOverride || 0,
+      monthlyEffective: monthlyOverride || Number(planQuota.cardsPerMonth || planQuota.totalCards || 0) || 0,
+      dailyEffective: dailyOverride || Number(planQuota.dailyCardSafetyLimit || 0) || 0,
     };
   }
 
@@ -958,8 +979,8 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       shortTitle: shortTitles[plan.key] || plan.title,
       monthlyPrice: this.normalizeCurrencyAmount(plan.monthlyPrice || 0),
       badge: plan.badge || null,
-      modules: [],
-      entitlements: [],
+      modules: COMMERCIAL_PLAN_MODULE_KEYS[plan.key as ActiveCommercialPlanKey] || [],
+      entitlements: COMMERCIAL_PLAN_ENTITLEMENT_KEYS[plan.key as ActiveCommercialPlanKey] || [],
     }));
   }
 
@@ -1762,8 +1783,11 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async ensureDatabaseAutomation() {
-    // Os gatilhos que copiavam módulos na criação da empresa estão aposentados.
-    // A fonte viva é SystemModule + CompanyModule (kill-switch), nunca plano.
+    // Catálogo aposentado como fonte (ordem do dono 21/06): os 2 gatilhos que
+    // semeavam CompanyModule a partir de SystemModule.defaultEnabled foram
+    // DESLIGADOS. A fonte única de módulo por plano é o Self-Checkout
+    // (getPlanModuleDefaults = COMMERCIAL_PLAN_MODULE_KEYS + PlanModuleConfig);
+    // empresa nova segue o plano (provisioning cria as linhas de plan.modules).
     // DROP idempotente: somem do banco no próximo boot, sem recriar. Linhas de
     // CompanyModule já existentes NÃO são tocadas (não afeta a árvore atual).
     await this.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS trg_company_insert_modules ON "Company";');
@@ -1831,8 +1855,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async syncCompanyModulesForAllCompanies() {
-    // Não semeia post-it por empresa. SystemModule.defaultEnabled é o default
-    // vivo do kill-switch; aqui sobra só a limpeza das empresas de infraestrutura.
+    // Catálogo aposentado como fonte (21/06): a semeadura de CompanyModule a partir
+    // de SystemModule.defaultEnabled foi removida — era o que sombreava a régua do
+    // plano (post-it pra todo mundo). Sobra só a limpeza das empresas de infra.
+    // Empresas sem post-it agora seguem o plano (getPlanModuleDefaults).
     await this.prisma.$executeRawUnsafe(`
       DELETE FROM "CompanyModule" cm
       USING "Company" c
@@ -2023,9 +2049,11 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // Wrapper único: sempre busca o snapshot do kill-switch
-  // (SystemModule/CompanyModule) e chama o helper puro. Sem companyId a
-  // política falha fechada; plano/tier jamais é fallback de capacidade.
+  // R2 (FASE 2 — definitivo): wrapper único — sempre busca o snapshot do
+  // kill-switch (SystemModule/CompanyModule) e chama o helper puro. Sem
+  // companyId (contexto sem tenant resolvido) cai no fallback defensivo do
+  // próprio resolveCompanyModuleAccessPolicy (deriva do plano só como rede de
+  // segurança, nunca é o caminho normal).
   private async resolveCompanyModulePolicyWithKillSwitch(
     company: any,
     companyId: number | null | undefined,
@@ -2037,11 +2065,62 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     return resolveCompanyModuleAccessPolicy(company, Date.now(), snapshot);
   }
 
+  // Régua única (PR13062026007 PB1/PB2): "caixa do plano" VIVA, editável no
+  // Sistema. Base = COMMERCIAL_PLAN_MODULE_KEYS; por cima, o que o master editou
+  // em PlanModuleConfig. É o que a empresa segue quando NÃO tem post-it.
+  private async getPlanModuleDefaults(planKey: string): Promise<Map<string, boolean>> {
+    const map = new Map<string, boolean>();
+    for (const m of COMMERCIAL_PLAN_MODULE_KEYS[planKey as ActiveCommercialPlanKey] || []) {
+      map.set(this.normalizeRequestedModuleKey(m), true);
+    }
+    const cfg = await this.prisma.planModuleConfig.findUnique({ where: { planKey } }).catch(() => null);
+    if (cfg?.modulesJson) {
+      try {
+        const parsed = JSON.parse(cfg.modulesJson);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          for (const [k, v] of Object.entries(parsed)) {
+            map.set(this.normalizeRequestedModuleKey(k), Boolean(v));
+          }
+        }
+      } catch {
+        /* json ruim → fica só o padrão do catálogo */
+      }
+    }
+    return map;
+  }
+
   // Post-it da empresa: linha em CompanyModule = exceção explícita. null = sem
   // post-it → segue o plano. (Empresa antiga com linhas segue intocada.)
   // PR10072026 W1: o override devolvido é o EFETIVO das 2 camadas
   // (masterEnabled && enabled) — teto do master OFF mata o módulo mesmo com a
   // empresa ligada, e vice-versa.
+  private async getCompanyModuleOverride(companyId: number, moduleId: number): Promise<boolean | null> {
+    const row = await this.prisma.companyModule.findUnique({
+      where: { companyId_moduleId: { companyId, moduleId } },
+      select: { enabled: true, masterEnabled: true },
+    });
+    return row ? effectiveCompanyModuleEnabled(row) : null;
+  }
+
+  // CORREÇÃO 11/07 (pós-revisão PR10072026): efetivo de módulo SEM post-it
+  // (linha de CompanyModule ausente). Régua em 3 degraus:
+  //   1. a caixa do plano (box + PlanModuleConfig) CONHECE a chave → vale ela;
+  //   2. chave vendável por plano fora da caixa do plano atual → false (LITE sem
+  //      atendimento continua sem — comportamento de prod preservado);
+  //   3. chave FORA do universo do plano (logistica/empresas/contatos/produtos —
+  //      "kill-switch por empresa; nasce ligado") → SystemModule.defaultEnabled,
+  //      mesmo contrato do resolveKillSwitchModuleKeys e do CONTRATOS.md W1
+  //      ("ausência de linha continua = SystemModule.defaultEnabled").
+  private resolveModuleDefaultWithoutOverride(
+    planDefaults: Map<string, boolean>,
+    moduleItem: { key: string; defaultEnabled?: boolean | null },
+  ): boolean {
+    const key = this.normalizeRequestedModuleKey(moduleItem.key);
+    if (planDefaults.has(key)) return planDefaults.get(key) === true;
+    if (PLAN_MANAGED_MODULE_KEYS.has(key)) return false;
+    return Boolean(moduleItem.defaultEnabled);
+  }
+
   private isFinanceModuleKey(moduleKey: string) {
     return this.normalizeRequestedModuleKey(moduleKey) === 'financeiro';
   }
@@ -2093,7 +2172,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     if (!capability) return Boolean(input.userAllowed && input.companyAllowed);
     return resolveEffectiveCapability({
       capability,
-      companyCapabilities: { [capability]: input.companyAllowed },
+      companyEntitlements: { [capability]: input.companyAllowed },
       configuredUserCaps: { [capability]: input.userAllowed },
       safetyCaps: {
         [capability]: this.canUseAdminOnlyModule(input.user, input.moduleKey, input.context),
@@ -2195,12 +2274,20 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // Acesso por CARGO (PR13062026007 P2): USER resolve do molho do cargo Vendedor
     // (1 por empresa); ADMIN/master = tudo. Sem mais lei por-usuario no gate.
     const sellerCargoAccess = this.parseSellerCargoAccess(companyAccessSnapshot);
+    const planDefaults = await this.getPlanModuleDefaults(accessPolicy.planKey);
 
     for (const moduleItem of orderedModules) {
-      // A política já consolidou SystemModule.defaultEnabled com o post-it
-      // CompanyModule (enabled + teto masterEnabled). Plano comercial não
-      // participa desta decisão.
-      const companyHas = accessPolicy.moduleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key));
+      // Post-it (PR13062026007 PB2): override da empresa (linha em CompanyModule)
+      // manda; senão, segue a caixa do plano (ao vivo, editável no Sistema) —
+      // e, pra chave fora do universo do plano (ex.: logistica), o
+      // SystemModule.defaultEnabled ("nasce ligado"). CORREÇÃO 11/07: antes o
+      // fallback era só a caixa do plano e empresa antiga sem post-it tomava 403
+      // no /logistica inteiro. PR10072026 W1: o override já é o EFETIVO
+      // (masterEnabled && enabled).
+      const override = await this.getCompanyModuleOverride(companyId, moduleItem.id);
+      const companyHas = override !== null
+        ? override
+        : this.resolveModuleDefaultWithoutOverride(planDefaults, moduleItem);
       if (!companyHas) continue;
 
       // PR10072026 W1: chave company-level (ex.: logistica) checa SÓ a camada
@@ -2294,10 +2381,41 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const accessPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(company, companyId);
     // Acesso por CARGO (PR13062026007 P2): molho do cargo Vendedor, 1 por empresa.
     const sellerCargoAccess = this.parseSellerCargoAccess(company);
+    // Post-it (PB2): caixa do plano (viva) — usada quando a empresa não tem post-it.
+    const planDefaults = await this.getPlanModuleDefaults(accessPolicy.planKey);
+
+    const rows = await this.prisma.companyModule.findMany({
+      where: { companyId },
+      include: { systemModule: true },
+      orderBy: { systemModule: { name: 'asc' } },
+    });
+    const companyModuleByKey = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      companyModuleByKey.set(this.normalizeRequestedModuleKey(row.systemModule.key), row);
+    }
+
+    const knownModuleKeys = new Set<string>([
+      ...PRIMARY_COMMERCIAL_MODULE_KEYS,
+      ...ROUTE_GUARDED_MODULE_KEYS,
+      ...Object.values(COMMERCIAL_PLAN_MODULE_KEYS).flat(),
+      // CORREÇÃO 11/07: módulos governados por categoria (inclui 'logistica')
+      // entram SEMPRE — empresa antiga sem nenhum post-it precisa ver
+      // 'logistica' no /modules/me (o app /entrega e o soLogistica leem daqui).
+      ...CATEGORY_MANAGED_MODULE_KEYS,
+      'financeiro',
+      'gerencial',
+      'cadastro',
+      'email',
+      'bot',
+    ]);
+    for (const row of rows) {
+      knownModuleKeys.add(this.normalizeRequestedModuleKey(row.systemModule.key));
+    }
+
     const moduleRows = await this.prisma.systemModule.findMany({
       where: {
         companyAssignable: true,
-        key: { notIn: RETIRED_MODULE_KEYS },
+        key: { in: Array.from(knownModuleKeys) },
       },
       orderBy: { name: 'asc' },
     });
@@ -2311,6 +2429,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       .filter((moduleItem) => moduleItem.companyAssignable && !this.isRetiredModuleKey(moduleItem.key))
       .map((moduleItem) => {
         const normalizedKey = this.normalizeRequestedModuleKey(moduleItem.key);
+        const row = companyModuleByKey.get(normalizedKey);
         const availability = availabilityMap.get(normalizedKey) || {
           category: this.getModuleCategory(normalizedKey),
           sortOrder: this.getModuleSortOrder(normalizedKey),
@@ -2325,9 +2444,13 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         // Admin-tier (21/06): financeiro + gerencial = capacidade do eixo Dono/
         // Gerente, fora do plano/catálogo. Sempre "company-enabled"; o acesso é por role.
         const adminTierModule = financeModule || gerencialModule;
-        // Fonte única: snapshot do kill-switch. Sem plano/tier e sem segunda
-        // resolução paralela que possa divergir do guard de rota.
-        const companyHasModule = accessPolicy.moduleKeys.has(normalizedKey);
+        // Post-it (PB2): post-it da empresa manda; senão, a caixa do plano (viva)
+        // — e, pra chave fora do universo do plano (ex.: logistica),
+        // SystemModule.defaultEnabled (CORREÇÃO 11/07, mesma régua do gate).
+        // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
+        const companyHasModule = row
+          ? effectiveCompanyModuleEnabled(row)
+          : this.resolveModuleDefaultWithoutOverride(planDefaults, moduleItem);
         const effectiveCompanyEnabled = adminTierModule ? true : companyHasModule;
         // Acesso por CARGO (P2): USER resolve do molho do cargo Vendedor; ADMIN/
         // master = tudo. financeiro/gerencial = muro do eixo Dono/Gerente.
@@ -2447,6 +2570,17 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       }),
     ]);
     const accessPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(company, companyId);
+    const planManagedModuleKeys = new Set(
+      Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+        .flat()
+        .map((moduleKey) => this.normalizeRequestedModuleKey(moduleKey)),
+    );
+
+    const companyModuleRows = await this.prisma.companyModule.findMany({ where: { companyId } });
+    // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
+    const companyModuleMap = new Map<number, boolean>(
+      companyModuleRows.map((row) => [row.moduleId, effectiveCompanyModuleEnabled(row)]),
+    );
 
     const policyRows = await this.prisma.userTeamPolicy.findMany({
       where: { userId: { in: users.map((u) => u.id) } },
@@ -2466,7 +2600,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
         key: moduleItem.key,
         name: moduleItem.name,
         description: moduleItem.description,
-        companyEnabled: accessPolicy.moduleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key)),
+        companyEnabled: planManagedModuleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key))
+          ? accessPolicy.moduleKeys.has(this.normalizeRequestedModuleKey(moduleItem.key))
+          : accessPolicy.planKey === COMMERCIAL_PLAN_KEYS.MELHOR &&
+            (companyModuleMap.has(moduleItem.id) ? Boolean(companyModuleMap.get(moduleItem.id)) : false),
       })),
       users: users.map((u) => {
         const policy = policyByUser.get(Number(u.id)) || null;
@@ -2536,12 +2673,26 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     // Delegação descendente: só libera o que a empresa possui.
     if (!isSystemMaster && targetCompanyId) {
       const companyPolicy = await this.resolveCompanyModulePolicyWithKillSwitch(company, targetCompanyId);
+      const planManagedKeys = new Set(
+        Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
+          .flat()
+          .map((k) => this.normalizeRequestedModuleKey(k)),
+      );
+      const companyModuleRows = await this.prisma.companyModule.findMany({
+        where: { companyId: targetCompanyId },
+      });
+      // PR10072026 W1: efetivo do post-it = masterEnabled && enabled (helper único).
+      const companyModuleById = new Map<number, boolean>(
+        companyModuleRows.map((r) => [r.moduleId, effectiveCompanyModuleEnabled(r)]),
+      );
       for (const permission of modulePermissions || []) {
         if (!permission.allowed) continue;
         const normalizedKey = this.normalizeRequestedModuleKey(permission.key);
         const moduleItem = byKey.get(normalizedKey);
         if (!moduleItem) continue;
-        const companyHas = companyPolicy.moduleKeys.has(normalizedKey);
+        const companyHas = planManagedKeys.has(normalizedKey)
+          ? companyPolicy.moduleKeys.has(normalizedKey)
+          : Boolean(companyModuleById.get(moduleItem.id));
         if (!companyHas) {
           throw new BadRequestException(
             `Módulo '${permission.key}' não está habilitado para a empresa — só é possível conceder o que a empresa possui.`,
@@ -3777,14 +3928,15 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
   // limites ser refeita). Ordem do dono: "vou remover todas as regras de
   // limitação anterior" — a aplicação dos novos limites é passo seguinte.
   private resolvePlanInfoBase(planKey: ActiveCommercialPlanKey) {
+    const quota = COMMERCIAL_PLAN_QUOTAS[planKey] || COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO];
     return {
       monthlyPrice: this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey)),
-      includedUsers: 0,
-      extraUserMonthly: 0,
+      includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[planKey] ?? 1,
+      extraUserMonthly: this.normalizeCurrencyAmount(COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[planKey] ?? 0),
       trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[planKey] ?? 0,
-      deepSearchesPerDay: 0,
-      enrichmentsPerDay: 0,
-      cardsPerMonth: 0,
+      deepSearchesPerDay: Number(quota.googleSearchesPerDay || 0),
+      enrichmentsPerDay: Number(quota.enrichmentsPerDay || 0),
+      cardsPerMonth: Number(quota.cardsPerMonth || 0),
     };
   }
 
@@ -3828,12 +3980,13 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
 
   // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou GET/PUT master/plan/:key/
   // modules (zero front, S4 matou o Self-Checkout que os consumia). Corpo mantido pra
-  // auditoria histórica. O runtime ignora modulesJson: acesso vem somente do
-  // kill-switch SystemModule + CompanyModule.
+  // auditoria; a leitura em runtime que outros fluxos usam é `getPlanModuleDefaults` (privado,
+  // outra função), que continua ativa.
   async getPlanModulesForMaster(masterUserId: number, rawPlanKey: string) {
     await this.assertMasterUser(masterUserId);
     await this.ensureDefaultSystemModules();
     const planKey = this.normalizePlanKeyForConfig(rawPlanKey);
+    const defaults = await this.getPlanModuleDefaults(planKey);
     const moduleRows = await this.prisma.systemModule.findMany({
       where: { companyAssignable: true },
       orderBy: { name: 'asc' },
@@ -3842,7 +3995,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       .filter((m) => !this.isRetiredModuleKey(m.key))
       .map((m) => {
         const key = this.normalizeRequestedModuleKey(m.key);
-        return { key, name: m.name, enabled: Boolean(m.defaultEnabled) };
+        return { key, name: m.name, enabled: defaults.get(key) === true };
       });
     const cfg = await this.prisma.planModuleConfig
       .findUnique({ where: { planKey }, select: { planInfoJson: true } })
@@ -4238,27 +4391,59 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async syncCompanyModulesForPlanTx(_tx: any, _companyId: number, _planKey: ActiveCommercialPlanKey) {
-    // Plano é metadado de cobrança. Nunca cria, apaga ou altera post-its de
-    // módulo; somente SystemModule + CompanyModule governam o produto.
+  private async syncCompanyModulesForPlanTx(tx: any, companyId: number, _planKey: ActiveCommercialPlanKey) {
+    // Post-it (PR13062026007 PB2): trocar de plano LIMPA os post-its da empresa →
+    // ela passa a seguir a caixa do novo plano (ao vivo). O master reabre exceção
+    // depois se quiser. (Infra idem: sem post-it = segue o plano dela, que é vazio.)
+    await tx.companyModule.deleteMany({ where: { companyId } });
   }
 
   private async syncCompanyEntitlementsForPlanTx(
-    _tx: any,
-    _companyId: number,
-    _planKey: ActiveCommercialPlanKey,
-    _status: 'paid' | 'manual' | 'trialing' | 'pending_checkout',
-    _source: string,
-    _periodStart: Date | null,
-    _periodEnd: Date | null,
+    tx: any,
+    companyId: number,
+    planKey: ActiveCommercialPlanKey,
+    status: 'paid' | 'manual' | 'trialing' | 'pending_checkout',
+    source: string,
+    periodStart: Date | null,
+    periodEnd: Date | null,
   ) {
-    // Entitlements comerciais por plano foram aposentados como driver de
-    // produto. Linhas históricas permanecem somente para auditoria/billing.
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
+    const allKeys = Object.values(COMMERCIAL_ENTITLEMENT_KEYS);
+
+    for (const key of allKeys) {
+      const active = activeKeys.has(key);
+      await tx.companyCommercialEntitlement.upsert({
+        where: { companyId_key: { companyId, key } },
+        update: {
+          status: active ? status : 'canceled',
+          source: active ? source : 'master_plan_change',
+          currentPeriodStart: active ? periodStart : null,
+          currentPeriodEnd: active ? periodEnd : null,
+          metadataJson: JSON.stringify({
+            selectedPlanKey: planKey,
+            changedBy: 'master',
+            changedAt: new Date().toISOString(),
+          }),
+        },
+        create: {
+          companyId,
+          key,
+          status: active ? status : 'canceled',
+          source: active ? source : 'master_plan_change',
+          currentPeriodStart: active ? periodStart : null,
+          currentPeriodEnd: active ? periodEnd : null,
+          metadataJson: JSON.stringify({
+            selectedPlanKey: planKey,
+            changedBy: 'master',
+            changedAt: new Date().toISOString(),
+          }),
+        },
+      });
+    }
   }
 
-  // Endpoint aposentado; mantido apenas para ferramentas internas antigas que
-  // ainda precisem corrigir metadado histórico de cobrança. Nunca altera
-  // módulo, entitlement, acesso, trial ou implantação.
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou PUT master/company/:id/plan
+  // (zero front desde o S1). Corpo mantido pra auditoria/histórico.
   async setCompanyPlanByMaster(masterUserId: number, companyId: number, planKey: string) {
     await this.assertMasterUser(masterUserId);
     const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
@@ -4268,16 +4453,99 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const previousState = this.buildCompanyAccessAuditSnapshot(company);
     const previousBillingState = this.buildCompanyBillingAuditSnapshot(company);
     const previousPlanKey = this.normalizeOptionalString(company.selectedPlanKey);
+    const previousNormalizedPlanKey = previousPlanKey
+      ? normalizeCommercialPlanKey(previousPlanKey)
+      : null;
+    // PR10072026 W1: efetivo = masterEnabled && enabled (mesma régua do helper único).
+    const previousModuleRows = await this.prisma.companyModule.findMany({
+      where: { companyId, enabled: true, masterEnabled: true },
+      include: { systemModule: { select: { key: true } } },
+    });
+    const previousModuleKeys = previousModuleRows
+      .map((row) => this.normalizeOptionalString(row.systemModule?.key))
+      .filter(Boolean) as string[];
+    const previousEntitlementKeys =
+      previousNormalizedPlanKey
+        ? COMMERCIAL_PLAN_ENTITLEMENT_KEYS[previousNormalizedPlanKey]
+        : [];
+
+    // Projecao do estado canonico (PR-002 B.2-4): mudar plano NAO mexe em
+    // acesso nem em premiumAccess — so troca o plano e sincroniza modulos
+    // conforme o estado que a empresa JA tem.
     const access = resolveCompanyAccessState(company);
     const released = isCompanyAccessReleased(access.state);
     const isManualAccess = access.state === 'manual' || access.state === 'exempt';
-    const nextIsActive = Boolean(company.isActive);
-    const moduleDiff = { added: [] as string[], removed: [] as string[] };
-    const entitlementDiff = { added: [] as string[], removed: [] as string[] };
+    const isTrialAccess = access.state === 'trial' || access.state === 'trial_ending';
+    const entitlementStatus: 'paid' | 'manual' | 'trialing' | 'pending_checkout' =
+      isManualAccess
+        ? 'manual'
+        : isTrialAccess
+          ? 'trialing'
+          : access.state === 'paying' || access.state === 'grace'
+            ? 'paid'
+            : 'pending_checkout';
+    const nextIsActive = released
+      ? true
+      : access.state === 'suspended' || access.state === 'overdue' || access.state === 'pending_checkout'
+        ? false
+        : Boolean(company.isActive);
+    const nextModuleKeys = nextIsActive && released
+      ? (COMMERCIAL_PLAN_MODULE_KEYS[normalizedPlanKey] || [])
+      : [];
+    const currentEntitlementKeys = COMMERCIAL_PLAN_ENTITLEMENT_KEYS[normalizedPlanKey] || [];
+    const moduleDiff = this.diffStringSets(previousModuleKeys, nextModuleKeys);
+    const entitlementDiff = this.diffStringSets(previousEntitlementKeys, currentEntitlementKeys);
+    const periodStart = isTrialAccess
+      ? company.trialStartsAt
+      : company.subscriptionCurrentPeriodStart;
+    const periodEnd = isTrialAccess
+      ? company.trialEndsAt
+      : company.subscriptionCurrentPeriodEnd;
+    const assistedSetupCompleted =
+      String(company.assistedSetupStatus || '').trim().toLowerCase() === 'completed';
+    const assistedSetupRequired = normalizedPlanKey === COMMERCIAL_PLAN_KEYS.MELHOR;
 
-    await this.prisma.company.update({
-      where: { id: companyId },
-      data: { selectedPlanKey: normalizedPlanKey },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          selectedPlanKey: normalizedPlanKey,
+          trialModuleSelection: normalizedPlanKey === COMMERCIAL_PLAN_KEYS.PADRAO ? 'vendas' : null,
+          isActive: nextIsActive,
+          assistedSetupRequired,
+          assistedSetupStatus:
+            assistedSetupRequired
+              ? assistedSetupCompleted
+                ? 'completed'
+                : 'pending'
+              : 'not_required',
+          assistedSetupCompletedAt:
+            assistedSetupRequired ? company.assistedSetupCompletedAt : null,
+          assistedSetupCompletedByUserId:
+            assistedSetupRequired ? company.assistedSetupCompletedByUserId : null,
+          assistedSetupNote:
+            assistedSetupRequired
+              ? company.assistedSetupNote || 'Implantação assistida pendente para liberar automação completa.'
+              : null,
+          deactivatedAt: nextIsActive ? null : company.deactivatedAt || new Date(),
+        },
+      });
+      if (nextIsActive && released) {
+        await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
+      }
+      // PR10072026 W1 (item 6): o else que apagava CompanyModule em massa saiu —
+      // empresa não-liberada já é bloqueada pela policy (suspended/overdue/
+      // pending_checkout → moduleKeys vazio) + canUserAccessModule; post-its
+      // preservados pra reativação.
+      await this.syncCompanyEntitlementsForPlanTx(
+        tx,
+        companyId,
+        normalizedPlanKey,
+        entitlementStatus,
+        'master_plan_change',
+        periodStart,
+        periodEnd,
+      );
     });
 
     const updatedCompany = await this.prisma.company.findUnique({ where: { id: companyId } });
@@ -4359,7 +4627,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const updated = await this.prisma.company.update({
       where: { id: companyId },
       data: {
-        assistedSetupRequired: Boolean(company.assistedSetupRequired),
+        assistedSetupRequired: normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO) === COMMERCIAL_PLAN_KEYS.MELHOR,
         assistedSetupStatus: 'completed',
         assistedSetupCompletedAt: now,
         assistedSetupCompletedByUserId: masterUserId,

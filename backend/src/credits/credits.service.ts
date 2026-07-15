@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService, CreditGrantType, GrantOptions } from './credit-wallet.service';
 import { CreditPackConfigService } from './credit-pack-config.service';
@@ -9,11 +9,12 @@ import {
   getWelcomeCreditsDefault,
   normalizeCreditPackKey,
 } from './credit-pack-catalog';
-import { isCreditsFeatureEnabled } from './credits.flags';
+import { isCreditsEnforceEnabled, isCreditsFeatureEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { loadUserTeamPolicyRuntime, resolveTeamPolicyStoredLimit } from '../team/team-policy-persistence';
-import { COMPANY_KIND_TENANT } from '../common/company-kind';
+import { normalizeCompanyAccountType } from '../modules/company-access-state';
 import { CreditActionConfigService } from './credit-action-config.service';
+import { getCreditActionBaseDefinition } from './credit-action-catalog';
 
 // CRÉDITOS S3-PARTE1 — camada de orquestração entre o ledger (S1, CreditWalletService) e o
 // catálogo de pacotes (credit-pack-catalog.ts). Tudo aqui respeita HBX_CREDITS_ENABLED
@@ -39,7 +40,7 @@ export class CreditsService {
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
     private readonly packConfig: CreditPackConfigService,
-    private readonly actionConfig: CreditActionConfigService,
+    @Optional() private readonly actionConfig?: CreditActionConfigService,
   ) {}
 
   private assertFeatureEnabled() {
@@ -470,11 +471,11 @@ export class CreditsService {
     }
   }
 
-  // ── Débito obrigatório antes de revelar o lead ──────────────────────────────
+  // ── R1 — gate REAL de enforcement (débito que BLOQUEIA a entrega sem saldo) ──
   /**
-   * Todo tenant cliente usa a carteira na entrega de lead. Plano, tipo de conta e flags de
-   * cutover não podem transformar uma entrega em gratuita. `platform_infra` não é cliente e
-   * não pode atravessar esse fluxo.
+   * Gate em 2 chaves (R1-SPEC): `HBX_CREDITS_ENFORCE` (env, mestre) E
+   * `Company.creditsEnforceEnabled` (por-tenant) precisam estar ON. Qualquer uma OFF →
+   * enforcement inteiro desligado.
    */
   async isEnforceActiveForCompany(companyId: number): Promise<boolean> {
     const companyIdNum = Number(companyId);
@@ -482,29 +483,71 @@ export class CreditsService {
     const company = await this.prisma.company.findUnique({
       where: { id: companyIdNum },
       select: {
-        id: true,
-        companyKind: true,
+        creditsEnforceEnabled: true,
+        accountType: true,
       },
     }).catch(() => null);
     if (!company) return false;
-    return String(company.companyKind || '').trim().toLowerCase() === COMPANY_KIND_TENANT;
+
+    // MASTER-REFAB S6 (10/07 noite): o gatilho do débito real deixou de ser o access-state
+    // courtesy (exempt/manual) e virou o TIPO EXPLÍCITO da conta. Conta `credit` NÃO tem cota
+    // de plano; o teto REAL é o saldo de crédito. Por isso o débito real nasce LIGADO por
+    // default assim que o módulo de crédito está ON (HBX_CREDITS_ENABLED) — igual comportamento
+    // que a courtesy já tinha desde `5e10b0d8`, só lido do campo em vez de re-derivar do estado
+    // comercial. Conta `enterprise` segue APENAS no cutover legado (2 chaves) abaixo.
+    if (isCreditsFeatureEnabled() && this.isCreditAccountTypeCompany(company)) return true;
+
+    // Caminho legado do cutover por-empresa (gate 2 chaves R1): conta enterprise já migrada.
+    if (!isCreditsEnforceEnabled()) return false;
+    return Boolean((company as any)?.creditsEnforceEnabled);
+  }
+
+  // Fonte única: Company.accountType (normalizeCompanyAccountType) — nunca re-derivar de
+  // courtesy/exempt-manual (esse critério morreu com a cortesia, ver company-access-state.ts).
+  private isCreditAccountTypeCompany(company: { accountType?: string | null }): boolean {
+    return normalizeCompanyAccountType(company?.accountType) === 'credit';
   }
 
   /**
-   * Compatibilidade de nome para consumidores existentes: agora significa "tenant cuja entrega
-   * exige crédito". Não existe mais fronteira por plano/accountType/flag.
+   * Método PÚBLICO reusável: "esta empresa é uma conta de CRÉDITO?" — verdadeiro só com o
+   * módulo de crédito ON (HBX_CREDITS_ENABLED) E `accountType === 'credit'` (MASTER-REFAB S6,
+   * 10/07 noite — era cortesia vigente/exempt-manual, virou o campo explícito). Existe pra
+   * outros serviços perguntarem sem duplicar o critério — hoje consumido pelo
+   * CommercialUsageLimitsService (fronteira cota-de-plano × crédito). Best-effort: empresa
+   * inexistente/erro → false (nunca trata como conta de crédito por engano, nunca quebra o
+   * fluxo de venda).
    */
   async isCreditsAccountCompany(companyId: number): Promise<boolean> {
-    return this.isEnforceActiveForCompany(companyId);
+    if (!isCreditsFeatureEnabled()) return false;
+    const companyIdNum = Number(companyId);
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return false;
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyIdNum },
+      select: { accountType: true },
+    }).catch(() => null);
+    if (!company) return false;
+    return this.isCreditAccountTypeCompany(company);
   }
 
-  private throwDebitUnavailable(reason: string): never {
-    throw new ConflictException({
-      ok: false,
-      code: 'CREDIT_DEBIT_UNAVAILABLE',
-      message: 'Nao foi possivel confirmar o debito do lead. Nenhum dado foi liberado.',
-      reason,
-    });
+  // Master (isSystemMaster) operando um tenant é god-mode em TODA a superfície de cota
+  // (buildUnlimitedSnapshot no CommercialUsageLimitsService) — não consome o crédito do
+  // tenant. Protege o fluxo do dono no tenant interno de cortesia sem depender do crédito
+  // interno já ter sido concedido. O admin/USERMASTER do tenant NÃO é master → é debitado.
+  private async isActingUserSystemMaster(userId: number | null): Promise<boolean> {
+    const userIdNum = Number(userId || 0);
+    if (!userIdNum) return false;
+    // try/catch (não só .catch): protege contra ambiente sem o model `user` no client
+    // (fakes de teste) — o acesso a `.findUnique` de undefined lançaria SÍNCRONO. Falha =
+    // trata como não-master (nunca isenta débito por erro, nunca quebra o fluxo de venda).
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userIdNum },
+        select: { isSystemMaster: true },
+      });
+      return Boolean(user?.isSystemMaster);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -600,8 +643,8 @@ export class CreditsService {
   }
 
   /**
-   * Choke único do lead entregue. Todo tenant precisa confirmar o débito antes da revelação.
-   * (1) checa teto individual do vendedor (S4) ANTES do débito da empresa —
+   * Choke único do Lead entregue. Se o gate está OFF, é no-op transparente.
+   * Com o gate ON: (1) checa teto individual do vendedor (S4) ANTES do débito da empresa —
    * estourou, bloqueia SÓ ele; (2) debita 1 crédito da carteira via `CreditWalletService.debit`
    * (fail-closed, nunca negativo e idempotente por
    * `enforce:<actionKey>:<leadId>`); sem saldo, a entrega para.
@@ -612,28 +655,23 @@ export class CreditsService {
     input: { leadId: string | number; actionKey: string; isBillingAudienceUser?: boolean },
   ): Promise<{ applied: boolean; debited: number; balanceAfter?: number }> {
     const companyIdNum = Number(companyId);
-    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) this.throwDebitUnavailable('invalid_company');
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return { applied: false, debited: 0 };
 
     const enforceActive = await this.isEnforceActiveForCompany(companyIdNum);
-    if (!enforceActive) this.throwDebitUnavailable('non_customer_company');
+    if (!enforceActive) return { applied: false, debited: 0 };
+
+    // Master god-mode nunca queima o crédito do tenant que opera (ver isActingUserSystemMaster).
+    if (await this.isActingUserSystemMaster(userId)) return { applied: false, debited: 0 };
 
     const actionKey = String(input?.actionKey || '').trim() || 'lead_delivery';
     const leadId = String(input?.leadId ?? '').trim();
-    if (!leadId) this.throwDebitUnavailable('missing_lead');
-    if (actionKey !== 'lead_delivery') this.throwDebitUnavailable('invalid_lead_action');
+    if (!leadId) return { applied: false, debited: 0 };
 
-    if (!this.actionConfig || typeof this.actionConfig.resolveEffective !== 'function') {
-      this.throwDebitUnavailable('action_config_unavailable');
-    }
-    let definition;
-    try {
-      definition = await this.actionConfig.resolveEffective(actionKey);
-    } catch (error: any) {
-      this.logger.error(`lead_debit_action_config_failed company=${companyIdNum} error=${String(error?.message || error)}`);
-      this.throwDebitUnavailable('action_config_failed');
-    }
+    const definition = this.actionConfig
+      ? await this.actionConfig.resolveEffective(actionKey)
+      : getCreditActionBaseDefinition(actionKey);
     if (!definition || definition.mode === 'free' || definition.cost <= 0) {
-      this.throwDebitUnavailable('lead_action_not_debitable');
+      return { applied: false, debited: 0 };
     }
     const cost = definition.cost;
 

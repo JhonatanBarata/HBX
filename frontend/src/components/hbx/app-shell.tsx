@@ -10,7 +10,7 @@
 import { usePathname } from "next/navigation";
 import React from "react";
 
-import { ICONS, Sidebar, Topbar, toggleRailState, useRailState } from "@/components/hbx/shell";
+import { Sidebar, Topbar, toggleRailState, useRailState } from "@/components/hbx/shell";
 import { SoLogisticaGate } from "@/components/hbx/so-logistica-gate";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
@@ -20,14 +20,6 @@ import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-
 import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
 import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
 import { MobileShell } from "@/components/casca/mobile-shell";
-import {
-  LeadProcessProvider,
-  LeadPullProgressOverlay,
-} from "@/components/hbx/lead-pull-progress-overlay";
-
-// FINANCEIRO-UNIVERSAL: o id da navegação precisa de um glifo no registry do shell.
-// Reusa o ícone monetário central e preserva um futuro desenho dedicado.
-ICONS.financeiro ??= ICONS.money;
 
 type Meta = { active: string; title: string; crumbs: React.ReactNode };
 
@@ -83,9 +75,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // sem o shell padrão por cima (senão viraria menu duplicado).
   if (pathname.startsWith("/master")) return <>{children}</>;
 
-  const meta = pathname.startsWith("/leads/runs/")
-    ? { active: "vendas", title: "Busca em andamento", crumbs: crumb("Processamento", "Vendas") }
-    : META[pathname] || { active: "", title: "HBX", crumbs: crumb("HBX") };
+  const meta = META[pathname] || { active: "", title: "HBX", crumbs: crumb("HBX") };
 
   // CASCA MOBILE (MOBILE-CASCA/W1): no celular a MobileShell substitui TODO o
   // chrome desktop pela moldura própria (topo/tab bar) + registry de telas. No
@@ -98,7 +88,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // pela nova) porque /master tem o SEU PRÓPRIO ".app" (master/page.client.tsx,
   // chrome à parte, fora da MobileShell) que não pode ser afetado.
   return (
-    <LeadProcessProvider>
+    <>
       <MobileShell>
         <div className="app app-shell-root" data-rail={rail}>
           <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
@@ -125,12 +115,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <MobileActionBridgeHost />
         </div>
       </MobileShell>
-      {/* Host global: fica fora da substituição mobile para cobrir lista, ficha
-          direta e sheet com a mesma operação real de débito/revelação. */}
-      <LeadPullProgressOverlay />
       {/* Fica fora da substituição da MobileShell: o mesmo concierge de
           configuração atende desktop e celular sem duplicar a jornada. */}
       <ActivationChecklist />
-    </LeadProcessProvider>
+    </>
   );
 }

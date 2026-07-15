@@ -267,6 +267,22 @@ function createService(overrides?: {
   };
 
   const webscrapingService = {
+    pullRadarLeadsForUser: async (user: any, input: Record<string, any>) => {
+      searchCalls.push({ user, input });
+      if (overrides?.searchError) throw new Error(overrides.searchError);
+      const response = overrides?.searchResponse || {
+        query: { city: input.city, segment: input.segment },
+        results: [],
+        meta: { historyId: null },
+      };
+      return {
+        items: (response.results || []).map((item: any, index: number) => ({
+          id: item.radarLeadId || `radar-${index + 1}`,
+          ...item,
+        })),
+        meta: { deliveredCount: (response.results || []).length },
+      };
+    },
     markRadarLeadsSentToVendasForUser: async () => ({ ok: true, updatedCount: 0 }),
     getRadarContactProtectionForUser: async () => ({ blocked: false }),
     markRadarContactDispositionForUser: async () => ({ ok: true }),
@@ -508,23 +524,28 @@ test('scheduleJobsForCampaign falls back to broader webscraping pool when exact 
   assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('outros cards do Vendas')));
 });
 
-test('refillCampaignsIfNeeded somente consome cards do Vendas e nunca pesquisa ou importa leads', async () => {
-  const { service, scheduleCalls, searchCalls, importCalls, campaignStageUpdates } = createService({
-    campaign: {
-      city: 'Sao Paulo',
-      segment: 'clínica odontológica',
-      lastScrapeAt: null,
-    },
-    scheduleLeads: [],
+test('scrapeImportAndSchedule keeps campaign on Vendas cards when Radar filters are blank', async () => {
+  const { service, campaignStageUpdates, searchCalls } = createService({
+    campaign: { segment: '' },
   });
 
-  await service.refillCampaignsIfNeeded();
+  await service.scrapeImportAndSchedule('campaign-1', undefined, 'refill');
 
-  assert.deepEqual(scheduleCalls, ['campaign-1']);
   assert.equal(searchCalls.length, 0);
-  assert.equal(importCalls.length, 0);
-  assert.equal(typeof service.scrapeImportAndSchedule, 'undefined');
-  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Aguardando cards do Vendas')));
+  assert.ok(!campaignStageUpdates.some((data) => data.lastError));
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('cards do Vendas com WhatsApp')));
+});
+
+test('scrapeImportAndSchedule records webscraping failures in campaign status', async () => {
+  const { service, campaignStageUpdates, searchCalls } = createService({
+    searchError: 'Segmento obrigatorio.',
+  });
+
+  await assert.rejects(() => service.scrapeImportAndSchedule('campaign-1', undefined, 'refill'), /Segmento obrigatorio/);
+
+  assert.equal(searchCalls.length, 1);
+  assert.ok(campaignStageUpdates.some((data) => data.lastError === 'Segmento obrigatorio.'));
+  assert.ok(campaignStageUpdates.some((data) => String(data.lastStatusText || '').includes('Busca de contatos falhou')));
 });
 
 test('runWorkerCycle sends due jobs before running refill', async () => {

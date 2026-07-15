@@ -1,8 +1,16 @@
 import { ConflictException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildRadarLeadEnrichment } from '../webscraping/radar-lead-enrichment';
+import { checkEmailDomainMx, type EmailMxStatus } from '../webscraping/email-mx-validation';
+import { WebsiteCrawlProviderService } from '../webscraping/radar/providers/website-crawl/website-crawl-provider.service';
 import { CnpjBaseQueryService } from '../webscraping/radar/providers/cnpj-public/cnpj-base-query.service';
-import { DEFAULT_NIGHT_FACTORY_CONFIG } from './night-factory.types';
+import {
+  DEFAULT_NIGHT_FACTORY_CONFIG,
+  NightFactoryConfig,
+  calculateHbxOpportunityScore,
+} from './night-factory.types';
 
+const CONFIG_KEY = 'night_factory';
 const BLOCKED_RADAR_STATUSES = ['complaint', 'denied', 'hidden', 'rejected'];
 const REWARD_MINIMUM_REQUIRED = 5;
 const REWARD_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -48,64 +56,6 @@ function parseJsonRecord(value: unknown): Record<string, any> {
   }
 }
 
-function cnpjDigits(value: unknown) {
-  const digits = String(value || '').replace(/\D/g, '');
-  return digits.length === 14 ? digits : '';
-}
-
-function findCnpjInRecord(value: unknown, depth = 0): string {
-  if (!value || depth > 4) return '';
-  if (Array.isArray(value)) {
-    for (const item of value.slice(0, 40)) {
-      const found = findCnpjInRecord(item, depth + 1);
-      if (found) return found;
-    }
-    return '';
-  }
-  if (typeof value !== 'object') return '';
-  for (const [key, item] of Object.entries(value as Record<string, any>).slice(0, 120)) {
-    if (normalize(key).includes('cnpj')) {
-      const direct = cnpjDigits(item);
-      if (direct) return direct;
-    }
-    const nested = findCnpjInRecord(item, depth + 1);
-    if (nested) return nested;
-  }
-  return '';
-}
-
-function extractPoolCnpj(row: any) {
-  const metadata = parseJsonRecord(row?.metadataJson);
-  const evidence = parseJsonRecord(row?.evidenceJson);
-  const structured = findCnpjInRecord(metadata) || findCnpjInRecord(evidence);
-  if (structured) return structured;
-  const sourceMatch = String(row?.sourceUrl || '').match(/(?:cnpj(?:-base)?[^0-9]*)?(\d{14})(?:\D|$)/i);
-  return cnpjDigits(sourceMatch?.[1]);
-}
-
-function websiteIdentity(value: unknown) {
-  const raw = safeText(value, 500);
-  if (!raw) return '';
-  try {
-    return new URL(raw.includes('://') ? raw : `https://${raw}`).hostname.toLowerCase().replace(/^www\./, '');
-  } catch {
-    return '';
-  }
-}
-
-function poolIdentityKey(row: any, cnpj: string) {
-  if (cnpj) return `cnpj:${cnpj}`;
-  const placeId = safeText(row?.placeId, 240);
-  if (placeId) return `place:${placeId}`;
-  const host = websiteIdentity(row?.website);
-  if (host) return `site:${host}`;
-  const name = normalize(row?.name);
-  const city = normalize(row?.city || row?.normalizedCity);
-  const state = normalize(row?.state);
-  if (name) return `name:${name}|${city}|${state}`;
-  return `pool:${safeText(row?.id, 240)}`;
-}
-
 function extractQualityV2(row: any) {
   const enrichment = parseJsonRecord(row?.enrichmentJson);
   const metadata = parseJsonRecord(row?.metadataJson);
@@ -138,21 +88,141 @@ function clamp(value: unknown, fallback: number, min: number, max: number) {
   return Math.max(min, Math.min(max, parsed));
 }
 
+function coerceBoolean(value: unknown, fallback: boolean) {
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  return ['1', 'true', 'yes', 'on', 'enabled', 'ligado'].includes(normalized);
+}
+
 @Injectable()
 export class NightFactoryService {
   private readonly logger = new Logger(NightFactoryService.name);
-  private nationalActiveCountCache: { value: { available: boolean; count: number | null }; expiresAt: number } | null = null;
+  private running = false;
+  private pausedOverride = false;
+  private lastRunAt: Date | null = null;
+  private lastFinishedAt: Date | null = null;
+  private lastError: string | null = null;
+  private lastRunStats = {
+    processed: 0,
+    enriched: 0,
+    failed: 0,
+    premium: 0,
+    recovery: 0,
+  };
+
+  // Substituível em teste; produção usa o resolver DNS local (custo zero, sem API).
+  private emailMxCheck: (email: string) => Promise<EmailMxStatus> = checkEmailDomainMx;
+  private leadsBankCache: { value: any; expiresAt: number } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly websiteCrawlProvider: WebsiteCrawlProviderService = new WebsiteCrawlProviderService(),
     // VENDAS-REFAB S3 (fix P0 boot): sem módulo cruzado (night-factory não importa
     // WebscrapingModule). @Optional() + default garante instância local só-prisma sem
     // o Nest tentar resolver o provider (que arrastaria deps ausentes = crash no boot).
     @Optional() private readonly cnpjBaseQuery: CnpjBaseQueryService = new CnpjBaseQueryService(prisma),
   ) {}
 
+  async getConfig(): Promise<NightFactoryConfig> {
+    if (!(await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false))) {
+      return { ...DEFAULT_NIGHT_FACTORY_CONFIG };
+    }
+
+    const row = await (this.prisma as any).webscrapingOperationalConfig.findUnique({
+      where: { key: CONFIG_KEY },
+    }).catch(() => null);
+    if (!row) return { ...DEFAULT_NIGHT_FACTORY_CONFIG };
+
+    const metadata = parseJsonRecord(row.metadataJson);
+    return this.normalizeConfig({
+      ...DEFAULT_NIGHT_FACTORY_CONFIG,
+      ...metadata,
+      enabled: row.enabled,
+      startHour: row.startHour,
+      endHour: row.endHour,
+      batchSize: row.batchSize,
+      maxConcurrency: metadata.maxConcurrency ?? row.engineCount ?? DEFAULT_NIGHT_FACTORY_CONFIG.maxConcurrency,
+      maxLeadsPerNight: metadata.maxLeadsPerNight,
+    });
+  }
+
+  async saveConfig(user: any, input: Partial<NightFactoryConfig> = {}) {
+    const current = await this.getConfig();
+    const next = this.normalizeConfig({ ...current, ...input });
+    if (await this.prisma.hasTable('WebscrapingOperationalConfig').catch(() => false)) {
+      const metadata = {
+        maxConcurrency: next.maxConcurrency,
+        maxLeadsPerNight: next.maxLeadsPerNight,
+        enrichOnlyNewLeads: next.enrichOnlyNewLeads,
+        allowWebsiteFetch: next.allowWebsiteFetch,
+        allowScreenshot: next.allowScreenshot,
+        allowAiSuggestions: next.allowAiSuggestions,
+        allowRecoveryRevival: next.allowRecoveryRevival,
+        allowVendasQueuePush: next.allowVendasQueuePush,
+        cpuSoftLimitPercent: next.cpuSoftLimitPercent,
+        memorySoftLimitPercent: next.memorySoftLimitPercent,
+      };
+      await (this.prisma as any).webscrapingOperationalConfig.upsert({
+        where: { key: CONFIG_KEY },
+        create: {
+          key: CONFIG_KEY,
+          enabled: next.enabled,
+          preset: CONFIG_KEY,
+          startHour: next.startHour,
+          startMinute: 0,
+          endHour: next.endHour,
+          endMinute: 0,
+          engineCount: next.maxConcurrency,
+          intensity: 'normal',
+          memoryTargetGb: 12,
+          batchSize: next.batchSize,
+          maxAttemptsPerTask: 3,
+          engineUrlsJson: '[]',
+          metadataJson: JSON.stringify(metadata),
+          createdByUserId: Number(user?.id || 0) || null,
+          updatedByUserId: Number(user?.id || 0) || null,
+        },
+        update: {
+          enabled: next.enabled,
+          startHour: next.startHour,
+          endHour: next.endHour,
+          engineCount: next.maxConcurrency,
+          batchSize: next.batchSize,
+          metadataJson: JSON.stringify(metadata),
+          updatedByUserId: Number(user?.id || 0) || null,
+        },
+      });
+    }
+    this.pausedOverride = !next.enabled;
+    return this.getStatus();
+  }
+
+  async pause(user?: any) {
+    return this.saveConfig(user || {}, { enabled: false });
+  }
+
+  async resume(user?: any) {
+    this.pausedOverride = false;
+    return this.saveConfig(user || {}, { enabled: true });
+  }
+
+  async runNow(user?: any) {
+    const result = await this.processBatch({ force: true, requestedByUserId: Number(user?.id || 0) || null });
+    return {
+      run: result,
+      status: await this.getStatus(),
+    };
+  }
+
+  async runScheduledTick() {
+    const config = await this.getConfig();
+    if (!config.enabled || this.pausedOverride || this.running || !this.isWithinWindow(config)) return null;
+    return this.processBatch({ force: false, requestedByUserId: null });
+  }
+
   async getStatus() {
-    const config = { ...DEFAULT_NIGHT_FACTORY_CONFIG };
+    const config = await this.getConfig();
     const now = new Date();
     const todayStart = startOfLocalDay(now);
     const [leadPoolAvailable, enrichmentAvailable, recoveryAvailable] = await Promise.all([
@@ -179,21 +249,17 @@ export class NightFactoryService {
         ])
       : [0, 0, 0, 0, [], []];
 
-    const status = 'somente_leitura';
+    const status = this.running
+      ? 'rodando'
+      : !config.enabled || this.pausedOverride
+        ? 'pausado'
+        : 'dormindo';
 
     return {
       generatedAt: now.toISOString(),
-      product: 'HBX Lead Inventory',
+      product: 'HBX Night Factory',
       status,
-      config: {
-        ...config,
-        enabled: false,
-        allowWebsiteFetch: false,
-        allowScreenshot: false,
-        allowAiSuggestions: false,
-        allowRecoveryRevival: false,
-        allowVendasQueuePush: false,
-      },
+      config,
       storage: {
         radarLeadPoolAvailable: leadPoolAvailable,
         radarLeadEnrichmentAvailable: enrichmentAvailable,
@@ -203,8 +269,8 @@ export class NightFactoryService {
         timezone: 'America/Sao_Paulo',
         startHour: config.startHour,
         endHour: config.endHour,
-        activeNow: false,
-        nextWindowLabel: 'Enriquecimento somente na puxada do lead',
+        activeNow: this.isWithinWindow(config, now),
+        nextWindowLabel: this.nextWindowLabel(config),
       },
       summary: {
         totalLeads,
@@ -215,19 +281,17 @@ export class NightFactoryService {
         potentialRevenueEstimate: premiumToday * 497 + recoveryToday * 197,
       },
       worker: {
-        running: false,
-        paused: true,
-        retired: true,
-        reason: 'pre_enrichment_removed_pull_time_only',
-        lastRunAt: null,
-        lastFinishedAt: null,
-        lastError: null,
-        lastRunStats: { processed: 0, enriched: 0, failed: 0, premium: 0, recovery: 0 },
+        running: this.running,
+        paused: !config.enabled || this.pausedOverride,
+        lastRunAt: this.lastRunAt?.toISOString() || null,
+        lastFinishedAt: this.lastFinishedAt?.toISOString() || null,
+        lastError: this.lastError,
+        lastRunStats: this.lastRunStats,
       },
       pipeline: [
         { key: 'captura', label: 'Captura', quantity: totalLeads, status: totalLeads > 0 ? 'ok' : 'aguardando' },
         { key: 'limpeza', label: 'Limpeza', quantity: enrichedToday, status: enrichedToday > 0 ? 'ok' : 'aguardando' },
-        { key: 'enriquecimento', label: 'Enriquecimento na puxada', quantity: enrichedToday, status: 'sob_demanda' },
+        { key: 'enriquecimento', label: 'Enriquecimento', quantity: enrichedToday, status },
         { key: 'score', label: 'Score', quantity: premiumToday, status: premiumToday > 0 ? 'ok' : 'aguardando' },
         { key: 'script', label: 'Script', quantity: enrichedToday, status: enrichedToday > 0 ? 'ok' : 'aguardando' },
         { key: 'recovery', label: 'Recovery', quantity: recoveryToday, status: recoveryToday > 0 ? 'ok' : 'aguardando' },
@@ -236,114 +300,100 @@ export class NightFactoryService {
       topCities,
       topSegments,
       copy: {
-        title: 'O HBX localiza primeiro e enriquece quando você puxa.',
-        subtitle: 'Nenhum enriquecimento extra roda sobre o estoque antes do débito do crédito.',
-        action: 'Abrir Leads',
+        title: 'Enquanto você dorme, o HBX caça oportunidades.',
+        subtitle: 'Seu servidor não fica parado: ele transforma dados em vendas.',
+        action: premiumToday > 0 ? 'Abrir Top Oportunidades' : 'Rodar agora',
       },
     };
   }
 
-  // Universo único do produto: CNPJs ativos da Receita ∪ identidades exclusivas do motor.
-  // A deduplicação é por CNPJ e, quando ele não existe, por placeId/site/nome+localidade.
-  // `total`, `baseTotal`, `availableTotal` e `universeTotal` são aliases intencionais do MESMO
-  // número. `operationalPoolTotal` existe apenas como telemetria e nunca como KPI concorrente.
+  // "Banco de Leads": número global defensável (exclui histórico negativo/inválido)
+  // + delta do dia. Cacheado 5min. Só o número — nunca expõe contato aqui.
+  //
+  // VENDAS-REFAB S3 (04/07): `total` aqui sempre foi o POOL local (RadarLeadPool, ~893) —
+  // é isso que alimentava "Total no Brasil"/"Leads na base (Radar)" fingindo ser a base RFB
+  // inteira (~28M). Descoberta = LISTA (CnpjPublicCompany) + WEB enriquece (docs/Rules/MOTOR.md).
+  // `baseTotal` é o número REAL da LISTA (sem filtro — visão global do banco); `total` (pool)
+  // continua existindo pro que já é ENRIQUECIDO/pronto pra puxar. Quem consome decide qual exibir
+  // (contrato pro S4: baseAvailable=true => baseTotal é a verdade; false => cai no `total`).
   async getLeadsBank() {
     const now = Date.now();
-    // O total nacional muda pouco e pode ser cacheado; o pool NÃO. Assim, todo
-    // lead exclusivo que acabou de chegar ao motor incrementa imediatamente o
-    // universo unificado, sem esperar um TTL de painel.
-    let baseCount = this.nationalActiveCountCache?.expiresAt && this.nationalActiveCountCache.expiresAt > now
-      ? this.nationalActiveCountCache.value
-      : null;
-    if (!baseCount) {
-      baseCount = await this.cnpjBaseQuery.countBase({}).catch(() => ({ available: false, count: null }));
-      this.nationalActiveCountCache = { value: baseCount, expiresAt: now + 5 * 60_000 };
+    if (this.leadsBankCache && this.leadsBankCache.expiresAt > now) {
+      return this.leadsBankCache.value;
     }
-    const poolAvailable = await this.prisma.hasTable('RadarLeadPool').catch(() => false);
+    const baseCount = await this.cnpjBaseQuery.countBase({}).catch(() => ({ available: false, count: null }));
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
+      const empty = {
+        generatedAt: new Date().toISOString(),
+        total: 0,
+        deltaToday: 0,
+        available: false,
+        baseAvailable: baseCount.available,
+        baseTotal: baseCount.count,
+      };
+      this.leadsBankCache = { value: empty, expiresAt: now + 60_000 };
+      return empty;
+    }
     const todayStart = startOfLocalDay();
-    let poolRows: any[] = [];
-    let poolReadComplete = !poolAvailable;
-    if (poolAvailable) {
-      try {
-        poolRows = await (this.prisma as any).radarLeadPool.findMany({
-          where: { status: { notIn: BLOCKED_RADAR_STATUSES } },
-          select: {
-            id: true,
-            placeId: true,
-            name: true,
-            city: true,
-            normalizedCity: true,
-            state: true,
-            website: true,
-            sourceUrl: true,
-            metadataJson: true,
-            evidenceJson: true,
-            createdAt: true,
-          },
-        });
-        poolReadComplete = true;
-      } catch {
-        poolRows = [];
-        poolReadComplete = false;
-      }
-    }
-
-    const poolCnpjs = [...new Set(poolRows.map(extractPoolCnpj).filter(Boolean))];
-    const activePoolCnpjs = new Set<string>();
-    let activeLookupComplete = poolCnpjs.length === 0;
-    if (baseCount.available && poolCnpjs.length && (this.prisma as any).cnpjPublicCompany?.findMany) {
-      try {
-        for (let offset = 0; offset < poolCnpjs.length; offset += 5_000) {
-          const rows = await (this.prisma as any).cnpjPublicCompany.findMany({
-            where: { cnpj: { in: poolCnpjs.slice(offset, offset + 5_000) }, situacao: 'ativa' },
-            select: { cnpj: true },
-          });
-          for (const row of rows) {
-            const cnpj = cnpjDigits(row?.cnpj);
-            if (cnpj) activePoolCnpjs.add(cnpj);
-          }
-        }
-        activeLookupComplete = true;
-      } catch {
-        activeLookupComplete = false;
-      }
-    }
-
-    const exclusiveIdentities = new Map<string, Date>();
-    for (const row of poolRows) {
-      const cnpj = extractPoolCnpj(row);
-      if (cnpj && activePoolCnpjs.has(cnpj)) continue;
-      const key = poolIdentityKey(row, cnpj);
-      const createdAt = new Date(row?.createdAt || 0);
-      const existing = exclusiveIdentities.get(key);
-      if (!existing || createdAt.getTime() < existing.getTime()) exclusiveIdentities.set(key, createdAt);
-    }
-
-    const nationalActiveTotal = typeof baseCount.count === 'number' ? baseCount.count : null;
-    const unionExact = nationalActiveTotal != null && poolReadComplete && activeLookupComplete;
-    const poolExclusiveTotal = unionExact ? exclusiveIdentities.size : null;
-    const universeTotal = unionExact ? nationalActiveTotal + exclusiveIdentities.size : null;
-    const deltaToday = unionExact
-      ? [...exclusiveIdentities.values()].filter((createdAt) => createdAt >= todayStart).length
-      : null;
+    const [total, deltaToday] = await Promise.all([
+      (this.prisma as any).radarLeadPool.count({
+        where: { status: { notIn: BLOCKED_RADAR_STATUSES } },
+      }).catch(() => 0),
+      (this.prisma as any).radarLeadPool.count({
+        where: { status: { notIn: BLOCKED_RADAR_STATUSES }, createdAt: { gte: todayStart } },
+      }).catch(() => 0),
+    ]);
     const value = {
       generatedAt: new Date().toISOString(),
-      total: universeTotal,
-      universeTotal,
-      availableTotal: universeTotal,
+      total,
       deltaToday,
-      available: unionExact,
-      label: 'Empresas disponíveis no Brasil',
+      available: true,
+      label: 'Banco de Leads',
       baseAvailable: baseCount.available,
-      baseTotal: universeTotal,
-      nationalActiveTotal,
-      operationalPoolTotal: poolReadComplete ? poolRows.length : null,
-      poolExclusiveTotal,
-      poolAvailable,
-      unionExact,
-      deduplication: 'cnpj|placeId|website|name+city+state',
+      baseTotal: baseCount.count,
     };
+    this.leadsBankCache = { value, expiresAt: now + 5 * 60_000 };
     return value;
+  }
+
+  // Caça de e-mail: leads do pool que JÁ têm e-mail (confirmed/probable),
+  // filtrados por segmento/cidade. Instantâneo, lê o que o motor já enriqueceu.
+  async getEmailLeads(options: { segment?: string; city?: string; take?: number } = {}) {
+    const take = clamp(options.take, 50, 1, 200);
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
+      return { generatedAt: new Date().toISOString(), total: 0, items: [] };
+    }
+    const where: Record<string, any> = {
+      status: { notIn: BLOCKED_RADAR_STATUSES },
+      emailStatus: { in: ['confirmed', 'probable'] },
+      email: { not: null },
+    };
+    const seg = normalize(options.segment);
+    const city = normalize(options.city);
+    if (seg) where.normalizedSegment = { contains: seg };
+    if (city) where.normalizedCity = { contains: city };
+    const rows = await (this.prisma as any).radarLeadPool.findMany({
+      where,
+      orderBy: [{ emailConfidence: 'desc' }, { opportunityScore: 'desc' }, { updatedAt: 'desc' }],
+      take,
+    }).catch(() => []);
+    return {
+      generatedAt: new Date().toISOString(),
+      total: rows.length,
+      items: rows.map((row: any) => ({
+        id: String(row.id),
+        name: row.name || 'Lead sem nome',
+        email: row.email,
+        emailStatus: row.emailStatus,
+        emailConfidence: safeInteger(row.emailConfidence),
+        city: row.city || row.normalizedCity || null,
+        state: row.state || null,
+        segment: row.segment || row.normalizedSegment || null,
+        phone: row.phone || row.phoneDigits || null,
+        website: row.website || null,
+        painLabel: row.painLabel || row.painType || null,
+      })),
+    };
   }
 
   async getTopOpportunities(options: { take?: number } = {}) {
@@ -689,6 +739,454 @@ export class NightFactoryService {
     };
   }
 
+  async processBatch(options: { force?: boolean; requestedByUserId?: number | null } = {}) {
+    if (this.running) {
+      return { skipped: true, reason: 'Night Factory já está rodando.' };
+    }
+    const config = await this.getConfig();
+    if (!options.force && (!config.enabled || this.pausedOverride || !this.isWithinWindow(config))) {
+      return { skipped: true, reason: 'Fora da janela da Night Factory.' };
+    }
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) {
+      return { skipped: true, reason: 'RadarLeadPool indisponível.' };
+    }
+
+    this.running = true;
+    this.lastRunAt = new Date();
+    this.lastError = null;
+    const stats = { processed: 0, enriched: 0, failed: 0, premium: 0, recovery: 0 };
+    try {
+      const leads = await this.pickLeadsForEnrichment(config);
+      let cursor = 0;
+      const workerCount = Math.max(1, Math.min(config.maxConcurrency, leads.length || 1));
+      await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (cursor < leads.length) {
+          const index = cursor;
+          cursor += 1;
+          const lead = leads[index];
+          if (!lead) continue;
+          stats.processed += 1;
+          try {
+            const result = await this.enrichLead(lead, options.requestedByUserId || null, config);
+            stats.enriched += 1;
+            if (result.opportunityScore >= 85) stats.premium += 1;
+            if (['no_answer', 'duplicate'].includes(String(lead.status || ''))) stats.recovery += 1;
+          } catch (error) {
+            stats.failed += 1;
+            await this.markLeadFailed(lead, error).catch(() => null);
+          }
+        }
+      }));
+      if (config.allowRecoveryRevival) await this.persistRecoverySeeds().catch((error) => {
+        this.logger.warn(`Night Factory recovery seed falhou: ${error instanceof Error ? error.message : String(error)}`);
+      });
+      this.lastRunStats = stats;
+      return {
+        skipped: false,
+        startedAt: this.lastRunAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        stats,
+      };
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error || 'Falha desconhecida.');
+      throw error;
+    } finally {
+      this.running = false;
+      this.lastFinishedAt = new Date();
+    }
+  }
+
+  private normalizeConfig(input: Partial<NightFactoryConfig>): NightFactoryConfig {
+    return {
+      enabled: coerceBoolean(input.enabled, DEFAULT_NIGHT_FACTORY_CONFIG.enabled),
+      startHour: clamp(input.startHour, DEFAULT_NIGHT_FACTORY_CONFIG.startHour, 0, 23),
+      endHour: clamp(input.endHour, DEFAULT_NIGHT_FACTORY_CONFIG.endHour, 0, 23),
+      maxConcurrency: clamp(input.maxConcurrency, DEFAULT_NIGHT_FACTORY_CONFIG.maxConcurrency, 1, 8),
+      batchSize: clamp(input.batchSize, DEFAULT_NIGHT_FACTORY_CONFIG.batchSize, 1, 200),
+      maxLeadsPerNight: clamp(input.maxLeadsPerNight, DEFAULT_NIGHT_FACTORY_CONFIG.maxLeadsPerNight, 10, 10000),
+      enrichOnlyNewLeads: coerceBoolean(input.enrichOnlyNewLeads, DEFAULT_NIGHT_FACTORY_CONFIG.enrichOnlyNewLeads),
+      allowWebsiteFetch: coerceBoolean(input.allowWebsiteFetch, DEFAULT_NIGHT_FACTORY_CONFIG.allowWebsiteFetch),
+      allowScreenshot: coerceBoolean(input.allowScreenshot, DEFAULT_NIGHT_FACTORY_CONFIG.allowScreenshot),
+      allowAiSuggestions: coerceBoolean(input.allowAiSuggestions, DEFAULT_NIGHT_FACTORY_CONFIG.allowAiSuggestions),
+      allowRecoveryRevival: coerceBoolean(input.allowRecoveryRevival, DEFAULT_NIGHT_FACTORY_CONFIG.allowRecoveryRevival),
+      allowVendasQueuePush: coerceBoolean(input.allowVendasQueuePush, DEFAULT_NIGHT_FACTORY_CONFIG.allowVendasQueuePush),
+      cpuSoftLimitPercent: clamp(input.cpuSoftLimitPercent, DEFAULT_NIGHT_FACTORY_CONFIG.cpuSoftLimitPercent, 10, 100),
+      memorySoftLimitPercent: clamp(input.memorySoftLimitPercent, DEFAULT_NIGHT_FACTORY_CONFIG.memorySoftLimitPercent, 10, 100),
+    };
+  }
+
+  private getSaoPauloHour(now = new Date()) {
+    try {
+      const value = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        hour: '2-digit',
+        hour12: false,
+      }).format(now);
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : now.getHours();
+    } catch {
+      return now.getHours();
+    }
+  }
+
+  private isWithinWindow(config: NightFactoryConfig, now = new Date()) {
+    const hour = this.getSaoPauloHour(now);
+    if (config.startHour === config.endHour) return true;
+    if (config.startHour < config.endHour) return hour >= config.startHour && hour < config.endHour;
+    return hour >= config.startHour || hour < config.endHour;
+  }
+
+  private nextWindowLabel(config: NightFactoryConfig) {
+    return `${String(config.startHour).padStart(2, '0')}:00-${String(config.endHour).padStart(2, '0')}:00 America/Sao_Paulo`;
+  }
+
+  private async pickLeadsForEnrichment(config: NightFactoryConfig) {
+    const where: Record<string, any> = {
+      status: { notIn: BLOCKED_RADAR_STATUSES },
+      OR: [
+        { phoneDigits: { not: null } },
+        { phone: { not: null } },
+      ],
+    };
+    if (config.enrichOnlyNewLeads) {
+      where.AND = [{
+        OR: [
+          { opportunityScore: { lte: 0 } },
+          { opportunityReason: null },
+          { updatedAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60_000) } },
+        ],
+      }];
+    }
+    return (this.prisma as any).radarLeadPool.findMany({
+      where,
+      orderBy: [{ opportunityScore: 'asc' }, { lastSeenAt: 'desc' }, { createdAt: 'desc' }],
+      take: Math.min(config.batchSize, config.maxLeadsPerNight),
+    }).catch(() => []);
+  }
+
+  private buildLightweightEnrichment(lead: any) {
+    const website = safeText(lead?.website, 600);
+    const websiteStatus = safeText(lead?.websiteStatus || (website ? 'present' : 'none'), 40) || 'unknown';
+    const sourceUrl = safeText(lead?.sourceUrl, 600);
+    const hasInstagram = sourceUrl.toLowerCase().includes('instagram') || website.toLowerCase().includes('instagram');
+    const hasFacebook = sourceUrl.toLowerCase().includes('facebook') || website.toLowerCase().includes('facebook');
+    return {
+      websiteUrl: website || null,
+      websiteStatus,
+      hasWebsite: Boolean(website),
+      hasWhatsappOnSite: /wa\.me|api\.whatsapp|whatsapp/i.test(website) || /wa\.me|api\.whatsapp|whatsapp/i.test(sourceUrl),
+      whatsappFound: null,
+      hasInstagram,
+      instagramUrl: hasInstagram ? sourceUrl || website : null,
+      hasFacebook,
+      googleMapsUrl: String(lead?.source || '').toLowerCase().includes('google') ? sourceUrl || null : null,
+      pageLoadMs: null,
+      sslOk: website ? website.startsWith('https://') : null,
+      hasBookingLink: /agenda|booking|calendly|doctoralia/i.test([website, sourceUrl].join(' ')),
+      hasCatalog: /catalog|catalogo|produto|loja/i.test([website, sourceUrl].join(' ')),
+      hasMenu: /cardapio|menu/i.test([website, sourceUrl].join(' ')),
+      hasPaymentLink: /pagamento|checkout|pix|mercadopago/i.test([website, sourceUrl].join(' ')),
+      hasLeadCaptureForm: /form|contato|orcamento|orçamento/i.test([website, sourceUrl].join(' ')),
+      formLooksBroken: false,
+    };
+  }
+
+  // Fetch real do site oficial (homepage + páginas de contato) dentro da janela noturna.
+  // Crawl NUNCA promove WhatsApp para confirmed (só Webwhats confirma — docs/Rules/MOTOR.md).
+  private async fetchWebsiteIntel(lead: any): Promise<{
+    enrichment: Record<string, any>;
+    cardData: Record<string, any> | null;
+    summary: Record<string, any>;
+  } | null> {
+    const website = safeText(lead?.website, 600);
+    if (!website) return null;
+
+    let crawl: any;
+    try {
+      crawl = await this.websiteCrawlProvider.crawl(website);
+    } catch (error) {
+      this.logger.warn(`Night Factory website fetch falhou (${lead?.id}): ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+
+    const light = this.buildLightweightEnrichment(lead);
+    const summary: Record<string, any> = {
+      checkedAt: new Date().toISOString(),
+      status: safeText(crawl?.status, 40) || 'failed',
+      reason: safeText(crawl?.reason, 120) || null,
+    };
+
+    if (crawl?.status === 'skipped') {
+      if (crawl?.reason !== 'host_generico_ou_rede_social') return null;
+      return {
+        enrichment: { ...light, websiteStatus: 'social_only' },
+        cardData: null,
+        summary: { ...summary, fetchedPages: 0 },
+      };
+    }
+
+    const pages = Array.isArray(crawl?.evidence?.pages) ? crawl.evidence.pages : [];
+    const fetchedPages = pages.filter((page: any) => page?.status === 'fetched').length;
+    summary.fetchedPages = fetchedPages;
+
+    if (!fetchedPages) {
+      // Falha de rede ou bloqueio: só rebaixa para unreachable se o site nunca foi visto de pé.
+      const websiteStatus = light.websiteStatus === 'present' ? 'present' : 'unreachable';
+      return { enrichment: { ...light, websiteStatus }, cardData: null, summary };
+    }
+
+    const fields = crawl?.fields || {};
+    const websiteUrl = safeText(crawl?.evidence?.normalizedUrl, 600) || light.websiteUrl;
+    const instagramUrl = safeText(fields.instagramUrls?.[0], 400) || light.instagramUrl || null;
+    const facebookUrl = safeText(fields.facebookUrls?.[0], 400) || null;
+    const linkPool = [
+      ...(fields.contactLinks || []),
+      ...(fields.budgetLinks || []),
+      ...(fields.chatLinks || []),
+      ...(fields.formLinks || []),
+    ].join(' ');
+
+    const enrichment = {
+      ...light,
+      websiteUrl,
+      websiteStatus: 'present',
+      hasWebsite: true,
+      hasWhatsappOnSite: Boolean(fields.whatsappUrls?.length) || light.hasWhatsappOnSite,
+      whatsappFound: safeText(fields.whatsappPhoneDigits?.[0], 20) || null,
+      hasInstagram: Boolean(instagramUrl),
+      instagramUrl,
+      hasFacebook: Boolean(facebookUrl) || light.hasFacebook,
+      sslOk: String(websiteUrl || '').startsWith('https://'),
+      hasBookingLink: light.hasBookingLink || Boolean(fields.budgetLinks?.length) || Boolean(fields.hasBudgetIntent),
+      hasCatalog: light.hasCatalog || /catalog|catalogo|produto|loja/i.test(linkPool),
+      hasMenu: light.hasMenu || /cardapio|menu/i.test(linkPool),
+      hasPaymentLink: light.hasPaymentLink || /pagamento|checkout|pix|mercadopago/i.test(linkPool),
+      hasLeadCaptureForm: Boolean(fields.hasContactForm) || light.hasLeadCaptureForm,
+      formLooksBroken: false,
+    };
+
+    const card = buildRadarLeadEnrichment({
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      phoneDigits: lead.phoneDigits,
+      status: lead.status,
+      city: lead.city,
+      state: lead.state,
+      segment: lead.segment || lead.normalizedSegment,
+      website: websiteUrl,
+      websiteStatus: 'present',
+      email: lead.email,
+      emailStatus: lead.emailStatus,
+      emailSource: lead.emailSource,
+      emailConfidence: lead.emailConfidence,
+      instagramUrl,
+      facebookUrl,
+      socialStatus: lead.socialStatus,
+      socialConfidence: lead.socialConfidence,
+      googleMapsUrl: lead.googleMapsUrl,
+      placeId: lead.placeId,
+      sourceUrl: lead.sourceUrl,
+      businessCategory: lead.businessCategory,
+      openingHoursStatus: lead.openingHoursStatus,
+      rating: lead.rating,
+      reviews: lead.reviews,
+      opportunityScore: lead.opportunityScore,
+      whatsappStatus: null,
+      rawPayload: { emails: Array.isArray(fields.emails) ? fields.emails : [] },
+    });
+
+    const cardData: Record<string, any> = {
+      instagramUrl: card.instagramUrl,
+      facebookUrl: card.facebookUrl,
+      socialStatus: card.socialStatus,
+      socialConfidence: card.socialConfidence,
+      recommendedChannel: card.recommendedChannel,
+      painType: card.painType,
+      painLabel: card.painLabel,
+      painPitch: card.painPitch,
+      enrichmentScore: card.enrichmentScore,
+      enrichmentConfidence: card.enrichmentConfidence,
+      enrichmentJson: card.enrichmentJson,
+      lastEnrichedAt: card.lastEnrichedAt,
+      enrichmentVersion: card.enrichmentVersion,
+    };
+    // Nunca apagar e-mail já existente no card com um resultado vazio.
+    if (card.email || !safeText(lead?.email, 200)) {
+      cardData.email = card.email;
+      cardData.emailStatus = card.emailStatus;
+      cardData.emailSource = card.emailSource;
+      cardData.emailConfidence = card.emailConfidence;
+    }
+
+    // Validação MX local (DNS): e-mail sem MX nunca sai como confirmed/probable.
+    if (cardData.email && ['confirmed', 'probable'].includes(String(cardData.emailStatus || ''))) {
+      const mxStatus = await this.emailMxCheck(String(cardData.email)).catch(() => 'unknown' as EmailMxStatus);
+      summary.emailMx = mxStatus;
+      if (mxStatus === 'no_mx') {
+        cardData.emailStatus = 'invalid';
+        cardData.emailConfidence = 0;
+        if (cardData.recommendedChannel === 'email') {
+          cardData.recommendedChannel = safeText(lead?.phone || lead?.phoneDigits, 40) ? 'call' : 'review';
+        }
+      } else if (mxStatus === 'ok') {
+        cardData.emailConfidence = Math.min(
+          97,
+          Math.max(Number(cardData.emailConfidence) || 0, cardData.emailStatus === 'confirmed' ? 92 : 70),
+        );
+      }
+    }
+
+    summary.emailsFound = Array.isArray(fields.emails) ? fields.emails.length : 0;
+    summary.whatsappOnSite = Boolean(fields.whatsappUrls?.length);
+    return { enrichment, cardData, summary };
+  }
+
+  private async enrichLead(lead: any, requestedByUserId: number | null, config?: NightFactoryConfig) {
+    const websiteIntel = config?.allowWebsiteFetch ? await this.fetchWebsiteIntel(lead) : null;
+    const enrichment = websiteIntel?.enrichment || this.buildLightweightEnrichment(lead);
+    const score = calculateHbxOpportunityScore(lead, enrichment);
+    const metadata = parseJsonRecord(lead?.metadataJson);
+    const now = new Date();
+    const miniAuditTitle = `Diagnóstico gratuito da presença digital da ${safeText(lead?.name, 90) || 'empresa'}`;
+    const miniAuditSummary = [
+      score.opportunityReason,
+      `Oferta sugerida: ${score.recommendedOffer}.`,
+      'A sugestão é preparada para aprovação humana. Nenhum WhatsApp é disparado automaticamente.',
+    ].join(' ');
+
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: lead.id },
+      data: {
+        websiteStatus: enrichment.websiteStatus || lead.websiteStatus || 'unknown',
+        opportunityScore: score.opportunityScore,
+        opportunityReason: score.opportunityReason,
+        ...(websiteIntel?.cardData || {}),
+        metadataJson: JSON.stringify({
+          ...metadata,
+          nightFactory: {
+            checkedAt: now.toISOString(),
+            websiteFetch: websiteIntel?.summary || null,
+            digitalPresenceScore: score.digitalPresenceScore,
+            opportunityLevel: score.opportunityLevel,
+            recommendedOffer: score.recommendedOffer,
+            suggestedApproach: score.suggestedApproach,
+            suggestedWhatsappMessage: score.suggestedWhatsappMessage,
+            suggestedHumanOpening: score.suggestedHumanOpening,
+            detectedProblems: score.detectedProblems,
+            detectedAssets: score.detectedAssets,
+            segmentPlaybookKey: score.segmentPlaybookKey,
+            miniAuditTitle,
+            miniAuditSummary,
+            requestedByUserId,
+          },
+        }),
+      },
+    });
+
+    if (await this.prisma.hasTable('RadarLeadEnrichment').catch(() => false)) {
+      await (this.prisma as any).radarLeadEnrichment.upsert({
+        where: { radarLeadId: lead.id },
+        create: {
+          radarLeadId: lead.id,
+          companyId: lead.companyId || null,
+          sourceLeadPoolId: lead.id,
+          enrichmentStatus: 'enriched',
+          checkedAt: now,
+          websiteCheckedAt: now,
+          websiteUrl: enrichment.websiteUrl,
+          websiteStatus: enrichment.websiteStatus,
+          hasWebsite: enrichment.hasWebsite,
+          hasWhatsappOnSite: enrichment.hasWhatsappOnSite,
+          whatsappFound: enrichment.whatsappFound,
+          hasInstagram: enrichment.hasInstagram,
+          instagramUrl: enrichment.instagramUrl,
+          hasFacebook: enrichment.hasFacebook,
+          googleMapsUrl: enrichment.googleMapsUrl,
+          pageLoadMs: enrichment.pageLoadMs,
+          sslOk: enrichment.sslOk,
+          hasBookingLink: enrichment.hasBookingLink,
+          hasCatalog: enrichment.hasCatalog,
+          hasMenu: enrichment.hasMenu,
+          hasPaymentLink: enrichment.hasPaymentLink,
+          hasLeadCaptureForm: enrichment.hasLeadCaptureForm,
+          formLooksBroken: enrichment.formLooksBroken,
+          digitalPresenceScore: score.digitalPresenceScore,
+          opportunityScore: score.opportunityScore,
+          opportunityLevel: score.opportunityLevel,
+          opportunityReason: score.opportunityReason,
+          recommendedOffer: score.recommendedOffer,
+          suggestedApproach: score.suggestedApproach,
+          suggestedWhatsappMessage: score.suggestedWhatsappMessage,
+          suggestedHumanOpening: score.suggestedHumanOpening,
+          detectedProblems: JSON.stringify(score.detectedProblems),
+          detectedAssets: JSON.stringify(score.detectedAssets),
+          segmentPlaybookKey: score.segmentPlaybookKey,
+          miniAuditTitle,
+          miniAuditSummary,
+        },
+        update: {
+          enrichmentStatus: 'enriched',
+          enrichmentError: null,
+          checkedAt: now,
+          websiteCheckedAt: now,
+          websiteUrl: enrichment.websiteUrl,
+          websiteStatus: enrichment.websiteStatus,
+          hasWebsite: enrichment.hasWebsite,
+          hasWhatsappOnSite: enrichment.hasWhatsappOnSite,
+          whatsappFound: enrichment.whatsappFound,
+          hasInstagram: enrichment.hasInstagram,
+          instagramUrl: enrichment.instagramUrl,
+          hasFacebook: enrichment.hasFacebook,
+          googleMapsUrl: enrichment.googleMapsUrl,
+          pageLoadMs: enrichment.pageLoadMs,
+          sslOk: enrichment.sslOk,
+          hasBookingLink: enrichment.hasBookingLink,
+          hasCatalog: enrichment.hasCatalog,
+          hasMenu: enrichment.hasMenu,
+          hasPaymentLink: enrichment.hasPaymentLink,
+          hasLeadCaptureForm: enrichment.hasLeadCaptureForm,
+          formLooksBroken: enrichment.formLooksBroken,
+          digitalPresenceScore: score.digitalPresenceScore,
+          opportunityScore: score.opportunityScore,
+          opportunityLevel: score.opportunityLevel,
+          opportunityReason: score.opportunityReason,
+          recommendedOffer: score.recommendedOffer,
+          suggestedApproach: score.suggestedApproach,
+          suggestedWhatsappMessage: score.suggestedWhatsappMessage,
+          suggestedHumanOpening: score.suggestedHumanOpening,
+          detectedProblems: JSON.stringify(score.detectedProblems),
+          detectedAssets: JSON.stringify(score.detectedAssets),
+          segmentPlaybookKey: score.segmentPlaybookKey,
+          miniAuditTitle,
+          miniAuditSummary,
+        },
+      }).catch((error) => {
+        this.logger.warn(`Falha ao gravar RadarLeadEnrichment: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+
+    return score;
+  }
+
+  private async markLeadFailed(lead: any, error: unknown) {
+    if (!(await this.prisma.hasTable('RadarLeadEnrichment').catch(() => false))) return;
+    await (this.prisma as any).radarLeadEnrichment.upsert({
+      where: { radarLeadId: lead.id },
+      create: {
+        radarLeadId: lead.id,
+        companyId: lead.companyId || null,
+        sourceLeadPoolId: lead.id,
+        enrichmentStatus: 'failed',
+        enrichmentError: error instanceof Error ? error.message.slice(0, 500) : String(error || 'Falha no enriquecimento.').slice(0, 500),
+      },
+      update: {
+        enrichmentStatus: 'failed',
+        enrichmentError: error instanceof Error ? error.message.slice(0, 500) : String(error || 'Falha no enriquecimento.').slice(0, 500),
+      },
+    });
+  }
+
   private mapLeadOpportunity(row: any) {
     const metadata = parseJsonRecord(row?.metadataJson).nightFactory || {};
     const qualityV2 = extractQualityV2(row);
@@ -960,4 +1458,40 @@ export class NightFactoryService {
     return items.slice(0, take);
   }
 
+  private async persistRecoverySeeds() {
+    if (!(await this.prisma.hasTable('RecoveryOpportunity').catch(() => false))) return;
+    const items = await this.buildComputedRecoveryOpportunities(30);
+    for (const item of items) {
+      if (!item.sourceType || !item.sourceId) continue;
+      await (this.prisma as any).recoveryOpportunity.upsert({
+        where: {
+          sourceType_sourceId_companyId: {
+            sourceType: item.sourceType,
+            sourceId: String(item.sourceId),
+            companyId: item.companyId || 0,
+          },
+        },
+        create: {
+          sourceType: item.sourceType,
+          sourceId: String(item.sourceId),
+          companyId: item.companyId || 0,
+          recoveryReason: item.recoveryReason,
+          recoveryScore: item.recoveryScore,
+          suggestedFlow: item.suggestedFlow,
+          suggestedMessage: item.suggestedMessage,
+          suggestedTemplate: item.suggestedTemplate || null,
+          status: 'ready',
+          metadataJson: JSON.stringify({ generatedBy: 'night_factory' }),
+        },
+        update: {
+          recoveryReason: item.recoveryReason,
+          recoveryScore: item.recoveryScore,
+          suggestedFlow: item.suggestedFlow,
+          suggestedMessage: item.suggestedMessage,
+          status: 'ready',
+          metadataJson: JSON.stringify({ generatedBy: 'night_factory' }),
+        },
+      }).catch(() => null);
+    }
+  }
 }

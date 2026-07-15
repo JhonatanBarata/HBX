@@ -16,6 +16,7 @@ import {
   COMMERCIAL_PLAN_QUOTAS,
   COMMERCIAL_PLAN_KEYS,
   GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
+  resolveCommercialPlanKeyForCapabilities,
   buildRadarLeadEnrichment,
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
@@ -99,6 +100,7 @@ import {
   buildRadarStageSnapshot,
   RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS,
 } from '../radar-core-method-imports';
+import { resolveEnrichmentPaidFlags } from '../../enrichment-cost/enrichment-paid-policy';
 import { resolveCompanyAccessState } from '../../../modules/company-access-state';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
 import { confirmedSegments } from '../../../users/segment-affinity.util';
@@ -230,8 +232,9 @@ export class RadarCorePresentationMixin {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
   }
 
-  private resolveGoogleSearchesPerDay(_company: any) {
-    return COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
+  private resolveGoogleSearchesPerDay(company: any) {
+    const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
+    return COMMERCIAL_PLAN_QUOTAS[planKey]?.googleSearchesPerDay ?? COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
   }
 
   // Projecao do estado canonico (PR-002 A.4): morre a copia local do motor
@@ -381,7 +384,10 @@ export class RadarCorePresentationMixin {
       return;
     }
 
-    const message = `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Limite operacional: ${dailyLimit} busca(s) Google por dia.`;
+    const planKey = resolveCommercialPlanKeyForCapabilities(company);
+    const message = planKey === COMMERCIAL_PLAN_KEYS.LITE
+      ? 'O HBX List não inclui buscas Google diárias. Os motores gratuitos continuam liberados. Para buscas Google, escolha o HBX Lead Plus ou HBX Full — Bot e IA.'
+      : `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Seu plano permite ${dailyLimit} busca(s) Google por dia.`;
     await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
     throw new ForbiddenException({
       code: 'google_daily_limit_reached',
@@ -957,7 +963,7 @@ export class RadarCorePresentationMixin {
           opportunityScore,
           opportunityReason: publicResult.opportunityReason || this.buildOpportunityReason(result, input),
         }, input, quality, qualityV2);
-        return classified;
+        return this.stripListPremiumFields(classified, input);
       });
     return {
       query: {
@@ -1682,6 +1688,80 @@ export class RadarCorePresentationMixin {
     return latest ? { ...row, ...latest } : row;
   }
 
+  private needsRadarLeadEnrichmentRefresh(row: any) {
+    if (!row?.id) return false;
+    if (row?.enrichmentVersion !== RADAR_LEAD_ENRICHMENT_VERSION) return true;
+    if (!row?.lastEnrichedAt || !row?.enrichmentJson) return true;
+    if (!row?.recommendedChannel || !row?.painType || !row?.painLabel || !row?.opportunityReason) return true;
+    if (!row?.emailStatus || !row?.websiteStatus) return true;
+    return false;
+  }
+
+  private buildRadarLeadEnrichmentData(row: any, now = new Date()) {
+    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+    const protectedStatus = this.isRadarProtectedStatus(companyState?.status || row?.status);
+    const enrichment = buildRadarLeadEnrichment({
+      ...row,
+      companyStatus: companyState?.status || row?.status,
+      websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
+      whatsappStatus: this.extractRadarLeadWhatsappStatus(row),
+      now,
+    });
+    return {
+      websiteStatus: row?.websiteStatus || inferWebsiteStatus(row?.website),
+      email: enrichment.email || row?.email || null,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
+      instagramUrl: enrichment.instagramUrl || row?.instagramUrl || null,
+      facebookUrl: enrichment.facebookUrl || row?.facebookUrl || null,
+      socialStatus: enrichment.socialStatus,
+      socialConfidence: enrichment.socialConfidence,
+      googleMapsUrl: enrichment.googleMapsUrl || row?.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || row?.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || row?.openingHoursStatus || null,
+      recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
+      painType: enrichment.painType,
+      painLabel: enrichment.painLabel,
+      painPitch: enrichment.painPitch,
+      opportunityReason: enrichment.opportunityReason || row?.opportunityReason || null,
+      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
+      enrichmentConfidence: enrichment.enrichmentConfidence,
+      lastEnrichedAt: enrichment.lastEnrichedAt,
+      enrichmentVersion: enrichment.enrichmentVersion,
+    };
+  }
+
+  private async ensureRadarRowsEnriched(rows: any[]) {
+    if (!Array.isArray(rows) || !rows.length) return [];
+    if (!(await this.supportsRadarPersistence())) return rows;
+    const now = new Date();
+    const updatedRows: any[] = [];
+    const pendingUpdates: Promise<any>[] = [];
+    for (const row of rows) {
+      if (!this.needsRadarLeadEnrichmentRefresh(row)) {
+        updatedRows.push(row);
+        continue;
+      }
+      const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
+      const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
+      const data = this.buildRadarLeadEnrichmentData(baseRow, now);
+      updatedRows.push({ ...baseRow, ...data });
+      pendingUpdates.push(
+        (this.prisma as any).radarLeadPool.update({
+          where: { id: baseRow.id },
+          data,
+        }).catch(() => null),
+      );
+      if (pendingUpdates.length >= 25) {
+        await Promise.all(pendingUpdates.splice(0, pendingUpdates.length));
+      }
+    }
+    if (pendingUpdates.length) await Promise.all(pendingUpdates);
+    return updatedRows;
+  }
+
   private radarCommercialRank(row: any) {
     const status = this.resolveRadarLeadStatus(row);
     if (this.isRadarProtectedStatus(status) || this.isRadarProtectedStatus(row?.companyStates?.[0]?.status)) return -10000;
@@ -1802,9 +1882,6 @@ export class RadarCorePresentationMixin {
       ],
       take: Math.min(readLimit * 4, 1000),
       include: {
-        contacts: {
-          orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
-        },
         companyStates: {
           where: { companyId },
           take: 1,
@@ -1846,8 +1923,8 @@ export class RadarCorePresentationMixin {
         },
       },
     }).catch(() => []);
-    const filteredRows = this.filterRadarRowsInMemory(rows, filters);
-    const qualityWeightedRows = await this.attachSourceQualityPenalty(filteredRows);
+    const enrichedRows = await this.ensureRadarRowsEnriched(this.filterRadarRowsInMemory(rows, filters));
+    const qualityWeightedRows = await this.attachSourceQualityPenalty(enrichedRows);
     return this.sortRadarRowsByCommercialPriority(this.dedupeRadarRows(this.filterRowsByLeadQuality(qualityWeightedRows, filters))).slice(0, readLimit);
   }
 
@@ -1911,6 +1988,98 @@ export class RadarCorePresentationMixin {
       requirePhone: false,
     });
     return this.sortContacts(this.restoreRadarPoolResults(rows)).slice(0, input.quantity);
+  }
+
+  private async getRadarPremiumAccessForCompany(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: Number(companyId) },
+      select: {
+        status: true,
+        isActive: true,
+        selectedPlanKey: true,
+        trialEndsAt: true,
+        billingGraceEndsAt: true,
+        courtesyEndsAt: true,
+        courtesyReason: true,
+      },
+    }).catch(() => null);
+    if (!company || !this.companyHasPaidFeatureAccess(company)) {
+      return { active: false, planKey: null as string | null, canUsePremium: false };
+    }
+    const planKey = resolveCommercialPlanKeyForCapabilities(company);
+    return {
+      active: true,
+      planKey,
+      canUsePremium: planKey !== COMMERCIAL_PLAN_KEYS.LITE,
+    };
+  }
+
+  private async canUseRadarSmartLeadFields(companyId: number) {
+    return (await this.getRadarPremiumAccessForCompany(companyId)).canUsePremium;
+  }
+
+  private maskRadarSmartFieldsForList(item: any) {
+    const validInstagram = item?.instagramUrl
+      && !looksLikeThirdPartySocialProfile(item.instagramUrl)
+      && socialProfileLooksCompatibleWithLead(item, item.instagramUrl);
+    const validFacebook = item?.facebookUrl
+      && !looksLikeThirdPartySocialProfile(item.facebookUrl)
+      && socialProfileLooksCompatibleWithLead(item, item.facebookUrl);
+    const safeWebsite = item?.website
+      && !this.isBlockedLeadOfficialWebsite(item.website)
+      && websiteHostLooksCompatibleWithLead(item, item.website)
+      ? item.website
+      : null;
+    const safeEmail = normalizeBusinessEmail(item?.email);
+    const hadPremiumSignal = Boolean(
+      item?.recommendedChannel
+      || item?.painType
+      || item?.painLabel
+      || item?.painPitch
+      || item?.opportunityReason
+      || item?.opportunityScore
+      || item?.enrichmentScore
+      || item?.qualityV2
+      || item?.enrichmentJson,
+    );
+    return {
+      ...item,
+      email: safeEmail || item?.email || null,
+      emailStatus: item?.emailStatus || (safeEmail ? 'probable' : 'missing'),
+      emailSource: item?.emailSource || null,
+      emailConfidence: item?.emailConfidence || 0,
+      instagramUrl: validInstagram ? item.instagramUrl : null,
+      facebookUrl: validFacebook ? item.facebookUrl : null,
+      socialStatus: validInstagram || validFacebook ? item?.socialStatus || 'found' : item?.socialStatus || 'missing',
+      socialConfidence: validInstagram || validFacebook ? item?.socialConfidence || 0 : 0,
+      googleMapsUrl: item?.googleMapsUrl || null,
+      businessCategory: item?.businessCategory || null,
+      openingHoursStatus: item?.openingHoursStatus || null,
+      whatsappStatus: item?.whatsappStatus || item?.whatsappCheckStatus || 'unverified',
+      whatsappCheckStatus: item?.whatsappCheckStatus || item?.whatsappStatus || 'unverified',
+      website: safeWebsite,
+      rating: item?.rating ?? null,
+      reviews: item?.reviews ?? null,
+      recommendedChannel: null,
+      painType: null,
+      painLabel: null,
+      painPitch: null,
+      enrichmentScore: 0,
+      enrichmentConfidence: 0,
+      enrichmentJson: null,
+      qualityV2: null,
+      quality: null,
+      lastEnrichedAt: null,
+      opportunityReason: null,
+      evidenceJson: null,
+      rejectReasons: [],
+      qualityReason: null,
+      sourceConfidence: null,
+      actionPlan: null,
+      premiumLocked: true,
+      premiumFeatureStatus: 'locked',
+      premiumTeaser: hadPremiumSignal,
+    };
   }
 
   // sourceChain (P1, 02/07; reformado 03/07): tabela de lanes ÚNICA em shared/radar-source-lanes
@@ -2042,98 +2211,7 @@ export class RadarCorePresentationMixin {
     return map;
   }
 
-  private buildRadarLeadContactProjection(row: any, meta: Record<string, any>, primaryWhatsappStatus: string) {
-    const phoneMap = new Map<string, any>();
-    const emailMap = new Map<string, any>();
-    const whatsappMap = meta?.phonesWhatsapp && typeof meta.phonesWhatsapp === 'object' ? meta.phonesWhatsapp : {};
-    const mergePhone = (value: unknown, source: unknown, rank: unknown, confidence: unknown, confirmed = false) => {
-      const valueNormalized = normalizePhoneDigits(value);
-      if (!valueNormalized) return;
-      const rawValue = String(value || valueNormalized).trim() || valueNormalized;
-      const explicitWhatsapp = confirmed || whatsappMap[valueNormalized] === true;
-      const whatsappStatus = explicitWhatsapp
-        ? 'confirmed'
-        : whatsappMap[valueNormalized] === false
-          ? 'not_confirmed'
-          : valueNormalized === normalizePhoneDigits(row?.phoneDigits || row?.phone)
-            ? primaryWhatsappStatus || 'unverified'
-            : 'unverified';
-      const next = {
-        kind: 'phone', value: rawValue, valueNormalized,
-        source: String(source || 'unknown'),
-        rank: Math.max(1, safeInteger(rank) || 1),
-        confidence: Math.max(0, Math.min(100, safeInteger(confidence))),
-        whatsappStatus,
-      };
-      const current = phoneMap.get(valueNormalized);
-      if (!current) return void phoneMap.set(valueNormalized, next);
-      phoneMap.set(valueNormalized, {
-        ...current,
-        source: current.source === 'unknown' && next.source !== 'unknown' ? next.source : current.source,
-        rank: Math.min(current.rank, next.rank),
-        confidence: Math.max(current.confidence, next.confidence),
-        whatsappStatus: current.whatsappStatus === 'confirmed' || next.whatsappStatus === 'confirmed'
-          ? 'confirmed'
-          : current.whatsappStatus === 'not_confirmed' || next.whatsappStatus === 'not_confirmed'
-            ? 'not_confirmed'
-            : 'unverified',
-      });
-    };
-    const mergeEmail = (value: unknown, source: unknown, rank: unknown, confidence: unknown) => {
-      const valueNormalized = normalizeBusinessEmail(value);
-      if (!valueNormalized) return;
-      const next = {
-        kind: 'email', value: valueNormalized, valueNormalized,
-        source: String(source || 'unknown'),
-        rank: Math.max(1, safeInteger(rank) || 1),
-        confidence: Math.max(0, Math.min(100, safeInteger(confidence))),
-        status: valueNormalized === normalizeBusinessEmail(row?.email) ? row?.emailStatus || 'unverified' : 'unverified',
-      };
-      const current = emailMap.get(valueNormalized);
-      if (!current) return void emailMap.set(valueNormalized, next);
-      emailMap.set(valueNormalized, {
-        ...current,
-        source: current.source === 'unknown' && next.source !== 'unknown' ? next.source : current.source,
-        rank: Math.min(current.rank, next.rank),
-        confidence: Math.max(current.confidence, next.confidence),
-      });
-    };
-
-    const scalarPhoneSource = /cnpj|receita|rfb/i.test(`${row?.source || ''} ${row?.sourceUrl || ''}`) ? 'rfb_primary' : 'primary';
-    mergePhone(row?.phone || row?.phoneDigits, scalarPhoneSource, 1, 100);
-    for (const [index, item] of (Array.isArray(meta?.phones) ? meta.phones : []).entries()) {
-      mergePhone(item?.value ?? item, item?.source || 'metadata', item?.rank || index + 1, item?.confidence || 0);
-    }
-    mergeEmail(row?.email, row?.emailSource || 'primary', 1, row?.emailConfidence || 0);
-    for (const [index, item] of (Array.isArray(meta?.emails) ? meta.emails : []).entries()) {
-      mergeEmail(item?.value ?? item, item?.source || 'metadata', item?.rank || index + 1, item?.confidence || 0);
-    }
-    for (const contact of Array.isArray(row?.contacts) ? row.contacts : []) {
-      const kind = String(contact?.kind || '').toLowerCase();
-      if (kind === 'phone' || kind === 'whatsapp') {
-        const explicitStatus = String(contact?.whatsappStatus || '').trim().toLowerCase();
-        const explicitlyConfirmed = ['confirmed', 'verified', 'available', 'valid', 'exists', 'true'].includes(explicitStatus);
-        // O tipo/origem "whatsapp" descreve o canal pretendido, não prova que a
-        // conta está ativa. Só um resultado explícito (ou phonesWhatsapp=true,
-        // tratado dentro de mergePhone) pode habilitar o botão de WhatsApp.
-        mergePhone(contact?.value || contact?.valueNormalized, contact?.source, contact?.rank, contact?.confidence, explicitlyConfirmed);
-      } else if (kind === 'email') {
-        mergeEmail(contact?.value || contact?.valueNormalized, contact?.source, contact?.rank, contact?.confidence);
-      }
-    }
-    const sorter = (a: any, b: any) => a.rank - b.rank || b.confidence - a.confidence || a.valueNormalized.localeCompare(b.valueNormalized);
-    const phoneContacts = Array.from(phoneMap.values()).sort(sorter).slice(0, 3);
-    const emailContacts = Array.from(emailMap.values()).sort(sorter).slice(0, 3);
-    return {
-      phoneContacts,
-      emailContacts,
-      phones: phoneContacts.map((contact) => contact.value),
-      emails: emailContacts.map((contact) => contact.value),
-      phonesWhatsapp: Object.fromEntries(phoneContacts.map((contact) => [contact.valueNormalized, contact.whatsappStatus === 'confirmed'])),
-    };
-  }
-
-  private buildRadarLeadPublic(row: any, options: { maskContact?: boolean; enrichmentQueueStatus?: string | null; viewerCompanyId?: number; ownershipEnabled?: boolean } = {}) {
+  private buildRadarLeadPublic(row: any, options: { includeSmartFields?: boolean; maskContact?: boolean; enrichmentQueueStatus?: string | null; viewerCompanyId?: number; ownershipEnabled?: boolean } = {}) {
     // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
     // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
     // (telefone/e-mail) — revela só quando o lead é PUXADO no Leads. Sinais de
@@ -2146,14 +2224,19 @@ export class RadarCorePresentationMixin {
     // OU, com posse habilitada, qualquer lead não-possuído pelo espectador. Fecha os furos
     // de vazamento sem débito (detalhe :id / lista não-vitrine / database — auditoria 06/07).
     const viewerCompanyId = Math.trunc(Number(options.viewerCompanyId || 0)) || null;
-    // Sem atalho legado: somente a posse global, comparada estritamente com a empresa
-    // autenticada, prova que houve pull/débito. Ausência de viewer falha fechada.
-    const ownedByViewer = Boolean(ownerCompanyId && viewerCompanyId && ownerCompanyId === viewerCompanyId);
-    const maskContact = options.maskContact === true || !ownedByViewer;
+    // Possuído pelo espectador = ownerCompanyId casa OU (legado) já existe companyState desta
+    // empresa pro lead sem coluna de posse gravada. Nos fluxos atuais claim/pull/evento gravam
+    // ownerCompanyId JUNTO do state, então o ramo legado só pega lead puxado ANTES da coluna
+    // ownerCompanyId existir (jun/26) — evita mascarar contato que a empresa já pagou.
+    const ownedByViewer =
+      Boolean(ownerCompanyId && viewerCompanyId && ownerCompanyId === viewerCompanyId) ||
+      Boolean(!ownerCompanyId && companyState);
+    const maskContact = options.maskContact === true || (options.ownershipEnabled === true && !ownedByViewer);
     const claimedAt = row?.claimedAt instanceof Date ? row.claimedAt.toISOString() : null;
     const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
     const recentEvents = Array.isArray(row?.events) ? row.events : [];
     const enrichmentParsed = parseJsonObject(row?.enrichmentJson);
+    const includeSmartFields = options.includeSmartFields !== false;
     const protectedChannel = this.isRadarProtectedStatus(companyState?.status || row?.status);
     const whatsappStatus = this.extractRadarLeadWhatsappStatus(row) || 'unverified';
     const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.extractLeadQualityV2FromObject(row?.enrichmentJson) || this.extractLeadQualityV2FromObject(row?.metadataJson);
@@ -2191,7 +2274,7 @@ export class RadarCorePresentationMixin {
       : Array.isArray(enrichmentParsed?.signals?.confirmedSocialCandidates)
         ? enrichmentParsed.signals.confirmedSocialCandidates
         : [];
-    const smartFields = {
+    const smartFields = includeSmartFields ? {
       email: safeEmail || null,
       emailStatus: safeEmail ? row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'probable' : 'missing',
       emailSource: row?.emailSource || null,
@@ -2218,6 +2301,31 @@ export class RadarCorePresentationMixin {
       enrichmentVersion: row?.enrichmentVersion || null,
       whatsappStatus,
       whatsappCheckStatus: whatsappStatus,
+    } : {
+      email: safeEmail || null,
+      emailStatus: safeEmail ? row?.emailStatus || enrichmentParsed?.signals?.emailStatus || 'probable' : 'missing',
+      emailSource: null,
+      emailConfidence: 0,
+      instagramUrl: null,
+      facebookUrl: null,
+      socialStatus: safeSocialStatus,
+      socialConfidence: 0,
+      possibleSocialCandidates: [],
+      confirmedSocialCandidates: [],
+      googleMapsUrl: null,
+      businessCategory: null,
+      openingHoursStatus: null,
+      recommendedChannel: protectedChannel ? 'discard' : null,
+      painType: null,
+      painLabel: null,
+      painPitch: null,
+      enrichmentScore: 0,
+      enrichmentConfidence: 0,
+      enrichmentJson: null,
+      lastEnrichedAt: null,
+      enrichmentVersion: row?.enrichmentVersion || null,
+      whatsappStatus,
+      whatsappCheckStatus: whatsappStatus,
     };
     const qualityInput = {
       city: String(row?.city || ''),
@@ -2230,8 +2338,6 @@ export class RadarCorePresentationMixin {
       salesProfile: null,
     } as NormalizedRadarFilters;
     const meta = this.parseMaybeJsonObject(row?.metadataJson) || {};
-    const contactProjection = this.buildRadarLeadContactProjection(row, meta, whatsappStatus);
-    const projectedPeople = this.buildRadarLeadPeople(meta);
     const publicLead = {
       id: String(row?.id || ''),
       placeId: row?.placeId || null,
@@ -2258,13 +2364,15 @@ export class RadarCorePresentationMixin {
       // WORM-16: PESSOAS estruturadas (nome + cargo + fonte). Deriva de meta.people (persistido
       // pelo L4/QSA) e cai no fallback ownerName/ownerNames quando o blob antigo não tem `people`.
       // Campo OPCIONAL — card antigo sem `people` continua renderizando (a seção some).
-      people: projectedPeople,
-      // LeadContact é a fonte canônica; scalar/metadata entram só como fallback legado e o
-      // presenter deriva ambos os contratos (estruturado + arrays antigos) da mesma projeção.
-      ...contactProjection,
-      sourceCoverage: (meta as any)?.sourceCoverage && typeof (meta as any).sourceCoverage === 'object'
-        ? (meta as any).sourceCoverage
-        : null,
+      people: this.buildRadarLeadPeople(meta),
+      // Worker 2 "Email finder": e-mails 1/2/3 e telefones 1/2/3 achados no crawl (teto 3).
+      // `phonesWhatsapp` = mapa digits→bool da verificação WhatsApp (motor dedicado). O DISPLAY
+      // só exibe telefone com `true`; sem mapa = nenhum extra aparece (card idêntico). Cru nunca descartado.
+      emails: Array.isArray((meta as any)?.emails) ? (meta as any).emails.slice(0, 3) : [],
+      phones: Array.isArray((meta as any)?.phones) ? (meta as any).phones.slice(0, 3) : [],
+      phonesWhatsapp: ((meta as any)?.phonesWhatsapp && typeof (meta as any).phonesWhatsapp === 'object')
+        ? (meta as any).phonesWhatsapp
+        : {},
       companySituation: (meta as any)?.companySituation || null,
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,
@@ -2288,29 +2396,27 @@ export class RadarCorePresentationMixin {
       // antigos sem essa marca não expõem `enrichedBy`, card renderiza normal.
       ...this.buildRadarLeadEnrichedBy((meta as any)?.enrichmentEngines),
       opportunityScore: safeInteger(row?.opportunityScore),
-      opportunityReason: row?.opportunityReason || null,
-      opportunitySignals: deriveRowSignals(row),
+      opportunityReason: includeSmartFields ? row?.opportunityReason || null : null,
+      opportunitySignals: includeSmartFields ? deriveRowSignals(row) : [],
       // HOT-07 (empresa recém-aberta): badge de urgência + prioridade na fila de
       // entrega. isFreshCompany = abriu há ≤30 dias (openedAt do CnpjPublicCompany,
       // já calculado em RadarPublicDataService). Campo OPCIONAL — ausente/false
       // em leads sem CNPJ casado, card renderiza normal sem o badge.
       ...this.resolveFreshCompanyState(row),
-      evidenceJson: Object.keys(evidenceJson).length ? evidenceJson : null,
-      rejectReasons,
-      qualityReason: row?.qualityReason || null,
+      evidenceJson: includeSmartFields && Object.keys(evidenceJson).length ? evidenceJson : null,
+      rejectReasons: includeSmartFields ? rejectReasons : [],
+      qualityReason: includeSmartFields ? row?.qualityReason || null : null,
       visibilityTier: row?.visibilityTier || null,
       deliveryProduct: row?.deliveryProduct || null,
-      qualityV2,
-      quality,
+      qualityV2: includeSmartFields ? qualityV2 : null,
+      quality: includeSmartFields ? quality : null,
       status,
       ownerCompanyId,
       claimedAt,
       ownershipStatus: this.isRadarProtectedStatus(companyState?.status || row?.status)
         ? 'negative'
-        : ownedByViewer
+        : ownerCompanyId
           ? 'mine'
-          : ownerCompanyId
-            ? 'owned_by_other'
           : status === 'sent_to_vendas' || status === 'in_attendance'
             ? 'in_attendance'
             : 'available',
@@ -2352,35 +2458,16 @@ export class RadarCorePresentationMixin {
       hasEmail: Boolean(safeEmail),
       hasWhatsapp: whatsappStatus === 'confirmed',
       // Máscara do contato direto na vitrine (revela ao puxar).
-      ...(maskContact ? {
-        phone: '',
-        phoneDigits: '',
-        email: null,
-        emailSource: null,
-        enrichmentJson: null,
-        evidenceJson: null,
-        ownerPhone: null,
-        ownerInstagram: null,
-        ownerFacebook: null,
-        ownerSocialCandidates: [],
-        phones: [],
-        emails: [],
-        phoneContacts: [],
-        emailContacts: [],
-        phonesWhatsapp: {},
-        people: projectedPeople.map((person: any) => ({
-          ...person,
-          phone: null,
-          phoneDigits: null,
-          email: null,
-        })),
-      } : {}),
+      ...(maskContact ? { phone: '', phoneDigits: '', email: null, emailSource: null } : {}),
+      premiumLocked: !includeSmartFields,
+      premiumFeatureStatus: includeSmartFields ? 'available' : 'locked',
+      premiumTeaser: !includeSmartFields && Boolean(safeEmail || safeInstagramUrl || safeFacebookUrl || row?.recommendedChannel || row?.enrichmentScore || qualityV2),
     };
     return this.attachDeliveryClassification(
       publicLead,
       qualityInput,
-      quality || null,
-      qualityV2 || null,
+      includeSmartFields ? quality || null : null,
+      includeSmartFields ? qualityV2 || null : null,
     );
   }
 
@@ -2512,6 +2599,23 @@ export class RadarCorePresentationMixin {
     return this.attachDeliveryClassification(publicLead, input, quality || null, publicLead.qualityV2 || null);
   }
 
+  private withRadarWhatsappStatus(item: any, status: RadarWhatsappCheckStatus) {
+    return {
+      ...item,
+      whatsappStatus: status,
+      whatsappCheckStatus: status,
+    };
+  }
+
+  private async canUseRadarWebwhatsCheck(companyId: number) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { selectedPlanKey: true },
+    }).catch(() => null);
+    const planKey = resolveCommercialPlanKeyForCapabilities(company || {});
+    return planKey !== COMMERCIAL_PLAN_KEYS.LITE;
+  }
+
   private async resolveRadarWhatsappEngineCompanyId(): Promise<number | null> {
     try {
       const engine = await this.prisma.company.findUnique({
@@ -2558,6 +2662,99 @@ export class RadarCorePresentationMixin {
     return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers);
   }
 
+  private async applyRadarWhatsappCheck(
+    context: SearchExecutionContext,
+    items: any[],
+    requestedMode: RadarWhatsappCheckMode,
+  ) {
+    const baseMeta = {
+      requestedMode,
+      effectiveMode: requestedMode,
+      checked: false,
+      message: null as string | null,
+    };
+    const safeItems = Array.isArray(items) ? items : [];
+    if (requestedMode === 'off') {
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: { ...baseMeta, effectiveMode: 'off' as RadarWhatsappCheckMode },
+      };
+    }
+
+    const canUseWebwhats = this.webwhatsBridge && await this.canUseRadarWebwhatsCheck(context.companyId);
+    if (!canUseWebwhats) {
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: {
+          ...baseMeta,
+          effectiveMode: 'enrich' as RadarWhatsappCheckMode,
+          message: 'Validação WebWhats disponível nos planos superiores. Entreguei os cards sem bloquear a busca.',
+        },
+      };
+    }
+
+    try {
+      const lookupResults = await this.radarCheckWhatsappNumbers(
+        safeItems.map((item) => item?.phoneDigits || item?.phone || null),
+        Number(context?.companyId || 0) || undefined,
+      );
+      const byPhone = new Map<string, boolean>();
+      for (const result of lookupResults || []) {
+        const phone = normalizePhoneDigits(result?.normalizedNumber || result?.input);
+        if (phone && !byPhone.has(phone)) byPhone.set(phone, Boolean(result?.exists));
+      }
+
+      const enriched = safeItems.map((item) => {
+        const phone = normalizePhoneDigits(item?.phoneDigits || item?.phone);
+        const status: RadarWhatsappCheckStatus = !phone
+          ? 'missing'
+          : byPhone.has(phone)
+            ? byPhone.get(phone)
+              ? 'confirmed'
+              : 'missing'
+            : 'unverified';
+        const radarEnrichment = buildRadarLeadEnrichment({
+          ...item,
+          whatsappStatus: status,
+          companyStatus: item?.companyStatus || item?.status,
+        });
+        return this.withRadarWhatsappStatus({
+          ...item,
+          email: radarEnrichment.email || item?.email || null,
+          emailStatus: radarEnrichment.emailStatus,
+          emailSource: radarEnrichment.emailSource,
+          emailConfidence: radarEnrichment.emailConfidence,
+          recommendedChannel: radarEnrichment.recommendedChannel,
+          painType: radarEnrichment.painType,
+          painLabel: radarEnrichment.painLabel,
+          painPitch: radarEnrichment.painPitch,
+          opportunityReason: radarEnrichment.opportunityReason || item?.opportunityReason,
+          enrichmentScore: radarEnrichment.enrichmentScore,
+          enrichmentConfidence: radarEnrichment.enrichmentConfidence,
+          enrichmentJson: parseJsonObject(radarEnrichment.enrichmentJson),
+          lastEnrichedAt: radarEnrichment.lastEnrichedAt.toISOString(),
+          enrichmentVersion: radarEnrichment.enrichmentVersion,
+        }, status);
+      });
+      return {
+        items: requestedMode === 'only_valid'
+          ? enriched.filter((item) => item.whatsappCheckStatus === 'confirmed')
+          : enriched,
+        meta: { ...baseMeta, checked: true },
+      };
+    } catch (error: any) {
+      this.logger.warn(`[radar] validacao WebWhats ignorada company=${context.companyId}: ${String(error?.message || error)}`);
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: {
+          ...baseMeta,
+          effectiveMode: 'enrich' as RadarWhatsappCheckMode,
+          message: 'Não consegui validar WhatsApp agora. Entreguei os cards sem bloquear a busca.',
+        },
+      };
+    }
+  }
+
   private async searchRadarDirectForUser(user: any, filters: NormalizedRadarFilters, reason: string, technicalMessage?: string | null) {
     const response = await this.searchContactsForUser(
       user,
@@ -2582,6 +2779,7 @@ export class RadarCorePresentationMixin {
         purpose: 'radar_digital',
       },
     );
+    const context = this.resolveContext(user);
     const rawResults = response.results || [];
     const qualityPairs = rawResults.map((result) => ({
       result,
@@ -2589,27 +2787,14 @@ export class RadarCorePresentationMixin {
     }));
     const approvedPairs = qualityPairs.filter(({ quality }) => this.isApprovedLeadQuality(quality));
     const rejectionMeta = this.summarizeLeadQualityRejections(qualityPairs.map((item) => item.quality));
-    const publicItems = approvedPairs.map(({ result, quality }, index) => {
-      const item = this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index) as any;
-      return {
-        ...item,
-        phone: '',
-        phoneDigits: '',
-        email: null,
-        emailSource: null,
-        enrichmentJson: null,
-        evidenceJson: null,
-        ownerPhone: null,
-        phones: [],
-        emails: [],
-        phoneContacts: [],
-        emailContacts: [],
-        phonesWhatsapp: {},
-        people: Array.isArray(item?.people)
-          ? item.people.map((person: any) => ({ ...person, phone: null, phoneDigits: null, email: null }))
-          : [],
-      };
-    });
+    const whatsapp = await this.applyRadarWhatsappCheck(
+      context,
+      approvedPairs.map(({ result, quality }, index) => this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index)),
+      filters.whatsappCheckMode,
+    );
+    const items = whatsapp.items;
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
+    const publicItems = includeSmartFields ? items : items.map((item: any) => this.maskRadarSmartFieldsForList(item));
     return {
       items: publicItems,
       total: publicItems.length,
@@ -2645,7 +2830,7 @@ export class RadarCorePresentationMixin {
           message: response.meta.message || null,
           technicalMessage: technicalMessage || null,
         },
-        whatsappCheck: { mode: 'off', checked: 0, deferredUntilClaim: true },
+        whatsappCheck: whatsapp.meta,
       },
     };
   }
@@ -2808,6 +2993,7 @@ export class RadarCorePresentationMixin {
     const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap(
       pageRows.map((row: any) => String(row?.id || '')),
     );
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     const enrichmentSummary = this.buildRadarEnrichmentSummary(allRows);
     // VENDAS-REFAB S3 (04/07) — "Total no Brasil"/"Leads na base (Radar)" liam SÓ o pool local
     // (radarLeadPool, ~893 aqui em cima) fingindo ser a base RFB inteira (~28M). Descoberta =
@@ -2821,6 +3007,7 @@ export class RadarCorePresentationMixin {
       : { available: false, count: null };
     return {
       items: pageRows.map((row) => this.buildRadarLeadPublic(row, {
+        includeSmartFields,
         maskContact: vitrine,
         viewerCompanyId: context.companyId,
         ownershipEnabled,
@@ -2866,29 +3053,7 @@ export class RadarCorePresentationMixin {
     if (!this.cnpjBaseQuery) {
       throw new ServiceUnavailableException('Base Receita (CnpjPublicCompany) indisponivel neste processo.');
     }
-    const result = await this.cnpjBaseQuery.query(input || {});
-    // A busca self-service apenas localiza candidatos. Nunca devolvemos os
-    // contatos oficiais e confiamos em blur de CSS: isso vazaria o valor pelo
-    // DevTools antes do crédito ser debitado.
-    const sample = Array.isArray(result?.sample)
-      ? result.sample.map((row: any) => {
-          const hasPhone = Boolean(String(row?.phone || '').trim());
-          const hasPhone2 = Boolean(String(row?.phone2 || '').trim());
-          const hasEmail = Boolean(String(row?.email || '').trim());
-          return {
-            ...row,
-            phone: null,
-            phone2: null,
-            email: null,
-            hasPhone,
-            hasPhone2,
-            hasEmail,
-            contactCount: Number(hasPhone) + Number(hasPhone2) + Number(hasEmail),
-            contactsMasked: true,
-          };
-        })
-      : [];
-    return { ...result, sample, contactsMasked: true };
+    return this.cnpjBaseQuery.query(input || {});
   }
 
   /**
@@ -2919,9 +3084,6 @@ export class RadarCorePresentationMixin {
     const row = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: String(radarLeadId || '').trim() },
       include: {
-        contacts: {
-          orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
-        },
         companyStates: { where: { companyId: context.companyId }, take: 1 },
         events: {
           where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
@@ -2933,7 +3095,9 @@ export class RadarCorePresentationMixin {
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
     // LIMPEZA-DESTRUTIVA L3: card e da EMPRESA — qualquer papel (vendedor, admin, master)
     // pode ver o detalhe, independente de quem esta como "Responsável" (assignedUserId).
-    const leadRow = row;
+    const [enrichedRow] = await this.ensureRadarRowsEnriched([row]);
+    const leadRow = enrichedRow || row;
+    const includeSmartFields = await this.canUseRadarSmartLeadFields(context.companyId);
     // Contato PULL-GATED (06/07): o detalhe :id devolvia contato cheio de QUALQUER lead do
     // pool sem débito nem checagem de posse (furo de scraping por id). Agora mascara salvo
     // se a empresa já é dona (puxou) — mesma regra da lista/database, centralizada no presenter.
@@ -2942,6 +3106,7 @@ export class RadarCorePresentationMixin {
     const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap([String(leadRow?.id || '')]);
     return {
       item: this.buildRadarLeadPublic(leadRow, {
+        includeSmartFields,
         viewerCompanyId: context.companyId,
         ownershipEnabled,
         enrichmentQueueStatus: enrichmentQueueStatusById.get(String(leadRow?.id || '')) ?? null,
@@ -3030,8 +3195,8 @@ export class RadarCorePresentationMixin {
         facebookUrl: row?.facebookUrl || null,
         preferredChannels: ['instagram', 'facebook', 'website', 'email'],
         requiredChannels: [],
-        requestedFields: ['phone', 'email'],
         timeBudgetSeconds: 24,
+        ...resolveEnrichmentPaidFlags(),
       };
       await this.recordVendasRadarEnrichmentStatus(context, row, 'processing', {
         website: body.website || null,
@@ -3076,11 +3241,6 @@ export class RadarCorePresentationMixin {
       address: String(leadPlus?.address || '').trim() || null,
       website: String(leadPlus?.website || '').trim() || null,
       email: String(leadPlus?.email || '').trim() || null,
-      phones: Array.isArray(leadPlus?.phones) ? leadPlus.phones.slice(0, 3) : [],
-      emails: Array.isArray(leadPlus?.emails) ? leadPlus.emails.slice(0, 3) : [],
-      phonesWhatsapp: leadPlus?.phonesWhatsapp && typeof leadPlus.phonesWhatsapp === 'object'
-        ? leadPlus.phonesWhatsapp
-        : {},
       emailStatus: String(leadPlus?.emailStatus || '').trim() || null,
       emailSource: String(leadPlus?.emailSource || '').trim() || null,
       emailConfidence: safeInteger(leadPlus?.emailConfidence),
@@ -3103,12 +3263,6 @@ export class RadarCorePresentationMixin {
   private buildCompactVendasEnrichmentJson(leadRow: any, quality: any, qualityV2: any, delivery: any) {
     const enrichment = parseJsonObject(leadRow?.enrichmentJson);
     const signals = parseJsonObject(enrichment?.signals);
-    const metadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
-    const contacts = this.buildRadarLeadContactProjection(
-      leadRow,
-      metadata,
-      this.extractRadarLeadWhatsappStatus(leadRow) || 'unverified',
-    );
     return {
       version: enrichment?.version || enrichment?.enrichmentVersion || RADAR_LEAD_ENRICHMENT_VERSION,
       whatsappStatus: enrichment?.whatsappStatus || null,
@@ -3121,33 +3275,6 @@ export class RadarCorePresentationMixin {
       quality: quality || null,
       qualityV2: qualityV2 || null,
       delivery: delivery || null,
-      cnpj: metadata?.cnpj || null,
-      razaoSocial: metadata?.razaoSocial || null,
-      nomeFantasia: metadata?.nomeFantasia || null,
-      cnae: metadata?.cnae || null,
-      cnaeDescription: metadata?.cnaeDescription || null,
-      companySituation: metadata?.companySituation || null,
-      naturezaJuridica: metadata?.naturezaJuridica || null,
-      porte: metadata?.porte || null,
-      matrizFilial: metadata?.matrizFilial || null,
-      capitalSocial: metadata?.capitalSocial || null,
-      simples: metadata?.simples ?? null,
-      mei: metadata?.mei ?? null,
-      ownerName: metadata?.ownerName || null,
-      ownerNames: Array.isArray(metadata?.ownerNames) ? metadata.ownerNames.slice(0, 12) : [],
-      ownerQualification: metadata?.ownerQualification || null,
-      ownerPhone: metadata?.ownerPhone || null,
-      ownerInstagram: metadata?.ownerInstagram || null,
-      ownerFacebook: metadata?.ownerFacebook || null,
-      officialAddress: metadata?.officialAddress || null,
-      officialCity: metadata?.officialCity || null,
-      officialState: metadata?.officialState || null,
-      phones: contacts.phones,
-      emails: contacts.emails,
-      phoneContacts: contacts.phoneContacts,
-      emailContacts: contacts.emailContacts,
-      phonesWhatsapp: contacts.phonesWhatsapp,
-      sourceCoverage: metadata?.sourceCoverage || null,
       signals: {
         recommendedChannel: signals?.recommendedChannel || leadRow?.recommendedChannel || null,
         painType: signals?.painType || leadRow?.painType || null,
@@ -3216,78 +3343,6 @@ export class RadarCorePresentationMixin {
     const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
     const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
     const metadata = this.parseMaybeJsonObject(baseRow?.metadataJson);
-    const existingContacts = Array.isArray(baseRow?.contacts) ? baseRow.contacts : [];
-    const existingPhoneValues = new Set<string>();
-    const existingEmailValues = new Set<string>();
-    const existingPhoneRanks: number[] = [];
-    const existingEmailRanks: number[] = [];
-    const rememberPhone = (value: unknown, rank: unknown = 1) => {
-      const normalized = normalizePhoneDigits(value);
-      if (!normalized) return;
-      existingPhoneValues.add(normalized);
-      existingPhoneRanks.push(Math.max(1, safeInteger(rank) || 1));
-    };
-    const rememberEmail = (value: unknown, rank: unknown = 1) => {
-      const normalized = normalizeBusinessEmail(value);
-      if (!normalized) return;
-      existingEmailValues.add(normalized);
-      existingEmailRanks.push(Math.max(1, safeInteger(rank) || 1));
-    };
-    rememberPhone(baseRow?.phoneDigits || baseRow?.phone, 1);
-    rememberEmail(baseRow?.email, 1);
-    for (const [index, value] of (Array.isArray(metadata?.phones) ? metadata.phones : []).entries()) {
-      rememberPhone(value?.value ?? value, value?.rank || index + 1);
-    }
-    for (const [index, value] of (Array.isArray(metadata?.emails) ? metadata.emails : []).entries()) {
-      rememberEmail(value?.value ?? value, value?.rank || index + 1);
-    }
-    for (const contact of existingContacts) {
-      const kind = String(contact?.kind || '').toLowerCase();
-      if (kind === 'phone' || kind === 'whatsapp') rememberPhone(contact?.valueNormalized || contact?.value, contact?.rank);
-      if (kind === 'email') rememberEmail(contact?.valueNormalized || contact?.value, contact?.rank);
-    }
-    const sourceForMotorContact = (item: any) => /website|crawl/i.test(String(item?.source || ''))
-      ? 'website_crawl'
-      : 'hbx_engine';
-    const motorContactCandidates: any[] = [];
-    const confirmedWhatsappNumbers = new Set<string>();
-    const leadPlusWhatsappMap = leadPlus?.phonesWhatsapp && typeof leadPlus.phonesWhatsapp === 'object'
-      ? leadPlus.phonesWhatsapp
-      : {};
-    let nextPhoneRank = Math.max(0, ...existingPhoneRanks) + 1;
-    for (const item of [leadPlus?.phone, ...(Array.isArray(leadPlus?.phones) ? leadPlus.phones : [])]) {
-      const rawValue = item && typeof item === 'object'
-        ? item.value ?? item.phone ?? item.number ?? item.phoneDigits
-        : item;
-      const normalized = normalizePhoneDigits(rawValue);
-      if (!normalized || !isLikelyValidBrPhone(normalized) || existingPhoneValues.has(normalized) || existingPhoneValues.size >= 3) continue;
-      const source = sourceForMotorContact(item);
-      const confidence = Math.max(1, Math.min(100, safeInteger(item?.confidence) || 75));
-      const rank = Math.max(nextPhoneRank, safeInteger(item?.rank) || nextPhoneRank);
-      motorContactCandidates.push({ kind: 'phone', value: String(rawValue), source, confidence, rank });
-      const whatsappConfirmed = item?.whatsappStatus === 'confirmed'
-        || item?.whatsapp === true
-        || leadPlusWhatsappMap[normalized] === true
-        || leadPlusWhatsappMap[String(rawValue)] === true;
-      if (whatsappConfirmed) {
-        confirmedWhatsappNumbers.add(normalized);
-        motorContactCandidates.push({ kind: 'whatsapp', value: String(rawValue), source, confidence, rank });
-      }
-      existingPhoneValues.add(normalized);
-      nextPhoneRank = rank + 1;
-    }
-    let nextEmailRank = Math.max(0, ...existingEmailRanks) + 1;
-    for (const item of [leadPlus?.email, ...(Array.isArray(leadPlus?.emails) ? leadPlus.emails : [])]) {
-      const rawValue = item && typeof item === 'object' ? item.value ?? item.email : item;
-      const normalized = normalizeBusinessEmail(rawValue);
-      if (!normalized || existingEmailValues.has(normalized) || existingEmailValues.size >= 3) continue;
-      const source = sourceForMotorContact(item);
-      const confidence = Math.max(1, Math.min(100, safeInteger(item?.confidence) || safeInteger(leadPlus?.emailConfidence) || 75));
-      const rank = Math.max(nextEmailRank, safeInteger(item?.rank) || nextEmailRank);
-      motorContactCandidates.push({ kind: 'email', value: normalized, source, confidence, rank });
-      existingEmailValues.add(normalized);
-      nextEmailRank = rank + 1;
-    }
     const companyState = Array.isArray(baseRow?.companyStates) && baseRow.companyStates.length ? baseRow.companyStates[0] : null;
     const protectedStatus = this.isRadarProtectedStatus(companyState?.status || baseRow?.status);
     const existingEmail = normalizeBusinessEmail(baseRow.email) || null;
@@ -3360,12 +3415,10 @@ export class RadarCorePresentationMixin {
       now,
     });
     const data = {
-      // O escalar histórico continua sendo o primeiro contato. Descobertas do
-      // motor entram como email2/email3 em LeadContact, sem substituir a RFB.
-      email: existingEmail || enrichment.email || null,
-      emailStatus: existingEmail ? baseRow.emailStatus || 'unverified' : enrichment.emailStatus,
-      emailSource: existingEmail ? baseRow.emailSource || 'primary' : enrichment.emailSource,
-      emailConfidence: existingEmail ? safeInteger(baseRow.emailConfidence) : enrichment.emailConfidence,
+      email: enrichment.email || existingEmail || null,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
       address: leadPlusAddress,
       rating: leadPlusRating,
       reviews: leadPlusReviews,
@@ -3401,52 +3454,425 @@ export class RadarCorePresentationMixin {
           attemptedAt: now.toISOString(),
           found: Boolean(enrichment.instagramUrl || enrichment.facebookUrl || enrichment.email || leadPlusWebsite || existingWebsite),
         },
-        phonesWhatsapp: {
-          ...(metadata?.phonesWhatsapp && typeof metadata.phonesWhatsapp === 'object' ? metadata.phonesWhatsapp : {}),
-          ...Object.fromEntries(Array.from(confirmedWhatsappNumbers).map((phone) => [phone, true])),
-        },
       }),
       lastSeenAt: now,
     };
     await (this.prisma as any).radarLeadPool.update({ where: { id: baseRow.id }, data }).catch((error: any) => {
       this.logger.warn(`[radar-enrichment] falha ao salvar social lead=${baseRow.id}: ${String(error?.message || error)}`);
     });
-    if (motorContactCandidates.length) {
-      await this.getLeadContactWrite().writeContacts(this.prisma, baseRow.id, motorContactCandidates).catch(() => null);
-    }
-    let refreshed = await (this.prisma as any).radarLeadPool.findUnique({
-      where: { id: baseRow.id },
-      include: { companyStates: true, contacts: true },
-    }).catch(() => null);
-    refreshed = refreshed || { ...baseRow, ...data };
-    const refreshedMetadata = this.parseMaybeJsonObject(refreshed?.metadataJson || data.metadataJson);
-    const contactProjection = this.buildRadarLeadContactProjection(
-      refreshed,
-      refreshedMetadata,
-      this.extractRadarLeadWhatsappStatus(refreshed) || 'unverified',
-    );
-    const canonicalMetadata = {
-      ...refreshedMetadata,
-      phones: contactProjection.phones,
-      emails: contactProjection.emails,
-      phonesWhatsapp: {
-        ...(refreshedMetadata?.phonesWhatsapp && typeof refreshedMetadata.phonesWhatsapp === 'object' ? refreshedMetadata.phonesWhatsapp : {}),
-        ...contactProjection.phonesWhatsapp,
-      },
-    };
-    await (this.prisma as any).radarLeadPool.update({
-      where: { id: baseRow.id },
-      data: { metadataJson: JSON.stringify(canonicalMetadata) },
-    }).catch(() => null);
-    const finalRow = { ...refreshed, metadataJson: JSON.stringify(canonicalMetadata) };
-    await this.syncVendasLeadAfterRadarEnrichment(context, finalRow, data, enrichment, leadPlus);
-    return finalRow;
+    await this.syncVendasLeadAfterRadarEnrichment(context, baseRow, data, enrichment, leadPlus);
+    return { ...baseRow, ...data };
+  }
+
+  private recentRequiredSocialAttempt(row: any, filters: NormalizedRadarFilters) {
+    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
+    const attempt = this.parseMaybeJsonObject(metadata?.requiredSocialEnrichment);
+    const key = this.requiredChannelsForInput(filters).join(',');
+    const attemptedAt = Date.parse(String(attempt?.attemptedAt || ''));
+    return Boolean(key && attempt?.key === key && attemptedAt && Date.now() - attemptedAt < 10 * 60 * 1000);
   }
 
   private leadPlusSignalEnrichmentKey(filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels'> | null) {
     const preferred = this.normalizeRadarChannels(filters?.preferredChannels).sort().join('+') || 'default';
     const required = this.normalizeRadarChannels(filters?.requiredChannels).sort().join('+') || 'none';
     return `${preferred}:${required}`;
+  }
+
+  private recentLeadPlusSignalAttempt(row: any, filters?: NormalizedRadarFilters | null) {
+    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
+    const attempt = this.parseMaybeJsonObject(metadata?.leadPlusSignalEnrichment);
+    const attemptedAt = Date.parse(String(attempt?.attemptedAt || ''));
+    return Boolean(
+      attempt?.key === this.leadPlusSignalEnrichmentKey(filters || null)
+      && attemptedAt
+      && Date.now() - attemptedAt < 10 * 60 * 1000,
+    );
+  }
+
+  private hasLeadPlusSignal(row: any) {
+    return Boolean(
+      String(row?.instagramUrl || '').trim()
+      || String(row?.facebookUrl || '').trim()
+      || String(row?.email || '').trim()
+      || String(row?.website || '').trim()
+    );
+  }
+
+  private hasReusableOnDemandLeadPlusEnrichment(row: any) {
+    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
+    const manualAttempt = this.parseMaybeJsonObject(metadata?.leadPlusOnDemandEnrichment);
+    if (manualAttempt?.attemptedAt) return true;
+    const existingInstagram = String(row?.instagramUrl || '').trim();
+    const existingFacebook = String(row?.facebookUrl || '').trim();
+    return Boolean(
+      existingInstagram
+        && !looksLikeThirdPartySocialProfile(existingInstagram)
+        && socialProfileLooksCompatibleWithLead(row, existingInstagram),
+    ) || Boolean(
+      existingFacebook
+        && !looksLikeThirdPartySocialProfile(existingFacebook)
+        && socialProfileLooksCompatibleWithLead(row, existingFacebook),
+    );
+  }
+
+  private async assertCanUseOnDemandRadarEnrichment(context: SearchExecutionContext) {
+    const access = await this.getRadarPremiumAccessForCompany(context.companyId);
+    if (!access.active) {
+      throw new ForbiddenException({
+        code: 'COMPANY_PAID_ACCESS_REQUIRED',
+        message: 'Regularize o plano para usar enriquecimento premium do Radar.',
+        redirectTo: '/planos?intent=radar_premium',
+      });
+    }
+    if (!access.canUsePremium) {
+      throw new ForbiddenException({
+        code: 'RADAR_PREMIUM_PLAN_REQUIRED',
+        message: 'Enriquecimento com Instagram, Facebook, site e email está disponível no HBX Lead Plus ou superior.',
+        redirectTo: '/planos?intent=radar_premium',
+        requiredPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+        currentPlanKey: access.planKey,
+      });
+    }
+    const usage = await this.commercialUsageLimits?.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
+    const enrichment = usage?.enrichment || {};
+    if (usage && Number(enrichment.dailyRemaining ?? enrichment.remaining ?? 0) <= 0) {
+      throw new ConflictException({
+        code: 'RADAR_ENRICHMENT_QUOTA_REACHED',
+        message: 'Créditos de enriquecimento de hoje acabaram. Cards novos seguem básicos até o reset diário.',
+        usage,
+      });
+    }
+    return { access, usage };
+  }
+
+  private async enrichRowsForLeadPlusSignals(
+    context: SearchExecutionContext,
+    rows: any[],
+    filters: NormalizedRadarFilters,
+    maxRows: number,
+  ) {
+    if (!Array.isArray(rows) || !rows.length || maxRows <= 0) return rows;
+    let processed = 0;
+    const enrichedRows: any[] = [];
+    for (const row of rows) {
+      if (!row?.id || processed >= maxRows) {
+        enrichedRows.push(row);
+        continue;
+      }
+      if (this.hasLeadPlusSignal(row) && this.recentLeadPlusSignalAttempt(row, filters)) {
+        enrichedRows.push(row);
+        continue;
+      }
+      processed += 1;
+      const leadPlus = await this.enrichRadarLeadViaLeadPlusEngine(context, row, filters);
+      enrichedRows.push(await this.applyLeadPlusEnrichmentToRadarRow(context, row, leadPlus, filters));
+    }
+    return enrichedRows;
+  }
+
+  private scheduleLeadPlusSignalEnrichment(
+    context: SearchExecutionContext,
+    rows: any[],
+    filters: NormalizedRadarFilters,
+    maxRows: number,
+    reason: string,
+  ) {
+    if (!Array.isArray(rows) || !rows.length || maxRows <= 0) return;
+    const ids = rows
+      .slice(0, Math.max(1, maxRows))
+      .map((row) => String(row?.id || '').trim())
+      .filter(Boolean);
+    if (!ids.length) return;
+    const key = `${context.companyId}:${this.leadPlusSignalEnrichmentKey(filters)}:${ids.join('|')}`;
+    if (this.leadPlusSignalEnrichmentInFlight.has(key)) return;
+    this.leadPlusSignalEnrichmentInFlight.add(key);
+    setTimeout(() => {
+      void this.enrichRowsForLeadPlusSignals(context, rows, filters, maxRows)
+        .catch((error: any) => {
+          this.logger.warn(`[radar-enrichment] enriquecimento em segundo plano falhou (${reason}): ${String(error?.message || error)}`);
+        })
+        .finally(() => {
+          this.leadPlusSignalEnrichmentInFlight.delete(key);
+        });
+    }, 0);
+  }
+
+  private async enrichRowsForRequiredSocialChannels(
+    context: SearchExecutionContext,
+    rows: any[],
+    filters: NormalizedRadarFilters,
+    maxRows: number,
+    stopAfterMatches = 0,
+  ) {
+    if (!this.hasRequiredEnrichmentChannelsFilter(filters) || !rows.length || maxRows <= 0) return rows;
+    const candidates = rows
+      .filter((row) => row?.id && !this.matchesRadarChannelFilters(row, filters) && !this.recentRequiredSocialAttempt(row, filters))
+      .slice(0, Math.max(1, maxRows));
+    if (!candidates.length) return rows;
+
+    const enrichedById = new Map<string, any>();
+    let matchedCount = rows.filter((row) => this.matchesRadarChannelFilters(row, filters)).length;
+    const required = this.requiredChannelsForInput(filters);
+    const strictSocialWebsite = required.includes('website') && required.some((channel) => channel === 'instagram' || channel === 'facebook');
+    const concurrency = Math.min(strictSocialWebsite ? 2 : 4, Math.max(1, candidates.length));
+    for (let index = 0; index < candidates.length; index += concurrency) {
+      const chunk = candidates.slice(index, index + concurrency);
+      const enrichedChunk = await Promise.all(chunk.map(async (row) => {
+        const leadPlus = await this.enrichRadarLeadViaLeadPlusEngine(context, row, filters);
+        return this.applyLeadPlusEnrichmentToRadarRow(context, row, leadPlus, filters);
+      }));
+      for (const enriched of enrichedChunk) {
+        if (enriched?.id) enrichedById.set(String(enriched.id), enriched);
+        if (enriched && this.matchesRadarChannelFilters(enriched, filters)) matchedCount += 1;
+      }
+      if (stopAfterMatches > 0 && matchedCount >= stopAfterMatches) break;
+    }
+    return rows.map((row) => enrichedById.get(String(row?.id || '')) || row);
+  }
+
+  private scheduleRequiredChannelEnrichment(
+    context: SearchExecutionContext,
+    rows: any[],
+    filters: NormalizedRadarFilters,
+    maxRows: number,
+    reason: string,
+  ) {
+    if (!this.hasRequiredEnrichmentChannelsFilter(filters) || !Array.isArray(rows) || !rows.length || maxRows <= 0) return;
+    const pendingRows = rows
+      .filter((row) => row?.id && !this.matchesRadarChannelFilters(row, filters) && !this.recentRequiredSocialAttempt(row, filters))
+      .slice(0, Math.max(1, maxRows));
+    const ids = pendingRows.map((row) => String(row.id || '').trim()).filter(Boolean);
+    if (!ids.length) return;
+    const key = `${context.companyId}:${this.requiredChannelsForInput(filters).join('+')}:${ids.join('|')}`;
+    if (this.requiredChannelEnrichmentInFlight.has(key)) return;
+    this.requiredChannelEnrichmentInFlight.add(key);
+    setTimeout(() => {
+      void this.enrichRowsForRequiredSocialChannels(context, pendingRows, filters, maxRows)
+        .catch((error: any) => {
+          this.logger.warn(`[radar-enrichment] filtro obrigatorio em segundo plano falhou (${reason}): ${String(error?.message || error)}`);
+        })
+        .finally(() => {
+          this.requiredChannelEnrichmentInFlight.delete(key);
+        });
+    }, 0);
+  }
+
+  async enrichRadarLeadForUser(user: any, radarLeadId: string) {
+    const context = this.resolveContext(user);
+    if (!this.canUseWebscrapingRole(user)) {
+      throw new ForbiddenException({
+        code: 'WEBSCRAPING_ROLE_BLOCKED',
+        message: 'O enriquecimento do Radar fica restrito ao ADMIN da empresa.',
+      });
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+    const row = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: String(radarLeadId || '').trim() },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+        events: {
+          where: { companyId: context.companyId, eventType: 'whatsapp_checked' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    }).catch(() => null);
+    if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
+    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+    if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
+      throw new ForbiddenException('Este card pertence a outra empresa.');
+    }
+    await this.assertCanUseOnDemandRadarEnrichment(context);
+
+    const now = new Date();
+    const protectedStatus = this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status);
+    if (!protectedStatus && this.hasReusableOnDemandLeadPlusEnrichment(row)) {
+      return {
+        ok: true,
+        cached: true,
+        message: 'Card já enriquecido',
+        item: this.buildRadarLeadPublic(row, { includeSmartFields: true }),
+      };
+    }
+    let whatsappStatus = parseJsonObject(row?.enrichmentJson)?.whatsappStatus || null;
+    const cachedWhatsappEvent = Array.isArray(row?.events) && row.events.length ? row.events[0] : null;
+    const cachedAt = cachedWhatsappEvent?.createdAt instanceof Date ? cachedWhatsappEvent.createdAt.getTime() : 0;
+    const cacheValid = cachedAt && now.getTime() - cachedAt < 30 * 24 * 60 * 60 * 1000;
+    if (cacheValid) {
+      whatsappStatus = parseJsonObject(cachedWhatsappEvent?.note)?.whatsappStatus || whatsappStatus;
+    }
+
+    const phoneDigits = normalizePhoneDigits(row.phoneDigits || row.phone);
+    if (!protectedStatus && phoneDigits && !cacheValid && this.webwhatsBridge && (await this.canUseRadarWebwhatsCheck(context.companyId))) {
+      try {
+        const [lookup] = await this.radarCheckWhatsappNumbers([phoneDigits]);
+        if (lookup) {
+          whatsappStatus = lookup.exists ? 'confirmed' : 'missing';
+          await this.recordRadarLeadEvent({
+            leadId: row.id,
+            companyId: context.companyId,
+            userId: context.userId,
+            eventType: 'whatsapp_checked',
+            note: JSON.stringify({ whatsappStatus, phoneDigits, checkedAt: now.toISOString(), cacheDays: 30 }),
+          });
+        }
+      } catch (error: any) {
+        this.logger.warn(`[radar-enrichment] falha ao validar WhatsApp lead=${row.id}: ${String(error?.message || error)}`);
+      }
+    }
+
+    const leadPlus = protectedStatus ? null : await this.enrichRadarLeadViaLeadPlusEngine(context, row);
+    const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
+    const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
+    const companyState = Array.isArray(baseRow.companyStates) && baseRow.companyStates.length ? baseRow.companyStates[0] : null;
+    const existingEmail = normalizeBusinessEmail(baseRow.email) || null;
+    const leadPlusEmail = normalizeBusinessEmail(leadPlus?.email) || null;
+    const leadPlusEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(leadPlus?.emailStatus || ''))
+      ? String(leadPlus.emailStatus)
+      : baseRow.emailStatus;
+    const leadPlusEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(leadPlus?.emailSource || ''))
+      ? String(leadPlus.emailSource)
+      : baseRow.emailSource;
+    const existingInstagram = String(baseRow.instagramUrl || '').trim()
+      && !looksLikeThirdPartySocialProfile(baseRow.instagramUrl)
+      && socialProfileLooksCompatibleWithLead(baseRow, baseRow.instagramUrl)
+      ? String(baseRow.instagramUrl).trim()
+      : null;
+    const existingFacebook = String(baseRow.facebookUrl || '').trim()
+      && !looksLikeThirdPartySocialProfile(baseRow.facebookUrl)
+      && socialProfileLooksCompatibleWithLead(baseRow, baseRow.facebookUrl)
+      ? String(baseRow.facebookUrl).trim()
+      : null;
+    const leadPlusInstagramRaw = String(leadPlus?.instagramUrl || '').trim();
+    const leadPlusFacebookRaw = String(leadPlus?.facebookUrl || '').trim();
+    const existingWebsite = this.isBlockedLeadOfficialWebsite(baseRow.website) || !websiteHostLooksCompatibleWithLead(baseRow, baseRow.website) ? null : baseRow.website || null;
+    const leadPlusWebsiteRaw = String(leadPlus?.website || '').trim() || null;
+    const leadPlusWebsite = leadPlusWebsiteRaw
+      && !this.isBlockedLeadOfficialWebsite(leadPlusWebsiteRaw)
+      && websiteHostLooksCompatibleWithLead({ ...baseRow, website: leadPlusWebsiteRaw }, leadPlusWebsiteRaw)
+      ? leadPlusWebsiteRaw
+      : null;
+    const leadPlusInstagram = leadPlusInstagramRaw
+      && !looksLikeThirdPartySocialProfile(leadPlusInstagramRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusInstagramRaw)
+      ? leadPlusInstagramRaw
+      : null;
+    const leadPlusFacebook = leadPlusFacebookRaw
+      && !looksLikeThirdPartySocialProfile(leadPlusFacebookRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusFacebookRaw)
+      ? leadPlusFacebookRaw
+      : null;
+    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook || existingInstagram || existingFacebook ? 'found' : baseRow.socialStatus;
+    const leadPlusRating = leadPlus?.rating == null ? baseRow.rating ?? null : Number(leadPlus.rating);
+    const leadPlusReviews = leadPlus?.reviews == null ? safeInteger(baseRow.reviews) : safeInteger(leadPlus.reviews);
+    const leadPlusAddress = String(leadPlus?.address || '').trim() || baseRow.address || null;
+    const leadPlusGoogleMapsUrl = String(leadPlus?.googleMapsUrl || '').trim() || baseRow.googleMapsUrl || null;
+    const metadata = this.parseMaybeJsonObject(baseRow?.metadataJson);
+    const enrichment = buildRadarLeadEnrichment({
+      ...baseRow,
+      email: leadPlusEmail || existingEmail,
+      emailStatus: leadPlusEmailStatus,
+      emailSource: leadPlusEmailSource,
+      emailConfidence: safeInteger(leadPlus?.emailConfidence || baseRow.emailConfidence),
+      website: leadPlusWebsite || existingWebsite,
+      websiteStatus: leadPlusWebsite || existingWebsite ? 'present' : 'none',
+      rating: leadPlusRating,
+      reviews: leadPlusReviews,
+      address: leadPlusAddress,
+      instagramUrl: leadPlusInstagram || existingInstagram,
+      facebookUrl: leadPlusFacebook || existingFacebook,
+      socialStatus: leadPlusSocialStatus,
+      socialConfidence: safeInteger(leadPlus?.socialConfidence || baseRow.socialConfidence),
+      googleMapsUrl: leadPlusGoogleMapsUrl,
+      companyStatus: companyState?.status || baseRow.status,
+      whatsappStatus,
+      rawPayload: {
+        ...metadata,
+        leadPlusEnrichment: this.compactLeadPlusEnrichmentPayload(leadPlus),
+      },
+      now,
+    });
+    const data = {
+      email: enrichment.email || existingEmail || null,
+      emailStatus: enrichment.emailStatus,
+      emailSource: enrichment.emailSource,
+      emailConfidence: enrichment.emailConfidence,
+      address: leadPlusAddress,
+      rating: leadPlusRating,
+      reviews: leadPlusReviews,
+      website: leadPlusWebsite || existingWebsite || null,
+      websiteStatus: leadPlusWebsite || existingWebsite ? 'present' : 'none',
+      instagramUrl: enrichment.instagramUrl || existingInstagram || null,
+      facebookUrl: enrichment.facebookUrl || existingFacebook || null,
+      socialStatus: enrichment.socialStatus,
+      socialConfidence: enrichment.socialConfidence,
+      googleMapsUrl: enrichment.googleMapsUrl || leadPlusGoogleMapsUrl || baseRow.googleMapsUrl || null,
+      businessCategory: enrichment.businessCategory || baseRow.businessCategory || null,
+      openingHoursStatus: enrichment.openingHoursStatus || baseRow.openingHoursStatus || null,
+      recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
+      painType: enrichment.painType,
+      painLabel: enrichment.painLabel,
+      painPitch: enrichment.painPitch,
+      opportunityReason: enrichment.opportunityReason || baseRow.opportunityReason || null,
+      enrichmentJson: enrichment.enrichmentJson,
+      enrichmentScore: protectedStatus ? 0 : enrichment.enrichmentScore,
+      enrichmentConfidence: enrichment.enrichmentConfidence,
+      lastEnrichedAt: enrichment.lastEnrichedAt,
+      enrichmentVersion: enrichment.enrichmentVersion,
+      metadataJson: JSON.stringify({
+        ...metadata,
+        cnpj: String(leadPlus?.cnpj || '').trim() || metadata?.cnpj || null,
+        leadPlusOnDemandEnrichment: {
+          priority: ['instagram', 'facebook', 'website', 'email'],
+          attemptedAt: now.toISOString(),
+          found: Boolean(enrichment.instagramUrl || enrichment.facebookUrl || leadPlusWebsite || existingWebsite || enrichment.email),
+          instagram: Boolean(enrichment.instagramUrl),
+          facebook: Boolean(enrichment.facebookUrl),
+          website: Boolean(leadPlusWebsite || existingWebsite),
+          email: Boolean(enrichment.email),
+        },
+        leadPlusEnrichment: this.compactLeadPlusEnrichmentPayload(leadPlus),
+      }),
+      lastSeenAt: now,
+    };
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: baseRow.id },
+      data,
+    });
+    await this.recordRadarLeadEvent({
+      leadId: baseRow.id,
+      companyId: context.companyId,
+      userId: context.userId,
+      eventType: 'enriched',
+      note: `Card enriquecido (${RADAR_LEAD_ENRICHMENT_VERSION}).`,
+    });
+    await this.syncVendasLeadAfterRadarEnrichment(context, baseRow, data, enrichment, leadPlus);
+    // 048-1B: waterfall de dados públicos (CNPJ) → grava sinais de hora/intenção
+    if (this.getRadarPublicData().needsRefresh(baseRow)) {
+      this.getRadarPublicData().enrichSignals(this.prisma, baseRow).catch(() => {/* aditivo */});
+    }
+    const updated = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: baseRow.id },
+      include: {
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
+        events: {
+          where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+        },
+      },
+    });
+    return {
+      ok: true,
+      message: 'Card enriquecido',
+      item: this.buildRadarLeadPublic({
+        ...(updated || baseRow),
+        whatsappStatus: whatsappStatus || undefined,
+      }, { includeSmartFields: await this.canUseRadarSmartLeadFields(context.companyId) }),
+    };
   }
 
   async listRadarDatabaseForUser(user: any, input: RadarFiltersInput = {}) {
@@ -3466,7 +3892,8 @@ export class RadarCorePresentationMixin {
       limit: filters.limit,
       includeHidden: filters.includeHidden,
     });
-    const [fingerprint, ownershipEnabled] = await Promise.all([
+    const [includeSmartFields, fingerprint, ownershipEnabled] = await Promise.all([
+      this.canUseRadarSmartLeadFields(context.companyId),
       this.getIcpFingerprint().getFingerprint(this.prisma, context.companyId).catch(() => null),
       this.supportsRadarOwnershipPersistence(),
     ]);
@@ -3476,8 +3903,8 @@ export class RadarCorePresentationMixin {
     const icpSvc = this.getIcpFingerprint();
     return {
       items: rows.map((row) => ({
-        ...this.buildRadarLeadPublic(row, { viewerCompanyId: context.companyId, ownershipEnabled }),
-        fitScore: icpSvc.computeFit(row, fingerprint),
+        ...this.buildRadarLeadPublic(row, { includeSmartFields, viewerCompanyId: context.companyId, ownershipEnabled }),
+        fitScore: includeSmartFields ? icpSvc.computeFit(row, fingerprint) : null,
       })),
       total: rows.length,
       meta: {

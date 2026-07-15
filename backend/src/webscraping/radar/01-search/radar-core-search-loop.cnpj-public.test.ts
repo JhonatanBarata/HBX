@@ -82,9 +82,11 @@ test('flag ON + pj + fonte devolve 2 records: saveSearchRunResults chamado com s
   });
 });
 
-test('fonte RFB é obrigatória para PJ e ignora a antiga flag OFF', async () => {
+test('flag OFF: fonte nem instanciada', async () => {
   await withFlag('false', async () => {
-    const { instance, savedCalls, wasSourceInstantiated } = makeLoop(async () => ({ results: [], foundCount: 0 }));
+    const { instance, savedCalls, wasSourceInstantiated } = makeLoop(async () => {
+      throw new Error('nao deveria ser chamado');
+    });
 
     await instance.runCnpjPublicSourceForClientRunIfEligible(
       { companyId: 'c1' },
@@ -93,7 +95,7 @@ test('fonte RFB é obrigatória para PJ e ignora a antiga flag OFF', async () =>
       10,
     );
 
-    assert.equal(wasSourceInstantiated(), true);
+    assert.equal(wasSourceInstantiated(), false);
     assert.equal(savedCalls.length, 0);
   });
 });
@@ -115,9 +117,11 @@ test('targetType diferente de pj: fonte nem instanciada mesmo com flag ON', asyn
   });
 });
 
-test('run já no alvo ainda registra tentativa obrigatória da RFB', async () => {
+test('run ja no alvo (remainingQuantity=0): fonte nem instanciada', async () => {
   await withFlag('true', async () => {
-    const { instance, wasSourceInstantiated } = makeLoop(async () => ({ results: [], foundCount: 0 }));
+    const { instance, wasSourceInstantiated } = makeLoop(async () => {
+      throw new Error('nao deveria ser chamado');
+    });
 
     await instance.runCnpjPublicSourceForClientRunIfEligible(
       { companyId: 'c1' },
@@ -126,7 +130,7 @@ test('run já no alvo ainda registra tentativa obrigatória da RFB', async () =>
       0,
     );
 
-    assert.equal(wasSourceInstantiated(), true);
+    assert.equal(wasSourceInstantiated(), false);
   });
 });
 

@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
   COMMERCIAL_PLAN_KEYS,
-  getCommercialPlanCapabilities,
   getCommercialPlanTitle,
 } from '../commercial-plans/commercial-plan-catalog';
 import { COMPANY_KIND_PLATFORM_INFRA, COMPANY_KIND_TENANT } from '../common/company-kind';
@@ -17,13 +18,6 @@ import {
 } from './module-access-policy';
 
 const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-const operationalSnapshot = buildSnapshot([
-  { key: 'atendimento', defaultEnabled: true },
-  { key: 'vendas', defaultEnabled: true },
-  { key: 'webscraping', defaultEnabled: true },
-  { key: 'cadastro', defaultEnabled: true },
-  { key: 'gerencial', defaultEnabled: false },
-]);
 
 // MASTER-REFAB S6 (10/07 noite): pending_checkout/trial/courtesy só continuam pesando pra conta
 // `enterprise` (a máquina de estados legada) — conta `credit` (default) é ativa por default e
@@ -71,13 +65,13 @@ test('S6: conta credit NUNCA é bloqueada por pending_checkout/overdue legado (c
   assert.equal(suspended.blockedCode, 'subscription_inactive');
 });
 
-test('trial ativo usa o mesmo snapshot de módulos, independente do plano histórico', () => {
+test('active_trial/TRIAL/trialing releases padrao commercial modules (conta enterprise)', () => {
   const policy = resolveCompanyModuleAccessPolicy({
     accountType: 'enterprise',
     status: 'trial',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
     trialEndsAt: future,
-  }, Date.now(), operationalSnapshot);
+  });
 
   assert.equal(policy.accessState, 'trial');
   assert.equal(policy.planKey, COMMERCIAL_PLAN_KEYS.PADRAO);
@@ -88,21 +82,21 @@ test('trial ativo usa o mesmo snapshot de módulos, independente do plano histó
   assert.equal(policy.moduleKeys.has('gerencial'), false);
 });
 
-test('active usa kill-switch idêntico para qualquer selectedPlanKey', () => {
+test('active/PAID releases modules by selected plan', () => {
   const lite = resolveCompanyModuleAccessPolicy({
     status: 'active',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
-  }, Date.now(), operationalSnapshot);
+  });
   assert.equal(lite.moduleKeys.has('vendas'), true);
   assert.equal(lite.moduleKeys.has('webscraping'), true);
-  assert.equal(lite.moduleKeys.has('atendimento'), true);
+  assert.equal(lite.moduleKeys.has('atendimento'), false);
   assert.equal(lite.moduleKeys.has('gerencial'), false);
-  assert.equal(lite.moduleKeys.has('cadastro'), true);
+  assert.equal(lite.moduleKeys.has('cadastro'), false);
 
   const melhor = resolveCompanyModuleAccessPolicy({
     status: 'active',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.MELHOR,
-  }, Date.now(), operationalSnapshot);
+  });
   assert.equal(melhor.moduleKeys.has('atendimento'), true);
   assert.equal(melhor.moduleKeys.has('vendas'), true);
   assert.equal(melhor.moduleKeys.has('webscraping'), true);
@@ -111,35 +105,36 @@ test('active usa kill-switch idêntico para qualquer selectedPlanKey', () => {
   assert.equal(melhor.moduleKeys.has('bot_ia'), false);
 });
 
-test('catálogo preserva nomes de cobrança, mas capacidades são universais', () => {
+test('commercial plan catalog keeps new HBX names and premium entitlements', () => {
   assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.LITE), 'HBX List');
   assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.PADRAO), 'HBX Lead Plus');
   assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.MELHOR), 'Implantação');
 
-  assert.deepEqual(
-    getCommercialPlanCapabilities(COMMERCIAL_PLAN_KEYS.LITE),
-    getCommercialPlanCapabilities(COMMERCIAL_PLAN_KEYS.MELHOR),
-  );
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.LITE].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), false);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY), true);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.PADRAO].includes(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE), false);
+  assert.equal(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[COMMERCIAL_PLAN_KEYS.MELHOR].includes(COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE), true);
 });
 
-test('courtesy usa o mesmo snapshot de módulos com ou sem plano histórico', () => {
+test('courtesy (com prazo) libera o plano escolhido; sem plano cai no Lead Plus (conta enterprise — courtesy com prazo é liberação manual temporária, S6)', () => {
   const courtesyLite = resolveCompanyModuleAccessPolicy({
     accountType: 'enterprise',
     status: 'courtesy',
     courtesyEndsAt: future,
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
-  }, Date.now(), operationalSnapshot);
+  });
   assert.equal(courtesyLite.accessState, 'manual');
   assert.equal(courtesyLite.moduleKeys.has('vendas'), true);
   assert.equal(courtesyLite.moduleKeys.has('webscraping'), true);
-  assert.equal(courtesyLite.moduleKeys.has('atendimento'), true);
+  assert.equal(courtesyLite.moduleKeys.has('atendimento'), false);
 
   // Cortesia permanente (sem prazo) e sem plano escolhido projeta Lead Plus.
   const fallback = resolveCompanyModuleAccessPolicy({
     accountType: 'enterprise',
     status: 'courtesy',
     selectedPlanKey: null,
-  }, Date.now(), operationalSnapshot);
+  });
   assert.equal(fallback.accessState, 'exempt');
   assert.equal(fallback.planKey, COMMERCIAL_PLAN_KEYS.PADRAO);
   assert.equal(fallback.moduleKeys.has('atendimento'), true);
@@ -153,7 +148,7 @@ test('platform_infra company does not receive commercial modules', () => {
     companyKind: COMPANY_KIND_PLATFORM_INFRA,
     status: 'pending_checkout',
     selectedPlanKey: null,
-  }, Date.now(), operationalSnapshot);
+  });
 
   assert.equal(policy.accessState, 'blocked');
   assert.equal(policy.active, false);
@@ -171,23 +166,23 @@ test('HBX tenant follows normal courtesy module policy without slug privilege (c
     status: 'courtesy',
     courtesyEndsAt: future,
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
-  }, Date.now(), operationalSnapshot);
+  });
 
   assert.equal(policy.accessState, 'manual');
   assert.equal(policy.active, true);
   assert.equal(policy.planKey, COMMERCIAL_PLAN_KEYS.LITE);
   assert.equal(policy.moduleKeys.has('vendas'), true);
   assert.equal(policy.moduleKeys.has('webscraping'), true);
-  assert.equal(policy.moduleKeys.has('atendimento'), true);
+  assert.equal(policy.moduleKeys.has('atendimento'), false);
 });
 
-test('courtesy (sem prazo = isenta) usa módulos do kill-switch e não tem bloqueio financeiro', () => {
+test('courtesy (sem prazo = isenta) is released as exempt with plan modules and no billing block (conta enterprise)', () => {
   const policy = resolveCompanyModuleAccessPolicy({
     accountType: 'enterprise',
     companyKind: COMPANY_KIND_TENANT,
     status: 'courtesy',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
-  }, Date.now(), operationalSnapshot);
+  });
 
   assert.equal(policy.accessState, 'exempt');
   assert.equal(policy.active, true);
@@ -226,7 +221,7 @@ test('billing block reason is visible for ADMIN and neutral for seller, keeping 
   assert.equal(/plano|pagamento|regularize|cobranca|checkout/i.test(String(sellerView.blockedReason)), false);
 });
 
-test('pending_checkout is neutralized for sellers', () => {
+test('pending_checkout and plan_required are neutralized for sellers', () => {
   const pendingView = presentModuleBlockForRole('USER', {
     blockedReason: 'Finalize a contratação para liberar os módulos comerciais.',
     blockedCode: 'pending_checkout',
@@ -235,6 +230,14 @@ test('pending_checkout is neutralized for sellers', () => {
   assert.equal(pendingView.blockedCode, 'company_access_paused');
   assert.equal(pendingView.criticalEngine, null);
 
+  const planRequiredView = presentModuleBlockForRole('USER', {
+    blockedReason: 'Este modulo nao faz parte do plano atual.',
+    blockedCode: 'plan_required',
+    criticalEngine: 'payment',
+  });
+  assert.equal(planRequiredView.blockedCode, 'module_not_enabled');
+  assert.equal(planRequiredView.criticalEngine, null);
+  assert.equal(/plano|pagamento/i.test(String(planRequiredView.blockedReason)), false);
 });
 
 test('non-billing blocks pass through unchanged for sellers', () => {
@@ -376,13 +379,18 @@ test('W1: resolveKillSwitchModuleKeys — teto do master OFF veta o módulo mesm
   assert.equal(keys.has('atendimento'), true);
 });
 
-test('sem snapshot: falha fechado sem ressuscitar módulos por plano', () => {
+test('sem snapshot: fallback defensivo deriva do plano (só quando o chamador não migrou)', () => {
   const withoutSnapshot = resolveCompanyModuleAccessPolicy({
     status: 'active',
     selectedPlanKey: COMMERCIAL_PLAN_KEYS.LITE,
   });
 
-  assert.deepEqual([...withoutSnapshot.moduleKeys], []);
+  // Sem snapshot (chamador não construiu o kill-switch), a rede de segurança
+  // deriva do plano — mas isso NÃO é mais o caminho normal (modules.service.ts
+  // sempre monta o snapshot via buildKillSwitchModuleSnapshot).
+  assert.equal(withoutSnapshot.moduleKeys.has('vendas'), true);
+  assert.equal(withoutSnapshot.moduleKeys.has('webscraping'), true);
+  assert.equal(withoutSnapshot.moduleKeys.has('atendimento'), false);
 });
 
 test('com snapshot: kill-switch do master manda SEMPRE, independente do plano selecionado', () => {
@@ -400,7 +408,8 @@ test('com snapshot: kill-switch do master manda SEMPRE, independente do plano se
     snapshot,
   );
 
-  // O kill-switch não olha para plano nenhum: manda o
+  // Plano LITE não libera atendimento/cadastro no catálogo antigo — mas o
+  // kill-switch (R2 definitivo) não olha mais pra plano nenhum: manda o
   // snapshot inteiro (defaultEnabled=true libera, independente do planKey).
   assert.equal(withSnapshot.moduleKeys.has('atendimento'), true);
   assert.equal(withSnapshot.moduleKeys.has('vendas'), true);

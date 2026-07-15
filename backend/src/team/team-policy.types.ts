@@ -69,7 +69,7 @@ export type TeamPolicyAccessPreset = {
   label: string;
   description: string;
   access: TeamPolicyAccessMap;
-  limits?: Partial<Record<'cardDeliveryDaily' | 'activeCards' | 'monthlyCards' | 'vendasPullQuantity', {
+  limits?: Partial<Record<'enrichmentDaily' | 'cardDeliveryDaily' | 'activeCards' | 'monthlyCards' | 'vendasPullQuantity', {
     mode: TeamPolicyLimitMode;
     value: number | null;
   }>>;
@@ -158,6 +158,7 @@ export type TeamPolicy = {
   compensation: TeamPolicyCompensation;
   sellerNetwork: TeamPolicySellerNetwork;
   limits: {
+    enrichmentDaily: TeamPolicyLimit;
     cardDeliveryDaily: TeamPolicyLimit;
     activeCards: TeamPolicyLimit;
     monthlyCards: TeamPolicyLimit;

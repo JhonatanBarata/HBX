@@ -7,6 +7,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { EnrichmentCostService } from './enrichment-cost/enrichment-cost.service';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
 import { LeadHarvestImportService } from './lead-harvest/lead-harvest-import.service';
 import { ZapCheckGuardService } from '../messaging/zap-check-guard.service';
@@ -314,10 +315,6 @@ class MasterDeleteDatabaseCardsDto extends MasterDatabaseCardsQueryDto {
 
 class RadarPullDto extends RadarDatabaseQueryDto {
   @IsOptional()
-  @IsString()
-  idempotencyKey?: string;
-
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
@@ -493,6 +490,7 @@ export class WebscrapingController {
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
     private readonly leadHarvestImportService: LeadHarvestImportService,
+    private readonly enrichmentCostService: EnrichmentCostService,
     private readonly radarCountService: RadarCountService,
   ) {}
 
@@ -534,6 +532,11 @@ export class WebscrapingController {
   @Post('lead-harvest/import')
   importLeadHarvest(@Req() req: any, @Body() body: Record<string, any>) {
     return this.leadHarvestImportService.importBatchForUser(req.user, body || {});
+  }
+
+  @Get('enrichment-cost/summary')
+  enrichmentCostSummary(@Req() req: any, @Query('days') days?: string) {
+    return this.enrichmentCostService.getCompanyCostSummaryForUser(req.user, { days });
   }
 
   @Get('lead-harvest/imports/:id')
@@ -597,20 +600,13 @@ export class WebscrapingController {
   }
 
   @Post('radar/leads/:id/send-to-vendas')
-  radarLeadSendToVendas(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Body() body?: { skipWhatsappValidation?: boolean; idempotencyKey?: string },
-  ) {
-    return this.webscrapingService.startRadarLeadClaimForUser(req.user, id, {
-      ...(body || {}),
-      debitOnImport: true,
-    });
+  radarLeadSendToVendas(@Req() req: any, @Param('id') id: string, @Body() body?: { skipWhatsappValidation?: boolean }) {
+    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, { ...(body || {}), debitOnImport: (body as any)?.debitOnImport !== false });
   }
 
-  @Get('radar/claim-runs/:operationId')
-  radarClaimRun(@Req() req: any, @Param('operationId') operationId: string) {
-    return this.webscrapingService.getRadarClaimRunForUser(req.user, operationId);
+  @Post('radar/leads/:id/enrich')
+  radarLeadEnrich(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.enrichRadarLeadForUser(req.user, id);
   }
 
   @Post('radar/leads/mark-sent-to-vendas')
@@ -653,6 +649,17 @@ export class WebscrapingController {
     }
   }
 
+  // Pull do vendedor (modelo B / PR13062026008): o vendedor puxa cards da lagoa
+  // pela preferencia dele e eles caem direto na carteira em Vendas.
+  @Post('radar/pull-to-vendas')
+  async radarPullToVendas(@Req() req: any, @Body() dto: RadarPullDto) {
+    try {
+      return await this.webscrapingService.pullRadarLeadsToVendasForUser(req.user, dto || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull-to-vendas', error);
+    }
+  }
+
   @Post('radar/search-runs')
   async radarSearchRun(@Req() req: any, @Body() dto: RadarPullDto) {
     try {
@@ -687,6 +694,11 @@ export class WebscrapingController {
     } catch (error) {
       return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs/:id/cancel', error);
     }
+  }
+
+  @Post('radar/:id/import-to-vendas')
+  radarImportToVendas(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, { debitOnImport: true });
   }
 
   @Post('radar/:id/negative')

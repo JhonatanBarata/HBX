@@ -13,7 +13,6 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.webkit.WebStorage
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -32,8 +31,8 @@ import java.util.concurrent.Executors
 
 /**
  * Porta única do APK. No primeiro acesso mostra SOMENTE o código de vinculação.
- * Depois disso troca a credencial do aparelho por um ticket descartável e abre
- * a interface local do flavor. A MainActivity consome o ticket nativamente.
+ * Depois disso troca a credencial do aparelho por um ticket web descartável e
+ * abre a MainActivity já no bootstrap autenticado do HBX.
  */
 class PairingActivity : AppCompatActivity() {
     companion object {
@@ -120,22 +119,15 @@ class PairingActivity : AppCompatActivity() {
                         .put("code", code)
                         .put("installationId", credentialStore.installationId())
                         .put("deviceName", deviceDisplayName())
-                        .put("platform", "android-${BuildConfig.APP_MODE}")
+                        .put("platform", "android")
                 )
             },
             success = { response ->
                 val deviceToken = response.getString("deviceToken")
-                // Um novo código pode apontar para outra empresa/usuário. O WebView
-                // não pode herdar localStorage, IndexedDB ou cache do vínculo anterior.
-                WebStorage.getInstance().deleteAllData()
                 credentialStore.saveDeviceToken(deviceToken)
-                if (BuildConfig.APP_MODE == "vendas") {
-                    HbxMobileBridge.onDevicePaired(this)
-                }
+                HbxMobileBridge.onDevicePaired(this)
                 TrackingSessionStore(this).clearAuthBlocked()
-                if (BuildConfig.APP_MODE == "logistica") {
-                    TrackingSync.requestFlush(this)
-                }
+                TrackingSync.requestFlush(this)
                 openEntryUrl(response.getString("entryUrl"))
             },
             failure = { error ->
@@ -263,7 +255,7 @@ class PairingActivity : AppCompatActivity() {
         }
 
         card.addView(TextView(this).apply {
-            text = if (BuildConfig.APP_MODE == "logistica") "HBX Logística" else "HBX Vendas"
+            text = "HBX"
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)

@@ -150,7 +150,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const nextWhen = fmtWhen(live?.nextScheduledAt);
   const campaignStatus = campaign?.status;
 
-  // ── Erro de carregamento (não configurado ou falha) ──
+  // ── Erro de carregamento (não armado / sem plano / falha) ──
   if (loadErr && !live) {
     return (
       <div className="bot-load-error" role="alert">

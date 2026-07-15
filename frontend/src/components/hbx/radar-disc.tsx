@@ -30,7 +30,7 @@ function pickRadarLabels(count: number): string[] {
 // precisar cortar. Núcleo trocou bolinha por agulha de bússola vintage
 // (menor que a bolinha antiga). Rótulos sorteados do RADAR_LABEL_POOL, uma
 // vez por montagem (não re-sorteia a cada render).
-export function RadarDisc({ mini = false, hideLabels = false }: { mini?: boolean; hideLabels?: boolean } = {}) {
+export function RadarDisc({ mini = false }: { mini?: boolean } = {}) {
   // SSR-safe (fix 10/07, hydration mismatch na landing): o 1º render — servidor E cliente —
   // usa os 3 primeiros rótulos do pool (determinístico); o sorteio entra só PÓS-mount
   // (useEffect roda apenas no cliente). Sem isso o server sorteia um rótulo e o cliente
@@ -78,7 +78,7 @@ export function RadarDisc({ mini = false, hideLabels = false }: { mini?: boolean
           <i className="radarSweepNeedle" />
         </div>
       </div>
-      {!mini && !hideLabels && blips.map((b, i) => {
+      {!mini && blips.map((b, i) => {
         if (!b.label) return null;
         const rightHalf = parseFloat(b.left) > 50;
         const anchor = rightHalf

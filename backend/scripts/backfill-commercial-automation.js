@@ -65,7 +65,7 @@ function stepForLegacy(row) {
 async function applyOne(row) {
   return prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe(
-      'WITH advisory_lock AS (SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))) SELECT 1::integer AS locked FROM advisory_lock',
+      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))',
       Number(row.companyId),
       String(row.leadId),
     );

@@ -3015,6 +3015,10 @@ test('processSearchRun nao enfileira lookup social automatico na busca primaria'
   });
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
+  let enqueued = false;
+  service.enqueueRadarSocialLookupForSavedLeads = (context: any, runId: string, input: any, leadIds: string[]) => {
+    enqueued = true;
+  };
 
   try {
     await service.processSearchRun(run.id, createUser(), undefined, {
@@ -3027,8 +3031,280 @@ test('processSearchRun nao enfileira lookup social automatico na busca primaria'
 
     assert.equal(items.length, 1);
     assert.equal(items[0].status, 'found');
+    assert.equal(enqueued, false);
     assert.equal(JSON.parse(items[0].rawJson).socialStatus, 'pending');
     assert.notEqual(run.status, 'failed');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead acha Instagram por marca e cidade no handle', async () => {
+  const previousFetch = global.fetch;
+  const bodies: any[] = [];
+  global.fetch = (async (_url: any, init?: any) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    bodies.push(body);
+    return createResponse(200, {
+      results: body.query === 'site:instagram.com "Alugtec" "Rio Claro"'
+        ? [{
+            name: 'ALUGTEC (@alugtecrioclaro) - Rio Claro, SP',
+            title: 'ALUGTEC (@alugtecrioclaro) - Rio Claro, SP - Instagram',
+            instagramUrl: 'https://www.instagram.com/alugtecrioclaro/',
+            city: 'Rio Claro',
+            state: 'SP',
+            source: 'hbx_scraping:social_discovery',
+          }]
+        : [],
+    }) as any;
+  }) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'aluguel de equipamentos',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:1935312615',
+    name: 'Alugtec Rental Pemt Ltda',
+    phone: '(19) 3531-2615',
+    phoneDigits: '1935312615',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'aluguel de equipamentos',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({ name: 'Alugtec Rental Pemt Ltda', phone: '(19) 3531-2615', phoneDigits: '1935312615', socialStatus: 'pending' }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'aluguel de equipamentos',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(bodies.some((body) => body.query === '"Alugtec" "Rio Claro" instagram'), true);
+    assert.equal(bodies.some((body) => body.query === '"1935312615" instagram'), true);
+    assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Alugtec" "Rio Claro"'), true);
+    assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Alugtec Rental Pemt Ltda" "Rio Claro"'), true);
+    assert.equal(result.status, 'partial');
+    assert.equal(raw.instagramUrl, 'https://www.instagram.com/alugtecrioclaro');
+    assert.equal(raw.socialStatus, 'partial');
+    assert.equal(raw.socialConfidence >= 75, true);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead usa nome e cidade e atualiza Instagram confiavel', async () => {
+  const previousFetch = global.fetch;
+  const bodies: any[] = [];
+  global.fetch = (async (_url: any, init?: any) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    bodies.push(body);
+    return createResponse(200, {
+      results: body.query === 'site:instagram.com "Barbearia X" "Rio Claro"'
+        ? [{
+            name: 'Barbearia X Rio Claro',
+            instagramUrl: 'https://www.instagram.com/barbeariaxrioclaro/',
+            city: 'Rio Claro',
+            state: 'SP',
+            source: 'hbx_scraping:social_discovery',
+          }]
+        : [],
+    }) as any;
+  }) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({ name: 'Barbearia X', phone: '(19) 99999-0001', phoneDigits: '19999990001', socialStatus: 'pending' }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(bodies.some((body) => body.query === '"Barbearia X" "Rio Claro" instagram'), true);
+    assert.equal(bodies.some((body) => body.query === 'site:instagram.com "Barbearia X" "Rio Claro"'), true);
+    assert.equal(bodies.some((body) => body.query === '"19999990001" instagram'), true);
+    assert.equal(bodies.some((body) => String(body.query || '').includes('barbearias')), true);
+    assert.equal(result.status, 'partial');
+    assert.equal(raw.instagramUrl, 'https://www.instagram.com/barbeariaxrioclaro');
+    assert.equal(raw.socialStatus, 'partial');
+    assert.equal(raw.socialConfidence >= 75, true);
+    assert.match(String(raw.enrichmentJson || ''), /instagramUrl/);
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead nao salva resultado social generico', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [{
+        name: 'Hashtag Barbearia',
+        instagramUrl: 'https://www.instagram.com/explore/tags/barbearia/',
+        city: 'Rio Claro',
+        state: 'SP',
+        source: 'hbx_scraping:social_discovery',
+      }],
+    }) as any) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({ name: 'Barbearia X', phone: '(19) 99999-0001', phoneDigits: '19999990001', socialStatus: 'pending' }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(raw.instagramUrl, null);
+    assert.equal(raw.facebookUrl, null);
+    assert.equal(raw.socialStatus, 'missing');
+    assert.equal(items[0].status, 'found');
+  } finally {
+    global.fetch = previousFetch;
+  }
+});
+
+test('runRadarSocialLookupForSavedLead falha sem bloquear nem falhar o card', async () => {
+  const previousFetch = global.fetch;
+  global.fetch = (async () => {
+    throw new Error('motor ocupado');
+  }) as any;
+
+  const { prisma, run, items } = createSearchRunPrisma({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    targetQuantity: 1,
+  });
+  items.push({
+    id: 'item-1',
+    runId: run.id,
+    companyId: 7,
+    placeId: 'hbx:pj:19999990001',
+    name: 'Barbearia X',
+    phone: '(19) 99999-0001',
+    phoneDigits: '19999990001',
+    website: null,
+    websiteKey: null,
+    address: 'Rio Claro, SP',
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    source: 'hbx',
+    status: 'found',
+    duplicateReason: null,
+    rawJson: JSON.stringify({
+      name: 'Barbearia X',
+      phone: '(19) 99999-0001',
+      phoneDigits: '19999990001',
+      instagramUrl: 'instagram.com/accounts/login',
+      socialStatus: 'pending',
+    }),
+    createdAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma) as any;
+  const normalized = service.normalizeSearchInput({
+    city: 'Rio Claro',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 1,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
+
+  try {
+    const result = await service.runRadarSocialLookupForSavedLead({ companyId: 7, userId: 9, user: createUser() }, 'item-1', normalized);
+    const raw = JSON.parse(items[0].rawJson);
+
+    assert.equal(result.status, 'error');
+    assert.equal(raw.socialStatus, 'error');
+    assert.equal(raw.deliveryStatus, 'deliverable');
+    assert.equal(raw.instagramUrl, 'instagram.com/accounts/login');
+    assert.equal(items[0].status, 'found');
+    assert.equal(run.status, 'running');
   } finally {
     global.fetch = previousFetch;
   }
@@ -5763,6 +6039,210 @@ test('CONTATO PULL-GATED (06/07): evento "note" exige posse (nao vira claim/reve
   const res = await service.addRadarLeadEventForUser(seller, 'lead-meu', { eventType: 'note', note: 'cliente pediu orcamento' });
   assert.equal(res.item.name, 'Loja Minha');
   assert.equal(debited, false);
+});
+
+test('LIMPEZA-DESTRUTIVA L3: pullRadarLeadsForUser grava assignedUserId (Responsável) pra QUALQUER papel que puxa, não só vendedor', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-pull-admin',
+    name: 'Loja Puxada Pelo Admin',
+    phone: '(19) 99999-4444',
+    phoneDigits: '19999994444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+  const capturedUpserts: any[] = [];
+  (service as any).prisma.radarLeadCompanyState.upsert = async ({ create }: any) => {
+    capturedUpserts.push(create);
+    return create;
+  };
+  // claimRadarLeadForCompany (ownership habilitado) precisa de updateMany no
+  // radarLeadPool — createCampaignPrisma não tem esse método mockado.
+  (service as any).prisma.radarLeadPool.updateMany = async () => ({ count: 1 });
+
+  // createUser() = ADMIN (role ADMIN) — antes do L3, markRadarDelivered só gravava
+  // assignedUserId quando isCompanySellerUser(user) era true, então admin puxando
+  // pra si mesmo gravava assignedUserId=null (perdia o "Responsável").
+  const response = await service.pullRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    targetType: 'pj',
+    quantity: 5,
+    minimumStock: 1,
+  }) as any;
+
+  assert.equal(response.items.length, 1);
+  assert.ok(capturedUpserts.length >= 1);
+  assert.ok(capturedUpserts.every((row) => row.assignedUserId === 9));
+});
+
+// ─── VENDAS-REFAB item 4 (04/07) — queryCnpjBaseForUser: filtro AVANÇADO do "Buscar empresas"
+// sobre a base 28M, aberto a admin OU vendedor (self-serve puro, item 5) — nao só ao Master.
+test('queryCnpjBaseForUser: delega pro CnpjBaseQueryService.query com o input recebido', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  let capturedInput: any = null;
+  (service as any).cnpjBaseQuery = {
+    query: async (input: any) => {
+      capturedInput = input;
+      return { count: 1, sample: [{ cnpj: '123' }], cursorNext: null, statsAmostra: {} };
+    },
+  };
+
+  const result = await service.queryCnpjBaseForUser(createUser(), {
+    cities: ['Campinas'],
+    states: ['SP'],
+    donoConhecido: true,
+    matrizFilial: ['matriz', 'filial'],
+  } as any);
+
+  assert.equal(result.count, 1);
+  assert.deepEqual(capturedInput.cities, ['Campinas']);
+  assert.equal(capturedInput.donoConhecido, true);
+  assert.deepEqual(capturedInput.matrizFilial, ['matriz', 'filial']);
+});
+
+test('queryCnpjBaseForUser: vendedor (role USER da empresa) tambem pode chamar — self-serve puro, nao so ADMIN/Master', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  (service as any).cnpjBaseQuery = {
+    query: async () => ({ count: 0, sample: [], cursorNext: null, statsAmostra: {} }),
+  };
+  const seller = { id: 42, companyId: 7, role: 'USER', masterContext: { active: false } };
+
+  const result = await service.queryCnpjBaseForUser(seller, {});
+  assert.equal(result.count, 0);
+});
+
+test('queryCnpjBaseForUser: sem CnpjBaseQueryService injetado -> ServiceUnavailableException (nunca inventa resultado)', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  // cnpjBaseQuery fica undefined — ambiente/boot sem o provider.
+  await assert.rejects(() => service.queryCnpjBaseForUser(createUser(), {}));
+});
+
+test('queryCnpjBaseForUser: usuario sem empresa/id -> ForbiddenException (resolveContext)', async () => {
+  const { prisma } = createCampaignPrisma();
+  const service = new WebscrapingService(prisma);
+  (service as any).cnpjBaseQuery = { query: async () => ({ count: 0 }) };
+  await assert.rejects(() => service.queryCnpjBaseForUser({ id: 0, companyId: 0 }, {}));
+});
+
+test('pullRadarLeadsForUser entrega banco quando reposicao do motor falha', async () => {
+  const { prisma, leads } = createCampaignPrisma();
+  leads.push({
+    id: 'lead-bank-1',
+    name: 'Loja Banco',
+    phone: '(19) 99999-4444',
+    phoneDigits: '19999994444',
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    normalizedCity: 'campinas',
+    normalizedSegment: 'lojas',
+    status: 'clean',
+    metadataJson: JSON.stringify({ targetType: 'pj' }),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new WebscrapingService(prisma);
+  (service as any).replenishRadarStockForUser = async () => {
+    throw new Error('engine timeout');
+  };
+
+  const response = await service.pullRadarLeadsForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'Lojas',
+    targetType: 'pj',
+    quantity: 5,
+    minimumStock: 2,
+  }) as any;
+
+  assert.equal(response.items.length, 1);
+  assert.equal(response.items[0].name, 'Loja Banco');
+  assert.equal(response.meta.deliveredCount, 1);
+  assert.equal(response.meta.replenish.ran, true);
+  assert.match(response.meta.replenish.errorMessage, /Motores em aquecimento\/cooldown/);
+});
+
+test('pullRadarLeadsForUser pesquisa direto quando banco radar nao esta disponivel', async () => {
+  const previousFetch = global.fetch;
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+  global.fetch = (async () =>
+    createResponse(200, {
+      results: [
+        {
+          name: 'Academia Direta',
+          phone: '(11) 99999-1111',
+          phoneDigits: '11999991111',
+          source: 'hbx_scraping:free_pj',
+          score: 84,
+        },
+      ],
+    }) as any) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.pullRadarLeadsForUser(createUser(), {
+      city: 'São Paulo',
+      state: 'SP',
+      segment: 'academia',
+      targetType: 'pj',
+      engine: 'hbx',
+      quantity: 100,
+    });
+
+    assert.equal(response.items.length, 1);
+    assert.equal(response.items[0].name, 'Academia Direta');
+    assert.equal(response.items[0].city, 'São Paulo');
+    assert.equal(response.items[0].ownershipStatus, 'available');
+    assert.equal(response.code, 'RADAR_DIRECT_RESULTS');
+    assert.equal(response.meta.direct.ran, true);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
+});
+
+test('pullRadarLeadsForUser nao transforma resultado insuficiente em erro', async () => {
+  const previousFetch = global.fetch;
+  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
+  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
+  global.fetch = (async () => createResponse(200, { results: [] }) as any) as any;
+
+  const service = new WebscrapingService(createPrisma());
+
+  try {
+    const response = await service.pullRadarLeadsForUser(createUser(), {
+      city: 'Americana',
+      state: 'SP',
+      segment: 'açougue',
+      targetType: 'pj',
+      engine: 'hbx',
+      quantity: 100,
+    });
+
+    assert.equal(response.items.length, 0);
+    assert.equal(response.code, 'RADAR_NO_RESULTS');
+    assert.equal(response.retryable, false);
+    assert.match(response.message, /Pesquisa concluida/);
+  } finally {
+    global.fetch = previousFetch;
+    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
+    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
+  }
 });
 
 // CHIP E3 (05/07) — status de IA por lote de leads: RBAC (só devolve status de leads do TENANT

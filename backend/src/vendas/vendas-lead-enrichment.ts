@@ -238,8 +238,7 @@ function extractRadarEnrichment(lead: any) {
     enrichmentStatus,
     enrichedAt: normalizeText(fromEvent.enrichedAt || nested?.enrichedAt || direct?.enrichedAt),
     cnpj: normalizeText(fromEvent.cnpj || nested?.cnpj || direct?.cnpj),
-    // Empresa + dono + multi-contatos (metadata/enrichment do Radar). WhatsApp
-    // qualifica a ação do botão; nunca decide se o telefone fica visível.
+    // Empresa + dono + multi-contatos (metadataJson do RadarLeadPool). Telefone extra só exibe se WhatsApp-confirmado.
     razaoSocial: normalizeText(fromEvent.razaoSocial || nested?.razaoSocial || direct?.razaoSocial),
     cnae: normalizeText(fromEvent.cnae || nested?.cnae || direct?.cnae),
     ownerName: normalizeText(fromEvent.ownerName || nested?.ownerName || direct?.ownerName),
@@ -250,8 +249,6 @@ function extractRadarEnrichment(lead: any) {
     companySituation: normalizeText(fromEvent.companySituation || nested?.companySituation || direct?.companySituation),
     emails: arrayOrEmpty(fromEvent.emails).concat(arrayOrEmpty(nested?.emails)).concat(arrayOrEmpty(direct?.emails)),
     phones: arrayOrEmpty(fromEvent.phones).concat(arrayOrEmpty(nested?.phones)).concat(arrayOrEmpty(direct?.phones)),
-    phoneContacts: arrayOrEmpty(fromEvent.phoneContacts).concat(arrayOrEmpty(nested?.phoneContacts)).concat(arrayOrEmpty(direct?.phoneContacts)),
-    emailContacts: arrayOrEmpty(fromEvent.emailContacts).concat(arrayOrEmpty(nested?.emailContacts)).concat(arrayOrEmpty(direct?.emailContacts)),
     phonesWhatsapp: (nested?.phonesWhatsapp || direct?.phonesWhatsapp || (fromEvent as any)?.phonesWhatsapp || {}),
     sourceConfidence: nested?.sourceConfidence || direct?.sourceConfidence || null,
     visibilityTier: normalizeText(fromEvent.visibilityTier || nested?.visibilityTier || direct?.visibilityTier),
@@ -352,82 +349,6 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
       ? 'probable'
       : 'missing';
   const emailCandidate = hasUsableEmail(email) ? email.toLowerCase() : null;
-  const phoneMap = new Map<string, any>();
-  const emailMap = new Map<string, any>();
-  const normalizePhone = (value: unknown) => {
-    let digits = String(value || '').replace(/\D/g, '');
-    if ((digits.length === 12 || digits.length === 13) && digits.startsWith('55')) digits = digits.slice(2);
-    return digits.length >= 10 && digits.length <= 11 ? digits : '';
-  };
-  const addPhone = (item: any, index: number, fallbackSource = 'radar') => {
-    const value = item && typeof item === 'object'
-      ? item.value ?? item.valueNormalized ?? item.phone ?? item.number
-      : item;
-    const valueNormalized = normalizePhone(value);
-    if (!valueNormalized) return;
-    const mappedWhatsapp = radarEnrichment.phonesWhatsapp?.[valueNormalized];
-    const next = {
-      kind: 'phone',
-      value: String(value || valueNormalized),
-      valueNormalized,
-      source: String(item?.source || fallbackSource),
-      rank: Math.max(1, Math.trunc(Number(item?.rank || index + 1)) || index + 1),
-      confidence: Math.max(0, Math.min(100, Math.trunc(Number(item?.confidence || 0)) || 0)),
-      whatsappStatus: item?.whatsappStatus === 'confirmed' || mappedWhatsapp === true
-        ? 'confirmed'
-        : item?.whatsappStatus === 'not_confirmed' || mappedWhatsapp === false
-          ? 'not_confirmed'
-          : 'unverified',
-    };
-    const current = phoneMap.get(valueNormalized);
-    if (!current || next.rank < current.rank || next.confidence > current.confidence) {
-      phoneMap.set(valueNormalized, current ? {
-        ...current,
-        ...next,
-        rank: Math.min(current.rank, next.rank),
-        confidence: Math.max(current.confidence, next.confidence),
-        whatsappStatus: current.whatsappStatus === 'confirmed' || next.whatsappStatus === 'confirmed'
-          ? 'confirmed'
-          : current.whatsappStatus === 'not_confirmed' || next.whatsappStatus === 'not_confirmed'
-            ? 'not_confirmed'
-            : 'unverified',
-      } : next);
-    }
-  };
-  const addEmail = (item: any, index: number, fallbackSource = 'radar') => {
-    const value = normalizeText(item && typeof item === 'object' ? item.value ?? item.valueNormalized ?? item.email : item).toLowerCase();
-    if (!hasUsableEmail(value)) return;
-    const next = {
-      kind: 'email',
-      value,
-      valueNormalized: value,
-      source: String(item?.source || fallbackSource),
-      rank: Math.max(1, Math.trunc(Number(item?.rank || index + 1)) || index + 1),
-      confidence: Math.max(0, Math.min(100, Math.trunc(Number(item?.confidence || 0)) || 0)),
-      status: String(item?.status || (value === emailCandidate ? emailStatus : 'unverified')),
-    };
-    const current = emailMap.get(value);
-    if (!current || next.rank < current.rank || next.confidence > current.confidence) {
-      emailMap.set(value, current ? {
-        ...current,
-        ...next,
-        rank: Math.min(current.rank, next.rank),
-        confidence: Math.max(current.confidence, next.confidence),
-      } : next);
-    }
-  };
-  addPhone(lead?.phone || lead?.phoneNormalized, 0, 'primary');
-  arrayOrEmpty(radarEnrichment.phoneContacts).forEach((item, index) => addPhone(item, index));
-  arrayOrEmpty(radarEnrichment.phones).forEach((item, index) => addPhone(item, index));
-  addEmail(emailCandidate, 0, 'primary');
-  arrayOrEmpty(radarEnrichment.emailContacts).forEach((item, index) => addEmail(item, index));
-  arrayOrEmpty(radarEnrichment.emails).forEach((item, index) => addEmail(item, index));
-  const contactSorter = (left: any, right: any) => left.rank - right.rank || right.confidence - left.confidence || left.valueNormalized.localeCompare(right.valueNormalized);
-  const phoneContacts = Array.from(phoneMap.values()).sort(contactSorter).slice(0, 3);
-  const emailContacts = Array.from(emailMap.values()).sort(contactSorter).slice(0, 3);
-  const phones = phoneContacts.map((contact) => contact.value);
-  const emails = emailContacts.map((contact) => contact.value);
-  const phonesWhatsapp = Object.fromEntries(phoneContacts.map((contact) => [contact.valueNormalized, contact.whatsappStatus === 'confirmed']));
   const tags = new Set<string>();
   if (!normalizeText(lead?.website)) tags.add('sem_site');
   if (radarEnrichment.painType) tags.add(String(radarEnrichment.painType));
@@ -559,11 +480,9 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     ownerInstagram: radarEnrichment.ownerInstagram || null,
     ownerFacebook: radarEnrichment.ownerFacebook || null,
     companySituation: radarEnrichment.companySituation || null,
-    emails,
-    phones,
-    phoneContacts,
-    emailContacts,
-    phonesWhatsapp,
+    emails: (radarEnrichment.emails || []).slice(0, 3),
+    phones: (radarEnrichment.phones || []).slice(0, 3),
+    phonesWhatsapp: radarEnrichment.phonesWhatsapp || {},
     messageTemplate: templates[0] || null,
     messageTemplates: templates,
     templateLibrarySize: VENDAS_LEAD_MESSAGE_TEMPLATES.length,

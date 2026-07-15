@@ -29,8 +29,6 @@ function buildPrismaMock(opts: {
   const recoveryCustomers: any[] = [...(opts.recoveryCustomers ?? [])];
   const conta = opts.conta ?? { name: 'Cliente Água', phone: '5585999990000', phoneNormalized: '5585999990000' };
   const chargeReads: any[] = [];
-  const debtItems: any[] = [];
-  const debtCases: any[] = [];
   const prisma: any = {
     logisticaConfig: {
       findUnique: async () => ({ moduloRecoveryAtivo: opts.moduloRecoveryAtivo }),
@@ -49,9 +47,6 @@ function buildPrismaMock(opts: {
         });
       },
     },
-    entrega: {
-      findMany: async () => [],
-    },
     hbxRecoveryCustomer: {
       findFirst: async (args: any) => {
         const pid = args?.where?.customerProfileId;
@@ -62,54 +57,6 @@ function buildPrismaMock(opts: {
       findFirst: async () => conta,
     },
   };
-  const tx: any = {
-    recoveryDebtItem: {
-      aggregate: async () => ({
-        _sum: {
-          openAmount: debtItems
-            .filter((item) => item.status === 'open')
-            .reduce((total, item) => total + Number(item.openAmount || 0), 0),
-        },
-      }),
-      findUnique: async ({ where }: any) =>
-        debtItems.find((item) => item.financeiroChargeId === where.financeiroChargeId) || null,
-      create: async ({ data }: any) => {
-        const item = { id: `debt-item-${debtItems.length + 1}`, ...data };
-        debtItems.push(item);
-        return item;
-      },
-      update: async ({ where, data }: any) => {
-        const item = debtItems.find((row) => row.id === where.id);
-        Object.assign(item, data);
-        return item;
-      },
-      updateMany: async () => ({ count: debtItems.length }),
-    },
-    recoveryDebtItemProduct: {
-      upsert: async () => ({}),
-    },
-    debtCase: {
-      findFirst: async () => debtCases.find((row) => row.status === 'open') || null,
-      create: async ({ data }: any) => {
-        const row = { id: `case-${debtCases.length + 1}`, ...data };
-        debtCases.push(row);
-        return row;
-      },
-      update: async ({ where, data }: any) => {
-        const row = debtCases.find((item) => item.id === where.id);
-        Object.assign(row, data);
-        return row;
-      },
-    },
-    hbxRecoveryCustomer: {
-      update: async ({ where, data }: any) => {
-        const row = recoveryCustomers.find((item) => item.id === where.id);
-        Object.assign(row, data);
-        return row;
-      },
-    },
-  };
-  prisma.$transaction = async (callback: (client: any) => Promise<unknown>) => callback(tx);
   return { prisma, recoveryCustomers, chargeReads };
 }
 

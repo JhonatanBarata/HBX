@@ -33,7 +33,7 @@ export class LeadContactWriteService {
     options: { sourceText?: string | null } = {},
   ): Promise<{ written: number; skipped: number; rejected: Array<{ kind: LeadContactKind; value: string; reason: string }> }> {
     const leadId = String(radarLeadId || '').trim();
-    if (!leadId || (!prisma?.leadContact?.upsert && !prisma?.leadContact?.create)) return { written: 0, skipped: 0, rejected: [] };
+    if (!leadId || !prisma?.leadContact?.create) return { written: 0, skipped: 0, rejected: [] };
 
     const { approved, rejected } = gateLeadContacts(candidates, { sourceText: options.sourceText });
     if (rejected.length) {
@@ -47,49 +47,23 @@ export class LeadContactWriteService {
     let skipped = 0;
     for (const contact of approved) {
       try {
-        const exists = await prisma.leadContact.findFirst?.({
+        const exists = await prisma.leadContact.findFirst({
           where: { radarLeadId: leadId, kind: contact.kind, valueNormalized: contact.valueNormalized },
-          select: { id: true, rank: true, source: true, confidence: true, value: true },
+          select: { id: true },
         });
-        const data = {
+        if (exists) { skipped += 1; continue; }
+        await prisma.leadContact.create({
+          data: {
             radarLeadId: leadId,
             kind: contact.kind,
             value: contact.value,
             valueNormalized: contact.valueNormalized,
-            rank: Math.min(
-              Math.max(1, Math.trunc(Number(contact.rank) || 1)),
-              exists ? Math.max(1, Math.trunc(Number(exists.rank) || 1)) : Number.MAX_SAFE_INTEGER,
-            ),
-            source: exists && Number(exists.confidence || 0) > Number(contact.confidence || 0)
-              ? String(exists.source || 'unknown')
-              : String(contact.source || 'unknown'),
-            confidence: Math.max(
-              Math.max(0, Math.min(100, Math.trunc(Number(contact.confidence) || 0))),
-              Math.max(0, Math.min(100, Math.trunc(Number(exists?.confidence) || 0))),
-            ),
-          };
-        if (typeof prisma.leadContact.upsert === 'function') {
-          await prisma.leadContact.upsert({
-            where: {
-              radarLeadId_kind_valueNormalized: {
-                radarLeadId: leadId,
-                kind: contact.kind,
-                valueNormalized: contact.valueNormalized,
-              },
-            },
-            create: data,
-            update: {
-              value: data.value,
-              rank: data.rank,
-              source: data.source,
-              confidence: data.confidence,
-            },
-          });
-        } else if (!exists) {
-          await prisma.leadContact.create({ data });
-        }
-        if (exists) skipped += 1;
-        else written += 1;
+            rank: Math.max(1, Math.trunc(Number(contact.rank) || 1)),
+            source: String(contact.source || 'unknown'),
+            confidence: Math.max(0, Math.min(100, Math.trunc(Number(contact.confidence) || 0))),
+          },
+        });
+        written += 1;
       } catch {
         // best-effort — LeadContact é índice de consulta, não fonte de verdade
       }

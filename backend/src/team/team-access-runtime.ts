@@ -48,6 +48,7 @@ export type VendasAccessContext = EffectiveTeamAccess & {
   canCommentTimeline: boolean;
   canScheduleReturn: boolean;
   canSendRadarCardsToVendas: boolean;
+  canManualEnrichRadar: boolean;
   canSendWhatsappManual: boolean;
   canSendEmail: boolean;
   canUseCompanyReplyTo: boolean;
@@ -326,6 +327,7 @@ export async function resolveVendasAccessContext(prisma: any, user: any): Promis
     canCommentTimeline: has('vendas.timeline.comment'),
     canScheduleReturn: has('vendas.return.schedule'),
     canSendRadarCardsToVendas: has('radar.cards.sendToVendas'),
+    canManualEnrichRadar: has('radar.enrichment.manual'),
     canSendWhatsappManual: has('communication.whatsapp.sendManual'),
     canSendEmail: has('communication.email.send'),
     canUseCompanyReplyTo: has('communication.email.useCompanyReplyTo'),

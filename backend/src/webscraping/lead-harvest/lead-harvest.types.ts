@@ -18,7 +18,6 @@ export type LeadHarvestCandidate = {
   segment?: string | null;
   website?: string | null;
   phone?: string | null;
-  phone2?: string | null;
   whatsapp?: string | null;
   email?: string | null;
   emailStatus?: LeadHarvestEmailStatus;

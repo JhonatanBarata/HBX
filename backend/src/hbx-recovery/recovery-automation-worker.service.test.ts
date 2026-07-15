@@ -6,12 +6,10 @@ test('inbound humano cancela passos Recovery e a outbox WhatsApp ainda pendente'
   const runUpdates: any[] = [];
   const outboundUpdates: any[] = [];
   const messageUpdates: any[] = [];
-  const emailUpdates: any[] = [];
   const tx: any = {
     recoveryAutomationStepRun: { updateMany: async (args: any) => { runUpdates.push(args); return { count: 1 }; } },
     outboundMessage: { updateMany: async (args: any) => { outboundUpdates.push(args); return { count: 1 }; } },
     companyMessage: { updateMany: async (args: any) => { messageUpdates.push(args); return { count: 1 }; } },
-    emailOutboundMessage: { updateMany: async (args: any) => { emailUpdates.push(args); return { count: 1 }; } },
   };
   const prisma: any = {
     companyConversation: { findFirst: async () => ({ customerProfileId: 'profile-1', contact: '+55 11 99999-0000' }) },
@@ -38,12 +36,8 @@ test('inbound humano cancela passos Recovery e a outbox WhatsApp ainda pendente'
   assert.equal(runUpdates[0].where.companyId, 7);
   assert.equal(runUpdates[0].data.status, 'canceled');
   assert.equal(runUpdates[0].data.cancelReason, 'customer_inbound');
-  assert.deepEqual(outboundUpdates[0].where, { companyId: 7, id: { in: [91] }, status: 'PENDING' });
-  assert.equal(messageUpdates[0].where.companyId, 7);
+  assert.deepEqual(outboundUpdates[0].where, { id: { in: [91] }, status: 'PENDING' });
   assert.equal(messageUpdates[0].data.status, 'CANCELED');
-  assert.equal(emailUpdates[0].where.companyId, 7);
-  assert.deepEqual(emailUpdates[0].where.recoveryStepRunId, { in: ['step-1'] });
-  assert.equal(emailUpdates[0].data.status, 'canceled');
 });
 
 test('etapa Recovery de e-mail entra na outbox durável com idempotência', async () => {

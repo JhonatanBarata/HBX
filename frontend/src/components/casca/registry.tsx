@@ -17,7 +17,6 @@
 import React from "react";
 
 import { MobileDevicePanel } from "@/app/(app)/configuracoes/aplicativo/mobile-device-panel";
-import { LeadRunClient } from "@/app/(app)/leads/runs/[runId]/page.client";
 import { ConfiguracoesMobile } from "./screens/configuracoes";
 import { ConversasMobile } from "./screens/conversas";
 import { EmpresasMobile } from "./screens/empresas";
@@ -63,7 +62,6 @@ export const CASCA_TITLES: Record<string, string> = {
 
 /** Devolve a tela mobile registrada para a rota, ou null (→ fallback central). */
 export function resolveCascaScreen(pathname: string): CascaScreen | null {
-  if (/^\/leads\/runs\/[^/]+$/.test(pathname)) return LeadRunClient;
   return CASCA_SCREENS[pathname] || null;
 }
 
@@ -73,6 +71,6 @@ export function resolveCascaScreen(pathname: string): CascaScreen | null {
  * a rota não tem tela mobile, devolve null e o chamador mostra o fallback.
  */
 export function renderCascaScreen(pathname: string): React.ReactElement | null {
-  const Screen = resolveCascaScreen(pathname);
+  const Screen = CASCA_SCREENS[pathname];
   return Screen ? React.createElement(Screen) : null;
 }

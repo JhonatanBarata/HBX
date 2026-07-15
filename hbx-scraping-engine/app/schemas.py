@@ -314,6 +314,8 @@ class EnrichLeadRequest(BaseModel):
     preferredChannels: list[str] = Field(default_factory=list)
     requiredChannels: list[str] = Field(default_factory=list)
     timeBudgetSeconds: float | None = None
+    allowPaid: bool = False
+    allowPremium: bool = False
     debug: bool = False
 
     @field_validator("name", "phone", "phoneDigits", "city", "state", "segment")
@@ -332,13 +334,11 @@ class EnrichLeadResponse(BaseModel):
     name: str
     phone: str = ""
     phoneDigits: str = ""
-    phones: list[str] = Field(default_factory=list)
     rating: float | None = None
     reviews: int | None = None
     address: str | None = None
     website: str | None = None
     email: str | None = None
-    emails: list[str] = Field(default_factory=list)
     emailStatus: str = "missing"
     emailSource: str = "none"
     emailConfidence: int = 0

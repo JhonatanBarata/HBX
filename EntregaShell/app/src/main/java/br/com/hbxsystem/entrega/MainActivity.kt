@@ -6,19 +6,30 @@ import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -27,190 +38,359 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebMessageCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 import java.io.File
 
 /**
- * Host nativo das duas experiências locais. Nenhum HTML do HBX web é carregado:
- * cada flavor empacota seu próprio `assets/app/index.html` e conversa com o VPS
- * por uma bridge allowlisted, mantendo credenciais fora do JavaScript.
+ * HBX — casca nativa do app único (fase Play).
+ *
+ * WebView em tela cheia carregando a RAIZ do HBX (porta única do front decide
+ * landing × app logado), com a bridge HBXShell (GPS de fundo via RotaService),
+ * permissões runtime independentes, upload/download, tela offline nativa e
+ * drenagem de chegadas pendentes no onResume. Contrato da bridge em APK-SHELL.md.
  */
 class MainActivity : AppCompatActivity() {
+
     companion object {
         private const val REQ_FILE_CHOOSER = 4001
-        private const val LOCAL_ORIGIN = "https://appassets.androidplatform.net"
-        private const val LOCAL_ENTRY = "$LOCAL_ORIGIN/assets/app/index.html"
+
+        // Fundo da casca = navy da marca (mesmo do manifest.webmanifest do web).
+        private const val COR_FUNDO = "#0B1020"
+        private const val COR_BOTAO = "#2E5BFF"
+        private const val COR_TEXTO_SEC = "#B0BEC5"
         private const val TRACKING_DISCLOSURE_PREFS = "hbx_tracking_disclosure"
         private const val TRACKING_DISCLOSURE_V1 = "accepted_v1"
     }
 
     private lateinit var webView: WebView
-    private lateinit var nativeBridge: NativeAppBridge
-    private lateinit var routeBridge: HBXShellBridge
+    private lateinit var offlineView: View
+    private var secureShellOrigin: String? = null
+    private var secureShellFallback = false
+    private var secureShellScriptHandler: ScriptHandler? = null
+
+    // Erro de main frame na carga atual — decide se a tela offline fica de pé
+    // quando o onPageFinished chegar (sub-recurso falhando NÃO derruba a página).
+    private var erroNaCargaAtual = false
+
+    // Callback pendente do <input type=file> do WebView (upload do HBX).
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var cameraOutputUri: Uri? = null
+
+    // A bridge pode atualizar a lista enquanto o diálogo do sistema está aberto.
+    // Guardamos sempre o snapshot mais recente e só ativamos o serviço depois que
+    // localização + notificações estiverem disponíveis.
     private var rotaPendente: NativeRouteRequest? = null
     private var solicitacaoSistemaEmAndamento = false
     private var dialogoPermissao: AlertDialog? = null
 
     private val localizacaoLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
+        ActivityResultContracts.RequestMultiplePermissions()
     ) {
         solicitacaoSistemaEmAndamento = false
-        if (temLocalizacao()) solicitarNotificacaoOuAtivar() else mostrarAvisoPermissoesNegadas()
-    }
-
-    // Cadastro de cliente pode usar GPS sem iniciar rota nem pedir notificação.
-    private val cadastroLocalizacaoLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        notificarPermissaoCadastroLocalizacao(temLocalizacao())
+        if (temLocalizacao()) {
+            solicitarNotificacaoOuAtivar()
+        } else {
+            mostrarAvisoPermissoesNegadas()
+        }
     }
 
     private val notificacaoLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
+        ActivityResultContracts.RequestPermission()
     ) { concedida ->
         solicitacaoSistemaEmAndamento = false
-        if (concedida || temNotificacoes()) ativarRotaPendente() else mostrarAvisoPermissoesNegadas()
+        if (concedida || temNotificacoes()) {
+            ativarRotaPendente()
+        } else {
+            mostrarAvisoPermissoesNegadas()
+        }
     }
 
     private val configuracoesLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
+        ActivityResultContracts.StartActivityForResult()
     ) {
-        if (temLocalizacao() && temNotificacoes()) ativarRotaPendente()
+        // Voltar das configurações nunca dispara outro redirecionamento. Apenas
+        // verifica o estado atual e ativa a rota se o usuário concedeu tudo.
+        if (temLocalizacao() && temNotificacoes()) {
+            ativarRotaPendente()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-
-        val assetLoader = WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
-            .build()
 
         webView = WebView(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
-            settings.databaseEnabled = true
             settings.setGeolocationEnabled(true)
-            settings.allowFileAccess = false
-            settings.allowContentAccess = true
-            settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.mediaPlaybackRequiresUserGesture = true
-            settings.userAgentString = settings.userAgentString + " HBX-${BuildConfig.APP_MODE}/${BuildConfig.VERSION_NAME}"
+            // O front (e o backend, via logs) detectam a casca por bridge E por
+            // User-Agent — gate confiável do modo-Play mesmo antes do JS rodar.
+            settings.userAgentString = settings.userAgentString + " HBXShell/3.0"
+
+            this@MainActivity.installSecureShellBridge(this)
+
             webChromeClient = object : WebChromeClient() {
                 override fun onGeolocationPermissionsShowPrompt(
                     origin: String?,
-                    callback: GeolocationPermissions.Callback?,
+                    callback: GeolocationPermissions.Callback?
                 ) {
-                    callback?.invoke(origin, origin?.startsWith(LOCAL_ORIGIN) == true && temLocalizacao(), false)
+                    // Mesmo gate do áudio: geolocation só pro NOSSO host — um
+                    // iframe de terceiro nunca ganha a posição do motorista.
+                    val confiavel = origin?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                        ?.let(::uriPermitida) == true
+                    callback?.invoke(origin, confiavel, false)
                 }
 
                 override fun onPermissionRequest(request: PermissionRequest) {
+                    // O shell não implementa comando de voz nativo. Não solicita
+                    // microfone e nega captura de áudio pedida por páginas/iframes.
                     request.deny()
                 }
 
                 override fun onShowFileChooser(
                     webView: WebView?,
                     filePathCallback: ValueCallback<Array<Uri>>?,
-                    fileChooserParams: FileChooserParams?,
+                    fileChooserParams: FileChooserParams?
                 ): Boolean {
-                    fileChooserCallback?.onReceiveValue(null)
+                    // Upload do HBX (<input type=file>): foto pode vir da câmera ou
+                    // da galeria. O URI da câmera é privado e temporário (FileProvider).
+                    fileChooserCallback?.onReceiveValue(null) // cancela pendente órfão
                     fileChooserCallback = filePathCallback
                     cameraOutputUri = null
-                    val accepted = fileChooserParams?.acceptTypes
-                        ?.flatMap { it.split(',') }
-                        ?.map(String::trim)
+                    val mimes = fileChooserParams?.acceptTypes
                         ?.filter { it.isNotBlank() && it.contains('/') }
                         .orEmpty()
-                    val picker = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    val seletorArquivo = Intent(Intent.ACTION_GET_CONTENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = if (accepted.size == 1) accepted[0] else "*/*"
-                        if (accepted.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, accepted.toTypedArray())
+                        type = if (mimes.size == 1) mimes[0] else "*/*"
+                        if (mimes.size > 1) putExtra(Intent.EXTRA_MIME_TYPES, mimes.toTypedArray())
+                        if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                        }
                     }
-                    val camera = if (accepted.isEmpty() || accepted.any { it == "image/*" || it == "image/jpeg" || it == "image/jpg" }) {
+                    val aceitaImagem = mimes.isEmpty() || mimes.any { it == "image/*" || it.startsWith("image/") }
+                    val cameraIntent = if (aceitaImagem && fileChooserParams?.mode != FileChooserParams.MODE_OPEN_MULTIPLE) {
                         criarIntentCamera()
                     } else {
                         null
                     }
-                    val chooser = Intent.createChooser(picker, "Selecionar comprovante").apply {
-                        if (camera != null) putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(camera))
+                    val intent = Intent.createChooser(seletorArquivo, "Foto do comprovante").apply {
+                        if (cameraIntent != null) putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
                     }
                     return try {
                         @Suppress("DEPRECATION")
-                        startActivityForResult(chooser, REQ_FILE_CHOOSER)
+                        startActivityForResult(intent, REQ_FILE_CHOOSER)
                         true
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
                         fileChooserCallback = null
-                        false
+                        cameraOutputUri = null
+                        false // sem seletor no device — o WebView cancela sozinho
                     }
                 }
             }
-            webViewClient = object : WebViewClient() {
-                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?) =
-                    request?.url?.let(assetLoader::shouldInterceptRequest)
 
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    if (request.url.toString().startsWith(LOCAL_ORIGIN)) return false
-                    return try {
-                        startActivity(Intent(Intent.ACTION_VIEW, request.url))
-                        true
-                    } catch (_: ActivityNotFoundException) {
-                        true
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: WebResourceRequest
+                ): Boolean {
+                    val uri = request.url
+                    val schemeHttp = uri.scheme == "http" || uri.scheme == "https"
+                    if (schemeHttp && uriPermitida(uri)) {
+                        return false // mantém a navegação dentro do WebView
                     }
+                    // Qualquer outro destino (google.com/maps, geo:, wa.me, tel: etc.)
+                    // sai por Intent externo — nunca navega o WebView pra fora do host.
+                    return try {
+                        val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        view.context.startActivity(intent)
+                        true
+                    } catch (e: ActivityNotFoundException) {
+                        true // não tinha app pra abrir; não deixa o WebView tentar carregar
+                    }
+                }
+
+                override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    erroNaCargaAtual = false
+                }
+
+                override fun onReceivedError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    error: WebResourceError
+                ) {
+                    super.onReceivedError(view, request, error)
+                    // Só o MAIN FRAME liga a tela offline — sub-recurso que falha
+                    // (imagem, analytics) não pode esconder uma página viva.
+                    if (request.isForMainFrame) {
+                        erroNaCargaAtual = true
+                        offlineView.visibility = View.VISIBLE
+                    }
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    if (view != null && url != null) maybeInjectSecureShellFallback(view, url)
+                    if (!erroNaCargaAtual) {
+                        offlineView.visibility = View.GONE
+                    }
+                }
+            }
+
+            // Download (export CSV/relatório): o WebView não baixa nada sozinho —
+            // manda pro navegador/sistema via Intent, que sabe baixar e abrir.
+            setDownloadListener { url, _, _, _, _ ->
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    // sem app pra abrir a URL — no-op
                 }
             }
         }
 
-        routeBridge = HBXShellBridge(
-            context = this,
+        offlineView = montarTelaOffline()
+
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor(COR_FUNDO))
+            addView(webView)
+            addView(offlineView)
+        }
+
+        // Edge-to-edge FORÇADO no targetSdk 35 (Android 15): sem isto o web fica
+        // por baixo da status bar/gesture bar. O padding acompanha as system bars
+        // e o fundo navy da root pinta as faixas — visual contínuo com o app.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+
+        setContentView(root)
+        webView.loadUrl(urlPermitidaDoIntent(intent) ?: webBaseUrl())
+    }
+
+    private fun installSecureShellBridge(view: WebView) {
+        val origin = canonicalHbxWebOrigin(BuildConfig.WEB_BASE_URL, BuildConfig.DEBUG) ?: return
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
+        val bridge = HBXShellBridge(
+            context = view.context,
             onSolicitarRota = { route -> runOnUiThread { solicitarAtivacaoRota(route) } },
             onClearRota = { runOnUiThread { rotaPendente = null } },
         )
-        nativeBridge = NativeAppBridge(
-            activity = this,
-            webView = webView,
-            ticket = intent?.data?.getQueryParameter("ticket"),
-            onRouteRequested = routeBridge::setRota,
-            onRouteStopped = routeBridge::clearRota,
-            onLocationPermissionRequested = ::solicitarLocalizacaoParaCadastro,
-        )
-        webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
+        val listener = WebViewCompat.WebMessageListener { _, message, sourceOrigin, isMainFrame, _ ->
+                if (!isMainFrame) return@WebMessageListener
+                if (webOriginForUrl(sourceOrigin.toString(), BuildConfig.DEBUG) != origin) {
+                    return@WebMessageListener
+                }
+                if (message.type != WebMessageCompat.TYPE_STRING) return@WebMessageListener
+                message.data?.let(bridge::handleMessage)
+            }
+        val listenerInstalled = runCatching {
+            WebViewCompat.addWebMessageListener(
+                view,
+                HBX_NATIVE_ROUTE_BRIDGE,
+                setOf(origin),
+                listener,
+            )
+        }.isSuccess
+        if (!listenerInstalled) return
+        secureShellOrigin = origin
+        secureShellScriptHandler = if (
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) {
+            runCatching {
+                WebViewCompat.addDocumentStartJavaScript(
+                    view,
+                    HBX_SHELL_TOP_FRAME_SHIM,
+                    setOf(origin),
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        secureShellFallback = secureShellScriptHandler == null
+    }
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0B1020"))
-            addView(webView, FrameLayout.LayoutParams(-1, -1))
+    private fun maybeInjectSecureShellFallback(view: WebView, url: String) {
+        if (!secureShellFallback) return
+        val origin = secureShellOrigin ?: return
+        if (webOriginForUrl(url, BuildConfig.DEBUG) != origin) return
+        view.evaluateJavascript(HBX_SHELL_TOP_FRAME_SHIM, null)
+    }
+
+    private fun webBaseUrl(): String = BuildConfig.WEB_BASE_URL.trimEnd('/') + "/"
+
+    private fun uriPermitida(uri: Uri): Boolean {
+        val expected = runCatching { Uri.parse(BuildConfig.WEB_BASE_URL) }.getOrNull() ?: return false
+        if (BuildConfig.DEBUG) {
+            val schemeAllowed = uri.scheme == "https" || uri.scheme == "http"
+            return schemeAllowed && uri.scheme == expected.scheme && uri.host == expected.host && uri.port == expected.port
         }
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
+        val productionHosts = setOf(expected.host, expected.host?.removePrefix("www.")).filterNotNull()
+        return uri.scheme == "https" && uri.host in productionHosts && uri.port == expected.port
+    }
+
+    /** Deep link VIEW: só navega se o destino é do nosso host (mesma allowlist). */
+    private fun urlPermitidaDoIntent(intent: Intent?): String? {
+        val uri = intent?.data ?: return null
+        val schemeHttp = uri.scheme == "http" || uri.scheme == "https"
+        return if (schemeHttp && uriPermitida(uri)) {
+            uri.toString()
+        } else {
+            null
         }
-        setContentView(root)
-        webView.loadUrl(LOCAL_ENTRY)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTask: link do domínio com o app já aberto cai aqui.
+        urlPermitidaDoIntent(intent)?.let { webView.loadUrl(it) }
     }
 
     override fun onResume() {
         super.onResume()
-        if (BuildConfig.APP_MODE == "logistica") {
-            RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
-            RotaState.drenarPendencias().forEach(::entregarChegada)
-        }
+
+        // Entrega chegadas detectadas em background e passa a receber ao vivo
+        // enquanto a Activity estiver resumida.
+        RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
+        RotaState.drenarPendencias().forEach { entregarChegada(it) }
     }
 
     override fun onPause() {
-        if (BuildConfig.APP_MODE == "logistica") RotaState.registrarListener(null)
+        RotaState.registrarListener(null)
+        CookieManager.getInstance().flush()
         super.onPause()
     }
 
     override fun onDestroy() {
-        fileChooserCallback?.onReceiveValue(null)
-        nativeBridge.close()
-        webView.removeJavascriptInterface("HBXAndroid")
-        webView.destroy()
+        secureShellScriptHandler?.remove()
+        secureShellScriptHandler = null
+        if (::webView.isInitialized && secureShellOrigin != null &&
+            WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
+        ) {
+            runCatching { WebViewCompat.removeWebMessageListener(webView, HBX_NATIVE_ROUTE_BRIDGE) }
+        }
         super.onDestroy()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (webView.canGoBack()) {
+            webView.goBack()
+        } else {
+            @Suppress("DEPRECATION")
+            super.onBackPressed()
+        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -225,10 +405,10 @@ class MainActivity : AppCompatActivity() {
             callback.onReceiveValue(null)
             return
         }
-        val uris = when {
-            data?.clipData != null -> (0 until data.clipData!!.itemCount)
-                .map { data.clipData!!.getItemAt(it).uri }
-                .toTypedArray()
+        val clip = data?.clipData
+        val uris: Array<Uri>? = when {
+            clip != null && clip.itemCount > 0 ->
+                (0 until clip.itemCount).mapNotNull { clip.getItemAt(it)?.uri }.toTypedArray()
             data?.data != null -> arrayOf(data.data!!)
             cameraOutputUri != null -> arrayOf(cameraOutputUri!!)
             else -> null
@@ -238,9 +418,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun criarIntentCamera(): Intent? {
-        val dir = File(cacheDir, "comprovantes").apply { mkdirs() }
-        val file = runCatching { File.createTempFile("hbx-foto-", ".jpg", dir) }.getOrNull() ?: return null
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        val cameraDir = File(cacheDir, "comprovantes").apply { mkdirs() }
+        val arquivo = runCatching { File.createTempFile("hbx-foto-", ".jpg", cameraDir) }.getOrNull() ?: return null
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", arquivo)
         val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
             putExtra(MediaStore.EXTRA_OUTPUT, uri)
             clipData = ClipData.newRawUri("Foto do comprovante", uri)
@@ -252,73 +432,143 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun entregarChegada(paradaId: String) {
-        val js = "document.dispatchEvent(new CustomEvent('hbx:arrival',{detail:{deliveryId:${JSONObject.quote(paradaId)}}}));"
+        val js = "document.dispatchEvent(new CustomEvent('hbxshell:chegada'," +
+            "{detail:{paradaId:${JSONObject.quote(paradaId)}}}));"
         webView.evaluateJavascript(js, null)
     }
 
-    private fun temPermissao(permission: String): Boolean =
-        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+    // ── tela offline nativa (sem rede não pode ser tela branca) ─────────────
 
-    private fun temLocalizacao(): Boolean = temPermissao(Manifest.permission.ACCESS_FINE_LOCATION) ||
-        temPermissao(Manifest.permission.ACCESS_COARSE_LOCATION)
+    private fun montarTelaOffline(): View {
+        val coluna = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            val pad = dpParaPx(32)
+            setPadding(pad, pad, pad, pad)
+        }
+        val titulo = TextView(this).apply {
+            setText(R.string.offline_titulo)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+        }
+        val botao = Button(this).apply {
+            setText(R.string.offline_retry)
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            isAllCaps = false
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            background = GradientDrawable().apply {
+                cornerRadius = dpParaPx(12).toFloat()
+                setColor(Color.parseColor(COR_BOTAO))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                dpParaPx(220),
+                dpParaPx(52)
+            ).apply { topMargin = dpParaPx(24) }
+            setOnClickListener {
+                // A tela offline só sai quando uma carga TERMINA sem erro
+                // (onPageFinished) — clique repetido sem rede não pisca nada.
+                if (webView.url == null) {
+                    webView.loadUrl(webBaseUrl())
+                } else {
+                    webView.reload()
+                }
+            }
+        }
+        coluna.addView(titulo)
+        coluna.addView(botao)
+        return FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor(COR_FUNDO))
+            visibility = View.GONE
+            isClickable = true // engole toques — nada vaza pro WebView por baixo
+            addView(
+                coluna,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+        }
+    }
+
+    private fun dpParaPx(dp: Int): Int = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics
+    ).toInt()
+
+    // ── permissões sob demanda (somente ao iniciar uma rota) ────────────────
+
+    private fun temPermissao(permissao: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permissao) == PackageManager.PERMISSION_GRANTED
+
+    private fun temLocalizacao(): Boolean =
+        temPermissao(Manifest.permission.ACCESS_FINE_LOCATION) ||
+            temPermissao(Manifest.permission.ACCESS_COARSE_LOCATION)
 
     private fun temNotificacoes(): Boolean =
-        (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || temPermissao(Manifest.permission.POST_NOTIFICATIONS)) &&
+        (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            temPermissao(Manifest.permission.POST_NOTIFICATIONS)) &&
             NotificationManagerCompat.from(this).areNotificationsEnabled()
-
-    private fun solicitarLocalizacaoParaCadastro() {
-        if (temLocalizacao()) {
-            notificarPermissaoCadastroLocalizacao(true)
-            return
-        }
-        cadastroLocalizacaoLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-        )
-    }
-
-    private fun notificarPermissaoCadastroLocalizacao(concedida: Boolean) {
-        webView.evaluateJavascript(
-            "window.HBXApp&&window.HBXApp.locationPermissionChanged&&window.HBXApp.locationPermissionChanged($concedida);",
-            null,
-        )
-    }
 
     private fun solicitarAtivacaoRota(route: NativeRouteRequest) {
         rotaPendente = route
-        val disclosure = route.mode == "TRACKED" && !trackingDisclosureAccepted()
-        if (temLocalizacao() && temNotificacoes() && !disclosure) {
+        val precisaExplicarRastreamento = route.mode == "TRACKED" && !trackingDisclosureAccepted()
+        if (temLocalizacao() && temNotificacoes() && !precisaExplicarRastreamento) {
             ativarRotaPendente()
             return
         }
         if (solicitacaoSistemaEmAndamento || dialogoPermissao?.isShowing == true) return
-        val tracked = route.mode == "TRACKED"
-        registrarEExibirDialogo(
-            AlertDialog.Builder(this)
-                .setTitle(if (tracked) "Rastreamento da rota" else "Acompanhamento da rota")
-                .setMessage(
-                    if (tracked) {
-                        "Durante a rota, o HBX envia sua localização ao VPS e a exibe ao administrador. " +
-                            "A notificação persistente fica visível e o envio para ao encerrar a rota."
-                    } else {
-                        "O HBX usa a localização somente durante a rota para avisar sua chegada."
-                    },
-                )
-                .setPositiveButton("Continuar") { _, _ ->
-                    if (tracked) markTrackingDisclosureAccepted()
-                    solicitarLocalizacaoOuNotificacao()
-                }
-                .setNegativeButton("Agora não") { _, _ -> mostrarAvisoPermissoesNegadas() }
-                .create(),
-        )
+        mostrarExplicacaoPermissoes()
+    }
+
+    private fun mostrarExplicacaoPermissoes() {
+        val tracked = rotaPendente?.mode == "TRACKED"
+        val dialogo = AlertDialog.Builder(this)
+            .setTitle(if (tracked) "Rastreamento da rota" else "Acompanhamento da rota")
+            .setMessage(
+                if (tracked) {
+                    "Durante esta rota, o HBX enviará sua localização ao servidor e a exibirá ao administrador. " +
+                        "Uma notificação persistente ficará visível enquanto o rastreamento estiver ativo e o envio " +
+                        "será encerrado ao finalizar a rota."
+                } else {
+                    "O HBX usa sua localização durante a rota para avisar quando você chega ao cliente."
+                },
+            )
+            .setPositiveButton("Continuar") { _, _ ->
+                if (tracked) markTrackingDisclosureAccepted()
+                solicitarLocalizacaoOuNotificacao()
+            }
+            .setNegativeButton("Agora não") { _, _ ->
+                webView.post { mostrarAvisoPermissoesNegadas() }
+            }
+            .create()
+        registrarEExibirDialogo(dialogo)
+    }
+
+    private fun trackingDisclosureAccepted(): Boolean =
+        getSharedPreferences(TRACKING_DISCLOSURE_PREFS, MODE_PRIVATE)
+            .getBoolean(TRACKING_DISCLOSURE_V1, false)
+
+    private fun markTrackingDisclosureAccepted() {
+        getSharedPreferences(TRACKING_DISCLOSURE_PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean(TRACKING_DISCLOSURE_V1, true)
+            .apply()
     }
 
     private fun solicitarLocalizacaoOuNotificacao() {
         if (!temLocalizacao()) {
             solicitacaoSistemaEmAndamento = true
-            localizacaoLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-        } else {
-            solicitarNotificacaoOuAtivar()
+            localizacaoLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+            return
         }
+        solicitarNotificacaoOuAtivar()
     }
 
     private fun solicitarNotificacaoOuAtivar() {
@@ -329,9 +579,9 @@ class MainActivity : AppCompatActivity() {
             }
             solicitacaoSistemaEmAndamento = true
             notificacaoLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            ativarRotaPendente()
+            return
         }
+        ativarRotaPendente()
     }
 
     private fun ativarRotaPendente() {
@@ -342,7 +592,7 @@ class MainActivity : AppCompatActivity() {
             rotaPendente = null
             AlertDialog.Builder(this)
                 .setTitle("Rastreamento encerrado")
-                .setMessage("Atualize a rota para receber uma nova sessão autorizada pelo HBX.")
+                .setMessage("Esta sessão já foi encerrada pelo HBX. Atualize a rota para iniciar um novo rastreamento autorizado.")
                 .setPositiveButton("Entendi", null)
                 .show()
             return
@@ -357,48 +607,41 @@ class MainActivity : AppCompatActivity() {
         RotaState.persistir(this)
         RotaService.sync(this)
         rotaPendente = null
-        webView.evaluateJavascript("window.HBXApp&&window.HBXApp.routeActivated&&window.HBXApp.routeActivated();", null)
     }
 
     private fun mostrarAvisoPermissoesNegadas() {
         if (dialogoPermissao?.isShowing == true) return
-        val missing = when {
+        val faltando = when {
             !temLocalizacao() && !temNotificacoes() -> "localização e notificações"
             !temLocalizacao() -> "localização"
             else -> "notificações"
         }
-        registrarEExibirDialogo(
-            AlertDialog.Builder(this)
-                .setTitle("Acompanhamento não ativado")
-                .setMessage("Permita $missing para acompanhar a rota e avisar a chegada.")
-                .setPositiveButton("Abrir configurações") { _, _ ->
-                    try {
-                        configuracoesLauncher.launch(
-                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")),
-                        )
-                    } catch (_: ActivityNotFoundException) {
-                        // Fabricante sem tela de configuração própria.
-                    }
-                }
-                .setNegativeButton("Agora não", null)
-                .create(),
+        val dialogo = AlertDialog.Builder(this)
+            .setTitle("Acompanhamento não ativado")
+            .setMessage("Permita $faltando para o HBX acompanhar a rota e avisar sua chegada.")
+            .setPositiveButton("Abrir configurações do HBX") { _, _ -> abrirConfiguracoesDoApp() }
+            .setNegativeButton("Agora não", null)
+            .create()
+        registrarEExibirDialogo(dialogo)
+    }
+
+    private fun abrirConfiguracoesDoApp() {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:$packageName")
         )
+        try {
+            configuracoesLauncher.launch(intent)
+        } catch (_: ActivityNotFoundException) {
+            // Fabricante sem tela própria: permanece no HBX, sem redirecionar.
+        }
     }
 
-    private fun trackingDisclosureAccepted(): Boolean =
-        getSharedPreferences(TRACKING_DISCLOSURE_PREFS, MODE_PRIVATE)
-            .getBoolean(TRACKING_DISCLOSURE_V1, false)
-
-    private fun markTrackingDisclosureAccepted() {
-        getSharedPreferences(TRACKING_DISCLOSURE_PREFS, MODE_PRIVATE)
-            .edit()
-            .putBoolean(TRACKING_DISCLOSURE_V1, true)
-            .apply()
-    }
-
-    private fun registrarEExibirDialogo(dialog: AlertDialog) {
-        dialogoPermissao = dialog
-        dialog.setOnDismissListener { if (dialogoPermissao === dialog) dialogoPermissao = null }
-        dialog.show()
+    private fun registrarEExibirDialogo(dialogo: AlertDialog) {
+        dialogoPermissao = dialogo
+        dialogo.setOnDismissListener {
+            if (dialogoPermissao === dialogo) dialogoPermissao = null
+        }
+        dialogo.show()
     }
 }

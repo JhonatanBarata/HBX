@@ -12,27 +12,33 @@ import {
 test('presets são declarativos e legíveis (diffs entre as 3 portas)', () => {
   assert.deepEqual(TENANT_PROVISIONING_PRESETS.self_service, {
     seedsDefaultProducts: true,
+    grantsManualEntitlements: false,
     createsAdminWithPassword: false,
   });
   assert.deepEqual(TENANT_PROVISIONING_PRESETS.master_invite, {
     seedsDefaultProducts: true,
+    grantsManualEntitlements: false,
     createsAdminWithPassword: false,
   });
   assert.deepEqual(TENANT_PROVISIONING_PRESETS.master_full, {
     seedsDefaultProducts: true,
+    grantsManualEntitlements: true,
     createsAdminWithPassword: true,
   });
-  assert.equal(getTenantProvisioningPreset('master_full').createsAdminWithPassword, true);
+  assert.equal(getTenantProvisioningPreset('master_full').grantsManualEntitlements, true);
 });
 
-test('seedTenantModulesTx sem input NÃO toca em CompanyModule (post-it)', async () => {
+test('seedTenantModulesTx com apenas plan_default NÃO toca em CompanyModule (post-it)', async () => {
   const upserts: any[] = [];
   let queried = false;
   const tx = {
     systemModule: { findMany: async () => { queried = true; return []; } },
     companyModule: { upsert: async (args: any) => { upserts.push(args); return {}; } },
   };
-  const result = await seedTenantModulesTx(tx as any, 10, []);
+  const result = await seedTenantModulesTx(tx as any, 10, [
+    { key: 'vendas', enabled: true, source: 'plan_default' },
+    { key: 'webscraping', enabled: true, source: 'plan_default' },
+  ]);
   assert.equal(upserts.length, 0);
   assert.equal(queried, false);
   assert.deepEqual(result.resolvedModuleKeys, []);
@@ -48,7 +54,9 @@ test('seedTenantModulesTx com módulo input grava só a exceção explícita', a
   };
   const result = await seedTenantModulesTx(tx as any, 10, [
     { key: 'vendas', enabled: true, source: 'input' },
+    { key: 'webscraping', enabled: false, source: 'plan_default' },
   ]);
+  // Só o de source=input entra; o plan_default é ignorado.
   assert.equal(upserts.length, 1);
   assert.equal(upserts[0].create.moduleId, 1);
   assert.deepEqual(result.resolvedModuleKeys, ['vendas']);

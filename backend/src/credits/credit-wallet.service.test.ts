@@ -322,25 +322,6 @@ test('debit: mesma usageKey 2x -> 1 débito só', async () => {
   assert.equal(await service.getBalance(1), 2);
 });
 
-test('debit fracionado: cinco usos de 0,2 zeram 1 crédito exatamente e cada uso é idempotente', async () => {
-  const { service, fake } = buildService();
-  await service.grant(1, 1, { usageKey: 'grant-fractional-1' });
-
-  for (let index = 1; index <= 5; index++) {
-    const usageKey = `action:logistica_delivery:entrega-${index}`;
-    const first = await service.debit(1, 0.2, { actionKey: 'logistica_delivery', usageKey });
-    const retry = await service.debit(1, 0.2, { actionKey: 'logistica_delivery', usageKey });
-    assert.equal(first.debited, 0.2);
-    assert.equal(retry.debited, 0.2);
-    assert.equal(await service.getBalance(1), Math.round((1 - index * 0.2) * 1000) / 1000);
-  }
-
-  const debits = fake.entries.filter((entry: any) => entry.kind === 'debit');
-  assert.equal(debits.length, 5);
-  assert.equal(debits.reduce((sum: number, entry: any) => sum + Number(entry.amount), 0), 1);
-  assert.equal(await service.getBalance(1), 0);
-});
-
 test('grant: mesma usageKey 2x -> 1 lote só', async () => {
   const { service } = buildService();
   const first = await service.grant(1, 10, { usageKey: 'mp-payment-123' });

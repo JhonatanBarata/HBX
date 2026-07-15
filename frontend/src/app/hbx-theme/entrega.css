@@ -931,7 +931,6 @@
   font-family: var(--ent-font);
   transition: transform var(--ent-motion-fast);
 }
-[data-skin="entrega"] .ent-list--clientes > .ent-card { flex: 0 0 auto; }
 [data-skin="entrega"] .ent-card:active { transform: scale(0.99); }
 [data-skin="entrega"] .ent-card-main { flex: 1 1 auto; min-width: 0; }
 [data-skin="entrega"] .ent-card-name {

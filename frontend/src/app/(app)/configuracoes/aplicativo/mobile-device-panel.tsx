@@ -9,26 +9,21 @@ import styles from "./mobile-device-panel.module.css";
 
 type PairingCodeResponse = {
   code: string;
-  accessProfile: AccessProfile;
   expiresAt: string;
   expiresInSeconds: number;
 };
-
-type AccessProfile = "ADMIN" | "STANDARD";
 
 type MobileDevice = {
   id: string;
   name?: string | null;
   platform?: string | null;
-  accessProfile?: AccessProfile | null;
   lastUsedAt?: string | null;
   revokedAt?: string | null;
   createdAt: string;
   active: boolean;
 };
 
-const VENDAS_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
-const LOGISTICA_APK_URL = "/download/android-logistica";
+const APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "").trim();
 
 function formatDate(value?: string | null) {
   if (!value) return "Ainda não usado";
@@ -53,7 +48,6 @@ export function MobileDevicePanel() {
   const [busy, setBusy] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [pairing, setPairing] = useState<PairingCodeResponse | null>(null);
-  const [accessProfile, setAccessProfile] = useState<AccessProfile>("ADMIN");
   const [now, setNow] = useState(() => Date.now());
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,11 +93,10 @@ export function MobileDevicePanel() {
     try {
       const result = await apiFetch<PairingCodeResponse>("/mobile/devices/pairing-code", {
         method: "POST",
-        body: JSON.stringify({ accessProfile }),
       });
       setPairing(result);
       setNow(Date.now());
-      setMessage(`Código ${result.accessProfile === "ADMIN" ? "ADMIN" : "Padrão"} criado. Digite-o no aplicativo deste aparelho.`);
+      setMessage("Código criado. Digite-o no aplicativo deste aparelho.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível gerar o código.");
     } finally {
@@ -160,56 +153,25 @@ export function MobileDevicePanel() {
         <div style={{ padding: 18, display: "grid", gap: 18 }}>
           <div className={styles.setupGrid}>
             <article className={styles.setupCard}>
-              <strong>1. Instale o aplicativo da função</strong>
+              <strong>1. Instale o aplicativo</strong>
               <p className={styles.description}>
-                Vendas e Logística têm interfaces próprias. Nenhum deles exibe o site HBX nem pede e-mail e senha.
+                Use o APK de testes do HBX. O aplicativo não exibirá a página pública nem pedirá e-mail e senha.
               </p>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                <a className="btn-ghost" href={VENDAS_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
-                  Baixar HBX Vendas
+              {APK_URL ? (
+                <a className="btn-ghost" href={APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
+                  Baixar aplicativo Android
                 </a>
-                <a className="btn-ghost" href={LOGISTICA_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
-                  Baixar HBX Logística
-                </a>
-              </div>
+              ) : (
+                <small className={styles.muted}>
+                  O link de download será exibido aqui quando NEXT_PUBLIC_ANDROID_APK_URL estiver configurada.
+                </small>
+              )}
             </article>
 
             <article className={styles.setupCard}>
-              <strong>2. Escolha o perfil e gere o código</strong>
+              <strong>2. Gere o código deste usuário</strong>
               <p className={styles.description}>
                 O código vale por 10 minutos, funciona uma única vez e vincula o celular à sua própria conta.
-              </p>
-              <fieldset className={styles.profileChoices} disabled={busy}>
-                <legend>Perfil deste aparelho</legend>
-                <label className={`${styles.profileChoice} ${accessProfile === "ADMIN" ? styles.profileChoiceSelected : ""}`}>
-                  <input
-                    type="radio"
-                    name="accessProfile"
-                    value="ADMIN"
-                    checked={accessProfile === "ADMIN"}
-                    onChange={() => setAccessProfile("ADMIN")}
-                  />
-                  <span>
-                    <strong>ADMIN</strong>
-                    <small>Acesso total.</small>
-                  </span>
-                </label>
-                <label className={`${styles.profileChoice} ${accessProfile === "STANDARD" ? styles.profileChoiceSelected : ""}`}>
-                  <input
-                    type="radio"
-                    name="accessProfile"
-                    value="STANDARD"
-                    checked={accessProfile === "STANDARD"}
-                    onChange={() => setAccessProfile("STANDARD")}
-                  />
-                  <span>
-                    <strong>Padrão</strong>
-                    <small>Acesso operacional completo; financeiro/$$ ficará reservado por padrão.</small>
-                  </span>
-                </label>
-              </fieldset>
-              <p className={styles.muted}>
-                O perfil já fica salvo no aparelho. Os cortes por perfil serão ativados na próxima etapa; por enquanto, não há bloqueio adicional.
               </p>
               <button className="btn-teal" onClick={generateCode} disabled={busy}>
                 {busy ? "Gerando…" : pairing && remainingSeconds > 0 ? "Gerar outro código" : "Gerar código de vinculação"}
@@ -220,7 +182,7 @@ export function MobileDevicePanel() {
           {pairing && remainingSeconds > 0 && (
             <article className={styles.pairingCard}>
               <span className={styles.pairingLabel}>
-                Digite no aplicativo · {pairing.accessProfile === "ADMIN" ? "ADMIN" : "Padrão"}
+                Digite no aplicativo
               </span>
               <button
                 type="button"
@@ -255,7 +217,7 @@ export function MobileDevicePanel() {
           <div>
             <h2>Aparelhos vinculados</h2>
             <p className={styles.description} style={{ margin: "5px 0 0" }}>
-              Cada usuário pode manter até 4 aparelhos ativos. Desconectar corta o acesso imediatamente.
+              Cada usuário pode manter até 3 aparelhos ativos. Desconectar corta o acesso imediatamente.
             </p>
           </div>
           <button className="btn-ghost" onClick={() => void loadDevices()} disabled={loading}>
@@ -276,9 +238,6 @@ export function MobileDevicePanel() {
                 <strong>{device.name || "Aparelho Android"}</strong>
                 <span className={styles.deviceMeta}>
                   {device.active ? "Ativo" : "Desconectado"} · Último acesso: {formatDate(device.lastUsedAt)}
-                </span>
-                <span className={styles.deviceMeta}>
-                  Perfil: {device.accessProfile === "STANDARD" ? "Padrão" : "ADMIN"}
                 </span>
                 <span className={styles.deviceCreated}>
                   Vinculado em {formatDate(device.createdAt)}

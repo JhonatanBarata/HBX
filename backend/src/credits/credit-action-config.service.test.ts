@@ -32,10 +32,11 @@ function createFakePrisma() {
 
 test.beforeEach(clearCreditActionOverrides);
 
-test('ações não ligadas à entrega são editáveis em modo grátis ou débito decimal', async () => {
+test('todas as ações são editáveis em modo grátis ou débito decimal', async () => {
   const fake = createFakePrisma();
   const service = new CreditActionConfigService(fake as any);
   const costs = new Map([
+    [CREDIT_ACTION_KEYS.LEAD_DELIVERY, 1],
     [CREDIT_ACTION_KEYS.AUTOMATION, 0.1],
     [CREDIT_ACTION_KEYS.AI_REALTIME, 0.125],
     [CREDIT_ACTION_KEYS.AI_BATCH, 0.5],
@@ -47,42 +48,10 @@ test('ações não ligadas à entrega são editáveis em modo grátis ou débito
     const result = await service.setOverride(key, { mode: 'debit', cost });
     assert.equal(result.effective.cost, cost);
   }
-  assert.equal(fake.rows.length, 6);
+  assert.equal(fake.rows.length, 7);
 
   const free = await service.setOverride(CREDIT_ACTION_KEYS.AI_BATCH, { mode: 'free', cost: 999 });
   assert.deepEqual(free.effective, { mode: 'free', cost: 0 });
-});
-
-test('lead_delivery é fixo em débito de 1 e recusa override grátis ou de custo', async () => {
-  const fake = createFakePrisma();
-  const service = new CreditActionConfigService(fake as any);
-
-  await assert.rejects(service.setOverride(CREDIT_ACTION_KEYS.LEAD_DELIVERY, { mode: 'free', cost: 0 }));
-  await assert.rejects(service.setOverride(CREDIT_ACTION_KEYS.LEAD_DELIVERY, { mode: 'debit', cost: 2 }));
-  assert.equal(fake.rows.length, 0);
-  assert.deepEqual(await service.resolveEffective(CREDIT_ACTION_KEYS.LEAD_DELIVERY), {
-    key: CREDIT_ACTION_KEYS.LEAD_DELIVERY,
-    mode: 'debit',
-    cost: 1,
-    label: 'Lead entregue',
-  });
-});
-
-test('override legado de lead_delivery fica inerte na resolução e na listagem', async () => {
-  const fake = createFakePrisma();
-  fake.rows.push({
-    actionKey: CREDIT_ACTION_KEYS.LEAD_DELIVERY,
-    configJson: JSON.stringify({ mode: 'free', cost: 0 }),
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  });
-  const service = new CreditActionConfigService(fake as any);
-
-  const effective = await service.resolveEffective(CREDIT_ACTION_KEYS.LEAD_DELIVERY);
-  const listed = (await service.listForMaster()).find((item) => item.actionKey === CREDIT_ACTION_KEYS.LEAD_DELIVERY);
-  assert.deepEqual({ mode: effective?.mode, cost: effective?.cost }, { mode: 'debit', cost: 1 });
-  assert.deepEqual(listed?.effective, { mode: 'debit', cost: 1 });
-  assert.equal(listed?.override, null);
 });
 
 test('listagem relê o banco e mostra defaults pedidos', async () => {

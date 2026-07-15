@@ -1,3 +1,4 @@
+import { isTenantCompany } from '../common/company-kind';
 import {
   buildTeamAccessRows,
   isTeamAccessKey,
@@ -47,6 +48,13 @@ function clampPercent(value: unknown) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
   return Math.min(100, Math.max(0, Math.round(numeric * 100) / 100));
+}
+
+function normalizeLegacyEnrichmentOverride(value: unknown) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Math.trunc(Number(value || 0));
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(0, Math.min(500, numeric));
 }
 
 export function normalizeTeamPolicyModuleKey(value: unknown) {
@@ -188,6 +196,8 @@ export async function loadUserTeamPolicyRuntime(
       status: true,
       subjectKind: true,
       modulesJson: true,
+      enrichmentDailyMode: true,
+      enrichmentDailyLimit: true,
       cardDeliveryDailyMode: true,
       cardDeliveryDailyLimit: true,
       activeCardsMode: true,
@@ -239,10 +249,18 @@ export function resolveTeamPolicySubjectKind(user: any, company?: any) {
 export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: string }) {
   const company = user?.company || null;
   const subjectKind = resolveTeamPolicySubjectKind(user, company);
+  const tenantCompany = Boolean(company && isTenantCompany(company));
+  const legacyOverride = normalizeLegacyEnrichmentOverride(user?.sellerDistributionDailyLimitOverride);
   // Team policy e a unica fonte de permissao (PR-002 A.5 / DROP): o snapshot
   // parte dos defaults do papel + concessoes explicitas; nada da tabela
   // legada UserModuleAccess (removida).
   const modules: Array<{ key: string; allowed: boolean }> = [];
+  const enrichmentDailyMode = tenantCompany && legacyOverride === 0
+    ? 'unlimited'
+    : tenantCompany && typeof legacyOverride === 'number' && legacyOverride > 0
+      ? 'limited'
+      : 'inherit';
+
   return {
     companyId: Number(user?.companyId || 0) || null,
     referredByUserId: Number(user?.referredByUserId || 0) || null,
@@ -259,6 +277,9 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     canRegisterHbxSellers: Boolean(user?.canRegisterHbxSellers),
     sellerReferralCommissionPercent: clampPercent(user?.sellerReferralCommissionPercent),
     referredByCommissionPercentSnapshot: clampPercent(user?.referredByCommissionPercentSnapshot),
+    legacySellerDistributionDailyLimitOverride: legacyOverride,
+    enrichmentDailyMode,
+    enrichmentDailyLimit: enrichmentDailyMode === 'limited' ? legacyOverride : null,
     cardDeliveryDailyMode: 'inherit',
     cardDeliveryDailyLimit: null,
     activeCardsMode: 'inherit',
@@ -314,6 +335,9 @@ export async function ensureUserTeamPolicyForUser(
     canRegisterHbxSellers: snapshot.canRegisterHbxSellers,
     sellerReferralCommissionPercent: snapshot.sellerReferralCommissionPercent,
     referredByCommissionPercentSnapshot: snapshot.referredByCommissionPercentSnapshot,
+    legacySellerDistributionDailyLimitOverride: snapshot.legacySellerDistributionDailyLimitOverride,
+    enrichmentDailyMode: snapshot.enrichmentDailyMode,
+    enrichmentDailyLimit: snapshot.enrichmentDailyLimit,
     requiresLocation: snapshot.requiresLocation,
     requiredChannelsJson: snapshot.requiredChannelsJson,
   };

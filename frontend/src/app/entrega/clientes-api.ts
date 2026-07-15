@@ -37,10 +37,6 @@ export interface ClienteListItem {
   id: string;
   name: string | null;
   cnpj: string | null;
-  phone: string | null;
-  phoneNormalized: string | null;
-  endereco: string | null;
-  numero: string | null;
   cidade: string | null;
   uf: string | null;
   isLead: boolean;
@@ -54,8 +50,6 @@ export interface ClienteListItem {
   diasEntrega?: number[]; // ISO 1=seg … 7=dom
   duplicataDe?: { id: string; nome: string } | null;
   debitoAtual?: number; // só vem com moduloFinanceiroAtivo
-  formaPagamento?: FormaPagamento;
-  diaFechamento?: number | null;
   entregasCount?: number;
 }
 export interface ClientesResult {

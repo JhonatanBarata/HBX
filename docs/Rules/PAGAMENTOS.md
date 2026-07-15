@@ -54,9 +54,12 @@
   `financeiro.service.ts`/`commercial-plans.service.ts`/`modules.service.ts`
   sempre projetam `extraSeatMonthlyAmount: 0`). `seatCap` pode sobreviver
   como **teto operacional** do master (não cobrança).
-- **Upgrade/downgrade com proração.** Não há mais troca de capacidade por
-  plano, cobrança proporcional nem crédito de downgrade. Utilitários e
-  ramos mortos desse fluxo devem ser removidos, não mantidos como fallback.
+- **Upgrade/downgrade com proração.** `changePlanForUser`
+  (`financeiro.service.ts`) é um no-op informativo
+  (`CREDITS_MODEL_NO_PLAN_CHANGE`) — não há mais "cobra a diferença
+  proporcional" nem crédito de downgrade. `plan-proration.util.ts` fica
+  como utilitário morto (não apagar sem necessidade real — ver nota de
+  migration abaixo).
 - **Vitrine de planos/checkout de assinatura mensal no frontend.**
   `trocar-plano-modal.tsx`, `extra-seats-card.tsx`, `lib/plan-rank.ts` e o
   paywall de cota mensal em `leads/page.client.tsx`
@@ -111,10 +114,13 @@
   (`monthlyCardsLimit`/`cardDeliveryDailyLimit`) como sub-orçamento de
   crédito; default sem teto. Empresa nunca é capada pelo teto de um
   vendedor (admin nunca capado por vendedor).
-- **Ações caras/irreversíveis ficam FORA do crédito** (D1): Google, Brave,
-  chip WhatsApp e Serpro/NFS-e são governados por freios físicos globais
-  (`SourceBudgetService`/disjuntor de zap), nunca por plano do cliente.
-  Enriquecedores externos diferentes de Google e Brave foram removidos.
+- **Ações caras/irreversíveis ficam FORA do crédito** (D1): scraping pago
+  (Google/e-mail fallback via `EnrichmentCostService`), chip WhatsApp,
+  Serpro/NFS-e — são governadas por orçamento próprio
+  (`SourceBudgetService`/disjuntor de zap/`EnrichmentCostService`, que ainda
+  usa `planKey` diretamente — NÃO `getCommercialPlanTier` — para orçamento
+  de custo, um propósito diferente de capacidade de produto). Enriquecimento/
+  IA/templates/e-mail são capacidade GRÁTIS (RBAC decide, crédito não).
 
 ## Vendedor nunca vê cobrança (inalterado, LEI DO VENDEDOR)
 
@@ -136,10 +142,11 @@
 - Fonte única: `backend/src/credits/credit-pack-catalog.ts` (pacotes de
   recarga: starter/growth/scale, preço+créditos+validade). Editável pelo
   master via overlay (mesmo padrão do antigo catálogo de planos).
-- Metadados de plano que ainda sejam necessários para faturas ou histórico
-  comercial são somente dados contábeis. Eles nunca controlam módulo,
-  recurso, exportação, enriquecimento, qualidade, limite ou interface.
-  **Nunca reintroduzir preço/plano como gate no frontend.**
+- `backend/src/commercial-plans/commercial-plan-catalog.ts` sobrevive só
+  para: (a) `SystemModule`/entitlement legado ainda lido em pontos pontuais
+  do master (`janela-self-checkout.tsx`), (b) `EnrichmentCostService`
+  (orçamento de COGS por `planKey`, não capacidade). **Nunca reintroduzir
+  preço/plano no frontend** — o frontend consome via API.
 - A tabela `Plan` legada (`prata`/`ouro`/`diamante`...) foi DROPADA na
   migration `20260613_remove_legacy_plan_feature`. `structural-defaults.json`
   não semeia Plan legado — apenas `systemModules`. **Nunca recriar essa
@@ -172,14 +179,18 @@ frontend.
   (vendedor ou gerente sem `canViewBilling`).
 - Guard de auth ou fronteira tenant/usuário enfraquecida.
 - Débito de crédito não-atômico, saldo podendo ficar negativo, ou débito
-  que fura `SourceBudgetService`/disjuntor de zap.
+  que fura `SourceBudgetService`/disjuntor de zap/`EnrichmentCostService`.
 - Mudança em checkout/webhook/recarga sem teste.
 - Reintrodução de tier/plano decidindo módulo, capacidade ou cobrança de
   assento (a Fase 2 existe exatamente para isso não voltar).
 
-## Compatibilidade comercial
+## Nota de migração (histórico, não canônico)
 
-Dados históricos necessários para conciliação, assinatura e emissão fiscal
-podem permanecer no banco. Código morto e regras de produto por tier/plano
-não permanecem como fallback: devem ser removidos no mesmo passo e cobertos
-por teste que prove a igualdade de capacidades.
+O plano/tier antigo (`hbx_lite`/`hbx_padrao`/`hbx_pro`/`hbx_melhor`) ainda
+existe em `Company.selectedPlanKey` e no catálogo de código — não foi
+apagado do banco (migration destrutiva fica para depois de um ciclo de
+billing limpo no modelo novo, por ordem do dono). Código morto relacionado
+(`plan-proration.util.ts`, ramos de `financeiro.service.ts` como
+`_legacyChangePlanForUser`) foi mantido não-alcançável em vez de deletado,
+para não arriscar DI/import cruzado — pode ser removido de vez numa faxina
+futura, à parte.

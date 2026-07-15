@@ -60,7 +60,9 @@ export class MobilePushService {
       const client = await cfg.auth.getClient();
       const requestHeaders = await client.getRequestHeaders();
       const authorization = String(
-        requestHeaders.get('authorization') || requestHeaders.get('Authorization') || '',
+        (requestHeaders as Record<string, unknown>).Authorization ||
+          (requestHeaders as Record<string, unknown>).authorization ||
+          '',
       );
       if (!authorization) return { sent: false, reason: 'firebase_auth_failed' };
 

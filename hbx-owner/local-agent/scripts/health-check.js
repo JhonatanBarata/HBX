@@ -1,7 +1,7 @@
 const http = require("http");
 
 const token = String(process.env.HBX_OWNER_LOCAL_TOKEN || "").trim();
-const port = 3107;
+const port = Number(process.env.HBX_OWNER_LOCAL_AGENT_PORT || 3107);
 
 if (!token) {
   console.error("HBX_OWNER_LOCAL_TOKEN nao configurado.");

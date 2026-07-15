@@ -4,11 +4,11 @@
 // do dono são o CONCORRENTE/CNPJ Biz, só inspiração de "página rica com timeline,
 // dados da empresa e ações em 1 clique" — nada daqui foi copiado).
 //
-// Fluxo de posse (regra de crédito): card ainda NÃO puxado → SÓ o
+// Fluxo de posse (regra dura do plano): card ainda NÃO puxado → SÓ o
 // DetalhesNegocio mascarado + CTA "Puxar" (moldura estreita, .lead-detail-locked),
 // NUNCA o grid de 3 colunas. Lead POSSUÍDO → grid completo. O backend decide o
 // mascaramento (buildRadarLeadPublic zera phone/email pra quem não é dono);
-// aqui só lemos `ownershipStatus === "mine"` pra escolher qual
+// aqui só lemos `ownershipStatus` (fallback Boolean(phone)) pra escolher qual
 // dos dois LAYOUTS renderizar — não só o conteúdo. "Ver mais" na lista/aside já
 // bloqueia a navegação pra cá quando não-possuído; este gate aqui é o
 // fallback de segurança pra acesso direto por URL/favorito.
@@ -24,9 +24,8 @@ import { Av, I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { ConversationPanel, DetalhesNegocio } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
-import { useLeadClaim } from "@/components/hbx/lead-pull-progress-overlay";
 import { apiFetch } from "@/lib/api";
-import { buildNegocioDetailFromLead, isRadarLeadOwned, type RadarLead } from "@/app/(app)/leads/page.client";
+import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { CopilotoPanel } from "./copiloto-panel";
 import { EmailPanel } from "./email-panel";
 
@@ -116,7 +115,6 @@ function CopyField({ label, value }: { label: string; value: string | null | und
 
 export function LeadDetailClient({ leadId }: { leadId: string }) {
   const router = useRouter();
-  const { claimLead } = useLeadClaim();
   const [data, setData] = useState<LeadDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -184,9 +182,11 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
   }, []);
 
   const lead = data?.item || null;
-  // Posse é o único sinal de liberação. Campo de contato preenchido nunca serve
-  // como atalho: se o backend não confirmar `mine`, a UI permanece mascarada.
-  const revealed = isRadarLeadOwned(lead);
+  // Posse: ownershipStatus é o sinal explícito do backend; Boolean(phone) é o
+  // fallback (o backend só devolve phone preenchido quando a empresa já é
+  // dona — maskContact zera phone/email pra quem não puxou). Nunca "desmascara"
+  // no cliente: só lê o que a API já decidiu.
+  const revealed = lead ? (lead.ownershipStatus ? lead.ownershipStatus === "mine" : Boolean(lead.phone)) : false;
   const detail = lead ? buildNegocioDetailFromLead(lead, { revealed }) : null;
 
   async function puxar() {
@@ -194,7 +194,10 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
     setPullBusy(true);
     setPullMsg(null);
     try {
-      await claimLead(lead.id, { lead: { id: lead.id, name: lead.name, city: lead.city, state: lead.state, segment: lead.segment } });
+      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(lead.id)}/send-to-vendas`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
       await load();
     } catch (err) {
@@ -260,7 +263,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
         <div className="radar2-empty">{loadError}</div>
       )}
 
-      {/* Regra dura de posse: card ainda NÃO puxado NUNCA vê a página cheia
+      {/* Regra dura do plano (posse): card ainda NÃO puxado NUNCA vê a página cheia
           de 3 colunas — mesmo entrando aqui direto por URL/favorito sem passar pelo
           "Ver mais" (que já bloqueia navegação pra cá quando não-possuído). Mostra
           só o aside mascarado (DetalhesNegocio sozinho) + CTA "Puxar", igual ao que

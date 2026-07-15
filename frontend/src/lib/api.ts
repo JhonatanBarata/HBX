@@ -14,22 +14,6 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL).replace(/\/
 const PROXY_PREFIX = "/hbx/api";
 
 export type ApiError = Error & { status?: number; payload?: unknown };
-export type ApiLifecycleDetail = {
-  path: string;
-  method: string;
-  phase: "start" | "success" | "error";
-  status?: number;
-  message?: string;
-};
-
-// Evento leve e sem payload sensível: telas com operações longas podem reagir ao
-// ciclo REAL do apiFetch sem duplicar request, monkey-patch de fetch ou estado global.
-export const API_LIFECYCLE_EVENT = "hbx:api-lifecycle";
-
-function emitApiLifecycle(detail: ApiLifecycleDetail) {
-  if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<ApiLifecycleDetail>(API_LIFECYCLE_EVENT, { detail }));
-}
 
 export function getApiBase(): string {
   if (typeof window === "undefined") return API_URL;
@@ -94,36 +78,8 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const method = String(init.method || "GET").toUpperCase();
-  emitApiLifecycle({ path, method, phase: "start" });
-
-  let res: Response;
-  try {
-    res = await fetch(`${getApiBase()}${path}`, { ...init, headers });
-  } catch (error) {
-    emitApiLifecycle({
-      path,
-      method,
-      phase: "error",
-      message: error instanceof Error ? error.message : "Falha de conexão com o servidor.",
-    });
-    throw error;
-  }
-
-  let text: string;
-  try {
-    text = await res.text();
-  } catch (error) {
-    emitApiLifecycle({
-      path,
-      method,
-      phase: "error",
-      status: res.status,
-      message: error instanceof Error ? error.message : "A resposta do servidor foi interrompida.",
-    });
-    throw error;
-  }
-
+  const res = await fetch(`${getApiBase()}${path}`, { ...init, headers });
+  const text = await res.text();
   let data: unknown = null;
   if (text) {
     try {
@@ -151,14 +107,11 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     }
     const payload = (data ?? {}) as { message?: string | string[]; error?: string };
     const rawMessage = Array.isArray(payload.message) ? payload.message[0] : payload.message;
-    const message = rawMessage || payload.error || `Erro ${res.status}`;
-    emitApiLifecycle({ path, method, phase: "error", status: res.status, message });
-    const err = new Error(message) as ApiError;
+    const err = new Error(rawMessage || payload.error || `Erro ${res.status}`) as ApiError;
     err.status = res.status;
     err.payload = data;
     throw err;
   }
 
-  emitApiLifecycle({ path, method, phase: "success", status: res.status });
   return data as T;
 }

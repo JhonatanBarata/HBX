@@ -52,10 +52,8 @@ export class CommercialAutomationStateService {
 
   private async lockLead(tx: any, companyId: number, leadId: string): Promise<void> {
     if (typeof tx?.$queryRawUnsafe !== 'function') return;
-    // A função do Postgres retorna `void`, tipo que o Prisma não desserializa.
-    // O CTE mantém o lock transacional e projeta apenas um inteiro suportado.
     await tx.$queryRawUnsafe(
-      'WITH advisory_lock AS (SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))) SELECT 1::integer AS locked FROM advisory_lock',
+      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))',
       Number(companyId),
       String(leadId),
     );
@@ -697,20 +695,6 @@ export class CommercialAutomationStateService {
           },
         })
       : { count: 0 };
-    if (enrollmentIds.length && typeof tx?.emailOutboundMessage?.updateMany === 'function') {
-      await tx.emailOutboundMessage.updateMany({
-        where: {
-          companyId: input.companyId,
-          status: 'pending',
-          automationStepRun: { enrollmentId: { in: enrollmentIds } },
-        },
-        data: {
-          status: 'canceled',
-          lastErrorCode: AUTOMATION_INBOUND_STOP_REASON,
-          lastErrorMessage: 'Cancelado após resposta do cliente.',
-        },
-      });
-    }
     const updated = enrollmentIds.length
       ? await tx.automationEnrollment.updateMany({
           where: { id: { in: enrollmentIds }, companyId: input.companyId },

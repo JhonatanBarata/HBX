@@ -286,7 +286,7 @@ function ClienteLista({
           <div className="ent-empty-title">{busca || diaFiltro != null ? "Nada encontrado" : "Nenhum cliente ainda"}</div>
         </div>
       ) : (
-        <div className="ent-list ent-list--clientes">
+        <div className="ent-list">
           {visiveis.map((c) => {
             // W6 — pendências fail-soft: só chaves conhecidas viram chip.
             const pend = (c.pendencias ?? []).filter(

@@ -37,7 +37,6 @@ function buildAuthServiceForLogin(
 ) {
   const companyFindUniqueCalls: any[] = [];
   const signedPayloads: any[] = [];
-  const revokedSessionCalls: any[] = [];
   const systemMaster = Boolean(options.systemMaster);
   const role = options.role || (systemMaster ? 'USERMASTER' : 'ADMIN');
   const prisma = {
@@ -62,11 +61,7 @@ function buildAuthServiceForLogin(
     },
     $transaction: async (callback: any) => callback({
       authSession: {
-        findMany: async () => [],
-        updateMany: async (args: any) => {
-          revokedSessionCalls.push(args);
-          return { count: 1 };
-        },
+        updateMany: async () => ({ count: 1 }),
         create: async () => ({ id: 'session_1' }),
       },
       user: {
@@ -93,7 +88,7 @@ function buildAuthServiceForLogin(
     },
   };
   const service = new AuthService({} as any, jwtService as any, prisma as any, {} as any, {} as any, {} as any, {} as any);
-  return { service, companyFindUniqueCalls, signedPayloads, revokedSessionCalls };
+  return { service, companyFindUniqueCalls, signedPayloads };
 }
 
 async function loginAsAdmin(service: AuthService) {
@@ -217,9 +212,10 @@ test('bootstrap do System Master preserva sessao ativa quando usuario ja esta co
   }
 });
 
-// Administradores têm quatro telas simultâneas. O quinto login revoga apenas a
-// sessão mais antiga; continua sem consulta/409 antes de provar a senha.
-test('quinto login do System Master revoga somente a sessao administrativa mais antiga', async () => {
+// Login único sem aviso (07/07/2026): logar substitui a sessão anterior DIRETO,
+// mesmo vindo de outro aparelho — sem consultar a sessão ativa nem 409
+// SESSION_ALREADY_ACTIVE (o 409 virava atrito com a janela de 30d do session-ttl.ts).
+test('login do System Master substitui a sessao ativa direto, sem consulta nem 409', async () => {
   const password = await bcrypt.hash('master-secret', 4);
   const authSessionFinds: any[] = [];
   const revokedSessions: any[] = [];
@@ -257,10 +253,6 @@ test('quinto login do System Master revoga somente a sessao administrativa mais 
     userTeamPolicy: { findUnique: async () => null },
     $transaction: async (callback: any) => callback({
       authSession: {
-        findMany: async (args: any) => {
-          authSessionFinds.push(args);
-          return [{ id: 'sessao_mais_antiga' }];
-        },
         updateMany: async (args: any) => {
           revokedSessions.push(args);
           return { count: 1 };
@@ -279,7 +271,7 @@ test('quinto login do System Master revoga somente a sessao administrativa mais 
               companyId: null,
               role: 'USERMASTER',
               isSystemMaster: true,
-              sessionVersion: 9,
+              sessionVersion: 10,
             };
           }
           return { id: 35 };
@@ -303,43 +295,14 @@ test('quinto login do System Master revoga somente a sessao administrativa mais 
 
     assert.equal(result.next, '/master');
     assert.equal(result.access_token, 'signed-token');
-    assert.equal(authSessionFinds.length, 1);
-    assert.equal(authSessionFinds[0].skip, 3);
+    assert.equal(authSessionFinds.length, 0);
     assert.equal(revokedSessions.length, 1);
-    assert.deepEqual(revokedSessions[0].where.id.in, ['sessao_mais_antiga']);
-    assert.equal(revokedSessions[0].data.revokedReason, 'session_limit_reached');
     assert.equal(createdSessions.length, 1);
     assert.equal(signedPayloads[0].sid, 'sessao_nova');
-    assert.equal(signedPayloads[0].sv, 9);
   } finally {
     if (previousMasterUsername === undefined) delete process.env.SYSTEM_MASTER_USERNAME;
     else process.env.SYSTEM_MASTER_USERNAME = previousMasterUsername;
   }
-});
-
-test('admin preserva as sessoes existentes enquanto estiver abaixo de quatro telas', async () => {
-  const { service, revokedSessionCalls } = buildAuthServiceForLogin({
-    companyKind: 'tenant',
-    status: 'active',
-    isActive: true,
-  });
-
-  await loginAsAdmin(service);
-
-  assert.equal(revokedSessionCalls.length, 0);
-});
-
-test('vendedor continua com sessao unica ao entrar novamente', async () => {
-  const { service, revokedSessionCalls } = buildAuthServiceForLogin({
-    companyKind: 'tenant',
-    status: 'active',
-    isActive: true,
-  }, { role: 'USER' });
-
-  await loginAsSeller(service);
-
-  assert.equal(revokedSessionCalls.length, 1);
-  assert.equal(revokedSessionCalls[0].data.revokedReason, 'replaced_by_login');
 });
 
 test('login de tenant manual premium legado (sem stored status) segue fluxo normal', async () => {
@@ -1108,7 +1071,6 @@ function buildAuthServiceForNeutralSignup() {
       },
     },
     authSession: {
-      findMany: async () => [],
       updateMany: async () => ({ count: 0 }),
       create: async () => ({ id: 'sess_neutro' }),
     },

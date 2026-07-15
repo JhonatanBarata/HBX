@@ -18,8 +18,6 @@ import {
   type VendasConversationRef,
   type VendasConversationSnapshot,
 } from "@/components/hbx/detalhes-negocio";
-import { useLeadClaim } from "@/components/hbx/lead-pull-progress-overlay";
-import { whatsappIsExplicitlyConfirmed } from "@/components/hbx/lead-contact-verification";
 import { apiFetch } from "@/lib/api";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
@@ -49,7 +47,6 @@ export function NegocioSheet({
   onConversationChanged?: (snapshot?: VendasConversationSnapshot) => void | Promise<void>;
 }) {
   const router = useRouter();
-  const { claimLead } = useLeadClaim();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   // MOBILE-ONLY (pedido do dono 07/07): no celular, clicar no WhatsApp NÃO dispara
@@ -73,7 +70,7 @@ export function NegocioSheet({
   const shown = detail ?? lastDetail;
 
   async function abrirConversaInterna() {
-    if (!shown?.phone || busy || !waConfirmed) return;
+    if (!shown?.phone || busy) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -122,7 +119,10 @@ export function NegocioSheet({
     setBusy(true);
     setMsg(null);
     try {
-      await claimLead(String(shown.id), { lead: { id: String(shown.id), name: shown.name, city: shown.city, state: shown.state, segment: shown.segment } });
+      await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(shown.id)}/send-to-vendas`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
       setMsg("Puxado pro funil.");
       onPulled?.();
     } catch (err) {
@@ -132,11 +132,7 @@ export function NegocioSheet({
     }
   }
 
-  const waConfirmed = Boolean(shown && whatsappIsExplicitlyConfirmed(
-    { value: shown.phone, whatsappStatus: shown.leadIntelligence?.whatsappStatus },
-    shown.phonesWhatsapp || {},
-  ));
-  const waLink = shown && waConfirmed ? buildWaLink(shown.phone, { text: buildWaMessage({ name: shown.name, segment: shown.segment, city: shown.city }) }) : null;
+  const waLink = shown ? buildWaLink(shown.phone, { text: buildWaMessage({ name: shown.name, segment: shown.segment, city: shown.city }) }) : null;
   const telHref = shown?.phone ? `tel:${shown.phone.replace(/[^\d+]/g, "")}` : null;
 
   return (
@@ -168,7 +164,7 @@ export function NegocioSheet({
                 <I d={ICONS.atend} size={16} /> WhatsApp
               </button>
             )}
-            <button type="button" className="vnd-m__act" onClick={abrirConversaInterna} disabled={!shown.phone || !waConfirmed || busy}>
+            <button type="button" className="vnd-m__act" onClick={abrirConversaInterna} disabled={!shown.phone || busy}>
               <I d={ICONS.msg} size={16} /> Conversar
             </button>
             {telHref ? (

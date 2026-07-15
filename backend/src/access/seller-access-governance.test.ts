@@ -18,28 +18,28 @@ test('resolveAccessGovernor defaults missing companyKind to tenant', () => {
   assert.equal(resolveAccessGovernor({ id: 2, company: null }), COMPANY_KIND_TENANT);
 });
 
-test('resolveEffectiveCapability requires company kill-switch, user config and safety gate to allow', () => {
+test('resolveEffectiveCapability requires plan, user config and safety gate to allow', () => {
   assert.equal(resolveEffectiveCapability({
     capability: 'canAccessRadar',
-    companyCapabilities: { canAccessRadar: true },
+    companyEntitlements: { canAccessRadar: true },
     configuredUserCaps: { canAccessRadar: true },
   }), true);
 
   assert.equal(resolveEffectiveCapability({
     capability: 'canAccessRadar',
-    companyCapabilities: { canAccessRadar: false },
+    companyEntitlements: { canAccessRadar: false },
     configuredUserCaps: { canAccessRadar: true },
   }), false);
 
   assert.equal(resolveEffectiveCapability({
     capability: 'canAccessRadar',
-    companyCapabilities: { canAccessRadar: true },
+    companyEntitlements: { canAccessRadar: true },
     configuredUserCaps: { canAccessRadar: false },
   }), false);
 
   assert.equal(resolveEffectiveCapability({
     capability: 'canAccessRadar',
-    companyCapabilities: { canAccessRadar: true },
+    companyEntitlements: { canAccessRadar: true },
     configuredUserCaps: { canAccessRadar: true },
     safetyCaps: { canAccessRadar: false },
   }), false);

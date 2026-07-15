@@ -302,6 +302,13 @@ export class VendasController {
     return this.vendasService.createHbxAssistedSignupForUser(req.user, leadId, dto || ({} as CreateHbxAssistedSignupDto));
   }
 
+  @Post('lead/:leadId/enrichment')
+  enrichLead(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: { templateOffset?: number }) {
+    return this.vendasService.enrichLeadForUser(req.user, leadId, {
+      templateOffset: Number(body?.templateOffset || 0),
+    });
+  }
+
   @Get('lead/:leadId/conversation-snapshot')
   getLeadConversationSnapshot(@Req() req: any, @Param('leadId') leadId: string, @Query('eventId') eventId?: string) {
     return this.vendasService.getLeadConversationSnapshotForUser(req.user, leadId, eventId || null);

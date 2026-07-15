@@ -33,7 +33,6 @@ type PreparedHarvestItem = {
   placeId: string | null;
   normalizedEmail: string | null;
   normalizedPhone: string | null;
-  normalizedPhone2: string | null;
   normalizedWhatsapp: string | null;
   normalizedDomain: string | null;
   normalizedCompanyCityState: string | null;
@@ -227,7 +226,6 @@ export class LeadHarvestImportService {
     const state = lead.state || batch.state || null;
     const segment = lead.segment || batch.segment || null;
     const phone = normalizeHarvestPhone(lead.phone);
-    const phone2 = normalizeHarvestPhone(lead.phone2);
     const whatsapp = normalizeHarvestPhone(lead.whatsapp);
     const emailStatus = this.normalizeImportedEmailStatus(lead.emailStatus, Boolean(lead.email), lead.emailConfidence);
     return {
@@ -236,7 +234,6 @@ export class LeadHarvestImportService {
       placeId: compactHarvestText(lead.placeId, 180) || null,
       normalizedEmail: lead.email || null,
       normalizedPhone: phone || whatsapp,
-      normalizedPhone2: phone2 && phone2 !== (phone || whatsapp) ? phone2 : null,
       normalizedWhatsapp: whatsapp,
       normalizedDomain: normalizeHarvestDomain(lead.website || lead.email || lead.sourceUrl) || null,
       normalizedCompanyCityState: this.companyCityStateKey(lead.name, city, state),
@@ -268,7 +265,6 @@ export class LeadHarvestImportService {
       placeId: compactHarvestText(email.placeId, 180) || null,
       normalizedEmail: email.email,
       normalizedPhone: null,
-      normalizedPhone2: null,
       normalizedWhatsapp: null,
       normalizedDomain: email.domain || normalizeHarvestDomain(email.email || email.website) || null,
       normalizedCompanyCityState: this.companyCityStateKey(email.companyName, city, state),
@@ -298,7 +294,6 @@ export class LeadHarvestImportService {
     const state = compactHarvestText(raw?.state, 2).toUpperCase() || null;
     const companyName = compactHarvestText(raw?.name || raw?.companyName, 300) || null;
     const phone = normalizeHarvestPhone(raw?.phone);
-    const phone2 = normalizeHarvestPhone(raw?.phone2);
     const whatsapp = normalizeHarvestPhone(raw?.whatsapp);
     return {
       externalId,
@@ -306,7 +301,6 @@ export class LeadHarvestImportService {
       placeId: compactHarvestText(raw?.placeId, 180) || null,
       normalizedEmail: null,
       normalizedPhone: phone || whatsapp,
-      normalizedPhone2: phone2 && phone2 !== (phone || whatsapp) ? phone2 : null,
       normalizedWhatsapp: whatsapp,
       normalizedDomain: normalizeHarvestDomain(raw?.domain || raw?.website || raw?.email) || null,
       normalizedCompanyCityState: this.companyCityStateKey(companyName, city, state),
@@ -443,11 +437,9 @@ export class LeadHarvestImportService {
         // pelo harvest vira linha consultável/exportável com origem e confiança do batch.
         // Best-effort: falha aqui nunca reprova o item importado.
         if (row?.id) {
-          const isRfb = /cnpj[_-](?:base|public)|receita/i.test(`${item.sourceProvider} ${item.sourceUrl}`);
           const contacts = [
-            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: isRfb ? 'rfb_email' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50 }] : []),
-            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: isRfb ? 'rfb_primary' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50, rank: 1 }] : []),
-            ...(item.normalizedPhone2 ? [{ kind: 'phone' as const, value: item.normalizedPhone2, source: isRfb ? 'rfb_secondary' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50, rank: 2 }] : []),
+            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: 'lead_harvest_import', confidence: item.confidence || 50 }] : []),
+            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: 'lead_harvest_import', confidence: item.confidence || 50 }] : []),
             ...(item.normalizedWhatsapp && item.normalizedWhatsapp !== item.normalizedPhone
               ? [{ kind: 'whatsapp' as const, value: item.normalizedWhatsapp, source: 'lead_harvest_import', confidence: item.confidence || 50 }]
               : []),
@@ -542,8 +534,6 @@ export class LeadHarvestImportService {
         batchId: batch.batchId,
         externalId: item.externalId,
         noVendasImport: true,
-        phones: [item.normalizedPhone, item.normalizedPhone2].filter(Boolean),
-        emails: [item.normalizedEmail].filter(Boolean),
       }),
       firstSeenAt: now,
       lastSeenAt: now,

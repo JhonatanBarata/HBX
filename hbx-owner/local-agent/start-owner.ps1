@@ -74,7 +74,7 @@ if (-not $env:HBX_OWNER_BACKEND_TOKEN) {
   }
 }
 
-$port = "3107"
+$port = if ($env:HBX_OWNER_LOCAL_AGENT_PORT) { $env:HBX_OWNER_LOCAL_AGENT_PORT } else { "3107" }
 
 # ---- Passo 1 (S1): garantir o Ops Control (:3099) de pé ----
 # A coluna VPS inteira do painel (configs/integrações, pressão, motores, banco) depende do container

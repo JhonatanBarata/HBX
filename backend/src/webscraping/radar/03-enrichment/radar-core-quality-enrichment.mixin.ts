@@ -1,5 +1,10 @@
 // @ts-nocheck
 import {
+  hasPoorRadarWebEnrichmentFields,
+  scoreRadarWebEnrichmentCandidate,
+} from './radar-web-enrichment-priority';
+import { RadarWebEnrichmentService } from './radar-web-enrichment.service';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -165,6 +170,8 @@ import type {
 import {
   buildRadarSourceChainFromEngines,
   radarEnrichedByLanesOf,
+  splitRadarDiscoveryFromEnrichment,
+  tagRadarDiscoverySnapshot,
 } from '../shared/radar-source-lanes';
 
 // sourceChain (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md; reformado
@@ -796,6 +803,52 @@ export class RadarCoreQualityEnrichmentMixin {
     return true;
   }
 
+  private stripListPremiumFields<T extends Record<string, any>>(contact: T, _input?: NormalizedSearchInput | NormalizedRadarFilters): T {
+    const clean = { ...contact };
+    const hadPremiumSignal = Boolean(
+      clean.instagramUrl
+      || clean.facebookUrl
+      || clean.email
+      || clean.recommendedChannel
+      || clean.emailConfidence
+      || clean.emailSource
+      || clean.opportunityReason
+      || clean.opportunityScore
+      || clean.enrichmentScore
+      || clean.painType
+      || clean.painLabel
+      || clean.painPitch
+      || clean.evidenceJson
+      || clean.sourceConfidence
+      || clean.actionPlan
+      || clean.qualityV2,
+    );
+    [
+      'score',
+      'recommendedChannel',
+      'emailConfidence',
+      'emailSource',
+      'opportunityReason',
+      'painType',
+      'painLabel',
+      'painPitch',
+      'enrichmentJson',
+      'quality',
+      'qualityV2',
+      'evidenceJson',
+      'sourceConfidence',
+      'actionPlan',
+      'firstMessage',
+      'nextBestAction',
+      'qualityReason',
+      'rejectReasons',
+    ].forEach((key) => delete clean[key]);
+    (clean as any).premiumLocked = true;
+    (clean as any).premiumFeatureStatus = 'locked';
+    (clean as any).premiumTeaser = hadPremiumSignal;
+    return clean as T;
+  }
+
   private candidateHasRequiredChannel(candidate: Record<string, any>, channel: RadarChannelFilter, qualityV2?: LeadQualityV2 | null) {
     const raw = this.parseMaybeJsonObject(candidate?.rawJson);
     const enrichment = this.parseMaybeJsonObject(candidate?.enrichmentJson || raw.enrichmentJson);
@@ -1013,6 +1066,76 @@ export class RadarCoreQualityEnrichmentMixin {
     );
   }
 
+  private shouldRunFreePreSaveEnrichment(
+    normalized: NormalizedSearchInput,
+    results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
+  ) {
+    if (!Array.isArray(results) || !results.length) return false;
+    if (normalized.targetType !== 'pj') return false;
+    if (!this.hasRequiredEnrichmentChannelsFilter(normalized)) return false;
+    if (!results.some((result) => !this.candidateHasRequiredChannels(result as any, normalized))) return false;
+    const flag = String(process.env.HBX_RADAR_PRE_SAVE_FREE_ENRICHMENT_ENABLED || 'true').trim().toLowerCase();
+    return !['false', '0', 'off', 'no'].includes(flag);
+  }
+
+  private async enrichSearchRunResultsBeforeSave(
+    normalized: NormalizedSearchInput,
+    results: Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>,
+    source: string | null,
+    engineUrl?: string | null,
+  ) {
+    if (!this.shouldRunFreePreSaveEnrichment(normalized, results)) return results;
+    try {
+      const maxCards = this.getRequiredChannelEnrichmentBatchLimit(normalized.quantity);
+      const enrichment = await new RadarWebEnrichmentService(this.getRadarWebsiteCrawlSource()).run({
+        normalized: {
+          ...normalized,
+          freshness: 'live',
+        },
+        currentResults: results as WebscrapingContactResult[],
+        maxCards,
+        host: {
+          logger: this.logger,
+          fetcher: globalThis.fetch,
+          engineUrl: engineUrl || this.getHbxScrapingEngineUrl(),
+          timeoutMs: this.getRadarClientRequestTimeoutMs(),
+          getRadarWebsiteCrawlSource: () => this.getRadarWebsiteCrawlSource(),
+          searchHbxEngine: (input, existing, targetEngineUrl, options) => this.searchHbxEngine(
+            {
+              ...input,
+              freshness: 'live',
+            },
+            existing,
+            targetEngineUrl || engineUrl || this.getHbxScrapingEngineUrl(),
+            options,
+          ),
+        },
+      });
+      if (!Array.isArray(enrichment?.results) || !enrichment.results.length) return results;
+      // Separação DESCOBERTA × ENRIQUECIMENTO (03/07): o merger carimba o rótulo do grupo em
+      // sourceEngines de TODO resultado — aqui isso dava carona de "web" pra lead descoberto só
+      // pela Receita (fusão fictícia no medidor). Snapshot antes, merge, e depois sourceEngines
+      // volta a ser só descoberta; o que o merge somou vira enrichmentEngines (nada descartado).
+      const mergeLabel = String(source || 'hbx_engine');
+      const merged = this.getRadarResultMerger().mergeSources([
+        {
+          source: mergeLabel as any,
+          results: tagRadarDiscoverySnapshot(results as Record<string, any>[]) as WebscrapingContactResult[],
+        },
+        {
+          source: 'radar_web_enrichment',
+          results: enrichment.results as WebscrapingContactResult[],
+        },
+      ]);
+      return Array.isArray(merged?.results) && merged.results.length
+        ? merged.results.map((item) => splitRadarDiscoveryFromEnrichment(item as Record<string, any>, mergeLabel)) as Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>
+        : results;
+    } catch (error) {
+      this.logger?.warn?.(`[radar-free-enrichment] pre-save falhou sem bloquear lote: ${String((error as any)?.message || error)}`);
+      return results;
+    }
+  }
+
   private async saveSearchRunResults(
     context: SearchExecutionContext,
     normalized: NormalizedSearchInput,
@@ -1022,9 +1145,7 @@ export class RadarCoreQualityEnrichmentMixin {
     baseIndex = 0,
     enrichmentEngineUrl?: string | null,
   ) {
-    // Regra de produto: busca apenas localiza e persiste candidatos. Enriquecimento
-    // web acontece exclusivamente depois do débito, dentro da operação de pull.
-    const resultsToSave = results;
+    const resultsToSave = await this.enrichSearchRunResultsBeforeSave(normalized, results, source, enrichmentEngineUrl);
     const dedup = await this.snapshotSearchRunDedup(runId);
     const counts = {
       found: 0,
@@ -1032,6 +1153,8 @@ export class RadarCoreQualityEnrichmentMixin {
       skipped: 0,
       invalid: 0,
       savedLeadIds: [] as string[],
+      savedWebEnrichmentLeadIds: [] as string[],
+      savedWebEnrichmentCandidates: [] as Array<{ id: string; score: number; reasons: string[]; index: number }>,
     };
     const metricIncrements: Partial<RadarSearchRunMetrics> = {
       rawFoundCount: 0,
@@ -1107,10 +1230,10 @@ export class RadarCoreQualityEnrichmentMixin {
           ].filter(Boolean)
         : [];
       const enrichmentStatus = finalStatus === 'found'
-        ? enrichmentMissingFields.length > 0 ? 'deferred_until_claim' : 'completed'
+        ? enrichmentMissingFields.length > 0 ? 'pending' : 'completed'
         : 'skipped';
       const socialStatus = finalStatus === 'found' && !resultInstagramUrl && !resultFacebookUrl
-        ? resultSocialStatus || 'unverified'
+        ? 'pending'
         : resultInstagramUrl || resultFacebookUrl
           ? resultSocialStatus || 'found'
           : resultSocialStatus || null;
@@ -1126,10 +1249,10 @@ export class RadarCoreQualityEnrichmentMixin {
         }),
         ...(enrichmentMissingFields.length > 0
           ? {
-              enrichmentDeferredUntilClaim: true,
+              enrichmentQueued: true,
               enrichmentMissingFields,
-              clientStatusLabel: 'Empresa localizada',
-              clientStatusMessage: 'Os contatos adicionais serão consultados somente depois da puxada do lead.',
+              clientStatusLabel: 'Card entregue',
+              clientStatusMessage: 'Contato principal aprovado. O Radar vai completar redes sociais, site e e-mail em segundo plano.',
             }
           : {}),
         ...(socialStatus ? { socialStatus } : {}),
@@ -1220,6 +1343,26 @@ export class RadarCoreQualityEnrichmentMixin {
       ) {
         counts.savedLeadIds.push(String(savedItem.id));
       }
+      if (finalStatus === 'found' && normalized.targetType === 'pj' && savedItem?.id) {
+        const webEnrichmentInput = {
+          id: String(savedItem.id),
+          name: result.name,
+          phone: result.phone,
+          phoneDigits: classified.phoneDigits || result.phoneDigits,
+          website: result.website,
+          email: (result as any).email,
+          instagramUrl: resultInstagramUrl,
+          facebookUrl: resultFacebookUrl,
+          socialStatus,
+          source: String(result.source || source || ''),
+          score: (result as any).score,
+          enrichmentScore: (result as any).enrichmentScore,
+          index: baseIndex + index,
+        };
+        if (hasPoorRadarWebEnrichmentFields(webEnrichmentInput)) {
+          counts.savedWebEnrichmentCandidates.push(scoreRadarWebEnrichmentCandidate(webEnrichmentInput));
+        }
+      }
       metricIncrements.parsedContacts = safeInteger(metricIncrements.parsedContacts) + 1;
       metricIncrements.rawFoundCount = safeInteger(metricIncrements.rawFoundCount) + 1;
       if (finalStatus === 'found') counts.found += 1;
@@ -1265,6 +1408,11 @@ export class RadarCoreQualityEnrichmentMixin {
     }
     await this.recordSourceQualityFromRunItems(resultsToSave, sourceQualityRows);
     await this.updateSearchRunMetrics(runId, { increment: metricIncrements });
+    counts.savedWebEnrichmentLeadIds = counts.savedWebEnrichmentCandidates
+      .filter((candidate) => candidate.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((candidate) => candidate.id);
+    delete (counts as any).savedWebEnrichmentCandidates;
     return counts;
   }
 }

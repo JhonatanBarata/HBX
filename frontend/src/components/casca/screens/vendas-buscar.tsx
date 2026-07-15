@@ -5,14 +5,13 @@
 // (pulso + contador "n novos" + × que para) + resultados entrando NA lista com
 // transição — SEM painel flutuante, SEM botão Voltar. Consome os MESMOS
 // endpoints que leads/page.client.tsx (GET /webscraping/radar/leads, POST/GET/
-// cancel /webscraping/radar/search-runs, GET /leads-bank, GET
+// cancel /webscraping/radar/search-runs, GET /night-factory/leads-bank, GET
 // /vendas/usage) — zero backend novo.
 
-import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
-import { buildNegocioDetailFromLead, isRadarLeadOwned, type RadarLead } from "@/app/(app)/leads/page.client";
+import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS } from "@/lib/brazil-cities";
 import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
@@ -42,7 +41,7 @@ const SEGMENT_GROUPS: CascaPickerGroup[] = RADAR_SEGMENT_CATEGORIES.map((c) => (
 type LeadsResponse = {
   items: RadarLead[];
   total: number;
-  meta?: { available?: boolean; message?: string; totalAvailable?: number; universeTotal?: number | null };
+  meta?: { available?: boolean; message?: string; totalAvailable?: number; baseAvailable?: boolean; baseTotal?: number | null };
 };
 
 type RunResponse = {
@@ -53,16 +52,7 @@ type RunResponse = {
   meta?: { progress?: number; terminal?: boolean; operationalState?: string };
 } | null;
 
-type BankResponse = {
-  total?: number | null;
-  available?: boolean;
-  availableTotal?: number | null;
-  universeTotal?: number | null;
-  nationalActiveTotal?: number | null;
-  operationalPoolTotal?: number | null;
-  poolExclusiveTotal?: number | null;
-  unionExact?: boolean;
-} | null;
+type BankResponse = { total?: number; available?: boolean; baseAvailable?: boolean; baseTotal?: number | null } | null;
 type UsageResponse = {
   cards?: { used?: number; limit?: number };
   sellerActiveQuota?: { seller?: boolean; activeCount?: number; effectiveLimit?: number } | null;
@@ -83,7 +73,6 @@ function getOpState(run: RunResponse): string | null {
 }
 
 export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoChange: (m: Modo) => void }) {
-  const router = useRouter();
   const [city, setCity] = useState("");
   const [segment, setSegment] = useState("");
   const [filtrosOpen, setFiltrosOpen] = useState(false);
@@ -97,7 +86,6 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
   const [segmentPickerOpen, setSegmentPickerOpen] = useState(false);
 
   const [items, setItems] = useState<RadarLead[]>([]);
-  const [recorteTotal, setRecorteTotal] = useState<number | null>(null);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -122,7 +110,6 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
     try {
       const res = await apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`);
       setItems(res?.items || []);
-      setRecorteTotal(typeof res?.total === "number" ? res.total : null);
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
@@ -132,7 +119,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
   }, [segment, city]);
 
   const loadBank = useCallback(() => {
-    apiFetch<BankResponse>("/leads-bank").then(setBank).catch(() => setBank(null));
+    apiFetch<BankResponse>("/night-factory/leads-bank").then(setBank).catch(() => setBank(null));
   }, []);
   const loadUsage = useCallback(() => {
     apiFetch<UsageResponse>("/vendas/usage").then(setUsage).catch(() => setUsage(null));
@@ -218,8 +205,6 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
       });
       setRun(res);
       setFoundNow(0);
-      const startedRunId = res?.id || res?.runId;
-      if (startedRunId) router.push(`/leads/runs/${encodeURIComponent(startedRunId)}`);
     } catch (err) {
       setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
     } finally {
@@ -239,10 +224,13 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
 
   const saq = usage?.sellerActiveQuota;
   const isSeller = Boolean(saq?.seller);
-  const sellerQuotaValue = isSeller
+  const cotaLabel = isSeller ? "Em mãos" : "Mês";
+  const cotaValue = isSeller
     ? `${fmtInt(saq?.activeCount)}/${fmtInt(saq?.effectiveLimit)}`
-    : null;
-  const totalBrasil = bank?.universeTotal ?? null;
+    : usage?.cards
+      ? `${fmtInt(usage.cards.used)}/${fmtInt(usage.cards.limit)}`
+      : "—";
+  const totalBrasil = bank?.baseAvailable ? (bank?.baseTotal ?? null) : (bank?.total ?? null);
 
   if (loading) return <CascaLoading caption="Carregando Radar…" />;
 
@@ -276,8 +264,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
             (spec FIX4), não substitui a linha dentro dele. */}
         <div className="vnd-m__statsrow">
           <span className="vnd-m__stats">
-            Brasil {totalBrasil == null ? "—" : fmtInt(totalBrasil)} · Disponíveis {totalBrasil == null ? "—" : fmtInt(totalBrasil)} · Recorte {recorteTotal == null ? "—" : fmtInt(recorteTotal)}
-            {sellerQuotaValue ? ` · Em mãos ${sellerQuotaValue}` : ""}
+            Brasil {fmtInt(totalBrasil)} · Disponíveis {fmtInt(items.length)} · {cotaLabel} {cotaValue}
           </span>
           {!runActive ? (
             <button type="button" className="vnd-m__searchcta" onClick={executarBusca} disabled={runBusy}>
@@ -333,7 +320,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
 
       <NegocioSheet
         open={Boolean(sel)}
-        detail={sel ? buildNegocioDetailFromLead(sel, { revealed: isRadarLeadOwned(sel) }) : null}
+        detail={sel ? buildNegocioDetailFromLead(sel, { revealed: Boolean(sel.ownershipStatus ? sel.ownershipStatus === "mine" : sel.phone) }) : null}
         onClose={() => setSel(null)}
         showPuxar={Boolean(sel && sel.ownershipStatus !== "mine")}
         onPulled={() => { setSel(null); void loadList(); }}

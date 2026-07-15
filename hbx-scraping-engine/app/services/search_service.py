@@ -50,11 +50,6 @@ SOCIAL_BRIDGE_HOST_PARTS = (
 INSTAGRAM_MIRROR_HOST_PARTS = ("pixnoy.com", "pixwox.com", "picuki.com", "dumpor.com", "imginn.com", "inflact.com")
 OFFICIAL_WEBSITE_PROBE_TLDS = ("com.br", "com")
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
-WEBSITE_PHONE_RE = re.compile(r"(?<!\d)(?:\+?55\s*)?(?:\(\d{2}\)|\d{2}[\s.-]+)\s*9?\d{4}[-.\s]+\d{4}(?!\d)")
-WEBSITE_PHONE_LINK_RE = re.compile(
-    r"(?:tel:|wa\.me/|phone=)(?:\+?55)?([1-9]{2}9?\d{8})(?!\d)",
-    re.I,
-)
 CNPJ_RE = re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")
 BAD_EMAIL_LOCAL_PARTS = {
     "asset",
@@ -2341,28 +2336,15 @@ class SearchService:
             return "confirmed" if same_domain or not website_domain else "unverified", 78 if same_domain else 62
         return "probable", 55
 
-    def normalize_phone_candidate(self, value: str | None) -> str | None:
-        digits = re.sub(r"\D", "", str(value or ""))
-        if len(digits) in {12, 13} and digits.startswith("55"):
-            digits = digits[2:]
-        if len(digits) not in {10, 11}:
-            return None
-        if digits[0] == "0" or digits[:2] == "00" or len(set(digits)) <= 2:
-            return None
-        return digits
-
-    async def discover_contacts_for_contact(
-        self,
-        contact: dict,
-    ) -> tuple[str | None, str, str, int, dict, list[str], list[str]]:
+    async def discover_email_for_contact(self, contact: dict) -> tuple[str | None, str, str, int, dict]:
         supplied = self.normalize_email_candidate(contact.get("email"))
-        emails: list[str] = [supplied] if supplied else []
-        supplied_phone = self.normalize_phone_candidate(contact.get("phoneDigits") or contact.get("phone"))
-        phones: list[str] = [supplied_phone] if supplied_phone else []
+        if supplied:
+            status, confidence = self.email_status_for_candidate(supplied, contact.get("website"), "manual")
+            return supplied, status, "manual", confidence, {"pagesFetched": 0, "emailsFound": 1}
 
         website = str(contact.get("website") or "").strip()
         website_domain = domain_from_url(website)
-        stats = {"pagesFetched": 0, "emailsFound": len(emails), "phonesFound": len(phones)}
+        stats = {"pagesFetched": 0, "emailsFound": 0}
         if website:
             root = website if website.startswith(("http://", "https://")) else f"https://{website}"
             urls = list(dict.fromkeys([
@@ -2382,32 +2364,13 @@ class SearchService:
             for page in pages:
                 for match in EMAIL_RE.findall(page.html or ""):
                     email = self.normalize_email_candidate(match)
-                    if not email or email in emails:
+                    if not email:
                         continue
-                    emails.append(email)
-                    if len(emails) >= 3:
-                        break
-                html_text = page.html or ""
-                phone_matches = [match.group(0) for match in WEBSITE_PHONE_RE.finditer(html_text)]
-                phone_matches.extend(match.group(1) for match in WEBSITE_PHONE_LINK_RE.finditer(html_text))
-                for match in phone_matches:
-                    phone = self.normalize_phone_candidate(match)
-                    if not phone or phone in phones:
-                        continue
-                    phones.append(phone)
-                    if len(phones) >= 3:
-                        break
+                    stats["emailsFound"] += 1
+                    status, confidence = self.email_status_for_candidate(email, website, "website")
+                    return email, status, "website", confidence, stats
 
-        emails = emails[:3]
-        phones = phones[:3]
-        stats["emailsFound"] = len(emails)
-        stats["phonesFound"] = len(phones)
-        primary_email = emails[0] if emails else None
-        if primary_email:
-            source = "manual" if supplied and primary_email == supplied else "website"
-            status, confidence = self.email_status_for_candidate(primary_email, website, source)
-            return primary_email, status, source, confidence, stats, emails, phones
-        return None, "missing", "none", 0, stats, emails, phones
+        return None, "missing", "none", 0, stats
 
     async def extract_social_links_from_website(
         self,
@@ -2754,14 +2717,9 @@ class SearchService:
                     if late_website_social_stats.get("attempted"):
                         social_stats["lateWebsite"] = late_website_social_stats
         if self.time_budget_expired(deadline) or not enriched.get("website"):
-            email = self.normalize_email_candidate(enriched.get("email") or request.email)
-            email_status, email_confidence = self.email_status_for_candidate(email, enriched.get("website"), "manual")
-            email_source = "manual" if email else "none"
-            email_stats = {"pagesFetched": 0, "emailsFound": 1 if email else 0, "phonesFound": 1 if phone_digits else 0, "timedOut": True}
-            emails = [email] if email else []
-            phones = [phone_digits] if self.normalize_phone_candidate(phone_digits) else []
+            email, email_status, email_source, email_confidence, email_stats = None, "missing", "none", 0, {"pagesFetched": 0, "emailsFound": 0, "timedOut": True}
         else:
-            email, email_status, email_source, email_confidence, email_stats, emails, phones = await self.discover_contacts_for_contact(enriched)
+            email, email_status, email_source, email_confidence, email_stats = await self.discover_email_for_contact(enriched)
         has_social = bool(enriched.get("instagramUrl") or enriched.get("facebookUrl"))
         social_scores = [
             int(match.get("score") or 0)
@@ -2773,12 +2731,10 @@ class SearchService:
             name=request.name,
             phone=request.phone or phone_digits,
             phoneDigits=phone_digits,
-            phones=phones,
             rating=identity.get("rating"),
             reviews=identity.get("reviews"),
             website=enriched.get("website") or (request.website if input_website_accepted else None),
             email=email,
-            emails=emails,
             emailStatus=email_status,
             emailSource=email_source,
             emailConfidence=email_confidence,

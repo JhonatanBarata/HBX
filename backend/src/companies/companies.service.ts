@@ -1328,6 +1328,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     'cadenciaRotina',
     'cadencia',
     'commercialEmailMessageLog',
+    'enrichmentCostLedger',
     'fiscalInvoice',
     'gmailConnection',
     'harvestImportBatch',

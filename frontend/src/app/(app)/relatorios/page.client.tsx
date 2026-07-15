@@ -16,7 +16,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { Av, I, ICONS, KpiRow, useCurrentUser } from "@/components/hbx/shell";
+import { Av, I, ICONS, KpiRow, useCurrentUser, useEntitlements } from "@/components/hbx/shell";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { isCompanySeller } from "@/lib/roles";
 
@@ -132,8 +132,19 @@ function fmtWhen(iso?: string | null) {
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+// Planos com tier 'list' (hbx_lite) não têm exportação de PDF (canExportConversionPdf=false
+// no catálogo de planos). Todos os outros tiers têm. Quando o plano ainda não carregou
+// (loaded=false) escondemos o botão para evitar flash de recurso proibido (fail-closed).
+function canExportPdf(planKey: string | null, loaded: boolean): boolean {
+  if (!loaded) return false;
+  // null = sem plano definido → projeta Lead Plus → pode exportar
+  if (planKey === null) return true;
+  return planKey !== "hbx_lite";
+}
+
 export function RelatoriosClient() {
   const user = useCurrentUser();
+  const ent = useEntitlements();
   const isMaster = Boolean((user as { isSystemMaster?: boolean } | null)?.isSystemMaster);
   // WORM-18: "Acompanhe sua equipe" e pro dono/admin. Vendedor nao ve (o backend
   // ja barra com 403; aqui evitamos disparar a chamada e mostrar a secao).
@@ -142,6 +153,8 @@ export function RelatoriosClient() {
   const podeVerEquipe = Boolean(user) && !isSeller;
   const [equipe, setEquipe] = useState<EquipeDashboard>(null);
   const [equipeErr, setEquipeErr] = useState<string | null>(null);
+  // master bypass: sempre pode exportar (backend bypassa entitlements para isSystemMaster)
+  const podeExportarPdf = isMaster || canExportPdf(ent.planKey, ent.loaded);
   const [per, setPer] = useState("7d");
   const perPill = useGlassPill<HTMLButtonElement>(per);
   const [report, setReport] = useState<ReportResponse>(null);
@@ -335,7 +348,9 @@ export function RelatoriosClient() {
             ))}
             {pdfError && <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{pdfError}</span>}
             <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
-              <button className="btn-ghost" onClick={exportarPdf} disabled={pdfBusy}><I d={ICONS.doc} size={13} /> {pdfBusy ? "Exportando…" : "Exportar PDF"}</button>
+              {podeExportarPdf && (
+                <button className="btn-ghost" onClick={exportarPdf} disabled={pdfBusy}><I d={ICONS.doc} size={13} /> {pdfBusy ? "Exportando…" : "Exportar PDF"}</button>
+              )}
               <button className="btn-teal" onClick={exportarCsv} disabled={!report?.metrics}><I d={ICONS.doc} size={13} /> Exportar CSV</button>
             </div>
           </div>

@@ -15,12 +15,17 @@ import type { LeadContactCandidate } from '../persistence/lead-contact-gate';
 // Cola até 10k CNPJs → 3 camadas OPCIONAIS, cada uma acumulando em cima da anterior:
 //   1. cadastral (instantânea, grátis): CnpjPublicCompany local → BrasilAPI (throttle do
 //      SourceBudgetService, já embutido no RadarCnpjL4EnrichmentService.lookup) → cacheia local.
-//   2. vivo: materializa o CNPJ como RadarLeadPool (placeId `cnpj_public:<cnpj>`) e
+//   2. vivo (fila da fábrica): materializa o CNPJ como RadarLeadPool (MESMO placeId
+//      `cnpj_public:<cnpj>` da fábrica F2 — nunca duplica lead entre fábrica e raio-x) e
 //      enfileira uma missão `enrich_lead` (RadarMissionQueueService — a fila JÁ existente, nenhuma
-//      fila nova). A ponte do HBX Owner local é o executor permitido para `enrich_lead`.
+//      fila nova). O consumo em si reusa os MESMOS passos que a fábrica usa (L4 + crawl leve do
+//      site + extração IA opcional + LeadContactWriteService com gate) — hoje não há um worker de
+//      lease genérico pra `enrich_lead` (só a RadarFabricaService drena o que ELA MESMA
+//      materializa), então este serviço processa localmente o que enfileira, marcando a missão
+//      completa ao final (idempotente por dedupeKey `lead:<id>`, mesmo padrão da fábrica).
 //   3. IA (opcional): nota ICP 0-100 + resumo de 1 linha via qwen2.5:7b (CnpjXrayAiNoteService).
 // TRAVA LEI Nº1: nenhuma camada aqui toca fonte paga — L4/BrasilAPI é grátis; a camada vivo usa os
-// MESMOS serviços gratuitos da fábrica (nenhuma chamada a brave/google_places).
+// MESMOS serviços gratuitos da fábrica (nenhuma chamada a brave/google_places/serper).
 
 const MAX_CNPJS = 10_000;
 

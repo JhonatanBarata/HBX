@@ -12,7 +12,6 @@ import React, { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { useLeadClaim } from "@/components/hbx/lead-pull-progress-overlay";
 import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
@@ -443,9 +442,9 @@ export function currentCompanyName(user: CurrentUser | null): string {
 }
 
 // ---------------------------------------------------------------
-// Compatibilidade temporária de assinatura para consumidores que ainda passam
-// o antigo objeto comercial a isModuleVisible. O gate real de capacidade é
-// /modules/me (kill-switch + RBAC).
+// Entitlements do plano (GET /commercial-plans/me → current.entitlements):
+// fonte única para OCULTAR módulos não liberados (ordem do dono,
+// 12/06/2026). UX apenas — o guard real continua no backend.
 // ---------------------------------------------------------------
 export type Entitlements = Record<string, boolean>;
 
@@ -453,6 +452,7 @@ type PlanMe = {
   current?: {
     planKey?: string | null;
     selectedPlanKey?: string | null;
+    entitlements?: Entitlements;
     // campos de cobrança: o backend já zera estes para vendedor (role USER)
     isTrial?: boolean | null;
     trialRemainingDays?: number | null;
@@ -461,7 +461,12 @@ type PlanMe = {
     accessState?: string | null;
     // NEUTRO (sobrevive p/ vendedor): empresa não pode operar.
     accessPaused?: boolean | null;
-    // O card da sidebar mostra somente o saldo da conta de créditos.
+    // Tier de inteligência de lead (additive 25/06)
+    tier?: 'list' | 'lead' | 'full' | null;
+    canSeeLeadIntelligence?: boolean | null;
+    canSeeCompanyData?: boolean | null;
+    // Conta de crédito (modelo grátis/cortesia): o card da sidebar mostra saldo de
+    // crédito no lugar da cota de plano ("Leads do mês x/2.200"). Ver decisão C, 07/07.
     creditsAccount?: boolean | null;
   };
   plans?: Array<{ key: string; title?: string | null; monthlyPrice?: number | null }>;
@@ -484,34 +489,75 @@ export function peekPlanMeCache(): PlanMe | undefined {
   return undefined;
 }
 
-// Invalida o cache para reavaliar imediatamente o estado comercial da conta.
+// Invalida o cache pra forçar um plano/me fresco no próximo fetch (ex.: depois de
+// re-sincronizar a cobrança e querer reavaliar o bloqueio na hora).
 export function clearPlanMeCache() {
   planMeCache = null;
 }
 
-const UNIVERSAL_PRODUCT_ACCESS = Object.freeze({
-  loaded: true,
-  planKey: null as string | null,
-  entitlements: Object.freeze({}) as Entitlements,
-});
-
 export function useEntitlements() {
-  return UNIVERSAL_PRODUCT_ACCESS;
+  const [state, setState] = useState<{
+    loaded: boolean;
+    planKey: string | null;
+    entitlements: Entitlements;
+    tier: 'list' | 'lead' | 'full';
+    canSeeLeadIntelligence: boolean;
+    canSeeCompanyData: boolean;
+  }>({
+    loaded: false,
+    planKey: null,
+    entitlements: {},
+    tier: 'lead',
+    canSeeLeadIntelligence: true,
+    canSeeCompanyData: false,
+  });
+  useEffect(() => {
+    let alive = true;
+    if (!getToken()) return;
+    fetchPlanMeCached().then(res => {
+      if (!alive) return;
+      const cur = res?.current;
+      // Deriva tier do campo explícito (additive 25/06) ou do planKey legado.
+      // Antes do backend estar atualizado, planKey=null → assume 'lead' (não trava ninguém).
+      let tier: 'list' | 'lead' | 'full' = (cur?.tier as 'list' | 'lead' | 'full' | null | undefined) || 'lead';
+      if (!cur?.tier) {
+        const pk = cur?.planKey || '';
+        if (pk === 'hbx_lite') tier = 'list';
+        else if (pk === 'hbx_pro' || pk === 'hbx_melhor') tier = 'full';
+        else tier = 'lead';
+      }
+      setState({
+        loaded: true,
+        planKey: cur?.planKey || null,
+        entitlements: cur?.entitlements || {},
+        tier,
+        canSeeLeadIntelligence: cur?.canSeeLeadIntelligence != null ? Boolean(cur.canSeeLeadIntelligence) : tier !== 'list',
+        canSeeCompanyData: cur?.canSeeCompanyData != null ? Boolean(cur.canSeeCompanyData) : tier === 'full',
+      });
+    });
+    return () => { alive = false; };
+  }, []);
+  return state;
 }
 
-// Estado da conta de créditos usado pelo card da sidebar. O card nunca projeta
-// título comercial, cota mensal ou rótulo de pacote.
-export type CreditAccountSummary = { creditsAccount: boolean };
+// Resumo do plano para o card da sidebar (GET /commercial-plans/me). Título vem
+// do catálogo da própria resposta (sem hardcode — PAGAMENTOS.md). Trial/estado o
+// backend já esconde de vendedor; mesmo assim o card só renderiza para não-vendedor.
+export type PlanSummary = { loaded: boolean; title: string | null; accessLabel: string | null; creditsAccount: boolean };
 
-export function useCreditAccountSummary(): CreditAccountSummary {
-  const [state, setState] = useState<CreditAccountSummary>({ creditsAccount: false });
+export function usePlanSummary(): PlanSummary {
+  const [state, setState] = useState<PlanSummary>({ loaded: false, title: null, accessLabel: null, creditsAccount: false });
   useEffect(() => {
     let alive = true;
     if (!getToken()) return;
     fetchPlanMeCached().then(res => {
       if (!alive) return;
       const cur = res?.current || {};
+      const title = (res?.plans || []).find(p => p.key === cur.planKey)?.title || null;
       setState({
+        loaded: true,
+        title,
+        accessLabel: cur.accessStateLabel || null,
         creditsAccount: Boolean(cur.creditsAccount),
       });
     });
@@ -546,7 +592,7 @@ export function useCreditsSummary(enabled: boolean): CreditsSummary {
 }
 
 // ---------------------------------------------------------------
-// Acesso por USUÁRIO (GET /modules/me): o kill-switch libera o módulo para a
+// Acesso por USUÁRIO (GET /modules/me): o plano libera o módulo para a
 // EMPRESA; isto responde se ESTE usuário pode ABRIR o módulo (papel +
 // política da equipe). Mesmo cálculo do guard real do backend
 // (modules.service.canUserAccessModule, usado pelo ModuleAccessGuard), então
@@ -584,6 +630,42 @@ export function useMyModules(): MyModulesState {
   return state;
 }
 
+// módulo da navegação → entitlement que o libera (null = sempre visível)
+const NAV_ENTITLEMENT: Record<string, string | null> = {
+  dash: null,
+  leads: "webscraping",
+  scrape: "webscraping",
+  vendas: "vendas",
+  agenda: "vendas",
+  automacao: "vendas",
+  atend: "atendimento_chat",
+  // NÚCLEO-CRM N3: Empresas = kill-switch, NÃO paywall → sem gate de plano
+  // (null = sempre visível). O interruptor do master vive no SystemModule
+  // 'empresas' (defaultEnabled=true), não num tier de entitlement.
+  empresas: null,
+  // NÚCLEO-CRM N4: Contatos = kill-switch, NÃO paywall → sem gate de plano.
+  contatos: null,
+  // NÚCLEO-CRM N5: Produtos = kill-switch, NÃO paywall → sem gate de plano.
+  produtos: null,
+  // NÚCLEO-CRM N6: Logística = kill-switch, NÃO paywall → sem gate de plano.
+  logistica: null,
+  // Logística → Clientes: mesma gestão de clientes de entrega (Contatos), sem paywall.
+  clientes: null,
+  bot: null,
+  assistente: null,
+  // Concierge IA: kill-switch por módulo (master liga por empresa), NÃO paywall.
+  concierge: null,
+  relat: "vendas",
+  // Financeiro do tenant = kill-switch, NÃO paywall (null). A trava real é @Admin
+  // na tela + backend (LEI DO VENDEDOR), não um tier de plano.
+  financeiro: null,
+  // Website não é um tier de plano (webscraping/vendas/atendimento_chat) — é
+  // módulo companyAssignable ligado pelo MASTER por empresa (monthlyPrice: 0
+  // hoje). O gate real vive em NAV_MODULE_KEY (/modules/me), não em entitlement.
+  website: null,
+  config: null,
+};
+
 // módulo da navegação → chave do módulo em /modules/me (null = sem gate por
 // usuário, sempre visível). Decide se ESTE usuário pode abrir a tela.
 const NAV_MODULE_KEY: Record<string, string | null> = {
@@ -597,8 +679,8 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // Cadastros básicos (empresas/contatos/produtos) = SEM gate (null, sempre
   // visíveis). Eles ficam FORA do mapa de categorias do OOBE de propósito
   // (cadastro básico serve a todo perfil). CORREÇÃO 11/07 (backend): "sem
-  // post-it" agora resolve por SystemModule.defaultEnabled quando não há uma
-  // configuração específica (resolveModuleDefaultWithoutOverride) — a armadilha
+  // post-it" agora resolve por SystemModule.defaultEnabled quando a chave está
+  // fora da caixa do plano (resolveModuleDefaultWithoutOverride) — a armadilha
   // de 10/07 ("chave própria fazia os 3 sumirem de toda empresa sem post-it")
   // morreu, mas o null continua certo: cadastro básico não tem gate por usuário.
   empresas: null,
@@ -607,8 +689,8 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // OOBE por categoria (W2/W3 PR10072026): Logística É gerida por categoria —
   // o OOBE grava post-it (enabled true/false) e o /modules/me decide.
   // CORREÇÃO 11/07: empresa antiga SEM post-it segue defaultEnabled=true
-  // ("nasce ligado") — o item aparece e o /logistica abre (antes o backend
-  // negava a chave ausente, e o app de entrega dava 403 até
+  // ("nasce ligado") — o item aparece e o /logistica abre (antes o backend caía
+  // na caixa do plano, que não tem 'logistica', e o app de entrega dava 403 até
   // o dono completar o painel CATEGORIAS no desktop).
   logistica: "logistica",
   // Logística → Clientes: mesma porta do módulo Logística (sem chave própria).
@@ -632,22 +714,38 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
 
 export function isModuleVisible(
   id: string,
-  _ent: { loaded: boolean; entitlements: Entitlements },
+  ent: { loaded: boolean; entitlements: Entitlements },
   user?: { isSystemMaster?: boolean | null } | null,
   mods?: MyModulesState,
 ) {
-  // Fail-closed: id sem entrada explícita no mapa de módulos é oculto.
-  if (!Object.prototype.hasOwnProperty.call(NAV_MODULE_KEY, id)) {
+  // Fail-closed (PR10072026 W3): id sem entrada EXPLÍCITA nos DOIS mapas =
+  // oculto pra todos (antes caía em `?? null` = visível — fail-open). Os
+  // `null` explícitos continuam significando "sem gate". Todo id novo de
+  // NAV_LINKS (e das cascas) PRECISA ganhar entrada nos dois mapas.
+  if (
+    !Object.prototype.hasOwnProperty.call(NAV_ENTITLEMENT, id) ||
+    !Object.prototype.hasOwnProperty.call(NAV_MODULE_KEY, id)
+  ) {
     if (process.env.NODE_ENV !== "production") {
-      console.warn(`[shell] nav id "${id}" sem entrada explícita em NAV_MODULE_KEY — oculto (fail-closed).`);
+      console.warn(`[shell] nav id "${id}" sem entrada explícita em NAV_ENTITLEMENT/NAV_MODULE_KEY — oculto (fail-closed).`);
     }
     return false;
   }
 
-  // Master enxerga tudo; endpoints exclusivos continuam protegidos por MasterGuard.
+  // master enxerga TUDO: o backend bypassa entitlements para isSystemMaster
+  // (commercial-plans.service.assertEntitlementForUser), mas /commercial-plans/me
+  // falha sem empresa — sem este bypass a sidebar encolhia para o dono.
   if (user?.isSystemMaster) return true;
 
-  // Gate por USUÁRIO (papel + política da equipe) via /modules/me.
+  // 1) Gate de PLANO (entitlement da empresa).
+  const entKey = NAV_ENTITLEMENT[id] ?? null;
+  if (entKey !== null) {
+    // sem flash de módulo proibido: condicionais só aparecem após carregar
+    if (!ent.loaded) return false;
+    if (!ent.entitlements[entKey]) return false;
+  }
+
+  // 2) Gate por USUÁRIO (papel + política da equipe) via /modules/me.
   // Regra do dono (13/06/2026, reforçada): SEM ACESSO = NÃO APARECE. O gate é
   // fail-closed — o módulo só entra na sidebar quando o backend afirma
   // explicitamente accessible:true (mesmo veredito do guard real
@@ -665,8 +763,9 @@ export function isModuleVisible(
   return true;
 }
 
-// O card leva à seção "Créditos" de Configurações (carteira + recarga),
-// o destino de cobrança do contratante.
+// Modelo crédito: o card leva à seção "Créditos" de Configurações (carteira +
+// recarga), o único destino de cobrança do contratante. (A seção "Plano e
+// cobrança" morreu com o modelo de plano — W3/PR10072026.)
 function abrirCreditos(router: ReturnType<typeof useRouter>) {
   try { sessionStorage.setItem("hbx:config-sec", "Créditos"); } catch { /* sem storage */ }
   router.push("/configuracoes");
@@ -748,7 +847,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   const ent = useEntitlements();
   const mods = useMyModules();
   const router = useRouter();
-  const creditAccount = useCreditAccountSummary();
+  const plan = usePlanSummary();
   // Destaque do menu = GLASS PILL (Lei nº2, docs/Rules/FRONTEND.md): mede a
   // posição do item ATIVO e desliza até ele em vez de pular de item pra item.
   // S1 MODO DISTRIBUIDORA (só-logística): "Dashboard" sai do menu — a rota é
@@ -769,9 +868,10 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
   // precisa re-medir quando o rail colapsa/expande (a largura do item muda).
   const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey, rail);
-  // O card da sidebar mostra somente saldo de crédito e fica restrito à
-  // audiência de cobrança; vendedor nunca vê valores financeiros da empresa.
-  const creditsMode = Boolean(creditAccount.creditsAccount) && Boolean(user) && !isCompanySeller(user);
+  // Modelo crédito (S6: default é conta de crédito): o card da sidebar mostra
+  // SALDO de crédito. Conta empresarial (não-crédito) não tem card — o mais
+  // simples (W3/PR10072026); a cota de plano ("Leads do mês") morreu com o plano.
+  const creditsMode = Boolean(plan.creditsAccount) && Boolean(user) && !isCompanySeller(user);
   const creditsSummary = useCreditsSummary(creditsMode);
   const radarNavState = useRadarNavState();
   // Vendedor (role USER) NUNCA vê cobrança (PAGAMENTOS.md). O backend já zera
@@ -845,6 +945,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
           <div className="plan-card">
             <div>
               <strong>Créditos</strong>
+              {plan.accessLabel && <><br /><small>{plan.accessLabel}</small></>}
             </div>
             {creditsSummary && (() => {
               // Medidor de crédito: consumo dentro dos lotes ATIVOS ("total concedido ativo").
@@ -990,7 +1091,7 @@ const TOPBAR_CACHE_TTL = 30_000;
 let noticesCache: { at: number; data: MasterNotice[] } | null = null;
 let unreadCache: { at: number; count: number } | null = null;
 // Sinalizadores do topo (WhatsApp / Bot / E-mail): tri-estado VISUAL — sempre
-// visíveis para comunicar integrações disponíveis, mas a cor conta o estado:
+// visíveis ("encher o olho" p/ upgrade mesmo sem acesso), mas a cor conta o estado:
 //   off    = recurso não ligado (cinza, default)
 //   active = ligado e funcional (acende na cor do tema)
 //   error  = ligado mas quebrado (vermelho) — ex.: WhatsApp com sessão presa, e-mail sem enviar
@@ -1092,7 +1193,6 @@ const MODULE_TOURS: Record<string, string> = {
 
 export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNode }) {
   const user = useCurrentUser();
-  const { claimLead } = useLeadClaim();
   const ent = useEntitlements();
   const mods = useMyModules();
   const router = useRouter();
@@ -1108,8 +1208,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   const podeAtendimento = isModuleVisible("atend", ent, user, mods);
   const podeNovoLead = isModuleVisible("vendas", ent, user, mods);
   const [notices, setNotices] = useState<MasterNotice[]>([]);
-  const [noticeActionBusyId, setNoticeActionBusyId] = useState<string | null>(null);
-  const [noticeActionError, setNoticeActionError] = useState<string | null>(null);
   const [unreadChats, setUnreadChats] = useState(0);
   const [waStatus, setWaStatus] = useState<WaStatus>({ state: "off", phone: null });
   const [emailState, setEmailState] = useState<SignalState>("off");
@@ -1351,7 +1449,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           {bellOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, width: 320, maxHeight: 380, overflowY: "auto", padding: 10, display: "grid", gap: 8 }}>
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.82rem" }}>Avisos</strong>
-              {noticeActionError ? <span role="alert" style={{ fontSize: "0.66rem", lineHeight: 1.4, color: "var(--hbx-danger)" }}>{noticeActionError}</span> : null}
               {bellMuted && (
                 <button
                   style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "0.7rem", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
@@ -1395,24 +1492,15 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                         style={{ width: "100%", minHeight: 28, fontSize: "0.66rem", marginTop: 2 }}
                         onClick={async e => {
                           e.stopPropagation();
-                          setNoticeActionBusyId(n.id);
-                          setNoticeActionError(null);
                           try {
-                            await claimLead(n.payload!.poolId!, {
-                              lead: { id: n.payload!.poolId!, name: n.payload?.name, city: n.payload?.city },
-                            });
+                            await apiFetch("/webscraping/radar/pull-to-vendas", { method: "POST", body: JSON.stringify({ leadIds: [n.payload!.poolId] }) });
                             await marcarLido(n);
                             setBellOpen(false);
                             router.push("/vendas");
-                          } catch (cause) {
-                            setNoticeActionError(cause instanceof Error ? cause.message : "Não foi possível puxar este lead.");
-                          } finally {
-                            setNoticeActionBusyId(null);
-                          }
+                          } catch { /* falha silenciosa */ }
                         }}
-                        disabled={noticeActionBusyId === n.id}
                       >
-                        {noticeActionBusyId === n.id ? "Puxando…" : "Puxar pra carteira"}
+                        Puxar pra carteira
                       </button>
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>

@@ -16,6 +16,7 @@ export type TeamAccessPreset = {
   description: string;
   access: TeamAccessMap;
   limits?: {
+    enrichmentDaily?: TeamAccessPresetLimit;
     cardDeliveryDaily?: TeamAccessPresetLimit;
     activeCards?: TeamAccessPresetLimit;
     monthlyCards?: TeamAccessPresetLimit;
@@ -50,6 +51,8 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'radar.filters.useSegments': false,
       'radar.filters.useCities': false,
       'radar.filters.useStates': false,
+      'radar.enrichment.manual': false,
+      'radar.enrichment.auto': false,
       'vendas.access': true,
       'vendas.cards.viewOwn': true,
       'vendas.cards.edit': true,
@@ -81,6 +84,7 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'radar.filters.useSegments': true,
       'radar.filters.useCities': true,
       'radar.filters.useStates': true,
+      'radar.enrichment.manual': true,
       'vendas.access': true,
       'vendas.cards.viewOwn': true,
       'vendas.cards.edit': true,
@@ -117,6 +121,8 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'radar.cards.assignToOthers': false,
       'radar.cards.sendToVendas': false,
       'radar.cards.distribute': false,
+      'radar.enrichment.manual': false,
+      'radar.enrichment.auto': false,
       'vendas.access': true,
       'vendas.cards.viewOwn': true,
       'vendas.cards.viewCompany': false,
@@ -165,6 +171,8 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'radar.filters.useSegments': false,
       'radar.filters.useCities': false,
       'radar.filters.useStates': false,
+      'radar.enrichment.manual': false,
+      'radar.enrichment.auto': false,
       'vendas.access': false,
       'vendas.cards.viewOwn': false,
       'vendas.cards.viewCompany': false,
@@ -204,6 +212,7 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'products.changePrice': false,
     }),
     limits: {
+      enrichmentDaily: { mode: 'blocked', value: 0 },
       cardDeliveryDaily: { mode: 'blocked', value: 0 },
       activeCards: { mode: 'blocked', value: 0 },
       monthlyCards: { mode: 'blocked', value: 0 },

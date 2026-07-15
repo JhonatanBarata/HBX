@@ -109,26 +109,23 @@ Use uma URL estável que redirecione para o APK atual. Como a variável é `NEXT
 
 No deploy da Hostinger, a URL assume `https://www.hbxsystem.com.br/download/android` por padrão e é passada ao build Docker do frontend. O APK continua fora do Git e deve ser publicado no destino estável com a assinatura oficial.
 
-Na VPS atual, o Nginx atende essa rota pelo link `/var/www/hbx-downloads/hbx-mobile.apk`. O HBX Logística usa a rota estável `https://www.hbxsystem.com.br/download/android-logistica` e o link `/var/www/hbx-downloads/hbx-logistica.apk`. Cada release deve enviar os APKs com nomes versionados, conferir o SHA-256 remoto e só então atualizar os links; os AABs continuam reservados à Play depois do aceite em aparelho físico.
+Na VPS atual, o Nginx atende essa rota pelo link `/var/www/hbx-downloads/hbx-mobile.apk`. Cada release deve enviar o APK com nome versionado, conferir o SHA-256 remoto e só então atualizar esse link; o AAB continua reservado à Play depois do aceite em aparelho físico.
 
-## Entrega pelo VPS e despertar por FCM
+## Entrega pelo VPS
 
-A ação e seu histórico ficam persistidos no PostgreSQL do HBX. O FCM transporta somente um sinal de despertar, sem telefone, mensagem ou dados do lead; ao recebê-lo, o APK consulta `POST /mobile/actions/pull` com a credencial revogável do aparelho. Se o push atrasar ou falhar, a fila continua sendo recuperada na abertura do aplicativo e pelo polling em primeiro plano.
+A ponte não usa Firebase/FCM. A ação fica persistida no PostgreSQL do HBX e é entregue por `POST /mobile/actions/pull`, autenticado pela credencial revogável do aparelho. O polling roda somente enquanto o APK está em primeiro plano e para quando o aplicativo vai para segundo plano.
 
-## Comportamento do HBX Vendas 2.0.0
+## Comportamento do APK 1.2.0
 
-- `versionCode = 8`;
-- interface local, empacotada no APK, sem carregar o frontend web do HBX;
+- `versionCode = 5`;
 - solicita permissão de notificações uma vez após o vínculo;
-- recebe o despertar FCM mesmo com a interface fechada e busca a ação no VPS;
-- envia heartbeat e mantém o fallback de fila em primeiro plano;
+- envia heartbeat e consulta fila a cada 30 segundos somente em primeiro plano;
+- para o polling quando o aplicativo vai para segundo plano;
 - cria notificação com `PendingIntent` para `MobileActionActivity`;
 - persiste eventos localmente até o VPS confirmar o recebimento;
-- abre discador ou WhatsApp pessoal;
+- abre discador ou WhatsApp;
 - detecta o retorno ao HBX;
 - registra duração aproximada e resultado.
-
-O HBX Logística é distribuído separadamente, com o pacote `br.com.hbxsystem.logistica`. Ele preserva o pareamento, heartbeat, fila offline e serviço de localização da rota, mas não consome ações comerciais de ligação ou WhatsApp destinadas ao HBX Vendas.
 
 ## Testes para o Codex
 

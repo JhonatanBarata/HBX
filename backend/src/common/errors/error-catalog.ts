@@ -15,6 +15,7 @@ export type ErrorAction =
   | 'login' //            refazer login
   | 'fix_input' //        corrigir o que digitou
   | 'contact_support' //  falar com o técnico/administrador
+  | 'upgrade_plan' //     fazer upgrade do plano
   | 'pay' //              regularizar pagamento
   | 'wait' //             aguardar (serviço reiniciando)
   | 'go_back'; //         voltar (item sumiu)
@@ -32,8 +33,9 @@ export const ERROR_CATALOG = {
   AUTH_INVALID_CREDENTIALS: { status: 401, userMessage: 'Usuário ou senha incorretos.', action: 'fix_input' },
   AUTH_SESSION_EXPIRED: { status: 401, userMessage: 'Sua sessão expirou. Entre novamente.', action: 'login' },
 
-  // ── Permissão ──────────────────────────────────────────────────────────
+  // ── Permissão / plano ──────────────────────────────────────────────────
   FORBIDDEN: { status: 403, userMessage: 'Você não tem permissão para isso. Fale com o administrador.', action: 'contact_support' },
+  PLAN_FEATURE_LOCKED: { status: 403, userMessage: 'Esse recurso não está liberado no seu acesso.', action: 'upgrade_plan' },
 
   // ── Não encontrado ─────────────────────────────────────────────────────
   NOT_FOUND: { status: 404, userMessage: 'Esse item não existe mais — pode ter sido removido.', action: 'go_back' },
@@ -41,6 +43,7 @@ export const ERROR_CATALOG = {
   // ── Conflito / regra de negócio ────────────────────────────────────────
   DUPLICATE: { status: 409, userMessage: 'Já existe um cadastro com esses dados.', action: 'fix_input' },
   CONFLICT: { status: 409, userMessage: 'Essa ação conflita com o estado atual. Recarregue e tente de novo.', action: 'retry' },
+  PLAN_LIMIT_REACHED: { status: 409, userMessage: 'Você atingiu o limite do seu plano. Faça upgrade para continuar.', action: 'upgrade_plan' },
   FK_CONSTRAINT: { status: 409, userMessage: 'Esse item está ligado a outros registros e não pode ser removido agora.', action: 'go_back' },
 
   // ── Entrada inválida ───────────────────────────────────────────────────
@@ -92,6 +95,7 @@ export function codeForStatus(status: number): ErrorCode {
  * Exceção já "amigável": o backend lança um code do catálogo e o filtro
  * entrega a mensagem certa sem adivinhação.
  *
+ *   throw new AppException('PLAN_LIMIT_REACHED');
  *   throw new AppException('WHATSAPP_ENGINE_DOWN', { detail: 'ECONNREFUSED 172.18.0.1:8080' });
  */
 export class AppException extends HttpException {

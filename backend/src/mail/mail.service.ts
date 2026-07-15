@@ -50,7 +50,6 @@ type MailMessageInput = {
   text: string;
   html?: string | null;
   attachments?: MailAttachment[];
-  disableTransportFallback?: boolean;
 };
 
 type SmtpAttempt = {
@@ -277,9 +276,7 @@ export class MailService {
     summary: MailConfigurationSummary,
     message: MailMessageInput,
   ) {
-    const attempts = message.disableTransportFallback
-      ? this.buildSmtpAttempts(summary).slice(0, 1)
-      : this.buildSmtpAttempts(summary);
+    const attempts = this.buildSmtpAttempts(summary);
     let lastError: unknown = null;
 
     for (let index = 0; index < attempts.length; index += 1) {
@@ -487,7 +484,6 @@ export class MailService {
         contentType: attachment.contentType || undefined,
         cid: attachment.cid || undefined,
       })),
-      disableTransportFallback: input.disableTransportFallback,
     });
 
     return {

@@ -11,7 +11,6 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import {
-  CreateMobilePairingCodeDto,
   ConsumeMobileWebTicketDto,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
@@ -25,8 +24,8 @@ export class MobileDeviceController {
   @Post('pairing-code')
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 5, ttl: 60 } })
-  createPairingCode(@Req() req: any, @Body() dto: CreateMobilePairingCodeDto) {
-    return this.mobileDevices.createPairingCode(req?.user?.id, dto);
+  createPairingCode(@Req() req: any) {
+    return this.mobileDevices.createPairingCode(req?.user?.id);
   }
 
   @Get()

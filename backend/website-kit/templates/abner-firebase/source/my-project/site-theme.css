@@ -190,16 +190,6 @@ textarea {
   box-shadow: var(--shadow);
 }
 
-.trust-banner__link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.trust-banner__link:focus-visible {
-  outline: 3px solid var(--accent, #25a55f);
-  outline-offset: 4px;
-}
-
 .trust-orbit-card {
   display: flex;
   align-items: center;

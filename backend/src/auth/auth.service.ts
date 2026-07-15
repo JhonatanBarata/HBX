@@ -18,6 +18,10 @@ import { assertPasswordPolicy } from './password-policy';
 import { SESSION_IDLE_TTL_MS } from './session-ttl';
 import { withoutTenantScope } from '../prisma/tenant-context';
 import {
+  COMMERCIAL_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_ENTITLEMENT_KEYS,
+  COMMERCIAL_PLAN_MODULE_KEYS,
+  PENDING_COMMERCIAL_ENTITLEMENT_STATUS,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
   type CommercialPlanKey,
@@ -42,7 +46,6 @@ import {
 import {
   resolveOperationalAccessProjection,
 } from '../team/operational-capabilities';
-import { allowsAdminMultiSession, MAX_ADMIN_WEB_SESSIONS } from './session-policy';
 import {
   buildProvisioningLedger,
   seedTenantDefaultProductsTx,
@@ -294,6 +297,10 @@ export class AuthService implements OnModuleInit {
 
   private normalizeSelectedPlanKey(value: string | undefined): ActiveCommercialPlanKey {
     return normalizeCommercialPlanKey(value);
+  }
+
+  private resolvePlanModuleKeys(planKey: ActiveCommercialPlanKey) {
+    return COMMERCIAL_PLAN_MODULE_KEYS[planKey] || [];
   }
 
   private normalizeAcquisitionSource(value: string | undefined) {
@@ -649,12 +656,114 @@ export class AuthService implements OnModuleInit {
     return 'Cadastro criado. Confirme seu e-mail para ativar sua conta.';
   }
 
+  private async seedDefaultCompanyModulesTx(_tx: any, _companyId: number) {
+    // Post-it (PR13062026007 PB2): a empresa NÃO nasce com cópia de módulos.
+    // Ela segue a "caixa do plano" (ao vivo); CompanyModule passa a guardar só
+    // post-it (exceção explícita do master, no Full). Sem seed = sem cópia
+    // congelada que ignoraria as edições do plano.
+  }
+
   private async seedDefaultTenantProductsTx(tx: any, companyId: number) {
     // Pipeline único de nascimento (multi-tenancy S4), preset self_service: a
     // semente default aqui é a MESMA das portas do master (produtos default,
     // rascunho). Comportamento idêntico ao inline anterior — só converge para a
     // fonte única para que o signup não divirja do provisionamento.
     return seedTenantDefaultProductsTx(tx, companyId, { source: 'auth_signup' });
+  }
+
+  private async syncPlanModulesTx(tx: any, companyId: number, planKey: ActiveCommercialPlanKey) {
+    const enabledKeys = this.resolvePlanModuleKeys(planKey);
+    const enabledModuleRows = enabledKeys.length
+      ? await tx.systemModule.findMany({
+          where: {
+            companyAssignable: true,
+            key: { in: enabledKeys },
+          },
+          select: { id: true },
+        })
+      : [];
+
+    await tx.companyModule.updateMany({
+      where: { companyId },
+      data: { enabled: false },
+    });
+
+    for (const moduleRow of enabledModuleRows) {
+      await tx.companyModule.upsert({
+        where: {
+          companyId_moduleId: {
+            companyId,
+            moduleId: moduleRow.id,
+          },
+        },
+        update: { enabled: true },
+        create: { companyId, moduleId: moduleRow.id, enabled: true },
+      });
+    }
+  }
+
+  private async upsertEntitlementTx(
+    tx: any,
+    companyId: number,
+    key: string,
+    status: string,
+    source: string,
+    periodStart: Date | null,
+    periodEnd: Date | null,
+    metadata: Record<string, unknown>,
+  ) {
+    await tx.companyCommercialEntitlement.upsert({
+      where: {
+        companyId_key: {
+          companyId,
+          key,
+        },
+      },
+      update: {
+        status,
+        source,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        metadataJson: JSON.stringify(metadata),
+      },
+      create: {
+        companyId,
+        key,
+        status,
+        source,
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        metadataJson: JSON.stringify(metadata),
+      },
+    });
+  }
+
+  private async createPendingCheckoutEntitlementsTx(
+    tx: any,
+    companyId: number,
+    planKey: ActiveCommercialPlanKey,
+    selectedAt: Date,
+  ) {
+    const metadata = {
+      selectedPlanKey: planKey,
+      selectedAt: selectedAt.toISOString(),
+      state: 'pending_checkout',
+    };
+    const activeKeys = new Set(COMMERCIAL_PLAN_ENTITLEMENT_KEYS[planKey] || []);
+    const allKeys = Object.values(COMMERCIAL_ENTITLEMENT_KEYS);
+
+    for (const key of allKeys) {
+      await this.upsertEntitlementTx(
+        tx,
+        companyId,
+        key,
+        activeKeys.has(key) ? PENDING_COMMERCIAL_ENTITLEMENT_STATUS : 'canceled',
+        activeKeys.has(key) ? 'checkout' : 'plan_change',
+        null,
+        null,
+        metadata,
+      );
+    }
   }
 
   private async activateConfirmedTrialTx(tx: any, companyId: number, activatedAt: Date): Promise<Date | null> {
@@ -723,6 +832,7 @@ export class AuthService implements OnModuleInit {
       },
     });
     if (!selectedPlanKey) {
+      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
       // FIXER PR10072026 — com HBX_CREDITS_ENABLED OFF (kill-switch de emergência), conta
       // nova confirma o e-mail e fica pending_checkout SEM plano, SEM módulo e SEM rota de
       // checkout self-service (subscription/create aposentado, 410): só o master destrava.
@@ -736,6 +846,9 @@ export class AuthService implements OnModuleInit {
       });
       return null;
     }
+    await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
+    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
     return null;
   }
 
@@ -946,27 +1059,23 @@ export class AuthService implements OnModuleInit {
       this.assertOperationalWorkspaceCompany(company);
     }
 
-    const allowsMultipleSessions = allowsAdminMultiSession(user);
-
     const sessionContext = await this.prisma.$transaction(async (tx) => {
-      if (!allowsMultipleSessions) {
-        await tx.authSession.updateMany({
-          where: {
-            userId: Number(user.id),
-            revokedAt: null,
-          },
-          data: {
-            revokedAt: now,
-            revokedReason: 'replaced_by_login',
-          },
-        });
-      }
+      await tx.authSession.updateMany({
+        where: {
+          userId: Number(user.id),
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedReason: 'replaced_by_login',
+        },
+      });
 
       const updatedUser = await tx.user.update({
         where: { id: Number(user.id) },
         data: {
           currentSessionId: null,
-          ...(!allowsMultipleSessions ? { sessionVersion: { increment: 1 } } : {}),
+          sessionVersion: { increment: 1 },
         },
         select: {
           id: true,
@@ -977,31 +1086,6 @@ export class AuthService implements OnModuleInit {
           sessionVersion: true,
         },
       });
-
-      if (allowsMultipleSessions) {
-        // O update do usuário acima serializa logins concorrentes desta conta.
-        // Mantemos as três sessões mais recentes antes de criar a quarta; no
-        // quinto acesso, somente a mais antiga é revogada.
-        const sessionsOverLimit = await tx.authSession.findMany({
-          where: {
-            userId: updatedUser.id,
-            revokedAt: null,
-            expiresAt: { gt: now },
-          },
-          orderBy: [
-            { lastSeenAt: 'desc' },
-            { createdAt: 'desc' },
-          ],
-          skip: MAX_ADMIN_WEB_SESSIONS - 1,
-          select: { id: true },
-        });
-        if (sessionsOverLimit.length > 0) {
-          await tx.authSession.updateMany({
-            where: { id: { in: sessionsOverLimit.map((session) => session.id) }, revokedAt: null },
-            data: { revokedAt: now, revokedReason: 'session_limit_reached' },
-          });
-        }
-      }
 
       const session = await tx.authSession.create({
         data: {
@@ -1352,6 +1436,7 @@ export class AuthService implements OnModuleInit {
         },
       });
 
+      await this.seedDefaultCompanyModulesTx(tx, company.id);
       await this.seedDefaultTenantProductsTx(tx, company.id);
 
       const user = await tx.user.create({
@@ -1579,6 +1664,7 @@ export class AuthService implements OnModuleInit {
         },
       });
 
+      await this.seedDefaultCompanyModulesTx(tx, company.id);
       const seededProducts = await this.seedDefaultTenantProductsTx(tx, company.id);
 
       // Trilha de nascimento (multi-tenancy S4), preset self_service. A trilha

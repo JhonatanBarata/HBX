@@ -42,23 +42,6 @@ export type CommercialPlanCapabilities = {
   canUseWeeklyProfileSuggestions: boolean;
 };
 
-export const UNIVERSAL_PRODUCT_CAPABILITIES: CommercialPlanCapabilities = Object.freeze({
-  canSeeLeadIntelligence: true,
-  canSeeOpportunityReason: true,
-  canSeeSocialLinks: true,
-  canSeeMessageTemplates: true,
-  // Enriquecimento acontece somente na puxada/debito do lead; não existe
-  // enriquecimento automático extra como benefício de pacote.
-  canAutoEnrichLeads: false,
-  canUseAdvancedFilters: true,
-  canUseVerifiedWhatsapp: true,
-  canUseFilteredQuota: true,
-  canUseSalesProfileAdvanced: true,
-  canSeeConversionReport: true,
-  canExportConversionPdf: true,
-  canUseWeeklyProfileSuggestions: true,
-});
-
 export const COMMERCIAL_PRICING = {
   liteMonthly: 49.00,
   padraoMonthly: 99.00,
@@ -160,9 +143,7 @@ export function isCommercialPlanPaused(planKey: unknown): boolean {
   return defaultCommercialPlanStatus(key) === 'paused';
 }
 
-export const COMMERCIAL_CAPACITY_UNLIMITED = 999_999;
-
-export type CommercialOperationalEnvelope = {
+export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, {
   googleSearchesPerDay: number;
   cardsPerMonth: number;
   dailyCardSafetyLimit: number;
@@ -170,30 +151,38 @@ export type CommercialOperationalEnvelope = {
   cardsPerSearch?: number;
   searchesPerCycle?: number;
   totalCards?: number;
-};
-
-// Envelope operacional único. Crédito por lead é o choke comercial; este
-// objeto só preserva o contrato técnico legado enquanto o Radar migra para o
-// orçamento global de fonte. Nenhum valor varia por plano/tier.
-export const UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE: Readonly<CommercialOperationalEnvelope> = Object.freeze({
-  googleSearchesPerDay: 6,
-  cardsPerMonth: COMMERCIAL_CAPACITY_UNLIMITED,
-  dailyCardSafetyLimit: COMMERCIAL_CAPACITY_UNLIMITED,
-  enrichmentsPerDay: COMMERCIAL_CAPACITY_UNLIMITED,
-  cardsPerSearch: COMMERCIAL_CAPACITY_UNLIMITED,
-  searchesPerCycle: COMMERCIAL_CAPACITY_UNLIMITED,
-  totalCards: COMMERCIAL_CAPACITY_UNLIMITED,
-});
-
-export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, CommercialOperationalEnvelope> = {
-  [COMMERCIAL_PLAN_KEYS.LITE]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-  [COMMERCIAL_PLAN_KEYS.PADRAO]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-  [COMMERCIAL_PLAN_KEYS.PRO]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
+}> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: {
+    googleSearchesPerDay: 0,
+    cardsPerMonth: 880,
+    dailyCardSafetyLimit: 50,
+    enrichmentsPerDay: 3,
+    cardsPerSearch: 50,
+    searchesPerCycle: 3,
+    totalCards: 880,
+  },
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: {
+    googleSearchesPerDay: 2,
+    cardsPerMonth: 2200,
+    dailyCardSafetyLimit: 100,
+    enrichmentsPerDay: 100,
+  },
+  [COMMERCIAL_PLAN_KEYS.PRO]: {
+    googleSearchesPerDay: 4,
+    cardsPerMonth: 3500,
+    dailyCardSafetyLimit: 150,
+    enrichmentsPerDay: 150,
+  },
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: {
+    googleSearchesPerDay: 6,
+    cardsPerMonth: 5000,
+    dailyCardSafetyLimit: 250,
+    enrichmentsPerDay: 250,
+  },
 };
 
 export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
-  'O orçamento operacional diário do Google foi atingido. O Brave e as fontes públicas continuam disponíveis.';
+  'Você atingiu suas buscas Google de hoje. Os motores gratuitos continuam liberados. Para mais buscas por dia, escolha o HBX Pro ou o HBX Company.';
 
 export const ACTIVE_COMMERCIAL_ENTITLEMENT_STATUSES = new Set([
   'active',
@@ -252,6 +241,51 @@ export function getCommercialPlanExtraUserMonthlyPrice(planKey: unknown) {
   if (override && override.extraUserMonthly != null) return override.extraUserMonthly;
   return COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[normalized] ?? 0;
 }
+
+// Gerencial saiu daqui (21/06): não é módulo vendável por plano — virou capacidade
+// admin-tier (acesso por role, igual financeiro). Ver modules.service.isGerencialModuleKey.
+export const COMMERCIAL_PLAN_MODULE_KEYS: Record<ActiveCommercialPlanKey, string[]> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: ['vendas', 'webscraping'],
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: ['atendimento', 'vendas', 'webscraping', 'cadastro'],
+  [COMMERCIAL_PLAN_KEYS.PRO]: ['atendimento', 'vendas', 'webscraping', 'cadastro'],
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: ['atendimento', 'vendas', 'webscraping', 'cadastro'],
+};
+
+export const COMMERCIAL_PLAN_ENTITLEMENT_KEYS: Record<ActiveCommercialPlanKey, CommercialEntitlementKey[]> = {
+  [COMMERCIAL_PLAN_KEYS.LITE]: [
+    COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+    COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE,
+  ],
+  [COMMERCIAL_PLAN_KEYS.PADRAO]: [
+    COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+    COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+    COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY,
+    COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
+  ],
+  [COMMERCIAL_PLAN_KEYS.PRO]: [
+    COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+    COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+    COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY,
+    COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE,
+    COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
+  ],
+  [COMMERCIAL_PLAN_KEYS.MELHOR]: [
+    COMMERCIAL_ENTITLEMENT_KEYS.VENDAS,
+    COMMERCIAL_ENTITLEMENT_KEYS.ATENDIMENTO_CHAT,
+    COMMERCIAL_ENTITLEMENT_KEYS.WEBSCRAPING,
+    COMMERCIAL_ENTITLEMENT_KEYS.NIGHT_FACTORY,
+    COMMERCIAL_ENTITLEMENT_KEYS.RADAR_PREMIUM,
+    COMMERCIAL_ENTITLEMENT_KEYS.RECOVERY_INTELLIGENCE,
+    COMMERCIAL_ENTITLEMENT_KEYS.DIGITAL_AUDIT,
+    COMMERCIAL_ENTITLEMENT_KEYS.OPPORTUNITY_SCORE,
+    COMMERCIAL_ENTITLEMENT_KEYS.AI_SALES_SCRIPTS,
+  ],
+};
 
 export function toCommercialCurrency(value: unknown) {
   const numeric = Number(value || 0);
@@ -345,7 +379,20 @@ export function getCommercialPlanTier(_planKey: unknown): CommercialPlanTier {
 // mais de planKey/tier). RBAC (camada 2, UserTeamPolicy) é quem corta agora,
 // não o plano comercial. Parâmetro mantido só por compatibilidade de chamada.
 export function getCommercialPlanCapabilities(_planKey: unknown): CommercialPlanCapabilities {
-  return { ...UNIVERSAL_PRODUCT_CAPABILITIES };
+  return {
+    canSeeLeadIntelligence: true,
+    canSeeOpportunityReason: true,
+    canSeeSocialLinks: true,
+    canSeeMessageTemplates: true,
+    canAutoEnrichLeads: true,
+    canUseAdvancedFilters: true,
+    canUseVerifiedWhatsapp: true,
+    canUseFilteredQuota: true,
+    canUseSalesProfileAdvanced: true,
+    canSeeConversionReport: true,
+    canExportConversionPdf: true,
+    canUseWeeklyProfileSuggestions: true,
+  };
 }
 
 // Ranking de preço dos planos self-service (bloco PR16062026026).
@@ -384,17 +431,6 @@ export function computeCommercialPlanCycleAmount(planKey: unknown, billingCycleR
 }
 
 export function buildCommercialPlansCatalog(options: { includeHidden?: boolean } = {}) {
-  const universalFeatures = [
-    'Produto HBX completo, sem corte de dados por plano',
-    'Crédito debitado somente ao puxar o lead',
-    'Dados da RFB e do motor unificados',
-    'Até 3 telefones e 3 e-mails quando disponíveis',
-    'WhatsApp, site e redes sociais quando encontrados',
-    'Score, motivo, canal recomendado e mensagens comerciais',
-    'Negativos, opt-outs e duplicados respeitados',
-  ];
-  const universalHeadline = 'O mesmo produto HBX completo, com cobrança por lead.';
-  const universalDescription = 'Todas as capacidades comerciais são iguais. O lead é revelado e enriquecido na puxada, após o débito do crédito.';
   const catalog = [
     {
       key: COMMERCIAL_PLAN_KEYS.LITE,
@@ -409,13 +445,24 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
-      headline: universalHeadline,
-      description: universalDescription,
+      headline: 'Cards simples para começar barato.',
+      description: 'Leads/cards simples com telefone, cidade, segmento, site, redes sociais e canais encontrados. WhatsApp externo e inteligência premium quando contratar Lead.',
       badge: 'Entrada',
       recommended: false,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
-      features: [...universalFeatures],
+      features: [
+        'Radar Digital + Vendas com cards simples',
+        'Telefone, cidade, segmento e site básico',
+        'Instagram/Facebook quando encontrados',
+        'E-mail quando encontrado ou provável',
+        'WhatsApp externo',
+        '880 cards por mês',
+        'Até 50 cards por pesquisa',
+        '3 pesquisas comerciais por mês',
+        'Negativos, opt-outs e duplicados respeitados',
+        'Sem score, motivo inteligente ou mensagem pronta do Lead+',
+      ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
     {
@@ -431,13 +478,26 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
-      headline: universalHeadline,
-      description: universalDescription,
+      headline: 'Card inteligente: prioridade, canal, motivo e mensagem pronta.',
+      description: 'Leads inteligentes com WhatsApp verificado pela HBX, e-mail confirmado/provável, motivo, canal recomendado e templates comerciais.',
       badge: 'Mais vendido',
       recommended: true,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
-      features: [...universalFeatures],
+      features: [
+        'Tudo do HBX List',
+        'WhatsApp verificado',
+        'Instagram/Facebook quando encontrados',
+        'Score de oportunidade',
+        'Motivo do score',
+        'Canal recomendado',
+        'Mensagem pronta por segmento',
+        'Filtros inteligentes',
+        '2.200 cards inteligentes por mês',
+        'Trava diária técnica anti-abuso',
+        'Limite consumido por card entregue',
+        'Histórico, retornos e agenda',
+      ],
       legalCopy: 'Teste de 14 dias. Após o trial, contratação segue pelo checkout.',
     },
     {
@@ -453,13 +513,22 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       requiresAssistedSetup: false,
       setupFeeMode: 'none',
       hidden: false,
-      headline: universalHeadline,
-      description: universalDescription,
+      headline: 'Forte na prospecção: atendimento automático e bot configurado.',
+      description: 'Tudo do Lead Plus com Atendimento no painel, Bot IA configurado, prospecção automática e acessos full — self-service, sem espera.',
       badge: 'Mais forte',
       recommended: false,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PRO],
-      features: [...universalFeatures],
+      features: [
+        'Tudo do HBX Lead Plus',
+        'Atendimento interno pelo painel',
+        'Bot IA configurado',
+        'Bot de prospecção pós-resposta',
+        'Respostas automáticas e qualificação',
+        'Night Factory',
+        'Acessos full',
+        '3.500 cards inteligentes por mês',
+      ],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
     {
@@ -475,16 +544,26 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       annualDiscountPercent: COMMERCIAL_PRICING.annualDiscountPercent,
       includedUsers: COMMERCIAL_PLAN_INCLUDED_USERS[COMMERCIAL_PLAN_KEYS.MELHOR],
       extraUserMonthlyPrice: COMMERCIAL_PLAN_EXTRA_USER_MONTHLY[COMMERCIAL_PLAN_KEYS.MELHOR],
-      requiresAssistedSetup: false,
+      requiresAssistedSetup: true,
       setupFeeMode: 'negotiated',
       hidden: false,
-      headline: universalHeadline,
-      description: universalDescription,
+      headline: 'Implantação completa pela HBX: Recovery, ERP e bot IA montados com você.',
+      description: 'A HBX estuda sua empresa, monta o WhatsApp, configura o Bot IA, integra ao seu ERP e ativa o Recovery de inadimplentes. Sem self-checkout — o processo começa com um especialista.',
       badge: 'Empresas',
       recommended: true,
       requiresCheckout: false,
       quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.MELHOR],
-      features: [...universalFeatures],
+      features: [
+        'Tudo do HBX Pro',
+        'Recovery de inadimplentes',
+        'Cobrança integrada ao seu ERP',
+        'Mini-auditorias digitais',
+        'Opportunity Score completo',
+        'Night Factory completa',
+        '5.000 cards inteligentes por mês',
+        'Regras de segurança para automação',
+        'Implantação feita pela HBX',
+      ],
       legalCopy: 'Mensalidade e implantação negociadas na conversa com a HBX.',
     },
   ];

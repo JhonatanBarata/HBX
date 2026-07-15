@@ -214,19 +214,10 @@ export class VendasConversationService {
 
     // O GET do cockpit precisa ser uma leitura pura. A projeção é atualizada nos
     // writers (criação, outbox, confirmação/falha e inbound), nunca ao abrir o card.
-    // Se a projeção persistida estiver ausente/obsoleta, deriva os fatos atuais sem
-    // upsert para não esconder envio, resposta ou falha de uma conversa já existente.
-    const derived = await this.cockpitProjector.getCockpitStateForLeadReadOnly(
-      companyId,
-      lead.id,
-      Number(conversation.row.id),
-    );
     return {
-      ...derived,
-      conversation: {
-        ...this.serializeConversation(conversation.row),
-        ...derived.conversation,
-      },
+      ...this.emptySnapshot(),
+      conversation: this.serializeConversation(conversation.row),
+      engagement: { ...this.emptySnapshot().engagement, state: 'no_messages' },
     };
   }
 

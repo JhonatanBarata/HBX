@@ -54,7 +54,6 @@ const TITLE_FALLBACK: Record<string, string> = {
 };
 
 function titleFor(pathname: string): string {
-  if (pathname.startsWith("/leads/runs/")) return "Busca em andamento";
   return CASCA_TITLES[pathname] || TITLE_FALLBACK[pathname] || "HBX";
 }
 

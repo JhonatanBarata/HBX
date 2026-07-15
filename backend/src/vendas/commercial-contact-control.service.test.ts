@@ -422,32 +422,3 @@ test('guarda recusa Bot quando ja existe Cadencia ativa', async () => {
   assert.equal(result.conflict?.source, 'cadencia');
   assert.equal(createCalled, false);
 });
-
-test('lock comercial projeta tipo suportado pelo Prisma antes de criar o job', async () => {
-  let lockSql = '';
-  const prisma: any = {
-    $transaction: async (callback: any) => callback(prisma),
-    $queryRawUnsafe: async (sql: string) => {
-      lockSql = sql;
-      return [{ locked: 1 }];
-    },
-    vendasAutomationJob: {
-      findFirst: async () => null,
-      findMany: async () => [],
-      create: async ({ data }: any) => ({ id: 'job-created', ...data }),
-    },
-    cadenciaInscricao: { findFirst: async () => null },
-  };
-  const service = new CommercialContactControlService(prisma);
-
-  const result = await service.createVendasAutomationJob({
-    companyId: 7,
-    leadId: 'lead-1',
-    campaignId: 'campaign-1',
-    data: { companyId: 7, leadId: 'lead-1', campaignId: 'campaign-1', status: 'scheduled' },
-  });
-
-  assert.equal(result.created, true);
-  assert.match(lockSql, /WITH advisory_lock AS/);
-  assert.match(lockSql, /SELECT 1::integer AS locked FROM advisory_lock/);
-});

@@ -25,7 +25,6 @@
 // (CNPJ, segmento, cidade, telefone do perfil) mostram vazio/“—”.
 
 import React, { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { CompanyEmailSection } from "@/components/hbx/company-email-section";
@@ -70,9 +69,22 @@ const ROLE_LABEL: Record<string, string> = {
 // vitrine de plano nem checkout de assinatura nesta tela).
 type CommercialPlansMe = {
   current?: {
+    entitlements?: Record<string, boolean>;
     accessStateLabel?: string | null;
   };
 } | null;
+
+const ENTITLEMENT_LABEL: Record<string, string> = {
+  vendas: "Vendas",
+  radar: "Radar",
+  webscraping: "Radar",
+  atendimento: "Atendimento",
+  recovery: "Recovery",
+};
+
+function entitlementLabel(key: string) {
+  return ENTITLEMENT_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
 function Toggle({ on, set, disabled }: { on: boolean; set: (v: boolean) => void; disabled?: boolean }) {
   return <button className={"sw" + (on ? " on" : "")} disabled={disabled} onClick={() => set(!on)} role="switch" aria-checked={on}><i></i></button>;
@@ -325,6 +337,7 @@ export function ConfiguracoesClient() {
     .filter(s => s !== "Integrações" || canSeeIntegracoes)
     .filter(s => s !== "Módulos" || canSeeModulos);
   const current = plansMe?.current;
+  const entitlementsAtivos = Object.entries(current?.entitlements || {}).filter(([, on]) => on).map(([k]) => k);
 
   return (
     <React.Fragment>
@@ -336,11 +349,6 @@ export function ConfiguracoesClient() {
                 <I d={ICONS[SEC_IC[s]] || ICONS.config} size={15} />{s}
               </button>
             ))}
-            <Link className="set-link set-link-shortcut" href="/configuracoes/aplicativo">
-              <I d={ICONS.phone} size={15} />
-              <span>Aplicativo móvel</span>
-              <I d={ICONS.arrow} size={13} />
-            </Link>
           </nav>
 
           <div className="cfg-body" style={{ display: "grid", gap: 14 }}>
@@ -502,13 +510,21 @@ export function ConfiguracoesClient() {
                     módulo (kill-switch do master) + RBAC + saldo de crédito.
                     Esta seção resume o estado da conta; a carteira em si vem
                     logo abaixo (CreditsWalletSection). */}
-                {current?.accessStateLabel && (
+                {(current?.accessStateLabel || entitlementsAtivos.length > 0) && (
                   <section className="panel cfg-section">
                     <div className="panel-head"><h2>Acesso da conta</h2></div>
                     <div style={{ padding: 18, display: "grid", gap: 12 }}>
-                      <div className="kv">
-                        <div className="row"><span className="k">Estado do acesso</span><span className="v">{current.accessStateLabel}</span></div>
-                      </div>
+                      {current?.accessStateLabel && (
+                        <div className="kv">
+                          <div className="row"><span className="k">Estado do acesso</span><span className="v">{current.accessStateLabel}</span></div>
+                        </div>
+                      )}
+                      {entitlementsAtivos.length > 0 && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Módulos liberados:</span>
+                          {entitlementsAtivos.map(k => <span key={k} className="tag teal">{entitlementLabel(k)}</span>)}
+                        </div>
+                      )}
                     </div>
                   </section>
                 )}
