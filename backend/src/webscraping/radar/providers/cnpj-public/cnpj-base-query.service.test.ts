@@ -361,3 +361,39 @@ test('countBase: nunca usa amostra/query() — so chama count(), sem findMany', 
   assert.equal(result.count, 100);
   assert.equal(findManyCalled, false);
 });
+
+test('countBase: total sem filtros usa CnpjBaseStats e nao varre a tabela de empresas', async () => {
+  const prisma = makeMockPrisma();
+  let fullCountCalled = false;
+  prisma.cnpjPublicCompany.count = async () => {
+    fullCountCalled = true;
+    return 999;
+  };
+  prisma.cnpjBaseStats.aggregate = async () => ({ _sum: { count: 28_437_967 } });
+
+  const service = new CnpjBaseQueryService(prisma);
+  const result = await service.countBase({});
+
+  assert.deepEqual(result, { available: true, count: 28_437_967 });
+  assert.equal(fullCountCalled, false);
+});
+
+test('countBase: chamadas simultaneas iguais compartilham uma unica consulta', async () => {
+  const prisma = makeMockPrisma();
+  let calls = 0;
+  prisma.cnpjPublicCompany.count = async () => {
+    calls += 1;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    return 6068;
+  };
+
+  const service = new CnpjBaseQueryService(prisma);
+  const results = await Promise.all([
+    service.countBase({ states: ['CE'] }),
+    service.countBase({ states: ['CE'] }),
+    service.countBase({ states: ['CE'] }),
+  ]);
+
+  assert.equal(calls, 1);
+  assert.deepEqual(results.map((result) => result.count), [6068, 6068, 6068]);
+});

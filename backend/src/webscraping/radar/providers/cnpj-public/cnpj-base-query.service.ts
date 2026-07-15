@@ -151,6 +151,8 @@ function selarQualidade(row: { phone: string | null; email: string | null; phone
 @Injectable()
 export class CnpjBaseQueryService {
   private readonly logger = new Logger(CnpjBaseQueryService.name);
+  private readonly countCache = new Map<string, { value: { available: boolean; count: number | null }; expiresAt: number }>();
+  private readonly pendingCounts = new Map<string, Promise<{ available: boolean; count: number | null }>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -309,8 +311,53 @@ export class CnpjBaseQueryService {
       return { available: false, count: null };
     }
     const where = this.buildWhere(input);
-    const count = await this.db().cnpjPublicCompany.count({ where }).catch(() => null);
-    return { available: true, count: typeof count === 'number' ? count : null };
+    const cacheKey = JSON.stringify(where);
+    const now = Date.now();
+    const cached = this.countCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.value;
+
+    // Uma abertura do /vendas dispara mais de um consumidor desta contagem. Sem single-flight,
+    // cada request fazia seu proprio COUNT(*) sobre a base Receita (dezenas de GB) e ocupava
+    // todas as conexoes do Prisma ate derrubar endpoints sem relacao com o Radar.
+    const pending = this.pendingCounts.get(cacheKey);
+    if (pending) return pending;
+
+    const operation = (async () => {
+      let count: number | null = null;
+
+      // A carga mensal ja grava a contagem exata por situacao em CnpjBaseStats. Somar essas
+      // poucas linhas entrega o total global sem varrer CnpjPublicCompany inteira. Consultas
+      // com filtros continuam usando o count real com os indices correspondentes.
+      if (!Object.keys(where).length && await this.prisma.hasTable('CnpjBaseStats').catch(() => false)) {
+        const statsModel = this.db().cnpjBaseStats;
+        const stats = typeof statsModel?.aggregate === 'function'
+          ? await statsModel.aggregate({
+            where: { group: 'situacao' },
+            _sum: { count: true },
+          }).catch(() => null)
+          : null;
+        const statsCount = Number(stats?._sum?.count);
+        if (Number.isFinite(statsCount) && statsCount > 0) count = Math.trunc(statsCount);
+      }
+
+      if (count == null) {
+        count = await this.db().cnpjPublicCompany.count({ where }).catch(() => null);
+      }
+
+      const value = { available: true, count: typeof count === 'number' ? count : null };
+      this.countCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + (value.count == null ? 15_000 : 5 * 60_000),
+      });
+      return value;
+    })();
+
+    this.pendingCounts.set(cacheKey, operation);
+    try {
+      return await operation;
+    } finally {
+      this.pendingCounts.delete(cacheKey);
+    }
   }
 
   /**
