@@ -1292,7 +1292,7 @@ def test_required_instagram_accepts_social_from_html(monkeypatch) -> None:
     assert response.stats["missingRequiredChannel"] == 0
 
 
-def test_claim_enrichment_finds_social_and_confirms_email(monkeypatch) -> None:
+def test_lead_plus_enrichment_finds_social_and_confirms_email(monkeypatch) -> None:
     class FakeFetcher:
         def __init__(self, *args, **kwargs) -> None:
             pass

@@ -290,6 +290,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
       radar: {
         webscrapingSearchHistories: await countSafe(() => this.prisma.webscrapingSearchHistory.count({ where: { companyId: id } })),
         webscrapingSearchRuns: await countSafe(() => this.prisma.webscrapingSearchRun.count({ where: { companyId: id } })),
+        webscrapingCampaigns: await countSafe(() => this.prisma.webscrapingCampaign.count({ where: { companyId: id } })),
         webscrapingUsageLogs: await countSafe(() => this.prisma.webscrapingUsageLog.count({ where: { companyId: id } })),
       },
       integracoes: {
@@ -1312,7 +1313,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ── Multi-tenancy S3 — tabelas com companyId ESCALAR (sem FK no banco) ──────────
-  // Algumas tabelas guardam companyId como coluna solta, SEM foreign key para Company (padrão
+  // 21 tabelas guardam companyId como coluna solta, SEM foreign key para Company (padrão
   // "aditiva e isolada" deste código). Como não há FK, `company.delete()` NÃO as
   // cascateia — sem esta limpeza explícita elas viram lixo órfão (violação LGPD art.18).
   // Estas duas listas são a FRONTEIRA declarada: tudo que NÃO tem FK cai aqui. Os deletes
@@ -1332,6 +1333,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     'harvestImportBatch',
     'inboxTrashMeticulousPurgeJob',
     'masterPaymentNotificationLog',
+    'nightOrderDelivery',
+    'nightOrder',
     'radarLeadEnrichment',
     'recoveryOpportunity',
     'savedSearch',

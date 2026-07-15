@@ -46,11 +46,25 @@ const SOURCE_LABELS: Record<string, string> = {
   rfb_primary: "Receita Federal · principal",
   rfb_secondary: "Receita Federal · secundário",
   rfb_email: "Receita Federal · cadastral",
+  receita_primary: "Receita Federal · principal",
+  receita_secondary: "Receita Federal · secundário",
+  cnpj_public_primary: "Receita Federal · principal",
+  cnpj_public_secondary: "Receita Federal · secundário",
+  cnpj_public: "Receita Federal",
+  receita: "Receita Federal",
+  cnpj_l4: "Receita Federal",
   website_crawl: "Site oficial",
+  web_crawl: "Site oficial",
   google: "Google",
   brave: "Brave",
   hbx_engine: "Motor HBX",
+  lead_plus_engine: "Motor HBX",
+  lead_harvest_import: "Motor HBX",
+  metadatajson_backfill: "Histórico HBX",
+  metadata: "Base HBX",
+  legacy: "Histórico HBX",
   manual: "Manual",
+  primary: "Contato principal",
   unknown: "Origem não informada",
 };
 
@@ -61,7 +75,7 @@ function normalizeSource(source: string | null | undefined) {
 function sourceLabel(source: string | null, rank: number) {
   const key = normalizeSource(source);
   if (SOURCE_LABELS[key]) return SOURCE_LABELS[key];
-  if (key.includes("rfb")) {
+  if (key.includes("rfb") || key.includes("receita") || key.includes("cnpj_public")) {
     return `Receita Federal · ${rank === 1 ? "principal" : "secundário"}`;
   }
   if (key.includes("website") || key.includes("crawl")) return "Site oficial";

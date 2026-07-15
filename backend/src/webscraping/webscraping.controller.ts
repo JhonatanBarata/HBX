@@ -8,6 +8,7 @@ import { MasterGuard } from '../auth/guards/master.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { HbxEnginePoolService } from './hbx-engine-pool.service';
+import { LeadHarvestImportService } from './lead-harvest/lead-harvest-import.service';
 import { ZapCheckGuardService } from '../messaging/zap-check-guard.service';
 import { RadarMissionQueueService } from './radar/missions/radar-mission-queue.service';
 import { RADAR_REGION_MAX_RADIUS_KM } from './radar/shared/radar-core-shared';
@@ -17,6 +18,134 @@ import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { WebscrapingService } from './webscraping.service';
 import { CnpjBaseQueryDto } from './radar/providers/cnpj-public/cnpj-base.controller';
 import { RadarCountService } from './radar/providers/cnpj-public/radar-count.service';
+
+class WebscrapingSearchDto {
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(RADAR_REGION_MAX_RADIUS_KM)
+  radiusKm?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  originLat?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  originLng?: number;
+
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  quantity!: number;
+
+  @IsOptional()
+  @IsIn(['google', 'hbx'])
+  engine?: 'google' | 'hbx';
+
+  @IsOptional()
+  @IsIn(['pj', 'pf', 'agenda_pf'])
+  targetType?: 'pj' | 'pf' | 'agenda_pf';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0)
+  @Max(5)
+  minRating?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(50000)
+  minReviews?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  onlyWithWebsite?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  excludePhoneDigits?: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  preferredChannels?: string[];
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  requiredChannels?: string[];
+
+  @IsOptional()
+  @IsIn(['prefer', 'any_required', 'all_required'])
+  channelMatchMode?: 'prefer' | 'any_required' | 'all_required';
+
+  @IsOptional()
+  @IsIn(['live', 'database_first', 'hybrid'])
+  freshness?: 'live' | 'database_first' | 'hybrid';
+
+  @IsOptional()
+  @IsString()
+  whatDoYouSell?: string;
+
+  @IsOptional()
+  @IsString()
+  offerCategory?: string;
+
+  @IsOptional()
+  @IsObject()
+  salesProfile?: Record<string, any>;
+
+  @IsOptional()
+  targetAudience?: string[] | Record<string, any>;
+
+  @IsOptional()
+  targetSegments?: string[] | Record<string, any>;
+
+  @IsOptional()
+  avoidSegments?: string[] | Record<string, any>;
+
+  @IsOptional()
+  @Transform(({ value }) => value == null || value === '' ? [] : Array.isArray(value) ? value : [value])
+  @IsArray()
+  @IsString({ each: true })
+  hardRejectSegments?: string[];
+
+  @IsOptional()
+  @IsObject()
+  leadPreferences?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  negativeRules?: Record<string, any>;
+}
 
 class RadarDatabaseQueryDto {
   @IsOptional()
@@ -273,6 +402,34 @@ class RadarPullDto extends RadarDatabaseQueryDto {
   leadIds?: string[];
 }
 
+class RadarPullPreviewQueryDto {
+  @IsOptional()
+  @IsString()
+  segment?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  quantity?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(RADAR_REGION_MAX_RADIUS_KM)
+  radiusKm?: number;
+}
+
 class RadarNegativeDto {
   @IsOptional()
   @IsIn(['negative', 'denied', 'discarded', 'descartado', 'blocked', 'bloqueado', 'opt_out', 'optout', 'do_not_contact', 'nao_quer_contato', 'não_quer_contato', 'complaint', 'hidden', 'no_whatsapp', 'invalid_whatsapp'])
@@ -285,6 +442,13 @@ class RadarNegativeDto {
   @IsOptional()
   @IsString()
   privateNotes?: string;
+}
+
+class RadarMarkSentDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  leadIds?: string[];
 }
 
 // CHIP E3 (05/07) — status de IA por lote de leads (vitrine + estoque de Vendas). Endpoint LEVE:
@@ -328,6 +492,7 @@ export class WebscrapingController {
   constructor(
     private readonly webscrapingService: WebscrapingService,
     private readonly hbxEnginePool: HbxEnginePoolService,
+    private readonly leadHarvestImportService: LeadHarvestImportService,
     private readonly radarCountService: RadarCountService,
   ) {}
 
@@ -357,6 +522,35 @@ export class WebscrapingController {
     const parsedLimit = limit ? Number(limit) : undefined;
     return this.webscrapingService.listBrazilianCities(
       query,
+      Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    );
+  }
+
+  @Post('search')
+  search(@Req() req: any, @Body() dto: WebscrapingSearchDto) {
+    return this.webscrapingService.searchContactsForUser(req.user, dto);
+  }
+
+  @Post('lead-harvest/import')
+  importLeadHarvest(@Req() req: any, @Body() body: Record<string, any>) {
+    return this.leadHarvestImportService.importBatchForUser(req.user, body || {});
+  }
+
+  @Get('lead-harvest/imports/:id')
+  getLeadHarvestImport(@Req() req: any, @Param('id') id: string) {
+    return this.leadHarvestImportService.getImportForUser(req.user, id);
+  }
+
+  @Get('search-runs/:id')
+  getSearchRun(@Req() req: any, @Param('id') id: string) {
+    return this.webscrapingService.getSearchRunForUser(req.user, id);
+  }
+
+  @Get('history')
+  history(@Req() req: any, @Query('limit') limit?: string) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.webscrapingService.listRecentHistoryForUser(
+      req.user,
       Number.isFinite(parsedLimit) ? parsedLimit : undefined,
     );
   }
@@ -419,6 +613,11 @@ export class WebscrapingController {
     return this.webscrapingService.getRadarClaimRunForUser(req.user, operationId);
   }
 
+  @Post('radar/leads/mark-sent-to-vendas')
+  radarLeadsMarkSentToVendas(@Req() req: any, @Body() dto: RadarMarkSentDto) {
+    return this.webscrapingService.markRadarLeadsSentToVendasForUser(req.user, dto?.leadIds || []);
+  }
+
   // CHIP E3 (05/07) — status de IA por lote (vitrine de leads + estoque de Vendas): "na fila da
   // IA", "enriquecendo agora", "enriquecido" com resumo. RBAC: só devolve status dos leadIds que
   // pertencem ao tenant do usuário (checado no service via ownerCompanyId/companyStates, mesmo
@@ -441,6 +640,17 @@ export class WebscrapingController {
   @Post('radar/leads/:id/email/presentation/send')
   radarLeadPresentationSend(@Req() req: any, @Param('id') id: string, @Body() body?: any) {
     return this.webscrapingService.sendRadarPresentationEmailForUser(req.user, id, body || {});
+  }
+
+  // Preview do pull para vendedor: retorna candidatos que casam com o pedido
+  // enriquecidos (nome/cidade/score/sinal) mas com contato mascarado. Sem gravar.
+  @Get('radar/pull-preview')
+  async radarPullPreview(@Req() req: any, @Query() query: RadarPullPreviewQueryDto) {
+    try {
+      return await this.webscrapingService.previewRadarLeadsForVendedor(req.user, query || {});
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/pull-preview', error);
+    }
   }
 
   @Post('radar/search-runs')
@@ -483,6 +693,9 @@ export class WebscrapingController {
   radarNegative(@Req() req: any, @Param('id') id: string, @Body() dto: RadarNegativeDto) {
     return this.webscrapingService.markRadarLeadNegativeForUser(req.user, id, dto || {});
   }
+
+  // F0 (02/07): endpoints GET campaigns / campaigns/:id REMOVIDOS junto com a fábrica de
+  // descoberta autônoma (mixins mass-data/campaign-planner/factory-admin deletados).
 
 }
 
@@ -583,6 +796,12 @@ export class MasterWebscrapingController {
     return this.webscrapingService.cleanJunkMasterDatabaseCards(req.user, { confirm: body?.confirm === true });
   }
 
+  // F0 (02/07): endpoints de fábrica de DESCOBERTA autônoma REMOVIDOS (factory-status,
+  // elastic/cancel-forced, factory/stop, factory/resume-schedule, factory/force-next,
+  // factory/purge-dead-queue, GET+POST mass-data, turbo-noturno/force-now e mass-data/:id/*)
+  // junto com os mixins mass-data/campaign-planner/factory-admin. Elástica/motores (engines/*,
+  // elastic/enable|disable|stop-all) e o Cockpit Leads (database-*) FICAM.
+
   // "Parar/Ligar faixa" do painel do dono → parada MANUAL durável (manualPaused) que o governor
   // honra e a elástica NÃO desfaz. Substitui o docker stop cru (ops-control) que o governor re-ligava.
   @Post('engines/stop-range')
@@ -611,6 +830,8 @@ export class MasterWebscrapingController {
     return ids;
   }
 
+  // F0 (02/07): mass-data/:id/pause|resume|cancel REMOVIDOS (campanhas autônomas demolidas).
+
   // --- Elástica pura (contrato fixo: Worker A) ---
 
   /** Liga a elástica em runtime. A frota volta a escalar pela demanda × RAM. */
@@ -635,8 +856,12 @@ export class MasterWebscrapingController {
   }
 
   /**
-   * Backfill explícito e gratuito: RFB local/BrasilAPI, Brave com orçamento
-   * físico e sinais públicos. Não inicia Night Factory nem scheduler no VPS.
+   * POST /modules/owner/radar/cnpj-backfill?limit=200&socials=1
+   * Worker 1 "CNPJ → dono". Cadeia grátis por lead: (a) web-enrichment/Brave L3 (site+CNPJ),
+   * (b) L4 CNPJ vault → razão/CNAE/sócio/situação + TELEFONE do dono, (b2) sociais DO DONO
+   * (Instagram/Facebook pessoais via busca web), (c) L1 sinais. NÃO inclui L5 (whatsapp-check).
+   * `socials=0` desliga a etapa social. Devolve
+   * { scanned, enriched, errors, sitesFound, cnpjsFound, phonesFound, socialsFound }.
    */
   @Post('cnpj-backfill')
   cnpjBackfill(@Query('limit') limit?: string, @Query('socials') socials?: string) {
@@ -656,6 +881,48 @@ export class MasterWebscrapingController {
   @Post('apply-contacts')
   applyContacts(@Body() body: { items?: Array<{ id?: string; email?: string; emails?: string[]; phones?: string[]; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> }) {
     return this.webscrapingService.applyDiscoveredContactsForMaster(body?.items || []);
+  }
+
+  /**
+   * POST /modules/owner/radar/ai-saneamento { limit? }
+   * PR4a "worker de saneamento IA" (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md).
+   * LIMPA nome + deduz SEGMENTO de leads crus via Ollama LOCAL. NÃO é enriquecimento de contato
+   * nem nota ICP. Gate `HBX_AI_SANEAMENTO_ENABLED` (default OFF) — desligado devolve
+   * `{ enabled:false, reason:'disabled' }` sem tocar em nada. Aditivo: só `metadataJson.ai*`,
+   * NUNCA sobrescreve `name`/`segment`. Devolve { enabled:true, scanned, saneados, errors }.
+   */
+  @Post('ai-saneamento')
+  aiSaneamento(@Body() body: { limit?: number }) {
+    return this.webscrapingService.aiSaneamentoForMaster({ limit: body?.limit });
+  }
+
+  /**
+   * GET /modules/owner/radar/contacts/export?kind=email&unclaimed=true&limit=50
+   * PR1 (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md), resolve #15:
+   * export em LOTE de contatos descobertos (LeadContact, tabela normalizada — não varre
+   * metadataJson). `kind` filtra email|phone|whatsapp|instagram|facebook (omitido = todos).
+   * `unclaimed=true` (default) só traz claimedByCompanyId IS NULL. Devolve { items, total }.
+   */
+  @Get('contacts/export')
+  exportContacts(@Query() query: { kind?: string; unclaimed?: string; limit?: string }) {
+    return this.webscrapingService.exportLeadContactsForMaster({
+      kind: query?.kind,
+      unclaimedOnly: query?.unclaimed !== '0' && query?.unclaimed !== 'false',
+      limit: query?.limit ? Number(query.limit) : undefined,
+    });
+  }
+
+  /**
+   * POST /modules/owner/radar/ai-extract-contacts { items: [{ radarLeadId, sourceText }] }
+   * Sprint 5 MOTOR-RFB-FILA (02/07): extração de contato por IA local (30B) com gate
+   * anti-alucinação OBRIGATÓRIO — telefone/e-mail só gravam em LeadContact se passarem
+   * formato (DDD + regra-do-9 + blocklist) E existirem literalmente na `sourceText`.
+   * Gate de env `HBX_AI_EXTRACTION_ENABLED` (default OFF). Lote capado em 50.
+   * Devolve { enabled, scanned, contactsWritten, rejectedByGate, ownersFound, errors }.
+   */
+  @Post('ai-extract-contacts')
+  aiExtractContacts(@Body() body: { items?: Array<{ radarLeadId?: string; sourceText?: string }> }) {
+    return this.webscrapingService.aiExtractContactsForMaster(body?.items || []);
   }
 
   /**

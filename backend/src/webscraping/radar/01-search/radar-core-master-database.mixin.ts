@@ -1,13 +1,16 @@
 // @ts-nocheck
-// Cofre/Cockpit de leads do dono (leitura, auditoria e exclusão em massa do RadarLeadPool)
-// e formatador de erro do Radar do cliente.
+// F0 (02/07): resgatado da fábrica DEMOLIDA (radar-core-factory-admin.mixin, deletado).
+// Estes métodos NÃO são fábrica de descoberta — são o cofre/Cockpit de leads do dono (leitura,
+// auditoria e exclusão em massa do RadarLeadPool) + o formatador de erro do Radar do CLIENTE.
 // Consumidores VIVOS (que precisam continuar funcionando):
 //   • MasterWebscrapingController: GET /modules/owner/radar/database-audit, GET database-cards,
 //     DELETE database-cards/batch — usados pelo Cockpit Leads do :3107 e pela ponte VPS↔local
 //     (ops-control /api/radar/vps/database-cards). "Cockpit Leads e transferência ficam como estão."
 //   • WebscrapingController (rotas do cliente): buildRadarClientErrorResponse é o formatador de erro
-//     de radar/database, radar/leads e search-runs.
-// O backend audita somente execuções manuais/canônicas e o pool de motores do cliente.
+//     de radar/database, radar/leads, pull-preview, pull-to-vendas e search-runs.
+// Decoplado da fábrica: a auditoria não chama mais syncRadarFactoryFinishedWork/getRadarFactoryStatus
+// (a fábrica de descoberta não existe mais); o bloco `factory` reporta idle honesto e o `schedule`
+// vem do governor de motores (engine pool), que continua vivo.
 import {
   BadRequestException,
   ServiceUnavailableException,
@@ -87,6 +90,10 @@ export class RadarCoreMasterDatabaseMixin {
       sentToVendas,
       duplicatedItemsToday,
       rejectedItemsToday,
+      campaignsQueued,
+      campaignsRunning,
+      campaignsCompletedToday,
+      campaignsFailedToday,
       searchRunsQueued,
       searchRunsRunning,
       searchRunsFailedToday,
@@ -105,6 +112,10 @@ export class RadarCoreMasterDatabaseMixin {
       this.safeDelegateCount('radarLeadCompanyState', 'RadarLeadCompanyState', { status: 'sent_to_vendas' }),
       this.safeDelegateCount('webscrapingSearchRunItem', 'WebscrapingSearchRunItem', { status: 'duplicate', createdAt: { gte: todayStart, lt: todayEnd } }),
       this.safeDelegateCount('webscrapingSearchRunItem', 'WebscrapingSearchRunItem', { status: { in: ['skipped', 'invalid'] }, createdAt: { gte: todayStart, lt: todayEnd } }),
+      this.safeDelegateCount('webscrapingCampaign', 'WebscrapingCampaign', { status: 'queued' }),
+      this.safeDelegateCount('webscrapingCampaign', 'WebscrapingCampaign', { status: { in: ['running', 'sleeping', 'partial_error'] } }),
+      this.safeDelegateCount('webscrapingCampaign', 'WebscrapingCampaign', { status: { in: ['completed', 'completed_insufficient_results'] }, updatedAt: { gte: todayStart, lt: todayEnd } }),
+      this.safeDelegateCount('webscrapingCampaign', 'WebscrapingCampaign', { status: 'failed', updatedAt: { gte: todayStart, lt: todayEnd } }),
       this.safeDelegateCount('webscrapingSearchRun', 'WebscrapingSearchRun', { status: 'queued' }),
       this.safeDelegateCount('webscrapingSearchRun', 'WebscrapingSearchRun', { status: 'running' }),
       this.safeDelegateCount('webscrapingSearchRun', 'WebscrapingSearchRun', { status: 'failed', updatedAt: { gte: todayStart, lt: todayEnd } }),
@@ -136,7 +147,26 @@ export class RadarCoreMasterDatabaseMixin {
       this.getEnginePool().getSchedulerStatus().catch(() => null),
     ]);
 
-    const hasActiveMission = searchRunsQueued + searchRunsRunning > 0;
+    const hasActiveMission = campaignsQueued + campaignsRunning + searchRunsQueued + searchRunsRunning > 0;
+    const batchRows = (this.prisma as any).webscrapingCampaignBatch?.findMany
+      ? await (this.prisma as any).webscrapingCampaignBatch.findMany({
+          where: {
+            engineId: { not: null },
+            OR: [
+              { createdAt: { gte: todayStart, lt: todayEnd } },
+              { finishedAt: { gte: todayStart, lt: todayEnd } },
+            ],
+          },
+          select: {
+            engineId: true,
+            approvedCount: true,
+            duplicateCount: true,
+            rejectedCount: true,
+            createdAt: true,
+            finishedAt: true,
+          },
+        }).catch(() => [])
+      : [];
     const itemRows = (this.prisma as any).webscrapingSearchRunItem?.findMany
       ? await (this.prisma as any).webscrapingSearchRunItem.findMany({
           where: { createdAt: { gte: todayStart, lt: todayEnd }, status: { in: ['found', 'duplicate', 'skipped', 'invalid'] } },
@@ -152,6 +182,17 @@ export class RadarCoreMasterDatabaseMixin {
       engineStats.set(engineId, created);
       return created;
     };
+    for (const batch of batchRows) {
+      const engineId = String(batch.engineId || '').trim();
+      if (!engineId) continue;
+      const stats = ensureEngineStats(engineId);
+      const approved = safeInteger(batch.approvedCount);
+      stats.cardsToday += approved;
+      stats.duplicatesToday += safeInteger(batch.duplicateCount);
+      stats.rejectedToday += safeInteger(batch.rejectedCount);
+      const at = batch.finishedAt instanceof Date ? batch.finishedAt : batch.createdAt instanceof Date ? batch.createdAt : null;
+      if (at && at >= tenMinutesAgo) stats.cardsLast10Min += approved;
+    }
     for (const item of itemRows) {
       const engineId = String(item?.run?.assignedEngineId || '').trim();
       if (!engineId) continue;
@@ -204,6 +245,10 @@ export class RadarCoreMasterDatabaseMixin {
       sentToVendas,
       duplicatedItemsToday,
       rejectedItemsToday,
+      campaignsQueued,
+      campaignsRunning,
+      campaignsCompletedToday,
+      campaignsFailedToday,
       searchRunsQueued,
       searchRunsRunning,
       searchRunsFailedToday,
@@ -223,13 +268,50 @@ export class RadarCoreMasterDatabaseMixin {
     if (searchRunsFailedToday > Math.max(3, searchRunsCompletedToday)) diagnostics.push('Muitas buscas falharam. Verificar motor, fila, timeout ou origem de scraping.');
     if (duplicatedItemsToday > Math.max(10, foundItemsToday)) diagnostics.push('Muitos duplicados. Trocar cidade, segmento ou tipo.');
     if (foundItemsToday > 0 && cardsToday === 0) diagnostics.push('Itens encontrados, mas persistência no RadarLeadPool pode estar falhando.');
+    if (safeInteger(scheduler?.manualReservedEngines) <= 0) diagnostics.push('Radar Digital do cliente sem reserva de motor. Risco de 500/timeout.');
     if (!diagnostics.length) diagnostics.push('Sem bloqueio crítico detectado agora.');
 
+    // Fábrica de DESCOBERTA autônoma DEMOLIDA (F0): não há mais cursor/missão de fábrica.
+    // O bloco reporta idle honesto; `schedule` vem do governor de motores (engine pool), vivo.
+    const factory = {
+      enabled: false,
+      status: 'idle',
+      currentState: null,
+      currentCity: null,
+      currentSegment: null,
+      currentTargetType: 'pj',
+      lastCampaignId: null,
+      lastRunId: null,
+      lastSavedCount: 0,
+      lastDuplicateCount: 0,
+      lastRejectedCount: 0,
+      consecutiveEmptyCount: 0,
+      consecutiveFailureCount: 0,
+      lastError: null,
+      lastWorkedAt: null,
+      nextRunAt: null,
+      reasonStopped: null,
+      nextMissionPreview: null,
+      schedule: scheduler?.factory || null,
+    };
+
     const clientProtection = {
-      mode: 'client_only',
-      radarDigitalActiveRequests: scheduler?.clientDemandActive ? 1 : 0,
-      eligibleEngines: safeInteger(scheduler?.eligibleEnginesCount),
-      message: 'Pool dedicado somente a solicitações canônicas do cliente.',
+      reservedEngines: safeInteger(scheduler?.manualReservedEngines),
+      clientPriorityActive: Boolean(scheduler?.clientPriorityActive),
+      radarDigitalActiveRequests: scheduler?.manualDemandActive ? 1 : 0,
+      factoryAllowedEngines: safeInteger(scheduler?.automaticAllowedEngines),
+      manualReservedEngines: safeInteger(scheduler?.manualReservedEngines),
+      automaticAllowedEngines: safeInteger(scheduler?.automaticAllowedEngines),
+      factoryReason: scheduler?.factory?.reason || null,
+      factoryWindowStatus: scheduler?.factory?.windowStatus || null,
+      factoryMaxEngines: scheduler?.factory?.maxEngines ?? null,
+      factoryMemoryGuardEngines: scheduler?.factory?.memoryGuardEngines ?? null,
+      factoryNextStartAt: scheduler?.factory?.nextStartAt || null,
+      factoryNextStopAt: scheduler?.factory?.nextStopAt || null,
+      factoryEmergencyStop: Boolean(scheduler?.factory?.emergencyStop),
+      message: safeInteger(scheduler?.manualReservedEngines) > 0
+        ? 'Radar Digital protegido: a fábrica não pode consumir os motores reservados do cliente.'
+        : 'Radar Digital sem reserva configurada. Configure HBX_CLIENT_RESERVED_ENGINES=2.',
     };
 
     return {
@@ -250,6 +332,7 @@ export class RadarCoreMasterDatabaseMixin {
         updatedAt: this.serializeAuditDate(card.updatedAt),
       })),
       engines,
+      factory,
       clientProtection,
       diagnostics,
     };
@@ -284,12 +367,8 @@ export class RadarCoreMasterDatabaseMixin {
     const readLimit = Math.min(Math.max(limit * 10, 500), 5000);
     const companyStateSelect = {
       companyId: true,
-      radarLeadId: true,
       status: true,
       vendasLeadId: true,
-      paidClaimOperationId: true,
-      claimUsageKey: true,
-      acquiredAt: true,
       lastActionAt: true,
       noAnswerCount: true,
       contactedCount: true,
@@ -299,63 +378,6 @@ export class RadarCoreMasterDatabaseMixin {
       assignedUserId: true,
       assignedByUserId: true,
       assignedAt: true,
-    };
-    const projectPaidMasterRows = async (sourceRows: any[], explicitCompanyId?: number | null) => {
-      const source = Array.isArray(sourceRows) ? sourceRows : [];
-      const pairs = source.map((row: any) => ({
-        radarLeadId: String(row?.id || ''),
-        companyId: explicitCompanyId || Math.trunc(Number(row?.ownerCompanyId || 0)) || 0,
-      })).filter((pair) => pair.radarLeadId && pair.companyId > 0);
-      if (!pairs.length) {
-        return source.map((row: any) => ({ row, viewerCompanyId: null, contactAccessGranted: false }));
-      }
-      const pairWhere = pairs.map((pair) => ({ companyId: pair.companyId, radarLeadId: pair.radarLeadId }));
-      const [states, pendingRuns] = await Promise.all([
-        (this.prisma as any).radarLeadCompanyState.findMany({
-          where: { OR: pairWhere },
-          select: companyStateSelect,
-        }).catch(() => []),
-        (this.prisma as any).radarLeadProcessRun.findMany({
-          where: {
-            mode: 'claim',
-            status: 'refund_pending',
-            OR: pairWhere,
-          },
-          select: { companyId: true, radarLeadId: true, status: true },
-        }).catch(() => []),
-      ]);
-      const stateByPair = new Map((states || []).map((state: any) => [`${state.companyId}:${state.radarLeadId}`, state]));
-      const pendingByPair = new Set((pendingRuns || []).map((run: any) => `${run.companyId}:${run.radarLeadId}`));
-      const normalized = source.map((row: any) => {
-        const viewerCompanyId = explicitCompanyId || Math.trunc(Number(row?.ownerCompanyId || 0)) || null;
-        const key = viewerCompanyId ? `${viewerCompanyId}:${row.id}` : '';
-        return {
-          row: {
-            ...row,
-            companyStates: key && stateByPair.has(key) ? [stateByPair.get(key)] : [],
-            processRuns: key && pendingByPair.has(key) ? [{ status: 'refund_pending' }] : [],
-          },
-          viewerCompanyId,
-        };
-      });
-      const accessByPair = new Map<string, boolean>();
-      const groups = new Map<number, any[]>();
-      for (const item of normalized) {
-        if (!item.viewerCompanyId) continue;
-        const group = groups.get(item.viewerCompanyId) || [];
-        group.push(item.row);
-        groups.set(item.viewerCompanyId, group);
-      }
-      for (const [companyId, groupRows] of groups) {
-        const access = await this.resolveRadarPaidAccessMap(companyId, groupRows);
-        for (const row of groupRows) accessByPair.set(`${companyId}:${row.id}`, access.get(String(row.id)) === true);
-      }
-      return normalized.map((item) => ({
-        ...item,
-        contactAccessGranted: item.viewerCompanyId
-          ? accessByPair.get(`${item.viewerCompanyId}:${item.row.id}`) === true
-          : false,
-      }));
     };
     const hasExplicitFilters = Boolean(
       targetCompanyId
@@ -411,15 +433,10 @@ export class RadarCoreMasterDatabaseMixin {
         }).catch(() => []),
       ]);
 
-      const projectedRows = await projectPaidMasterRows(rows || [], null);
       return {
-        items: projectedRows.map((item: any) => ({
-          ...this.buildRadarLeadPublic(item.row, {
-            viewerCompanyId: item.viewerCompanyId || undefined,
-            ownershipEnabled: Boolean(item.viewerCompanyId),
-            contactAccessGranted: item.contactAccessGranted === true,
-          }),
-          targetType: this.resolveRadarLeadTargetType(item.row),
+        items: (rows || []).map((row: any) => ({
+          ...this.buildRadarLeadPublic(row),
+          targetType: this.resolveRadarLeadTargetType(row),
         })),
         total,
         meta: {
@@ -489,13 +506,6 @@ export class RadarCoreMasterDatabaseMixin {
                 createdAt: true,
               },
             },
-        processRuns: targetCompanyId
-          ? {
-              where: { companyId: targetCompanyId, mode: 'claim', status: 'refund_pending' },
-              take: 1,
-              select: { status: true },
-            }
-          : false,
       },
     }).catch(() => []);
 
@@ -509,16 +519,11 @@ export class RadarCoreMasterDatabaseMixin {
       : this.filterRadarRowsInMemory(rows || [], filters);
     const dedupedRows = this.dedupeRadarRows(filteredRows);
     const pageRows = dedupedRows.slice(offset, offset + limit);
-    const projectedRows = await projectPaidMasterRows(pageRows, targetCompanyId);
 
     return {
-      items: projectedRows.map((item: any) => ({
-        ...this.buildRadarLeadPublic(item.row, {
-          viewerCompanyId: item.viewerCompanyId || undefined,
-          ownershipEnabled: Boolean(item.viewerCompanyId),
-          contactAccessGranted: item.contactAccessGranted === true,
-        }),
-        targetType: this.resolveRadarLeadTargetType(item.row),
+      items: pageRows.map((row) => ({
+        ...this.buildRadarLeadPublic(row),
+        targetType: this.resolveRadarLeadTargetType(row),
       })),
       total: dedupedRows.length,
       meta: {
@@ -734,6 +739,8 @@ export class RadarCoreMasterDatabaseMixin {
             : 'RADAR_TEMPORARILY_UNAVAILABLE');
     const message = code === 'MODULE_ACCESS_DENIED'
       ? 'Acesso ao Radar Digital indisponível para este usuário.'
+      : code === 'SELLER_CARD_QUOTA_REACHED' || code === 'SELLER_QUOTA_PAUSED'
+        ? String((error as any)?.response?.message || 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.')
       : code === 'NO_ENGINE_AVAILABLE'
         ? 'Motores ocupados. O sistema manteve sua busca na fila.'
         : code === 'RADAR_RUN_NOT_FOUND'
@@ -758,6 +765,9 @@ export class RadarCoreMasterDatabaseMixin {
         available: false,
         route,
         status,
+        activeCount: (error as any)?.response?.activeCount ?? null,
+        effectiveLimit: (error as any)?.response?.effectiveLimit ?? null,
+        availableSlots: (error as any)?.response?.availableSlots ?? null,
       },
     };
   }

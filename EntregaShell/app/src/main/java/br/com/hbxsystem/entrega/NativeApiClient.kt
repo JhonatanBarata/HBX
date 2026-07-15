@@ -35,7 +35,7 @@ class NativeApiClient(
     fun request(methodInput: String, pathInput: String, bodyInput: String?): Response {
         val method = methodInput.trim().uppercase()
         require(method in setOf("GET", "POST", "PATCH", "DELETE")) { "Método não permitido." }
-        val path = normalizeAndAuthorizePath(method, pathInput)
+        val path = normalizeAndAuthorizePath(pathInput)
         val body = bodyInput?.takeIf { it.isNotBlank() }
         require(body == null || body.length <= MAX_REQUEST_CHARS) { "Requisição grande demais." }
 
@@ -62,13 +62,13 @@ class NativeApiClient(
         bytes: ByteArray,
         clientKey: String,
     ): Response {
-        require(BuildConfig.APP_MODE == "logistica") { "Upload disponível somente no HBX Mobile." }
+        require(BuildConfig.APP_MODE == "logistica") { "Upload disponível somente no HBX Logística." }
         require(deliveryId.matches(Regex("^[A-Za-z0-9_-]{1,120}$"))) { "Entrega inválida." }
         require(type == "foto" || type == "assinatura") { "Tipo de comprovante inválido." }
         require(bytes.isNotEmpty() && bytes.size <= 5 * 1024 * 1024) { "A imagem deve ter no máximo 5 MB." }
         val filename = filenameInput.filter { !it.isISOControl() && it !in "\"\\/" }.take(160).ifBlank { "$type.jpg" }
         val mime = mimeInput.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") } ?: "image/jpeg"
-        val path = normalizeAndAuthorizePath("POST", "/logistica/entregas/$deliveryId/comprovantes")
+        val path = normalizeAndAuthorizePath("/logistica/entregas/$deliveryId/comprovantes")
         var response = multipartRequest(path, type, filename, mime, bytes, clientKey, ensureAccessToken())
         if (response.status == HttpURLConnection.HTTP_UNAUTHORIZED) {
             synchronized(sessionLock) { accessToken = null }
@@ -201,7 +201,7 @@ class NativeApiClient(
         }
     }
 
-    private fun normalizeAndAuthorizePath(method: String, input: String): String {
+    private fun normalizeAndAuthorizePath(input: String): String {
         val raw = input.trim()
         require(
             raw.startsWith('/') && !raw.startsWith("//") && raw.length <= 2_048 &&
@@ -213,7 +213,7 @@ class NativeApiClient(
         require('\\' !in endpoint && '\u0000' !in endpoint && endpoint.split('/').none { it == "." || it == ".." }) {
             "Caminho inválido."
         }
-        val allowed = isMobileEndpointAllowed(BuildConfig.APP_MODE, method, endpoint)
+        val allowed = isMobileEndpointAllowed(BuildConfig.APP_MODE, endpoint)
         require(allowed) { "Esta operação não pertence ao ${BuildConfig.APP_MODE}." }
         return raw
     }
@@ -235,56 +235,11 @@ class NativeApiClient(
     }
 }
 
-internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpoint: String): Boolean {
-    val method = methodInput.uppercase()
-    val segments = endpoint.trim('/').split('/').filter(String::isNotBlank)
-    val vendasEndpoint = when {
-        method == "GET" && segments in listOf(
-            listOf("vendas", "board"),
-            listOf("vendas", "report"),
-            listOf("vendas", "pending-summary"),
-            listOf("products"),
-        ) -> true
-        method == "GET" && segments.size == 3 && segments.take(3) == listOf("webscraping", "radar", "leads") -> true
-        method == "GET" && segments.size == 4 && segments.take(3) == listOf("webscraping", "radar", "claim-runs") -> true
-        method == "POST" && segments == listOf("vendas", "manual") -> true
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("vendas", "lead") && segments[3] in setOf("attempt", "negativar") -> true
-        method == "POST" && segments.size == 5 && segments.take(3) == listOf("webscraping", "radar", "leads") && segments[4] == "send-to-vendas" -> true
-        method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("vendas", "lead") -> true
-        else -> false
-    }
-    val logisticaEndpoint = when {
-        method == "GET" && segments in listOf(
-            listOf("logistica", "dia-preview"),
-            listOf("logistica", "cliente-produtos"),
-            listOf("logistica", "rota"),
-            listOf("logistica", "produtos"),
-            listOf("logistica", "config"),
-            listOf("logistica", "creditos", "extrato"),
-            listOf("nucleo", "clientes"),
-        ) -> true
-        method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
-        method == "POST" && segments in listOf(
-            listOf("logistica", "gerar-dia"),
-            listOf("logistica", "rota", "planejar"),
-            listOf("logistica", "rota", "iniciar"),
-            listOf("logistica", "cliente-produtos"),
-            listOf("logistica", "entregas"),
-            listOf("nucleo", "contas"),
-            listOf("products"),
-        ) -> true
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "comprovantes") -> true
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
-        method == "PATCH" && segments == listOf("logistica", "config") -> true
-        method == "PATCH" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "financeiro" -> true
-        method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
-        method == "PATCH" && segments.size == 3 && segments[0] == "nucleo" && segments[1] in setOf("contas", "locais", "telefones") -> true
-        method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
-        else -> false
-    }
-    return when (appMode) {
-        "vendas" -> vendasEndpoint
-        "logistica" -> logisticaEndpoint || vendasEndpoint
-        else -> false
-    }
+internal fun isMobileEndpointAllowed(appMode: String, endpoint: String): Boolean = when (appMode) {
+    "vendas" -> endpoint == "/vendas" || endpoint.startsWith("/vendas/")
+    "logistica" -> endpoint == "/logistica" || endpoint.startsWith("/logistica/") ||
+        endpoint == "/products" || endpoint.startsWith("/products/") ||
+        endpoint == "/cadastros" || endpoint.startsWith("/cadastros/") ||
+        endpoint == "/nucleo/clientes" || endpoint == "/nucleo/contas"
+    else -> false
 }

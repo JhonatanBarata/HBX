@@ -98,7 +98,8 @@ type SellerAuditRow = {
     closedCards: number;
     interestedCards: number;
     responseCards: number;
-    receivedToday: number;
+    deliveredToday: number;
+    dailyLimit: number;
     workRate: number;
   };
   // campos extras reais do contrato, revelados no "Ver detalhes"
@@ -504,7 +505,7 @@ export function RelatoriosClient() {
                                   <div style={{ display: "grid", gap: 2 }}><span className="sub2">Em retorno</span><strong>{v.metrics.returnCards}</strong></div>
                                   <div style={{ display: "grid", gap: 2 }}><span className="sub2">Interessados</span><strong>{v.metrics.interestedCards}</strong></div>
                                   <div style={{ display: "grid", gap: 2 }}><span className="sub2">Respostas</span><strong>{v.metrics.responseCards}</strong></div>
-                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Recebidos hoje</span><strong>{v.metrics.receivedToday || 0}</strong></div>
+                                  <div style={{ display: "grid", gap: 2 }}><span className="sub2">Entregues hoje</span><strong>{v.metrics.deliveredToday}/{v.metrics.dailyLimit || "—"}</strong></div>
                                   <div style={{ display: "grid", gap: 2 }}><span className="sub2">Top segmento</span><strong>{v.topSegment || "—"}</strong></div>
                                   <div style={{ display: "grid", gap: 2 }}><span className="sub2">Top cidade</span><strong>{v.topCity || "—"}</strong></div>
                                 </div>

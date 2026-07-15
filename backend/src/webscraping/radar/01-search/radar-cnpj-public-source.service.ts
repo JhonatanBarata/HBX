@@ -7,6 +7,10 @@ import { CnpjDiscoveryService, isCnpjDiscoveryEnabled } from '../providers/cnpj-
 import type { CnpjPublicCompanyRecord } from '../providers/cnpj-public/cnpj-public-types';
 import type { RadarLeadSourceResult } from './radar-lead-source.types';
 
+function envEnabled(name: string) {
+  return String(process.env[name] || '').trim().toLowerCase() === 'true';
+}
+
 function sourceIssue(message: string) {
   return buildRadarStageIssue({
     stage: 'search',
@@ -57,6 +61,19 @@ export class RadarCnpjPublicSourceService {
     records?: CnpjPublicCompanyRecord[];
     prisma?: any;
   }): Promise<RadarLeadSourceResult> {
+    if (!envEnabled('HBX_RADAR_CNPJ_PUBLIC_ENABLED')) {
+      return {
+        source: 'cnpj_public',
+        status: 'skipped',
+        retryable: false,
+        foundCount: 0,
+        acceptedCount: 0,
+        rejectedCount: 0,
+        reason: 'flag_cnpj_public_desativada',
+        results: [],
+      };
+    }
+
     try {
       let records = input.records;
       if (!records?.length && input.prisma) {

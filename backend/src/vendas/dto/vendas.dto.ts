@@ -598,7 +598,7 @@ export class ImportWebscrapingLeadItemDto {
   qualityV2?: unknown;
 
   @IsOptional()
-  @IsIn(['eligible', 'review_backup', 'blocked'])
+  @IsIn(['candidate', 'list_basic', 'enrichment_pending', 'lead_plus_qualified', 'review_backup', 'blocked'])
   visibilityTier?: string;
 
   @IsOptional()
@@ -610,8 +610,8 @@ export class ImportWebscrapingLeadItemDto {
   debitEligible?: boolean;
 
   @IsOptional()
-  @IsIn(['lead'])
-  deliveryProduct?: 'lead';
+  @IsIn(['list', 'lead_plus'])
+  deliveryProduct?: 'list' | 'lead_plus';
 
   @IsOptional()
   @IsString()
@@ -656,6 +656,15 @@ export class ImportWebscrapingLeadsDto {
     return value;
   })
   skipWhatsappValidation?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+    return value;
+  })
+  @IsBoolean()
+  debitOnImport?: boolean;
 
   @IsArray()
   @ArrayMaxSize(100)

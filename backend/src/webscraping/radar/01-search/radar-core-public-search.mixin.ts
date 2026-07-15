@@ -12,6 +12,10 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   isHbxEngineLocalhostUrl,
+  COMMERCIAL_PLAN_QUOTAS,
+  COMMERCIAL_PLAN_KEYS,
+  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
+  resolveCommercialPlanKeyForCapabilities,
   buildRadarLeadEnrichment,
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
@@ -20,13 +24,21 @@ import {
   PLACES_NEW_DETAILS_URL,
   PLACES_TEXT_SEARCH_URL,
   PLACES_DETAILS_URL,
+  MAX_QUANTITY,
   HBX_PJ_MAX_QUANTITY,
   HBX_PEOPLE_MAX_QUANTITY,
   DEFAULT_HBX_SCRAPING_ENGINE_URL,
   GLOBAL_CACHE_TTL_HOURS,
+  RECENT_HISTORY_LIMIT,
   IBGE_CITIES_URL,
   CITY_CACHE_TTL_MS,
+  MASS_DATA_INTERNAL_SEGMENTS,
   ACRE_CITIES_FALLBACK,
+  AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK,
+  AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+  AUTONOMOUS_MASS_DATA_MAX_TASKS,
+  DEFAULT_MASS_DATA_ENGINE_URLS,
+  TURBO_OPERATIONAL_CONFIG_KEY,
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
   RADAR_PROTECTED_STATUSES,
@@ -74,6 +86,7 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
+  isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
   maxQuantityFor,
@@ -81,9 +94,14 @@ import {
   clampInteger,
   parsePositiveIntegerEnv,
   minutesAgo,
+  formatCityWithState,
 } from '../radar-core-method-imports';
 
 import type {
+  AutonomousMassDataCandidate,
+  AutonomousMassDataStrategyMode,
+  AutonomousMassDataWork,
+  AutonomousMassDataWorkReason,
   ExternalRuntimeStatus,
   GlobalCacheRow,
   HbxBatchStatus,
@@ -100,11 +118,13 @@ import type {
   LeadQualityStatus,
   LeadQualityV2,
   LeadQualityV2SalesProfile,
+  MasterMassDataCampaignInput,
   NativeRuntimeDiagnostic,
   NormalizedRadarFilters,
   NormalizedSearchInput,
   NormalizeSearchInputOptions,
   PlaceDetails,
+  RadarCampaignInput,
   RadarChannelFilter,
   RadarChannelMatchMode,
   RadarFiltersInput,
@@ -131,12 +151,14 @@ import type {
   WebscrapingContactResult,
   WebscrapingEngine,
   WebscrapingHistorySummary,
+  WebscrapingOperationalConfigInput,
   WebscrapingRuntimeDiagnostic,
   WebscrapingRuntimeResponse,
   WebscrapingSearchFilters,
   WebscrapingSearchResponse,
   WebscrapingSearchRunItemStatus,
   WebscrapingSearchRunResponse,
+  WebscrapingSearchRunStatus,
 } from '../radar-core-method-imports';
 
 export class RadarCorePublicSearchMixin {
@@ -149,8 +171,9 @@ export class RadarCorePublicSearchMixin {
   async getRuntime(user: any): Promise<WebscrapingRuntimeResponse> {
     const native = this.inspectNativeRuntime();
     const hbx = await this.inspectHbxRuntime();
+    const quota = await this.buildRuntimeQuota(user);
     if (!this.canSeeDiagnostics(user)) {
-      return { native, hbx };
+      return { native, hbx, quota };
     }
 
     let legacy: WebscrapingRuntimeDiagnostic | null = null;
@@ -163,6 +186,7 @@ export class RadarCorePublicSearchMixin {
     return {
       native,
       hbx,
+      quota,
       diagnostics: {
         checkedAt: new Date().toISOString(),
         nativeTechnicalMessage: this.buildNativeTechnicalMessage(native),
@@ -259,6 +283,132 @@ export class RadarCorePublicSearchMixin {
     };
   }
 
+  async startSearchRunForUser(user: any, input: SearchContactsInput) {
+    const context = this.resolveContext(user);
+    const normalized = this.normalizeSearchInput({
+      ...input,
+      engine: 'hbx',
+      targetType: input?.targetType || 'pj',
+    });
+    await this.assertSearchRunPersistence();
+
+    const canReadRadarDatabase = normalized.targetType === 'pj'
+      ? await this.supportsRadarPersistence().catch(() => false)
+      : false;
+    const databaseResults = canReadRadarDatabase
+      ? await this.listRadarContactsForSearch(context, normalized).catch(() => [])
+      : [];
+
+    if (databaseResults.length >= normalized.quantity) {
+      const now = new Date();
+      const run = await this.prisma.webscrapingSearchRun.create({
+        data: {
+          companyId: context.companyId,
+          userId: context.userId,
+          status: 'completed',
+          city: normalized.city,
+          state: normalized.state || null,
+          segment: normalized.segment,
+          engine: normalized.engine,
+          targetType: normalized.targetType,
+          targetQuantity: normalized.quantity,
+          startedAt: now,
+          finishedAt: now,
+          errorMessage: 'Entregue do banco Radar. O motor de busca nao foi acionado.',
+          metricsJson: this.buildSearchRunMetricsJson(normalized),
+        },
+        select: {
+          id: true,
+          status: true,
+          city: true,
+          state: true,
+          segment: true,
+          engine: true,
+          targetType: true,
+          targetQuantity: true,
+          createdAt: true,
+        },
+      });
+
+      const savedCounts = await this.saveSearchRunResults(
+        context,
+        normalized,
+        run.id,
+        databaseResults.slice(0, normalized.quantity),
+        'radar_database',
+      );
+      await this.recalculateSearchRunCounters(run.id);
+      await this.updateSearchRunMetrics(run.id, {
+        sourceEngine: 'radar_database',
+        cacheHit: true,
+        status: 'completed',
+      }).catch(() => null);
+      await this.persistSearchRunHistoryIfPossible(run.id, normalized, context).catch(() => null);
+
+      return {
+        runId: run.id,
+        id: run.id,
+        status: run.status as WebscrapingSearchRunStatus,
+        query: {
+          city: run.city,
+          state: run.state || null,
+          segment: run.segment,
+          quantity: run.targetQuantity,
+          engine: normalizeEngine(run.engine),
+          targetType: normalizeTargetType(run.targetType),
+          filters: normalized.filters,
+        },
+        createdAt: run.createdAt.toISOString(),
+      };
+    }
+
+    const run = await this.prisma.webscrapingSearchRun.create({
+      data: {
+        companyId: context.companyId,
+        userId: context.userId,
+        status: 'queued',
+        city: normalized.city,
+        state: normalized.state || null,
+        segment: normalized.segment,
+        engine: normalized.engine,
+        targetType: normalized.targetType,
+        targetQuantity: normalized.quantity,
+        metricsJson: this.buildSearchRunMetricsJson(normalized),
+      },
+      select: {
+        id: true,
+        status: true,
+        city: true,
+        state: true,
+        segment: true,
+        engine: true,
+        targetType: true,
+        targetQuantity: true,
+        createdAt: true,
+      },
+    });
+
+    setTimeout(() => {
+      void this.processNextQueuedSearchRun();
+    }, 0);
+
+    return {
+      runId: run.id,
+      id: run.id,
+      status: run.status as WebscrapingSearchRunStatus,
+      query: {
+        city: run.city,
+        state: run.state || null,
+        segment: run.segment,
+        quantity: run.targetQuantity,
+        engine: normalizeEngine(run.engine),
+        targetType: normalizeTargetType(run.targetType),
+        filters: normalized.filters,
+      },
+      createdAt: run.createdAt.toISOString(),
+    };
+  }
+
   async getSearchRunForUser(user: any, runId: string): Promise<WebscrapingSearchRunResponse> {
     const context = this.resolveContext(user);
     await this.assertSearchRunPersistence();
@@ -328,9 +478,16 @@ export class RadarCorePublicSearchMixin {
     options: SearchExecutionOptions = {},
   ): Promise<WebscrapingSearchResponse> {
     const context = this.resolveContext(user);
-    const purpose = normalizeEnginePurpose(options.purpose);
-    const safeInput = input;
-    const hbxPrimaryInput = input;
+    let purpose = normalizeEnginePurpose(options.purpose);
+    const requestedEngine = normalizeEngine(input?.engine);
+    const safeInput: SearchContactsInput = isAutomaticEnginePurpose(purpose) && requestedEngine === 'google'
+      ? { ...input, engine: 'hbx' }
+      : input;
+    if (safeInput !== input) {
+      this.logger.warn(`[engine-scheduler] google blocked for ${purpose} purpose`);
+      this.logger.warn('[autonomous-bank] skipped google for autonomous bank');
+    }
+    const hbxPrimaryInput = safeInput;
     const normalized = this.normalizeSearchInput(hbxPrimaryInput);
     this.logSearchSelection(normalized);
     const hasExplicitExclusions = normalized.excludePhoneDigits.length > 0;
@@ -655,14 +812,8 @@ export class RadarCorePublicSearchMixin {
       throw this.buildConfigurationUnavailableError();
     }
 
-    // A autorização por papel permanece; a antiga cota comercial por empresa
-    // foi eliminada. Custos do Google/Brave são governados globalmente pelo
-    // scheduler/provider governor, sem diferenciar clientes ou planos.
-    if (!this.canUseWebscrapingRole(context.user)) {
-      throw new ForbiddenException({
-        code: 'webscraping_role_blocked',
-        message: 'O webscraping fica restrito ao ADMIN da empresa. Usuarios comuns nao usam o motor nem veem este modulo.',
-      });
+    if (options.usageEventType !== 'GOOGLE_EMERGENCY_EXECUTED') {
+      await this.assertGoogleDailyQuota(context, normalized);
     }
 
     for (const candidateLimit of this.buildCandidateSteps(normalized.quantity)) {
@@ -729,6 +880,234 @@ export class RadarCorePublicSearchMixin {
       );
     }
     this.logSearchResult(normalized, response.results.length);
+    return response;
+  }
+
+  async listRecentHistoryForUser(user: any, limit = RECENT_HISTORY_LIMIT) {
+    const context = this.resolveContext(user);
+    const historyEnabled = await this.supportsHistoryPersistence();
+    const globalCacheEnabled = await this.supportsGlobalCachePersistence();
+    const safeLimit = Math.min(Math.max(Math.trunc(limit || 0), 1), RECENT_HISTORY_LIMIT);
+    if (historyEnabled) {
+      await this.pruneCompanyHistory(context.companyId, RECENT_HISTORY_LIMIT);
+    }
+    const readLimit = Math.max(safeLimit * 3, RECENT_HISTORY_LIMIT);
+    const [rows, globalRows] = await Promise.all([
+      historyEnabled
+        ? this.prisma.webscrapingSearchHistory.findMany({
+            where: { companyId: context.companyId },
+            orderBy: [{ lastUsedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+            take: readLimit,
+            select: {
+              id: true,
+              city: true,
+              segment: true,
+              quantity: true,
+              resultCount: true,
+              filtersJson: true,
+              searchSignature: true,
+              createdAt: true,
+              updatedAt: true,
+              lastUsedAt: true,
+              places: {
+                orderBy: [{ rank: 'asc' }],
+                take: 3,
+                select: {
+                  name: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([] as any[]),
+      globalCacheEnabled
+        ? this.prisma.webscrapingGlobalCacheEntry.findMany({
+            where: {
+              cacheValidUntil: {
+                gt: new Date(),
+              },
+            },
+            orderBy: [{ lastServedAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+            take: readLimit,
+            include: {
+              places: {
+                orderBy: [{ rank: 'asc' }],
+                take: 3,
+              },
+            },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const itemsWithKeys = [
+      ...rows.map((row) => {
+        const options = this.parseSearchOptionsJson(row.filtersJson, row.searchSignature);
+        const state = options.state || this.extractSignaturePart(row.searchSignature, 'state').toUpperCase();
+        return {
+          id: row.id,
+          city: formatCityWithState(row.city, state) || 'Brasil',
+          segment: row.segment,
+          quantity: row.quantity,
+          resultCount: row.resultCount,
+          filters: options.filters,
+          createdAt: row.createdAt.toISOString(),
+          updatedAt: row.updatedAt.toISOString(),
+          lastUsedAt: row.lastUsedAt.toISOString(),
+          preview: row.places.map((place) => place.name).filter(Boolean),
+          scope: 'company' as const,
+          sourceLabel: options.engine === 'hbx' ? 'Historico HBX Scraping' : 'Historico da empresa',
+          cacheValidUntil: null,
+          dedupeKey: this.buildHistoryDedupeKey({
+            city: row.city,
+            state,
+            segment: row.segment,
+            filtersJson: row.filtersJson,
+            searchSignature: row.searchSignature,
+          }),
+        };
+      }),
+      ...globalRows.map((row) => ({
+        id: `global:${row.id}`,
+        city: row.normalizedCity,
+        segment: row.normalizedSegment,
+        quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
+        resultCount: row.resultCount,
+        filters: this.parseFiltersJson(row.filtersJson),
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+        lastUsedAt: row.lastServedAt.toISOString(),
+        preview: row.places.map((place) => place.name).filter(Boolean),
+        scope: 'global' as const,
+        sourceLabel: 'Historico global',
+        cacheValidUntil: row.cacheValidUntil.toISOString(),
+        dedupeKey: this.buildHistoryDedupeKey({
+          city: row.normalizedCity,
+          segment: row.normalizedSegment,
+          filtersJson: row.filtersJson,
+          searchSignature: row.cacheSignature,
+        }),
+      })),
+    ]
+      .sort((left, right) => new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime());
+
+    const uniqueItems = new Map<string, (typeof itemsWithKeys)[number]>();
+    for (const item of itemsWithKeys) {
+      const current = uniqueItems.get(item.dedupeKey);
+      if (!current || (current.scope === 'global' && item.scope === 'company')) {
+        uniqueItems.set(item.dedupeKey, item);
+      }
+    }
+
+    const items = Array.from(uniqueItems.values())
+      .sort((left, right) => new Date(right.lastUsedAt).getTime() - new Date(left.lastUsedAt).getTime())
+      .slice(0, safeLimit)
+      .map(({ dedupeKey: _dedupeKey, ...item }) => item);
+
+    return { items };
+  }
+
+  async reuseHistorySearchForUser(user: any, historyId: string) {
+    const context = this.resolveContext(user);
+    const normalizedHistoryId = String(historyId || '').trim();
+    const isGlobalHistory = normalizedHistoryId.startsWith('global:');
+
+    if (isGlobalHistory) {
+      const globalCacheEnabled = await this.supportsGlobalCachePersistence();
+      if (!globalCacheEnabled) {
+        throw new NotFoundException('Historico global indisponivel neste ambiente.');
+      }
+
+      const row = await this.findGlobalCacheById(normalizedHistoryId.slice('global:'.length));
+      if (!row) {
+        throw new NotFoundException('Pesquisa global nao encontrada.');
+      }
+
+      const parsedOptions = this.parseSearchOptionsJson(row.filtersJson, row.cacheSignature);
+      const filters = parsedOptions.filters;
+      const normalized = this.normalizeSearchInput(
+        {
+          city: row.normalizedCity,
+          state: parsedOptions.state,
+          segment: row.normalizedSegment,
+          quantity: Math.min(Math.max(Math.trunc(row.resultCount || 0), 1), MAX_QUANTITY),
+          engine: parsedOptions.engine,
+          targetType: parsedOptions.targetType,
+          minRating: filters.minRating,
+          minReviews: filters.minReviews,
+          onlyWithWebsite: filters.onlyWithWebsite,
+          preferredChannels: parsedOptions.preferredChannels,
+          requiredChannels: parsedOptions.requiredChannels,
+          channelMatchMode: parsedOptions.channelMatchMode,
+          freshness: parsedOptions.freshness,
+          salesProfile: parsedOptions.salesProfile,
+        },
+        { allowMissingHbxState: true },
+      );
+      const storedResults = this.sortContacts(this.restoreGlobalCacheResults(row))
+        .filter((result) => this.matchesFilters(result, normalized.filters))
+        .slice(0, normalized.quantity);
+
+      await this.touchGlobalCache(row.id);
+
+      const response = this.buildSearchResponse(normalized, storedResults, {
+        historyId: `global:${row.id}`,
+        source: 'global_cache',
+        reusedCount: storedResults.length,
+        fetchedCount: 0,
+        technicalCacheUsed: true,
+        technicalCacheReusedCount: storedResults.length,
+        technicalCacheValidUntil: row.cacheValidUntil.toISOString(),
+      });
+      await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
+      return response;
+    }
+
+    const historyEnabled = await this.supportsHistoryPersistence();
+    if (!historyEnabled) {
+      throw new NotFoundException('Historico indisponivel neste ambiente.');
+    }
+
+    const row = await this.findHistoryById(context.companyId, normalizedHistoryId);
+    if (!row) {
+      throw new NotFoundException('Pesquisa anterior nao encontrada.');
+    }
+
+    const parsedOptions = this.parseSearchOptionsJson(row.filtersJson, row.searchSignature);
+    const filters = parsedOptions.filters;
+    const normalized = this.normalizeSearchInput(
+      {
+        city: row.city,
+        state: parsedOptions.state || this.extractSignaturePart(row.searchSignature, 'state').toUpperCase(),
+        segment: row.segment,
+        quantity: row.quantity,
+        engine: parsedOptions.engine,
+        targetType: parsedOptions.targetType,
+        minRating: filters.minRating,
+        minReviews: filters.minReviews,
+        onlyWithWebsite: filters.onlyWithWebsite,
+        preferredChannels: parsedOptions.preferredChannels,
+        requiredChannels: parsedOptions.requiredChannels,
+        channelMatchMode: parsedOptions.channelMatchMode,
+        freshness: parsedOptions.freshness,
+        salesProfile: parsedOptions.salesProfile,
+      },
+      { allowMissingHbxState: true },
+    );
+    const storedResults = this.sortContacts(this.restoreStoredResults(row))
+      .filter((result) => this.matchesFilters(result, normalized.filters))
+      .slice(0, normalized.quantity);
+
+    await this.touchHistory(row.id, context.userId);
+
+    const response = this.buildSearchResponse(normalized, storedResults, {
+      historyId: row.id,
+      source: 'history',
+      reusedCount: storedResults.length,
+      fetchedCount: 0,
+      technicalCacheUsed: false,
+      technicalCacheReusedCount: 0,
+      technicalCacheValidUntil: null,
+    });
+    await this.recordUsageLog(context, normalized, 'EXECUTED', response.results.length, null, response.meta);
     return response;
   }
 

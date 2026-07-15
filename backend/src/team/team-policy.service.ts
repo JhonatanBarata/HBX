@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
 import { isTenantCompany } from '../common/company-kind';
 import { isGerenteActor, resolveActorKind } from '../access/actor-kind';
 import { ModulesService } from '../modules/modules.service';
@@ -31,6 +32,8 @@ import {
 import type {
   TeamPolicy,
   TeamPolicyActorKind,
+  TeamPolicyLimit,
+  TeamPolicyLimitMode,
   TeamPolicyModule,
   TeamPolicyVisibility,
 } from './team-policy.types';
@@ -38,7 +41,8 @@ import type {
 type TeamPolicySellerVisibilityKey =
   | 'sellerCanViewOwnPolicy'
   | 'sellerCanViewCommission'
-  | 'sellerCanViewSellerNetwork';
+  | 'sellerCanViewSellerNetwork'
+  | 'sellerCanViewLimits';
 
 type TeamPolicyPatch = {
   modules?: Array<{ key?: unknown; allowed?: unknown }>;
@@ -57,6 +61,12 @@ type TeamPolicyPatch = {
     referredByUserId?: unknown;
     referredByCommissionPercentSnapshot?: unknown;
   };
+  limits?: {
+    cardDeliveryDaily?: TeamPolicyLimitPatch;
+    activeCards?: TeamPolicyLimitPatch;
+    monthlyCards?: TeamPolicyLimitPatch;
+    vendasPullQuantity?: TeamPolicyLimitPatch;
+  };
   radar?: {
     allowedSegments?: unknown;
     blockedSegments?: unknown;
@@ -67,11 +77,23 @@ type TeamPolicyPatch = {
   };
   visibility?: Partial<Record<TeamPolicySellerVisibilityKey, unknown>> & {
     adminCanEditLegacyFields?: unknown;
+    masterCanUseUnlimited?: unknown;
   };
 };
 
+type TeamPolicyLimitPatch = {
+  mode?: unknown;
+  value?: unknown;
+};
+
+const UNLIMITED_NUMERIC_SENTINEL = 999999;
+const TEAM_POLICY_OPERATIONAL_LIMIT_MAX = 500;
 const TEAM_POLICY_PENDING_SCHEMA_FIELDS = [
   'commissionDueBusinessDays_per_user',
+  'cardDeliveryDaily',
+  'activeCards',
+  'monthlyCards',
+  'vendasPullQuantity',
   'allowedSegments',
   'blockedSegments',
   'allowedCities',
@@ -82,6 +104,7 @@ const TEAM_POLICY_SELLER_VISIBILITY_KEYS: TeamPolicySellerVisibilityKey[] = [
   'sellerCanViewOwnPolicy',
   'sellerCanViewCommission',
   'sellerCanViewSellerNetwork',
+  'sellerCanViewLimits',
 ];
 
 @Injectable()
@@ -89,6 +112,7 @@ export class TeamPolicyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly modulesService: ModulesService,
+    private readonly commercialUsageLimits: CommercialUsageLimitsService,
   ) {}
 
   private normalizeRole(value: unknown) {
@@ -126,6 +150,61 @@ export class TeamPolicyService {
     if (['true', '1', 'sim', 'yes'].includes(normalized)) return true;
     if (['false', '0', 'nao', 'no'].includes(normalized)) return false;
     throw new BadRequestException('Valor booleano invalido');
+  }
+
+  private normalizeLimitMode(value: unknown): TeamPolicyLimitMode | undefined {
+    if (value === undefined || value === null || value === '') return undefined;
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === '\u221e' || normalized === 'infinite') return 'unlimited';
+    if (['inherit', 'limited', 'unlimited', 'blocked'].includes(normalized)) {
+      return normalized as TeamPolicyLimitMode;
+    }
+    throw new BadRequestException('Modo de limite invalido');
+  }
+
+  private normalizeLimitPatch(value: TeamPolicyLimitPatch | unknown, actorIsMaster: boolean) {
+    const patch = value && typeof value === 'object' && !Array.isArray(value)
+      ? value as TeamPolicyLimitPatch
+      : { value };
+    const rawValue = patch.value;
+    const rawMode = this.normalizeLimitMode(patch.mode);
+    const rawValueText = String(rawValue ?? '').trim().toLowerCase();
+    const wantsUnlimited =
+      rawMode === 'unlimited' ||
+      rawValueText === '\u221e' ||
+      rawValueText === 'unlimited' ||
+      rawValueText === 'infinite';
+
+    if (wantsUnlimited) {
+      return actorIsMaster
+        ? { mode: 'unlimited' as TeamPolicyLimitMode, value: null as number | null, legacyValue: 0 }
+        : { mode: 'inherit' as TeamPolicyLimitMode, value: null as number | null, legacyValue: null };
+    }
+
+    if (rawMode === 'inherit' || rawValue === null || rawValue === '') {
+      return { mode: 'inherit' as TeamPolicyLimitMode, value: null as number | null, legacyValue: null };
+    }
+
+    if (rawMode === 'blocked') {
+      return { mode: 'blocked' as TeamPolicyLimitMode, value: 0, legacyValue: 0 };
+    }
+
+    const numeric = Math.trunc(Number(rawValue));
+    if (!Number.isFinite(numeric) || numeric < 0) {
+      throw new BadRequestException('Limite invalido');
+    }
+    const valueNumber = Math.min(TEAM_POLICY_OPERATIONAL_LIMIT_MAX, numeric);
+    if (valueNumber === 0) {
+      return actorIsMaster
+        ? { mode: 'unlimited' as TeamPolicyLimitMode, value: null as number | null, legacyValue: 0 }
+        : { mode: 'inherit' as TeamPolicyLimitMode, value: null as number | null, legacyValue: null };
+    }
+
+    return {
+      mode: 'limited' as TeamPolicyLimitMode,
+      value: valueNumber,
+      legacyValue: valueNumber,
+    };
   }
 
   private normalizeTextList(value: unknown) {
@@ -234,6 +313,86 @@ export class TeamPolicyService {
     );
   }
 
+  private toStoredLimitFields(prefix: string, limitPatch: unknown, actorIsMaster: boolean) {
+    const normalized = this.normalizeLimitPatch(limitPatch, actorIsMaster);
+    return {
+      [`${prefix}Mode`]: normalized.mode,
+      [`${prefix}Limit`]: normalized.value,
+    };
+  }
+
+  private normalizeStoredLimitMode(value: unknown): TeamPolicyLimitMode {
+    const normalized = String(value || 'inherit').trim().toLowerCase();
+    if (['inherit', 'limited', 'unlimited', 'blocked'].includes(normalized)) {
+      return normalized as TeamPolicyLimitMode;
+    }
+    return 'inherit';
+  }
+
+  private finiteLimit(value: unknown) {
+    const numeric = Math.trunc(Number(value));
+    return Number.isFinite(numeric) && numeric >= UNLIMITED_NUMERIC_SENTINEL ? null : Math.max(0, numeric || 0);
+  }
+
+  private buildLimit(input: {
+    value?: unknown;
+    used?: unknown;
+    remaining?: unknown;
+    resetAt?: string | null;
+    source: TeamPolicyLimit['source'];
+    forceMode?: TeamPolicyLimitMode;
+  }): TeamPolicyLimit {
+    const finiteValue = this.finiteLimit(input.value);
+    const mode = input.forceMode || (finiteValue === null ? 'unlimited' : finiteValue === 0 ? 'blocked' : 'limited');
+    return {
+      mode,
+      value: mode === 'unlimited' ? null : finiteValue,
+      used: input.used === undefined ? null : Math.max(0, Math.trunc(Number(input.used || 0))),
+      remaining: input.remaining === undefined
+        ? null
+        : this.finiteLimit(input.remaining),
+      resetAt: input.resetAt || null,
+      source: input.source,
+    };
+  }
+
+  private applyStoredLimit(
+    storedPolicy: any,
+    modeKey: string,
+    limitKey: string,
+    fallback: TeamPolicyLimit,
+  ): TeamPolicyLimit {
+    const mode = this.normalizeStoredLimitMode(storedPolicy?.[modeKey]);
+    if (!storedPolicy || mode === 'inherit') return fallback;
+    if (mode === 'unlimited') {
+      return {
+        ...fallback,
+        mode: 'unlimited',
+        value: null,
+        remaining: null,
+        source: 'team_policy',
+      };
+    }
+    if (mode === 'blocked') {
+      return {
+        ...fallback,
+        mode: 'blocked',
+        value: 0,
+        remaining: 0,
+        source: 'team_policy',
+      };
+    }
+    const value = this.finiteLimit(storedPolicy?.[limitKey]);
+    if (typeof value !== 'number') return fallback;
+    return {
+      ...fallback,
+      mode: value <= 0 ? 'blocked' : 'limited',
+      value,
+      remaining: fallback.used == null ? fallback.remaining : Math.max(0, value - Math.max(0, Number(fallback.used || 0))),
+      source: 'team_policy',
+    };
+  }
+
   private parseStringArrayJson(value: unknown) {
     try {
       const parsed = JSON.parse(String(value || '[]'));
@@ -287,6 +446,7 @@ export class TeamPolicyService {
       sellerCanViewOwnPolicy: true,
       sellerCanViewCommission: true,
       sellerCanViewSellerNetwork: true,
+      sellerCanViewLimits: true,
     };
   }
 
@@ -434,6 +594,41 @@ export class TeamPolicyService {
     })).filter((row) => row.key);
   }
 
+  private async buildUsageLimits(target: any) {
+    const companyId = Math.trunc(Number(target?.companyId || 0));
+    if (!companyId) {
+      return {
+        usage: null as any,
+        activeCards: null as any,
+      };
+    }
+
+    const [usage, activeCards] = await Promise.all([
+      this.commercialUsageLimits.getUsageSnapshot(companyId, Number(target.id)).catch(() => null),
+      this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(companyId, Number(target.id)).catch(() => null),
+    ]);
+    return { usage, activeCards };
+  }
+
+  private buildVendasPullLimit(input: { usage: any; activeCards: any }): TeamPolicyLimit {
+    const candidates = [
+      this.finiteLimit(input.usage?.cards?.dailyRemaining),
+      this.finiteLimit(input.usage?.cards?.monthlyRemaining),
+      this.finiteLimit(input.activeCards?.availableSlots),
+    ].filter((value): value is number => typeof value === 'number');
+    if (!candidates.length) {
+      return this.buildLimit({
+        value: UNLIMITED_NUMERIC_SENTINEL,
+        source: 'not_persisted_yet',
+        forceMode: 'unlimited',
+      });
+    }
+    return this.buildLimit({
+      value: Math.min(...candidates),
+      source: 'not_persisted_yet',
+    });
+  }
+
   private buildVisibility(requester: any, storedPolicy?: any): TeamPolicyVisibility {
     const actorKind = this.getActorKind(requester, requester?.company);
     const master = actorKind === 'system_master';
@@ -441,14 +636,40 @@ export class TeamPolicyService {
     return {
       ...this.parseVisibilityJson(storedPolicy?.visibilityJson),
       adminCanEditLegacyFields: admin || master,
+      masterCanUseUnlimited: master,
     };
   }
 
   private async buildPolicy(target: any, requester: any): Promise<TeamPolicy> {
-    const modules = await this.buildModules(target);
+    const [{ usage, activeCards }, modules] = await Promise.all([
+      this.buildUsageLimits(target),
+      this.buildModules(target),
+    ]);
     const targetRole = this.normalizeRole(target?.role);
     const targetKind = this.getActorKind(target, target?.company);
     const sellerNetwork = targetRole === 'USER' && Boolean(target?.company && isTenantCompany(target.company));
+    const activeCardsFallback = this.buildLimit({
+      value: activeCards?.effectiveLimit ?? UNLIMITED_NUMERIC_SENTINEL,
+      used: activeCards?.activeCount,
+      remaining: activeCards?.availableSlots,
+      source: 'active_card_quota',
+      forceMode: activeCards?.seller === false ? 'unlimited' : undefined,
+    });
+    const cardDeliveryFallback = this.buildLimit({
+      value: usage?.cards?.dailySafetyLimit ?? UNLIMITED_NUMERIC_SENTINEL,
+      used: usage?.cards?.dailyUsed,
+      remaining: usage?.cards?.dailyRemaining,
+      resetAt: usage?.dailyResetAt || null,
+      source: 'usage_snapshot',
+    });
+    const monthlyCardsFallback = this.buildLimit({
+      value: usage?.cards?.monthlyLimit ?? UNLIMITED_NUMERIC_SENTINEL,
+      used: usage?.cards?.monthlyUsed,
+      remaining: usage?.cards?.monthlyRemaining,
+      resetAt: usage?.resetAt || null,
+      source: 'usage_snapshot',
+    });
+    const vendasPullFallback = this.buildVendasPullLimit({ usage, activeCards });
     const storedPolicy = target?.teamPolicy || null;
     const storedReferrer = storedPolicy?.referredByUser || target.referredByUser;
     const effectiveAccessMap = this.buildEffectiveAccessMap(target, modules, storedPolicy);
@@ -495,6 +716,12 @@ export class TeamPolicyService {
             }
           : null,
       },
+      limits: {
+        cardDeliveryDaily: this.applyStoredLimit(storedPolicy, 'cardDeliveryDailyMode', 'cardDeliveryDailyLimit', cardDeliveryFallback),
+        activeCards: this.applyStoredLimit(storedPolicy, 'activeCardsMode', 'activeCardsLimit', activeCardsFallback),
+        monthlyCards: this.applyStoredLimit(storedPolicy, 'monthlyCardsMode', 'monthlyCardsLimit', monthlyCardsFallback),
+        vendasPullQuantity: this.applyStoredLimit(storedPolicy, 'vendasPullQuantityMode', 'vendasPullQuantityLimit', vendasPullFallback),
+      },
       radar: {
         allowedSegments: this.parseStringArrayJson(storedPolicy?.allowedSegmentsJson),
         blockedSegments: this.parseStringArrayJson(storedPolicy?.blockedSegmentsJson),
@@ -516,6 +743,10 @@ export class TeamPolicyService {
           'UserTeamPolicy.commissionPercent',
           'UserTeamPolicy.commissionDueBusinessDays',
           'UserTeamPolicy.sellerNetwork',
+          'UserTeamPolicy.cardDeliveryDaily',
+          'UserTeamPolicy.activeCards',
+          'UserTeamPolicy.monthlyCards',
+          'UserTeamPolicy.vendasPullQuantity',
           'UserTeamPolicy.radarFilters',
           'UserTeamPolicy.visibility',
           'UserTeamPolicy.accessMap',
@@ -649,7 +880,12 @@ export class TeamPolicyService {
     const data: any = {};
     const compensation = patch?.compensation || {};
     const sellerNetwork = patch?.sellerNetwork || {};
+    const limits = patch?.limits || {};
     const preset = resolveTeamAccessPreset(this.resolveAccessPresetKey(patch));
+    const effectiveLimits = {
+      ...(preset?.limits || {}),
+      ...limits,
+    };
     const radar = patch?.radar || {};
     const visibility = this.normalizeVisibilityPatch(patch?.visibility);
     const accessUpdate = this.buildStoredAccessUpdate(target?.teamPolicy, patch || {});
@@ -679,6 +915,19 @@ export class TeamPolicyService {
       'Comissao de heranca',
     );
     if (snapshotPercent !== undefined) data.referredByCommissionPercentSnapshot = snapshotPercent;
+
+    if (effectiveLimits.cardDeliveryDaily !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('cardDeliveryDaily', effectiveLimits.cardDeliveryDaily, Boolean(requester?.isSystemMaster)));
+    }
+    if (effectiveLimits.activeCards !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('activeCards', effectiveLimits.activeCards, Boolean(requester?.isSystemMaster)));
+    }
+    if (effectiveLimits.monthlyCards !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('monthlyCards', effectiveLimits.monthlyCards, Boolean(requester?.isSystemMaster)));
+    }
+    if (effectiveLimits.vendasPullQuantity !== undefined) {
+      Object.assign(data, this.toStoredLimitFields('vendasPullQuantity', effectiveLimits.vendasPullQuantity, Boolean(requester?.isSystemMaster)));
+    }
 
     if (radar.allowedSegments !== undefined) {
       data.allowedSegmentsJson = JSON.stringify(this.normalizeTextList(radar.allowedSegments));
@@ -727,6 +976,7 @@ export class TeamPolicyService {
       moduleCount: Array.isArray(patch?.modules) ? patch.modules.length : 0,
       hasCompensation: Boolean(patch?.compensation && Object.keys(patch.compensation).length),
       hasSellerNetwork: Boolean(patch?.sellerNetwork && Object.keys(patch.sellerNetwork).length),
+      hasLimits: Boolean(patch?.limits && Object.keys(patch.limits).length),
       hasRadar: Boolean(patch?.radar && Object.keys(patch.radar).length),
       hasVisibility: Boolean(patch?.visibility && Object.keys(patch.visibility).length),
       hasAccess: Boolean(
@@ -747,6 +997,18 @@ export class TeamPolicyService {
         .map((moduleItem) => [String(moduleItem.key || '').trim(), Boolean(moduleItem.allowed)])
         .filter(([key]) => Boolean(key)),
     );
+    const limits = Object.fromEntries(
+      Object.entries(policy.limits || {}).map(([key, limit]) => [
+        key,
+        {
+          mode: limit.mode,
+          value: limit.value,
+          used: limit.used ?? null,
+          remaining: limit.remaining ?? null,
+          source: limit.source,
+        },
+      ]),
+    );
     return {
       subject: {
         id: policy.subject.id,
@@ -765,6 +1027,7 @@ export class TeamPolicyService {
         referredByUserId: policy.sellerNetwork.referredByUserId,
         referredByCommissionPercentSnapshot: policy.sellerNetwork.referredByCommissionPercentSnapshot,
       },
+      limits,
       radar: policy.radar,
       visibility: policy.visibility,
       missingBackendEnforcement: policy.missingBackendEnforcement || [],
@@ -791,6 +1054,7 @@ export class TeamPolicyService {
     return {
       modulesChanged: this.diffObjectKeys(before.modules, after.modules),
       accessChanged: this.diffObjectKeys(before.access, after.access),
+      limitsChanged: this.diffObjectKeys(before.limits, after.limits),
       compensationChanged: JSON.stringify(before.compensation) !== JSON.stringify(after.compensation),
       sellerNetworkChanged: JSON.stringify(before.sellerNetwork) !== JSON.stringify(after.sellerNetwork),
       radarChanged: JSON.stringify(before.radar) !== JSON.stringify(after.radar),
@@ -830,6 +1094,7 @@ export class TeamPolicyService {
       batch: patchSummary.batch,
       modulesChanged: diff.modulesChanged.map((item) => item.key),
       accessChanged: diff.accessChanged.map((item) => item.key),
+      limitsChanged: diff.limitsChanged.map((item) => item.key),
     };
     const metadataJson = JSON.stringify(metadata);
     const action = patchSummary.batch ? 'TEAM_POLICY_BATCH_UPDATED' : 'TEAM_POLICY_UPDATED';
@@ -896,18 +1161,19 @@ export class TeamPolicyService {
       // gerente pode conceder chave de acesso, mas so dentro do proprio mapa
       // (subset-delegation, verificado logo abaixo). Preset continua exclusivo
       // do responsavel (atalho concede pacote inteiro, nao passa pela interseção
-      // chave-a-chave); cobranca/rede/radar/visibilidade seguem exclusivos.
+      // chave-a-chave); cobranca/limites/rede/radar/visibilidade seguem exclusivos.
       const hasNonModulePatch =
         patch?.accessPresetKey !== undefined ||
         patch?.presetKey !== undefined ||
         patch?.presetId !== undefined ||
         patch?.compensation !== undefined ||
         patch?.sellerNetwork !== undefined ||
+        patch?.limits !== undefined ||
         patch?.radar !== undefined ||
         patch?.visibility !== undefined;
       if (hasNonModulePatch) {
         throw new ForbiddenException(
-          'Gerente pode conceder apenas módulos e acessos — cobrança e presets são exclusivos do responsável.',
+          'Gerente pode conceder apenas módulos e acessos — cobrança, limites e presets são exclusivos do responsável.',
         );
       }
     }

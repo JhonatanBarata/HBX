@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { CreateIntegrationConnectionDto, UpdateIntegrationConnectionDto } from '../integrations/dto/integration-connection.dto';
@@ -211,8 +211,9 @@ type ModuleAccessContext = {
 };
 
 @Injectable()
-export class ModulesService implements OnModuleInit {
+export class ModulesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ModulesService.name);
+  private tasteSweepHandle: ReturnType<typeof setInterval> | null = null;
   // C3 (TESTE-GERAL/CORRECOES.md): cache da leitura do motor ao vivo p/ a coluna
   // WhatsApp do master/Empresas — mesmo TTL/padrão do MasterCockpitService
   // (WHATSAPP_HEALTH_TTL_MS), pra não martelar o motor a cada listMasterOverview.
@@ -668,6 +669,62 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
+  private normalizeQuotaOverride(value: unknown) {
+    const parsed = Math.trunc(Number(value || 0));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private resolveCommercialCardQuota(company: any) {
+    const planKey = normalizeCommercialPlanKey(company?.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+    const monthlyOverride = this.normalizeQuotaOverride(company?.commercialCardsMonthlyLimitOverride);
+    const dailyOverride = this.normalizeQuotaOverride(company?.commercialCardsDailyLimitOverride);
+    return {
+      planKey,
+      monthlyDefault: 0,
+      dailyDefault: 0,
+      monthlyOverride,
+      dailyOverride,
+      monthlyEffective: monthlyOverride || 0,
+      dailyEffective: dailyOverride || 0,
+    };
+  }
+
+  private buildCompanyCardQuotaAuditSnapshot(company: any) {
+    const quota = this.resolveCommercialCardQuota(company);
+    return {
+      selectedPlanKey: quota.planKey,
+      monthlyDefault: quota.monthlyDefault,
+      dailyDefault: quota.dailyDefault,
+      monthlyOverride: quota.monthlyOverride,
+      dailyOverride: quota.dailyOverride,
+      monthlyEffective: quota.monthlyEffective,
+      dailyEffective: quota.dailyEffective,
+    };
+  }
+
+  private async listCompanyQuotaOverrides(companyIds: number[]) {
+    const normalizedIds = [...new Set(companyIds.map((id) => Math.trunc(Number(id || 0))).filter((id) => id > 0))];
+    const result = new Map<number, { commercialCardsMonthlyLimitOverride: number | null; commercialCardsDailyLimitOverride: number | null }>();
+    if (!normalizedIds.length) return result;
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      id: number;
+      commercialCardsMonthlyLimitOverride: number | null;
+      commercialCardsDailyLimitOverride: number | null;
+    }>>(
+      `SELECT "id", "commercialCardsMonthlyLimitOverride", "commercialCardsDailyLimitOverride"
+       FROM "Company"
+       WHERE "id" IN (${normalizedIds.join(',')})`,
+    );
+    for (const row of rows || []) {
+      result.set(Number(row.id), {
+        commercialCardsMonthlyLimitOverride: this.normalizeQuotaOverride(row.commercialCardsMonthlyLimitOverride),
+        commercialCardsDailyLimitOverride: this.normalizeQuotaOverride(row.commercialCardsDailyLimitOverride),
+      });
+    }
+    return result;
+  }
+
   private buildCompanyMasterTokenUsageAuditSnapshot(company: any) {
     return {
       useMasterMercadoPagoToken: Boolean(company?.useMasterMercadoPagoToken),
@@ -695,6 +752,7 @@ export class ModulesService implements OnModuleInit {
   private buildDefaultWebscrapingUsageSummary() {
     return {
       searchesToday: 0,
+      blockedToday: 0,
       totalReusedToday: 0,
       fetchedToday: 0,
       globalCacheHitsToday: 0,
@@ -709,6 +767,7 @@ export class ModulesService implements OnModuleInit {
       lastSearchSource: null as string | null,
       lastTechnicalCacheUsed: false,
       lastTechnicalCacheReusedCount: 0,
+      hasBlockedAttempts: false,
     };
   }
 
@@ -840,6 +899,10 @@ export class ModulesService implements OnModuleInit {
             Math.trunc(Number(log.technicalCacheReusedCount || 0)),
           );
         }
+      }
+      if (eventType === 'BLOCKED_DAILY_LIMIT') {
+        current.blockedToday += 1;
+        current.hasBlockedAttempts = true;
       }
       const createdAtIso = log.createdAt instanceof Date ? log.createdAt.toISOString() : null;
       if (createdAtIso && !current.lastAttemptAt) {
@@ -1533,6 +1596,16 @@ export class ModulesService implements OnModuleInit {
     await this.refreshCommercialCatalogOverlay().catch((err) =>
       this.logger.warn(`Falha ao hidratar overlay do catálogo: ${err instanceof Error ? err.message : err}`),
     );
+    // Sweep de degustação: reverte taste expirados a cada 30 min.
+    this.tasteSweepHandle = setInterval(() => { void this.runTasteSweep(); }, 30 * 60 * 1000);
+    setTimeout(() => { void this.runTasteSweep(); }, 8000);
+  }
+
+  onModuleDestroy() {
+    if (this.tasteSweepHandle) {
+      clearInterval(this.tasteSweepHandle);
+      this.tasteSweepHandle = null;
+    }
   }
 
   private normalizeKey(key: string) {
@@ -2691,6 +2764,7 @@ export class ModulesService implements OnModuleInit {
       tasteRevertsAt: company.tasteRevertsAt instanceof Date ? company.tasteRevertsAt.toISOString() : null,
       tastePreviousPlanKey: company.tastePreviousPlanKey || null,
       tasteReason: company.tasteReason || null,
+      commercialCardQuota: this.resolveCommercialCardQuota(company),
       seatCap: Number(company?.seatCap || 0) > 0 ? Math.trunc(Number(company.seatCap)) : null,
       assistedSetup: {
         required: Boolean(company.assistedSetupRequired),
@@ -2791,6 +2865,7 @@ export class ModulesService implements OnModuleInit {
     const masterIntegrationConfig = await getMasterGlobalIntegrationConfig(this.prisma);
     const userConfirmationByCompany = await this.listUserConfirmationSummaryByCompanyIds(companyIds);
     const webscrapingUsageByCompany = await this.listWebscrapingUsageSummaryByCompanyIds(companyIds);
+    const quotaOverridesByCompany = await this.listCompanyQuotaOverrides(companyIds);
 
     const ledgerByCompany = new Map<number, BillingLedgerEntryRow[]>();
     for (const row of ledgerRows) {
@@ -2810,6 +2885,7 @@ export class ModulesService implements OnModuleInit {
 
     const companySummaries: Array<any> = [];
     for (const company of companies) {
+      Object.assign(company as any, quotaOverridesByCompany.get(Number(company.id)) || {});
       const status = await this.evaluateCompanyStatus(company.id, company);
       companySummaries.push(
         this.buildMasterCompanySummary(
@@ -3059,6 +3135,12 @@ export class ModulesService implements OnModuleInit {
         ),
       },
       {
+        id: 'webscraping_trial_blocked',
+        title: 'Trial com bloqueio de scraping hoje',
+        severity: 'warning',
+        companies: companySummaries.filter((company) => Number(company.webscrapingUsage?.blockedToday || 0) > 0),
+      },
+      {
         id: 'webscraping_heavy_usage',
         title: 'Uso forte de webscraping',
         severity: 'info',
@@ -3250,14 +3332,16 @@ export class ModulesService implements OnModuleInit {
 
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig, userConfirmationByCompany, webscrapingUsageByCompany] = await Promise.all([
+    const [websiteConfigs, ledgerRows, auditRows, masterIntegrationConfig, userConfirmationByCompany, webscrapingUsageByCompany, quotaOverridesByCompany] = await Promise.all([
       listCompanyWebsiteConfigs(this.prisma, [Number(companyId)]),
       this.listBillingLedgerEntriesByCompanyIds([Number(companyId)], 240),
       this.listCompanyAuditRows([Number(companyId)], 240),
       getMasterGlobalIntegrationConfig(this.prisma),
       this.listUserConfirmationSummaryByCompanyIds([Number(companyId)]),
       this.listWebscrapingUsageSummaryByCompanyIds([Number(companyId)]),
+      this.listCompanyQuotaOverrides([Number(companyId)]),
     ]);
+    Object.assign(company as any, quotaOverridesByCompany.get(Number(company.id)) || {});
     const serializedMasterIntegrations = serializeMasterGlobalIntegrationConfig(masterIntegrationConfig);
     const selectedWhatsAppCredential = pickMasterWhatsAppCredential(
       masterIntegrationConfig,
@@ -3306,6 +3390,9 @@ export class ModulesService implements OnModuleInit {
         // PF3: Central de Implantação do Full (registro do master).
         setupValue: (company as any).setupValue ?? null,
         monthlyValueOverride: (company as any).monthlyValueOverride ?? null,
+        // GUARDRAILS S3 — override do teto diário de entregas (anti-scraper); null = herda o
+        // default global (ver GET /credits/master/config).
+        dailyDeliveryCapOverride: (company as any).dailyDeliveryCapOverride ?? null,
         operationalStatus,
         users: company.users.map((user) => ({
           id: user.id,
@@ -3677,6 +3764,150 @@ export class ModulesService implements OnModuleInit {
   // Régua única (PR13062026007 PB1/PF2): Sistema → Planos. Lê/grava a "caixa do
   // plano" (módulos padrões), editável pelo master. Vale ao vivo pra todos do
   // plano que não têm post-it.
+  private normalizePlanKeyForConfig(raw: string): ActiveCommercialPlanKey {
+    const v = String(raw || '').trim().toLowerCase();
+    const valid: string[] = [COMMERCIAL_PLAN_KEYS.LITE, COMMERCIAL_PLAN_KEYS.PADRAO, COMMERCIAL_PLAN_KEYS.PRO, COMMERCIAL_PLAN_KEYS.MELHOR];
+    if (valid.includes(v)) return v as ActiveCommercialPlanKey;
+    throw new BadRequestException('Plano invalido');
+  }
+
+  // PR13062026008: VALORES do plano = base do catálogo + override editável salvo
+  // em PlanModuleConfig.planInfoJson. ISTO É A CAIXA EDITÁVEL — não reescreve o
+  // enforcement do produto (quota/cobrança seguem o catálogo até a régua de
+  // limites ser refeita). Ordem do dono: "vou remover todas as regras de
+  // limitação anterior" — a aplicação dos novos limites é passo seguinte.
+  private resolvePlanInfoBase(planKey: ActiveCommercialPlanKey) {
+    return {
+      monthlyPrice: this.normalizeCurrencyAmount(getCommercialPlanMonthlyPrice(planKey)),
+      includedUsers: 0,
+      extraUserMonthly: 0,
+      trialDays: COMMERCIAL_PLAN_TRIAL_DAYS[planKey] ?? 0,
+      deepSearchesPerDay: 0,
+      enrichmentsPerDay: 0,
+      cardsPerMonth: 0,
+    };
+  }
+
+  // Mescla um override (JSON salvo OU corpo do request) sobre a base. Tolerante a
+  // string com vírgula; campo ausente, vazio ou inválido cai na base. Regra do
+  // dono: sem assento padrão (<= 0) não existe assento extra → zera o extra.
+  private mergePlanInfo(
+    base: {
+      monthlyPrice: number; includedUsers: number; extraUserMonthly: number; trialDays: number;
+      deepSearchesPerDay: number; enrichmentsPerDay: number; cardsPerMonth: number;
+    },
+    partial: unknown,
+  ) {
+    const p = (partial && typeof partial === 'object' && !Array.isArray(partial)) ? (partial as Record<string, unknown>) : {};
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(p, k);
+    const toNum = (v: unknown) => {
+      const s = String(v ?? '').replace(',', '.').trim();
+      return s === '' ? NaN : Number(s);
+    };
+    const asInt = (v: unknown, fallback: number) => {
+      const n = toNum(v);
+      return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : fallback;
+    };
+    const asCur = (v: unknown, fallback: number) => {
+      const n = toNum(v);
+      return Number.isFinite(n) && n >= 0 ? this.normalizeCurrencyAmount(n) : fallback;
+    };
+    const includedUsers = has('includedUsers') ? asInt(p.includedUsers, base.includedUsers) : base.includedUsers;
+    let extraUserMonthly = has('extraUserMonthly') ? asCur(p.extraUserMonthly, base.extraUserMonthly) : base.extraUserMonthly;
+    if (includedUsers <= 0) extraUserMonthly = 0;
+    return {
+      monthlyPrice: has('monthlyPrice') ? asCur(p.monthlyPrice, base.monthlyPrice) : base.monthlyPrice,
+      includedUsers,
+      extraUserMonthly,
+      trialDays: has('trialDays') ? asInt(p.trialDays, base.trialDays) : base.trialDays,
+      deepSearchesPerDay: has('deepSearchesPerDay') ? asInt(p.deepSearchesPerDay, base.deepSearchesPerDay) : base.deepSearchesPerDay,
+      enrichmentsPerDay: has('enrichmentsPerDay') ? asInt(p.enrichmentsPerDay, base.enrichmentsPerDay) : base.enrichmentsPerDay,
+      cardsPerMonth: has('cardsPerMonth') ? asInt(p.cardsPerMonth, base.cardsPerMonth) : base.cardsPerMonth,
+    };
+  }
+
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou GET/PUT master/plan/:key/
+  // modules (zero front, S4 matou o Self-Checkout que os consumia). Corpo mantido pra
+  // auditoria histórica. O runtime ignora modulesJson: acesso vem somente do
+  // kill-switch SystemModule + CompanyModule.
+  async getPlanModulesForMaster(masterUserId: number, rawPlanKey: string) {
+    await this.assertMasterUser(masterUserId);
+    await this.ensureDefaultSystemModules();
+    const planKey = this.normalizePlanKeyForConfig(rawPlanKey);
+    const moduleRows = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true },
+      orderBy: { name: 'asc' },
+    });
+    const items = moduleRows
+      .filter((m) => !this.isRetiredModuleKey(m.key))
+      .map((m) => {
+        const key = this.normalizeRequestedModuleKey(m.key);
+        return { key, name: m.name, enabled: Boolean(m.defaultEnabled) };
+      });
+    const cfg = await this.prisma.planModuleConfig
+      .findUnique({ where: { planKey }, select: { planInfoJson: true } })
+      .catch(() => null);
+    let storedInfo: unknown = null;
+    if (cfg?.planInfoJson) {
+      try { storedInfo = JSON.parse(cfg.planInfoJson); } catch { storedInfo = null; }
+    }
+    const planInfo = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), storedInfo);
+    // Self-Checkout (F2): nome/observação/pausa vivem no mesmo planInfoJson.
+    const meta = (storedInfo && typeof storedInfo === 'object' && !Array.isArray(storedInfo))
+      ? (storedInfo as Record<string, unknown>) : {};
+    const catalogEntry = buildCommercialPlansCatalog({ includeHidden: true }).find((p) => p.key === planKey);
+    const planMeta = {
+      title: typeof meta.title === 'string' && meta.title.trim() ? meta.title : getCommercialPlanTitle(planKey),
+      observation: typeof meta.observation === 'string'
+        ? meta.observation
+        : ((catalogEntry as { observation?: string } | undefined)?.observation ?? ''),
+      status: meta.status === 'paused' ? 'paused' : 'available',
+    };
+    return { planKey, items, total: items.length, planInfo, planMeta };
+  }
+
+  // MASTER-REFAB S7 (10/07): sem chamador — ver nota em getPlanModulesForMaster acima.
+  async setPlanModulesForMaster(
+    masterUserId: number,
+    rawPlanKey: string,
+    input: { modules?: Record<string, unknown>; planInfo?: Record<string, unknown> },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const planKey = this.normalizePlanKeyForConfig(rawPlanKey);
+    const moduleRows = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true },
+      select: { key: true },
+    });
+    const assignable = new Set(moduleRows.map((m) => this.normalizeRequestedModuleKey(m.key)));
+    const molho: Record<string, boolean> = {};
+    const modulesInput = (input?.modules && typeof input.modules === 'object') ? input.modules : {};
+    for (const [k, v] of Object.entries(modulesInput)) {
+      const key = this.normalizeRequestedModuleKey(k);
+      if (assignable.has(key)) molho[key] = Boolean(v);
+    }
+    const data: { modulesJson: string; planInfoJson?: string } = { modulesJson: JSON.stringify(molho) };
+    let savedInfo: Record<string, unknown> | null = null;
+    if (input?.planInfo && typeof input.planInfo === 'object') {
+      const numeric = this.mergePlanInfo(this.resolvePlanInfoBase(planKey), input.planInfo);
+      savedInfo = { ...numeric };
+      const pi = input.planInfo as Record<string, unknown>;
+      // Self-Checkout (F2): nome/observação/pausa convivem com os numéricos no
+      // mesmo planInfoJson — sem tabela nova.
+      if (typeof pi.title === 'string' && pi.title.trim()) savedInfo.title = pi.title.trim();
+      if (typeof pi.observation === 'string') savedInfo.observation = pi.observation;
+      if (pi.status === 'paused' || pi.status === 'available') savedInfo.status = pi.status;
+      data.planInfoJson = JSON.stringify(savedInfo);
+    }
+    await this.prisma.planModuleConfig.upsert({
+      where: { planKey },
+      update: data,
+      create: { planKey, ...data },
+    });
+    // Reflete imediatamente na vitrine pública e no billing (escada front ↔ backend).
+    await this.refreshCommercialCatalogOverlay();
+    return { ok: true, planKey, modules: molho, ...(savedInfo ? { planInfo: savedInfo } : {}) };
+  }
+
   // Self-Checkout (F2): lê PlanModuleConfig.planInfoJson de todos os planos e
   // empurra para o overlay do catálogo. Idempotente; roda no boot e após editar.
   async refreshCommercialCatalogOverlay() {
@@ -3778,6 +4009,233 @@ export class ModulesService implements OnModuleInit {
     });
 
     return { ok: true, companyId: result.companyId, moduleKey: moduleItem.key, enabled: (result as any).masterEnabled !== false };
+  }
+
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou POST master/company/:id/
+  // trial (ordem literal do dono: trial morre em definitivo; front removido no S1). Corpo
+  // mantido pra auditoria/histórico; não remover sem também conferir `grantTrial` abaixo
+  // (alias interno, já sem chamador antes deste sprint).
+  async manageTrialByMaster(
+    masterUserId: number,
+    companyId: number,
+    input?: { action?: string; days?: number; endsAt?: string; reason?: string },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    const previousState = this.buildCompanyAccessAuditSnapshot(company);
+
+    const action = String(input?.action || 'grant').trim().toLowerCase();
+    const reason = this.normalizeOptionalString(input?.reason);
+    const now = new Date();
+    let trialStartsAt = company.trialStartsAt || now;
+    let trialEndsAt = company.trialEndsAt || null;
+    let auditAction = 'TRIAL_GRANTED';
+
+    if (action === 'end') {
+      // PR10072026 W1 (item 6): sem wipe de CompanyModule — pending_checkout já
+      // bloqueia via policy (moduleKeys vazio) + canUserAccessModule; post-its
+      // preservados pra reativação.
+      await this.prisma.company.update({
+        where: { id: companyId },
+        data: {
+          // Fim de trial leva ao checkout, nao a suspensao (PR-002 B).
+          status: 'pending_checkout',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
+          isActive: false,
+          deactivatedAt: now,
+        },
+      });
+
+      await this.masterContextService.registerSupportAction({
+        masterUserId,
+        companyId,
+        scope: 'master_trial',
+        action: 'TRIAL_ENDED',
+        metadata: {
+          reason,
+          requestedAction: action,
+          previousState,
+          currentState: this.buildCompanyAccessAuditSnapshot(
+            await this.prisma.company.findUnique({ where: { id: companyId } }),
+          ),
+        },
+      });
+
+      return {
+        ok: true,
+        companyId,
+        action: 'end',
+        trialStartsAt: company.trialStartsAt?.toISOString() || null,
+        trialEndsAt: company.trialEndsAt?.toISOString() || null,
+      };
+    }
+
+    if (action === 'set_date') {
+      const manualEnd = this.parseDateValue(input?.endsAt);
+      if (!manualEnd) throw new BadRequestException('Informe endsAt em formato de data valido.');
+      trialEndsAt = manualEnd;
+      auditAction = manualEnd.getTime() <= now.getTime() ? 'TRIAL_SET_DATE_EXPIRED' : 'TRIAL_SET_DATE';
+      if (manualEnd.getTime() <= now.getTime()) {
+        // PR10072026 W1 (item 6): sem wipe de CompanyModule — pending_checkout já
+        // bloqueia via policy + canUserAccessModule; post-its preservados.
+        await this.prisma.company.update({
+          where: { id: companyId },
+          data: {
+            // Trial com data no passado = fim de trial -> checkout (PR-002 B).
+            status: 'pending_checkout',
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            trialStartsAt,
+            trialEndsAt: manualEnd,
+            isActive: false,
+            deactivatedAt: now,
+          },
+        });
+      } else {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.company.update({
+            where: { id: companyId },
+            data: {
+              status: 'trial',
+              statusChangedAt: now,
+              statusChangedByUserId: masterUserId,
+              selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+              trialModuleSelection: 'vendas',
+              isActive: true,
+              trialStartsAt,
+              trialEndsAt: manualEnd,
+              trialNoticeEmailStage: 0,
+              trialNoticeLastEmailAt: null,
+              subscriptionCurrentPeriodStart: null,
+              subscriptionCurrentPeriodEnd: null,
+              deactivatedAt: null,
+            },
+          });
+          await this.syncCompanyModulesForPlanTx(tx, companyId, COMMERCIAL_PLAN_KEYS.PADRAO);
+          await this.syncCompanyEntitlementsForPlanTx(
+            tx,
+            companyId,
+            COMMERCIAL_PLAN_KEYS.PADRAO,
+            'trialing',
+            'master_trial',
+            trialStartsAt,
+            manualEnd,
+          );
+        });
+      }
+
+      await this.masterContextService.registerSupportAction({
+        masterUserId,
+        companyId,
+        scope: 'master_trial',
+        action: auditAction,
+        metadata: {
+          reason,
+          requestedAction: action,
+          endsAt: manualEnd.toISOString(),
+          previousState,
+          currentState: this.buildCompanyAccessAuditSnapshot(
+            await this.prisma.company.findUnique({ where: { id: companyId } }),
+          ),
+        },
+      });
+
+      return {
+        ok: true,
+        companyId,
+        action,
+        trialStartsAt: trialStartsAt.toISOString(),
+        trialEndsAt: manualEnd.toISOString(),
+      };
+    }
+
+    const days = Number(input?.days || 30);
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+      throw new BadRequestException('Periodo de trial invalido');
+    }
+
+    if (action === 'extend') {
+      const base = company.trialEndsAt && company.trialEndsAt.getTime() > now.getTime() ? company.trialEndsAt : now;
+      trialEndsAt = this.addDays(base, Math.trunc(days));
+      auditAction = 'TRIAL_EXTENDED';
+    } else if (action === 'reactivate') {
+      trialStartsAt = now;
+      trialEndsAt = this.addDays(now, Math.trunc(days));
+      auditAction = 'TRIAL_REACTIVATED';
+    } else {
+      trialStartsAt = now;
+      trialEndsAt = this.addDays(now, Math.trunc(days));
+      auditAction = 'TRIAL_GRANTED';
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.company.update({
+        where: { id: companyId },
+        data: {
+          // Estado unico nativo (PR-002 B): trial concedido/estendido.
+          status: 'trial',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
+          selectedPlanKey: COMMERCIAL_PLAN_KEYS.PADRAO,
+          trialModuleSelection: 'vendas',
+          isActive: true,
+          trialStartsAt,
+          trialEndsAt,
+          trialNoticeEmailStage: 0,
+          trialNoticeLastEmailAt: null,
+          subscriptionCurrentPeriodStart: null,
+          subscriptionCurrentPeriodEnd: null,
+          deactivatedAt: null,
+        },
+      });
+      await this.syncCompanyModulesForPlanTx(tx, companyId, COMMERCIAL_PLAN_KEYS.PADRAO);
+      await this.syncCompanyEntitlementsForPlanTx(
+        tx,
+        companyId,
+        COMMERCIAL_PLAN_KEYS.PADRAO,
+        'trialing',
+        'master_trial',
+        trialStartsAt,
+        trialEndsAt,
+      );
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_trial',
+      action: auditAction,
+      metadata: {
+        reason,
+        requestedAction: action,
+        days: Math.trunc(days),
+        trialStartsAt: trialStartsAt.toISOString(),
+        trialEndsAt: trialEndsAt.toISOString(),
+        previousState,
+        currentState: this.buildCompanyAccessAuditSnapshot(
+          await this.prisma.company.findUnique({ where: { id: companyId } }),
+        ),
+      },
+    });
+
+    return {
+      ok: true,
+      companyId,
+      action,
+      trialStartsAt: trialStartsAt.toISOString(),
+      trialEndsAt: trialEndsAt.toISOString(),
+    };
+  }
+
+  // MASTER-REFAB S7 (10/07): já era um alias sem chamador antes deste sprint (só o controller
+  // usava manageTrialByMaster direto). Segue órfão — não removido pra não abrir escopo maior.
+  async grantTrial(masterUserId: number, companyId: number, days = 30) {
+    return this.manageTrialByMaster(masterUserId, companyId, {
+      action: 'grant',
+      days,
+    });
   }
 
   private async syncCompanyModulesForPlanTx(_tx: any, _companyId: number, _planKey: ActiveCommercialPlanKey) {
@@ -4227,6 +4685,105 @@ export class ModulesService implements OnModuleInit {
     return { ok: true, companyId };
   }
 
+  // Cortesia (PR-002 Fase B): UMA acao funde "liberar manual" + "isenta".
+  // Com prazo = temporaria (vence e volta a cobrar); sem prazo = permanente
+  // (ex.: tenant interno HBX). Escreve o estado unico nativamente.
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou PUT master/company/:id/
+  // courtesy (a UI já morreu no S6). Corpo mantido pra auditoria/histórico.
+  async setCompanyCourtesyByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { active?: boolean; reason?: string; endsAt?: string | null },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (isPlatformInfraCompany(company)) {
+      throw new BadRequestException('Empresa de infraestrutura nao participa de cobranca.');
+    }
+
+    const active = Boolean(dto?.active);
+    const reason = this.normalizeOptionalString(dto?.reason);
+    if (active && !reason) {
+      throw new BadRequestException('Informe o motivo da cortesia (ex.: empresa interna HBX).');
+    }
+    const endsAt = dto?.endsAt ? this.parseDateValue(dto.endsAt) : null;
+    if (active && dto?.endsAt && !endsAt) {
+      throw new BadRequestException('Prazo da cortesia invalido.');
+    }
+    if (active && endsAt && endsAt.getTime() <= Date.now()) {
+      throw new BadRequestException('O prazo da cortesia precisa ser uma data futura.');
+    }
+
+    const previousState = {
+      status: (company as any).status || null,
+      courtesyReason: (company as any).courtesyReason || null,
+      courtesyEndsAt: (company as any).courtesyEndsAt instanceof Date
+        ? (company as any).courtesyEndsAt.toISOString()
+        : null,
+    };
+    const now = new Date();
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (active) {
+        const next = await tx.company.update({
+          where: { id: companyId },
+          data: {
+            status: 'courtesy',
+            statusChangedAt: now,
+            statusChangedByUserId: masterUserId,
+            courtesyReason: reason,
+            courtesyEndsAt: endsAt,
+            isActive: true,
+            deactivatedAt: null,
+          },
+        });
+        const planKey = normalizeCommercialPlanKey(company.selectedPlanKey || COMMERCIAL_PLAN_KEYS.PADRAO);
+        await this.syncCompanyModulesForPlanTx(tx, companyId, planKey);
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, planKey, 'manual', 'master_courtesy', null, null);
+        return next;
+      }
+
+      // Encerrar cortesia = volta a cobrar: a empresa precisa contratar de
+      // novo (pending_checkout) e perde o acesso ate regularizar.
+      // PR10072026 W1 (item 6): sem wipe de CompanyModule — pending_checkout já
+      // bloqueia via policy + canUserAccessModule; post-its preservados.
+      const next = await tx.company.update({
+        where: { id: companyId },
+        data: {
+          status: 'pending_checkout',
+          statusChangedAt: now,
+          statusChangedByUserId: masterUserId,
+          courtesyReason: null,
+          courtesyEndsAt: null,
+          isActive: false,
+          deactivatedAt: now,
+        },
+      });
+      return next;
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_billing',
+      action: active ? 'COMPANY_COURTESY_SET' : 'COMPANY_COURTESY_REMOVED',
+      metadata: {
+        previousState,
+        currentState: {
+          status: (updated as any).status || null,
+          courtesyReason: (updated as any).courtesyReason || null,
+          courtesyEndsAt: (updated as any).courtesyEndsAt instanceof Date
+            ? (updated as any).courtesyEndsAt.toISOString()
+            : null,
+        },
+      },
+    });
+
+    return { ok: true, companyId, courtesy: active };
+  }
+
   // MASTER-REFAB S6 (10/07 noite): toggle enxuto Crédito|Empresarial — PUT dedicado, sem
   // side-effect em módulo/crédito/preço (isso continua na ficha, campo a campo). platform_infra
   // não participa (não é conta self-service nem exceção comercial).
@@ -4438,44 +4995,141 @@ export class ModulesService implements OnModuleInit {
     return { ok: true, companyId, billingCycle, manualDiscountPercent, freeMonths, setupValue, monthlyValueOverride };
   }
 
-  async updateCompanySeatCapByMaster(
+  async updateCompanyCardQuotaByMaster(
     masterUserId: number,
     companyId: number,
-    dto: { seatCap?: number | null },
+    dto: {
+      monthlyCardLimit?: number | null;
+      dailyCardLimit?: number | null;
+      seatCap?: number | null;
+    },
   ) {
     await this.assertMasterUser(masterUserId);
+    await ensureMasterBillingRuntimeSchema(this.prisma);
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
 
-    const seatCapValue = Number(dto?.seatCap);
-    const seatCap = Number.isFinite(seatCapValue) && seatCapValue > 0
-      ? Math.min(999, Math.trunc(seatCapValue))
-      : null;
-    const previousState = { seatCap: Number(company?.seatCap || 0) > 0 ? Math.trunc(Number(company.seatCap)) : null };
-    await this.prisma.company.update({ where: { id: companyId }, data: { seatCap } });
-    const currentState = { seatCap };
+    // Teto rígido de assentos: atualiza só quando vier no payload (não apaga
+    // ao editar apenas a quota). 0/null = sem teto. PR13062026005.
+    if (dto?.seatCap !== undefined) {
+      const seatCapValue = Number(dto.seatCap);
+      const normalizedSeatCap = Number.isFinite(seatCapValue) && seatCapValue > 0
+        ? Math.min(999, Math.trunc(seatCapValue))
+        : null;
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE "Company" SET "seatCap" = $1 WHERE "id" = $2`,
+        normalizedSeatCap,
+        companyId,
+      );
+    }
+    const quotaOverrides = await this.listCompanyQuotaOverrides([companyId]);
+    Object.assign(company as any, quotaOverrides.get(companyId) || {});
+    const previousState = this.buildCompanyCardQuotaAuditSnapshot(company);
+
+    const monthlyOverride = this.normalizeQuotaOverride(dto?.monthlyCardLimit);
+    const dailyOverride = this.normalizeQuotaOverride(dto?.dailyCardLimit);
+
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "Company"
+       SET "commercialCardsMonthlyLimitOverride" = $1,
+           "commercialCardsDailyLimitOverride" = $2
+       WHERE "id" = $3`,
+      monthlyOverride,
+      dailyOverride,
+      companyId,
+    );
+
+    const updated = {
+      ...company,
+      commercialCardsMonthlyLimitOverride: monthlyOverride,
+      commercialCardsDailyLimitOverride: dailyOverride,
+    };
+    const currentState = this.buildCompanyCardQuotaAuditSnapshot(updated);
 
     await this.masterContextService.registerSupportAction({
       masterUserId,
       companyId,
-      scope: 'master_seat_cap',
-      action: 'COMPANY_SEAT_CAP_UPDATED',
+      scope: 'master_quota',
+      action: 'COMPANY_CARD_QUOTA_UPDATED',
       metadata: {
         previousState,
         currentState,
       },
     });
 
-    return { ok: true, companyId, seatCap };
+    return { ok: true, companyId, commercialCardQuota: currentState };
   }
 
-  /** Contrato empresarial altera cobrança; produto e módulos permanecem universais. */
+  /**
+   * GUARDRAILS S3 (10/07) — override POR EMPRESA do teto diário de entregas de lead (anti-
+   * scraper). null/omitido = limpa o override (volta a herdar o default global); 0 = SEM teto
+   * SÓ para esta empresa; N>0 = teto próprio. Mesmo padrão de updateCompanyFinanceSettingsByMaster
+   * (ORM direto — coluna nova aditiva, sem o cuidado extra de $executeRawUnsafe que as colunas
+   * legadas de quota usam).
+   */
+  async updateCompanyDailyDeliveryCapByMaster(
+    masterUserId: number,
+    companyId: number,
+    dto: { dailyDeliveryCapOverride?: number | null },
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+
+    const raw = dto?.dailyDeliveryCapOverride;
+    const dailyDeliveryCapOverride = raw === null || raw === undefined
+      ? null
+      : Math.trunc(Number(raw) || 0);
+
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: { dailyDeliveryCapOverride } as any,
+    });
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_quota',
+      action: 'COMPANY_DAILY_DELIVERY_CAP_UPDATED',
+      metadata: {
+        previousState: { dailyDeliveryCapOverride: (company as any).dailyDeliveryCapOverride ?? null },
+        currentState: { dailyDeliveryCapOverride: (updated as any).dailyDeliveryCapOverride ?? null },
+      },
+    });
+
+    return { ok: true, companyId, dailyDeliveryCapOverride: (updated as any).dailyDeliveryCapOverride ?? null };
+  }
+
+  /**
+   * MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto que junta o que já
+   * existia espalhado na ficha (ordem literal do dono, 10/07 ~23h: "Queria apenas uma
+   * 'chavinha' no master, um ativador, onde eu libero contratos empresariais ali (combino um
+   * valor fixo com a empresa, e libero full os módulos (mantendo as limitações de abuso,
+   * scraping de leads principalmente)"). Sequência idempotente (2ª chamada não duplica nada):
+   * 1) accountType='enterprise' — REUSA o caminho do S6 (setCompanyAccountTypeByMaster), mesma
+   *    validação/normalização/auditoria; já é idempotente (não regrava se já é enterprise).
+   * 2) Libera FULL os módulos comerciais: TODO SystemModule companyAssignable (fora os
+   *    aposentados) — upsert enabled=true E masterEnabled=true (teto W1: effective =
+   *    masterEnabled && enabled). Módulos estruturais (master/exclusoes) já nascem
+   *    companyAssignable=false — não entram aqui.
+   * 3) monthlyValue informado → persiste em monthlyValueOverride (MESMO campo do
+   *    finance-settings). NÃO cria cobrança nem dispara nada live — só guarda o combinado; a
+   *    cobrança continua sendo o manual-payment existente. null/ausente = não mexe.
+   * 4) dailyDeliveryCap informado → persiste em dailyDeliveryCapOverride (GUARDRAILS S3). 0 =
+   *    SEM teto só para esta empresa; null/ausente = não mexe (herda o default global). O teto
+   *    NUNCA é desligado automaticamente por este endpoint — só quando o master manda 0
+   *    explícito (mesma semântica de updateCompanyDailyDeliveryCapByMaster). O throttle de busca
+   *    e o próprio guardrail (commercial-usage-limits.service.ts) continuam intactos — nenhum
+   *    bypass novo, enterprise se sujeita ao MESMO cap/throttle que conta credit.
+   */
   async setCompanyEnterpriseContractByMaster(
     masterUserId: number,
     companyId: number,
-    dto: { monthlyValue?: number | null },
+    dto: { monthlyValue?: number | null; dailyDeliveryCap?: number | null },
   ) {
     await this.assertMasterUser(masterUserId);
+    await this.ensureDefaultSystemModules();
+
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new BadRequestException('Empresa nao encontrada');
     if (isPlatformInfraCompany(company)) {
@@ -4485,7 +5139,21 @@ export class ModulesService implements OnModuleInit {
     // 1) Tipo de conta — reusa o caminho do S6 (não duplica validação/normalização/auditoria).
     await this.setCompanyAccountTypeByMaster(masterUserId, companyId, { accountType: 'enterprise' });
 
-    // Valor fixo mensal combinado — null/ausente = não mexe (mesmo normalizador de
+    // 2) Módulos full — companyAssignable, fora os aposentados. upsert idempotente (unique
+    //    companyId+moduleId) — repetir a ação não duplica linha, só reafirma enabled/masterEnabled.
+    const assignableModules = await this.prisma.systemModule.findMany({
+      where: { companyAssignable: true, key: { notIn: RETIRED_MODULE_KEYS } },
+      select: { id: true, key: true },
+    });
+    for (const moduleItem of assignableModules) {
+      await this.prisma.companyModule.upsert({
+        where: { companyId_moduleId: { companyId, moduleId: moduleItem.id } },
+        update: { enabled: true, masterEnabled: true },
+        create: { companyId, moduleId: moduleItem.id, enabled: true, masterEnabled: true },
+      });
+    }
+
+    // 3) Valor fixo mensal combinado — null/ausente = não mexe (mesmo normalizador de
     //    updateCompanyFinanceSettingsByMaster).
     const normMoney = (v: unknown) =>
       v === null || v === undefined || v === ''
@@ -4496,9 +5164,16 @@ export class ModulesService implements OnModuleInit {
       ? ((company as any).monthlyValueOverride ?? null)
       : normMoney(rawMonthly);
 
+    // 4) Teto diário anti-scraper — null/ausente = não mexe; 0 = sem teto só aqui; N>0 = teto
+    //    próprio. NUNCA desliga sozinho (só quando o master manda 0 explícito).
+    const rawCap = dto?.dailyDeliveryCap;
+    const dailyDeliveryCap = rawCap === undefined || rawCap === null
+      ? ((company as any).dailyDeliveryCapOverride ?? null)
+      : Math.max(0, Math.trunc(Number(rawCap) || 0));
+
     await this.prisma.company.update({
       where: { id: companyId },
-      data: { monthlyValueOverride } as any,
+      data: { monthlyValueOverride, dailyDeliveryCapOverride: dailyDeliveryCap } as any,
     });
 
     await this.masterContextService.registerSupportAction({
@@ -4507,7 +5182,9 @@ export class ModulesService implements OnModuleInit {
       scope: 'master_billing',
       action: 'COMPANY_ENTERPRISE_CONTRACT_ACTIVATED',
       metadata: {
+        modulesOn: assignableModules.length,
         monthlyValueOverride,
+        dailyDeliveryCapOverride: dailyDeliveryCap,
       },
     });
 
@@ -4515,7 +5192,9 @@ export class ModulesService implements OnModuleInit {
       ok: true,
       companyId,
       accountType: 'enterprise',
+      modulesOn: assignableModules.length,
       monthlyValueOverride,
+      dailyDeliveryCap,
     };
   }
 
@@ -4548,7 +5227,6 @@ export class ModulesService implements OnModuleInit {
       userEmail: row.userEmail ? String(row.userEmail) : null,
       vendasLeadId: row.vendasLeadId ? String(row.vendasLeadId) : null,
       radarLeadId: row.radarLeadId ? String(row.radarLeadId) : null,
-      claimOperationId: row.claimOperationId ? String(row.claimOperationId) : null,
       leadName: row.leadName ? String(row.leadName) : null,
       leadPhone,
       leadCity: row.leadCity ? String(row.leadCity) : null,
@@ -4558,9 +5236,6 @@ export class ModulesService implements OnModuleInit {
       status: this.normalizeVendasComplaintStatus(row.status),
       refundedCards: Math.max(0, Math.trunc(Number(row.refundedCards || 0) || 0)),
       internalNote: row.internalNote ? String(row.internalNote) : null,
-      cleanupStatus: String(row.cleanupStatus || 'pending'),
-      cleanupError: row.cleanupError ? String(row.cleanupError) : null,
-      cleanupCompletedAt: row.cleanupCompletedAt instanceof Date ? row.cleanupCompletedAt.toISOString() : null,
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt || ''),
       updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       resolvedAt: row.resolvedAt instanceof Date ? row.resolvedAt.toISOString() : null,
@@ -4632,189 +5307,6 @@ export class ModulesService implements OnModuleInit {
     };
   }
 
-  /**
-   * Revoga somente a aquisição congelada na reclamação. A transação não procura
-   * "o último claim" e nunca usa telefone como chave, portanto uma recompra ou
-   * um card manual não pode ser apagado por engano.
-   */
-  private async cleanupVendasComplaintAcquisition(existing: any) {
-    const complaintId = String(existing?.id || '').trim();
-    const companyId = Math.trunc(Number(existing?.companyId || 0));
-    const vendasLeadId = String(existing?.vendasLeadId || '').trim();
-    const radarLeadId = String(existing?.radarLeadId || '').trim();
-    const claimOperationId = String(existing?.claimOperationId || '').trim();
-    const claimUsageKey = String(existing?.claimUsageKey || '').trim();
-    if (!complaintId || companyId <= 0 || !vendasLeadId || !radarLeadId || !claimOperationId || !claimUsageKey) {
-      throw new BadRequestException('Reclamação sem prova exata da aquisição; estorno automático bloqueado.');
-    }
-    const expectedUsageKey = `radar:${radarLeadId}:claim:${claimOperationId}`;
-    if (claimUsageKey !== expectedUsageKey) {
-      throw new BadRequestException('A chave financeira da reclamação não corresponde ao claim adquirido.');
-    }
-    let conversationIds: number[] = [];
-    try {
-      const parsed = JSON.parse(String(existing?.conversationIdsJson || '[]'));
-      if (Array.isArray(parsed)) {
-        conversationIds = Array.from(new Set(parsed
-          .map((value) => Math.trunc(Number(value || 0)))
-          .filter((value) => value > 0)));
-      }
-    } catch {
-      throw new BadRequestException('Recibo de conversas da reclamação está corrompido.');
-    }
-    const customerProfileId = String(existing?.customerProfileId || '').trim();
-    const now = new Date();
-
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      const debitKey = `enforce:lead_delivery:${claimUsageKey}`;
-      const debit = await tx.creditLedgerEntry.findFirst({
-        where: { companyId, kind: 'debit', usageKey: debitKey },
-        select: { id: true },
-      });
-      if (!debit?.id) {
-        throw new ConflictException('O débito original não existe; nenhum crédito pode ser estornado.');
-      }
-      await tx.radarLeadProcessRun.updateMany({
-        where: {
-          id: claimOperationId,
-          companyId,
-          radarLeadId,
-          mode: 'claim',
-          status: { not: 'refunded' },
-        },
-        data: {
-          status: 'refund_pending',
-          workerToken: null,
-          workerLeaseUntil: null,
-          snapshotJson: JSON.stringify({
-            id: claimOperationId,
-            runId: claimOperationId,
-            mode: 'claim',
-            status: 'refund_pending',
-            radarLeadId,
-            contactAccessGranted: false,
-            contactAccessRevoked: true,
-          }),
-          eventsJson: '[]',
-          errorMessage: 'Acesso revogado por reclamação; estorno aguardando confirmação.',
-        },
-      });
-
-      // Apaga apenas o card carimbado com esta operação. Se o reporte já o
-      // removeu, deleteMany=0 é o retry idempotente esperado.
-      await tx.vendasLead.deleteMany({
-        where: { id: vendasLeadId, companyId, claimOperationId },
-      });
-      const foreignSameId = await tx.vendasLead.findFirst({
-        where: { id: vendasLeadId, companyId, NOT: { claimOperationId } },
-        select: { id: true },
-      });
-      if (foreignSameId?.id) {
-        throw new ConflictException('O card foi reutilizado por outra origem e foi preservado; estorno bloqueado.');
-      }
-
-      if (conversationIds.length) {
-        const receiptConversations = await tx.companyConversation.findMany({
-          where: {
-            companyId,
-            id: { in: conversationIds },
-            OR: [
-              { vendasLeadId },
-              { metadata: { contains: `\"leadId\":\"${vendasLeadId}\"` } },
-            ],
-          },
-          select: { id: true },
-        });
-        if (receiptConversations.length !== conversationIds.length) {
-          throw new ConflictException('Uma conversa do recibo foi alterada ou pertence a outro contexto; estorno bloqueado.');
-        }
-        // DELETE é intencional: mensagens podem conter o telefone/e-mail. FKs de
-        // compromissos/tickets fazem a operação falhar fechada em vez de apagar
-        // um histórico legítimo compartilhado.
-        await tx.companyConversation.deleteMany({
-          where: { companyId, id: { in: conversationIds } },
-        });
-      }
-
-      if (customerProfileId) {
-        const profile = await tx.customerProfile.findFirst({
-          where: { id: customerProfileId, companyId },
-          select: {
-            id: true,
-            externalSource: true,
-            nameConfirmed: true,
-            firstInboundAt: true,
-            lastInboundAt: true,
-            isCliente: true,
-            isFornecedor: true,
-          },
-        });
-        if (profile) {
-          const generatedByRadar = String(profile.externalSource || '').toLowerCase() === 'webscraping'
-            && profile.nameConfirmed !== true
-            && !profile.firstInboundAt
-            && !profile.lastInboundAt
-            && profile.isCliente !== true
-            && profile.isFornecedor !== true;
-          if (!generatedByRadar) {
-            throw new ConflictException('O perfil ligado ao card possui origem/uso legítimo e foi preservado; estorno bloqueado.');
-          }
-          // Se houver qualquer relação legítima restante, o FK aborta toda a
-          // transação. Não fazemos cascade nem anonimização cega por telefone.
-          await tx.customerProfile.delete({ where: { id: customerProfileId } });
-        }
-      }
-
-      const state = await tx.radarLeadCompanyState.findUnique({
-        where: { companyId_radarLeadId: { companyId, radarLeadId } },
-        select: { paidClaimOperationId: true },
-      });
-      if (String(state?.paidClaimOperationId || '') === claimOperationId) {
-        await tx.radarLeadCompanyState.update({
-          where: { companyId_radarLeadId: { companyId, radarLeadId } },
-          data: {
-            vendasLeadId: null,
-            paidClaimOperationId: null,
-            claimUsageKey: null,
-            acquiredAt: null,
-            status: 'complaint',
-            complaintReason: String(existing.reason || 'Card reclamado com erro.'),
-            lastActionAt: now,
-          },
-        });
-        await tx.radarLeadPool.updateMany({
-          where: { id: radarLeadId, ownerCompanyId: companyId },
-          data: { ownerCompanyId: null, claimedAt: null, status: 'blocked', lastSeenAt: now },
-        });
-      }
-
-      const [remainingCard, remainingState, remainingConversation] = await Promise.all([
-        tx.vendasLead.findFirst({ where: { companyId, claimOperationId }, select: { id: true } }),
-        tx.radarLeadCompanyState.findFirst({
-          where: { companyId, radarLeadId, paidClaimOperationId: claimOperationId },
-          select: { id: true },
-        }),
-        conversationIds.length
-          ? tx.companyConversation.findFirst({ where: { companyId, id: { in: conversationIds } }, select: { id: true } })
-          : Promise.resolve(null),
-      ]);
-      if (remainingCard || remainingState || remainingConversation) {
-        throw new ConflictException('A prova de limpeza não fechou; crédito não estornado.');
-      }
-
-      await tx.$executeRaw`
-        UPDATE "VendasCardComplaint"
-        SET
-          "cleanupStatus" = ${'completed'},
-          "cleanupError" = NULL,
-          "cleanupCompletedAt" = ${now},
-          "updatedAt" = ${now}
-        WHERE "id" = ${complaintId}
-      `;
-    });
-    return { claimUsageKey };
-  }
-
   async updateMasterVendasComplaint(masterUserId: number, complaintId: string, dto: { status?: string; internalNote?: string; refundCards?: number } = {}) {
     await this.assertMasterUser(masterUserId);
     await ensureVendasComplaintsRuntimeSchema(this.prisma);
@@ -4831,14 +5323,11 @@ export class ModulesService implements OnModuleInit {
     const existing = rows[0] || null;
     if (!existing) throw new BadRequestException('Reclamacao nao encontrada.');
 
-    // Uma reclamação representa uma única aquisição de lead. O estorno só pode
-    // devolver o mesmo crédito debitado naquela aquisição — nunca um lote arbitrário.
-    const statusInput = dto.status !== undefined ? this.normalizeVendasComplaintStatus(dto.status) : null;
-    const refundCards = statusInput === 'refunded' || Number(dto.refundCards || 0) > 0 ? 1 : 0;
-    const previousRefunded = Number(existing.refundedCards || 0) > 0 ? 1 : 0;
+    const refundCards = Math.max(0, Math.min(100, Math.trunc(Number(dto.refundCards || 0) || 0)));
+    const previousRefunded = Math.max(0, Math.trunc(Number(existing.refundedCards || 0) || 0));
     const refundDelta = Math.max(0, refundCards - previousRefunded);
-    const requestedStatus = statusInput !== null
-      ? (refundDelta > 0 ? 'refunded' : statusInput)
+    const requestedStatus = dto.status !== undefined
+      ? this.normalizeVendasComplaintStatus(dto.status)
       : refundDelta > 0
         ? 'refunded'
         : this.normalizeVendasComplaintStatus(existing.status);
@@ -4846,55 +5335,14 @@ export class ModulesService implements OnModuleInit {
     const now = new Date();
 
     if (refundDelta > 0) {
-      try {
-        const cleanup = await this.cleanupVendasComplaintAcquisition(existing);
-        await this.commercialUsageLimits.recordCardRefund(Number(existing.companyId), Number(existing.userId || 0) || null, {
-          count: refundDelta,
-          complaintId: id,
-          vendasLeadId: existing.vendasLeadId || null,
-          radarLeadId: existing.radarLeadId || null,
-          claimOperationId: existing.claimOperationId || null,
-          claimUsageKey: cleanup.claimUsageKey,
-          reason: existing.reason || null,
-          refundedByUserId: masterUserId,
-        });
-        await (this.prisma as any).radarLeadProcessRun.updateMany({
-          where: {
-            id: String(existing.claimOperationId),
-            companyId: Number(existing.companyId),
-            radarLeadId: String(existing.radarLeadId),
-            mode: 'claim',
-            status: 'refund_pending',
-          },
-          data: {
-            status: 'refunded',
-            snapshotJson: JSON.stringify({
-              id: String(existing.claimOperationId),
-              runId: String(existing.claimOperationId),
-              mode: 'claim',
-              status: 'refunded',
-              radarLeadId: String(existing.radarLeadId),
-              contactAccessGranted: false,
-              contactAccessRevoked: true,
-              refundConfirmed: true,
-            }),
-            eventsJson: '[]',
-            errorMessage: null,
-          },
-        });
-      } catch (error: any) {
-        const cleanupError = String(error?.message || error || 'Falha ao comprovar a revogação.').slice(0, 1000);
-        await this.prisma.$executeRaw`
-          UPDATE "VendasCardComplaint"
-          SET
-            "status" = ${'reviewing'},
-            "cleanupStatus" = ${'failed'},
-            "cleanupError" = ${cleanupError},
-            "updatedAt" = ${now}
-          WHERE "id" = ${id}
-        `;
-        throw error;
-      }
+      await this.commercialUsageLimits.recordCardRefund(Number(existing.companyId), Number(existing.userId || 0) || null, {
+        count: refundDelta,
+        complaintId: id,
+        vendasLeadId: existing.vendasLeadId || null,
+        radarLeadId: existing.radarLeadId || null,
+        reason: existing.reason || null,
+        refundedByUserId: masterUserId,
+      });
     }
 
     await this.prisma.$executeRaw`
@@ -4965,6 +5413,144 @@ export class ModulesService implements OnModuleInit {
 
     return { ok: true, affected };
   }
+
+  // ── Degustação temporária de plano (PR16062026035) ─────────────────────────
+  // MASTER-REFAB S7 (10/07): sem chamador — controller aposentou POST/DELETE master/company/
+  // :id/plan-taste (zero front desde o S1). Corpo mantido pra auditoria/histórico.
+
+  async grantPlanTasteByMaster(
+    masterUserId: number,
+    companyId: number,
+    planKey: string,
+    revertsAt: Date,
+    reason?: string,
+  ) {
+    await this.assertMasterUser(masterUserId);
+    const normalizedPlanKey = normalizeCommercialPlanKey(planKey);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (revertsAt <= new Date()) throw new BadRequestException('A data de retorno precisa ser futura');
+
+    const previousPlanKey = this.normalizeOptionalString(company.selectedPlanKey) || COMMERCIAL_PLAN_KEYS.LITE;
+
+    // Aplica o plano elevado via mesma trilha do setCompanyPlanByMaster.
+    // Guarda o plano original nos campos taste* para reverter depois.
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        tastePlanKey: normalizedPlanKey,
+        tasteRevertsAt: revertsAt,
+        tastePreviousPlanKey: previousPlanKey,
+        tasteReason: reason ? String(reason).trim().slice(0, 400) : null,
+        tasteGrantedByUserId: masterUserId,
+        selectedPlanKey: normalizedPlanKey,
+      },
+    });
+
+    // Sincroniza módulos/entitlements pelo novo plano.
+    const updated = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (updated) {
+      const access = resolveCompanyAccessState(updated);
+      const released = isCompanyAccessReleased(access.state);
+      await this.prisma.$transaction(async (tx) => {
+        if (released) {
+          await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPlanKey);
+        }
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, normalizedPlanKey, 'manual', 'master_plan_taste', null, null);
+      });
+    }
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_plan',
+      action: 'PLAN_TASTE_GRANTED',
+      metadata: {
+        previousPlanKey,
+        tastePlanKey: normalizedPlanKey,
+        tasteRevertsAt: revertsAt.toISOString(),
+        reason: reason || null,
+      },
+    });
+
+    return { ok: true, companyId, tastePlanKey: normalizedPlanKey, previousPlanKey, tasteRevertsAt: revertsAt.toISOString() };
+  }
+
+  async revokePlanTasteByMaster(masterUserId: number, companyId: number) {
+    await this.assertMasterUser(masterUserId);
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new BadRequestException('Empresa nao encontrada');
+    if (!company.tastePlanKey) throw new BadRequestException('Empresa nao esta em degustacao');
+
+    const revertedPlanKey = await this.revertTasteForCompany(companyId, 'master_manual');
+
+    await this.masterContextService.registerSupportAction({
+      masterUserId,
+      companyId,
+      scope: 'master_plan',
+      action: 'PLAN_TASTE_REVOKED',
+      metadata: { revertedPlanKey },
+    });
+
+    return { ok: true, companyId, revertedPlanKey };
+  }
+
+  private async revertTasteForCompany(companyId: number, trigger: string) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company?.tastePlanKey) return null;
+
+    const tastePlanKey = company.tastePlanKey;
+    const previousPlanKey = this.normalizeOptionalString(company.tastePreviousPlanKey) || COMMERCIAL_PLAN_KEYS.LITE;
+    const normalizedPrev = normalizeCommercialPlanKey(previousPlanKey);
+
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        selectedPlanKey: normalizedPrev,
+        tastePlanKey: null,
+        tasteRevertsAt: null,
+        tastePreviousPlanKey: null,
+        tasteReason: null,
+        tasteGrantedByUserId: null,
+      },
+    });
+
+    const updated = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (updated) {
+      const access = resolveCompanyAccessState(updated);
+      const released = isCompanyAccessReleased(access.state);
+      await this.prisma.$transaction(async (tx) => {
+        if (released) {
+          await this.syncCompanyModulesForPlanTx(tx, companyId, normalizedPrev);
+        }
+        await this.syncCompanyEntitlementsForPlanTx(tx, companyId, normalizedPrev, 'manual', `master_plan_taste_revert_${trigger}`, null, null);
+      });
+    }
+
+    this.logger.log(`Taste revertido: empresa ${companyId} ${tastePlanKey} → ${normalizedPrev} (${trigger})`);
+    return normalizedPrev;
+  }
+
+  private async runTasteSweep() {
+    try {
+      const now = new Date();
+      const expired = await this.prisma.company.findMany({
+        where: { tastePlanKey: { not: null }, tasteRevertsAt: { lte: now } },
+        select: { id: true },
+      });
+      for (const { id } of expired) {
+        try {
+          await this.revertTasteForCompany(id, 'sweep');
+        } catch (err) {
+          this.logger.error(`Erro ao reverter taste empresa ${id}: ${err}`);
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Erro no tasteSweep: ${err}`);
+    }
+  }
+
+  // ── fim Degustação ──────────────────────────────────────────────────────────
 
   private buildRadarCardExclusionPayload(row: any) {
     const lead = row?.radarLead || {};

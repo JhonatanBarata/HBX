@@ -40,6 +40,7 @@ const SET_NULL_SURVIVORS = new Set<string>([
   'DeletionRecord',
   'ExternalWebhookEvent',
   'MasterSupportAuditLog',
+  'NightFactoryRewardClaim',
   'RadarLeadEvent',
   'RadarLeadPool',
   'TeamPolicyAuditLog',
@@ -183,6 +184,8 @@ test('completude da exclusão de empresa contra o Postgres local', async (t) => 
         prisma.webscrapingSearchHistory.create({ data: { companyId: a.id, userId: userA.id, city: 'x', segment: 's', quantity: 1, filtersJson: '{}', searchSignature: `sig-${SUFFIX}` } as any }), seeded, failed);
       await seed('WebscrapingSearchRun', () =>
         prisma.webscrapingSearchRun.create({ data: { companyId: a.id, userId: userA.id, city: 'x', segment: 's', targetQuantity: 1 } as any }), seeded, failed);
+      await seed('WebscrapingCampaign', () =>
+        prisma.webscrapingCampaign.create({ data: { companyId: a.id, userId: userA.id, city: 'x', segment: 's', targetTotal: 1 } as any }), seeded, failed);
       await seed('WebscrapingUsageLog', () =>
         prisma.webscrapingUsageLog.create({ data: { companyId: a.id, userId: userA.id } as any }), seeded, failed);
       await seed('PasswordReset', () =>
@@ -285,6 +288,8 @@ test('completude da exclusão de empresa contra o Postgres local', async (t) => 
         prisma.gmailConnection.create({ data: { companyId: a.id, userId: userA.id, email: `g-${SUFFIX}@x.com` } as any }), seeded, failed);
       await seed('FiscalInvoice', () =>
         prisma.fiscalInvoice.create({ data: { companyId: a.id, paymentRefId: `pr-${SUFFIX}`, competencia: '2026-07', valorCents: 100 } as any }), seeded, failed);
+      await seed('NightOrder', () =>
+        prisma.nightOrder.create({ data: { companyId: a.id, segment: 's', normalizedSegment: 's' } as any }), seeded, failed);
       await seed('HarvestImportBatch', () =>
         prisma.harvestImportBatch.create({ data: { companyId: a.id, batchId: `b-${SUFFIX}`, sourceMode: 'x', sourceName: 'y' } as any }), seeded, failed);
       await seed('RadarLeadEnrichment', () =>
@@ -308,7 +313,7 @@ test('completude da exclusão de empresa contra o Postgres local', async (t) => 
       'cadenciaInscricao', 'cadenciaGatilho', 'cadenciaRotina', 'cadencia',
       'commercialEmailMessageLog', 'fiscalInvoice', 'gmailConnection',
       'harvestImportBatch', 'inboxTrashMeticulousPurgeJob', 'masterPaymentNotificationLog',
-      'radarLeadEnrichment', 'recoveryOpportunity',
+      'nightOrderDelivery', 'nightOrder', 'radarLeadEnrichment', 'recoveryOpportunity',
       'savedSearch', 'whatsAppWebhookEvent',
     ];
     await withoutTenantScope('completude-delete-empresa-A', async () => {

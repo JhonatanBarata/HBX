@@ -11,7 +11,8 @@ import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
 import styles from "./mobile-device-topbar.module.css";
 
-const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
+const VENDAS_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
+const LOGISTICA_APK_URL = "/download/android-logistica";
 const ONLINE_WINDOW_MS = 90_000;
 const MOBILE_ICON = [
   "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
@@ -255,9 +256,14 @@ function MobileDeviceAction() {
             >
               {linked ? "Gerenciar aparelho" : "Vincular aparelho"}
             </button>
-            <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer">
-              APK Mobile Android
-            </a>
+            <div className={styles.downloads}>
+              <a className="btn-ghost" href={VENDAS_APK_URL} target="_blank" rel="noreferrer">
+                APK Vendas
+              </a>
+              <a className="btn-ghost" href={LOGISTICA_APK_URL} target="_blank" rel="noreferrer">
+                APK Logística
+              </a>
+            </div>
           </div>
         </div>
       )}

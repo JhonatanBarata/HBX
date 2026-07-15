@@ -32,6 +32,27 @@ function cardDomain(value) {
   }
 }
 
+// O import `/webscraping/lead-harvest/import` é PROXIADO pro motor legado, cujo body-parser corta
+// bem cedo: sondei ao vivo (25/06) → ~22KB(50 leads)=200, ~36KB(80 leads)=413. Tetо real ~25KB.
+// Aqui quebra a lista em sub-lotes ≤15KB (folga sob o teto, aguenta lead gordo) — nunca toma 413.
+function chunkLeadsBySize(leads, maxBytes = 15000, maxCount = 30) {
+  const chunks = [];
+  let cur = [];
+  let curBytes = 2; // "[]"
+  for (const lead of leads) {
+    const bytes = Buffer.byteLength(JSON.stringify(lead), "utf8") + 1;
+    if (cur.length && (curBytes + bytes > maxBytes || cur.length >= maxCount)) {
+      chunks.push(cur);
+      cur = [];
+      curBytes = 2;
+    }
+    cur.push(lead);
+    curBytes += bytes;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
+
 function resolveExecutable(binary) {
   if (process.platform === "win32" && binary === "npm") return "npm.cmd";
   if (process.platform === "win32" && binary === "npx") return "npx.cmd";
@@ -105,6 +126,7 @@ module.exports = {
   safeText,
   clampInt,
   cardDomain,
+  chunkLeadsBySize,
   resolveExecutable,
   assertSafeCommand,
   readDotenvValue,

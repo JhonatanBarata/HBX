@@ -39,21 +39,20 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
             RotaState.clear()
             RotaState.persistir(this)
             RotaService.requestStop(this)
+            HbxMobileBridge.initialize(this)
         } else {
             TrackingSync.rescheduleIfPending(this)
         }
-        // O HBX Mobile também contém a experiência de Vendas, portanto a
-        // mesma ponte de ações e push funciona nos dois flavors.
-        HbxMobileBridge.initialize(this)
     }
 
     override fun onActivityResumed(activity: Activity) {
         mainHandler.removeCallbacks(backgroundCheck)
         resumedActivities += 1
         if (resumedActivities == 1) {
-            HbxMobileBridge.onAppForeground(this)
-            maybeAskNotificationPermission(activity)
-            if (BuildConfig.APP_MODE == "logistica") {
+            if (BuildConfig.APP_MODE == "vendas") {
+                HbxMobileBridge.onAppForeground(this)
+                maybeAskNotificationPermission(activity)
+            } else {
                 TrackingSync.requestFlush(this)
                 mainHandler.removeCallbacks(logisticsHeartbeat)
                 mainHandler.post(logisticsHeartbeat)
@@ -67,7 +66,9 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
             mainHandler.removeCallbacks(logisticsHeartbeat)
             // Pequeno atraso evita parar/reiniciar a ponte durante transição entre
             // PairingActivity, MainActivity, permissão e tela de ação.
-            mainHandler.postDelayed(backgroundCheck, 1_200L)
+            if (BuildConfig.APP_MODE == "vendas") {
+                mainHandler.postDelayed(backgroundCheck, 1_200L)
+            }
         }
     }
 

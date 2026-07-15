@@ -29,10 +29,10 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
+import { isCompanySeller } from "@/lib/roles";
 import { useTabParam } from "@/lib/use-tab-param";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
-import { sanitizeVendasBoardForClient } from "@/components/casca/screens/vendas-types";
 
 // Exportado (LEAD-COCKPIT, 11/07): o LeadCockpitModal recebe o card do board
 // JÁ carregado (sem refetch) — `import type` (apagado no build, sem ciclo real).
@@ -80,9 +80,6 @@ export type VendasLead = {
   // origem do lead
   sourceType?: string | null;
   primarySource?: string | null;
-  sourceHistoryId?: string | null;
-  radarOrigin?: boolean | null;
-  contactAccessGranted?: boolean | null;
   // HOT-07 (empresa recém-aberta): badge de urgência. Opcional.
   isFreshCompany?: boolean | null;
   daysSinceOpened?: number | null;
@@ -152,6 +149,20 @@ type BoardResponse = {
   // valores R$ SOMEM — soma por coluna e valor no card do quadro nunca aparecem.
   // Fonte da verdade = backend (products.viewPrice). Ausente = trata como false.
   canViewValues?: boolean;
+  // Capacidade da carteira → faixa "por que o Radar parou de buscar". O motor
+  // pausa o reabastecimento quando a lista enche (teto de cards ativos).
+  radarSupply?: {
+    isSeller: boolean;
+    // unlimited = carteira sem teto (lei do dono 27/06). Mostra "à vontade",
+    // sem denominador/medidor de vagas.
+    unlimited?: boolean;
+    activeCards: number;
+    capacity: number;
+    availableSlots: number;
+    full: boolean;
+    paused: boolean;
+    code: string | null;
+  } | null;
   // Seletor de vendedor do funil — só vem preenchido para admin/gerente
   // (canManageTeam). Vendedor comum recebe ausente/null → o botão SOME.
   team?: {
@@ -312,6 +323,50 @@ function Termometro({ score, why }: { score: number; why: string }) {
   );
 }
 
+// 4º botão do topo (visual DIFERENTÃO): os dados da faixa "Buscando empresas"
+// viram um card destacado ao lado dos 3 KPIs. Nunca invade o card de detalhe —
+// mora dentro da barra do topo, que é limitada à coluna da esquerda.
+function RadarSupplyCard({
+  supply,
+  onLiberar,
+}: {
+  supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
+  onLiberar: () => void;
+}) {
+  const unlimited = Boolean(supply.unlimited) && !supply.paused;
+  const capacity = Math.max(1, supply.capacity || 1);
+  const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
+  const pct = used / capacity;
+  const state = unlimited ? "ok" : supply.full ? "full" : (supply.paused || pct >= 0.8) ? "warn" : "ok";
+  const count = unlimited ? Math.max(0, supply.activeCards ?? 0) : used;
+  const label = supply.paused ? "Distribuição pausada"
+    : state === "full" ? "Lista cheia"
+    : state === "warn" ? "Lista quase cheia"
+    : "Buscando empresas";
+  const unit = unlimited ? "na lista" : `/ ${capacity}`;
+  const clickable = state === "full";
+  return (
+    <div
+      className={"vnd-supcard vnd-supcard--" + state + (clickable ? " is-clickable" : "")}
+      role={clickable ? "button" : "status"}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={label}
+      onClick={clickable ? onLiberar : undefined}
+      onKeyDown={clickable ? (e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLiberar(); } }) : undefined}
+    >
+      <span className="vnd-supcard__halo" aria-hidden="true" />
+      <span className="vnd-supcard__ic" aria-hidden="true">
+        <I d={state === "full" ? ICONS.pause : ICONS.scrape} size={16} />
+      </span>
+      <span className="vnd-supcard__txt">
+        <span className="vnd-supcard__label">{label}</span>
+        <span className="vnd-supcard__val"><b>{count}</b> <span>{unit}</span></span>
+      </span>
+      {clickable && <span className="vnd-supcard__cta">Liberar</span>}
+    </div>
+  );
+}
+
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 
@@ -358,6 +413,9 @@ export function VendasClient() {
   const userVnd = useCurrentUser();
   const modsVnd = useMyModules();
   const podeBuscarLeads = isModuleVisible("leads", entVnd, userVnd, modsVnd);
+  // Cota/valor/baixa só pro ADMIN (docs/Rules/PAGAMENTOS.md + VENDAS-REFAB invariante
+  // nº6, 04/07): vendedor nunca vê a cota financeira da empresa.
+  const isSellerVnd = isCompanySeller(userVnd);
   // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
@@ -365,8 +423,8 @@ export function VendasClient() {
   const [buscarMounted, setBuscarMounted] = useState(false);
   // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
   // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
-  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; recorte: number | null }>(
-    { totalBrasil: null, disponiveis: null, recorte: null });
+  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; recorte: number | null; sellerQuotaValue: string | null }>(
+    { totalBrasil: null, disponiveis: null, recorte: null, sellerQuotaValue: null });
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
@@ -392,7 +450,7 @@ export function VendasClient() {
   const [cockpitOpen, setCockpitOpen] = useState(false);
   // Quantos leads estão esperando no pool do Radar agora (pra deixar CLARO,
   // no funil vazio, por que está vazio e o que fazer). Conta real da vitrine.
-  const [cardsPrateleira, setCardsPrateleira] = useState<number | null>(null);
+  const [poolDisponivel, setPoolDisponivel] = useState<number | null>(null);
   // (item 5) standing-order/"Automático" removido — sem estado de auto-feed aqui.
   // Status do bot para a empresa (F5): bot-módulo habilitado + chave-mestra armada.
   // Carregado uma vez na montagem; null = ainda consultando.
@@ -453,14 +511,13 @@ export function VendasClient() {
     const qs = teamFilter ? `?sellerId=${teamFilter}` : "";
     return apiFetch<BoardResponse>(`/vendas/board${qs}`)
       .then(res => {
-        const safeBoard = sanitizeVendasBoardForClient(res) as BoardResponse;
-        setBoard(safeBoard);
-        boardRef.current = safeBoard;
+        setBoard(res);
+        boardRef.current = res;
         setLoadError(null);
         // Auto-cura: filtro persistido que o backend rejeitou (vendedor desativado/
         // removido → selectedSellerId volta null) é limpo p/ não ficar fantasma.
-        if (safeBoard?.team && teamFilter && safeBoard.team.selectedSellerId == null) applyTeamFilter(null);
-        const todos = BLOCK_ORDER.map(b => safeBoard?.blocks?.[b.key] || []).flat();
+        if (res?.team && teamFilter && res.team.selectedSellerId == null) applyTeamFilter(null);
+        const todos = BLOCK_ORDER.map(b => res?.blocks?.[b.key] || []).flat();
         // Foco da Agenda tem prioridade sobre a seleção anterior — consumo único:
         // só limpa o ref quando o card é encontrado; se não existir no board
         // (ex.: fora do filtro de vendedor), ignora silencioso e mantém o
@@ -525,12 +582,11 @@ export function VendasClient() {
   // pro funil mostrando ele (puxar manual). Auto-pull manda focus=false (só recarrega).
   function handlePulled(focus?: boolean) { loadBoard(); if (focus) setModo("funil"); }
 
-  // Conta apenas os cards do recorte operacional atual da prateleira. Não é a
-  // grandeza nacional "Disponíveis/Total Brasil" exibida no Radar.
+  // Conta os leads disponíveis no pool (vitrine) — só pra mostrar no funil vazio.
   useEffect(() => {
     apiFetch<{ total?: number; meta?: { totalAvailable?: number } }>("/webscraping/radar/leads?scope=vitrine&limit=1")
-      .then(res => setCardsPrateleira(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
-      .catch(() => setCardsPrateleira(null));
+      .then(res => setPoolDisponivel(Math.max(0, Math.trunc(Number(res?.meta?.totalAvailable ?? res?.total ?? 0)) || 0)))
+      .catch(() => setPoolDisponivel(null));
     apiFetch<BotStatus>("/vendas/bot-status")
       .then(res => setBotStatus(res))
       .catch(() => setBotStatus({ botModuleEnabled: false, botArmed: false }));
@@ -1077,9 +1133,19 @@ export function VendasClient() {
                 <KpiRow items={[
                   { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "RFB + exclusivos do motor" },
                   { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: buscarStats.recorte != null ? `Recorte atual: ${buscarStats.recorte.toLocaleString("pt-BR")}` : "Recorte atual: —" },
+                  // Limite de cards ativos é operacional e existe só para vendedor.
+                  // Administradores não recebem medidor mensal ou cota por plano.
+                  ...(isSellerVnd
+                    ? [{ icon: "bolt", label: "Em mãos", value: buscarStats.sellerQuotaValue || "—", delta: "—", dataTut: "leads-cota" }]
+                    : []),
                 ]} />
               </div>
             </div>
+            {/* 4º botão — a faixa "Buscando empresas" virou card destacado (persistente
+                nos 2 modos). Mora na barra (limitada à esquerda) → não invade o card. */}
+            {board?.radarSupply && (
+              <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
+            )}
           </div>
 
           {/* STAGE — 2 camadas SOBREPOSTAS em crossfade (uma casca só) */}
@@ -1162,11 +1228,11 @@ export function VendasClient() {
                   </div>
                   <div className="funil-cta">
                     <span className="funil-cta-count">
-                      {cardsPrateleira == null
-                        ? "Há cards esperando na prateleira do Radar."
-                        : cardsPrateleira > 0
-                          ? <React.Fragment>Há <strong>{cardsPrateleira.toLocaleString("pt-BR")} cards na prateleira atual</strong> do Radar.</React.Fragment>
-                          : "A prateleira deste recorte está sendo reabastecida — volte em instantes."}
+                      {poolDisponivel == null
+                        ? "Tem leads esperando no Radar."
+                        : poolDisponivel > 0
+                          ? <React.Fragment>Tem <strong>{poolDisponivel.toLocaleString("pt-BR")} leads disponíveis</strong> no Radar agora.</React.Fragment>
+                          : "O pool está sendo reabastecido — volte em instantes."}
                     </span>
                     <div className="funil-cta-acts">
                       {/* Item 5: botão "@ Automático" (standing-order auto-feed) REMOVIDO

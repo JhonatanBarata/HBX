@@ -25,7 +25,6 @@ export const RADAR_LEAD_PROCESS_STATUSES = [
   'completed',
   'partial',
   'failed',
-  'refund_pending',
   'refunded',
 ] as const;
 
@@ -78,11 +77,6 @@ export type RadarLeadProcessSnapshot = {
   version: number;
 };
 
-export type RadarLeadProcessCreationResult = {
-  operation: RadarLeadProcessSnapshot;
-  created: boolean;
-};
-
 export type CreateRadarLeadProcessOperationInput = {
   companyId: number;
   userId: number;
@@ -102,7 +96,6 @@ export type UpdateRadarLeadProcessOperationInput = {
   snapshotPatch?: Record<string, unknown>;
   errorCode?: string | null;
   errorMessage?: string | null;
-  workerToken?: string | null;
 };
 
 type StageDefinition = Pick<RadarLeadProcessStageSnapshot, 'key' | 'label'>;
@@ -136,36 +129,6 @@ const TERMINAL_STATUSES = new Set<RadarLeadProcessStatus>([
 ]);
 
 const MAX_OPTIMISTIC_RETRIES = 5;
-const WORKER_LEASE_MS = 2 * 60 * 1000;
-
-const CLAIM_STATUS_ORDER = new Map<RadarLeadProcessStatus, number>([
-  'queued',
-  'validating',
-  'debit_pending',
-  'credit_debited',
-  'ownership_claimed',
-  'rfb_hydrating',
-  'base_revealed',
-  'motor_enriching',
-  'vendas_creating',
-].map((status, index) => [status as RadarLeadProcessStatus, index]));
-
-function assertStatusTransition(current: RadarLeadProcessStatus, next: RadarLeadProcessStatus) {
-  if (current === next) return;
-  if (TERMINAL_STATUSES.has(current)) {
-    throw new ConflictException(`Operação terminal (${current}) não pode voltar para ${next}.`);
-  }
-  if (current === 'refund_pending') {
-    if (next === 'refunded') return;
-    throw new ConflictException(`Compensação pendente não pode voltar para ${next}.`);
-  }
-  if (TERMINAL_STATUSES.has(next) || next === 'refund_pending') return;
-  const currentOrder = CLAIM_STATUS_ORDER.get(current);
-  const nextOrder = CLAIM_STATUS_ORDER.get(next);
-  if (currentOrder != null && nextOrder != null && nextOrder < currentOrder) {
-    throw new ConflictException(`Transição regressiva de ${current} para ${next} rejeitada.`);
-  }
-}
 
 function isMode(value: unknown): value is RadarLeadProcessMode {
   return RADAR_LEAD_PROCESS_MODES.includes(value as RadarLeadProcessMode);
@@ -284,7 +247,7 @@ export function advanceRadarLeadProcessStages(input: {
     }));
   }
 
-  if (input.status === 'failed' || input.status === 'refund_pending' || input.status === 'refunded') {
+  if (input.status === 'failed' || input.status === 'refunded') {
     let terminalApplied = false;
     return stages.map((stage) => {
       if (stage.state !== 'active' || terminalApplied) return stage;
@@ -344,7 +307,7 @@ export class RadarLeadProcessStoreService {
 
   async createOperation(
     input: CreateRadarLeadProcessOperationInput,
-  ): Promise<RadarLeadProcessCreationResult> {
+  ): Promise<RadarLeadProcessSnapshot> {
     const companyId = requiredPositiveInteger(input.companyId, 'companyId');
     const userId = requiredPositiveInteger(input.userId, 'userId');
     if (!isMode(input.mode)) throw new BadRequestException('mode deve ser claim ou search.');
@@ -360,12 +323,7 @@ export class RadarLeadProcessStoreService {
 
     if (idempotencyKey) {
       const existing = await this.findByIdempotencyKey(companyId, idempotencyKey);
-      if (existing) {
-        return {
-          operation: this.assertIdempotentMatch(existing, { ...input, companyId, userId, radarLeadId }),
-          created: false,
-        };
-      }
+      if (existing) return this.assertIdempotentMatch(existing, { ...input, companyId, userId, radarLeadId });
     }
 
     const tenantUser = await this.prisma.user.findFirst({
@@ -410,15 +368,12 @@ export class RadarLeadProcessStoreService {
           snapshotJson: stringifyJson(input.snapshot || {}, 'snapshot'),
         },
       });
-      return { operation: this.mapSnapshot(row), created: true };
+      return this.mapSnapshot(row);
     } catch (error) {
       if (!idempotencyKey || !isUniqueConflict(error)) throw error;
       const winner = await this.findByIdempotencyKey(companyId, idempotencyKey);
       if (!winner) throw error;
-      return {
-        operation: this.assertIdempotentMatch(winner, { ...input, companyId, userId, radarLeadId }),
-        created: false,
-      };
+      return this.assertIdempotentMatch(winner, { ...input, companyId, userId, radarLeadId });
     }
   }
 
@@ -448,29 +403,9 @@ export class RadarLeadProcessStoreService {
 
     for (let attempt = 0; attempt < MAX_OPTIMISTIC_RETRIES; attempt += 1) {
       const row = await this.prisma.radarLeadProcessRun.findFirst({
-        where: {
-          id: operationId,
-          companyId,
-          ...(input.workerToken ? { workerToken: input.workerToken } : {}),
-        },
+        where: { id: operationId, companyId },
       });
       if (!row) throw new NotFoundException('Processamento do lead não encontrado.');
-
-      const persistedWorkerToken = optionalText((row as any).workerToken);
-      const requestedWorkerToken = optionalText(input.workerToken);
-      const persistedLeaseUntil = (row as any).workerLeaseUntil instanceof Date
-        ? (row as any).workerLeaseUntil as Date
-        : ((row as any).workerLeaseUntil ? new Date((row as any).workerLeaseUntil) : null);
-      if (persistedWorkerToken) {
-        if (!requestedWorkerToken || requestedWorkerToken !== persistedWorkerToken) {
-          throw new ConflictException('A operação está sob responsabilidade de outro worker.');
-        }
-        if (!persistedLeaseUntil || persistedLeaseUntil.getTime() <= Date.now()) {
-          throw new ConflictException('O lease do worker expirou; a operação deve ser recuperada antes de continuar.');
-        }
-      } else if (requestedWorkerToken) {
-        throw new ConflictException('O worker informado não possui lease ativo para esta operação.');
-      }
 
       const mode = isMode(row.mode) ? row.mode : null;
       const currentStatus = isStatus(row.status) ? row.status : null;
@@ -479,7 +414,6 @@ export class RadarLeadProcessStoreService {
       }
 
       const nextStatus = input.status || currentStatus;
-      if (input.status) assertStatusTransition(currentStatus, nextStatus);
       const now = new Date();
       const occurredAt = now.toISOString();
       const currentStages = parseJsonArray<RadarLeadProcessStageSnapshot>(row.stagesJson);
@@ -517,7 +451,6 @@ export class RadarLeadProcessStoreService {
       const progressing = nextStatus !== 'queued';
       const data: Record<string, unknown> = {
         version: { increment: 1 },
-        ...(input.workerToken ? { workerLeaseUntil: new Date(now.getTime() + WORKER_LEASE_MS) } : {}),
       };
 
       if (input.status) {
@@ -525,10 +458,10 @@ export class RadarLeadProcessStoreService {
         data.stagesJson = stringifyJson(stages, 'stages');
         data.startedAt = progressing ? row.startedAt || now : row.startedAt;
         data.finishedAt = terminal ? now : null;
-        data.errorCode = nextStatus === 'failed' || nextStatus === 'partial' || nextStatus === 'refund_pending' || nextStatus === 'refunded'
+        data.errorCode = nextStatus === 'failed' || nextStatus === 'partial' || nextStatus === 'refunded'
           ? optionalText(input.errorCode)
           : null;
-        data.errorMessage = nextStatus === 'failed' || nextStatus === 'partial' || nextStatus === 'refund_pending' || nextStatus === 'refunded'
+        data.errorMessage = nextStatus === 'failed' || nextStatus === 'partial' || nextStatus === 'refunded'
           ? optionalText(input.errorMessage)
           : null;
       } else {
@@ -539,12 +472,7 @@ export class RadarLeadProcessStoreService {
       if (input.snapshotPatch) data.snapshotJson = stringifyJson(snapshot, 'snapshot');
 
       const updated = await this.prisma.radarLeadProcessRun.updateMany({
-        where: {
-          id: operationId,
-          companyId,
-          version: row.version,
-          ...(input.workerToken ? { workerToken: input.workerToken } : {}),
-        },
+        where: { id: operationId, companyId, version: row.version },
         data,
       });
       if (updated.count === 1) return this.getSnapshot(companyId, operationId);
@@ -559,86 +487,6 @@ export class RadarLeadProcessStoreService {
 
   appendEvent(input: Omit<UpdateRadarLeadProcessOperationInput, 'status'> & { eventType: string }) {
     return this.updateOperation(input);
-  }
-
-  /**
-   * Lease distribuído para recovery. O compare-and-swap por versão+status+
-   * updatedAt permite que só uma réplica assuma a mesma saga interrompida.
-   * Incrementar a versão também renova `updatedAt` (@updatedAt no Prisma),
-   * mantendo a operação fora do próximo lote até o lease expirar.
-   */
-  async acquireRecoveryLease(input: {
-    companyId: number;
-    operationId: string;
-    expectedVersion: number;
-    expectedStatus: RadarLeadProcessStatus;
-    staleBefore: Date;
-  }): Promise<string | null> {
-    const companyId = requiredPositiveInteger(input.companyId, 'companyId');
-    const operationId = requiredText(input.operationId, 'operationId');
-    if (!isStatus(input.expectedStatus)) throw new BadRequestException('expectedStatus inválido.');
-    const workerToken = randomUUID();
-    const result = await this.prisma.radarLeadProcessRun.updateMany({
-      where: {
-        id: operationId,
-        companyId,
-        version: Math.max(0, Math.trunc(Number(input.expectedVersion || 0))),
-        status: input.expectedStatus,
-        updatedAt: { lt: input.staleBefore },
-      },
-      data: {
-        version: { increment: 1 },
-        workerToken,
-        workerLeaseUntil: new Date(Date.now() + WORKER_LEASE_MS),
-      },
-    });
-    return result.count === 1 ? workerToken : null;
-  }
-
-  async acquireWorkerLease(input: { companyId: number; operationId: string }): Promise<string | null> {
-    const companyId = requiredPositiveInteger(input.companyId, 'companyId');
-    const operationId = requiredText(input.operationId, 'operationId');
-    const now = new Date();
-    const workerToken = randomUUID();
-    const result = await this.prisma.radarLeadProcessRun.updateMany({
-      where: {
-        id: operationId,
-        companyId,
-        status: { notIn: Array.from(TERMINAL_STATUSES) },
-        OR: [
-          { workerToken: null },
-          { workerLeaseUntil: null },
-          { workerLeaseUntil: { lt: now } },
-        ],
-      },
-      data: {
-        workerToken,
-        workerLeaseUntil: new Date(now.getTime() + WORKER_LEASE_MS),
-        version: { increment: 1 },
-      },
-    });
-    return result.count === 1 ? workerToken : null;
-  }
-
-  async renewWorkerLease(input: { companyId: number; operationId: string; workerToken: string }) {
-    const companyId = requiredPositiveInteger(input.companyId, 'companyId');
-    const operationId = requiredText(input.operationId, 'operationId');
-    const workerToken = requiredText(input.workerToken, 'workerToken');
-    const now = new Date();
-    const result = await this.prisma.radarLeadProcessRun.updateMany({
-      where: {
-        id: operationId,
-        companyId,
-        workerToken,
-        workerLeaseUntil: { gt: now },
-        status: { notIn: Array.from(TERMINAL_STATUSES) },
-      },
-      data: {
-        workerLeaseUntil: new Date(now.getTime() + WORKER_LEASE_MS),
-        version: { increment: 1 },
-      },
-    });
-    return result.count === 1;
   }
 
   private async findByIdempotencyKey(companyId: number, idempotencyKey: string) {

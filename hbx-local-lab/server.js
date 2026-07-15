@@ -1,12 +1,5 @@
 'use strict';
 
-// O Local Lab é filho do HBX Owner na estação Windows do dono. Mesmo com
-// loopback, token e watchdog, ele não pode ser executável no checkout da VPS.
-if (process.platform !== 'win32' || String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production') {
-  console.error('HBX Local Lab bloqueado: execução permitida somente no PC Windows local e fora de produção.');
-  process.exit(1);
-}
-
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -17,17 +10,7 @@ const { runDirectoryProbeProvider } = require('./providers/directory-probe.provi
 const { runSocialProbeProvider } = require('./providers/social-probe.provider');
 const { writeBatchExport, buildBatchExport } = require('./exporters/hbx-jsonl-exporter');
 
-const LOOPBACK_HOST = '127.0.0.1';
-
-function resolveLocalOnlyHost(value = process.env.HBX_LOCAL_LAB_HOST) {
-  const requested = String(value || LOOPBACK_HOST).trim();
-  if (requested !== LOOPBACK_HOST) {
-    throw new Error(`HBX_LOCAL_LAB_HOST_BLOCKED:${requested}`);
-  }
-  return LOOPBACK_HOST;
-}
-
-const HOST = resolveLocalOnlyHost();
+const HOST = process.env.HBX_LOCAL_LAB_HOST || '127.0.0.1';
 const PORT = Number(process.env.HBX_LOCAL_LAB_PORT || 3098);
 const STORAGE_DIR = path.resolve(__dirname, 'storage');
 const JOBS_DIR = path.join(STORAGE_DIR, 'jobs');
@@ -37,7 +20,6 @@ const MAX_BODY_BYTES = Math.max(512_000, Number(process.env.HBX_LOCAL_LAB_MAX_BO
 const SENSITIVE_KEY_PATTERN = /(authorization|cookie|jwt|password|secret|token|api[_-]?key|credential|session)/i;
 
 const jobs = new Map();
-const TERMINAL_JOB_STATUSES = new Set(['completed', 'failed', 'canceled']);
 
 function safeLog(message, meta = {}) {
   const clean = {};
@@ -63,11 +45,6 @@ function sendText(res, statusCode, body, contentType = 'text/plain; charset=utf-
     'cache-control': 'no-store',
   });
   res.end(body);
-}
-
-function isAuthorizedControlRequest(req, controlToken) {
-  if (!controlToken) return false;
-  return req.headers.authorization === `Bearer ${controlToken}`;
 }
 
 function parsePath(req) {
@@ -291,68 +268,6 @@ async function processJob(job) {
   }
 }
 
-async function cancelActiveJobs(reason = 'owner_stopped') {
-  let canceled = 0;
-  for (const job of jobs.values()) {
-    if (TERMINAL_JOB_STATUSES.has(job.status)) continue;
-    job.status = 'canceled';
-    job.error = reason;
-    job.finishedAt = new Date().toISOString();
-    if (job.abortController) job.abortController.abort();
-    await persistJob(job).catch(() => undefined);
-    canceled += 1;
-  }
-  return canceled;
-}
-
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function createOwnerWatchdog(options) {
-  const parentPid = Number(options?.parentPid);
-  if (!Number.isInteger(parentPid) || parentPid <= 0 || parentPid === process.pid) {
-    throw new Error('HBX_OWNER_PARENT_PID_REQUIRED');
-  }
-  const checkIntervalMs = Math.max(100, Number(options?.checkIntervalMs) || 1000);
-  const heartbeatTimeoutMs = Math.max(500, Number(options?.heartbeatTimeoutMs) || 15_000);
-  const processAlive = options?.processAlive || isProcessAlive;
-  const onOwnerLost = options?.onOwnerLost;
-  let lastHeartbeatAt = Date.now();
-  let stopping = false;
-  const timer = setInterval(() => {
-    if (stopping) return;
-    const parentAlive = processAlive(parentPid);
-    const heartbeatFresh = Date.now() - lastHeartbeatAt <= heartbeatTimeoutMs;
-    if (parentAlive && heartbeatFresh) return;
-    stopping = true;
-    Promise.resolve(onOwnerLost?.(parentAlive ? 'owner_heartbeat_expired' : 'owner_process_gone'))
-      .catch(() => undefined);
-  }, checkIntervalMs);
-  timer.unref?.();
-  return {
-    parentPid,
-    heartbeat(value) {
-      if (Number(value) !== parentPid || stopping) return false;
-      lastHeartbeatAt = Date.now();
-      return true;
-    },
-    stop() {
-      stopping = true;
-      clearInterval(timer);
-    },
-    status() {
-      return { parentAlive: processAlive(parentPid), heartbeatAgeMs: Date.now() - lastHeartbeatAt, stopping };
-    },
-  };
-}
-
 async function createJob(body) {
   assertNoSecrets(body);
   const input = normalizeJobInput(body || {});
@@ -413,36 +328,19 @@ async function readExport(job, file) {
   };
 }
 
-async function handleRequest(req, res, options = {}) {
+async function handleRequest(req, res) {
   const url = parsePath(req);
   const parts = url.pathname.split('/').filter(Boolean);
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
-      return sendJson(res, 200, {
-        ok: true,
-        service: 'hbx-local-lab',
-        host: HOST,
-        port: PORT,
-        pid: process.pid,
-        ownerControlled: Boolean(options.ownerWatchdog),
-      });
-    }
-    if (!isAuthorizedControlRequest(req, options.controlToken)) {
-      return sendJson(res, 401, { error: 'owner_control_required' });
-    }
-    if (req.method === 'POST' && url.pathname === '/local-lab/owner-heartbeat') {
-      const body = await readJsonBody(req);
-      if (!options.ownerWatchdog?.heartbeat(body.parentPid)) {
-        return sendJson(res, 403, { error: 'owner_parent_mismatch' });
-      }
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, { ok: true, service: 'hbx-local-lab', host: HOST, port: PORT, pid: process.pid });
     }
     // Desligamento limpo, pedido pelo agent (HBX Owner). Responde primeiro e encerra
     // o processo logo depois — assim "Desligar Lab" para de verdade sem depender de
     // achar/matar o PID por fora (que falhava quando a CommandLine nao trazia o diretorio).
     if (req.method === 'POST' && url.pathname === '/local-lab/shutdown') {
       sendJson(res, 200, { ok: true, shuttingDown: true, pid: process.pid });
-      setTimeout(() => void options.onShutdown?.('owner_requested'), 50);
+      setTimeout(() => process.exit(0), 150);
       return undefined;
     }
     if (req.method === 'POST' && url.pathname === '/local-lab/jobs') {
@@ -457,7 +355,7 @@ async function handleRequest(req, res, options = {}) {
         return sendJson(res, 200, serializeJob(job));
       }
       if (req.method === 'POST' && parts[3] === 'cancel') {
-        if (!TERMINAL_JOB_STATUSES.has(job.status)) {
+        if (!['completed', 'failed', 'canceled'].includes(job.status)) {
           job.status = 'canceled';
           job.finishedAt = new Date().toISOString();
           if (job.abortController) job.abortController.abort();
@@ -479,61 +377,22 @@ async function handleRequest(req, res, options = {}) {
   }
 }
 
-function createServer(options = {}) {
+function createServer() {
   return http.createServer((req, res) => {
-    void handleRequest(req, res, options);
+    void handleRequest(req, res);
   });
 }
 
-async function startServer(options = {}) {
+async function startServer() {
   await fs.mkdir(JOBS_DIR, { recursive: true });
-  const server = createServer(options);
+  const server = createServer();
   await new Promise((resolve) => server.listen(PORT, HOST, resolve));
   safeLog('listening', { url: `http://${HOST}:${PORT}` });
   return server;
 }
 
-async function startOwnerControlledServer(env = process.env) {
-  const controlToken = String(env.HBX_LOCAL_LAB_CONTROL_TOKEN || '').trim();
-  const parentPid = Number(env.HBX_OWNER_PARENT_PID);
-  if (!controlToken) throw new Error('HBX_LOCAL_LAB_CONTROL_TOKEN_REQUIRED');
-  if (!Number.isInteger(parentPid) || parentPid <= 0 || parentPid === process.pid) {
-    throw new Error('HBX_OWNER_PARENT_PID_REQUIRED');
-  }
-
-  let server;
-  let watchdog;
-  let shuttingDown = false;
-  const shutdown = async (reason, exitCode = 0) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    watchdog?.stop();
-    const canceled = await cancelActiveJobs(reason);
-    safeLog('shutdown', { reason, canceled });
-    if (server?.listening) {
-      await new Promise((resolve) => server.close(resolve));
-    }
-    process.exitCode = exitCode;
-    setTimeout(() => process.exit(exitCode), 20).unref?.();
-  };
-
-  const options = {
-    controlToken,
-    get ownerWatchdog() { return watchdog; },
-    onShutdown: (reason) => shutdown(reason, 0),
-  };
-  server = await startServer(options);
-  watchdog = createOwnerWatchdog({
-    parentPid,
-    checkIntervalMs: Number(env.HBX_OWNER_WATCHDOG_INTERVAL_MS) || 1000,
-    heartbeatTimeoutMs: Number(env.HBX_OWNER_HEARTBEAT_TIMEOUT_MS) || 15_000,
-    onOwnerLost: (reason) => shutdown(reason, 0),
-  });
-  return { server, watchdog, shutdown };
-}
-
 if (require.main === module) {
-  startOwnerControlledServer().catch((error) => {
+  startServer().catch((error) => {
     safeLog('fatal', { error: String(error?.message || error) });
     process.exit(1);
   });
@@ -541,14 +400,9 @@ if (require.main === module) {
 
 module.exports = {
   buildBatchExport,
-  cancelActiveJobs,
-  createOwnerWatchdog,
   createJob,
   createServer,
-  isProcessAlive,
   jobs,
   normalizeJobInput,
-  resolveLocalOnlyHost,
-  startOwnerControlledServer,
   startServer,
 };

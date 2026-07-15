@@ -28,7 +28,8 @@ export type HbxCapability =
   | 'canAssignCardsToOthers'
   | 'canReopenFinalizedCards'
   | 'canManageUsers'
-  | 'canManageSellerAccess';
+  | 'canManageSellerAccess'
+  | 'canManageSellerQuotas';
 
 export type CapabilityMap = Partial<Record<HbxCapability, boolean>>;
 
@@ -60,6 +61,7 @@ export function buildModuleCapabilityKey(moduleKey: string, action: 'access' | '
   if (action === 'manage') {
     if (normalized === 'users' || normalized === 'gerencial') return 'canManageUsers';
     if (normalized === 'seller-access') return 'canManageSellerAccess';
+    if (normalized === 'seller-quotas') return 'canManageSellerQuotas';
   }
   if (action === 'run' && normalized === 'webscraping') return 'canRunRadarSearch';
   if (normalized === 'webscraping' || normalized === 'radar' || normalized === 'radar-digital') return 'canAccessRadar';

@@ -21,17 +21,8 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
-import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
-import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
-import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.net.HttpURLConnection
@@ -59,7 +50,6 @@ class PairingActivity : AppCompatActivity() {
     private lateinit var root: FrameLayout
     private var codeInput: EditText? = null
     private var actionButton: Button? = null
-    private var googleButton: Button? = null
     private var feedback: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,7 +110,7 @@ class PairingActivity : AppCompatActivity() {
             return
         }
 
-        setBusy(true, google = false)
+        setBusy(true)
         setFeedback("Vinculando este aparelho…", false)
         runNetwork(
             request = {
@@ -133,81 +123,26 @@ class PairingActivity : AppCompatActivity() {
                         .put("platform", "android-${BuildConfig.APP_MODE}")
                 )
             },
-            success = ::completePairing,
+            success = { response ->
+                val deviceToken = response.getString("deviceToken")
+                // Um novo código pode apontar para outra empresa/usuário. O WebView
+                // não pode herdar localStorage, IndexedDB ou cache do vínculo anterior.
+                WebStorage.getInstance().deleteAllData()
+                credentialStore.saveDeviceToken(deviceToken)
+                if (BuildConfig.APP_MODE == "vendas") {
+                    HbxMobileBridge.onDevicePaired(this)
+                }
+                TrackingSessionStore(this).clearAuthBlocked()
+                if (BuildConfig.APP_MODE == "logistica") {
+                    TrackingSync.requestFlush(this)
+                }
+                openEntryUrl(response.getString("entryUrl"))
+            },
             failure = { error ->
                 setBusy(false)
                 setFeedback(error.message ?: "Código inválido ou expirado.", true)
             }
         )
-    }
-
-    private fun startGoogleSignIn() {
-        setBusy(true, google = true)
-        setFeedback("Escolha sua conta Google…", false)
-        lifecycleScope.launch {
-            try {
-                val option = GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_WEB_CLIENT_ID).build()
-                val request = GetCredentialRequest.Builder()
-                    .addCredentialOption(option)
-                    .build()
-                val result = CredentialManager.create(this@PairingActivity).getCredential(
-                    context = this@PairingActivity,
-                    request = request,
-                )
-                val credential = result.credential
-                if (credential !is CustomCredential ||
-                    credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-                ) {
-                    throw IllegalStateException("O Google não devolveu uma conta válida.")
-                }
-                val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                submitGoogleIdToken(googleCredential.idToken)
-            } catch (_: GetCredentialCancellationException) {
-                setBusy(false)
-                setFeedback("Entrada com Google cancelada.", false)
-            } catch (_: GoogleIdTokenParsingException) {
-                setBusy(false)
-                setFeedback("Não foi possível ler a conta Google. Tente novamente.", true)
-            } catch (error: Throwable) {
-                setBusy(false)
-                setFeedback(error.message ?: "Não foi possível entrar com Google.", true)
-            }
-        }
-    }
-
-    private fun submitGoogleIdToken(idToken: String) {
-        setFeedback("Entrando no HBX com Google…", false)
-        runNetwork(
-            request = {
-                postJson(
-                    "/mobile/devices/google-pair",
-                    JSONObject()
-                        .put("idToken", idToken)
-                        .put("installationId", credentialStore.installationId())
-                        .put("deviceName", deviceDisplayName())
-                        .put("platform", "android-${BuildConfig.APP_MODE}")
-                )
-            },
-            success = ::completePairing,
-            failure = { error ->
-                setBusy(false)
-                setFeedback(error.message ?: "Não foi possível entrar com Google.", true)
-            },
-        )
-    }
-
-    private fun completePairing(response: JSONObject) {
-        val deviceToken = response.getString("deviceToken")
-        // A nova identidade pode apontar para outra empresa/usuário. O WebView
-        // não pode herdar localStorage, IndexedDB ou cache do vínculo anterior.
-        WebStorage.getInstance().deleteAllData()
-        credentialStore.saveDeviceToken(deviceToken)
-        HbxMobileBridge.onDevicePaired(this)
-        TrackingSessionStore(this).clearAuthBlocked()
-        if (BuildConfig.APP_MODE == "logistica") {
-            TrackingSync.requestFlush(this)
-        }
-        openEntryUrl(response.getString("entryUrl"))
     }
 
     private fun runNetwork(
@@ -328,7 +263,7 @@ class PairingActivity : AppCompatActivity() {
         }
 
         card.addView(TextView(this).apply {
-            text = if (BuildConfig.APP_MODE == "logistica") "HBX Mobile" else "HBX Vendas"
+            text = if (BuildConfig.APP_MODE == "logistica") "HBX Logística" else "HBX Vendas"
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
@@ -377,18 +312,6 @@ class PairingActivity : AppCompatActivity() {
         }
         card.addView(actionButton)
 
-        googleButton = Button(this).apply {
-            text = "Entrar com Google"
-            isAllCaps = false
-            setTextColor(Color.parseColor("#172033"))
-            setTypeface(typeface, Typeface.BOLD)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            background = roundedStrokeBackground("#FFFFFF", "#D7DEEA", 14)
-            layoutParams = LinearLayout.LayoutParams(-1, dp(54)).apply { topMargin = dp(10) }
-            setOnClickListener { startGoogleSignIn() }
-        }
-        card.addView(googleButton)
-
         feedback = TextView(this).apply {
             text = initialMessage.orEmpty()
             visibility = if (initialMessage.isNullOrBlank()) View.GONE else View.VISIBLE
@@ -407,14 +330,11 @@ class PairingActivity : AppCompatActivity() {
         root.addView(card, outer)
     }
 
-    private fun setBusy(busy: Boolean, google: Boolean = false) {
+    private fun setBusy(busy: Boolean) {
         actionButton?.isEnabled = !busy
-        googleButton?.isEnabled = !busy
         codeInput?.isEnabled = !busy
-        actionButton?.text = if (busy && !google) "Vinculando…" else "Vincular aparelho"
-        googleButton?.text = if (busy && google) "Entrando…" else "Entrar com Google"
+        actionButton?.text = if (busy) "Vinculando…" else "Vincular aparelho"
         actionButton?.alpha = if (busy) 0.7f else 1f
-        googleButton?.alpha = if (busy) 0.7f else 1f
     }
 
     private fun setFeedback(message: String, error: Boolean) {

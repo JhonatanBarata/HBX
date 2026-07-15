@@ -13,6 +13,9 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   isHbxEngineLocalhostUrl,
+  COMMERCIAL_PLAN_QUOTAS,
+  COMMERCIAL_PLAN_KEYS,
+  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
   buildRadarLeadEnrichment,
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
@@ -29,7 +32,12 @@ import {
   RECENT_HISTORY_LIMIT,
   IBGE_CITIES_URL,
   CITY_CACHE_TTL_MS,
+  MASS_DATA_INTERNAL_SEGMENTS,
   ACRE_CITIES_FALLBACK,
+  AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK,
+  AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+  AUTONOMOUS_MASS_DATA_MAX_TASKS,
+  DEFAULT_MASS_DATA_ENGINE_URLS,
   TURBO_OPERATIONAL_CONFIG_KEY,
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
@@ -79,6 +87,7 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
+  isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
   maxQuantityFor,
@@ -90,6 +99,7 @@ import {
   buildRadarStageSnapshot,
   RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS,
 } from '../radar-core-method-imports';
+import { resolveCompanyAccessState } from '../../../modules/company-access-state';
 import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../../../companies/master-whatsapp-company.constants';
 import { confirmedSegments } from '../../../users/segment-affinity.util';
 import { buildCnpjBaseQueryInputFromRadarFilters } from '../providers/cnpj-public/radar-base-availability.util';
@@ -97,6 +107,10 @@ import type { CnpjBaseQueryInput } from '../providers/cnpj-public/cnpj-base-quer
 import { RadarSearchRateLimiterService } from '../search-rate-limit.service';
 
 import type {
+  AutonomousMassDataCandidate,
+  AutonomousMassDataStrategyMode,
+  AutonomousMassDataWork,
+  AutonomousMassDataWorkReason,
   ExternalRuntimeStatus,
   GlobalCacheRow,
   HbxBatchStatus,
@@ -113,6 +127,7 @@ import type {
   LeadQualityStatus,
   LeadQualityV2,
   LeadQualityV2SalesProfile,
+  MasterMassDataCampaignInput,
   NativeRuntimeDiagnostic,
   NormalizedRadarFilters,
   NormalizedSearchInput,
@@ -207,8 +222,171 @@ export class RadarCorePresentationMixin {
     return this.canUseWebscrapingRole(user);
   }
 
+  private startOfToday(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  }
+
+  private startOfTomorrow(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 0, 0, 0, 0);
+  }
+
+  private resolveGoogleSearchesPerDay(_company: any) {
+    return COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO].googleSearchesPerDay;
+  }
+
+  // Projecao do estado canonico (PR-002 A.4): morre a copia local do motor
+  // de acesso (tinha ate regra de graça propria divergente).
+  private companyHasPaidFeatureAccess(company: any) {
+    return resolveCompanyAccessState(company).canUse;
+  }
+
   private async supportsUsageLogPersistence() {
     return this.prisma.hasTable('WebscrapingUsageLog');
+  }
+
+  private async buildRuntimeQuota(user: any) {
+    const context = this.resolveContext(user);
+    if (!this.canUseWebscrapingRole(user)) {
+      return {
+        remainingSearches: 0,
+        dailyLimit: 0,
+        isTrialLimited: true,
+        accessMode: 'blocked' as const,
+      };
+    }
+    const company = await this.prisma.company.findUnique({
+      where: { id: context.companyId },
+      select: {
+        status: true,
+        // MASTER-REFAB S6 (10/07 noite): resolveCompanyAccessState lê accountType antes de
+        // status/datas — sem ele aqui, empresa enterprise bloqueada (overdue/trial vencido)
+        // normalizava pro default 'credit' e reganhava acesso à busca por engano.
+        accountType: true,
+        isActive: true,
+        selectedPlanKey: true,
+        trialEndsAt: true,
+        billingGraceEndsAt: true,
+        courtesyEndsAt: true,
+        courtesyReason: true,
+      },
+    });
+
+    const dailyLimit = company ? this.resolveGoogleSearchesPerDay(company) : 0;
+
+    if (!company) {
+      return {
+        remainingSearches: 0,
+        dailyLimit: 0,
+        isTrialLimited: false,
+        accessMode: 'blocked' as const,
+      };
+    }
+
+    if (!this.companyHasPaidFeatureAccess(company)) {
+      return {
+        remainingSearches: 0,
+        dailyLimit: 0,
+        isTrialLimited: true,
+        accessMode: 'blocked' as const,
+      };
+    }
+
+    const usageLogEnabled = await this.supportsUsageLogPersistence();
+    if (!usageLogEnabled) {
+      return {
+        remainingSearches: dailyLimit,
+        dailyLimit,
+        isTrialLimited: true,
+        accessMode: 'plan' as const,
+      };
+    }
+
+    const dayStart = this.startOfToday();
+    const nextDayStart = this.startOfTomorrow();
+    const todayGoogleExecutions = await this.prisma.webscrapingUsageLog.count({
+      where: {
+        companyId: context.companyId,
+        eventType: 'GOOGLE_SEARCH_EXECUTED',
+        createdAt: {
+          gte: dayStart,
+          lt: nextDayStart,
+        },
+      },
+    });
+
+    return {
+      remainingSearches: Math.max(0, dailyLimit - todayGoogleExecutions),
+      dailyLimit,
+      isTrialLimited: true,
+      accessMode: 'plan' as const,
+    };
+  }
+
+  private async assertGoogleDailyQuota(context: SearchExecutionContext, input: NormalizedSearchInput) {
+    if (!this.canUseWebscrapingRole(context.user)) {
+      throw new ForbiddenException({
+        code: 'webscraping_role_blocked',
+        message: 'O webscraping fica restrito ao ADMIN da empresa. Usuarios comuns nao usam o motor nem veem este modulo.',
+      });
+    }
+    const usageLogEnabled = await this.supportsUsageLogPersistence();
+    if (!usageLogEnabled) return;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: context.companyId },
+      select: {
+        id: true,
+        status: true,
+        accountType: true,
+        isActive: true,
+        selectedPlanKey: true,
+        trialEndsAt: true,
+        billingGraceEndsAt: true,
+        courtesyEndsAt: true,
+        courtesyReason: true,
+      },
+    });
+
+    const dailyLimit = company ? this.resolveGoogleSearchesPerDay(company) : 0;
+
+    if (!company) return;
+    if (!this.companyHasPaidFeatureAccess(company)) {
+      await this.recordUsageLog(
+        context,
+        input,
+        'BLOCKED_DAILY_LIMIT',
+        0,
+        'Empresa vencida ou sem acesso ativo. Regularize o plano para usar recursos pagos do HBX.',
+      );
+      throw new ForbiddenException({
+        code: 'company_paid_access_required',
+        message: 'Empresa vencida ou sem acesso ativo. Regularize o plano para usar recursos pagos do HBX.',
+      });
+    }
+
+    const dayStart = this.startOfToday();
+    const nextDayStart = this.startOfTomorrow();
+    const todayGoogleExecutions = await this.prisma.webscrapingUsageLog.count({
+      where: {
+        companyId: context.companyId,
+        eventType: 'GOOGLE_SEARCH_EXECUTED',
+        createdAt: {
+          gte: dayStart,
+          lt: nextDayStart,
+        },
+      },
+    });
+
+    if (dailyLimit > 0 && todayGoogleExecutions < dailyLimit) {
+      return;
+    }
+
+    const message = `${GOOGLE_DAILY_LIMIT_REACHED_MESSAGE} Limite operacional: ${dailyLimit} busca(s) Google por dia.`;
+    await this.recordUsageLog(context, input, 'BLOCKED_DAILY_LIMIT', 0, message);
+    throw new ForbiddenException({
+      code: 'google_daily_limit_reached',
+      message,
+    });
   }
 
   private async recordUsageLog(
@@ -797,6 +975,7 @@ export class RadarCorePresentationMixin {
             fast: 'rapido',
             quality: 'qualidade',
             deep: 'profundo',
+            night_factory: 'fabrica_noturna',
           } as any)[orchestration.strategy.mode] || orchestration.strategy.mode,
           reason: orchestration.strategy.reason,
           targetCards: orchestration.strategy.targetCards,
@@ -1023,6 +1202,24 @@ export class RadarCorePresentationMixin {
     return ownerColumn && claimedColumn;
   }
 
+  private async supportsRadarCampaignPersistence() {
+    if (!(this.prisma as any).webscrapingCampaign || !(this.prisma as any).webscrapingCampaignBatch) {
+      return false;
+    }
+    const [campaignTable, batchTable, eventTable] = await Promise.all([
+      this.prisma.hasTable('WebscrapingCampaign'),
+      this.prisma.hasTable('WebscrapingCampaignBatch'),
+      this.prisma.hasTable('RadarLeadEvent'),
+    ]);
+    return campaignTable && batchTable && eventTable;
+  }
+
+  private async supportsMassDataCampaignPersistence() {
+    return this.supportsRadarCampaignPersistence()
+      .then(async (base) => base && Boolean((this.prisma as any).webscrapingCampaignTask) && await this.prisma.hasTable('WebscrapingCampaignTask'))
+      .catch(() => false);
+  }
+
   private normalizeRadarLeadStatus(value: unknown): RadarLeadStatus {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'imported_to_vendas' || normalized === 'sent_to_vendas') return 'sent_to_vendas';
@@ -1195,15 +1392,12 @@ export class RadarCorePresentationMixin {
 
   private normalizeRadarWhatsappCheckMode(value: unknown): RadarWhatsappCheckMode {
     const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'off') return 'off';
-    // Compatibilidade de contrato: `only_valid` deixou de filtrar leads. WhatsApp
-    // e apenas um sinal aditivo; telefone sem WhatsApp continua sendo contato util.
-    if (normalized === 'enrich' || normalized === 'only_valid') return 'enrich';
+    if (normalized === 'enrich' || normalized === 'only_valid') return normalized;
     // Default configuravel: liga a verificacao de existencia nos runs SEM mode explicito
-    // Eventos legados sem `mode` caem aqui. `enrich` anota whatsappStatus sem derrubar;
-    // Valores legados `only_valid` tambem viram `enrich`: nunca escondem um telefone.
+    // (a fabrica nao manda mode -> cai aqui). 'enrich' anota whatsappStatus sem derrubar;
+    // 'only_valid' filtra os nao-confirmados. Inocuo enquanto o chip do motor nao conectar.
     const envDefault = String(process.env.HBX_RADAR_WHATSAPP_CHECK_MODE || '').trim().toLowerCase();
-    if (envDefault === 'enrich' || envDefault === 'only_valid') return 'enrich';
+    if (envDefault === 'enrich' || envDefault === 'only_valid') return envDefault as RadarWhatsappCheckMode;
     return 'off';
   }
 
@@ -1567,7 +1761,7 @@ export class RadarCorePresentationMixin {
     return rows.filter((row) => {
       const qualityV2 = this.extractLeadQualityV2FromObject(row) || this.getCandidateQualityV2(row, filters);
       const quality = this.getCandidateQuality(row, filters);
-      return this.isLeadDeliverableCard(row, filters, quality, qualityV2);
+      return this.isListDeliverableCard(row, filters, quality, qualityV2);
     });
   }
 
@@ -1617,9 +1811,6 @@ export class RadarCorePresentationMixin {
           select: {
             status: true,
             vendasLeadId: true,
-            paidClaimOperationId: true,
-            claimUsageKey: true,
-            acquiredAt: true,
             lastActionAt: true,
             noAnswerCount: true,
             contactedCount: true,
@@ -1652,12 +1843,6 @@ export class RadarCorePresentationMixin {
             note: true,
             createdAt: true,
           },
-        },
-        processRuns: {
-          where: { companyId, mode: 'claim', status: 'refund_pending' },
-          orderBy: { updatedAt: 'desc' },
-          take: 1,
-          select: { status: true, snapshotJson: true, eventsJson: true },
         },
       },
     }).catch(() => []);
@@ -1827,7 +2012,7 @@ export class RadarCorePresentationMixin {
 
   // FIX-ENRICHMENT-STATUS-SHELF (05/07): lookup em massa da fila (RadarLeadEnrichment) pra UMA
   // página de cards. RadarLeadEnrichment é 1:1 (radarLeadId @unique), mas o único escritor
-  // O job interno grava radarLeadId=sourceLeadPoolId=RadarLeadPool.id — casa pelas
+  // (night-factory.service.ts) grava radarLeadId=sourceLeadPoolId=RadarLeadPool.id — casa pelas
   // DUAS colunas via OR (mesmo padrão do cleanup em radar-core-master-database.mixin.ts:611) pra
   // não depender de qual coluna acabou populada. Degrade DUPLO (hasTable + try/catch): os testes
   // existentes mockam prisma SEM esse modelo — `(this.prisma as any).radarLeadEnrichment` pode ser
@@ -1861,31 +2046,6 @@ export class RadarCorePresentationMixin {
     const phoneMap = new Map<string, any>();
     const emailMap = new Map<string, any>();
     const whatsappMap = meta?.phonesWhatsapp && typeof meta.phonesWhatsapp === 'object' ? meta.phonesWhatsapp : {};
-    const sourceKey = (value: unknown) => String(value || '').trim().toLowerCase();
-    const sourcePriority = (value: unknown) => {
-      const source = sourceKey(value);
-      if (source === 'rfb_primary') return 500;
-      if (source === 'rfb_secondary') return 490;
-      if (source === 'rfb_fax') return 480;
-      if (source === 'rfb_email') return 470;
-      if (source === 'website_crawl') return 320;
-      if (['hbx_engine', 'google_places', 'brave'].includes(source)) return 300;
-      return 10;
-    };
-    const canonicalPhoneRank = (source: unknown, rank: unknown) => {
-      const key = sourceKey(source);
-      if (key === 'rfb_primary') return 1;
-      if (key === 'rfb_secondary') return 2;
-      if (key === 'rfb_fax') return 3;
-      if (key === 'website_crawl' || ['hbx_engine', 'google_places', 'brave'].includes(key)) return 2 + Math.max(1, safeInteger(rank) || 1);
-      return Math.max(10, safeInteger(rank) || 10);
-    };
-    const canonicalEmailRank = (source: unknown, rank: unknown) => {
-      const key = sourceKey(source);
-      if (key === 'rfb_email') return 1;
-      if (key === 'website_crawl' || ['hbx_engine', 'google_places', 'brave'].includes(key)) return 1 + Math.max(1, safeInteger(rank) || 1);
-      return Math.max(10, safeInteger(rank) || 10);
-    };
     const mergePhone = (value: unknown, source: unknown, rank: unknown, confidence: unknown, confirmed = false) => {
       const valueNormalized = normalizePhoneDigits(value);
       if (!valueNormalized) return;
@@ -1909,7 +2069,7 @@ export class RadarCorePresentationMixin {
       if (!current) return void phoneMap.set(valueNormalized, next);
       phoneMap.set(valueNormalized, {
         ...current,
-        source: sourcePriority(next.source) > sourcePriority(current.source) ? next.source : current.source,
+        source: current.source === 'unknown' && next.source !== 'unknown' ? next.source : current.source,
         rank: Math.min(current.rank, next.rank),
         confidence: Math.max(current.confidence, next.confidence),
         whatsappStatus: current.whatsappStatus === 'confirmed' || next.whatsappStatus === 'confirmed'
@@ -1933,14 +2093,21 @@ export class RadarCorePresentationMixin {
       if (!current) return void emailMap.set(valueNormalized, next);
       emailMap.set(valueNormalized, {
         ...current,
-        source: sourcePriority(next.source) > sourcePriority(current.source) ? next.source : current.source,
+        source: current.source === 'unknown' && next.source !== 'unknown' ? next.source : current.source,
         rank: Math.min(current.rank, next.rank),
         confidence: Math.max(current.confidence, next.confidence),
       });
     };
 
-    // LeadContact possui origem/rank auditáveis e entra primeiro. RFB mantém
-    // posições 1/2; motor/site só ocupa 3 em diante. Blobs/escalares são fallback.
+    const scalarPhoneSource = /cnpj|receita|rfb/i.test(`${row?.source || ''} ${row?.sourceUrl || ''}`) ? 'rfb_primary' : 'primary';
+    mergePhone(row?.phone || row?.phoneDigits, scalarPhoneSource, 1, 100);
+    for (const [index, item] of (Array.isArray(meta?.phones) ? meta.phones : []).entries()) {
+      mergePhone(item?.value ?? item, item?.source || 'metadata', item?.rank || index + 1, item?.confidence || 0);
+    }
+    mergeEmail(row?.email, row?.emailSource || 'primary', 1, row?.emailConfidence || 0);
+    for (const [index, item] of (Array.isArray(meta?.emails) ? meta.emails : []).entries()) {
+      mergeEmail(item?.value ?? item, item?.source || 'metadata', item?.rank || index + 1, item?.confidence || 0);
+    }
     for (const contact of Array.isArray(row?.contacts) ? row.contacts : []) {
       const kind = String(contact?.kind || '').toLowerCase();
       if (kind === 'phone' || kind === 'whatsapp') {
@@ -1949,32 +2116,11 @@ export class RadarCorePresentationMixin {
         // O tipo/origem "whatsapp" descreve o canal pretendido, não prova que a
         // conta está ativa. Só um resultado explícito (ou phonesWhatsapp=true,
         // tratado dentro de mergePhone) pode habilitar o botão de WhatsApp.
-        mergePhone(
-          contact?.value || contact?.valueNormalized,
-          contact?.source,
-          canonicalPhoneRank(contact?.source, contact?.rank),
-          contact?.confidence,
-          explicitlyConfirmed,
-        );
+        mergePhone(contact?.value || contact?.valueNormalized, contact?.source, contact?.rank, contact?.confidence, explicitlyConfirmed);
       } else if (kind === 'email') {
-        mergeEmail(
-          contact?.value || contact?.valueNormalized,
-          contact?.source,
-          canonicalEmailRank(contact?.source, contact?.rank),
-          contact?.confidence,
-        );
+        mergeEmail(contact?.value || contact?.valueNormalized, contact?.source, contact?.rank, contact?.confidence);
       }
     }
-    for (const [index, item] of (Array.isArray(meta?.phones) ? meta.phones : []).entries()) {
-      const source = item?.source || 'hbx_engine';
-      mergePhone(item?.value ?? item, source, canonicalPhoneRank(source, item?.rank || index + 1), item?.confidence || 0);
-    }
-    for (const [index, item] of (Array.isArray(meta?.emails) ? meta.emails : []).entries()) {
-      const source = item?.source || 'hbx_engine';
-      mergeEmail(item?.value ?? item, source, canonicalEmailRank(source, item?.rank || index + 1), item?.confidence || 0);
-    }
-    mergePhone(row?.phone || row?.phoneDigits, 'hbx_engine', 99, 0);
-    mergeEmail(row?.email, 'hbx_engine', 99, 0);
     const sorter = (a: any, b: any) => a.rank - b.rank || b.confidence - a.confidence || a.valueNormalized.localeCompare(b.valueNormalized);
     const phoneContacts = Array.from(phoneMap.values()).sort(sorter).slice(0, 3);
     const emailContacts = Array.from(emailMap.values()).sort(sorter).slice(0, 3);
@@ -1987,11 +2133,12 @@ export class RadarCorePresentationMixin {
     };
   }
 
-  private buildRadarLeadPublic(row: any, options: { maskContact?: boolean; enrichmentQueueStatus?: string | null; viewerCompanyId?: number; ownershipEnabled?: boolean; contactAccessGranted?: boolean } = {}) {
+  private buildRadarLeadPublic(row: any, options: { maskContact?: boolean; enrichmentQueueStatus?: string | null; viewerCompanyId?: number; ownershipEnabled?: boolean } = {}) {
     // VITRINE (carrossel do Radar): mostra a empresa e a presença digital (site,
     // Instagram, Facebook) pra encher o olho, mas MASCARA o contato direto
     // (telefone/e-mail) — revela só quando o lead é PUXADO no Leads. Sinais de
     // presença viram booleanos (hasPhone/hasEmail/hasWhatsapp) sem o valor cru.
+    const companyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const status = this.resolveRadarLeadStatus(row);
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || null;
     // Contato é PULL-GATED (decisão do dono 06/07): revela SÓ pra empresa DONA do lead
@@ -2001,28 +2148,7 @@ export class RadarCorePresentationMixin {
     const viewerCompanyId = Math.trunc(Number(options.viewerCompanyId || 0)) || null;
     // Sem atalho legado: somente a posse global, comparada estritamente com a empresa
     // autenticada, prova que houve pull/débito. Ausência de viewer falha fechada.
-    const companyState = Array.isArray(row?.companyStates) ? row.companyStates[0] || null : null;
-    const compensationRevoked = Array.isArray(row?.processRuns) && row.processRuns.some((run: any) => {
-      if (String(run?.status || '') !== 'refund_pending') return false;
-      const snapshot = this.parseMaybeJsonObject(run?.snapshotJson);
-      if (snapshot?.refundConfirmed === true || snapshot?.contactAccessRevoked === true) return true;
-      return parseJsonArray(run?.eventsJson).some((event: any) => (
-        event?.data?.refundConfirmed === true || event?.data?.contactAccessRevoked === true
-      ));
-    });
-    const hasPaidAcquisition = Boolean(
-      companyState?.paidClaimOperationId
-      && companyState?.claimUsageKey
-      && companyState?.acquiredAt
-      && options.contactAccessGranted === true,
-    );
-    const ownedByViewer = Boolean(
-      ownerCompanyId
-      && viewerCompanyId
-      && ownerCompanyId === viewerCompanyId
-      && hasPaidAcquisition
-      && !compensationRevoked,
-    );
+    const ownedByViewer = Boolean(ownerCompanyId && viewerCompanyId && ownerCompanyId === viewerCompanyId);
     const maskContact = options.maskContact === true || !ownedByViewer;
     const claimedAt = row?.claimedAt instanceof Date ? row.claimedAt.toISOString() : null;
     const ddd = String(row?.ddd || this.extractDdd(row?.phoneDigits || row?.phone));
@@ -2104,7 +2230,6 @@ export class RadarCorePresentationMixin {
       salesProfile: null,
     } as NormalizedRadarFilters;
     const meta = this.parseMaybeJsonObject(row?.metadataJson) || {};
-    const rfbOfficial = this.parseMaybeJsonObject((meta as any)?.rfbOfficial);
     const contactProjection = this.buildRadarLeadContactProjection(row, meta, whatsappStatus);
     const projectedPeople = this.buildRadarLeadPeople(meta);
     const publicLead = {
@@ -2122,26 +2247,9 @@ export class RadarCorePresentationMixin {
       cnpj: (meta as any)?.cnpj || row?.cnpj || null,
       cnae: (meta as any)?.cnae || row?.cnae || null,
       razaoSocial: (meta as any)?.razaoSocial || (meta as any)?.legalName || row?.legalName || null,
-      nomeFantasia: (meta as any)?.nomeFantasia || rfbOfficial?.nomeFantasia || null,
       cnaeDescription: (meta as any)?.cnaeDescription || null,
-      secondaryCnaes: Array.isArray((meta as any)?.secondaryCnaes)
-        ? (meta as any).secondaryCnaes
-        : Array.isArray(rfbOfficial?.secondaryCnaes) ? rfbOfficial.secondaryCnaes : [],
-      naturezaJuridica: (meta as any)?.naturezaJuridica || rfbOfficial?.naturezaJuridica || null,
-      porte: (meta as any)?.porte || rfbOfficial?.porte || null,
-      matrizFilial: (meta as any)?.matrizFilial || rfbOfficial?.matrizFilial || null,
-      openedAt: (meta as any)?.openedAt || rfbOfficial?.openedAt || null,
-      capitalSocial: (meta as any)?.capitalSocial ?? rfbOfficial?.capitalSocial ?? null,
-      simples: (meta as any)?.simples ?? rfbOfficial?.simples ?? null,
-      mei: (meta as any)?.mei ?? rfbOfficial?.mei ?? null,
-      regimeTributario: (meta as any)?.regimeTributario || rfbOfficial?.regimeTributario || null,
-      shareCounts: (meta as any)?.shareCounts && typeof (meta as any).shareCounts === 'object'
-        ? (meta as any).shareCounts
-        : rfbOfficial?.shareCounts || null,
-      rfbOfficial: ownedByViewer && Object.keys(rfbOfficial).length ? rfbOfficial : null,
       ownerName: (meta as any)?.ownerName || null,
       ownerNames: Array.isArray((meta as any)?.ownerNames) ? (meta as any).ownerNames : [],
-      ownerQualification: (meta as any)?.ownerQualification || rfbOfficial?.ownerQualification || null,
       // Worker 1 "CNPJ → dono": telefone + redes sociais PESSOAIS do dono (do metadataJson).
       ownerPhone: (meta as any)?.ownerPhone || null,
       ownerInstagram: (meta as any)?.ownerInstagram || null,
@@ -2158,10 +2266,6 @@ export class RadarCorePresentationMixin {
         ? (meta as any).sourceCoverage
         : null,
       companySituation: (meta as any)?.companySituation || null,
-      officialAddress: (meta as any)?.officialAddress || rfbOfficial?.address || null,
-      officialCity: (meta as any)?.officialCity || rfbOfficial?.city || null,
-      officialState: (meta as any)?.officialState || rfbOfficial?.state || null,
-      officialWebsite: (meta as any)?.officialWebsite || rfbOfficial?.website || null,
       website: safeWebsite,
       websiteStatus: safeWebsiteStatus,
       ...smartFields,
@@ -2201,7 +2305,6 @@ export class RadarCorePresentationMixin {
       status,
       ownerCompanyId,
       claimedAt,
-      contactAccessGranted: ownedByViewer,
       ownershipStatus: this.isRadarProtectedStatus(companyState?.status || row?.status)
         ? 'negative'
         : ownedByViewer
@@ -2222,6 +2325,7 @@ export class RadarCorePresentationMixin {
       lastContactAt: (companyState?.lastContactAt || row?.lastContactAt) instanceof Date
         ? (companyState?.lastContactAt || row?.lastContactAt).toISOString()
         : null,
+      campaignId: row?.campaignId || null,
       historySummary: recentEvents.slice(0, 3).map((event: any) => ({
         id: String(event?.id || ''),
         eventType: String(event?.eventType || ''),
@@ -2247,19 +2351,10 @@ export class RadarCorePresentationMixin {
       hasPhone: Boolean(row?.phoneDigits || row?.phone),
       hasEmail: Boolean(safeEmail),
       hasWhatsapp: whatsappStatus === 'confirmed',
-      phoneCount: contactProjection.phones.length,
-      emailCount: contactProjection.emails.length,
       // Máscara do contato direto na vitrine (revela ao puxar).
       ...(maskContact ? {
-        // Alguns providers antigos usavam o telefone dentro do placeId
-        // (`hbx:pj:<telefone>`) e URLs de origem também podem carregar o número.
-        // Antes da compra só o id persistido e opaco do Radar pode sair da API.
-        placeId: null,
-        sourceUrl: null,
-        googleMapsUrl: null,
         phone: '',
         phoneDigits: '',
-        ddd: '',
         email: null,
         emailSource: null,
         enrichmentJson: null,
@@ -2273,167 +2368,20 @@ export class RadarCorePresentationMixin {
         phoneContacts: [],
         emailContacts: [],
         phonesWhatsapp: {},
-        address: null,
-        officialAddress: null,
-        ownerName: null,
-        ownerNames: [],
-        ownerQualification: null,
-        people: [],
-        historySummary: [],
+        people: projectedPeople.map((person: any) => ({
+          ...person,
+          phone: null,
+          phoneDigits: null,
+          email: null,
+        })),
       } : {}),
     };
-    const classified = this.attachDeliveryClassification(
+    return this.attachDeliveryClassification(
       publicLead,
       qualityInput,
       quality || null,
       qualityV2 || null,
     );
-    return maskContact ? this.sanitizeRadarPreDebitLead(classified, { id: String(row?.id || '') }) : classified;
-  }
-
-  /**
-   * Fronteira única pré-débito. É uma allowlist deliberadamente pequena: o
-   * payload/DOM não recebe nada que um blur visual pudesse revelar via DevTools.
-   */
-  protected sanitizeRadarPreDebitLead(value: any, identity: { id?: string | null } = {}) {
-    const id = String(identity.id || value?.id || '').trim();
-    const projectedPhoneCount = Array.isArray(value?.phones)
-      ? value.phones.length
-      : Array.isArray(value?.phoneContacts) ? value.phoneContacts.length : Number(Boolean(value?.phone || value?.phoneDigits));
-    const projectedEmailCount = Array.isArray(value?.emails)
-      ? value.emails.length
-      : Array.isArray(value?.emailContacts) ? value.emailContacts.length : Number(Boolean(value?.email));
-    const phoneCount = Math.max(0, safeInteger(value?.phoneCount), projectedPhoneCount, Number(value?.hasPhone === true));
-    const emailCount = Math.max(0, safeInteger(value?.emailCount), projectedEmailCount, Number(value?.hasEmail === true));
-    return {
-      id,
-      // A vitrine pode identificar a empresa e contextualizar a oportunidade.
-      // O sigilo pré-débito é dos meios de contato (telefone/e-mail/site/
-      // redes/endereço), não de nome, cidade, segmento ou indicadores públicos.
-      name: String(value?.name || '').trim() || 'Empresa localizada',
-      city: String(value?.city || '').trim() || null,
-      state: String(value?.state || '').trim() || null,
-      segment: String(value?.segment || '').trim() || null,
-      source: String(value?.source || '').trim() || null,
-      sourceEngine: String(value?.sourceEngine || '').trim() || null,
-      sourceChain: String(value?.sourceChain || '').trim() || null,
-      status: 'available',
-      ownershipStatus: 'available',
-      ownerCompanyId: null,
-      claimedAt: null,
-      contactsMasked: true,
-      contactAccessGranted: false,
-      hasPhone: phoneCount > 0,
-      hasEmail: emailCount > 0,
-      hasWebsite: value?.hasWebsite === true || Boolean(value?.website),
-      phoneCount,
-      emailCount,
-      contactCount: Math.max(0, phoneCount + emailCount),
-      rating: value?.rating == null ? null : Number(value.rating),
-      reviews: Math.max(0, safeInteger(value?.reviews)),
-      opportunityScore: Math.max(0, safeInteger(value?.opportunityScore)),
-      phone: '',
-      phoneDigits: '',
-      ddd: '',
-      email: null,
-      phones: [],
-      emails: [],
-      phoneContacts: [],
-      emailContacts: [],
-      phonesWhatsapp: {},
-      placeId: null,
-      address: null,
-      officialAddress: null,
-      website: null,
-      officialWebsite: null,
-      instagramUrl: null,
-      facebookUrl: null,
-      googleMapsUrl: null,
-      sourceUrl: null,
-      cnpj: null,
-      cnae: null,
-      cnaeDescription: null,
-      razaoSocial: null,
-      nomeFantasia: null,
-      rfbOfficial: null,
-      ownerName: null,
-      ownerNames: [],
-      ownerQualification: null,
-      ownerPhone: null,
-      ownerInstagram: null,
-      ownerFacebook: null,
-      people: [],
-      historySummary: [],
-      complaintReason: null,
-      deniedReason: null,
-      rejectionReason: null,
-      opportunityReason: null,
-      painPitch: null,
-      enrichmentJson: null,
-      evidenceJson: null,
-    };
-  }
-
-  /** Confirma em lote a prova append-only do débito ainda não estornado. */
-  protected async resolveRadarPaidAccessMap(companyId: number, rows: any[]) {
-    const result = new Map<string, boolean>();
-    const candidates = (Array.isArray(rows) ? rows : []).flatMap((row: any) => {
-      const state = Array.isArray(row?.companyStates) ? row.companyStates[0] || null : null;
-      const revoked = Array.isArray(row?.processRuns) && row.processRuns.some((run: any) => String(run?.status || '') === 'refund_pending');
-      const usageKey = String(state?.claimUsageKey || '').trim();
-      const operationId = String(state?.paidClaimOperationId || '').trim();
-      if (revoked
-        || Number(row?.ownerCompanyId || 0) !== companyId
-        || !usageKey
-        || !operationId
-        || !state?.acquiredAt) return [];
-      return [{ rowId: String(row.id), radarLeadId: String(row.id), usageKey, operationId }];
-    });
-    if (!candidates.length) return result;
-    const debitKeys = candidates.map((item) => `enforce:lead_delivery:${item.usageKey}`);
-    const refundKeys = debitKeys.map((key) => `refund:${key}`);
-    const operationIds = candidates.map((item) => item.operationId);
-    const [ledger, runs] = await Promise.all([
-      (this.prisma as any).creditLedgerEntry.findMany({
-        where: {
-          companyId,
-          OR: [
-            { kind: 'debit', usageKey: { in: debitKeys } },
-            { kind: 'refund', usageKey: { in: refundKeys } },
-          ],
-        },
-        select: { kind: true, usageKey: true },
-      }),
-      (this.prisma as any).radarLeadProcessRun.findMany({
-        where: { id: { in: operationIds }, companyId, mode: 'claim' },
-        select: { id: true, companyId: true, radarLeadId: true, mode: true, status: true },
-      }),
-    ]).catch(() => [[], []] as [any[], any[]]);
-    const debits = new Set((ledger || []).filter((entry: any) => entry?.kind === 'debit').map((entry: any) => String(entry.usageKey)));
-    const refunds = new Set((ledger || []).filter((entry: any) => entry?.kind === 'refund').map((entry: any) => String(entry.usageKey)));
-    const runsById = new Map((runs || []).map((run: any) => [String(run?.id || ''), run]));
-    const accessRunStatuses = new Set([
-      'ownership_claimed',
-      'rfb_hydrating',
-      'base_revealed',
-      'motor_enriching',
-      'vendas_creating',
-      'completed',
-      'partial',
-    ]);
-    for (const candidate of candidates) {
-      const debitKey = `enforce:lead_delivery:${candidate.usageKey}`;
-      const run: any = runsById.get(candidate.operationId);
-      const validRun = Boolean(
-        run
-        && Number(run.companyId) === companyId
-        && String(run.mode || '') === 'claim'
-        && String(run.radarLeadId || '') === candidate.radarLeadId
-        && accessRunStatuses.has(String(run.status || '')),
-      );
-      result.set(candidate.rowId, validRun && debits.has(debitKey) && !refunds.has(`refund:${debitKey}`));
-    }
-    return result;
   }
 
   private buildDirectRadarLeadPublic(result: Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }, input: NormalizedRadarFilters, index: number) {
@@ -2459,10 +2407,8 @@ export class RadarCorePresentationMixin {
       salesProfile: this.buildLeadQualitySalesProfileFromFilters(input),
     });
     const publicLead = {
-      // Nunca derive um identificador público de telefone. No fluxo canônico o
-      // chamador substitui este valor pelo id persistido do item da execução.
-      id: `direct:${input.targetType}:${index + 1}`,
-      placeId: null,
+      id: `direct:${input.targetType}:${phoneDigits || normalizeLookupValue(`${result.name || 'card'}-${index + 1}`)}`,
+      placeId: result.placeId || null,
       name: result.name || 'Empresa sem nome',
       phone: result.phone || phoneDigits || '',
       phoneDigits,
@@ -2553,6 +2499,7 @@ export class RadarCorePresentationMixin {
       assignedByUserId: null,
       assignedAt: null,
       lastContactAt: null,
+      campaignId: null,
       historySummary: [],
       globalNegativeCount: 0,
       globalImportedCount: 0,
@@ -2575,14 +2522,6 @@ export class RadarCorePresentationMixin {
     } catch {
       return null;
     }
-  }
-
-  private withRadarWhatsappStatus(item: any, status: RadarWhatsappCheckStatus) {
-    return {
-      ...item,
-      whatsappStatus: status,
-      whatsappCheckStatus: status,
-    };
   }
 
   // protected: o enricher (applyDiscoveredContactsForMaster) reusa esta MESMA verificação
@@ -2619,150 +2558,6 @@ export class RadarCorePresentationMixin {
     return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers);
   }
 
-  /**
-   * Valida em lote, com o freio tecnico global do Webwhats, sem qualquer gate
-   * comercial. O resultado e somente informativo: nunca filtra o lead e nunca
-   * esconde telefone. Contato marcado como `rfb_fax` nao e candidato a WhatsApp.
-   */
-  private async applyRadarWhatsappCheck(
-    context: SearchExecutionContext,
-    items: any[],
-    requestedMode: RadarWhatsappCheckMode,
-  ) {
-    const effectiveMode: RadarWhatsappCheckMode = requestedMode === 'off' ? 'off' : 'enrich';
-    const baseMeta = {
-      requestedMode,
-      effectiveMode,
-      checked: false,
-      checkedCount: 0,
-      message: null as string | null,
-    };
-    const safeItems = Array.isArray(items) ? items : [];
-    if (effectiveMode === 'off') {
-      return {
-        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
-        meta: baseMeta,
-      };
-    }
-
-    const itemPhones = safeItems.map((item) => {
-      const blockedFax = new Set<string>();
-      for (const contact of Array.isArray(item?.phoneContacts) ? item.phoneContacts : []) {
-        if (String(contact?.source || '').trim().toLowerCase() !== 'rfb_fax') continue;
-        const value = normalizePhoneDigits(contact?.valueNormalized || contact?.value || contact?.phone);
-        if (value) blockedFax.add(value);
-      }
-      const candidates: string[] = [];
-      const add = (value: unknown) => {
-        const normalized = normalizePhoneDigits(
-          value && typeof value === 'object'
-            ? (value as any).value ?? (value as any).phone ?? (value as any).number ?? (value as any).phoneDigits
-            : value,
-        );
-        if (!normalized || blockedFax.has(normalized) || candidates.includes(normalized) || candidates.length >= 3) return;
-        candidates.push(normalized);
-      };
-      add(item?.phoneDigits || item?.phone);
-      for (const value of Array.isArray(item?.phones) ? item.phones : []) add(value);
-      for (const contact of Array.isArray(item?.phoneContacts) ? item.phoneContacts : []) {
-        if (String(contact?.source || '').trim().toLowerCase() === 'rfb_fax') continue;
-        add(contact?.valueNormalized || contact?.value || contact?.phone);
-      }
-      return candidates;
-    });
-    const allPhones = Array.from(new Set(itemPhones.flat()));
-    if (!this.webwhatsBridge || !allPhones.length) {
-      return {
-        items: safeItems.map((item, index) => this.withRadarWhatsappStatus(
-          item,
-          itemPhones[index].length ? 'unverified' : 'missing',
-        )),
-        meta: {
-          ...baseMeta,
-          message: !this.webwhatsBridge
-            ? 'Validação de WhatsApp indisponível agora; os telefones foram preservados.'
-            : null,
-        },
-      };
-    }
-
-    try {
-      const lookupResults = await this.radarCheckWhatsappNumbers(
-        allPhones,
-        Number(context?.companyId || 0) || undefined,
-      );
-      const byPhone = new Map<string, boolean>();
-      for (const result of lookupResults || []) {
-        const phone = normalizePhoneDigits(result?.normalizedNumber || result?.input);
-        if (phone && !byPhone.has(phone)) byPhone.set(phone, Boolean(result?.exists));
-      }
-
-      const enriched = safeItems.map((item, index) => {
-        const phones = itemPhones[index];
-        const primary = phones[0] || '';
-        const status: RadarWhatsappCheckStatus = !primary
-          ? 'missing'
-          : byPhone.has(primary)
-            ? byPhone.get(primary) ? 'confirmed' : 'missing'
-            : 'unverified';
-        const phonesWhatsapp = {
-          ...(item?.phonesWhatsapp && typeof item.phonesWhatsapp === 'object' ? item.phonesWhatsapp : {}),
-          ...Object.fromEntries(phones.filter((phone) => byPhone.has(phone)).map((phone) => [phone, byPhone.get(phone)])),
-        };
-        const phoneContacts = (Array.isArray(item?.phoneContacts) ? item.phoneContacts : []).map((contact: any) => {
-          const phone = normalizePhoneDigits(contact?.valueNormalized || contact?.value || contact?.phone);
-          if (!phone || String(contact?.source || '').trim().toLowerCase() === 'rfb_fax' || !byPhone.has(phone)) return contact;
-          return { ...contact, whatsappStatus: byPhone.get(phone) ? 'confirmed' : 'missing' };
-        });
-        const radarEnrichment = buildRadarLeadEnrichment({
-          ...item,
-          phonesWhatsapp,
-          whatsappStatus: status,
-          companyStatus: item?.companyStatus || item?.status,
-        });
-        return this.withRadarWhatsappStatus({
-          ...item,
-          phonesWhatsapp,
-          phoneContacts,
-          email: radarEnrichment.email || item?.email || null,
-          emailStatus: radarEnrichment.emailStatus,
-          emailSource: radarEnrichment.emailSource,
-          emailConfidence: radarEnrichment.emailConfidence,
-          recommendedChannel: radarEnrichment.recommendedChannel,
-          painType: radarEnrichment.painType,
-          painLabel: radarEnrichment.painLabel,
-          painPitch: radarEnrichment.painPitch,
-          opportunityReason: radarEnrichment.opportunityReason || item?.opportunityReason,
-          enrichmentScore: radarEnrichment.enrichmentScore,
-          enrichmentConfidence: radarEnrichment.enrichmentConfidence,
-          enrichmentJson: parseJsonObject(radarEnrichment.enrichmentJson),
-          lastEnrichedAt: radarEnrichment.lastEnrichedAt.toISOString(),
-          enrichmentVersion: radarEnrichment.enrichmentVersion,
-        }, status);
-      });
-      return {
-        items: enriched,
-        meta: {
-          ...baseMeta,
-          checked: byPhone.size > 0,
-          checkedCount: byPhone.size,
-        },
-      };
-    } catch (error: any) {
-      this.logger.warn(`[radar] validacao WebWhats ignorada company=${context.companyId}: ${String(error?.message || error)}`);
-      return {
-        items: safeItems.map((item, index) => this.withRadarWhatsappStatus(
-          item,
-          itemPhones[index].length ? 'unverified' : 'missing',
-        )),
-        meta: {
-          ...baseMeta,
-          message: 'Não consegui validar WhatsApp agora; os telefones foram preservados.',
-        },
-      };
-    }
-  }
-
   private async searchRadarDirectForUser(user: any, filters: NormalizedRadarFilters, reason: string, technicalMessage?: string | null) {
     const response = await this.searchContactsForUser(
       user,
@@ -2794,16 +2589,27 @@ export class RadarCorePresentationMixin {
     }));
     const approvedPairs = qualityPairs.filter(({ quality }) => this.isApprovedLeadQuality(quality));
     const rejectionMeta = this.summarizeLeadQualityRejections(qualityPairs.map((item) => item.quality));
-    const context = this.resolveContext(user);
-    const whatsapp = await this.applyRadarWhatsappCheck(
-      context,
-      approvedPairs.map(({ result, quality }, index) => this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index)),
-      filters.whatsappCheckMode,
-    );
-    const publicItems = whatsapp.items.map((item: any, index: number) => this.sanitizeRadarPreDebitLead(
-      item,
-      { id: `direct:${filters.targetType}:${index + 1}` },
-    ));
+    const publicItems = approvedPairs.map(({ result, quality }, index) => {
+      const item = this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index) as any;
+      return {
+        ...item,
+        phone: '',
+        phoneDigits: '',
+        email: null,
+        emailSource: null,
+        enrichmentJson: null,
+        evidenceJson: null,
+        ownerPhone: null,
+        phones: [],
+        emails: [],
+        phoneContacts: [],
+        emailContacts: [],
+        phonesWhatsapp: {},
+        people: Array.isArray(item?.people)
+          ? item.people.map((person: any) => ({ ...person, phone: null, phoneDigits: null, email: null }))
+          : [],
+      };
+    });
     return {
       items: publicItems,
       total: publicItems.length,
@@ -2839,7 +2645,7 @@ export class RadarCorePresentationMixin {
           message: response.meta.message || null,
           technicalMessage: technicalMessage || null,
         },
-        whatsappCheck: whatsapp.meta,
+        whatsappCheck: { mode: 'off', checked: 0, deferredUntilClaim: true },
       },
     };
   }
@@ -2957,6 +2763,7 @@ export class RadarCorePresentationMixin {
       state: '',
       segment: '',
       filterKey: '',
+      status: '',
     });
     const availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
       limit: 2000,
@@ -3001,7 +2808,6 @@ export class RadarCorePresentationMixin {
     const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap(
       pageRows.map((row: any) => String(row?.id || '')),
     );
-    const paidAccessById = await this.resolveRadarPaidAccessMap(context.companyId, pageRows);
     const enrichmentSummary = this.buildRadarEnrichmentSummary(allRows);
     // VENDAS-REFAB S3 (04/07) — "Total no Brasil"/"Leads na base (Radar)" liam SÓ o pool local
     // (radarLeadPool, ~893 aqui em cima) fingindo ser a base RFB inteira (~28M). Descoberta =
@@ -3018,7 +2824,6 @@ export class RadarCorePresentationMixin {
         maskContact: vitrine,
         viewerCompanyId: context.companyId,
         ownershipEnabled,
-        contactAccessGranted: paidAccessById.get(String(row?.id || '')) === true,
         enrichmentQueueStatus: enrichmentQueueStatusById.get(String(row?.id || '')) ?? null,
       })),
       total: filteredRows.length,
@@ -3061,23 +2866,29 @@ export class RadarCorePresentationMixin {
     if (!this.cnpjBaseQuery) {
       throw new ServiceUnavailableException('Base Receita (CnpjPublicCompany) indisponivel neste processo.');
     }
-    // O cliente usa este endpoint somente para a prévia de quantidade do filtro.
-    // Consultar uma amostra real para depois mascará-la ainda deixava CNPJ no cursor
-    // e carregava PII desnecessariamente em memória. A fronteira pública agora chama
-    // apenas COUNT; a execução canônica é quem localiza os candidatos e os mantém
-    // protegidos até o débito.
-    const result = await this.cnpjBaseQuery.countBase(input || {});
-    if (!result.available || result.count == null) {
-      throw new ServiceUnavailableException('Base Receita (CnpjPublicCompany) indisponivel neste processo.');
-    }
-    return {
-      count: result.count,
-      sample: [],
-      cursorNext: null,
-      statsAmostra: { total: 0, comCelularProprio: 0, provavelContador: 0 },
-      excludedJaEntregues: 0,
-      contactsMasked: true,
-    };
+    const result = await this.cnpjBaseQuery.query(input || {});
+    // A busca self-service apenas localiza candidatos. Nunca devolvemos os
+    // contatos oficiais e confiamos em blur de CSS: isso vazaria o valor pelo
+    // DevTools antes do crédito ser debitado.
+    const sample = Array.isArray(result?.sample)
+      ? result.sample.map((row: any) => {
+          const hasPhone = Boolean(String(row?.phone || '').trim());
+          const hasPhone2 = Boolean(String(row?.phone2 || '').trim());
+          const hasEmail = Boolean(String(row?.email || '').trim());
+          return {
+            ...row,
+            phone: null,
+            phone2: null,
+            email: null,
+            hasPhone,
+            hasPhone2,
+            hasEmail,
+            contactCount: Number(hasPhone) + Number(hasPhone2) + Number(hasEmail),
+            contactsMasked: true,
+          };
+        })
+      : [];
+    return { ...result, sample, contactsMasked: true };
   }
 
   /**
@@ -3111,31 +2922,11 @@ export class RadarCorePresentationMixin {
         contacts: {
           orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }],
         },
-        companyStates: {
-          where: { companyId: context.companyId },
-          take: 1,
-          select: {
-            status: true,
-            vendasLeadId: true,
-            paidClaimOperationId: true,
-            claimUsageKey: true,
-            acquiredAt: true,
-            assignedUserId: true,
-            assignedByUserId: true,
-            assignedAt: true,
-            lastActionAt: true,
-          },
-        },
+        companyStates: { where: { companyId: context.companyId }, take: 1 },
         events: {
           where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
           orderBy: { createdAt: 'desc' },
           take: 80,
-        },
-        processRuns: {
-          where: { companyId: context.companyId, mode: 'claim', status: 'refund_pending' },
-          orderBy: { updatedAt: 'desc' },
-          take: 1,
-          select: { status: true, snapshotJson: true, eventsJson: true },
         },
       },
     }).catch(() => null);
@@ -3147,32 +2938,15 @@ export class RadarCorePresentationMixin {
     // pool sem débito nem checagem de posse (furo de scraping por id). Agora mascara salvo
     // se a empresa já é dona (puxou) — mesma regra da lista/database, centralizada no presenter.
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
-    const paidAccessById = await this.resolveRadarPaidAccessMap(context.companyId, [leadRow]);
-    // Evento também é dado do lead: notas antigas podem conter telefone, e-mail,
-    // URL ou endereço digitados pelo operador. Portanto o gate de posse precisa
-    // cobrir o envelope inteiro do detalhe, não apenas `item`.
-    const acquisitionState = Array.isArray(leadRow?.companyStates) ? leadRow.companyStates[0] || null : null;
-    const refundRevoked = Array.isArray(leadRow?.processRuns) && leadRow.processRuns.some((run: any) => {
-      const processData = this.parseMaybeJsonObject(run?.snapshotJson);
-      return processData?.refundConfirmed === true || processData?.contactAccessRevoked === true
-        || parseJsonArray(run?.eventsJson).some((event: any) => (
-          event?.data?.refundConfirmed === true || event?.data?.contactAccessRevoked === true
-        ));
-    });
-    const ownedByViewer = Number(leadRow?.ownerCompanyId || 0) === context.companyId
-      && Boolean(acquisitionState?.paidClaimOperationId && acquisitionState?.claimUsageKey && acquisitionState?.acquiredAt)
-      && !refundRevoked
-      && paidAccessById.get(String(leadRow?.id || '')) === true;
     // FIX-ENRICHMENT-STATUS-SHELF (05/07): mesmo lookup da listagem, só que pra 1 card (detalhe).
     const enrichmentQueueStatusById = await this.fetchRadarLeadEnrichmentQueueStatusMap([String(leadRow?.id || '')]);
     return {
       item: this.buildRadarLeadPublic(leadRow, {
         viewerCompanyId: context.companyId,
         ownershipEnabled,
-        contactAccessGranted: paidAccessById.get(String(leadRow?.id || '')) === true,
         enrichmentQueueStatus: enrichmentQueueStatusById.get(String(leadRow?.id || '')) ?? null,
       }),
-      events: (ownedByViewer ? leadRow.events || [] : []).map((event: any) => ({
+      events: (leadRow.events || []).map((event: any) => ({
         id: event.id,
         eventType: event.eventType,
         note: event.note || null,
@@ -3224,21 +2998,21 @@ export class RadarCorePresentationMixin {
     return { items };
   }
 
-  private async enrichRadarLeadViaHbxMotor(
+  private async enrichRadarLeadViaLeadPlusEngine(
     context: SearchExecutionContext,
     row: any,
     filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels'> | null,
   ) {
     let lease: HbxEngineLease | null = null;
     let engineUrl = this.getHbxScrapingEngineUrl();
-    const runKey = `claim-enrich:${context.companyId}:${context.userId}:${row?.id || Date.now()}`;
+    const runKey = `lead-plus-enrich:${context.companyId}:${context.userId}:${row?.id || Date.now()}`;
     try {
       if (await this.canAcquireHbxEngineFromPool()) {
         lease = await this.getEnginePool().acquireEngine(
           runKey,
           context.companyId,
           context.userId,
-          { purpose: 'claim_enrichment' },
+          { purpose: 'lead_plus_enrichment' },
         );
         if (lease) engineUrl = lease.url;
       }
@@ -3264,10 +3038,7 @@ export class RadarCorePresentationMixin {
         instagramUrl: body.instagramUrl || null,
         facebookUrl: body.facebookUrl || null,
       });
-      // A puxada é síncrona até o card existir em Vendas. O motor pode completar
-      // o restante em background, mas esta etapa HTTP nunca fica presa no
-      // timeout amplo usado pelos lotes de pesquisa.
-      const timeoutMs = Math.max(5_000, Math.min(30_000, this.getHbxBatchTimeoutMs()));
+      const timeoutMs = Math.max(5_000, this.getHbxBatchTimeoutMs());
       const response = await fetch(`${String(engineUrl).replace(/\/+$/, '')}/enrich-lead`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3276,7 +3047,7 @@ export class RadarCorePresentationMixin {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(String(payload?.detail || payload?.message || `Motor HBX HTTP ${response.status}`));
+        throw new Error(String(payload?.detail || payload?.message || `Lead+ enrichment HTTP ${response.status}`));
       }
       return payload && typeof payload === 'object' ? payload : null;
     } catch (error: any) {
@@ -3284,7 +3055,7 @@ export class RadarCorePresentationMixin {
       await this.recordVendasRadarEnrichmentStatus(context, row, 'failed', {
         error: String(error?.message || error).slice(0, 180),
       });
-      this.logger.warn(`[claim-enrichment] falha lead=${row?.id || 'unknown'}: ${String(error?.message || error)}`);
+      this.logger.warn(`[lead-plus-enrichment] falha lead=${row?.id || 'unknown'}: ${String(error?.message || error)}`);
       return null;
     } finally {
       if (lease) await this.getEnginePool().releaseEngine(lease.engineId).catch(() => null);
@@ -3296,29 +3067,29 @@ export class RadarCorePresentationMixin {
     return Boolean(normalized && RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS.some((domain) => normalized.includes(domain)));
   }
 
-  private compactHbxMotorEnrichmentPayload(hbxMotor: any) {
-    if (!hbxMotor || typeof hbxMotor !== 'object') return null;
-    const stats = this.parseMaybeJsonObject(hbxMotor?.stats);
+  private compactLeadPlusEnrichmentPayload(leadPlus: any) {
+    if (!leadPlus || typeof leadPlus !== 'object') return null;
+    const stats = this.parseMaybeJsonObject(leadPlus?.stats);
     return {
-      rating: hbxMotor?.rating == null ? null : Number(hbxMotor.rating),
-      reviews: safeInteger(hbxMotor?.reviews),
-      address: String(hbxMotor?.address || '').trim() || null,
-      website: String(hbxMotor?.website || '').trim() || null,
-      email: String(hbxMotor?.email || '').trim() || null,
-      phones: Array.isArray(hbxMotor?.phones) ? hbxMotor.phones.slice(0, 3) : [],
-      emails: Array.isArray(hbxMotor?.emails) ? hbxMotor.emails.slice(0, 3) : [],
-      phonesWhatsapp: hbxMotor?.phonesWhatsapp && typeof hbxMotor.phonesWhatsapp === 'object'
-        ? hbxMotor.phonesWhatsapp
+      rating: leadPlus?.rating == null ? null : Number(leadPlus.rating),
+      reviews: safeInteger(leadPlus?.reviews),
+      address: String(leadPlus?.address || '').trim() || null,
+      website: String(leadPlus?.website || '').trim() || null,
+      email: String(leadPlus?.email || '').trim() || null,
+      phones: Array.isArray(leadPlus?.phones) ? leadPlus.phones.slice(0, 3) : [],
+      emails: Array.isArray(leadPlus?.emails) ? leadPlus.emails.slice(0, 3) : [],
+      phonesWhatsapp: leadPlus?.phonesWhatsapp && typeof leadPlus.phonesWhatsapp === 'object'
+        ? leadPlus.phonesWhatsapp
         : {},
-      emailStatus: String(hbxMotor?.emailStatus || '').trim() || null,
-      emailSource: String(hbxMotor?.emailSource || '').trim() || null,
-      emailConfidence: safeInteger(hbxMotor?.emailConfidence),
-      instagramUrl: String(hbxMotor?.instagramUrl || '').trim() || null,
-      facebookUrl: String(hbxMotor?.facebookUrl || '').trim() || null,
-      googleMapsUrl: String(hbxMotor?.googleMapsUrl || '').trim() || null,
-      cnpj: String(hbxMotor?.cnpj || '').trim() || null,
-      socialStatus: String(hbxMotor?.socialStatus || '').trim() || null,
-      socialConfidence: safeInteger(hbxMotor?.socialConfidence),
+      emailStatus: String(leadPlus?.emailStatus || '').trim() || null,
+      emailSource: String(leadPlus?.emailSource || '').trim() || null,
+      emailConfidence: safeInteger(leadPlus?.emailConfidence),
+      instagramUrl: String(leadPlus?.instagramUrl || '').trim() || null,
+      facebookUrl: String(leadPlus?.facebookUrl || '').trim() || null,
+      googleMapsUrl: String(leadPlus?.googleMapsUrl || '').trim() || null,
+      cnpj: String(leadPlus?.cnpj || '').trim() || null,
+      socialStatus: String(leadPlus?.socialStatus || '').trim() || null,
+      socialConfidence: safeInteger(leadPlus?.socialConfidence),
       stats: {
         identity: stats?.identity || null,
         processed: safeInteger(stats?.processed),
@@ -3355,20 +3126,13 @@ export class RadarCorePresentationMixin {
       nomeFantasia: metadata?.nomeFantasia || null,
       cnae: metadata?.cnae || null,
       cnaeDescription: metadata?.cnaeDescription || null,
-      secondaryCnaes: Array.isArray(metadata?.secondaryCnaes) ? metadata.secondaryCnaes : [],
       companySituation: metadata?.companySituation || null,
       naturezaJuridica: metadata?.naturezaJuridica || null,
       porte: metadata?.porte || null,
       matrizFilial: metadata?.matrizFilial || null,
-      openedAt: metadata?.openedAt || null,
       capitalSocial: metadata?.capitalSocial || null,
       simples: metadata?.simples ?? null,
       mei: metadata?.mei ?? null,
-      regimeTributario: metadata?.regimeTributario || null,
-      shareCounts: metadata?.shareCounts || null,
-      rfbOfficial: metadata?.rfbOfficial && typeof metadata.rfbOfficial === 'object'
-        ? metadata.rfbOfficial
-        : null,
       ownerName: metadata?.ownerName || null,
       ownerNames: Array.isArray(metadata?.ownerNames) ? metadata.ownerNames.slice(0, 12) : [],
       ownerQualification: metadata?.ownerQualification || null,
@@ -3378,7 +3142,6 @@ export class RadarCorePresentationMixin {
       officialAddress: metadata?.officialAddress || null,
       officialCity: metadata?.officialCity || null,
       officialState: metadata?.officialState || null,
-      officialWebsite: metadata?.officialWebsite || null,
       phones: contacts.phones,
       emails: contacts.emails,
       phoneContacts: contacts.phoneContacts,
@@ -3424,7 +3187,7 @@ export class RadarCorePresentationMixin {
     row: any,
     data: Record<string, any>,
     enrichment: any,
-    hbxMotor: any,
+    leadPlus: any,
   ) {
     const result = await this.getRadarPostDeliveryVendasUpdate().syncAfterRadarEnrichment({
       prisma: this.prisma,
@@ -3432,7 +3195,7 @@ export class RadarCorePresentationMixin {
       row,
       data,
       enrichment,
-      hbxMotor,
+      leadPlus,
       compactEnrichment: this.buildCompactVendasEnrichmentJson({ ...row, ...data, enrichmentJson: enrichment.enrichmentJson }, null, null, null),
     });
     if (result.status === 'partial_error') {
@@ -3442,15 +3205,13 @@ export class RadarCorePresentationMixin {
     }
   }
 
-  private async applyHbxMotorEnrichment(
+  private async applyLeadPlusEnrichmentToRadarRow(
     context: SearchExecutionContext,
     row: any,
-    hbxMotor: any,
+    leadPlus: any,
     filters?: NormalizedRadarFilters | null,
   ) {
-    if (!row?.id || !hbxMotor || typeof hbxMotor !== 'object') {
-      throw new BadRequestException('Payload do motor inválido para persistência canônica.');
-    }
+    if (!row?.id || !leadPlus || typeof leadPlus !== 'object') return row;
     const now = new Date();
     const latestRow = await this.loadLatestRadarLeadForEnrichmentMerge(row);
     const baseRow = this.mergeLatestRadarLeadForEnrichment(row, latestRow);
@@ -3490,11 +3251,11 @@ export class RadarCorePresentationMixin {
       : 'hbx_engine';
     const motorContactCandidates: any[] = [];
     const confirmedWhatsappNumbers = new Set<string>();
-    const hbxMotorWhatsappMap = hbxMotor?.phonesWhatsapp && typeof hbxMotor.phonesWhatsapp === 'object'
-      ? hbxMotor.phonesWhatsapp
+    const leadPlusWhatsappMap = leadPlus?.phonesWhatsapp && typeof leadPlus.phonesWhatsapp === 'object'
+      ? leadPlus.phonesWhatsapp
       : {};
     let nextPhoneRank = Math.max(0, ...existingPhoneRanks) + 1;
-    for (const item of [hbxMotor?.phone, ...(Array.isArray(hbxMotor?.phones) ? hbxMotor.phones : [])]) {
+    for (const item of [leadPlus?.phone, ...(Array.isArray(leadPlus?.phones) ? leadPlus.phones : [])]) {
       const rawValue = item && typeof item === 'object'
         ? item.value ?? item.phone ?? item.number ?? item.phoneDigits
         : item;
@@ -3506,8 +3267,8 @@ export class RadarCorePresentationMixin {
       motorContactCandidates.push({ kind: 'phone', value: String(rawValue), source, confidence, rank });
       const whatsappConfirmed = item?.whatsappStatus === 'confirmed'
         || item?.whatsapp === true
-        || hbxMotorWhatsappMap[normalized] === true
-        || hbxMotorWhatsappMap[String(rawValue)] === true;
+        || leadPlusWhatsappMap[normalized] === true
+        || leadPlusWhatsappMap[String(rawValue)] === true;
       if (whatsappConfirmed) {
         confirmedWhatsappNumbers.add(normalized);
         motorContactCandidates.push({ kind: 'whatsapp', value: String(rawValue), source, confidence, rank });
@@ -3516,12 +3277,12 @@ export class RadarCorePresentationMixin {
       nextPhoneRank = rank + 1;
     }
     let nextEmailRank = Math.max(0, ...existingEmailRanks) + 1;
-    for (const item of [hbxMotor?.email, ...(Array.isArray(hbxMotor?.emails) ? hbxMotor.emails : [])]) {
+    for (const item of [leadPlus?.email, ...(Array.isArray(leadPlus?.emails) ? leadPlus.emails : [])]) {
       const rawValue = item && typeof item === 'object' ? item.value ?? item.email : item;
       const normalized = normalizeBusinessEmail(rawValue);
       if (!normalized || existingEmailValues.has(normalized) || existingEmailValues.size >= 3) continue;
       const source = sourceForMotorContact(item);
-      const confidence = Math.max(1, Math.min(100, safeInteger(item?.confidence) || safeInteger(hbxMotor?.emailConfidence) || 75));
+      const confidence = Math.max(1, Math.min(100, safeInteger(item?.confidence) || safeInteger(leadPlus?.emailConfidence) || 75));
       const rank = Math.max(nextEmailRank, safeInteger(item?.rank) || nextEmailRank);
       motorContactCandidates.push({ kind: 'email', value: normalized, source, confidence, rank });
       existingEmailValues.add(normalized);
@@ -3530,19 +3291,19 @@ export class RadarCorePresentationMixin {
     const companyState = Array.isArray(baseRow?.companyStates) && baseRow.companyStates.length ? baseRow.companyStates[0] : null;
     const protectedStatus = this.isRadarProtectedStatus(companyState?.status || baseRow?.status);
     const existingEmail = normalizeBusinessEmail(baseRow.email) || null;
-    const hbxMotorEmail = normalizeBusinessEmail(hbxMotor?.email) || null;
-    const hbxMotorEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(hbxMotor?.emailStatus || ''))
-      ? String(hbxMotor.emailStatus)
+    const leadPlusEmail = normalizeBusinessEmail(leadPlus?.email) || null;
+    const leadPlusEmailStatus = ['confirmed', 'probable', 'missing', 'invalid', 'unverified'].includes(String(leadPlus?.emailStatus || ''))
+      ? String(leadPlus.emailStatus)
       : baseRow.emailStatus;
-    const hbxMotorEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(hbxMotor?.emailSource || ''))
-      ? String(hbxMotor.emailSource)
+    const leadPlusEmailSource = ['website', 'maps', 'inferred', 'manual', 'none'].includes(String(leadPlus?.emailSource || ''))
+      ? String(leadPlus.emailSource)
       : baseRow.emailSource;
     const existingWebsite = this.isBlockedLeadOfficialWebsite(baseRow.website) || !websiteHostLooksCompatibleWithLead(baseRow, baseRow.website) ? null : baseRow.website || null;
-    const hbxMotorWebsiteRaw = String(hbxMotor?.website || '').trim() || null;
-    const hbxMotorWebsite = hbxMotorWebsiteRaw
-      && !this.isBlockedLeadOfficialWebsite(hbxMotorWebsiteRaw)
-      && websiteHostLooksCompatibleWithLead({ ...baseRow, website: hbxMotorWebsiteRaw }, hbxMotorWebsiteRaw)
-      ? hbxMotorWebsiteRaw
+    const leadPlusWebsiteRaw = String(leadPlus?.website || '').trim() || null;
+    const leadPlusWebsite = leadPlusWebsiteRaw
+      && !this.isBlockedLeadOfficialWebsite(leadPlusWebsiteRaw)
+      && websiteHostLooksCompatibleWithLead({ ...baseRow, website: leadPlusWebsiteRaw }, leadPlusWebsiteRaw)
+      ? leadPlusWebsiteRaw
       : null;
     const existingInstagram = String(baseRow.instagramUrl || '').trim()
       && !looksLikeThirdPartySocialProfile(baseRow.instagramUrl)
@@ -3554,45 +3315,45 @@ export class RadarCorePresentationMixin {
       && socialProfileLooksCompatibleWithLead(baseRow, baseRow.facebookUrl)
       ? String(baseRow.facebookUrl).trim()
       : null;
-    const hbxMotorInstagramRaw = String(hbxMotor?.instagramUrl || '').trim();
-    const hbxMotorFacebookRaw = String(hbxMotor?.facebookUrl || '').trim();
-    const hbxMotorInstagram = hbxMotorInstagramRaw
-      && !looksLikeThirdPartySocialProfile(hbxMotorInstagramRaw)
-      && socialProfileLooksCompatibleWithLead(baseRow, hbxMotorInstagramRaw)
-      ? hbxMotorInstagramRaw
+    const leadPlusInstagramRaw = String(leadPlus?.instagramUrl || '').trim();
+    const leadPlusFacebookRaw = String(leadPlus?.facebookUrl || '').trim();
+    const leadPlusInstagram = leadPlusInstagramRaw
+      && !looksLikeThirdPartySocialProfile(leadPlusInstagramRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusInstagramRaw)
+      ? leadPlusInstagramRaw
       : null;
-    const hbxMotorFacebook = hbxMotorFacebookRaw
-      && !looksLikeThirdPartySocialProfile(hbxMotorFacebookRaw)
-      && socialProfileLooksCompatibleWithLead(baseRow, hbxMotorFacebookRaw)
-      ? hbxMotorFacebookRaw
+    const leadPlusFacebook = leadPlusFacebookRaw
+      && !looksLikeThirdPartySocialProfile(leadPlusFacebookRaw)
+      && socialProfileLooksCompatibleWithLead(baseRow, leadPlusFacebookRaw)
+      ? leadPlusFacebookRaw
       : null;
-    const hbxMotorSocialStatus = hbxMotorInstagram || hbxMotorFacebook || existingInstagram || existingFacebook ? 'found' : baseRow.socialStatus;
-    const hbxMotorRating = hbxMotor?.rating == null ? baseRow.rating ?? null : Number(hbxMotor.rating);
-    const hbxMotorReviews = hbxMotor?.reviews == null ? safeInteger(baseRow.reviews) : safeInteger(hbxMotor.reviews);
-    const hbxMotorAddress = String(hbxMotor?.address || '').trim() || baseRow.address || null;
-    const hbxMotorGoogleMapsUrl = String(hbxMotor?.googleMapsUrl || '').trim() || baseRow.googleMapsUrl || null;
+    const leadPlusSocialStatus = leadPlusInstagram || leadPlusFacebook || existingInstagram || existingFacebook ? 'found' : baseRow.socialStatus;
+    const leadPlusRating = leadPlus?.rating == null ? baseRow.rating ?? null : Number(leadPlus.rating);
+    const leadPlusReviews = leadPlus?.reviews == null ? safeInteger(baseRow.reviews) : safeInteger(leadPlus.reviews);
+    const leadPlusAddress = String(leadPlus?.address || '').trim() || baseRow.address || null;
+    const leadPlusGoogleMapsUrl = String(leadPlus?.googleMapsUrl || '').trim() || baseRow.googleMapsUrl || null;
     const requiredChannels = filters ? this.requiredChannelsForInput(filters) : [];
     const enrichment = buildRadarLeadEnrichment({
       ...baseRow,
-      email: hbxMotorEmail || existingEmail,
-      emailStatus: hbxMotorEmailStatus,
-      emailSource: hbxMotorEmailSource,
-      emailConfidence: safeInteger(hbxMotor?.emailConfidence || baseRow.emailConfidence),
-      website: hbxMotorWebsite || existingWebsite,
-      websiteStatus: hbxMotorWebsite || existingWebsite ? 'present' : 'none',
-      rating: hbxMotorRating,
-      reviews: hbxMotorReviews,
-      address: hbxMotorAddress,
-      instagramUrl: hbxMotorInstagram || existingInstagram,
-      facebookUrl: hbxMotorFacebook || existingFacebook,
-      socialStatus: hbxMotorSocialStatus,
-      socialConfidence: safeInteger(hbxMotor?.socialConfidence || baseRow.socialConfidence),
-      googleMapsUrl: hbxMotorGoogleMapsUrl,
+      email: leadPlusEmail || existingEmail,
+      emailStatus: leadPlusEmailStatus,
+      emailSource: leadPlusEmailSource,
+      emailConfidence: safeInteger(leadPlus?.emailConfidence || baseRow.emailConfidence),
+      website: leadPlusWebsite || existingWebsite,
+      websiteStatus: leadPlusWebsite || existingWebsite ? 'present' : 'none',
+      rating: leadPlusRating,
+      reviews: leadPlusReviews,
+      address: leadPlusAddress,
+      instagramUrl: leadPlusInstagram || existingInstagram,
+      facebookUrl: leadPlusFacebook || existingFacebook,
+      socialStatus: leadPlusSocialStatus,
+      socialConfidence: safeInteger(leadPlus?.socialConfidence || baseRow.socialConfidence),
+      googleMapsUrl: leadPlusGoogleMapsUrl,
       companyStatus: companyState?.status || baseRow.status,
       rawPayload: {
         ...metadata,
-        hbxMotorEnrichment: this.compactHbxMotorEnrichmentPayload(hbxMotor),
-        cnpj: String(hbxMotor?.cnpj || '').trim() || metadata?.cnpj || null,
+        leadPlusEnrichment: this.compactLeadPlusEnrichmentPayload(leadPlus),
+        cnpj: String(leadPlus?.cnpj || '').trim() || metadata?.cnpj || null,
         requiredChannels,
       },
       salesProfile: filters ? this.buildLeadQualitySalesProfileFromFilters(filters) : null,
@@ -3605,16 +3366,16 @@ export class RadarCorePresentationMixin {
       emailStatus: existingEmail ? baseRow.emailStatus || 'unverified' : enrichment.emailStatus,
       emailSource: existingEmail ? baseRow.emailSource || 'primary' : enrichment.emailSource,
       emailConfidence: existingEmail ? safeInteger(baseRow.emailConfidence) : enrichment.emailConfidence,
-      address: hbxMotorAddress,
-      rating: hbxMotorRating,
-      reviews: hbxMotorReviews,
-      website: hbxMotorWebsite || existingWebsite || null,
-      websiteStatus: hbxMotorWebsite || existingWebsite ? 'present' : 'none',
+      address: leadPlusAddress,
+      rating: leadPlusRating,
+      reviews: leadPlusReviews,
+      website: leadPlusWebsite || existingWebsite || null,
+      websiteStatus: leadPlusWebsite || existingWebsite ? 'present' : 'none',
       instagramUrl: enrichment.instagramUrl || existingInstagram || null,
       facebookUrl: enrichment.facebookUrl || existingFacebook || null,
       socialStatus: enrichment.socialStatus,
       socialConfidence: enrichment.socialConfidence,
-      googleMapsUrl: enrichment.googleMapsUrl || hbxMotorGoogleMapsUrl || baseRow.googleMapsUrl || null,
+      googleMapsUrl: enrichment.googleMapsUrl || leadPlusGoogleMapsUrl || baseRow.googleMapsUrl || null,
       businessCategory: enrichment.businessCategory || baseRow.businessCategory || null,
       openingHoursStatus: enrichment.openingHoursStatus || baseRow.openingHoursStatus || null,
       recommendedChannel: protectedStatus ? 'discard' : enrichment.recommendedChannel,
@@ -3629,16 +3390,16 @@ export class RadarCorePresentationMixin {
       enrichmentVersion: enrichment.enrichmentVersion,
       metadataJson: JSON.stringify({
         ...metadata,
-        cnpj: String(hbxMotor?.cnpj || '').trim() || metadata?.cnpj || null,
+        cnpj: String(leadPlus?.cnpj || '').trim() || metadata?.cnpj || null,
         requiredSocialEnrichment: {
           key: requiredChannels.join(','),
           attemptedAt: now.toISOString(),
           found: Boolean(enrichment.instagramUrl || enrichment.facebookUrl),
         },
-        hbxMotorSignalEnrichment: {
-          key: this.hbxMotorSignalEnrichmentKey(filters || null),
+        leadPlusSignalEnrichment: {
+          key: this.leadPlusSignalEnrichmentKey(filters || null),
           attemptedAt: now.toISOString(),
-          found: Boolean(enrichment.instagramUrl || enrichment.facebookUrl || enrichment.email || hbxMotorWebsite || existingWebsite),
+          found: Boolean(enrichment.instagramUrl || enrichment.facebookUrl || enrichment.email || leadPlusWebsite || existingWebsite),
         },
         phonesWhatsapp: {
           ...(metadata?.phonesWhatsapp && typeof metadata.phonesWhatsapp === 'object' ? metadata.phonesWhatsapp : {}),
@@ -3647,29 +3408,17 @@ export class RadarCorePresentationMixin {
       }),
       lastSeenAt: now,
     };
-    await (this.prisma as any).radarLeadPool.update({ where: { id: baseRow.id }, data });
+    await (this.prisma as any).radarLeadPool.update({ where: { id: baseRow.id }, data }).catch((error: any) => {
+      this.logger.warn(`[radar-enrichment] falha ao salvar social lead=${baseRow.id}: ${String(error?.message || error)}`);
+    });
     if (motorContactCandidates.length) {
-      await this.getLeadContactWrite().writeContacts(this.prisma, baseRow.id, motorContactCandidates);
+      await this.getLeadContactWrite().writeContacts(this.prisma, baseRow.id, motorContactCandidates).catch(() => null);
     }
-    const refreshed = await (this.prisma as any).radarLeadPool.findUnique({
+    let refreshed = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: baseRow.id },
       include: { companyStates: true, contacts: true },
-    });
-    if (!refreshed) throw new ServiceUnavailableException('Motor persistiu sem conseguir recarregar o lead.');
-    const persistedPhoneValues = new Set<string>();
-    const persistedEmailValues = new Set<string>();
-    for (const contact of Array.isArray(refreshed.contacts) ? refreshed.contacts : []) {
-      const kind = String(contact?.kind || '').toLowerCase();
-      if (kind === 'phone' || kind === 'whatsapp') persistedPhoneValues.add(normalizePhoneDigits(contact?.valueNormalized || contact?.value));
-      if (kind === 'email') persistedEmailValues.add(normalizeBusinessEmail(contact?.valueNormalized || contact?.value));
-    }
-    const missingMotorContact = motorContactCandidates.find((candidate: any) => {
-      if (candidate.kind === 'email') return !persistedEmailValues.has(normalizeBusinessEmail(candidate.value));
-      return !persistedPhoneValues.has(normalizePhoneDigits(candidate.value));
-    });
-    if (missingMotorContact) {
-      throw new ServiceUnavailableException('Um contato encontrado pelo motor não permaneceu na projeção canônica.');
-    }
+    }).catch(() => null);
+    refreshed = refreshed || { ...baseRow, ...data };
     const refreshedMetadata = this.parseMaybeJsonObject(refreshed?.metadataJson || data.metadataJson);
     const contactProjection = this.buildRadarLeadContactProjection(
       refreshed,
@@ -3688,14 +3437,13 @@ export class RadarCorePresentationMixin {
     await (this.prisma as any).radarLeadPool.update({
       where: { id: baseRow.id },
       data: { metadataJson: JSON.stringify(canonicalMetadata) },
-    });
+    }).catch(() => null);
     const finalRow = { ...refreshed, metadataJson: JSON.stringify(canonicalMetadata) };
-    // O único caller é a puxada paga e ainda está antes do ponto de não-retorno.
-    // CustomerProfile/Inbox/Vendas não podem ser tocados nesta etapa.
+    await this.syncVendasLeadAfterRadarEnrichment(context, finalRow, data, enrichment, leadPlus);
     return finalRow;
   }
 
-  private hbxMotorSignalEnrichmentKey(filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels'> | null) {
+  private leadPlusSignalEnrichmentKey(filters?: Pick<NormalizedRadarFilters, 'preferredChannels' | 'requiredChannels'> | null) {
     const preferred = this.normalizeRadarChannels(filters?.preferredChannels).sort().join('+') || 'default';
     const required = this.normalizeRadarChannels(filters?.requiredChannels).sort().join('+') || 'none';
     return `${preferred}:${required}`;
@@ -3726,21 +3474,11 @@ export class RadarCorePresentationMixin {
       .getGemeosInsight(this.prisma, context.companyId, fingerprint)
       .catch(() => null);
     const icpSvc = this.getIcpFingerprint();
-    const paidAccessById = await this.resolveRadarPaidAccessMap(context.companyId, rows);
     return {
-      items: rows.map((row) => {
-        const contactAccessGranted = paidAccessById.get(String(row?.id || '')) === true;
-        const publicLead = this.buildRadarLeadPublic(row, {
-          viewerCompanyId: context.companyId,
-          ownershipEnabled,
-          contactAccessGranted,
-        });
-        // fitScore individual é fingerprintável (combina sinais privados do card
-        // com o ICP do tenant). Nunca o reanexe depois do sanitizer pré-débito.
-        return contactAccessGranted
-          ? { ...publicLead, fitScore: icpSvc.computeFit(row, fingerprint) }
-          : publicLead;
-      }),
+      items: rows.map((row) => ({
+        ...this.buildRadarLeadPublic(row, { viewerCompanyId: context.companyId, ownershipEnabled }),
+        fitScore: icpSvc.computeFit(row, fingerprint),
+      })),
       total: rows.length,
       meta: {
         available: true,

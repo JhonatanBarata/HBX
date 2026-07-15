@@ -21,9 +21,13 @@ test('radarSourceLaneOf: rótulos reais do motor Python caem na lane web', () =>
   assert.equal(radarSourceLaneOf('hbx_agenda:abctelefonos'), 'web');
 });
 
-test('radarSourceLaneOf: Receita = rfb; rótulos internos NÃO têm lane de descoberta', () => {
+test('radarSourceLaneOf: Receita = rfb; engines de corrida NÃO têm lane de descoberta', () => {
   assert.equal(radarSourceLaneOf('cnpj_public'), 'rfb');
   assert.equal(radarSourceLaneOf('cnpj_public_stub'), 'rfb');
+  // Corrida/fábrica processa, não descobre — sem lane (não pode virar carona de fusão)
+  assert.equal(radarSourceLaneOf('hbx_mass_data'), null);
+  assert.equal(radarSourceLaneOf('hbx_campaign'), null);
+  assert.equal(radarSourceLaneOf('fabrica_enriquecimento'), null);
   assert.equal(radarSourceLaneOf('radar_database'), null);
   assert.equal(radarSourceLaneOf('current'), null);
   assert.equal(radarSourceLaneOf(''), null);
@@ -45,14 +49,14 @@ test('lead descoberto por Receita E web = sourceChain "rfb+web" (ordem fixa rfb�
 
 test('só Receita = "rfb"; nada mapeável = null (campo opcional, card antigo não quebra)', () => {
   assert.equal(buildRadarSourceChainFromEngines(['cnpj_public']), 'rfb');
-  assert.equal(buildRadarSourceChainFromEngines(['radar_database', 'current']), null);
+  assert.equal(buildRadarSourceChainFromEngines(['hbx_mass_data', 'current']), null);
   assert.equal(buildRadarSourceChainFromEngines([]), null);
 });
 
 test('radarEnrichedByLanesOf: lanes amigáveis, ordenadas rfb→web', () => {
   assert.deepEqual(radarEnrichedByLanesOf(['radar_web_enrichment']), ['web']);
   assert.deepEqual(radarEnrichedByLanesOf(['cnpj_public', 'hbx_scraping:web']), ['rfb', 'web']);
-  assert.deepEqual(radarEnrichedByLanesOf(['radar_database']), []);
+  assert.deepEqual(radarEnrichedByLanesOf(['hbx_mass_data']), []);
 });
 
 // ─── radarDiscoveryEnginesOf: acumulado do 01-search OU identidade própria; sem lixo sintético ────

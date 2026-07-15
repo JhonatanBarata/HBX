@@ -4,6 +4,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  chunkLeadsBySize,
   clampInt,
   cardDomain,
   parseSizeToGb,
@@ -11,6 +12,38 @@ const {
   parsePercentString,
   httpModuleForUrl,
 } = require("../lib/util");
+
+// ---------- chunkLeadsBySize ----------
+test("chunkLeadsBySize: lista vazia → nenhum chunk", () => {
+  assert.deepEqual(chunkLeadsBySize([]), []);
+});
+
+test("chunkLeadsBySize: 1 lead → 1 chunk com esse lead", () => {
+  const leads = [{ id: 1 }];
+  const chunks = chunkLeadsBySize(leads);
+  assert.equal(chunks.length, 1);
+  assert.deepEqual(chunks[0], leads);
+});
+
+test("chunkLeadsBySize: lote gordo que estoura maxBytes → quebra em mais de um chunk", () => {
+  // Cada lead ~1KB de payload; maxBytes baixo força a quebra.
+  const big = "x".repeat(1000);
+  const leads = Array.from({ length: 10 }, (_, i) => ({ id: i, blob: big }));
+  const chunks = chunkLeadsBySize(leads, 3000, 30);
+  assert.ok(chunks.length > 1, "esperava mais de um chunk quando o lote estoura maxBytes");
+  // Nenhum lead se perde nem duplica.
+  const flat = chunks.flat();
+  assert.equal(flat.length, leads.length);
+  // Cada chunk (exceto quando um único lead já passa do teto) respeita o teto aproximado.
+  for (const c of chunks) assert.ok(c.length >= 1);
+});
+
+test("chunkLeadsBySize: corte por maxCount mesmo com bytes folgados", () => {
+  const leads = Array.from({ length: 7 }, (_, i) => ({ id: i }));
+  const chunks = chunkLeadsBySize(leads, 1_000_000, 3);
+  // 7 leads, teto de 3 por chunk → 3 + 3 + 1.
+  assert.deepEqual(chunks.map((c) => c.length), [3, 3, 1]);
+});
 
 // ---------- clampInt ----------
 test("clampInt: valor dentro dos limites passa inteiro", () => {

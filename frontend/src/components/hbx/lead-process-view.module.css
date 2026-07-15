@@ -1,7 +1,4 @@
 .frame {
-  --process-font-xs: 0.79rem;
-  --process-font-sm: 0.86rem;
-  --process-font-md: 0.93rem;
   min-width: 0;
   min-height: 0;
   color: var(--text-body);
@@ -78,7 +75,7 @@
 .overline {
   display: block;
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.63rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -104,7 +101,7 @@
   margin: 5px 0 0;
   max-width: 82ch;
   color: var(--text-body);
-  font-size: var(--process-font-sm);
+  font-size: 0.69rem;
   font-weight: 550;
   line-height: 1.45;
 }
@@ -119,7 +116,7 @@
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--hbx-success) 12%, var(--hbx-surface));
   color: var(--text-strong);
-  font-size: var(--process-font-xs);
+  font-size: 0.58rem;
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -156,7 +153,7 @@
   padding: 0 15px;
   border-radius: var(--control-radius, var(--radius-sm));
   font: inherit;
-  font-size: var(--process-font-sm);
+  font-size: 0.7rem;
   font-weight: 750;
   cursor: pointer;
   transition: transform var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
@@ -217,7 +214,7 @@
   border-radius: var(--radius-md);
   color: var(--text-strong);
   font-family: var(--font-mono, monospace);
-  font-size: var(--process-font-xs);
+  font-size: 0.65rem;
   font-weight: 850;
 }
 
@@ -240,7 +237,7 @@
 .sourceCopy > span {
   overflow: hidden;
   color: var(--text-body);
-  font-size: var(--process-font-sm);
+  font-size: 0.68rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -256,7 +253,7 @@
 .sourceCopy small {
   overflow: hidden;
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.58rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -268,7 +265,7 @@
   border-radius: var(--radius-pill);
   background: var(--hbx-surface-raised);
   color: var(--text-strong);
-  font-size: var(--process-font-xs);
+  font-size: 0.5rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -301,7 +298,7 @@
 
 .bridgeLine b {
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.49rem;
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -338,7 +335,7 @@
 .contextLabel {
   margin-right: 3px;
   color: var(--text-body);
-  font-size: var(--process-font-sm);
+  font-size: 0.62rem;
 }
 
 .chip {
@@ -350,7 +347,7 @@
   border-radius: var(--radius-pill);
   background: var(--hbx-surface-raised);
   color: var(--text-strong);
-  font-size: var(--process-font-xs);
+  font-size: 0.61rem;
   font-weight: 700;
 }
 
@@ -368,7 +365,7 @@
   gap: 9px;
   color: var(--text-body);
   font-family: var(--font-mono, monospace);
-  font-size: var(--process-font-xs);
+  font-size: 0.55rem;
   font-weight: 700;
 }
 
@@ -506,7 +503,7 @@
   background: var(--hbx-surface);
   color: var(--text-body);
   font-family: var(--font-mono, monospace);
-  font-size: var(--process-font-xs);
+  font-size: 0.51rem;
   font-weight: 800;
 }
 
@@ -536,9 +533,9 @@
   white-space: nowrap;
 }
 
-.stage strong { color: var(--text-strong); font-size: var(--process-font-sm); }
-.stage small { color: var(--text-body); font-size: var(--process-font-xs); }
-.stage > b { color: var(--text-body); font-family: var(--font-mono, monospace); font-size: var(--process-font-xs); }
+.stage strong { color: var(--text-strong); font-size: 0.65rem; }
+.stage small { color: var(--text-body); font-size: 0.54rem; }
+.stage > b { color: var(--text-body); font-family: var(--font-mono, monospace); font-size: 0.58rem; }
 
 .loadingLine {
   display: flex;
@@ -546,7 +543,7 @@
   gap: 9px;
   padding: 14px 8px;
   color: var(--text-body);
-  font-size: var(--process-font-sm);
+  font-size: 0.64rem;
   font-weight: 650;
 }
 
@@ -564,7 +561,7 @@
 .inlineEmpty {
   margin: 0;
   color: var(--text-body);
-  font-size: var(--process-font-sm);
+  font-size: 0.59rem;
   font-weight: 550;
   line-height: 1.5;
 }
@@ -591,7 +588,7 @@
 .streamSummary span {
   margin-top: 3px;
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.52rem;
 }
 
 .feed {
@@ -602,12 +599,10 @@
   padding: 10px;
   overflow: auto;
   scrollbar-width: thin;
-  grid-auto-rows: max-content;
 }
 
 .leadEvent {
   min-width: 0;
-  min-height: 126px;
   display: grid;
   grid-template-columns: 5px minmax(0, 1fr);
   gap: 9px;
@@ -657,7 +652,7 @@
   background: var(--hbx-brand-soft);
   color: var(--text-strong);
   font-family: var(--font-mono, monospace);
-  font-size: var(--process-font-xs);
+  font-size: 0.61rem;
   font-weight: 850;
 }
 
@@ -674,43 +669,8 @@
   white-space: nowrap;
 }
 
-.companyCopy strong { color: var(--text-strong); font-size: var(--process-font-sm); }
-.companyCopy span { color: var(--text-body); font-size: var(--process-font-xs); }
-
-.protectedCompanyCopy {
-  position: relative;
-  isolation: isolate;
-}
-
-.protectedCompanyCopy strong,
-.protectedCompanyCopy span {
-  position: relative;
-  z-index: 1;
-}
-
-.protectedCompanyCopy i {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: grid;
-  align-content: center;
-  gap: 5px;
-  opacity: 0.52;
-  filter: blur(3px);
-  pointer-events: none;
-}
-
-.protectedCompanyCopy i b {
-  width: min(86%, 240px);
-  height: 8px;
-  display: block;
-  border-radius: var(--radius-pill);
-  background: linear-gradient(90deg, var(--hbx-surface-raised), color-mix(in srgb, var(--hbx-brand) 18%, var(--hbx-surface-raised)));
-}
-
-.protectedCompanyCopy i b:last-child {
-  width: min(62%, 170px);
-}
+.companyCopy strong { color: var(--text-strong); font-size: 0.7rem; }
+.companyCopy span { color: var(--text-body); font-size: 0.56rem; }
 
 .eventStatus {
   min-height: 23px;
@@ -721,7 +681,7 @@
   border-radius: var(--radius-pill);
   background: var(--hbx-surface-raised);
   color: var(--text-strong);
-  font-size: var(--process-font-xs);
+  font-size: 0.48rem;
   font-weight: 850;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -747,7 +707,7 @@
 
 .journeyFragment i {
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.56rem;
   font-style: normal;
 }
 
@@ -760,7 +720,7 @@
   border-radius: var(--radius-xs);
   background: var(--hbx-surface-raised);
   color: var(--text-strong);
-  font-size: var(--process-font-xs);
+  font-size: 0.53rem;
 }
 
 .journey_source { border-color: color-mix(in srgb, var(--hbx-info) 30%, var(--border-hairline)); }
@@ -784,9 +744,9 @@
   background: var(--hbx-surface-soft);
 }
 
-.contactGrid span { color: var(--text-body); font-size: var(--process-font-xs); }
-.contactGrid strong { overflow: hidden; color: var(--text-strong); font-family: var(--font-mono, monospace); font-size: var(--process-font-sm); text-overflow: ellipsis; white-space: nowrap; }
-.contactGrid small { overflow: hidden; color: var(--text-body); font-size: var(--process-font-xs); text-overflow: ellipsis; white-space: nowrap; }
+.contactGrid span { color: var(--text-body); font-size: 0.49rem; }
+.contactGrid strong { overflow: hidden; color: var(--text-strong); font-family: var(--font-mono, monospace); font-size: 0.59rem; text-overflow: ellipsis; white-space: nowrap; }
+.contactGrid small { overflow: hidden; color: var(--text-body); font-size: 0.47rem; text-overflow: ellipsis; white-space: nowrap; }
 
 .protectedContacts {
   position: relative;
@@ -826,27 +786,13 @@
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--hbx-surface) 94%, transparent);
   color: var(--text-strong);
-  font-size: var(--process-font-xs);
+  font-size: 0.54rem;
   font-weight: 750;
   line-height: 1.35;
   text-align: center;
 }
 
 .protectedContacts p span { color: var(--text-strong); }
-
-.protectedContactsCompact {
-  min-height: 48px;
-}
-
-.protectedContactsCompact .blurGrid {
-  inset: 6px;
-  filter: blur(3px);
-  opacity: 0.58;
-}
-
-.protectedContactsCompact p {
-  padding: 6px 9px;
-}
 .inlineEmpty { margin-top: 9px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
 
 .fieldScan,
@@ -881,7 +827,7 @@
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--hbx-danger) 8%, var(--hbx-surface));
   color: var(--text-strong);
-  font-size: var(--process-font-sm);
+  font-size: 0.57rem;
   line-height: 1.4;
 }
 
@@ -898,8 +844,8 @@
   text-align: center;
 }
 
-.emptyState strong { color: var(--text-strong); font-size: var(--process-font-md); }
-.emptyState span { max-width: 42ch; color: var(--text-body); font-size: var(--process-font-sm); line-height: 1.45; }
+.emptyState strong { color: var(--text-strong); font-size: 0.72rem; }
+.emptyState span { max-width: 42ch; color: var(--text-body); font-size: 0.59rem; line-height: 1.45; }
 
 .telemetryPanel {
   display: grid;
@@ -926,9 +872,9 @@
 
 .metric > span,
 .metric small { color: var(--text-body); }
-.metric > span { font-size: var(--process-font-xs); }
+.metric > span { font-size: 0.53rem; }
 .metric strong { overflow: hidden; color: var(--text-strong); font-family: var(--font-mono, monospace); font-size: 0.94rem; letter-spacing: -0.035em; text-overflow: ellipsis; white-space: nowrap; }
-.metric small { font-size: var(--process-font-xs); }
+.metric small { font-size: 0.48rem; }
 
 .metricAccent {
   border-color: color-mix(in srgb, var(--hbx-success) 30%, var(--border-hairline));
@@ -948,8 +894,8 @@
   margin-bottom: 9px;
 }
 
-.sectionTitle strong { color: var(--text-strong); font-size: var(--process-font-sm); }
-.sectionTitle span { color: var(--text-body); font-family: var(--font-mono, monospace); font-size: var(--process-font-xs); }
+.sectionTitle strong { color: var(--text-strong); font-size: 0.64rem; }
+.sectionTitle span { color: var(--text-body); font-family: var(--font-mono, monospace); font-size: 0.5rem; }
 
 .reasonRow {
   display: grid;
@@ -962,7 +908,7 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.54rem;
 }
 
 .reasonRow b { color: var(--text-strong); font-family: var(--font-mono, monospace); }
@@ -975,7 +921,7 @@
   gap: 8px;
   padding: 5px 0;
   color: var(--text-body);
-  font-size: var(--process-font-xs);
+  font-size: 0.55rem;
 }
 
 .gainRow strong { color: var(--text-strong); font-family: var(--font-mono, monospace); }
@@ -998,10 +944,10 @@
   gap: 7px;
 }
 
-.activityLog time { color: var(--text-body); font-family: var(--font-mono, monospace); font-size: var(--process-font-xs); font-weight: 750; }
+.activityLog time { color: var(--text-body); font-family: var(--font-mono, monospace); font-size: 0.5rem; font-weight: 750; }
 .activityLog > div > span { min-width: 0; display: grid; gap: 2px; }
-.activityLog strong { color: var(--text-strong); font-size: var(--process-font-sm); font-weight: 650; }
-.activityLog small { color: var(--text-body); font-size: var(--process-font-xs); line-height: 1.35; }
+.activityLog strong { color: var(--text-strong); font-size: 0.54rem; font-weight: 650; }
+.activityLog small { color: var(--text-body); font-size: 0.51rem; line-height: 1.35; }
 
 .footer {
   min-width: 0;
@@ -1037,8 +983,8 @@
   white-space: nowrap;
 }
 
-.footer strong { color: var(--text-strong); font-size: var(--process-font-sm); }
-.footer small { color: var(--text-body); font-size: var(--process-font-xs); }
+.footer strong { color: var(--text-strong); font-size: 0.61rem; }
+.footer small { color: var(--text-body); font-size: 0.52rem; }
 
 .footerProgress {
   flex: 0 0 auto;
@@ -1046,8 +992,8 @@
   text-align: right;
 }
 
-.footerProgress span { color: var(--text-body); font-size: var(--process-font-xs); }
-.footerProgress strong { margin-top: 2px; font-family: var(--font-mono, monospace); font-size: var(--process-font-sm); }
+.footerProgress span { color: var(--text-body); font-size: 0.49rem; }
+.footerProgress strong { margin-top: 2px; font-family: var(--font-mono, monospace); font-size: 0.65rem; }
 
 .status_failed .footerPulse,
 .status_failed .liveBadge i { background: var(--hbx-danger); }
@@ -1069,35 +1015,14 @@
 @media (max-width: 1040px) {
   .page,
   .panel { overflow: auto; }
-  .panel {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-content: normal;
-  }
-  .panel > * { flex: 0 0 auto; }
-  .sourceBridge {
-    grid-template-columns: minmax(0, 1fr) 130px minmax(0, 1fr);
-  }
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .streamPanel {
-    grid-column: 1 / -1;
-    grid-row: 1;
-    min-height: 570px;
-  }
-  .scanPanel {
-    grid-column: 1;
-    grid-row: 2;
-    min-height: 470px;
-  }
-  .telemetryPanel {
-    grid-column: 2;
-    grid-row: 2;
-    min-height: 470px;
-  }
-  .radarStage { min-height: 160px; }
+  .panel { height: 100%; align-content: start; }
+  .sourceBridge,
+  .grid { grid-template-columns: 1fr; }
+  .bridgeLine { min-height: 44px; }
+  .processPanel { min-height: 520px; }
+  .scanPanel { min-height: 610px; }
+  .telemetryPanel { min-height: 690px; }
+  .radarStage { min-height: 220px; }
 }
 
 @media (max-width: 720px) {
@@ -1112,20 +1037,14 @@
   .primaryButton,
   .secondaryButton { flex: 1; }
   .sourceCard { grid-template-columns: 40px minmax(0, 1fr); }
-  .sourceBridge,
-  .grid { grid-template-columns: 1fr; }
-  .bridgeLine { min-height: 44px; }
   .sourceState { grid-column: 2; justify-self: start; }
   .progressWrap { width: 100%; }
   .contactGrid,
   .metricGrid,
   .blurGrid { grid-template-columns: 1fr; }
-  .protectedContactsCompact .blurGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .contactGrid > div { min-height: 58px; }
   .protectedContacts { min-height: 112px; }
-  .streamPanel { grid-column: 1; grid-row: 1; min-height: 520px; }
-  .scanPanel,
-  .telemetryPanel { display: none; }
+  .processPanel { min-height: 500px; }
   .eventTop { grid-template-columns: 35px minmax(0, 1fr); }
   .eventStatus { grid-column: 2; justify-self: start; }
   .footer > div:first-child { grid-template-columns: auto minmax(0, 1fr); }

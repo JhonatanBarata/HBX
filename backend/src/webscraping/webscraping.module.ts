@@ -18,6 +18,7 @@ import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.se
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
+import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
 import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
 import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
@@ -43,7 +44,6 @@ import { RadarPublicDataService } from './radar/03-enrichment/radar-public-data.
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
 import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
 import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
-import { RadarCnpjL4EnrichmentService } from './radar/03-enrichment/radar-cnpj-l4-enrichment.service';
 import { AiSaneamentoService } from './radar/03-enrichment/ai-saneamento.service';
 import { AiContactExtractionService } from './radar/03-enrichment/ai-contact-extraction.service';
 import { IcpFingerprintService } from './icp/icp-fingerprint.service';
@@ -95,6 +95,7 @@ const RADAR_SEARCH_SERVICES = [
   RadarResultMergerService,
   RadarSearchOrchestratorService,
   RadarSearchRunConfigService,
+  RadarInternalReprocessSourceService,
   RadarCnpjPublicSourceService,
   RadarLocalDirectorySourceService,
   RadarVerticalSourceService,
@@ -114,7 +115,6 @@ const RADAR_ENRICHMENT_SERVICES = [
   RadarScoreEnrichmentService,
   RadarWebEnrichmentService,
   RadarWebEnrichmentJobService,
-  RadarCnpjL4EnrichmentService,
   AiSaneamentoService,
   AiContactExtractionService,
   IcpFingerprintService,
@@ -130,9 +130,9 @@ const RADAR_SOCIAL_SERVICES = [
 const RADAR_DELIVERY_SERVICES = [
   RadarPostDeliveryUpdateService,
   RadarPostDeliveryVendasUpdateService,
-  RadarPostDeliveryAiSaneamentoService,
   RadarDeliveryOrchestratorService,
   RadarVendasSyncService,
+  RadarPostDeliveryAiSaneamentoService,
 ];
 
 const RADAR_PRESENTATION_SERVICES = [

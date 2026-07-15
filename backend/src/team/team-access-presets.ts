@@ -3,11 +3,24 @@ import {
   mergeTeamAccessMaps,
   type TeamAccessMap,
 } from './team-access-catalog';
+import type { TeamPolicyLimitMode } from './team-policy.types';
+
+export type TeamAccessPresetLimit = {
+  mode: TeamPolicyLimitMode;
+  value: number | null;
+};
+
 export type TeamAccessPreset = {
   key: string;
   label: string;
   description: string;
   access: TeamAccessMap;
+  limits?: {
+    cardDeliveryDaily?: TeamAccessPresetLimit;
+    activeCards?: TeamAccessPresetLimit;
+    monthlyCards?: TeamAccessPresetLimit;
+    vendasPullQuantity?: TeamAccessPresetLimit;
+  };
 };
 
 function access(overrides: TeamAccessMap, role: 'admin' | 'seller' = 'seller') {
@@ -57,7 +70,7 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
   {
     key: 'seller_radar_limited',
     label: 'Vendedor Radar limitado',
-    description: 'Vendedor pode buscar e adquirir cards usando créditos.',
+    description: 'Vendedor pode buscar e puxar cards, respeitando limites operacionais.',
     access: access({
       'radar.access': true,
       'radar.search.run': true,
@@ -84,6 +97,11 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'communication.email.send': true,
       'communication.email.useCompanyReplyTo': true,
     }),
+    limits: {
+      cardDeliveryDaily: { mode: 'limited', value: 20 },
+      activeCards: { mode: 'limited', value: 30 },
+      vendasPullQuantity: { mode: 'limited', value: 20 },
+    },
   },
   {
     key: 'seller_assigned_only',
@@ -185,6 +203,12 @@ export const TEAM_ACCESS_PRESETS: TeamAccessPreset[] = [
       'products.viewPrice': false,
       'products.changePrice': false,
     }),
+    limits: {
+      cardDeliveryDaily: { mode: 'blocked', value: 0 },
+      activeCards: { mode: 'blocked', value: 0 },
+      monthlyCards: { mode: 'blocked', value: 0 },
+      vendasPullQuantity: { mode: 'blocked', value: 0 },
+    },
   },
 ];
 

@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -33,7 +34,6 @@ type PreparedHarvestItem = {
   normalizedEmail: string | null;
   normalizedPhone: string | null;
   normalizedPhone2: string | null;
-  normalizedPhone3: string | null;
   normalizedWhatsapp: string | null;
   normalizedDomain: string | null;
   normalizedCompanyCityState: string | null;
@@ -70,14 +70,6 @@ export class LeadHarvestImportService {
 
   private getLeadContactWrite(): LeadContactWriteService {
     return this.leadContactWrite || new LeadContactWriteService();
-  }
-
-  private isRfbHarvestSource(item: Pick<PreparedHarvestItem, 'sourceProvider' | 'sourceUrl'>) {
-    return /cnpj[_-](?:base|public)|receita|rfb/i.test(`${item.sourceProvider} ${item.sourceUrl}`);
-  }
-
-  private canonicalHarvestContactSource(item: Pick<PreparedHarvestItem, 'sourceProvider'>) {
-    return compactHarvestText(item.sourceProvider, 120) || 'lead_harvest_import';
   }
 
   async importBatchForUser(user: any, body: Record<string, any>) {
@@ -158,6 +150,24 @@ export class LeadHarvestImportService {
     };
   }
 
+  async getImportForUser(user: any, idOrBatchId: string) {
+    this.assertAdminOrMaster(user);
+    await this.assertPersistenceAvailable();
+    const id = compactHarvestText(idOrBatchId, 200);
+    if (!id) throw new BadRequestException('Informe o ID da importacao.');
+    const context = this.resolveUserContext(user);
+    const where: any = {
+      OR: [{ id }, { batchId: id }],
+    };
+    if (!context.isMaster && context.companyId) where.companyId = context.companyId;
+    const batch = await (this.prisma as any).harvestImportBatch.findFirst({
+      where,
+      include: { items: { orderBy: { createdAt: 'asc' } } },
+    }).catch(() => null);
+    if (!batch) throw new NotFoundException('Importacao de harvest nao encontrada.');
+    return this.serializeBatch(batch);
+  }
+
   private normalizeBatchMetadata(body: Record<string, any>) {
     const schemaVersion = compactHarvestText(body?.schemaVersion || body?.schema || body?.contractVersion, 80).toLowerCase();
     if (!SUPPORTED_SCHEMA_VERSIONS.has(schemaVersion)) {
@@ -218,18 +228,15 @@ export class LeadHarvestImportService {
     const segment = lead.segment || batch.segment || null;
     const phone = normalizeHarvestPhone(lead.phone);
     const phone2 = normalizeHarvestPhone(lead.phone2);
-    const phone3 = normalizeHarvestPhone(lead.phone3);
     const whatsapp = normalizeHarvestPhone(lead.whatsapp);
-    const primaryPhone = phone || whatsapp;
     const emailStatus = this.normalizeImportedEmailStatus(lead.emailStatus, Boolean(lead.email), lead.emailConfidence);
     return {
       externalId: lead.externalId,
       kind: 'lead',
       placeId: compactHarvestText(lead.placeId, 180) || null,
       normalizedEmail: lead.email || null,
-      normalizedPhone: primaryPhone,
-      normalizedPhone2: phone2 && phone2 !== primaryPhone ? phone2 : null,
-      normalizedPhone3: phone3 && phone3 !== primaryPhone && phone3 !== phone2 ? phone3 : null,
+      normalizedPhone: phone || whatsapp,
+      normalizedPhone2: phone2 && phone2 !== (phone || whatsapp) ? phone2 : null,
       normalizedWhatsapp: whatsapp,
       normalizedDomain: normalizeHarvestDomain(lead.website || lead.email || lead.sourceUrl) || null,
       normalizedCompanyCityState: this.companyCityStateKey(lead.name, city, state),
@@ -262,7 +269,6 @@ export class LeadHarvestImportService {
       normalizedEmail: email.email,
       normalizedPhone: null,
       normalizedPhone2: null,
-      normalizedPhone3: null,
       normalizedWhatsapp: null,
       normalizedDomain: email.domain || normalizeHarvestDomain(email.email || email.website) || null,
       normalizedCompanyCityState: this.companyCityStateKey(email.companyName, city, state),
@@ -293,17 +299,14 @@ export class LeadHarvestImportService {
     const companyName = compactHarvestText(raw?.name || raw?.companyName, 300) || null;
     const phone = normalizeHarvestPhone(raw?.phone);
     const phone2 = normalizeHarvestPhone(raw?.phone2);
-    const phone3 = normalizeHarvestPhone(raw?.phone3);
     const whatsapp = normalizeHarvestPhone(raw?.whatsapp);
-    const primaryPhone = phone || whatsapp;
     return {
       externalId,
       kind,
       placeId: compactHarvestText(raw?.placeId, 180) || null,
       normalizedEmail: null,
-      normalizedPhone: primaryPhone,
-      normalizedPhone2: phone2 && phone2 !== primaryPhone ? phone2 : null,
-      normalizedPhone3: phone3 && phone3 !== primaryPhone && phone3 !== phone2 ? phone3 : null,
+      normalizedPhone: phone || whatsapp,
+      normalizedPhone2: phone2 && phone2 !== (phone || whatsapp) ? phone2 : null,
       normalizedWhatsapp: whatsapp,
       normalizedDomain: normalizeHarvestDomain(raw?.domain || raw?.website || raw?.email) || null,
       normalizedCompanyCityState: this.companyCityStateKey(companyName, city, state),
@@ -440,15 +443,13 @@ export class LeadHarvestImportService {
         // pelo harvest vira linha consultável/exportável com origem e confiança do batch.
         // Best-effort: falha aqui nunca reprova o item importado.
         if (row?.id) {
-          const isRfb = this.isRfbHarvestSource(item);
-          const importedSource = this.canonicalHarvestContactSource(item);
+          const isRfb = /cnpj[_-](?:base|public)|receita/i.test(`${item.sourceProvider} ${item.sourceUrl}`);
           const contacts = [
-            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: isRfb ? 'rfb_email' : importedSource, confidence: isRfb ? 100 : item.confidence || 50 }] : []),
-            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: isRfb ? 'rfb_primary' : importedSource, confidence: isRfb ? 100 : item.confidence || 50, rank: 1 }] : []),
-            ...(item.normalizedPhone2 ? [{ kind: 'phone' as const, value: item.normalizedPhone2, source: isRfb ? 'rfb_secondary' : importedSource, confidence: isRfb ? 100 : item.confidence || 50, rank: 2 }] : []),
-            ...(item.normalizedPhone3 ? [{ kind: 'phone' as const, value: item.normalizedPhone3, source: isRfb ? 'rfb_fax' : importedSource, confidence: isRfb ? 100 : item.confidence || 50, rank: 3 }] : []),
+            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: isRfb ? 'rfb_email' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50 }] : []),
+            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: isRfb ? 'rfb_primary' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50, rank: 1 }] : []),
+            ...(item.normalizedPhone2 ? [{ kind: 'phone' as const, value: item.normalizedPhone2, source: isRfb ? 'rfb_secondary' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50, rank: 2 }] : []),
             ...(item.normalizedWhatsapp && item.normalizedWhatsapp !== item.normalizedPhone
-              ? [{ kind: 'whatsapp' as const, value: item.normalizedWhatsapp, source: importedSource, confidence: item.confidence || 50 }]
+              ? [{ kind: 'whatsapp' as const, value: item.normalizedWhatsapp, source: 'lead_harvest_import', confidence: item.confidence || 50 }]
               : []),
           ];
           if (contacts.length) {
@@ -471,8 +472,6 @@ export class LeadHarvestImportService {
     const now = new Date();
     const sourceEngine = this.resolveImportedSourceEngine(batch);
     const sourceRisk = batch.sourceMode === 'production' ? 'official' : 'experimental';
-    const isRfb = this.isRfbHarvestSource(item);
-    const importedSource = this.canonicalHarvestContactSource(item);
     const city = item.city || batch.city || null;
     const state = (item.state || batch.state || '').toUpperCase() || null;
     const segment = item.segment || batch.segment || null;
@@ -489,7 +488,7 @@ export class LeadHarvestImportService {
       evidence: item.payload?.evidence || null,
     };
     const enrichment = {
-      source: importedSource,
+      source: 'lead_harvest_import',
       sourceMode: batch.sourceMode,
       sourceRisk,
       batch: {
@@ -523,7 +522,7 @@ export class LeadHarvestImportService {
       websiteStatus: item.website ? 'present' : 'unknown',
       email: item.normalizedEmail,
       emailStatus: item.emailStatus,
-      emailSource: isRfb && item.normalizedEmail ? 'rfb_email' : item.emailSource || 'public_source',
+      emailSource: item.emailSource || 'public_source',
       emailConfidence: item.confidence,
       source: item.sourceProvider || batch.sourceName,
       sourceEngine,
@@ -539,11 +538,11 @@ export class LeadHarvestImportService {
       opportunityReason: 'Importado com validacao segura do Lead Harvest.',
       status: 'clean',
       metadataJson: JSON.stringify({
-        source: importedSource,
+        source: 'lead_harvest_import',
         batchId: batch.batchId,
         externalId: item.externalId,
         noVendasImport: true,
-        phones: [item.normalizedPhone, item.normalizedPhone2, item.normalizedPhone3].filter(Boolean),
+        phones: [item.normalizedPhone, item.normalizedPhone2].filter(Boolean),
         emails: [item.normalizedEmail].filter(Boolean),
       }),
       firstSeenAt: now,
@@ -688,6 +687,56 @@ export class LeadHarvestImportService {
     return 'imported';
   }
 
+  private serializeBatch(batch: any) {
+    const result = this.parseJson(batch?.resultJson);
+    return {
+      id: batch.id,
+      batchId: batch.batchId,
+      sourceMode: batch.sourceMode,
+      sourceName: batch.sourceName,
+      requestedBy: batch.requestedBy,
+      city: batch.city,
+      state: batch.state,
+      segment: batch.segment,
+      targetEmails: batch.targetEmails,
+      providers: this.parseJsonArray(batch.providersJson),
+      stats: this.parseJson(batch.statsJson),
+      status: batch.status,
+      counts: {
+        received: batch.receivedCount,
+        accepted: batch.acceptedCount,
+        rejected: batch.rejectedCount,
+        duplicates: batch.duplicateCount,
+        negatives: batch.negativeCount,
+        optOuts: batch.optOutCount,
+      },
+      result,
+      items: Array.isArray(batch.items)
+        ? batch.items.map((item: any) => ({
+            id: item.id,
+            externalId: item.externalId,
+            kind: item.kind,
+            normalizedEmail: item.normalizedEmail,
+            normalizedPhone: item.normalizedPhone,
+            normalizedDomain: item.normalizedDomain,
+            companyName: item.companyName,
+            website: item.website,
+            sourceUrl: item.sourceUrl,
+            sourceProvider: item.sourceProvider,
+            confidence: item.confidence,
+            status: item.status,
+            rejectReason: item.rejectReason,
+            importedRadarLeadId: item.importedRadarLeadId,
+            importedVendasLeadId: item.importedVendasLeadId,
+            payload: this.parseJson(item.payloadJson),
+            createdAt: item.createdAt,
+          }))
+        : [],
+      createdAt: batch.createdAt,
+      updatedAt: batch.updatedAt,
+    };
+  }
+
   private resolveUserContext(user: any) {
     const isMaster = Boolean(user?.isSystemMaster);
     return {
@@ -752,4 +801,21 @@ export class LeadHarvestImportService {
     return null;
   }
 
+  private parseJson(value: unknown) {
+    try {
+      const parsed = JSON.parse(String(value || '{}'));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private parseJsonArray(value: unknown) {
+    try {
+      const parsed = JSON.parse(String(value || '[]'));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
 }

@@ -31,20 +31,6 @@ type WebscrapingTargetResolution = {
 const DEFAULT_WEBSCRAPING_PUBLIC_URL = '/hbx/webscraping';
 const DEFAULT_WEBSCRAPING_INTERNAL_URL = 'http://localhost:8501';
 
-/**
- * Superfícies genéricas removidas do produto. Elas precisam ser negadas antes do proxy legado;
- * do contrário, a ausência do controller Nest faria a mesma URL cair silenciosamente no motor.
- */
-export function isRetiredWebscrapingPath(url: string | null | undefined): boolean {
-	const pathname = String(url || '').split('?', 1)[0] || '';
-	const canonicalPath = pathname.replace(/^\/hbx(?=\/webscraping(?:\/|$))/, '');
-
-	return canonicalPath === '/webscraping/history'
-		|| canonicalPath.startsWith('/webscraping/history/')
-		|| canonicalPath === '/webscraping/lead-harvest'
-		|| canonicalPath.startsWith('/webscraping/lead-harvest/');
-}
-
 function isTruthyEnv(value: string | null | undefined) {
 	const normalized = String(value || '').trim().toLowerCase();
 	return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';

@@ -6,18 +6,13 @@
 // transição — SEM painel flutuante, SEM botão Voltar. Consome os MESMOS
 // endpoints que leads/page.client.tsx (GET /webscraping/radar/leads, POST/GET/
 // cancel /webscraping/radar/search-runs, GET /leads-bank, GET
-// A quantidade adquirida é cobrada por lead; não existe cota por plano/vendedor.
+// /vendas/usage) — zero backend novo.
 
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
-import {
-  buildNegocioDetailFromLead,
-  isRadarLeadOwned,
-  sanitizeRadarLeadForClient,
-  type RadarLead,
-} from "@/app/(app)/leads/page.client";
+import { buildNegocioDetailFromLead, isRadarLeadOwned, type RadarLead } from "@/app/(app)/leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS } from "@/lib/brazil-cities";
 import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
@@ -68,6 +63,11 @@ type BankResponse = {
   poolExclusiveTotal?: number | null;
   unionExact?: boolean;
 } | null;
+type UsageResponse = {
+  cards?: { used?: number; limit?: number };
+  sellerActiveQuota?: { seller?: boolean; activeCount?: number; effectiveLimit?: number } | null;
+} | null;
+
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
 const SHELF_LIMIT = 24;
 const SEARCH_BATCH = 12;
@@ -103,6 +103,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [bank, setBank] = useState<BankResponse>(null);
+  const [usage, setUsage] = useState<UsageResponse>(null);
   const [run, setRun] = useState<RunResponse>(null);
   const [runBusy, setRunBusy] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
@@ -120,7 +121,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
     if (city) params.set("city", city);
     try {
       const res = await apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`);
-      setItems(Array.isArray(res?.items) ? res.items.map(sanitizeRadarLeadForClient) : []);
+      setItems(res?.items || []);
       setRecorteTotal(typeof res?.total === "number" ? res.total : null);
       setLoadError(null);
     } catch (err) {
@@ -134,6 +135,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
     apiFetch<BankResponse>("/leads-bank").then(setBank).catch(() => setBank(null));
   }, []);
   const loadUsage = useCallback(() => {
+    apiFetch<UsageResponse>("/vendas/usage").then(setUsage).catch(() => setUsage(null));
   }, []);
 
   useEffect(() => {
@@ -184,7 +186,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
           const prevList = await apiFetch<LeadsResponse>(
             `/webscraping/radar/leads?page=1&limit=${SHELF_LIMIT}&scope=vitrine${segment ? `&segment=${encodeURIComponent(segment)}` : ""}${city ? `&city=${encodeURIComponent(city)}` : ""}`,
           );
-          const freshItems = Array.isArray(prevList?.items) ? prevList.items.map(sanitizeRadarLeadForClient) : [];
+          const freshItems = prevList?.items || [];
           setNewIds(new Set(freshItems.filter(i => !prevIds.has(i.id)).map(i => i.id)));
           setItems(freshItems);
           loadBank();
@@ -235,6 +237,11 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
     } catch { /* silencia — o poll pegaria, mas já parou */ }
   }
 
+  const saq = usage?.sellerActiveQuota;
+  const isSeller = Boolean(saq?.seller);
+  const sellerQuotaValue = isSeller
+    ? `${fmtInt(saq?.activeCount)}/${fmtInt(saq?.effectiveLimit)}`
+    : null;
   const totalBrasil = bank?.universeTotal ?? null;
 
   if (loading) return <CascaLoading caption="Carregando Radar…" />;
@@ -270,6 +277,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
         <div className="vnd-m__statsrow">
           <span className="vnd-m__stats">
             Brasil {totalBrasil == null ? "—" : fmtInt(totalBrasil)} · Disponíveis {totalBrasil == null ? "—" : fmtInt(totalBrasil)} · Recorte {recorteTotal == null ? "—" : fmtInt(recorteTotal)}
+            {sellerQuotaValue ? ` · Em mãos ${sellerQuotaValue}` : ""}
           </span>
           {!runActive ? (
             <button type="button" className="vnd-m__searchcta" onClick={executarBusca} disabled={runBusy}>
@@ -327,7 +335,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
         open={Boolean(sel)}
         detail={sel ? buildNegocioDetailFromLead(sel, { revealed: isRadarLeadOwned(sel) }) : null}
         onClose={() => setSel(null)}
-        showPuxar={Boolean(sel && !isRadarLeadOwned(sel))}
+        showPuxar={Boolean(sel && sel.ownershipStatus !== "mine")}
         onPulled={() => { setSel(null); void loadList(); }}
       />
 

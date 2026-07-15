@@ -203,10 +203,6 @@
   --radar-glow:   color-mix(in srgb, var(--hbx-brand-strong) 72%, transparent);
   --radar-trail:  color-mix(in srgb, var(--hbx-brand-strong) 30%, transparent);
   --radar-axis:   color-mix(in srgb, var(--hbx-brand-strong) 22%, transparent);
-  /* Tinta dedicada: o disco permanece escuro em qualquer tema, portanto o
-     rótulo precisa contrastar com o instrumento, não com o canvas da página. */
-  --radar-label: color-mix(in srgb, white 94%, var(--radar-base));
-  --radar-label-surface: color-mix(in srgb, var(--radar-base) 94%, transparent);
   /* Estado pausado — usa warning */
   --radar-pause:  color-mix(in srgb, var(--hbx-warning) 80%, transparent);
   /* Indicador de menu — cor persistente por estado */

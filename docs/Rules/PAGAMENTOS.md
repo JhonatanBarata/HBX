@@ -37,22 +37,26 @@
 
 ## O que NÃO existe mais (não recriar)
 
-- **Tier/plano decidindo capacidade.** O contrato de tier foi removido. As
-  capacidades do produto-lead são universais e RBAC é quem corta ações da
-  equipe, nunca o plano. Enriquecimento automático extra permanece desligado;
-  o enriquecimento permitido acontece somente após o débito na puxada.
-- **Cota count-based por cliente/plano.** Os gates mensais, diários e a antiga
-  cota de 6 buscas Google foram removidos, inclusive contrato de API, contador
-  e configuração. O único freio comercial de aquisição é o saldo de crédito;
-  Google e Brave mantêm apenas governors globais de custo da infraestrutura.
+- **Tier/plano decidindo capacidade.** `getCommercialPlanTier` e
+  `getCommercialPlanCapabilities` (`commercial-plan-catalog.ts`) sempre
+  devolvem `'full'`/tudo-ligado — não são mais gate de produto. As
+  capacidades booleanas (ver inteligência do lead, auto-enriquecer, filtros
+  avançados, templates, relatório de conversão etc.) nascem **ligadas por
+  default**; RBAC é quem corta agora, não plano.
+- **Cota count-based bloqueando.** `CommercialUsageLimitsService`
+  (`assertCanImportCard`, `assertCanSendPresentationEmail`,
+  `recordLeadEnrichmentUseOnce`) mede e loga (`*_limit_shadow`), mas **nunca
+  mais lança** por estourar limite mensal/diário de plano. O teto real é o
+  saldo de crédito, verificado em `CreditsService.assertAndDebitLeadDelivery`
+  (fail-closed, chamado do mesmo ponto da baixa).
 - **Cobrança por assento.** Adicionar vendedor/admin é **grátis**
   (`seat-billing.util.ts` não é mais consumido por nenhum fluxo de cobrança;
   `financeiro.service.ts`/`commercial-plans.service.ts`/`modules.service.ts`
   sempre projetam `extraSeatMonthlyAmount: 0`). `seatCap` pode sobreviver
   como **teto operacional** do master (não cobrança).
-- **Upgrade/downgrade mudando capacidade.** Plano nunca liga/desliga recurso.
-  Metadados e trilhas históricas de cobrança/proração permanecem somente para
-  conciliação financeira; não são fallback de produto.
+- **Upgrade/downgrade com proração.** Não há mais troca de capacidade por
+  plano, cobrança proporcional nem crédito de downgrade. Utilitários e
+  ramos mortos desse fluxo devem ser removidos, não mantidos como fallback.
 - **Vitrine de planos/checkout de assinatura mensal no frontend.**
   `trocar-plano-modal.tsx`, `extra-seats-card.tsx`, `lib/plan-rank.ts` e o
   paywall de cota mensal em `leads/page.client.tsx`
@@ -75,12 +79,12 @@
   `onboardingStatus`, `billingExempt*`) e a tabela `UserModuleAccess` foram
   DROPADOS do schema. **Nunca recriar, nunca re-derivar estado de campo cru.**
 
-## Cortesia — acesso comercial, nunca lead grátis
+## Cortesia — única liberação grátis (inalterado)
 
-- Cortesia (`status='courtesy'` + motivo obrigatório + prazo opcional) pode
-  isentar a mensalidade/acesso comercial. Ela **não isenta o débito por lead**:
-  todo tenant precisa de saldo e cada revelação custa 1 crédito.
-- Não existe mais endpoint de cortesia capaz de mudar o produto entregue.
+- Cortesia (`status='courtesy'` + motivo obrigatório + prazo opcional) é o
+  ÚNICO mecanismo de acesso sem cobrança/sem crédito. Sem prazo = permanente
+  (caso do tenant interno HBX). Prazo vencido = volta a cobrar.
+- Setada apenas via ação master: `PUT /modules/master/company/:id/courtesy`.
 - A empresa interna HBX é um tenant normal com cortesia permanente — **nunca
   fazer special-case por slug ou nome de empresa.**
 
@@ -97,20 +101,16 @@
   `POST /financeiro/credits/recharge`) — crédito só entra com pagamento
   CONFIRMADO. Lote de boas-vindas (`grantWelcomeBatch`, `grantType:'promo'`,
   nunca receita) no signup self-service.
-- **Débito:** choke único no claim canônico do Radar:
-  `CommercialUsageLimitsService.reserveLeadDeliveryCredit` →
-  `CreditsService.assertAndDebitLeadDelivery`. Importação interna, clique em
-  contato e telemetria nunca debitam.
-  O débito é obrigatório para todo `Company.companyKind='tenant'`, inclusive
-  quando quem opera é system master. `accountType`, plano, cortesia e flags de
-  storefront nunca criam bypass. Sem serviço/configuração ou sem confirmação
-  `{ applied:true, debited:1 }`, o fluxo falha fechado antes de posse, hidratação
-  e revelação. `lead_delivery` é fixo em modo débito com custo 1 e não aceita
-  override grátis.
+- **Débito:** choke único na entrega/baixa do lead
+  (`LeadContactWriteService`/`recordCardImport`/`recordCardCommercialUseOnce`
+  em `CommercialUsageLimitsService`) → `CreditsService.assertAndDebitLeadDelivery`.
+  Gate em 2 chaves: `HBX_CREDITS_ENFORCE` (env global) E
+  `Company.creditsEnforceEnabled` (por-tenant) — as duas precisam estar ON.
   Refund atômico on-failure (`refundLeadDelivery`, mesma `usageKey`).
-- **Produto único por lead:** plano, cargo e histórico de uso não criam teto
-  diário, mensal ou de carteira. Permanecem somente RBAC, kill-switch do
-  módulo, estado comercial da empresa e o débito de um crédito por aquisição.
+- **Teto por vendedor (S4, opcional):** reaproveita `UserTeamPolicy`
+  (`monthlyCardsLimit`/`cardDeliveryDailyLimit`) como sub-orçamento de
+  crédito; default sem teto. Empresa nunca é capada pelo teto de um
+  vendedor (admin nunca capado por vendedor).
 - **Ações caras/irreversíveis ficam FORA do crédito** (D1): Google, Brave,
   chip WhatsApp e Serpro/NFS-e são governados por freios físicos globais
   (`SourceBudgetService`/disjuntor de zap), nunca por plano do cliente.

@@ -8,22 +8,9 @@ export type LeadContactSummaryInput = {
   emails?: string[] | null;
   phoneContacts?: LeadContactRecord[] | null;
   emailContacts?: LeadContactRecord[] | null;
-  sourceType?: string | null;
-  primarySource?: string | null;
-  sourceHistoryId?: string | null;
-  radarOrigin?: boolean | null;
-  contactAccessGranted?: boolean | null;
 };
 
 export function summarizeLeadContacts(lead: LeadContactSummaryInput) {
-  const sources = [lead.sourceType, lead.primarySource]
-    .map(value => String(value || "").trim().toLowerCase());
-  const radarOrigin = lead.radarOrigin === true
-    || /^radar:[^:\s]+$/i.test(String(lead.sourceHistoryId || "").trim())
-    || sources.some(source => ["radar", "webscraping", "radar_quarantined"].includes(source));
-  if (radarOrigin && lead.contactAccessGranted !== true) {
-    return { primary: "—", extra: 0, total: 0 };
-  }
   const phoneCandidates = [
     lead.phone,
     ...(lead.phoneContacts || []).slice().sort((a, b) => Number(a.rank || 99) - Number(b.rank || 99)).map(contact => contact.value || contact.valueNormalized),

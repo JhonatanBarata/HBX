@@ -26,6 +26,7 @@ function publicStrategyMode(mode: string) {
     fast: 'rapido',
     quality: 'qualidade',
     deep: 'profundo',
+    night_factory: 'fabrica_noturna',
   };
   return aliases[mode] || mode;
 }

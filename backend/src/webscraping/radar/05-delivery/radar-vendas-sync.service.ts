@@ -14,6 +14,11 @@ function parseJsonObject(raw: unknown): Record<string, any> {
   }
 }
 
+function parsePositiveIntegerEnv(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+}
+
 @Injectable()
 export class RadarVendasSyncService {
   private readonly logger = new Logger(RadarVendasSyncService.name);
@@ -23,6 +28,28 @@ export class RadarVendasSyncService {
     @Optional() @Inject(forwardRef(() => VendasService))
     private readonly vendasService?: VendasService,
   ) {}
+
+  getLimitPauseRetryDelayMs(reason?: string | null) {
+    const normalized = String(reason || '').toLowerCase();
+    if (normalized.includes('quota') || normalized.includes('card_limit') || normalized.includes('limite')) {
+      return Math.max(60_000, parsePositiveIntegerEnv('HBX_RADAR_CARD_LIMIT_PAUSE_RETRY_MS', 5 * 60_000));
+    }
+    return Math.max(5_000, parsePositiveIntegerEnv('HBX_RADAR_VENDAS_PAUSE_RETRY_MS', 15_000));
+  }
+
+  // LIMPEZA-DESTRUTIVA L2 (04/07): o gate de estoque do Vendas (`vendas_stock_limit*`) foi
+  // deletado — a busca nunca mais pausa por estoque do funil. O que sobra aqui é a pausa
+  // por COTA COMERCIAL DA EMPRESA (`vendas_card_limit_start`/`quota`), decidida pelo Master
+  // via CommercialUsageLimitsService — único freio de quantidade que segue vivo.
+  isSearchRunPausedByLimit(run: any, normalizeSearchRunStatus: (status: unknown) => string) {
+    const status = normalizeSearchRunStatus(run?.status);
+    if (status !== 'sleeping') return false;
+    const metrics = parseJsonObject(run?.metricsJson);
+    const reason = String(run?.lastBatchStatus || metrics?.radarPauseReason || metrics?.autoImportBlockedReason || '').toLowerCase();
+    return reason.includes('card_limit')
+      || reason.includes('quota')
+      || reason.includes('limit');
+  }
 
   summarizeAutoImportFailures(failures: Array<{ reason: string }>) {
     const counts = new Map<string, number>();
@@ -42,6 +69,9 @@ export class RadarVendasSyncService {
       // em lote (senão o loop tenta cada card da fila e falha um a um, sem sentido).
       || code.includes('credit_balance_exhausted')
       || code.includes('company_access_paused')
+      // GUARDRAILS S3 — teto diário de entregas por empresa (anti-scraper) também PARA a
+      // distribuição automática quando bate (mesma lógica: sem sentido martelar card a card).
+      || code.includes('daily_delivery_cap_reached')
       || message.includes('saldo de créditos')
       || message.includes('saldo de creditos')
       || message.includes('limite diario')

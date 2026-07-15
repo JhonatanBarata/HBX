@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
 import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
+import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
 import { RadarSourceExecutorService } from './radar/01-search/radar-source-executor.service';
 import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
+import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
@@ -81,6 +83,7 @@ function createExecutorHost(overrides: Record<string, any> = {}) {
     prisma: overrides.prisma || {},
     logger: { warn: () => null },
     searchHbxEngine: overrides.searchHbxEngine || (async () => ({ results: [] })),
+    getRadarInternalReprocessSource: () => overrides.reprocess || new RadarInternalReprocessSourceService(),
     getGoogleSearchProvider: () => overrides.googleProvider || new GoogleSearchProviderService(),
     getRadarSourceExpansion: () => new RadarSourceExpansionService(),
     getRadarSearchStrategy: () => new RadarSearchStrategyService(),
@@ -88,6 +91,8 @@ function createExecutorHost(overrides: Record<string, any> = {}) {
     getRadarCnpjPublicSource: () => overrides.cnpjPublicSource || new RadarCnpjPublicSourceService(),
     getRadarLocalDirectorySource: () => overrides.localDirectorySource || new RadarLocalDirectorySourceService(),
     getRadarVerticalSource: () => overrides.verticalSource || new RadarVerticalSourceService(),
+    getRadarWebsiteCrawlSource: () => overrides.websiteCrawlSource || new RadarWebsiteCrawlSourceService(),
+    getRadarWebEnrichmentSource: overrides.webEnrichmentSource ? () => overrides.webEnrichmentSource : undefined,
     getRadarClientRequestTimeoutMs: () => 1_000,
     fetcher: overrides.fetcher,
   };
@@ -115,12 +120,14 @@ test('radar search orchestrator planeja fontes por estrategia rapida (HBX_LEGACY
   });
 
   assert.equal(plan.strategy.mode, 'fast');
-  assert.deepEqual(plan.implementedSources, ['cnpj_public', 'hbx_engine']);
+  // Cutover P1 (02/07): radar_database-first é fonte legada, sai da rota do cliente com a
+  // flag OFF (default). company_history/global_cache/hbx_engine continuam (não são legado).
+  assert.deepEqual(plan.implementedSources.slice(0, 3), ['company_history', 'global_cache', 'hbx_engine']);
   assert.equal(plan.activeSources.includes('radar_database'), false);
   assert.equal(plan.activeSources.includes('google_textual'), false);
 }));
 
-test('radar search orchestrator ignora HBX_LEGACY_SOURCES e não restaura caminhos antigos', () => withEnv({
+test('radar search orchestrator com HBX_LEGACY_SOURCES=true: radar_database-first volta pra rota do cliente (rollback barato)', () => withEnv({
   HBX_LEGACY_SOURCES: 'true',
   // Pinado (integração 02/07): mesmo motivo do teste acima — controla o mundo inteiro do plano.
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
@@ -140,7 +147,7 @@ test('radar search orchestrator ignora HBX_LEGACY_SOURCES e não restaura caminh
   });
 
   assert.equal(plan.strategy.mode, 'fast');
-  assert.deepEqual(plan.implementedSources, ['cnpj_public', 'hbx_engine']);
+  assert.deepEqual(plan.implementedSources.slice(0, 4), ['radar_database', 'company_history', 'global_cache', 'hbx_engine']);
 }));
 
 test('radar search orchestrator com cnpj_public ligado (mundo real do VPS): RFB entra ANTES do hbx_engine no plano fast', () => withEnv({
@@ -199,9 +206,11 @@ test('radar source expansion gera fontes novas da fase 6', () => {
 
   assert.equal(plan.strategy.mode, 'deep');
   assert.equal(plan.expansion.googleTextualQueries.includes('"barbearias" "Rio Claro" SP whatsapp'), true);
+  assert.equal(plan.expansion.siteCrawlPaths.includes('/contato'), true);
   assert.equal(plan.expansion.directorySeeds.some((query) => query.includes('guia comercial')), true);
   assert.equal(plan.expansion.verticalStrategies.some((item) => item.vertical === 'beleza'), true);
   assert.equal(plan.expansion.opportunitySignals.some((item) => item.signal === 'instagram_sem_whatsapp_claro'), true);
+  assert.equal(plan.expansion.reprocessRules.some((item) => item.rule === 'cards_sem_social'), true);
 });
 
 test('radar result merger deduplica por telefone antes de misturar fontes', () => {
@@ -234,7 +243,7 @@ test('radar result merger deduplica por telefone antes de misturar fontes', () =
   assert.equal(merged.counts.hbx_engine, 0);
 });
 
-test('radar strategy nao muda por claim_enrichment antes dos resultados (HBX_LEGACY_SOURCES default OFF)', () => withEnv({
+test('radar strategy nao muda por lead_plus antes dos resultados (HBX_LEGACY_SOURCES default OFF)', () => withEnv({
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
   HBX_LEGACY_SOURCES: 'false',
 }, () => {
@@ -246,7 +255,8 @@ test('radar strategy nao muda por claim_enrichment antes dos resultados (HBX_LEG
   const plan = orchestrator.plan({ ...baseInput}, { purpose: 'manual' });
 
   assert.equal(plan.strategy.mode, 'fast');
-  assert.deepEqual(plan.activeSources, ['cnpj_public', 'hbx_engine']);
+  // Cutover P1: radar_database-first é legado, sai por default (flag OFF).
+  assert.deepEqual(plan.activeSources, ['company_history', 'global_cache', 'hbx_engine']);
   assert.equal(plan.activeSources.includes('google_textual'), false);
 }));
 
@@ -267,7 +277,7 @@ test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_E
   );
   const fastPlan = orchestrator.plan({ ...baseInput }, { purpose: 'manual' });
   assert.equal(fastPlan.strategy.mode, 'fast');
-  assert.deepEqual(fastPlan.activeSources, ['cnpj_public', 'hbx_engine']);
+  assert.deepEqual(fastPlan.activeSources, ['company_history', 'global_cache', 'cnpj_public', 'hbx_engine']);
   assert.equal(
     fastPlan.activeSources.indexOf('cnpj_public') < fastPlan.activeSources.indexOf('hbx_engine'),
     true,
@@ -283,8 +293,11 @@ test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_E
   );
 }));
 
-test('radar strategy deep mantém somente RFB e motor mesmo com flags legadas', () => withEnv({
+test('radar strategy deep inclui stubs como skipped explicito (HBX_LEGACY_SOURCES=true traz local_directory/vertical_source de volta)', () => withEnv({
+  // C1 (01/07): cnpj_public só entra no plano com a flag ligada (em qualquer modo).
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
+  // local_directory/vertical_source são fontes legadas (P1) — precisam da flag ligada pra
+  // aparecerem em deep, que também é rota de cliente.
   HBX_LEGACY_SOURCES: 'true',
 }, () => {
   const orchestrator = new RadarSearchOrchestratorService(
@@ -295,12 +308,13 @@ test('radar strategy deep mantém somente RFB e motor mesmo com flags legadas', 
   const plan = orchestrator.plan({ ...baseInput, freshness: 'hybrid', quantity: 100 }, { purpose: 'manual' });
 
   assert.equal(plan.strategy.mode, 'deep');
-  assert.equal(plan.activeSources.includes('website_crawl_light'), false);
+  assert.equal(plan.activeSources.includes('website_crawl_light'), true);
   assert.equal(plan.activeSources.includes('cnpj_public'), true);
-  assert.equal(plan.activeSources.includes('local_directory'), false);
-  assert.equal(plan.activeSources.includes('vertical_source'), false);
+  assert.equal(plan.activeSources.includes('local_directory'), true);
+  assert.equal(plan.activeSources.includes('vertical_source'), true);
   assert.equal(plan.diagnostics.every((item) => item.status === 'skipped'), true);
-  assert.deepEqual(plan.implementedSources, ['cnpj_public', 'hbx_engine']);
+  assert.equal(plan.implementedSources.includes('local_directory'), true);
+  assert.equal(plan.implementedSources.includes('vertical_source'), true);
 }));
 
 test('radar strategy deep com HBX_LEGACY_SOURCES default OFF: local_directory/vertical_source/google_textual fora da rota', () => withEnv({
@@ -387,15 +401,25 @@ test('radar result merger preserva social confirmado e nao troca telefone por va
   assert.equal(merged.results[0].website, 'https://barbeariax.com.br');
 });
 
-test('busca não possui caminho de reprocessamento de cards', () => {
-  const planner = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-source-planner.service.ts'), 'utf8');
-  const executor = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-source-executor.service.ts'), 'utf8');
-  const sourceTypes = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-lead-source.types.ts'), 'utf8');
-  for (const forbidden of ['reprocess_missing_social', 'reprocess_old_cards']) {
-    assert.equal(planner.includes(forbidden), false);
-    assert.equal(executor.includes(forbidden), false);
-    assert.equal(sourceTypes.includes(forbidden), false);
-  }
+test('reprocessamento interno seleciona cards com social missing ou error', async () => {
+  const service = new RadarInternalReprocessSourceService();
+  const prisma = {
+    radarLeadPool: {
+      findMany: async () => [
+        { id: '1', name: 'Barbearia A', phone: '(19) 99999-0001', phoneDigits: '19999990001', city: 'Rio Claro', state: 'SP', segment: 'barbearias', socialStatus: 'missing' },
+        { id: '2', name: 'Barbearia B', phone: '(19) 99999-0002', phoneDigits: '19999990002', city: 'Rio Claro', state: 'SP', segment: 'barbearias', socialStatus: 'error' },
+      ],
+    },
+  };
+  const result = await service.run({
+    prisma,
+    normalized: baseInput,
+    source: 'reprocess_missing_social',
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.acceptedCount, 2);
+  assert.deepEqual(result.results.map((item) => item.source), ['reprocess_missing_social', 'reprocess_missing_social']);
 });
 
 test('fonte opcional nao altera deliveryStatus para blocked ou error', () => {
@@ -413,7 +437,7 @@ test('fonte opcional nao altera deliveryStatus para blocked ou error', () => {
   assert.equal((failure as any).deliveryStatus, undefined);
 });
 
-test('planner não cria lane google_textual paralela ao motor', async () => withEnv({
+test('executor executa google_textual e preserva origem real', async () => withEnv({
   HBX_RADAR_GOOGLE_TEXTUAL_ENABLED: 'true',
   // google_textual e fonte legada (P1) — precisa da flag ligada pro planner habilitar.
   HBX_LEGACY_SOURCES: 'true',
@@ -446,10 +470,10 @@ test('planner não cria lane google_textual paralela ao motor', async () => with
     }),
   });
 
-  assert.equal(result.optionalSources.length, 0);
-  assert.equal(result.optionalResults.length, 0);
-  assert.equal(result.sourceDiagnostics.length, 0);
-  assert.equal(result.sourceEnginesUsed.includes('google_textual'), false);
+  assert.equal(result.optionalSources[0].source, 'google_textual');
+  assert.equal(result.optionalResults[0].source, 'google_textual');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
+  assert.equal(result.sourceEnginesUsed.includes('google_textual'), true);
 }));
 
 test('executor ignora radar_web_enrichment na busca primaria mesmo se vier em sourcePlan legado', async () => withEnv({
@@ -882,7 +906,7 @@ test.skip('radar_web_enrichment falha sem bloquear delivery', async () => withEn
   assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
 }));
 
-test('executor rejeita reprocess_missing_social mesmo se vier de snapshot antigo', async () => withEnv({
+test('executor executa reprocess_missing_social e preserva origem real', async () => withEnv({
   HBX_RADAR_INTERNAL_REPROCESS_ENABLED: 'true',
 }, async () => {
   const executor = new RadarSourceExecutorService();
@@ -918,9 +942,9 @@ test('executor rejeita reprocess_missing_social mesmo se vier de snapshot antigo
     }),
   });
 
-  assert.equal(result.optionalSources.length, 0);
-  assert.equal(result.optionalResults.length, 0);
-  assert.equal(result.sourceDiagnostics.length, 0);
+  assert.equal(result.optionalSources[0].source, 'reprocess_missing_social');
+  assert.equal(result.optionalResults[0].source, 'reprocess_missing_social');
+  assert.equal(result.sourceDiagnostics[0].status, 'completed');
 }));
 
 test('executor retorna partial_error quando google_textual falha', async () => withEnv({
@@ -955,7 +979,7 @@ test('executor retorna partial_error quando google_textual falha', async () => w
   assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
 }));
 
-test('executor nem invoca reprocess_old_cards vindo de snapshot antigo', async () => withEnv({
+test('executor retorna partial_error quando internal reprocess falha', async () => withEnv({
   HBX_RADAR_INTERNAL_REPROCESS_ENABLED: 'true',
 }, async () => {
   const executor = new RadarSourceExecutorService();
@@ -984,11 +1008,11 @@ test('executor nem invoca reprocess_old_cards vindo de snapshot antigo', async (
     }),
   });
 
-  assert.equal(result.optionalResults.length, 0);
-  assert.equal(result.sourceDiagnostics.length, 0);
+  assert.equal(result.sourceDiagnostics[0].status, 'partial_error');
+  assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
 }));
 
-test('executor rejeita website_crawl_light antes da puxada', async () => withEnv({
+test('website_crawl_light desativado retorna skipped', async () => withEnv({
   HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'false',
 }, async () => {
   const executor = new RadarSourceExecutorService();
@@ -1011,11 +1035,11 @@ test('executor rejeita website_crawl_light antes da puxada', async () => withEnv
     host: createExecutorHost(),
   });
 
-  assert.equal(result.optionalResults.length, 0);
-  assert.equal(result.sourceDiagnostics.length, 0);
+  assert.equal(result.sourceDiagnostics[0].status, 'skipped');
+  assert.equal(result.sourceDiagnostics[0].reason, 'flag_website_crawl_light_desativada');
 }));
 
-test('executor não executa website_crawl_light mesmo com flag ligada', async () => withEnv({
+test('executor executa website_crawl_light e preserva origem real', async () => withEnv({
   HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'true',
 }, async () => {
   const executor = new RadarSourceExecutorService();
@@ -1051,15 +1075,17 @@ test('executor não executa website_crawl_light mesmo com flag ligada', async ()
     }),
   });
 
-  assert.equal(result.optionalSources.length, 0);
-  assert.equal(result.optionalResults.length, 0);
-  assert.equal(result.sourceEnginesUsed.includes('website_crawl_light'), false);
+  assert.equal(result.optionalSources[0].source, 'website_crawl_light');
+  assert.equal(result.optionalResults[0].source, 'website_crawl_light');
+  assert.equal(result.sourceEnginesUsed.includes('website_crawl_light'), true);
 }));
 
-test('website_crawl_light não alcança provider no executor de busca', async () => withEnv({
+test('website_crawl_light falha e nao bloqueia delivery', async () => withEnv({
   HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'true',
 }, async () => {
   const executor = new RadarSourceExecutorService();
+  const provider = new WebsiteCrawlProviderService();
+  const source = new RadarWebsiteCrawlSourceService(provider);
   const result = await executor.execute({
     context: { companyId: 7, userId: 9, user: {} },
     normalized: baseInput,
@@ -1078,15 +1104,25 @@ test('website_crawl_light não alcança provider no executor de busca', async ()
     remainingQuantity: 2,
     host: createExecutorHost({
       websiteCrawlSource: {
-        run: async () => {
-          throw new Error('forbidden pre-pull source executed');
-        },
+        run: (input: any) => source.run({
+          ...input,
+          options: {
+            paths: ['/'],
+            ssrfLookup: publicSsrfLookup,
+            fetcher: async () => {
+              throw new Error('fetch indisponivel');
+            },
+          },
+        }),
       },
     }),
   });
 
-  assert.equal(result.optionalResults.length, 0);
-  assert.equal(result.sourceDiagnostics.length, 0);
+  assert.equal(result.sourceDiagnostics[0].status, 'partial_error');
+  assert.equal(result.sourceDiagnostics[0].retryable, true);
+  assert.equal(result.sourceDiagnostics[0].issue?.stage, 'site');
+  assert.equal(result.sourceDiagnostics[0].issue?.blocksDelivery, false);
+  assert.equal((result.sourceDiagnostics[0] as any).deliveryStatus, undefined);
 }));
 
 test('website crawl provider rejeita redes sociais google marketplace e diretorios', () => {
@@ -1231,7 +1267,27 @@ test('website crawl provider respeita timeout e limite de HTML', async () => {
   assert.equal(timedOut.retryable, true);
 });
 
-test('cnpj_public não pode ser desligado por flag na busca PJ', async () => withEnv({
+test('website crawl source retorna partial_error em erro de fetch', async () => withEnv({
+  HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'true',
+}, async () => {
+  const source = new RadarWebsiteCrawlSourceService(new WebsiteCrawlProviderService());
+  const result = await source.run({
+    currentResults: [{ placeId: 'lead:1', name: 'Barbearia X', phone: '', phoneDigits: '', website: 'https://barbeariax.com.br' } as any],
+    options: {
+      paths: ['/'],
+      ssrfLookup: publicSsrfLookup,
+      fetcher: async () => {
+        throw new Error('timeout');
+      },
+    },
+  });
+
+  assert.equal(result.status, 'partial_error');
+  assert.equal(result.issue?.stage, 'site');
+  assert.equal(result.issue?.blocksDelivery, false);
+}));
+
+test('cnpj_public desativado retorna skipped sem sucesso fake', async () => withEnv({
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'false',
 }, async () => {
   const source = new RadarCnpjPublicSourceService(new CnpjPublicProviderService());
@@ -1246,8 +1302,9 @@ test('cnpj_public não pode ser desligado por flag na busca PJ', async () => wit
     }],
   });
 
-  assert.equal(result.status, 'completed');
-  assert.equal(result.results.length, 1);
+  assert.equal(result.status, 'skipped');
+  assert.equal(result.reason, 'flag_cnpj_public_desativada');
+  assert.equal(result.results.length, 0);
 }));
 
 test('cnpj_public ligado sem base configurada retorna skipped', async () => withEnv({
@@ -1888,15 +1945,18 @@ test('result merger preserva website proprio contra diretorio', () => {
   assert.equal((merged.results[0] as any).websiteEvidence.source, 'hbx_engine');
 });
 
-test('public search mixin não contém executor de enriquecimento opcional pré-pull', () => {
+test('public search mixin delega optional source para executor', () => {
   const source = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-core-public-search.mixin.ts'), 'utf8');
-  assert.doesNotMatch(source, /getRadarSourceExecutor\(\)\.execute/);
-  assert.doesNotMatch(source, /getRadarInternalReprocessSource\(\)\.run/);
-  assert.doesNotMatch(source, /website_crawl_light|radar_web_enrichment|reprocess_missing_social|reprocess_old_cards/);
+  const optionalBlock = source.slice(source.indexOf('HBX_RADAR_SEARCH_STRATEGY_ENGINE_ENABLED'), source.indexOf('const historyResults'));
+
+  assert.match(optionalBlock, /getRadarSourceExecutor\(\)\.execute/);
+  assert.doesNotMatch(optionalBlock, /getRadarInternalReprocessSource\(\)\.run/);
+  assert.doesNotMatch(optionalBlock, /buildLeadDiscoveryRequests/);
 });
 
 test('optional source executor nao chama Vendas nem altera importedCount', () => {
   const source = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-source-executor.service.ts'), 'utf8');
+  const websiteSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-website-crawl-source.service.ts'), 'utf8');
   const cnpjSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-cnpj-public-source.service.ts'), 'utf8');
   const localDirectorySource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-local-directory-source.service.ts'), 'utf8');
   const verticalSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/01-search/radar-vertical-source.service.ts'), 'utf8');
@@ -1906,6 +1966,7 @@ test('optional source executor nao chama Vendas nem altera importedCount', () =>
   const provider = readFileSync(join(process.cwd(), 'src/webscraping/radar/providers/website-crawl/website-crawl-provider.service.ts'), 'utf8');
 
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(source), false);
+  assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(websiteSource), false);
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(cnpjSource), false);
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(localDirectorySource), false);
   assert.equal(/vendasLead|vendasLeadTimelineEvent|VendasService|importedCount/.test(verticalSource), false);

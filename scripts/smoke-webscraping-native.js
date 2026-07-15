@@ -67,7 +67,7 @@ async function main() {
     segment: "Clinicas",
     quantity: 5,
   }));
-  checks.push(await expectStatus("GET /webscraping/history removido", "GET", `${API_BASE_URL}/webscraping/history`, 404));
+  checks.push(await expectStatus("GET /webscraping/history sem auth", "GET", `${API_BASE_URL}/webscraping/history`, 401));
   checks.push(await expectStatus("POST /webscraping/export sem auth", "POST", `${API_BASE_URL}/webscraping/export`, 401, {
     city: "Sao Paulo - SP",
     segment: "Clinicas",

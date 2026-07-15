@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Importa dados abertos do CNPJ (Receita Federal) para a tabela CnpjPublicCompany,
- * que alimenta a fonte cnpj_public do Radar nas buscas canônicas.
+ * que alimenta a fonte cnpj_public do Radar (modos deep / night_factory).
  *
  * ── MODO RFB (dump oficial completo, ~28M ativas) ──────────────────────────────
  *   node scripts/import-cnpj-dataset.js rfb                         # download + carga do mês mais recente
@@ -31,8 +31,7 @@
  *   re-rodar não duplica (ON CONFLICT + TRUNCATE/reload dos sócios) e pula o que já foi.
  *
  *   Colunas de enriquecimento (HOT-01, aditivas): capitalSocial + naturezaJuridica (Empresas),
- *   simples/mei (Simples.zip), phone2/fax/cnaeSecundarias (Estabelecimentos). O fax
- *   é preservado em campos próprios e nunca vira telefone comercial. regimeTributario
+ *   simples/mei (Simples.zip), phone2/cnaeSecundarias (Estabelecimentos). regimeTributario
  *   (Lucro Real/Presumido/Arbitrado) é dataset separado da RFB, não vem neste dump — fica NULL,
  *   fase 2.
  *
@@ -462,7 +461,7 @@ INSERT INTO "CnpjPublicCompany" (
   "id", "cnpj", "razaoSocial", "nomeFantasia", "situacao", "cnae", "cnaeDescription", "porte",
   "matrizFilial", "openedAt", "phone", "phoneDigits", "email", "address", "city", "state",
   "normalizedCity", "searchText", "ownerName", "ownerQualification",
-  "capitalSocial", "naturezaJuridica", "simples", "mei", "phone2", "fax", "faxDigits", "cnaeSecundarias",
+  "capitalSocial", "naturezaJuridica", "simples", "mei", "phone2", "cnaeSecundarias",
   "firstSeenAt", "importedAt", "createdAt", "updatedAt"
 )
 SELECT DISTINCT ON (full_cnpj) * FROM (
@@ -499,8 +498,6 @@ SELECT DISTINCT ON (full_cnpj) * FROM (
     CASE WHEN btrim(sim.opcao_mei) = 'S' THEN true
          WHEN btrim(sim.opcao_mei) = 'N' THEN false ELSE NULL END,
     NULLIF(${PHONE2_EXPR}, ''),
-    NULLIF(btrim(concat_ws(' ', NULLIF(btrim(e.ddd_fax), ''), NULLIF(btrim(e.fax), ''))), ''),
-    NULLIF(pfax.d, ''),
     NULLIF(btrim(e.cnae_secundario), ''),
     now(), now(), now(), now()
   FROM stg_rfb_estabelecimentos e
@@ -510,9 +507,6 @@ SELECT DISTINCT ON (full_cnpj) * FROM (
   CROSS JOIN LATERAL (
     SELECT regexp_replace(coalesce(e.ddd2, '') || coalesce(e.telefone2, ''), '\\D', '', 'g') AS d
   ) pd2
-  CROSS JOIN LATERAL (
-    SELECT regexp_replace(coalesce(e.ddd_fax, '') || coalesce(e.fax, ''), '\\D', '', 'g') AS d
-  ) pfax
   JOIN stg_rfb_empresas emp ON emp.cnpj_basico = e.cnpj_basico
   LEFT JOIN stg_rfb_municipios mun ON mun.codigo = e.municipio
   LEFT JOIN stg_rfb_cnaes cn ON cn.codigo = e.cnae_principal
@@ -546,8 +540,6 @@ ON CONFLICT ("cnpj") DO UPDATE SET
   "simples" = COALESCE(EXCLUDED."simples", "CnpjPublicCompany"."simples"),
   "mei" = COALESCE(EXCLUDED."mei", "CnpjPublicCompany"."mei"),
   "phone2" = COALESCE(EXCLUDED."phone2", "CnpjPublicCompany"."phone2"),
-  "fax" = COALESCE(EXCLUDED."fax", "CnpjPublicCompany"."fax"),
-  "faxDigits" = COALESCE(EXCLUDED."faxDigits", "CnpjPublicCompany"."faxDigits"),
   "cnaeSecundarias" = COALESCE(EXCLUDED."cnaeSecundarias", "CnpjPublicCompany"."cnaeSecundarias"),
   "importedAt" = now(),
   "updatedAt" = now();
@@ -911,12 +903,6 @@ function toRecord(row) {
   const ddd = digits(pick(row, ['ddd1', 'ddd_1']));
   const phoneBase = pick(row, ['phone', 'telefone', 'ddd_telefone_1', 'telefone1', 'telefone_1']);
   const phone = phoneBase ? `${ddd && !digits(phoneBase).startsWith(ddd) ? ddd : ''}${phoneBase}`.trim() : null;
-  const ddd2 = digits(pick(row, ['ddd2', 'ddd_2']));
-  const phone2Base = pick(row, ['phone2', 'telefone2', 'telefone_2', 'ddd_telefone_2']);
-  const phone2 = phone2Base ? `${ddd2 && !digits(phone2Base).startsWith(ddd2) ? ddd2 : ''}${phone2Base}`.trim() : null;
-  const dddFax = String(pick(row, ['ddd_fax', 'dddFax']) || '').trim();
-  const faxBase = String(pick(row, ['fax']) || '').trim();
-  const fax = [dddFax, faxBase].filter(Boolean).join(' ') || null;
   const email = (pick(row, ['email', 'correio_eletronico']) || '').toLowerCase() || null;
   const website = pick(row, ['website', 'site']);
   const address = pick(row, ['address', 'endereco'])
@@ -946,9 +932,6 @@ function toRecord(row) {
     openedAt,
     phone: phone || null,
     phoneDigits: digits(phone) || null,
-    phone2: digits(phone2) || null,
-    fax,
-    faxDigits: digits(fax) || null,
     email,
     website,
     address: address || null,

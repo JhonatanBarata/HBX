@@ -499,8 +499,8 @@ export function useEntitlements() {
   return UNIVERSAL_PRODUCT_ACCESS;
 }
 
-// Estado da conta de créditos usado pelo card da sidebar. O card projeta apenas
-// o saldo consumível, sem metadados comerciais.
+// Estado da conta de créditos usado pelo card da sidebar. O card nunca projeta
+// título comercial, cota mensal ou rótulo de pacote.
 export type CreditAccountSummary = { creditsAccount: boolean };
 
 export function useCreditAccountSummary(): CreditAccountSummary {
@@ -710,7 +710,7 @@ function useRadarNavState(): RadarNavState {
 // Mesmo padrão de subscribeToThemeMode/useSyncExternalStore (tema): store
 // mínima sem useEffect+setState (evita cascading render / lint
 // react-hooks/set-state-in-effect). localStorage("hbx:rail") persiste;
-// default EXPANDIDA (decisão registrada na especificação); getServerSnapshot fixo
+// default EXPANDIDA (decisão 3 do PLANO.md); getServerSnapshot fixo
 // "expanded" evita hydration mismatch.
 // ---------------------------------------------------------------
 export const RAIL_KEY = "hbx:rail";
@@ -958,21 +958,6 @@ type MasterNotice = {
   payload?: { kind?: string; poolId?: string; href?: string; name?: string; city?: string } | null;
 };
 
-function sanitizeMasterNotice(notice: MasterNotice): MasterNotice {
-  if (notice.source !== "brain" || notice.payload?.kind !== "lead") return notice;
-  return {
-    id: String(notice.id || ""),
-    title: "Nova oportunidade protegida",
-    body: "Uma empresa compatível foi localizada. Puxe o lead para liberar os dados.",
-    tone: notice.tone ?? null,
-    acknowledged: notice.acknowledged === true,
-    createdAt: notice.createdAt ?? null,
-    source: "brain",
-    nudgeKey: notice.nudgeKey ?? null,
-    payload: { kind: "lead", poolId: String(notice.payload.poolId || "") },
-  };
-}
-
 // Aviso clicável (ordem do dono, 12/06/2026): os títulos são FIXOS no backend
 // (seller-onboarding / job-application / cancellation-case) e o próprio texto
 // já aponta a tela — aqui é só o de-para, nada inventado. As dicas de seção/aba
@@ -1082,7 +1067,7 @@ function computeBotSignalState(accessible: boolean, act: TopbarBotActivation | n
 async function fetchNoticesCached(force = false): Promise<MasterNotice[]> {
   if (!force && noticesCache && Date.now() - noticesCache.at < TOPBAR_CACHE_TTL) return noticesCache.data;
   const res = await apiFetch<{ notices?: MasterNotice[] }>("/vendas/master-notices").catch(() => null);
-  const data = Array.isArray(res?.notices) ? res.notices.map(sanitizeMasterNotice) : [];
+  const data = Array.isArray(res?.notices) ? res.notices : [];
   noticesCache = { at: Date.now(), data };
   return data;
 }
@@ -1413,7 +1398,9 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                           setNoticeActionBusyId(n.id);
                           setNoticeActionError(null);
                           try {
-                            await claimLead(n.payload!.poolId!);
+                            await claimLead(n.payload!.poolId!, {
+                              lead: { id: n.payload!.poolId!, name: n.payload?.name, city: n.payload?.city },
+                            });
                             await marcarLido(n);
                             setBellOpen(false);
                             router.push("/vendas");

@@ -7,6 +7,7 @@ export type RadarSearchStrategy = {
   targetCards: number;
   allowSecondaryProviders: boolean;
   allowAsyncSocial: boolean;
+  allowLightCrawl: boolean;
   maxProviderRounds: number;
   reason: string;
 };
@@ -14,13 +15,16 @@ export type RadarSearchStrategy = {
 @Injectable()
 export class RadarSearchStrategyService {
   resolve(input: NormalizedSearchInput, _context: { purpose?: string | null } = {}): RadarSearchStrategy {
-    // Estratégias válidas pertencem exclusivamente às buscas solicitadas por clientes.
+    // Modo `night_factory` REMOVIDO (F0, 02/07): a fábrica de descoberta autônoma foi demolida.
+    // Nenhum purpose factory/mass_data/campaign produz mais estratégia — os callers viviam nos
+    // mixins mass-data/campaign-planner/factory-admin, já deletados. Rotas de cliente: fast/quality/deep.
     if (input.freshness === 'live') {
       return {
         mode: 'quality',
         targetCards: input.quantity,
         allowSecondaryProviders: true,
-        allowAsyncSocial: false,
+        allowAsyncSocial: true,
+        allowLightCrawl: false,
         maxProviderRounds: 3,
         reason: 'live_prioriza_qualidade_e_atualidade',
       };
@@ -30,7 +34,8 @@ export class RadarSearchStrategyService {
         mode: 'deep',
         targetCards: input.quantity,
         allowSecondaryProviders: true,
-        allowAsyncSocial: false,
+        allowAsyncSocial: true,
+        allowLightCrawl: true,
         maxProviderRounds: 5,
         reason: 'volume_alto_exige_fontes_complementares',
       };
@@ -39,7 +44,8 @@ export class RadarSearchStrategyService {
       mode: 'fast',
       targetCards: input.quantity,
       allowSecondaryProviders: input.engine === 'hbx',
-        allowAsyncSocial: false,
+      allowAsyncSocial: true,
+      allowLightCrawl: false,
       maxProviderRounds: 2,
       reason: 'busca_operacional_prioriza_banco_cache_e_hbx',
     };

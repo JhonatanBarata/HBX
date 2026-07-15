@@ -100,7 +100,7 @@ object HbxMobileBridge {
         executor.execute { syncNow(app, allowBackground = true) }
     }
 
-    /** Heartbeat adicional da operação logística; a fila de Vendas segue na ponte compartilhada. */
+    /** Heartbeat isolado para o flavor Logística, sem consultar a fila de Vendas. */
     fun sendDeviceHeartbeat(context: Context) {
         val app = context.applicationContext
         executor.execute {

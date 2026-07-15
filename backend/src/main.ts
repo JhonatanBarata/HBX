@@ -10,7 +10,7 @@ import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { AllExceptionsFilter } from './common/errors/all-exceptions.filter';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { assertIntegrationSecretKeyConfigured } from './integrations/integration-secrets.service';
-import { isRetiredWebscrapingPath, resolveWebscrapingTarget } from './modules/webscraping-runtime.util';
+import { resolveWebscrapingTarget } from './modules/webscraping-runtime.util';
 
 const DEFAULT_PRODUCTION_ORIGINS = [
   'https://www.hbxsystem.com.br',
@@ -64,11 +64,15 @@ function isWebscrapingProxyPath(url: string | undefined) {
 
   const nativeApiPrefixes = [
     '/webscraping/runtime',
+    '/webscraping/search',
     '/webscraping/web-search',
+    '/webscraping/history',
     '/webscraping/radar',
     '/webscraping/export',
     '/hbx/webscraping/runtime',
+    '/hbx/webscraping/search',
     '/hbx/webscraping/web-search',
+    '/hbx/webscraping/history',
     '/hbx/webscraping/radar',
     '/hbx/webscraping/export',
   ];
@@ -199,14 +203,6 @@ async function bootstrap() {
 
   // Conditional middleware: only proxy if it's not a native API route
   const webscrapingConditionalProxy = (req: Request, res: Response, next: () => void) => {
-    if (isRetiredWebscrapingPath(req.originalUrl || req.url)) {
-      res.status(404).json({
-        code: 'route_removed',
-        message: 'Esta rota foi removida.',
-      });
-      return;
-    }
-
     if (webscrapingTarget.configError) {
       res.status(503).json({
         code: webscrapingTarget.configError.code,
@@ -298,10 +294,6 @@ async function bootstrap() {
   await app.listen(port);
   const httpServer = app.getHttpServer() as Server;
   httpServer.on('upgrade', (req, socket, head) => {
-    if (isRetiredWebscrapingPath(req.url)) {
-      socket.destroy();
-      return;
-    }
     if (!isWebscrapingProxyPath(req.url)) return;
     webscrapingProxy.upgrade(req, socket as Socket, head);
   });

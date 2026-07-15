@@ -15,6 +15,11 @@ const localHostRoot = process.env.OPS_CONTROL_LOCAL_HOST_ROOT || path.resolve(__
 const safeNamePattern = /^[a-zA-Z0-9_.-]+$/;
 const dockerActions = new Set(['start', 'stop', 'restart', 'kill']);
 const opsScopes = new Set(['local', 'vps', 'both']);
+const radarChannels = new Set(['email', 'whatsapp', 'instagram', 'website', 'phone', 'facebook']);
+const emailLabModes = new Set(['email_first', 'public_email_only', 'enrich_missing_email']);
+const emailLabExportFiles = new Set(['batch', 'manifest', 'leads', 'emails']);
+const sensitivePayloadKeyPattern = /(authorization|cookie|jwt|password|secret|token|api[_-]?key|credential|session)/i;
+const heavyPayloadKeyPattern = /(^html$|rawhtml|bodyhtml|pagehtml|htmlcontent|raw_html|page_html)/i;
 const backendLoginCache = new Map();
 
 const sshConfig = {
@@ -202,6 +207,12 @@ function environmentsForScope(scope) {
   return ['localhost', 'vps'];
 }
 
+function normalizeRequiredChannel(value) {
+  const channel = String(value || 'email').trim().toLowerCase();
+  if (!radarChannels.has(channel)) throw createHttpError(400, 'Canal invalido para filtro.');
+  return channel;
+}
+
 function isEnabled(value) {
   return ['1', 'true', 'yes', 'sim', 'on', 'auto'].includes(String(value || '').trim().toLowerCase());
 }
@@ -325,6 +336,282 @@ function clampInteger(value, fallback, min, max) {
   const parsed = Math.trunc(Number(value));
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));
+}
+
+function emailLabLocalConfig() {
+  const baseUrl = String(process.env.OPS_CONTROL_LOCAL_LAB_URL || '').trim();
+  const authToken = String(process.env.OPS_CONTROL_LOCAL_LAB_TOKEN || '').trim();
+  return {
+    baseUrl,
+    authToken,
+    configured: Boolean(baseUrl),
+    urlHost: baseUrl ? redactBackendUrl(baseUrl) : null,
+    missing: baseUrl ? [] : ['OPS_CONTROL_LOCAL_LAB_URL'],
+  };
+}
+
+function backendConfigForVpsImport() {
+  return backendConfigForEnvironment('vps', 'vps');
+}
+
+function emailLabVpsImportStatus() {
+  const status = backendConfigStatusForEnvironment('vps');
+  return {
+    ...status,
+    route: '/webscraping/lead-harvest/import',
+    configured: Boolean(status.effectiveSingleReady),
+    message: status.effectiveSingleReady
+      ? 'Importacao VPS configurada via backend oficial.'
+      : `Configure ${status.missingSpecific?.join(' + ') || 'OPS_CONTROL_VPS_BACKEND_URL e autenticacao operacional'}.`,
+  };
+}
+
+function endpointIdentity(value) {
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    return `${url.protocol}//${url.hostname.toLowerCase()}:${port}`;
+  } catch {
+    return String(value || '').trim().replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function buildEmailLabCoordination(localConfig = emailLabLocalConfig(), vpsConfig = backendConfigForVpsImport()) {
+  const localIdentity = endpointIdentity(localConfig.baseUrl);
+  const vpsIdentity = endpointIdentity(vpsConfig.baseUrl);
+  const sameEndpointBlocked = Boolean(localIdentity && vpsIdentity && localIdentity === vpsIdentity);
+  return {
+    sameEndpointBlocked,
+    message: sameEndpointBlocked
+      ? 'Local Lab e VPS import apontam para o mesmo endpoint. Ajuste as URLs antes de usar Ambos.'
+      : 'Local Lab e VPS import usam endpoints separados.',
+  };
+}
+
+function normalizeEmailLabScope(value) {
+  const scope = String(value || 'local').trim().toLowerCase();
+  if (!opsScopes.has(scope)) throw createHttpError(400, 'Escopo invalido. Use local, vps ou both.');
+  return scope;
+}
+
+function normalizeEmailLabMode(value) {
+  const mode = String(value || 'email_first').trim().toLowerCase();
+  if (!emailLabModes.has(mode)) throw createHttpError(400, 'Modo invalido para Email Lab.');
+  return mode;
+}
+
+function providersForEmailLabMode(mode) {
+  if (mode === 'public_email_only') return ['site_crawl'];
+  if (mode === 'enrich_missing_email') return ['site_crawl', 'directory_probe'];
+  return ['web_query', 'site_crawl'];
+}
+
+function normalizeEmailLabJobPayload(body = {}) {
+  const scope = normalizeEmailLabScope(body.scope || 'local');
+  const state = compactText(body.state, 2).toUpperCase();
+  const city = compactText(body.city, 120);
+  const segment = compactText(body.segment, 180);
+  const mode = normalizeEmailLabMode(body.mode);
+  const targetEmails = clampInteger(body.targetEmails, 50, 1, 10000);
+  const sanitizeUrlList = (arr) => (Array.isArray(arr) ? arr : [])
+    .map((u) => compactText(u, 500)).filter(Boolean).slice(0, 5000);
+  const websites = sanitizeUrlList(body.websites);
+  const candidates = sanitizeUrlList(body.candidates);
+  const hasSeedUrls = websites.length > 0 || candidates.length > 0;
+  // Com URLs explícitas (enriquecer leads do banco) o crawler visita exatamente esses
+  // sites, então UF/cidade/segmento viram opcionais. Sem URLs, o job precisa do escopo.
+  if (!hasSeedUrls) {
+    if (!/^[A-Z]{2}$/.test(state)) throw createHttpError(400, 'Informe o Estado com UF de 2 letras.');
+    if (city.length < 2) throw createHttpError(400, 'Informe a cidade do Email Lab.');
+    if (segment.length < 2) throw createHttpError(400, 'Informe o segmento do Email Lab.');
+  }
+
+  const localTargetEmails = scope === 'both' ? Math.max(1, Math.ceil(targetEmails / 2)) : targetEmails;
+  return {
+    scope,
+    requestedTargetEmails: targetEmails,
+    localTargetEmails,
+    split: scope === 'both'
+      ? { localTargetEmails, vpsImportAfterExport: true }
+      : null,
+    payload: {
+      state,
+      city,
+      segment,
+      targetEmails: localTargetEmails,
+      mode,
+      providers: providersForEmailLabMode(mode),
+      websites,
+      candidates,
+      requestedBy: 'ops-control-email-lab',
+    },
+  };
+}
+
+function normalizeEmailLabExportFile(value) {
+  const file = String(value || 'batch').trim().toLowerCase();
+  if (!emailLabExportFiles.has(file)) throw createHttpError(400, 'Export invalido. Use batch, manifest, leads ou emails.');
+  return file;
+}
+
+function findUnsafePayloadPath(value, pathLabel = '$', depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 8) return null;
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findUnsafePayloadPath(value[index], `${pathLabel}[${index}]`, depth + 1);
+      if (found) return found;
+    }
+    return null;
+  }
+  for (const [key, rawValue] of Object.entries(value)) {
+    const currentPath = `${pathLabel}.${key}`;
+    if (sensitivePayloadKeyPattern.test(key)) return currentPath;
+    if (typeof rawValue === 'string' && heavyPayloadKeyPattern.test(key) && rawValue.length > 5000) return currentPath;
+    const found = findUnsafePayloadPath(rawValue, currentPath, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+function assertSafeEmailLabPayload(value) {
+  const size = Buffer.byteLength(JSON.stringify(value || {}), 'utf8');
+  if (size > 512000) throw createHttpError(413, 'Payload do Email Lab muito grande.');
+  const unsafePath = findUnsafePayloadPath(value);
+  if (unsafePath) throw createHttpError(400, `Payload do Email Lab contem campo nao permitido: ${unsafePath}`);
+}
+
+function buildEmailLabImportPayload(exported, fallback = {}) {
+  const source = exported?.batch && typeof exported.batch === 'object' ? exported.batch : exported || {};
+  const manifest = exported?.manifest && typeof exported.manifest === 'object' ? exported.manifest : {};
+  const leads = Array.isArray(source.leads) ? source.leads : [];
+  const emails = Array.isArray(source.emails) ? source.emails : [];
+  if (!leads.length && !emails.length) throw createHttpError(400, 'Export sem leads ou e-mails para importar.');
+  const batchId = compactText(source.batchId || manifest.batchId || fallback.batchId, 160);
+  if (!batchId) throw createHttpError(400, 'Export sem batchId.');
+  const targetEmails = source.targetEmails ?? manifest.targetEmails ?? fallback.targetEmails;
+  return {
+    schemaVersion: 'lead-harvest.v1',
+    batchId,
+    sourceMode: 'local_lab',
+    sourceName: compactText(source.sourceName || manifest.sourceName || 'HBX Local Lab', 160),
+    createdAt: source.createdAt || manifest.createdAt || new Date().toISOString(),
+    requestedBy: 'ops-control-email-lab',
+    city: compactText(source.city || manifest.city || fallback.city, 120) || null,
+    state: compactText(source.state || manifest.state || fallback.state, 2).toUpperCase() || null,
+    segment: compactText(source.segment || manifest.segment || fallback.segment, 180) || null,
+    targetEmails: targetEmails == null ? null : clampInteger(targetEmails, 0, 0, 10000),
+    providers: Array.isArray(source.providers) ? source.providers : Array.isArray(manifest.providers) ? manifest.providers : [],
+    stats: source.stats || manifest.stats || fallback.stats || {},
+    leads,
+    emails,
+  };
+}
+
+function localLabErrorMessage(data, statusCode) {
+  const message = data?.error || data?.message || `Local Lab respondeu HTTP ${statusCode}.`;
+  return String(message).slice(0, 400);
+}
+
+async function fetchEmailLabLocal(method, route, payload, options = {}) {
+  const config = emailLabLocalConfig();
+  if (!config.configured) throw createHttpError(503, 'Local Lab nao configurado. Configure OPS_CONTROL_LOCAL_LAB_URL.');
+  const headers = { 'Content-Type': 'application/json' };
+  if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
+  const response = await fetch(joinUrl(config.baseUrl, route), {
+    method,
+    headers,
+    body: payload == null ? undefined : JSON.stringify(payload),
+    signal: timeoutSignal(options.timeout || 30000),
+  });
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text ? { message: text.slice(0, 1000) } : null;
+  }
+  if (!response.ok) {
+    throw createHttpError(response.status, localLabErrorMessage(data, response.status));
+  }
+  return {
+    statusCode: response.status,
+    contentType: response.headers.get('content-type') || 'application/json; charset=utf-8',
+    text,
+    data: redactSensitive(data),
+  };
+}
+
+async function fetchEmailLabLocalRaw(method, route, payload, options = {}) {
+  const config = emailLabLocalConfig();
+  if (!config.configured) throw createHttpError(503, 'Local Lab nao configurado. Configure OPS_CONTROL_LOCAL_LAB_URL.');
+  const headers = {};
+  if (payload != null) headers['Content-Type'] = 'application/json';
+  if (config.authToken) headers.Authorization = `Bearer ${config.authToken}`;
+  const response = await fetch(joinUrl(config.baseUrl, route), {
+    method,
+    headers,
+    body: payload == null ? undefined : JSON.stringify(payload),
+    signal: timeoutSignal(options.timeout || 30000),
+  });
+  const text = await response.text();
+  return {
+    ok: response.ok,
+    statusCode: response.status,
+    contentType: response.headers.get('content-type') || 'text/plain; charset=utf-8',
+    text,
+  };
+}
+
+async function collectEmailLabStatus() {
+  const localLab = emailLabLocalConfig();
+  const vpsImport = emailLabVpsImportStatus();
+  const vpsConfig = backendConfigForVpsImport();
+  const coordination = buildEmailLabCoordination(localLab, vpsConfig);
+  const blockers = [];
+  let localAvailable = false;
+  let localMessage = localLab.configured
+    ? 'Local Lab configurado; aguardando health check.'
+    : 'Configure OPS_CONTROL_LOCAL_LAB_URL para habilitar Local Lab.';
+
+  if (localLab.configured) {
+    try {
+      const health = await fetchEmailLabLocal('GET', '/health', null, { timeout: 1500 });
+      localAvailable = Boolean(health.data?.ok);
+      localMessage = localAvailable ? 'Local Lab respondeu ao health check.' : 'Local Lab respondeu sem ok=true.';
+    } catch (error) {
+      localMessage = error.message || 'Local Lab configurado, mas indisponivel.';
+    }
+  }
+
+  if (!localLab.configured) blockers.push('local_lab_not_configured');
+  if (!vpsImport.configured) blockers.push('vps_import_not_configured');
+  if (coordination.sameEndpointBlocked) blockers.push('same_endpoint_blocked');
+
+  return {
+    generatedAt: new Date().toISOString(),
+    localLab: {
+      configured: localLab.configured,
+      available: localAvailable,
+      urlHost: localLab.urlHost,
+      missing: localLab.missing,
+      message: localMessage,
+    },
+    vpsImport: {
+      configured: vpsImport.configured,
+      effectiveSingleReady: vpsImport.effectiveSingleReady,
+      specificReady: vpsImport.specificReady,
+      commonFallbackReady: vpsImport.commonFallbackReady,
+      authMode: vpsImport.authMode,
+      fallbackAuthMode: vpsImport.fallbackAuthMode,
+      urlHost: vpsImport.urlHost,
+      route: vpsImport.route,
+      missingSpecific: vpsImport.missingSpecific,
+      message: vpsImport.message,
+    },
+    coordination,
+    blockers,
+  };
 }
 
 function backendHasAuth(config) {
@@ -492,8 +779,297 @@ async function callBackendForEnvironment(environment, scope, method, route, payl
   }
 }
 
-async function runScopedBackendAction(scope, method, route, payloadFactory) {
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function collectBackendFactoryStatuses(scope) {
+  const results = await Promise.all(environmentsForScope(scope).map((environment) => (
+    callBackendForEnvironment(environment, scope, 'GET', '/modules/owner/radar/factory-status')
+  )));
+  return {
+    results,
+    statuses: Object.fromEntries(results.map((item) => [item.environment, item.ok ? item.data : null])),
+  };
+}
+
+function normalizeCoordinationValue(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeCoordinationTargetType(value) {
+  const targetType = String(value || 'pj').trim().toLowerCase();
+  return ['pj', 'pf', 'both'].includes(targetType) ? targetType : 'pj';
+}
+
+function targetTypesOverlap(left, right) {
+  const a = normalizeCoordinationTargetType(left);
+  const b = normalizeCoordinationTargetType(right);
+  return a === b || a === 'both' || b === 'both';
+}
+
+function buildMissionCandidate(environment, kind, source, input = {}) {
+  const city = String(input.city || input.currentCity || '').trim();
+  const segment = String(input.segment || input.currentSegment || '').trim();
+  if (!city || !segment) return null;
+  const state = String(input.state || input.currentState || '').trim().toUpperCase();
+  const targetType = normalizeCoordinationTargetType(input.targetType || input.currentTargetType);
+  const normalized = {
+    state: normalizeCoordinationValue(state),
+    city: normalizeCoordinationValue(city),
+    segment: normalizeCoordinationValue(segment),
+    targetType,
+  };
+  return {
+    environment,
+    kind,
+    source,
+    id: input.id || input.campaignId || input.lastCampaignId || null,
+    status: input.status || null,
+    state: state || null,
+    city,
+    segment,
+    targetType,
+    query: input.query || input.lastQueryUsed || null,
+    normalized,
+    label: `${city}${state ? `/${state}` : ''} - ${segment} - ${targetType}`,
+  };
+}
+
+function lockedUntilActive(value) {
+  const parsed = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(parsed) && parsed >= Date.now();
+}
+
+function pickActiveTask(environment, tasks = []) {
+  const scored = tasks
+    .map((task) => {
+      const status = String(task?.status || '').toLowerCase();
+      const locked = lockedUntilActive(task?.lockedUntil);
+      const score = status === 'running' || locked ? 0 : status === 'queued' ? 1 : 9;
+      return { task, score };
+    })
+    .filter((item) => item.score < 9)
+    .sort((a, b) => a.score - b.score);
+  const selected = scored[0]?.task;
+  return selected ? buildMissionCandidate(environment, 'active', 'task', selected) : null;
+}
+
+function pickActiveCampaign(environment, campaigns = []) {
+  const active = campaigns.find((campaign) => ['running', 'queued', 'sleeping', 'partial_error'].includes(String(campaign?.status || '').toLowerCase()));
+  return active ? buildMissionCandidate(environment, 'active', 'campaign', active) : null;
+}
+
+function buildEnvironmentCoordination(environment, audit = {}, factoryStatus = null) {
+  const active = pickActiveTask(environment, audit.activeTasks || [])
+    || pickActiveCampaign(environment, factoryStatus?.activeCampaigns || [])
+    || pickActiveCampaign(environment, audit.activeCampaigns || []);
+  const current = buildMissionCandidate(environment, 'current', 'factory-status-current', factoryStatus?.currentMission || {})
+    || buildMissionCandidate(environment, 'current', 'factory-cursor-current', audit.factoryCursor || {});
+  const next = buildMissionCandidate(environment, 'next', 'factory-status-next', factoryStatus?.nextMission || {})
+    || buildMissionCandidate(environment, 'next', 'factory-cursor-current', audit.factoryCursor || {});
+  return {
+    available: audit.available !== false,
+    active,
+    current,
+    next,
+  };
+}
+
+function candidatesOverlap(left, right) {
+  if (!left || !right) return false;
+  if (!left.normalized?.city || !left.normalized?.segment || !right.normalized?.city || !right.normalized?.segment) return false;
+  const sameCity = left.normalized.city === right.normalized.city;
+  const sameSegment = left.normalized.segment === right.normalized.segment;
+  const sameState = !left.normalized.state || !right.normalized.state || left.normalized.state === right.normalized.state;
+  return sameCity && sameSegment && sameState && targetTypesOverlap(left.targetType, right.targetType);
+}
+
+function coordinationKindLabel(kind) {
+  return {
+    active: 'trabalho ativo',
+    current: 'missao atual',
+    next: 'proxima missao',
+  }[kind] || kind || 'missao';
+}
+
+function buildCoordinationConflict(localCandidate, vpsCandidate) {
+  const activeActive = localCandidate.kind === 'active' && vpsCandidate.kind === 'active';
+  const severity = activeActive ? 'blocked' : 'attention';
+  const city = localCandidate.city || vpsCandidate.city || '-';
+  const state = localCandidate.state || vpsCandidate.state || '';
+  const segment = localCandidate.segment || vpsCandidate.segment || '-';
+  return {
+    type: `${localCandidate.kind}_${vpsCandidate.kind}`,
+    severity,
+    key: [
+      normalizeCoordinationValue(state),
+      normalizeCoordinationValue(city),
+      normalizeCoordinationValue(segment),
+      normalizeCoordinationTargetType(localCandidate.targetType),
+      normalizeCoordinationTargetType(vpsCandidate.targetType),
+    ].join('|'),
+    message: `${coordinationKindLabel(localCandidate.kind)} LOCAL e ${coordinationKindLabel(vpsCandidate.kind)} VPS apontam para ${city}${state ? `/${state}` : ''} - ${segment}.`,
+    local: localCandidate,
+    vps: vpsCandidate,
+  };
+}
+
+function buildRadarCoordination(environments = {}, factoryStatuses = {}) {
+  const local = buildEnvironmentCoordination('localhost', environments.localhost || {}, factoryStatuses.localhost);
+  const vps = buildEnvironmentCoordination('vps', environments.vps || {}, factoryStatuses.vps);
+  const pairs = [
+    [local.active, vps.active],
+    [local.active, vps.next],
+    [local.next, vps.active],
+    [local.next, vps.next],
+  ];
+  const seen = new Set();
+  const conflicts = [];
+
+  for (const [localCandidate, vpsCandidate] of pairs) {
+    if (!candidatesOverlap(localCandidate, vpsCandidate)) continue;
+    const conflict = buildCoordinationConflict(localCandidate, vpsCandidate);
+    const dedupeKey = `${conflict.type}:${conflict.key}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    conflicts.push(conflict);
+  }
+
+  const status = conflicts.some((item) => item.severity === 'blocked')
+    ? 'blocked'
+    : conflicts.length
+      ? 'attention'
+      : 'ok';
+
+  return {
+    generatedAt: new Date().toISOString(),
+    status,
+    summary: status === 'ok'
+      ? 'Local e VPS estao em missoes diferentes.'
+      : status === 'blocked'
+        ? 'Local e VPS ja estao no mesmo trabalho ativo; nao iniciar ambos ate separar.'
+        : 'Ha risco de duplicidade na proxima missao; o Ops Control deve avancar um lado antes de iniciar ambos.',
+    environments: {
+      localhost: local,
+      vps,
+    },
+    conflicts,
+  };
+}
+
+function chooseCoordinationAdvanceEnvironment(coordination) {
+  const conflict = coordination?.conflicts?.find((item) => item.severity !== 'blocked') || null;
+  if (!conflict) return 'vps';
+  if (conflict.local?.kind === 'active' && conflict.vps?.kind !== 'active') return 'vps';
+  if (conflict.vps?.kind === 'active' && conflict.local?.kind !== 'active') return 'localhost';
+  return 'vps';
+}
+
+async function collectCoordinationSnapshot(scope = 'both') {
+  const cockpit = await collectRadarCockpit();
+  const factory = await collectBackendFactoryStatuses(scope);
+  return {
+    cockpitGeneratedAt: cockpit.generatedAt,
+    backendStatusResults: factory.results,
+    coordination: buildRadarCoordination(cockpit.environments, factory.statuses),
+  };
+}
+
+async function coordinateBothBeforeRun(reason) {
+  const before = await collectCoordinationSnapshot('both');
+  const blockedConflict = before.coordination.conflicts.find((item) => item.severity === 'blocked');
+  if (blockedConflict) {
+    return {
+      status: 'blocked',
+      blocked: true,
+      reason: 'duplicate_active_work',
+      message: blockedConflict.message,
+      before: before.coordination,
+      after: before.coordination,
+      actions: [],
+    };
+  }
+  if (!before.coordination.conflicts.length) {
+    return {
+      status: 'ok',
+      blocked: false,
+      reason: 'no_conflict',
+      message: 'Local e VPS sem colisao de cidade/segmento/tarefa.',
+      before: before.coordination,
+      after: before.coordination,
+      actions: [],
+    };
+  }
+
+  const environment = chooseCoordinationAdvanceEnvironment(before.coordination);
+  const advance = await callBackendForEnvironment(environment, 'both', 'POST', '/modules/owner/radar/factory/force-next');
+  const actions = [{
+    type: 'force-next',
+    environment,
+    reason,
+    ok: advance.ok,
+    skipped: Boolean(advance.skipped),
+    statusCode: advance.statusCode || null,
+    message: advance.reason || advance.error || null,
+  }];
+
+  if (!advance.ok) {
+    return {
+      status: 'blocked',
+      blocked: true,
+      reason: 'coordination_advance_failed',
+      message: advance.reason || advance.error || 'Nao foi possivel avancar a missao duplicada.',
+      before: before.coordination,
+      after: before.coordination,
+      actions,
+    };
+  }
+
+  await sleep(500);
+  const after = await collectCoordinationSnapshot('both');
+  if (after.coordination.conflicts.length) {
+    return {
+      status: 'blocked',
+      blocked: true,
+      reason: 'duplicate_risk_after_advance',
+      message: after.coordination.summary,
+      before: before.coordination,
+      after: after.coordination,
+      actions,
+    };
+  }
+
+  return {
+    status: 'ok',
+    blocked: false,
+    reason: 'advanced_duplicate_mission',
+    message: `${environmentLabel(environment)} avancou para a proxima missao antes de iniciar ambos.`,
+    before: before.coordination,
+    after: after.coordination,
+    actions,
+  };
+}
+
+async function runScopedBackendAction(scope, method, route, payloadFactory, options = {}) {
+  const coordination = options.coordinateBoth && scope === 'both'
+    ? await coordinateBothBeforeRun(options.reason || route)
+    : null;
   const environments = environmentsForScope(scope);
+  if (coordination?.blocked) {
+    return {
+      ok: false,
+      scope,
+      environments,
+      results: [],
+      coordination,
+    };
+  }
   const results = await Promise.all(environments.map((environment) => (
     callBackendForEnvironment(environment, scope, method, route, payloadFactory(environment))
   )));
@@ -502,6 +1078,19 @@ async function runScopedBackendAction(scope, method, route, payloadFactory) {
     scope,
     environments,
     results,
+    coordination,
+  };
+}
+
+function buildTurboPayload(extra = {}) {
+  return {
+    enabled: true,
+    forceNow: true,
+    intensity: 'turbo',
+    timezone: 'America/Sao_Paulo',
+    autonomousFillEnabled: true,
+    forcedUntil: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+    ...extra,
   };
 }
 
@@ -785,7 +1374,7 @@ function stripAnsi(value) {
 
 function summarizeLogSignals(logText) {
   const lines = String(logText || '').split('\n').map(stripAnsi).filter(Boolean);
-  const interesting = lines.filter((line) => /radar|webscraping|blocked|bloque|acesso|vendas|engine|motor|duplicate|duplicado|negative|negativ|denied|failed|erro|error/i.test(line));
+  const interesting = lines.filter((line) => /radar|webscraping|quota|limit|blocked|bloque|entitlement|vendas|engine|motor|duplicate|duplicado|negative|negativ|denied|denied|failed|erro|error/i.test(line));
   const socialLines = lines.filter((line) => /radar-social|social|instagram|facebook|enrichment|enriquec/i.test(line)).slice(-60);
   const last = interesting.slice(-80);
   const blockers = [];
@@ -794,7 +1383,8 @@ function summarizeLogSignals(logText) {
   };
 
   for (const line of last) {
-    if (/role_blocked|403|unauthorized|forbidden/i.test(line)) addBlocker('acesso', 'Backend indicou bloqueio de acesso ou autorização.');
+    if (/quota|limit|daily|card_limit|vendas_card_limit|vendas_stock_limit/i.test(line)) addBlocker('quota', 'Backend indicou limite, quota ou estoque comercial.');
+    if (/entitlement|plano|plan|role_blocked|403|unauthorized|forbidden/i.test(line)) addBlocker('acesso', 'Backend indicou bloqueio de plano, permissao ou autorizacao.');
     if (/duplicate|duplicado/i.test(line)) addBlocker('duplicado', 'Resultados foram recusados por duplicidade.');
     if (/negative|negativ|denied|blocked|bloque|do_not_contact|opt_out/i.test(line)) addBlocker('negativo', 'Lead ou empresa caiu em regra negativa/bloqueada.');
     if (/motor HBX falhou|todos os motores tentados falharam|engine.*failed|timeout|ECONN|ENOTFOUND|offline/i.test(line)) addBlocker('motor', 'Motor HBX falhou, ficou offline ou estourou tempo.');
@@ -816,10 +1406,17 @@ function inferDatabaseBlockers(dbAudit) {
   const runs = dbAudit?.data?.recentRuns || [];
   for (const run of runs.slice(0, 8)) {
     const status = String(run?.status || '').toLowerCase();
+    const batch = String(run?.lastBatchStatus || '').toLowerCase();
+    const error = String(run?.errorMessage || run?.lastBatchError || '').toLowerCase();
     if (status === 'failed') addBlocker({ kind: 'motor', message: `Busca falhou: ${run.errorMessage || run.lastBatchError || 'sem detalhe'}` });
+    if (batch.includes('vendas_stock_limit') || batch.includes('card_limit') || error.includes('vendas ja esta') || error.includes('vendas já está')) {
+      addBlocker(buildRunImportExplanation(run));
+    }
+    if (error.includes('quota') || error.includes('limite') || error.includes('limit')) addBlocker({ kind: 'quota', message: run.errorMessage || 'Backend indicou limite comercial.' });
     if (Number(run?.duplicateCount || 0) > 0) addBlocker({ kind: 'duplicado', message: `Busca teve ${run.duplicateCount} duplicado(s) recusado(s).` });
     if (Number(run?.skippedCount || 0) > 0) addBlocker({ kind: 'negativo', message: `Busca teve ${run.skippedCount} item(ns) pulado(s) por regra de qualidade ou bloqueio.` });
   }
+  if (Number(dbAudit?.data?.blocked24h || 0) > 0) addBlocker({ kind: 'quota', message: `${dbAudit.data.blocked24h} bloqueio(s) registrado(s) no WebscrapingUsageLog em 24h.` });
   if (Number(dbAudit?.data?.negativeStates || 0) > 0) addBlocker({ kind: 'negativo', message: `${dbAudit.data.negativeStates} estado(s) negativo(s) preservados no Radar.` });
   return blockers.slice(0, 8);
 }
@@ -870,7 +1467,7 @@ function buildRunImportExplanation(run) {
   }
 
   return {
-    kind: 'importacao',
+    kind: 'quota',
     title: 'Conta da importacao',
     message: targetMessage
       ? `Nao parece que negou ${notImported}; importou ${imported} e parou porque Vendas ja estava em ${targetMessage.current}/${targetMessage.target}.`
@@ -963,6 +1560,35 @@ SELECT json_build_object(
     ORDER BY "createdAt" DESC
     LIMIT 8
   ) t), '[]'::json),
+  'activeCampaigns', COALESCE((SELECT json_agg(row_to_json(c)) FROM (
+    SELECT id,status,mode,city,state,segment,"targetType","targetTotal","batchSize","foundCount","approvedCount","duplicateCount","rejectedCount","currentAttempt","lastQueryUsed","lastEngineUrl","lastErrorMessage","nextRunAt","startedAt","updatedAt"
+    FROM "WebscrapingCampaign"
+    WHERE status IN ('queued','running','sleeping','partial_error')
+    ORDER BY "updatedAt" DESC
+    LIMIT 8
+  ) c), '[]'::json),
+  'activeTasks', COALESCE((SELECT json_agg(row_to_json(tk)) FROM (
+    SELECT task.id,task."campaignId",task.status,task.state,task.city,task.segment,task."targetType",task.query,task."attemptCount",task."foundCount",task."duplicateCount",task."rejectedCount",task."lastError",task."lockedByEngineId",task."lockedUntil",task."startedAt",task."updatedAt",campaign.mode AS "campaignMode",campaign.status AS "campaignStatus"
+    FROM "WebscrapingCampaignTask" task
+    JOIN "WebscrapingCampaign" campaign ON campaign.id = task."campaignId"
+    WHERE task.status IN ('queued','running','failed') OR task."lockedUntil" >= now()
+    ORDER BY
+      CASE WHEN task.status = 'running' THEN 0 WHEN task.status = 'queued' THEN 1 ELSE 2 END,
+      task."updatedAt" DESC
+    LIMIT 12
+  ) tk), '[]'::json),
+  'recentBatches', COALESCE((SELECT json_agg(row_to_json(b)) FROM (
+    SELECT batch.id,batch."campaignId",batch."taskId",batch.status,batch."attemptNumber",batch."engineId",batch."engineUrl",batch."queryUsed",batch."batchSize",batch."fetchedUrlCount",batch."parsedCount",batch."approvedCount",batch."duplicateCount",batch."rejectedCount",batch."errorMessage",batch."startedAt",batch."finishedAt",batch."createdAt"
+    FROM "WebscrapingCampaignBatch" batch
+    ORDER BY batch."createdAt" DESC
+    LIMIT 8
+  ) b), '[]'::json),
+  'factoryCursor', COALESCE((SELECT row_to_json(fc) FROM (
+    SELECT status,"forcedOn","currentState","currentCity","currentSegment","currentTargetType","lastCampaignId","lastRunId","lastSavedCount","lastDuplicateCount","lastRejectedCount","consecutiveEmptyCount","consecutiveFailureCount","lastError","reasonStopped","lastWorkedAt","nextRunAt","updatedAt"
+    FROM "RadarFactoryCursor"
+    WHERE key = 'main'
+    LIMIT 1
+  ) fc), '{}'::json),
   'leadStock', COALESCE((SELECT json_build_object(
     'total24h', count(*) FILTER (WHERE "createdAt" >= now() - interval '24 hours')::int,
     'withEmail24h', count(*) FILTER (WHERE "createdAt" >= now() - interval '24 hours' AND COALESCE(email, '') <> '' AND COALESCE("emailStatus", '') NOT IN ('missing','invalid'))::int,
@@ -1067,28 +1693,81 @@ function buildHumanDecision(input) {
   if (!motorRunning) return 'Sem motor rodando: o backend pode receber a busca, mas nao tem executor para pesquisar.';
   if (latestRun?.status === 'failed') return 'Ultima busca falhou: verifique erro do run, motor atribuido e logs do backend.';
   if (latestRun?.errorMessage) return `Backend decidiu parar: ${latestRun.errorMessage}`;
+  if (Number(dbAudit?.data?.blocked24h || 0) > 0) return 'Existem bloqueios nas ultimas 24h: olhar quota/plano/permissao antes de culpar o motor.';
   if (blockers.some((item) => item.kind === 'motor')) return 'Logs ou banco indicam falha de motor: o backend tentou acionar, mas a execucao quebrou.';
-  if (blockers.some((item) => ['acesso', 'negativo', 'duplicado'].includes(item.kind))) return 'Backend esta barrando por regra de negocio: motor nao e o principal suspeito.';
+  if (blockers.some((item) => ['quota', 'acesso', 'negativo', 'duplicado'].includes(item.kind))) return 'Backend esta barrando por regra de negocio: motor nao e o principal suspeito.';
   return 'Sem bloqueio critico detectado agora. Use o diagnostico se uma busca especifica barrar.';
 }
 
 function buildWorkingNow(data) {
-  const activeRun = (data?.recentRuns || []).find((item) => ['queued', 'running'].includes(String(item?.status || '').toLowerCase()));
-  if (activeRun) {
+  const activeTasks = data?.activeTasks || [];
+  const activeCampaigns = data?.activeCampaigns || [];
+  const recentBatches = data?.recentBatches || [];
+  const factory = data?.factoryCursor || {};
+  const runningTask = activeTasks.find((item) => String(item?.status || '').toLowerCase() === 'running');
+  const lockedTask = activeTasks.find((item) => item?.lockedByEngineId);
+  const runningCampaign = activeCampaigns.find((item) => ['running', 'sleeping', 'queued', 'partial_error'].includes(String(item?.status || '').toLowerCase()));
+  const latestBatch = recentBatches[0] || null;
+
+  if (runningTask) {
     return {
-      kind: 'search_run',
-      title: `${activeRun.city || '-'} / ${activeRun.segment || '-'}`,
-      subtitle: `${activeRun.state || '-'} - ${activeRun.assignedEngineId || 'aguardando motor'}`,
-      status: activeRun.status || 'running',
-      query: activeRun.lastQueryUsed || null,
-      updatedAt: activeRun.updatedAt || activeRun.createdAt || null,
+      kind: 'task',
+      title: `${runningTask.city || '-'} / ${runningTask.segment || '-'}`,
+      subtitle: `${runningTask.state || '-'} - ${runningTask.targetType || 'pj'} - ${runningTask.lockedByEngineId || 'motor ainda nao fixado'}`,
+      status: runningTask.status || 'running',
+      query: runningTask.query || null,
+      updatedAt: runningTask.updatedAt || runningTask.startedAt || null,
+    };
+  }
+
+  if (lockedTask) {
+    return {
+      kind: 'locked_task',
+      title: `${lockedTask.city || '-'} / ${lockedTask.segment || '-'}`,
+      subtitle: `${lockedTask.state || '-'} - reservado por ${lockedTask.lockedByEngineId}`,
+      status: lockedTask.status || 'locked',
+      query: lockedTask.query || null,
+      updatedAt: lockedTask.updatedAt || lockedTask.lockedUntil || null,
+    };
+  }
+
+  if (runningCampaign) {
+    return {
+      kind: 'campaign',
+      title: `${runningCampaign.city || '-'} / ${runningCampaign.segment || '-'}`,
+      subtitle: `${runningCampaign.mode || 'campanha'} - ${runningCampaign.approvedCount || 0}/${runningCampaign.targetTotal || 0} aprovados`,
+      status: runningCampaign.status || 'running',
+      query: runningCampaign.lastQueryUsed || null,
+      updatedAt: runningCampaign.updatedAt || runningCampaign.startedAt || null,
+    };
+  }
+
+  if (factory?.currentCity || factory?.currentSegment) {
+    return {
+      kind: 'factory',
+      title: `${factory.currentCity || '-'} / ${factory.currentSegment || '-'}`,
+      subtitle: `${factory.currentState || '-'} - fabrica ${factory.status || 'idle'}`,
+      status: factory.status || 'idle',
+      query: null,
+      updatedAt: factory.lastWorkedAt || factory.updatedAt || null,
+    };
+  }
+
+  if (latestBatch) {
+    return {
+      kind: 'batch',
+      title: latestBatch.queryUsed || 'Ultimo lote',
+      subtitle: `${latestBatch.status || '-'} - motor ${latestBatch.engineId || '-'}`,
+      status: latestBatch.status || 'recent',
+      query: latestBatch.queryUsed || null,
+      updatedAt: latestBatch.createdAt || latestBatch.startedAt || null,
     };
   }
 
   return {
     kind: 'idle',
     title: 'Sem scraping ativo detectado',
-    subtitle: 'Nenhuma pesquisa solicitada por cliente esta rodando agora.',
+    subtitle: 'Nenhuma tarefa/campanha rodando no banco agora.',
     status: 'idle',
     query: null,
     updatedAt: null,
@@ -1192,6 +1871,10 @@ async function collectRadarAudit(environment) {
     },
     latestRun,
     recentRuns: dbAudit?.data?.recentRuns || [],
+    activeCampaigns: dbAudit?.data?.activeCampaigns || [],
+    activeTasks: dbAudit?.data?.activeTasks || [],
+    recentBatches: dbAudit?.data?.recentBatches || [],
+    factoryCursor: dbAudit?.data?.factoryCursor || {},
     leadStock: dbAudit?.data?.leadStock || {},
     workingNow: buildWorkingNow(dbAudit?.data || {}),
     runBreakdowns,
@@ -1242,6 +1925,7 @@ async function collectRadarCockpit() {
       vps,
     },
     backendConfig: buildBackendConfigStatus(),
+    coordination: buildRadarCoordination({ localhost, vps }),
   };
 }
 
@@ -1359,6 +2043,70 @@ app.get('/api/radar-audit/:environment', async (req, res) => {
   }
 });
 
+app.post('/api/opscontrol/turbo', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const requiredChannel = req.body?.requiredChannel ? normalizeRequiredChannel(req.body.requiredChannel) : null;
+    const channelFilterPayload = requiredChannel
+      ? {
+          requiredChannels: [requiredChannel],
+          channelMatchMode: 'all_required',
+          freshness: 'live',
+        }
+      : {};
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/owner/radar/turbo-noturno/force-now',
+      () => buildTurboPayload(channelFilterPayload),
+      { coordinateBoth: true, reason: 'turbo' },
+    );
+    res.json({
+      action: 'turbo',
+      message: requiredChannel
+        ? 'Turbo com filtro solicitado no backend configurado.'
+        : 'Turbo solicitado no backend configurado.',
+      requestedFilter: requiredChannel ? channelFilterPayload : null,
+      filterForwarded: Boolean(requiredChannel),
+      ...result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao solicitar turbo.' });
+  }
+});
+
+app.post('/api/opscontrol/force-filter', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const requiredChannel = normalizeRequiredChannel(req.body?.requiredChannel);
+    const result = await runScopedBackendAction(
+      scope,
+      'POST',
+      '/modules/owner/radar/turbo-noturno/force-now',
+      () => buildTurboPayload({
+        requiredChannels: [requiredChannel],
+        channelMatchMode: 'all_required',
+        freshness: 'live',
+      }),
+      { coordinateBoth: true, reason: 'force-filter' },
+    );
+    res.json({
+      action: 'force-filter',
+      message: 'Filtro solicitado no cockpit; hard filter encaminhado ao backend.',
+      requestedFilter: {
+        requiredChannels: [requiredChannel],
+        channelMatchMode: 'all_required',
+        freshness: 'live',
+      },
+      filterForwarded: true,
+      filterReason: 'backend_hard_filter_enabled_step_6',
+      ...result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao solicitar filtro.' });
+  }
+});
+
 app.post('/api/opscontrol/cancel', async (req, res) => {
   try {
     const scope = normalizeOpsScope(req.body?.scope);
@@ -1381,7 +2129,7 @@ app.post('/api/opscontrol/cancel', async (req, res) => {
 
 // --- Elasticidade pura (25/06) — único controle de frota exposto ao painel Owner ---
 // Cada rota recebe {scope} e proxia para o backend via runScopedBackendAction, o mesmo
-// padrão de /api/opscontrol/cancel.
+// padrão de /api/opscontrol/turbo e /api/opscontrol/cancel.
 
 app.post('/api/opscontrol/elastic/enable', async (req, res) => {
   try {
@@ -1430,7 +2178,7 @@ app.post('/api/opscontrol/elastic/stop-all', async (req, res) => {
 
 // Estado REAL da frota (read-only) do backend configurado — mesma verdade que a coluna LOCAL
 // já lê de /webscraping/engines/status, agora exposta para a coluna VPS do HBX Owner. Sem isso o
-// painel adivinhava a elasticidade por heurística e mentia o estado.
+// painel adivinhava a elasticidade por heurística (fábrica∧motores>0) e mentia o estado.
 app.get('/api/opscontrol/engines/status', async (req, res) => {
   try {
     const scope = normalizeOpsScope(req.query?.scope || 'vps');
@@ -1452,6 +2200,8 @@ app.get('/api/opscontrol/engines/status', async (req, res) => {
   }
 });
 
+// Fábrica de leads — ligar/desligar DE VERDADE (emergencyStop durável) no backend configurado.
+// Espelha o que a coluna LOCAL faz direto no backend; aqui escoped (vps/local/both) via Ops Control.
 // Presença das chaves de API no backend RODANDO na VPS (docker exec printenv → verdade de produção).
 // Devolve só bool por chave — NUNCA o valor. Usado pela coluna VPS do painel Owner.
 app.get('/api/opscontrol/env-presence', async (req, res) => {
@@ -1493,8 +2243,40 @@ app.post('/api/opscontrol/env-set', async (req, res) => {
   res.json({ ok: true, key, recreated: true });
 });
 
+app.post('/api/opscontrol/factory/stop', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(scope, 'POST', '/modules/owner/radar/factory/stop', () => ({}));
+    res.json({ action: 'factory/stop', message: 'Fábrica de leads parada no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao parar a fábrica.' });
+  }
+});
+
+app.post('/api/opscontrol/factory/resume', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(scope, 'POST', '/modules/owner/radar/factory/resume-schedule', () => ({}));
+    res.json({ action: 'factory/resume', message: 'Fábrica de leads religada no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao religar a fábrica.' });
+  }
+});
+
+// Limpa a FILA MORTA da fábrica (rota sancionada do app — nunca SQL cru). Apaga tarefas que nunca
+// rodaram + exaure as que deram 0; o pump reabastece com combo bom. Não para a produção nem mexe em estoque.
+app.post('/api/opscontrol/factory/purge-dead-queue', async (req, res) => {
+  try {
+    const scope = normalizeOpsScope(req.body?.scope);
+    const result = await runScopedBackendAction(scope, 'POST', '/modules/owner/radar/factory/purge-dead-queue', () => ({}));
+    res.json({ action: 'factory/purge-dead-queue', message: 'Fila morta limpa no backend configurado.', ...result });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao limpar a fila morta.' });
+  }
+});
+
 // Enriquecimento CNPJ→dono (L4/BrasilAPI). Proxia pro backend escoped por scope/auth,
-// mesmo padrao de /api/opscontrol/elastic/*.
+// mesmo padrao de /api/opscontrol/elastic/* e /api/opscontrol/turbo.
 app.post('/api/opscontrol/cnpj-backfill', async (req, res) => {
   try {
     const scope = normalizeOpsScope(req.body?.scope);
@@ -1521,6 +2303,143 @@ app.get('/api/radar-cockpit', async (req, res) => {
     res.json(await collectRadarCockpit());
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao montar cockpit Radar.' });
+  }
+});
+
+app.get('/api/email-lab/status', async (req, res) => {
+  try {
+    res.json(await collectEmailLabStatus());
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar Email Lab.' });
+  }
+});
+
+app.post('/api/email-lab/local/jobs', async (req, res) => {
+  try {
+    const localConfig = emailLabLocalConfig();
+    if (!localConfig.configured) throw createHttpError(503, 'Local Lab nao configurado. Configure OPS_CONTROL_LOCAL_LAB_URL.');
+    const normalized = normalizeEmailLabJobPayload(req.body || {});
+    if (normalized.scope === 'both') {
+      const vpsImport = emailLabVpsImportStatus();
+      const coordination = buildEmailLabCoordination(localConfig, backendConfigForVpsImport());
+      if (!vpsImport.configured) throw createHttpError(503, 'Ambos exige VPS import configurado antes de iniciar.');
+      if (coordination.sameEndpointBlocked) throw createHttpError(409, coordination.message);
+    }
+
+    const created = await fetchEmailLabLocal('POST', '/local-lab/jobs', normalized.payload);
+    res.status(202).json({
+      ok: true,
+      action: 'local-job',
+      scope: normalized.scope,
+      requestedTargetEmails: normalized.requestedTargetEmails,
+      localTargetEmails: normalized.localTargetEmails,
+      split: normalized.split,
+      job: created.data,
+      message: normalized.scope === 'both'
+        ? 'Job Local Lab iniciado com fatia experimental; importe para VPS quando o export estiver pronto.'
+        : 'Job Local Lab iniciado.',
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao iniciar Email Lab local.' });
+  }
+});
+
+app.get('/api/email-lab/local/jobs/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de job invalido.');
+    const result = await fetchEmailLabLocal('GET', `/local-lab/jobs/${encodeURIComponent(id)}`);
+    res.json({ ok: true, job: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar job local.' });
+  }
+});
+
+app.get('/api/email-lab/local/jobs/:id/export', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de job invalido.');
+    const file = normalizeEmailLabExportFile(req.query.file);
+    const route = file === 'batch'
+      ? `/local-lab/jobs/${encodeURIComponent(id)}/export`
+      : `/local-lab/jobs/${encodeURIComponent(id)}/export?file=${encodeURIComponent(file)}`;
+    const exported = await fetchEmailLabLocalRaw('GET', route);
+    if (!exported.ok) {
+      let data = null;
+      try {
+        data = exported.text ? JSON.parse(exported.text) : null;
+      } catch {
+        data = { message: exported.text.slice(0, 400) };
+      }
+      return res.status(exported.statusCode).json({ error: localLabErrorMessage(data, exported.statusCode) });
+    }
+    res.status(exported.statusCode).type(exported.contentType).send(exported.text);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao exportar job local.' });
+  }
+});
+
+app.post('/api/email-lab/local/jobs/:id/cancel', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de job invalido.');
+    const result = await fetchEmailLabLocal('POST', `/local-lab/jobs/${encodeURIComponent(id)}/cancel`, {});
+    res.json({ ok: true, action: 'cancel-local-job', job: result.data, message: 'Cancelamento solicitado no Local Lab.' });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao cancelar job local.' });
+  }
+});
+
+app.post('/api/email-lab/vps/import', async (req, res) => {
+  try {
+    const status = emailLabVpsImportStatus();
+    if (!status.configured) throw createHttpError(503, 'VPS import nao configurado. Configure OPS_CONTROL_VPS_BACKEND_URL e autenticacao operacional.');
+
+    let exported = null;
+    if (req.body?.jobId) {
+      const jobId = String(req.body.jobId || '');
+      if (!validateName(jobId)) throw createHttpError(400, 'ID de job invalido.');
+      const exportResult = await fetchEmailLabLocal('GET', `/local-lab/jobs/${encodeURIComponent(jobId)}/export`, null, { timeout: 30000 });
+      exported = exportResult.data;
+    } else if (req.body?.batch || req.body?.manifest || req.body?.leads || req.body?.emails) {
+      exported = req.body;
+    } else {
+      throw createHttpError(400, 'Informe jobId ou batch para importar na VPS.');
+    }
+
+    assertSafeEmailLabPayload(exported);
+    const importPayload = buildEmailLabImportPayload(exported, req.body || {});
+    assertSafeEmailLabPayload(importPayload);
+    const result = await callBackendForEnvironment('vps', 'vps', 'POST', '/webscraping/lead-harvest/import', importPayload);
+    res.json({
+      ok: Boolean(result.ok),
+      action: 'vps-import',
+      message: result.ok
+        ? 'Importacao enviada ao backend oficial da VPS.'
+        : result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      import: result,
+      batchId: importPayload.batchId,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao importar Email Lab na VPS.' });
+  }
+});
+
+app.get('/api/email-lab/vps/imports/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!validateName(id)) throw createHttpError(400, 'ID de importacao invalido.');
+    const status = emailLabVpsImportStatus();
+    if (!status.configured) throw createHttpError(503, 'VPS import nao configurado.');
+    const result = await callBackendForEnvironment('vps', 'vps', 'GET', `/webscraping/lead-harvest/imports/${encodeURIComponent(id)}`);
+    res.json({
+      ok: Boolean(result.ok),
+      action: 'vps-import-status',
+      message: result.ok ? 'Importacao consultada na VPS.' : result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      import: result,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message || 'Falha ao consultar importacao VPS.' });
   }
 });
 

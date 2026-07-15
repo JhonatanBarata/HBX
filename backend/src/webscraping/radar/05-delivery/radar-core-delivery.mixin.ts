@@ -12,6 +12,10 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   isHbxEngineLocalhostUrl,
+  COMMERCIAL_PLAN_QUOTAS,
+  COMMERCIAL_PLAN_KEYS,
+  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
+  resolveCommercialPlanKeyForCapabilities,
   buildRadarLeadEnrichment,
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
@@ -28,7 +32,12 @@ import {
   RECENT_HISTORY_LIMIT,
   IBGE_CITIES_URL,
   CITY_CACHE_TTL_MS,
+  MASS_DATA_INTERNAL_SEGMENTS,
   ACRE_CITIES_FALLBACK,
+  AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK,
+  AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
+  AUTONOMOUS_MASS_DATA_MAX_TASKS,
+  DEFAULT_MASS_DATA_ENGINE_URLS,
   TURBO_OPERATIONAL_CONFIG_KEY,
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
@@ -78,6 +87,7 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
+  isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
   maxQuantityFor,
@@ -89,10 +99,17 @@ import {
 } from '../radar-core-method-imports';
 import { incrementAffinity } from '../../../users/segment-affinity.util';
 import { isBillingOwnerActor } from '../../../access/actor-kind';
-import { extractCnpjFromRadarLead } from '../../../nucleo/nucleo-ingestao';
-import { WebsiteCrawlProviderService } from '../providers/website-crawl/website-crawl-provider.service';
+import {
+  extractCnpjFromRadarLead,
+  materializeNucleoFromRadarLead as materializeNucleoIngestaoFromRadarLead,
+  nucleoIngestaoEnabled,
+} from '../../../nucleo/nucleo-ingestao';
 
 import type {
+  AutonomousMassDataCandidate,
+  AutonomousMassDataStrategyMode,
+  AutonomousMassDataWork,
+  AutonomousMassDataWorkReason,
   ExternalRuntimeStatus,
   GlobalCacheRow,
   HbxBatchStatus,
@@ -109,6 +126,7 @@ import type {
   LeadQualityStatus,
   LeadQualityV2,
   LeadQualityV2SalesProfile,
+  MasterMassDataCampaignInput,
   NativeRuntimeDiagnostic,
   NormalizedRadarFilters,
   NormalizedSearchInput,
@@ -391,11 +409,125 @@ export class RadarCoreDeliveryMixin {
     // LIMPEZA-DESTRUTIVA L1 (04/07): o run NUNCA reivindica pro funil, pra NENHUM papel
     // (inclusive USERMASTER/admin/master). Este método só enche a vitrine (pool com
     // ownerCompanyId=null) — o funil só recebe card por PUXADA MANUAL
-    // (send-to-vendas). Ver docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md.
+    // (send-to-vendas / mark-sent-to-vendas). Ver docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md.
   }
 
-  // A busca e gratuita e mascarada. Limites comerciais e capacidade do vendedor
-  // pertencem exclusivamente a puxada debitada; nunca pausam nem reduzem a descoberta.
+  // LIMPEZA-DESTRUTIVA L2 (04/07, docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md):
+  // `getRadarSellerQuotaForContext`/`isRadarSellerUserId`/`getVendasPendingCountForRadarContext`/
+  // `getRadarRunVendasStockTarget` (o gate de estoque do Vendas) foram deletados — a busca
+  // nunca mais pausa/para em função de quantos cards estão pendentes no funil. O único freio
+  // de quantidade que sobra é a cota comercial da EMPRESA (CommercialUsageLimitsService,
+  // decidida pelo Master) — verificada em startRadarSearchRunForUser via quotaBlocked.
+
+  private getRadarLimitPauseRetryDelayMs(reason?: string | null) {
+    return this.getRadarVendasSyncService().getLimitPauseRetryDelayMs(reason);
+  }
+
+  private isSearchRunPausedByLimit(run: any) {
+    return this.getRadarVendasSyncService().isSearchRunPausedByLimit(
+      run,
+      (status) => this.normalizeSearchRunStatus(status),
+    );
+  }
+
+  private async getRadarCardQuotaRemaining(companyId: number, userId: number) {
+    if (!this.commercialUsageLimits) return Number.POSITIVE_INFINITY;
+    const usage = await this.commercialUsageLimits.getUsageSnapshot(companyId, userId).catch(() => null);
+    const cardLimits = usage ? (usage as any).cards || {} : {};
+    const values = [
+      Number(cardLimits.remaining),
+      cardLimits.perUserLimit != null
+        ? Number(cardLimits.userLimit || 0) - Number(cardLimits.userUsed || 0)
+        : Number(cardLimits.remaining),
+    ].filter((value) => Number.isFinite(value));
+    if (!values.length) return Number.POSITIVE_INFINITY;
+    return Math.min(...values);
+  }
+
+  private async canResumePausedSearchRun(run: any) {
+    if (!this.isSearchRunPausedByLimit(run)) return false;
+    const companyId = safeInteger(run?.companyId);
+    const userId = safeInteger(run?.userId);
+    if (!companyId || !userId) return false;
+    // LIMPEZA-DESTRUTIVA L2: o gate de estoque do Vendas saiu daqui — só a cota
+    // comercial da EMPRESA decide se o run pausado pode retomar.
+    const quotaRemaining = await this.getRadarCardQuotaRemaining(companyId, userId);
+    return !Number.isFinite(quotaRemaining) || quotaRemaining > 0;
+  }
+
+  private async resumePausedSearchRunIfPossible(run: any) {
+    if (!(await this.canResumePausedSearchRun(run))) return false;
+    const now = new Date();
+    await this.updateSearchRunMetrics(run.id, {
+      radarPauseReleasedAt: now.toISOString(),
+      status: 'queued',
+    }).catch(() => null);
+    await this.prisma.webscrapingSearchRun.updateMany({
+      where: {
+        id: run.id,
+        status: 'sleeping',
+      },
+      data: {
+        status: 'queued',
+        lastBatchStatus: 'resumed_after_limit',
+        errorMessage: 'Espaco liberado. Radar retomando esta mesma pesquisa.',
+        nextRetryAt: now,
+        assignedEngineId: null,
+        assignedEngineUrl: null,
+        assignedEngineIndex: null,
+        finishedAt: null,
+      },
+    }).catch(() => null);
+    this.scheduleSearchRunPump(0);
+    return true;
+  }
+
+  private async resumeDuePausedRadarSearchRuns() {
+    const now = new Date();
+    const delegate = (this.prisma as any).webscrapingSearchRun;
+    if (!delegate?.findMany) return;
+    const pausedRuns = await delegate.findMany({
+      where: {
+        status: 'sleeping',
+        assignedEngineId: null,
+        OR: [
+          { nextRetryAt: null },
+          { nextRetryAt: { lte: now } },
+        ],
+      },
+      orderBy: [
+        { nextRetryAt: 'asc' },
+        { updatedAt: 'asc' },
+      ],
+      take: 20,
+    }).catch(() => []);
+    for (const run of pausedRuns || []) {
+      if (!this.isSearchRunPausedByLimit(run)) continue;
+      const resumed = await this.resumePausedSearchRunIfPossible(run);
+      if (resumed) continue;
+      const retryDelayMs = this.getRadarLimitPauseRetryDelayMs(run?.lastBatchStatus);
+      await this.prisma.webscrapingSearchRun.updateMany({
+        where: {
+          id: run.id,
+          status: 'sleeping',
+        },
+        data: {
+          nextRetryAt: new Date(Date.now() + retryDelayMs),
+          assignedEngineId: null,
+          assignedEngineUrl: null,
+          assignedEngineIndex: null,
+        },
+      }).catch(() => null);
+    }
+  }
+
+  // LIMPEZA-DESTRUTIVA L2 (04/07): `pauseSearchRunForLimit`, `stopSearchRunIfVendasStockLimitReached`
+  // (o gate de estoque em si) e `stopSearchRunAutoImportBlocked` (órfão desde o L1 — 0
+  // call-sites, dependia deste mesmo helper) foram deletados. `assertRadarCanFeedVendas`
+  // também saiu: só existia pra alimentar o gate de estoque. Run nunca mais para/pausa por
+  // causa do funil de Vendas; a única pausa de quantidade que sobrevive é a cota comercial
+  // da empresa, tratada em startRadarSearchRunForUser (quotaBlocked) e no backoff normal de
+  // motor (restSearchRunIfEligible, em radar-core-search-runner.mixin.ts).
   private isRadarAutoImportLimitError(error: any) {
     return this.getRadarVendasSyncService().isAutoImportLimitError(error);
   }
@@ -418,18 +550,6 @@ export class RadarCoreDeliveryMixin {
             : 'running';
     const metrics = parseJsonObject(run?.metricsJson);
     const coverage = parseJsonObject(metrics?.sourceCoverage);
-    const publicCoverage = Object.fromEntries(['rfb', 'motor'].map((key) => {
-      const state = parseJsonObject(coverage?.[key]);
-      const status = ['pending', 'running', 'completed', 'failed'].includes(String(state?.status || ''))
-        ? String(state.status)
-        : 'pending';
-      return [key, {
-        attempted: state?.attempted === true,
-        succeeded: state?.succeeded === true,
-        status,
-        found: safeInteger(state?.found),
-      }];
-    }));
     const matchedCount = safeInteger(run?.foundCount);
     const duplicateCount = safeInteger(run?.duplicateCount);
     const discardedCount = safeInteger(run?.skippedCount);
@@ -448,7 +568,7 @@ export class RadarCoreDeliveryMixin {
         key,
         label,
         status,
-        detail: state?.attempted ? `${safeInteger(state?.found)} encontrado(s)` : null,
+        detail: state?.error || (state?.attempted ? `${safeInteger(state?.found)} encontrado(s)` : null),
       };
     };
     const events = [
@@ -492,10 +612,196 @@ export class RadarCoreDeliveryMixin {
       currentLead: recentLeads.length ? recentLeads[recentLeads.length - 1] : null,
       recentLeads,
       events,
-      sourceCoverage: publicCoverage,
+      sourceCoverage: coverage,
     };
   }
 
+  private async buildPausedRadarSearchRunResponse(run: any) {
+    const filters = await this.applyTeamPolicyRadarFilters({
+      companyId: safeInteger(run?.companyId),
+      userId: safeInteger(run?.userId),
+      user: null,
+    } as SearchExecutionContext, this.buildRadarFiltersFromSearchRun(run));
+    const metrics = parseJsonObject(run?.metricsJson);
+    const requestedQuantity = Math.max(1, safeInteger(run?.targetQuantity));
+    // LIMPEZA-DESTRUTIVA L2: sem gate de estoque, a única pausa que chega aqui é a
+    // cota comercial da empresa — não há mais "estoque pendente" pra reportar.
+    const pendingCount: number | null = null;
+    const stockTarget = 0;
+    const deliveredCount = safeInteger(run?.importedCount);
+    const message = String(run?.errorMessage || '').trim()
+      || 'Radar pausado. Vou retomar esta mesma pesquisa quando houver espaco.';
+    const pauseDiagnostics = await this.buildRadarPauseDiagnostics(run, {
+      message,
+      metrics,
+      pendingCount,
+      requestedQuantity,
+      stockTarget,
+    });
+    const pausedProgress = requestedQuantity > 0
+      ? Math.min(99, Math.round((Math.max(deliveredCount, safeInteger(run?.foundCount)) / requestedQuantity) * 100))
+      : 0;
+    return {
+      id: run.id,
+      runId: run.id,
+      status: 'sleeping' as WebscrapingSearchRunStatus,
+      items: [],
+      total: requestedQuantity,
+      code: 'RADAR_SEARCH_PAUSED',
+      message,
+      retryable: true,
+      targetQuantity: requestedQuantity,
+      foundCount: safeInteger(run?.foundCount),
+      errorMessage: message,
+      process: this.buildSearchProcessSnapshot(run, { progress: pausedProgress, items: [] }),
+      meta: {
+        requestedQuantity,
+        deliveredCount,
+        databaseCount: 0,
+        fetchedCount: 0,
+        requiredChannels: filters.requiredChannels,
+        channelMatchMode: filters.channelMatchMode,
+        requiredChannelRejectedCount: 0,
+        progress: pausedProgress,
+        terminal: false,
+        paused: true,
+        pauseReason: String(run?.lastBatchStatus || ''),
+        operationalState: 'pausado' as RadarOperationalState,
+        operationalReason: String(run?.lastBatchStatus || 'radar_paused'),
+        operationalMessage: message,
+        pauseDiagnostics,
+        status: 'sleeping' as WebscrapingSearchRunStatus,
+        runId: run.id,
+        nextRetryAt: run?.nextRetryAt instanceof Date ? run.nextRetryAt.toISOString() : null,
+        attemptCount: safeInteger(run?.attemptCount),
+        autoImport: {
+          ran: false,
+          importedCount: safeInteger(run?.importedCount),
+          pendingCount,
+          remaining: null,
+          blocked: true,
+          failures: [{ reason: String(run?.lastBatchStatus || 'paused') }],
+        },
+        filters: {
+          state: filters.state,
+          city: filters.city,
+          segment: filters.segment,
+          radiusKm: filters.radiusKm,
+          regionalCities: filters.regionalCities.map((item) => ({
+            city: item.city,
+            state: item.state,
+            distanceKm: item.distanceKm,
+          })),
+          selectedSegments: this.splitHbxBatchSegments(filters.segment),
+          targetType: filters.targetType,
+          preferredChannels: filters.preferredChannels,
+          requiredChannels: filters.requiredChannels,
+          channelMatchMode: filters.channelMatchMode,
+        },
+      },
+    };
+  }
+
+  private async buildRadarPauseDiagnostics(run: any, input: {
+    message: string;
+    metrics: Record<string, any>;
+    pendingCount: number | null;
+    requestedQuantity: number;
+    stockTarget: number;
+  }) {
+    const intOrNull = (value: unknown) => {
+      const parsed = Math.trunc(Number(value));
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
+    };
+    const rawReason = String(run?.lastBatchStatus || input.metrics?.radarPauseReason || '').trim();
+    const reason = rawReason || 'radar_paused';
+    const code = String(input.metrics?.quotaBlockedCode || '').trim() || null;
+    const companyId = safeInteger(run?.companyId);
+    const userId = safeInteger(run?.userId);
+    const [usage, sellerQuota] = await Promise.all([
+      this.commercialUsageLimits && companyId
+        ? this.commercialUsageLimits.getUsageSnapshot(companyId, userId || null).catch(() => null)
+        : Promise.resolve(null),
+      this.commercialUsageLimits && companyId && userId
+        ? this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(companyId, userId).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const cards = (usage as any)?.cards || {};
+    const dailyLimit = intOrNull(cards.dailySafetyLimit);
+    const dailyUsed = intOrNull(cards.dailyUsed);
+    const dailyRemaining = intOrNull(cards.dailyRemaining);
+    const monthlyRemaining = intOrNull(cards.monthlyRemaining ?? cards.remaining);
+    // LIMPEZA-DESTRUTIVA L2: sem gate de estoque do funil — currentStock/stockTarget
+    // não existem mais como conceito (a pausa que sobra é cota/seller, não estoque).
+    const currentStock: number | null = null;
+    const stockTarget = 0;
+    const stockRemaining: number | null = null;
+    const sellerActiveCount = intOrNull((sellerQuota as any)?.activeCount);
+    const sellerCapacity = intOrNull((sellerQuota as any)?.effectiveLimit);
+    const sellerAvailableSlots = intOrNull((sellerQuota as any)?.availableSlots);
+    const lowerReason = reason.toLowerCase();
+    const lowerMessage = String(input.message || '').toLowerCase();
+    const dailyLimitReached = dailyLimit != null && dailyRemaining != null && dailyLimit > 0 && dailyRemaining <= 0;
+    const sellerPaused = code === 'SELLER_QUOTA_PAUSED' || Boolean((sellerQuota as any)?.paused);
+    const sellerStockFull = code === 'SELLER_CARD_QUOTA_REACHED'
+      || (sellerCapacity != null && sellerActiveCount != null && sellerCapacity > 0 && sellerActiveCount >= sellerCapacity)
+      || (sellerAvailableSlots != null && sellerAvailableSlots <= 0 && Boolean((sellerQuota as any)?.seller));
+    const commercialQuotaReached = !dailyLimitReached && monthlyRemaining != null && monthlyRemaining <= 0;
+    const permissionBlocked = /permission|permiss|unauthor|forbidden|sem_regra|sem regra|distribu/i.test(`${reason} ${input.message}`);
+    const kind = sellerPaused
+      ? 'seller_paused'
+      : sellerStockFull
+        ? 'seller_stock_full'
+        : dailyLimitReached
+          ? 'daily_limit'
+          : commercialQuotaReached
+            ? 'commercial_quota'
+            : permissionBlocked
+              ? 'permission_or_distribution'
+              : /quota|limite|limit|cota/i.test(`${lowerReason} ${lowerMessage}`)
+                ? 'card_limit'
+                : 'operational_pause';
+    const titleByKind: Record<string, string> = {
+      seller_paused: 'Distribuição pausada para este vendedor',
+      seller_stock_full: 'Limite de cards ativos do vendedor atingido',
+      daily_limit: 'Limite diário de cards atingido',
+      commercial_quota: 'Cota comercial de cards atingida',
+      permission_or_distribution: 'Distribuição ou permissão pendente',
+      card_limit: 'Limite de cards atingido',
+      operational_pause: 'Radar pausado aguardando retomada',
+    };
+    const actionByKind: Record<string, string> = {
+      seller_paused: 'Peça ao responsável para liberar a distribuição.',
+      seller_stock_full: 'Finalize, transfira ou descarte cards em Vendas para abrir espaço.',
+      daily_limit: 'Aguarde o reset diário para receber novos cards.',
+      commercial_quota: 'Peça ao responsável para revisar a cota comercial.',
+      permission_or_distribution: 'Peça ao responsável para revisar regras de distribuição e permissão.',
+      card_limit: 'Libere espaço ou aguarde a cota retornar.',
+      operational_pause: 'Acompanhe a retomada automática ou pare o Radar para editar filtros.',
+    };
+    return {
+      kind,
+      title: titleByKind[kind] || titleByKind.operational_pause,
+      message: input.message,
+      action: actionByKind[kind] || actionByKind.operational_pause,
+      reason,
+      code,
+      currentStock,
+      stockTarget,
+      stockRemaining,
+      dailyLimit,
+      dailyUsed,
+      dailyRemaining,
+      dailyResetAt: (usage as any)?.dailyResetAt || (usage as any)?.dayEnd || null,
+      monthlyRemaining,
+      sellerActiveCount,
+      sellerCapacity,
+      sellerAvailableSlots,
+      nextRetryAt: run?.nextRetryAt instanceof Date
+        ? run.nextRetryAt.toISOString()
+        : String(input.metrics?.radarPauseRetryAt || '').trim() || null,
+    };
+  }
 
   // Próximo nível de alcance que a UI já oferece (Só a cidade=0 → 25 → 50 → 100 km).
   private nextRadarReachRadiusKm(currentRadiusKm: number): number | null {
@@ -507,9 +813,9 @@ export class RadarCoreDeliveryMixin {
     return null;
   }
 
-  // Esgotou a OFERTA (cidade/segmento secaram e entregou menos que o pedido).
+  // Esgotou a OFERTA (cidade/segmento secaram e entregou menos que o pedido) — NÃO é cota.
   // Devolve a sugestão de expansão (ampliar alcance / incluir segmentos vizinhos) ou null.
-  // Só em estado terminal "parado"; não existe pausa comercial na descoberta.
+  // Só em estado terminal "parado"; "pausado" (cota) tem mensagem própria e não cai aqui.
   private buildRadarRunExpansionSuggestion(
     filters: NormalizedRadarFilters,
     deliveredCount: number,
@@ -568,7 +874,7 @@ export class RadarCoreDeliveryMixin {
     if (!run) throw new NotFoundException('Pesquisa do Radar nao encontrada.');
 
     // LIMPEZA-DESTRUTIVA L1: sync só enche a vitrine, pra TODO papel — nunca reivindica.
-    if (this.normalizeSearchRunStatus(run.status) !== 'canceled') {
+    if (this.normalizeSearchRunStatus(run.status) !== 'canceled' && !this.isSearchRunPausedByLimit(run)) {
       await this.syncRadarSearchRunItemsToPool(context, run).catch((error: any) => {
         this.logger.warn(`[radar-run] sync ignorado run=${run.id}: ${String(error?.message || error)}`);
       });
@@ -582,6 +888,16 @@ export class RadarCoreDeliveryMixin {
       },
     });
     const effectiveRun = freshRun || run;
+    if (this.normalizeSearchRunStatus(effectiveRun.status) === 'sleeping' && this.isSearchRunPausedByLimit(effectiveRun)) {
+      const resumed = await this.resumePausedSearchRunIfPossible(effectiveRun);
+      if (!resumed) {
+        return this.buildPausedRadarSearchRunResponse(effectiveRun);
+      }
+      return this.buildRadarSearchRunResponse(user, runId, options);
+    }
+    // LIMPEZA-DESTRUTIVA L2 (04/07): não há mais recheck de estoque do funil aqui — a
+    // única pausa possível vem do quotaBlocked tratado em startRadarSearchRunForUser
+    // (já refletido no status/lastBatchStatus do run persistido).
     const metrics = parseJsonObject(effectiveRun.metricsJson);
     const filters = await this.applyTeamPolicyRadarFilters(context, this.buildRadarFiltersFromSearchRun(effectiveRun));
     const requestedQuantity = Math.max(1, safeInteger(effectiveRun.targetQuantity));
@@ -608,10 +924,8 @@ export class RadarCoreDeliveryMixin {
       failures: [],
     };
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
-    // Mantem os contatos somente em memoria para o check em lote. A fronteira
-    // `sanitizeRadarPreDebitLead` abaixo continua sendo a unica saida HTTP.
     const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, {
-      maskContact: false,
+      maskContact: true,
       viewerCompanyId: context.companyId,
       ownershipEnabled,
     }));
@@ -661,16 +975,23 @@ export class RadarCoreDeliveryMixin {
         radarRunItemId: item.id,
       };
     });
-    const rawPublicCandidates = [...rowPublicItems, ...fallbackPublicItems].slice(0, requestedQuantity);
-    const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id)
-      || this.normalizeRadarWhatsappCheckMode(undefined);
-    const whatsapp = await this.applyRadarWhatsappCheck(context, rawPublicCandidates, whatsappMode);
-    const publicCandidates = whatsapp.items
-      .map((item: any, index: number) => this.sanitizeRadarPreDebitLead(item, {
-        // O id opaco mantém a seleção do card sem revelar a identidade da empresa.
-        // O presenter resolve o id real somente dentro do endpoint autenticado de pull.
-        id: String(item?.id || `run:${effectiveRun.id}:${index + 1}`),
+    const publicCandidates = [...rowPublicItems, ...fallbackPublicItems]
+      .slice(0, requestedQuantity)
+      .map((item: any) => ({
+        ...item,
+        phone: '',
+        phoneDigits: '',
+        email: null,
+        ownerPhone: null,
+        phones: [],
+        emails: [],
+        phoneContacts: [],
+        emailContacts: [],
+        people: Array.isArray(item?.people)
+          ? item.people.map((person: any) => ({ ...person, phone: null, phoneDigits: null, email: null }))
+          : [],
       }));
+    // WhatsApp é enriquecimento e fica adiado até o pull pós-débito.
     const items = publicCandidates;
     const deliveredCount = items.length;
     const databaseCount = foundItems.filter((item: any) => String(item.source || '') === 'radar_database').length;
@@ -767,7 +1088,7 @@ export class RadarCoreDeliveryMixin {
           radiusKm: filters.radiusKm,
         },
         qualitySummary,
-        whatsappCheck: whatsapp.meta,
+        whatsappCheck: { mode: 'off', checked: 0, deferredUntilClaim: true },
       },
     };
   }
@@ -783,13 +1104,153 @@ export class RadarCoreDeliveryMixin {
     if (!(await this.supportsRadarPersistence())) {
       throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
     }
+    let quotaBlocked = false;
+    let quotaRemaining: number | null = null;
+    let quotaBlockedCode: string | null = null;
+    let quotaBlockedMessage: string | null = null;
+    let usageSnapshot: any = null;
+    let quotaDailyLimit: number | null = null;
+    let quotaDailyUsed: number | null = null;
+    let quotaDailyRemaining: number | null = null;
+    let quotaDailyResetAt: string | null = null;
+    let quotaMonthlyRemaining: number | null = null;
+    if (this.commercialUsageLimits) {
+      usageSnapshot = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId).catch(() => null);
+      const cardLimits = usageSnapshot ? (usageSnapshot as any).cards || {} : {};
+      const dailyRemaining = Number(cardLimits.dailyRemaining);
+      const monthlyRemaining = Number(cardLimits.remaining);
+      const perUserRemaining = cardLimits.perUserLimit != null
+        ? Number(cardLimits.userLimit || 0) - Number(cardLimits.userUsed || 0)
+        : monthlyRemaining;
+      quotaDailyLimit = Number.isFinite(Number(cardLimits.dailySafetyLimit)) ? Math.max(0, Math.trunc(Number(cardLimits.dailySafetyLimit))) : null;
+      quotaDailyUsed = Number.isFinite(Number(cardLimits.dailyUsed)) ? Math.max(0, Math.trunc(Number(cardLimits.dailyUsed))) : null;
+      quotaDailyRemaining = Number.isFinite(dailyRemaining) ? Math.max(0, Math.trunc(dailyRemaining)) : null;
+      quotaDailyResetAt = String((usageSnapshot as any)?.dailyResetAt || (usageSnapshot as any)?.dayEnd || '').trim() || null;
+      quotaMonthlyRemaining = Number.isFinite(monthlyRemaining) ? Math.max(0, Math.trunc(monthlyRemaining)) : null;
+      const effectiveQuotaRemaining = Math.min(
+        ...[dailyRemaining, monthlyRemaining, perUserRemaining].filter((value) => Number.isFinite(value)),
+      );
+      if (Number.isFinite(effectiveQuotaRemaining)) {
+        if (effectiveQuotaRemaining <= 0) {
+          quotaBlocked = true;
+          quotaRemaining = 0;
+        } else {
+          filters.quantity = Math.max(1, Math.min(filters.quantity, Math.max(0, Math.trunc(effectiveQuotaRemaining))));
+          quotaRemaining = Math.max(0, Math.trunc(effectiveQuotaRemaining));
+        }
+      }
+      const sellerQuota = await this.commercialUsageLimits
+        .limitRequestedCardsBySellerActiveQuota(context.companyId, context.userId, filters.quantity)
+        .catch(() => null);
+      if (sellerQuota?.quota?.seller) {
+        if (Number(sellerQuota.limit || 0) <= 0) {
+          quotaBlocked = true;
+          quotaRemaining = 0;
+          quotaBlockedCode = sellerQuota.quota.code || 'SELLER_CARD_QUOTA_REACHED';
+          quotaBlockedMessage = quotaBlockedCode === 'SELLER_QUOTA_PAUSED'
+            ? 'Distribuição pausada para este vendedor. Peça ao responsável para liberar a distribuição.'
+            : 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.';
+        } else {
+          filters.quantity = Math.max(1, Math.min(filters.quantity, Math.trunc(Number(sellerQuota.limit || 0))));
+          quotaRemaining = quotaRemaining == null
+            ? Math.trunc(Number(sellerQuota.limit || 0))
+            : Math.min(quotaRemaining, Math.trunc(Number(sellerQuota.limit || 0)));
+        }
+      }
+    }
     filters.limit = Math.max(filters.limit, filters.quantity);
 
     const normalized = this.buildNormalizedSearchInputFromRadarFilters(filters);
     const matchingRun = await this.findActiveRadarRunForFilters(context, filters);
     await this.cancelIncompatibleActiveRadarRuns(context, filters, matchingRun?.id || null);
     if (matchingRun?.id) {
+      await this.resumePausedSearchRunIfPossible(matchingRun).catch(() => false);
       return this.buildRadarSearchRunResponse(user, matchingRun.id);
+    }
+
+    // LIMPEZA-DESTRUTIVA L2 (04/07): o gate de estoque do Vendas (vendasGate/vendasStockTarget)
+    // foi deletado. A busca só pausa no START pela cota comercial da EMPRESA (quotaBlocked,
+    // decidida pelo Master) — nunca mais por quantidade de cards pendentes no funil.
+    if (quotaBlocked) {
+      const now = new Date();
+      const pauseReason = 'vendas_card_limit_start';
+      const pauseMessage = quotaBlockedMessage
+        || (quotaDailyLimit != null && quotaDailyRemaining === 0
+          ? `Limite diário de cards atingido. ${quotaDailyUsed ?? quotaDailyLimit} de ${quotaDailyLimit} usado(s) hoje. O Radar retoma no reset diário.`
+          : 'Radar pausado. Limite de cards atingido; vou retomar esta mesma pesquisa quando houver cota.');
+      const retryAt = new Date(Date.now() + this.getRadarLimitPauseRetryDelayMs(pauseReason));
+      const run = await this.prisma.webscrapingSearchRun.create({
+        data: {
+          companyId: context.companyId,
+          userId: context.userId,
+          status: 'sleeping',
+          city: normalized.city,
+          state: normalized.state || null,
+          segment: normalized.segment,
+          engine: 'hbx',
+          targetType: normalized.targetType,
+          targetQuantity: normalized.quantity,
+          startedAt: null,
+          finishedAt: null,
+          errorMessage: pauseMessage,
+          lastBatchStatus: pauseReason,
+          nextRetryAt: retryAt,
+          metricsJson: JSON.stringify({
+            activeSearchSignature: this.buildRadarActiveSearchSignature(filters),
+            desiredStock: filters.desiredStock,
+            minimumStock: filters.minimumStock,
+            quotaRemaining,
+            quotaBlockedCode,
+            quotaDailyLimit,
+            quotaDailyUsed,
+            quotaDailyRemaining,
+            quotaDailyResetAt,
+            quotaMonthlyRemaining,
+            radarPauseReason: pauseReason,
+            radarPausedAt: now.toISOString(),
+            radarPauseRetryAt: retryAt.toISOString(),
+            radiusKm: filters.radiusKm,
+            originLat: filters.originLat,
+            originLng: filters.originLng,
+            scoreRange: filters.scoreRange,
+            regionalCities: filters.regionalCities.map((item) => ({
+              city: item.city,
+              state: item.state,
+              distanceKm: item.distanceKm,
+            })),
+            selectedSegments: this.splitHbxBatchSegments(filters.segment),
+            searchScope: {
+              currentCity: filters.city,
+              currentState: filters.state,
+              currentSegment: this.splitHbxBatchSegments(filters.segment)[0] || filters.segment,
+              cityIndex: 1,
+              cityCount: Math.max(1, filters.regionalCities.length || 1),
+              segmentIndex: 1,
+              segmentCount: Math.max(1, this.splitHbxBatchSegments(filters.segment).length || 1),
+              queryIndex: 0,
+              queryCount: 0,
+              taskIndex: 0,
+              taskCount: 0,
+              radiusKm: filters.radiusKm,
+              regionalCities: filters.regionalCities.map((item) => ({
+                city: item.city,
+                state: item.state,
+                distanceKm: item.distanceKm,
+              })),
+              selectedSegments: this.splitHbxBatchSegments(filters.segment),
+            },
+            channelFilters: this.buildChannelFiltersJson({
+              preferredChannels: filters.preferredChannels,
+              requiredChannels: filters.requiredChannels,
+              channelMatchMode: filters.channelMatchMode,
+            }),
+            ...(filters.salesProfile ? { salesProfile: filters.salesProfile } : {}),
+          }),
+        },
+      });
+      this.radarWhatsappCheckModeByRunId.set(run.id, filters.whatsappCheckMode);
+      this.scheduleSearchRunPump(retryAt.getTime() - Date.now());
+      return this.buildRadarSearchRunResponse(user, run.id);
     }
 
     let stockRows = await this.queryRadarRowsForCompany(context.companyId, filters, {
@@ -812,8 +1273,8 @@ export class RadarCoreDeliveryMixin {
     // LIMPEZA-DESTRUTIVA L1 (04/07): o START da busca NUNCA reivindica estoque pro funil,
     // pra NENHUM papel (inclusive USERMASTER/admin/master). O estoque existente já está
     // consultável na VITRINE (queryRadarRowsForCompany availableOnly=true, ownerCompanyId=null);
-    // o usuário puxa na mão pela operação canônica send-to-vendas. A busca só enfileira o run
-    // e o motor apenas expande a descoberta mascarada — não há mais "entrega imediata do banco"
+    // o usuário puxa na mão (pullRadarLeadsForUser / send-to-vendas). A busca só enfileira o run
+    // e o motor trabalha pra completar/enriquecer a vitrine — não há mais "entrega imediata do banco"
     // nem markRadarDelivered aqui. Ver docs/PLANEJAMENTOS/CREDITOS/LIMPEZA-DESTRUTIVA.md.
     const availableStockCount = stockRows.length;
     const run = await this.prisma.webscrapingSearchRun.create({
@@ -1040,6 +1501,37 @@ export class RadarCoreDeliveryMixin {
     return { releasedCount };
   }
 
+  private async markRadarDelivered(
+    companyId: number,
+    userId: number,
+    rows: any[],
+    options: { assignedUserId?: number | null; assignedByUserId?: number | null } = {},
+  ) {
+    const context = { companyId, userId } as SearchExecutionContext;
+    const assignedUserId = Math.trunc(Number(options.assignedUserId || 0)) || null;
+    const assignedByUserId = assignedUserId ? Math.trunc(Number(options.assignedByUserId || userId || 0)) || null : null;
+    const claimedRows: any[] = [];
+    for (const row of rows) {
+      const existing = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
+      if (['imported_to_vendas', 'sent_to_vendas'].includes(String(existing?.status || '')) || this.isRadarProtectedStatus(existing?.status || row?.status)) continue;
+      const quality = this.extractLeadQualityFromObject(row) || this.extractLeadQualityFromObject(row?.enrichmentJson) || this.extractLeadQualityFromObject(row?.metadataJson);
+      if (quality && !this.isApprovedLeadQuality(quality)) continue;
+      await this.claimRadarLeadForCompany(context, row, {
+        poolStatus: 'reserved',
+        companyStatus: existing?.status && !['new', 'clean'].includes(String(existing.status)) ? this.normalizeRadarLeadStatus(existing.status) : 'reserved',
+        eventType: 'ownership_reserved',
+        note: 'Card puxado no Radar Digital.',
+        assignedUserId,
+        assignedByUserId,
+      }).then(() => {
+        claimedRows.push(row);
+      }).catch((error: any) => {
+        this.logger.warn(`[radar] card nao reservado company=${companyId} lead=${row?.id || '-'}: ${String(error?.message || error)}`);
+      });
+    }
+    return claimedRows;
+  }
+
   private async _bumpSegmentAffinity(userId: number, segment: string): Promise<void> {
     const n = normalizeLookupValue(String(segment || ''));
     if (!n || !userId) return;
@@ -1052,6 +1544,230 @@ export class RadarCoreDeliveryMixin {
       where: { id: userId },
       data: { segmentAffinityJson: next } as any,
     }).catch(() => null);
+  }
+
+  async pullRadarLeadsToVendasForUser(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    // Modelo PULL (dono, 14/06/2026): quem puxa card para a própria carteira é o
+    // vendedor OU o admin/dono (que também trabalha leads). O "transferir p/ vendedor"
+    // (push) deixou de ser o caminho — por isso o admin precisa puxar igual ao vendedor.
+    const isSeller = this.isCompanySellerUser(user);
+    const isAdmin = this.canUseWebscrapingRole(user);
+    if (!isSeller && !isAdmin) {
+      throw new ForbiddenException('Sem permissão para puxar cards do Radar.');
+    }
+    if (isSeller) {
+      await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar esta bloqueado pela politica da equipe.');
+    }
+    if (!this.vendasService) {
+      throw new ServiceUnavailableException('Servico de Vendas indisponivel para puxar cards.');
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda nao foi migrado neste ambiente.');
+    }
+
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
+    if (!filters.normalizedSegment) {
+      throw new BadRequestException('Escolha um segmento para puxar cards do Radar.');
+    }
+
+    const requested = Math.max(1, Math.min(Math.trunc(Number(filters.quantity || 1)) || 1, 50));
+    const dayKey = this.getSaoPauloDayKey();
+    const seller = await this.prisma.user.findUnique({
+      where: { id: context.userId },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        commissionPercent: true,
+        sellerDistributionDailyLimitOverride: true,
+        teamPolicy: { select: { cardDeliveryDailyMode: true, cardDeliveryDailyLimit: true } },
+      },
+    }).catch(() => null);
+    const dailyLimit = this.resolveSellerDistributionDailyLimit(seller, 20);
+    const dailySnapshot = await this.getDailyDistributionSnapshot(context.companyId, context.userId, dailyLimit, dayKey);
+    const activeQuota = this.commercialUsageLimits
+      ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, context.userId).catch(() => null)
+      : null;
+
+    const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot?.remainingToday ?? requested)) || 0);
+    const activeRemaining = activeQuota?.seller ? Math.max(0, Math.trunc(Number(activeQuota.availableSlots || 0))) : requested;
+    const allowed = Math.max(0, Math.min(requested, dailyRemaining, activeRemaining));
+    if (allowed <= 0) {
+      throw new ConflictException({
+        ok: false,
+        code: activeRemaining <= 0 ? 'SELLER_CARD_QUOTA_REACHED' : 'SELLER_DAILY_LIMIT_REACHED',
+        message: activeRemaining <= 0
+          ? 'Seu limite de cards ativos foi atingido. Finalize ou transfira cards antes de puxar mais.'
+          : 'Voce atingiu o limite diario de cards. Tente novamente amanha.',
+        dailyRemaining,
+        activeRemaining,
+      });
+    }
+
+    const queryLimit = Math.max(allowed * 3, 60);
+    const requestedLeadIds = Array.isArray((input as any).leadIds) && (input as any).leadIds.length > 0
+      ? (input as any).leadIds.slice(0, allowed * 2)
+      : null;
+    let rows = requestedLeadIds
+      ? await (this.prisma as any).radarLeadPool.findMany({
+          where: { id: { in: requestedLeadIds } },
+          include: {
+            companyStates: {
+              where: { companyId: context.companyId }, take: 1,
+              select: { status: true, vendasLeadId: true, lastActionAt: true, noAnswerCount: true, contactedCount: true, lastContactAt: true, complaintReason: true, deniedReason: true, assignedUserId: true, assignedByUserId: true, assignedAt: true },
+            },
+            events: {
+              where: { OR: [{ companyId: context.companyId }, { companyId: null }] },
+              orderBy: { createdAt: 'desc' }, take: 3,
+              select: { id: true, eventType: true, note: true, createdAt: true },
+            },
+          },
+        }).catch(() => [])
+      : await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
+    let replenish: any = { ran: false, cleanStockBefore: rows.length };
+    if (!requestedLeadIds && rows.length < allowed && filters.normalizedCity) {
+      try {
+        replenish = await this.replenishRadarStockForUser(user, {
+          ...input,
+          city: filters.city,
+          state: filters.state,
+          segment: filters.segment,
+        });
+      } catch (error: any) {
+        replenish = { ran: true, reason: 'replenish_failed_using_database', errorMessage: this.extractHbxErrorMessage(error) };
+      }
+      rows = await this.queryRadarRowsForCompany(context.companyId, filters, { limit: queryLimit, requirePhone: false, availableOnly: true });
+    }
+
+    const batchId = String((input as any)?.idempotencyKey || '').trim() || randomUUID();
+    const assignments: Array<Record<string, any>> = [];
+    const operations: any[] = [];
+    const failures: Array<{ radarLeadId: string | null; error: string }> = [];
+    let started = 0;
+    for (const row of rows) {
+      if (started >= allowed) break;
+      try {
+        const result = await this.startRadarLeadClaimForUser(user, row.id, {
+          skipWhatsappValidation: true,
+          debitOnImport: true,
+          assignedUserId: context.userId,
+          assignedByUserId: context.userId,
+          idempotencyKey: `pull-batch:${batchId}:${row.id}`,
+        });
+        const operation = result?.operation || null;
+        if (!operation?.operationId) throw new Error('Operação persistente do pull não foi criada.');
+        started += 1;
+        operations.push(operation);
+        assignments.push({
+          radarLeadId: row.id,
+          vendasLeadId: null,
+          operationId: operation.operationId,
+          processStatus: operation.status,
+          name: row.name || null,
+          city: row.city || null,
+          state: row.state || null,
+          segment: row.segment || null,
+          opportunityScore: row.opportunityScore ?? null,
+        });
+      } catch (error: any) {
+        failures.push({ radarLeadId: row?.id || null, error: String(error?.response?.message || error?.message || error || 'Falha ao puxar card.') });
+        if (this.isRadarAutoImportLimitError && this.isRadarAutoImportLimitError(error)) break;
+      }
+    }
+
+    const commissionPercent = Math.max(0, Math.min(100, Number(seller?.commissionPercent || 0) || 0));
+    return {
+      ok: started > 0,
+      batchId,
+      pulledCount: started,
+      processingCount: started,
+      requestedCount: requested,
+      allowedCount: allowed,
+      failedCount: failures.length,
+      commissionPercent,
+      dailyRemainingAfter: Math.max(0, dailyRemaining - started),
+      activeRemainingAfter: activeQuota?.seller ? Math.max(0, activeRemaining - started) : null,
+      assignments,
+      operations,
+      processRuns: operations,
+      failures: failures.slice(0, 8),
+      replenish,
+      filters: { segment: filters.segment, city: filters.city, state: filters.state },
+      message: started > 0
+        ? `${started} processamento(s) de lead iniciado(s). Acompanhe até a transferência para Vendas.`
+        : failures.length
+          ? `Nenhum lead puxado. ${failures[0]?.error || ''}`.trim()
+          : 'Sem leads disponiveis na lagoa para esse filtro agora. Tente outro segmento ou cidade.',
+    };
+  }
+
+  async previewRadarLeadsForVendedor(user: any, input: RadarFiltersInput = {}) {
+    const context = this.resolveContext(user);
+    const isSeller = this.isCompanySellerUser(user);
+    const isAdmin = this.canUseWebscrapingRole(user);
+    if (!isSeller && !isAdmin) {
+      throw new ForbiddenException('Sem permissão para visualizar leads do Radar.');
+    }
+    if (isSeller) {
+      await this.assertSellerTeamPolicyAccess(user, 'radar.cards.pull', 'Puxar cards do Radar está bloqueado pela política da equipe.');
+    }
+    if (!(await this.supportsRadarPersistence())) {
+      throw new ServiceUnavailableException('Banco do Radar ainda não foi migrado neste ambiente.');
+    }
+
+    const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
+    if (!filters.normalizedSegment) {
+      throw new BadRequestException('Escolha um segmento para visualizar leads do Radar.');
+    }
+
+    const requested = Math.max(1, Math.min(Math.trunc(Number(filters.quantity || 5)) || 5, 50));
+    const dayKey = this.getSaoPauloDayKey();
+    const seller = await this.prisma.user.findUnique({
+      where: { id: context.userId },
+      select: { id: true, sellerDistributionDailyLimitOverride: true, teamPolicy: { select: { cardDeliveryDailyMode: true, cardDeliveryDailyLimit: true } } },
+    }).catch(() => null);
+    const dailyLimit = this.resolveSellerDistributionDailyLimit(seller, 20);
+    const dailySnapshot = await this.getDailyDistributionSnapshot(context.companyId, context.userId, dailyLimit, dayKey);
+    const activeQuota = this.commercialUsageLimits
+      ? await this.commercialUsageLimits.getSellerActiveCardQuotaSnapshot(context.companyId, context.userId).catch(() => null)
+      : null;
+
+    const dailyRemaining = Math.max(0, Math.trunc(Number(dailySnapshot?.remainingToday ?? requested)) || 0);
+    const activeRemaining = activeQuota?.seller ? Math.max(0, Math.trunc(Number(activeQuota.availableSlots || 0))) : requested;
+    const canPull = Math.max(0, Math.min(requested, dailyRemaining, activeRemaining));
+
+    if (canPull <= 0) {
+      return {
+        ok: false,
+        canPull: 0,
+        code: activeRemaining <= 0 ? 'SELLER_CARD_QUOTA_REACHED' : 'SELLER_DAILY_LIMIT_REACHED',
+        message: activeRemaining <= 0
+          ? 'Seu limite de cards ativos foi atingido. Finalize ou transfira cards antes de puxar mais.'
+          : 'Você atingiu o limite diário de cards. Tente novamente amanhã.',
+        leads: [],
+      };
+    }
+
+    const queryLimit = Math.max(canPull * 3, 60);
+    const rows = await this.queryRadarRowsForCompany(context.companyId, filters, {
+      limit: queryLimit,
+      requirePhone: false,
+      availableOnly: true,
+    });
+
+    const leads = rows
+      .slice(0, canPull)
+      .map((row: any) => this.buildRadarLeadPublic(row, { maskContact: true }));
+
+    return {
+      ok: true,
+      canPull,
+      dailyRemaining,
+      leads,
+      filters: { segment: filters.segment, city: filters.city, state: filters.state },
+    };
   }
 
   private async getRadarStockConfig(filters: NormalizedRadarFilters) {
@@ -1263,7 +1979,7 @@ export class RadarCoreDeliveryMixin {
     input: NormalizedSearchInput,
     results: WebscrapingContactResult[],
     sourceEngine: string,
-    options: { strictLocalDdd?: boolean; sourceUrl?: string | null; engineUrl?: string | null } = {},
+    options: { campaignId?: string | null; strictLocalDdd?: boolean; sourceUrl?: string | null; engineUrl?: string | null } = {},
   ) {
     if (!(await this.supportsRadarPersistence())) return { approvedCount: 0, duplicateCount: 0, rejectedCount: 0, savedCount: 0 };
     // Não enriquecer estoque/previews. O motor só complementa o lead depois do
@@ -1334,8 +2050,8 @@ export class RadarCoreDeliveryMixin {
         whatsappStatus: (result as any).whatsappStatus || (result as any).whatsappCheckStatus || existing?.whatsappStatus || null,
       };
       const delivery = this.classifyCardDelivery(channelCandidate, input, quality, qualityV2);
-      const leadDeliverable = this.isLeadDeliverableCard(channelCandidate, input, quality, qualityV2);
-      if (!leadDeliverable) {
+      const listDeliverable = this.isListDeliverableCard(channelCandidate, input, quality, qualityV2);
+      if (!listDeliverable) {
         counts.rejectedCount += 1;
         if (existing?.id && !this.isRadarProtectedStatus(existing.status)) {
           const rejectedEnrichment = this.parseMaybeJsonObject(existing.enrichmentJson);
@@ -1374,7 +2090,10 @@ export class RadarCoreDeliveryMixin {
       if (existing?.id) counts.duplicateCount += 1;
       if (dddMismatch) counts.rejectedCount += 1;
       else counts.approvedCount += 1;
-      // sourceEngines do pool = DESCOBERTA: engines reais do resultado + source próprio.
+      // sourceEngines do pool = DESCOBERTA (03/07): engines reais do resultado + source próprio.
+      // O engine da corrida (hbx/hbx_mass_data/hbx_campaign) NÃO entra mais — corrida processa,
+      // não descobre; era ele que fabricava "rfb+web" fictício no medidor do :3107. Ele segue
+      // registrado na coluna sourceEngine e em metadataJson.lastSourceEngine (nada se perde).
       const resultDiscoveryEngines = radarDiscoveryEnginesOf(result as Record<string, any>);
       const sourceEngines = Array.from(new Set([...parseJsonArray(existing?.sourceEngines), ...resultDiscoveryEngines].filter(Boolean).map(String)));
       // enrichmentEngines: quem só ENRIQUECEU (separado pelo pré-save) — acumula no metadataJson.
@@ -1385,16 +2104,36 @@ export class RadarCoreDeliveryMixin {
         ...(Array.isArray((result as any).enrichmentEngines) ? (result as any).enrichmentEngines.map(String) : []),
       ].filter(Boolean)));
       const existingWasDddMismatch = String(existing?.status || '') === 'rejected' && String(existing?.rejectionReason || '') === 'ddd_mismatch';
+      // Quarentena pré-estoque (etapa 7 da árvore mestra, 02/07): SÓ no caminho que abastece o
+      // ESTOQUE da fábrica (`hbx_mass_data`/`hbx_campaign` — night_factory/mass-data mixin), NUNCA
+      // na lane síncrona do cliente (`hbx`). Se a etapa 7 (pós-entrega de OUTRO lead, mesma linha
+      // já vista antes) marcou nota IA ≤3 em `metadataJson.aiSaneamento`, o card NÃO promove pra
+      // 'clean' (pronto) — fica represado (não é descartado; sem migration: reusa o status
+      // 'rejected' existente, já excluído de toda query de "disponível" via
+      // `RADAR_PROTECTED_STATUSES`/`notIn:['rejected', ...]`). Reversível: se um saneamento futuro
+      // subir a nota, ou o dono revisar manualmente, o card reabre normalmente.
+      const isFactorySource = sourceEngine === 'hbx_mass_data' || sourceEngine === 'hbx_campaign';
+      const existingAiNota = Number(this.parseMaybeJsonObject(existing?.metadataJson)?.aiSaneamento?.nota);
+      const isQuarantinedByLowAiScore = isFactorySource
+        && !dddMismatch
+        && Number.isFinite(existingAiNota)
+        && existingAiNota <= 3
+        && String(existing?.status || '') !== 'sent_to_vendas'
+        && !this.isRadarProtectedStatus(existing?.status);
       const nextStatus = dddMismatch
         ? 'rejected'
-        : existingWasDddMismatch
-          ? 'clean'
-          : existing?.status || 'clean';
+        : isQuarantinedByLowAiScore
+          ? 'rejected'
+          : existingWasDddMismatch
+            ? 'clean'
+            : existing?.status || 'clean';
       const nextRejectionReason = dddMismatch
         ? 'ddd_mismatch'
-        : existingWasDddMismatch
-          ? null
-          : existing?.rejectionReason || null;
+        : isQuarantinedByLowAiScore
+          ? 'ai_score_low'
+          : existingWasDddMismatch
+            ? null
+            : existing?.rejectionReason || null;
       const resultIdentity = {
         ...(result as any),
         name: result.name || existing?.name || '',
@@ -1500,6 +2239,7 @@ export class RadarCoreDeliveryMixin {
         opportunityReason,
         status: nextStatus,
         rejectionReason: nextRejectionReason,
+        campaignId: options.campaignId || existing?.campaignId || null,
         metadataJson: JSON.stringify({
           ...this.parseMaybeJsonObject(existing?.metadataJson),
           targetType: input.targetType,
@@ -1619,14 +2359,9 @@ export class RadarCoreDeliveryMixin {
       // no pool (busca + L2 síncrono) vira linha consultável/exportável — com gate de formato.
       // Fire-and-forget: nunca atrasa nem falha a persistência do lote.
       if (savedId) {
-        const rawContactSource = String(sourceEngine || '').trim().toLowerCase();
-        const rfbContactSource = ['cnpj_public', 'rfb', 'receita'].includes(rawContactSource);
-        const motorContactSource = ['google', 'brave', 'manual', 'website_crawl'].includes(rawContactSource)
-          ? rawContactSource
-          : 'hbx_engine';
         const contactCandidates = [
-          ...((data as any).email ? [{ kind: 'email' as const, value: String((data as any).email), source: rfbContactSource ? 'rfb_email' : motorContactSource, confidence: safeInteger((data as any).emailConfidence) || 60 }] : []),
-          ...(phoneDigits ? [{ kind: 'phone' as const, value: phoneDigits, source: rfbContactSource ? 'rfb_primary' : motorContactSource, confidence: 75 }] : []),
+          ...((data as any).email ? [{ kind: 'email' as const, value: String((data as any).email), source: sourceEngine, confidence: safeInteger((data as any).emailConfidence) || 60 }] : []),
+          ...(phoneDigits ? [{ kind: 'phone' as const, value: phoneDigits, source: sourceEngine, confidence: 75 }] : []),
           ...((data as any).instagramUrl ? [{ kind: 'instagram' as const, value: String((data as any).instagramUrl), source: sourceEngine, confidence: safeInteger((data as any).socialConfidence) || 60 }] : []),
           ...((data as any).facebookUrl ? [{ kind: 'facebook' as const, value: String((data as any).facebookUrl), source: sourceEngine, confidence: safeInteger((data as any).socialConfidence) || 60 }] : []),
         ];
@@ -1678,70 +2413,6 @@ export class RadarCoreDeliveryMixin {
     }
   }
 
-  /**
-   * Autorização canônica pós-débito. `ownerCompanyId` sozinho é legado mutável e
-   * nunca libera PII: exigimos o vínculo da saga, a chave do ledger ainda ativa
-   * e ausência de compensação em andamento.
-   */
-  private async hasRadarPaidAcquisition(
-    context: SearchExecutionContext,
-    row: any,
-    expectedOperationId?: string | null,
-  ) {
-    const state = Array.isArray(row?.companyStates) ? row.companyStates[0] || null : null;
-    const usageKey = String(state?.claimUsageKey || '').trim();
-    const operationId = String(state?.paidClaimOperationId || '').trim();
-    const ownsLead = Number(row?.ownerCompanyId || 0) === context.companyId;
-    if (!ownsLead || !usageKey || !operationId || !state?.acquiredAt) {
-      return false;
-    }
-    if (expectedOperationId && operationId !== String(expectedOperationId).trim()) return false;
-    if (typeof this.commercialUsageLimits?.hasActiveLeadDeliveryCredit !== 'function') {
-      return false;
-    }
-    const activeCredit = await this.commercialUsageLimits.hasActiveLeadDeliveryCredit(
-      context.companyId,
-      { usageKey },
-    ).catch(() => false);
-    if (!activeCredit) return false;
-    const processDelegate = (this.prisma as any).radarLeadProcessRun;
-    if (!processDelegate?.findFirst) return false;
-    const run = await processDelegate.findFirst({
-      where: {
-        id: operationId,
-        companyId: context.companyId,
-        radarLeadId: row.id,
-        mode: 'claim',
-        status: {
-          in: [
-            'ownership_claimed',
-            'rfb_hydrating',
-            'base_revealed',
-            'motor_enriching',
-            'vendas_creating',
-            'completed',
-            'partial',
-          ],
-        },
-      },
-      select: { id: true },
-    }).catch(() => null);
-    if (!run?.id) return false;
-    return true;
-  }
-
-  private async assertRadarPaidAcquisition(context: SearchExecutionContext, row: any) {
-    if (!(await this.hasRadarPaidAcquisition(context, row))) {
-      throw new ForbiddenException('Puxe e pague o lead antes de acessar ou usar os dados.');
-    }
-    const state = Array.isArray(row?.companyStates) ? row.companyStates[0] || null : null;
-    return {
-      state,
-      usageKey: String(state?.claimUsageKey || '').trim(),
-      operationId: String(state?.paidClaimOperationId || '').trim(),
-    };
-  }
-
   private async logCommercialEmailMessage(input: Record<string, any>) {
     if (!(await this.prisma.hasTable('CommercialEmailMessageLog').catch(() => false))) return null;
     return (this.prisma as any).commercialEmailMessageLog.create({
@@ -1787,7 +2458,6 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    await this.assertRadarPaidAcquisition(context, row);
     if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
       throw new BadRequestException('Este card está marcado como negativo/bloqueado e não pode receber sugestão ativa de envio.');
     }
@@ -1843,7 +2513,6 @@ export class RadarCoreDeliveryMixin {
       include: { companyStates: { where: { companyId: context.companyId }, take: 1 } },
     }).catch(() => null);
     if (!row) throw new NotFoundException('Card do Radar nao encontrado.');
-    await this.assertRadarPaidAcquisition(context, row);
     if (this.isRadarProtectedStatus(row?.companyStates?.[0]?.status || row?.status)) {
       await this.commercialUsageLimits?.recordPresentationEmailResult(context.companyId, context.userId, {
         radarLeadId: row.id,
@@ -2058,8 +2727,7 @@ export class RadarCoreDeliveryMixin {
       vendasLeadId?: string | null;
       assignedUserId?: number | null;
       assignedByUserId?: number | null;
-      paidClaimOperationId?: string | null;
-      claimUsageKey?: string | null;
+      countUsage?: boolean;
     },
   ) {
     const now = new Date();
@@ -2067,7 +2735,43 @@ export class RadarCoreDeliveryMixin {
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const existingCompanyState = Array.isArray(row?.companyStates) && row.companyStates.length ? row.companyStates[0] : null;
     const alreadyClaimedByCompany = Number(row?.ownerCompanyId || 0) === context.companyId || Boolean(existingCompanyState?.id);
-    const persistCompanyState = (tx: any) => tx.radarLeadCompanyState.upsert({
+    if (input.countUsage === true && !alreadyClaimedByCompany) {
+      await this.commercialUsageLimits?.assertCanImportCard(context.companyId, context.userId);
+    }
+    if (ownershipEnabled) {
+      const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
+      if (ownerCompanyId && ownerCompanyId !== context.companyId) {
+        throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+      }
+      const claimed = await (this.prisma as any).radarLeadPool.updateMany({
+        where: {
+          id: row.id,
+          OR: [
+            { ownerCompanyId: null },
+            { ownerCompanyId: context.companyId },
+          ],
+        },
+        data: {
+          ownerCompanyId: context.companyId,
+          claimedAt: now,
+          status: input.poolStatus,
+          lastSeenAt: now,
+        },
+      });
+      if (!claimed?.count) {
+        throw new ForbiddenException('Este card acabou de ser puxado por outra empresa.');
+      }
+    } else {
+      await (this.prisma as any).radarLeadPool.update({
+        where: { id: row.id },
+        data: {
+          status: input.poolStatus,
+          lastSeenAt: now,
+        },
+      }).catch(() => null);
+    }
+
+    await (this.prisma as any).radarLeadCompanyState.upsert({
       where: {
         companyId_radarLeadId: {
           companyId: context.companyId,
@@ -2078,9 +2782,6 @@ export class RadarCoreDeliveryMixin {
         companyId: context.companyId,
         radarLeadId: row.id,
         vendasLeadId: input.vendasLeadId || null,
-        paidClaimOperationId: input.paidClaimOperationId || null,
-        claimUsageKey: input.claimUsageKey || null,
-        acquiredAt: input.paidClaimOperationId && input.claimUsageKey ? now : null,
         status: input.companyStatus,
         assignedUserId: input.assignedUserId || null,
         assignedByUserId: input.assignedByUserId || null,
@@ -2089,57 +2790,12 @@ export class RadarCoreDeliveryMixin {
       },
       update: {
         vendasLeadId: input.vendasLeadId || undefined,
-        paidClaimOperationId: input.paidClaimOperationId || undefined,
-        claimUsageKey: input.claimUsageKey || undefined,
-        acquiredAt: input.paidClaimOperationId && input.claimUsageKey ? now : undefined,
         status: input.companyStatus,
         assignedUserId: input.assignedUserId || undefined,
         assignedByUserId: input.assignedByUserId || undefined,
         assignedAt: input.assignedUserId ? now : undefined,
         lastActionAt: now,
       },
-    });
-    await (this.prisma as any).$transaction(async (tx: any) => {
-      if (ownershipEnabled) {
-        const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
-        if (ownerCompanyId && ownerCompanyId !== context.companyId) {
-          const error: any = new ConflictException({
-            code: 'RADAR_CLAIM_LOST_RACE_NO_MUTATION',
-            message: 'Este card já está na carteira de outra empresa.',
-          });
-          error.code = 'RADAR_CLAIM_LOST_RACE_NO_MUTATION';
-          throw error;
-        }
-        const claimed = await tx.radarLeadPool.updateMany({
-          where: {
-            id: row.id,
-            OR: [
-              { ownerCompanyId: null },
-              { ownerCompanyId: context.companyId },
-            ],
-          },
-          data: {
-            ownerCompanyId: context.companyId,
-            claimedAt: now,
-            status: input.poolStatus,
-            lastSeenAt: now,
-          },
-        });
-        if (!claimed?.count) {
-          const error: any = new ConflictException({
-            code: 'RADAR_CLAIM_LOST_RACE_NO_MUTATION',
-            message: 'Este card acabou de ser puxado por outra empresa.',
-          });
-          error.code = 'RADAR_CLAIM_LOST_RACE_NO_MUTATION';
-          throw error;
-        }
-      } else {
-        await tx.radarLeadPool.update({
-          where: { id: row.id },
-          data: { status: input.poolStatus, lastSeenAt: now },
-        });
-      }
-      await persistCompanyState(tx);
     });
 
     await this.recordRadarLeadEvent({
@@ -2151,6 +2807,13 @@ export class RadarCoreDeliveryMixin {
       statusFrom: previousStatus,
       statusTo: input.companyStatus,
     });
+    if (input.countUsage === true && !alreadyClaimedByCompany) {
+      await this.commercialUsageLimits?.recordCardImport(context.companyId, context.userId, {
+        source: 'radar_claim',
+        radarLeadId: row.id,
+        status: input.companyStatus,
+      });
+    }
     return { claimedAt: now };
   }
 
@@ -2172,8 +2835,9 @@ export class RadarCoreDeliveryMixin {
     // independente de quem esta como "Responsável" (assignedUserId, so informativo).
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
-    if (!ownershipEnabled) throw new ServiceUnavailableException('Controle seguro de aquisição indisponível.');
-    await this.assertRadarPaidAcquisition(context, row);
+    if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) {
+      throw new ForbiddenException('Este card já está na carteira de outra empresa.');
+    }
 
     const eventType = String(input.eventType || '').trim().toLowerCase() as RadarLeadEventType;
     if (!['denied', 'complaint', 'no_answer', 'hidden', 'contacted', 'note'].includes(eventType)) {
@@ -2187,7 +2851,8 @@ export class RadarCoreDeliveryMixin {
     if (eventType === 'note') {
       const noteText = String(input.note || '').trim();
       if (!noteText) throw new BadRequestException('Nota vazia.');
-      const ownedByViewer = ownershipEnabled && ownerCompanyId === context.companyId;
+      const ownedByViewer =
+        (ownershipEnabled && ownerCompanyId === context.companyId) || Boolean(row?.companyStates?.[0]);
       if (!ownedByViewer) throw new ForbiddenException('Puxe o lead pra sua carteira antes de anotar.');
       await this.recordRadarLeadEvent({
         leadId: row.id,
@@ -2208,6 +2873,16 @@ export class RadarCoreDeliveryMixin {
           : eventType as RadarLeadStatus;
     const now = new Date();
     const note = String(input.note || '').trim();
+    const alreadyContacted = safeInteger(row?.contactedCount) > 0 || safeInteger(row?.companyStates?.[0]?.contactedCount) > 0;
+    let usageDebit: { debited: boolean; alreadyDebited: boolean } | null = null;
+    if (eventType === 'contacted' && !alreadyContacted) {
+      usageDebit = await this.commercialUsageLimits?.recordCardCommercialUseOnce(context.companyId, context.userId, {
+        source: 'radar_contact_click',
+        usageKey: `radar:${row.id}`,
+        radarLeadId: row.id,
+        status: 'contacted',
+      }) || null;
+    }
     await (this.prisma as any).radarLeadCompanyState.upsert({
       where: {
         companyId_radarLeadId: {
@@ -2238,6 +2913,7 @@ export class RadarCoreDeliveryMixin {
     await (this.prisma as any).radarLeadPool.update({
       where: { id: row.id },
       data: {
+        ...(ownershipEnabled ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
         status: nextStatus,
         lastSeenAt: now,
         ...(eventType === 'no_answer' ? { noAnswerCount: { increment: 1 }, lastContactAt: now } : {}),
@@ -2252,7 +2928,7 @@ export class RadarCoreDeliveryMixin {
       companyId: context.companyId,
       userId: context.userId,
       eventType,
-      note,
+      note: usageDebit?.debited ? [note, 'Uso comercial debitado no primeiro contato.'].filter(Boolean).join(' ') : note,
       statusFrom: previousStatus,
       statusTo: nextStatus,
     });
@@ -2330,74 +3006,29 @@ export class RadarCoreDeliveryMixin {
    * O freio físico W4 (cache/rate/disjuntor) mora no serviço do check e continua intacto;
    * `confirmed` só vem do Webwhats de verdade (radarCheckWhatsappNumbers).
    */
-  private async resolveRadarWhatsappStatusForDelivery(
-    row: any,
-    requesterCompanyId?: number,
-  ): Promise<'confirmed' | 'missing' | 'unverified' | null> {
-    const enrichment = this.parseMaybeJsonObject(row?.enrichmentJson);
-    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
-    const existing = String(enrichment?.whatsappStatus || metadata?.whatsappStatus || '').trim().toLowerCase();
-    const blockedFax = new Set<string>();
-    const contacts = Array.isArray(row?.contacts) ? row.contacts : [];
-    for (const contact of contacts) {
-      if (String(contact?.source || '').trim().toLowerCase() !== 'rfb_fax') continue;
-      const phone = normalizePhoneDigits(contact?.valueNormalized || contact?.value);
-      if (phone) blockedFax.add(phone);
-    }
-    for (const item of Array.isArray(metadata?.phones) ? metadata.phones : []) {
-      if (!item || typeof item !== 'object' || String(item?.source || '').trim().toLowerCase() !== 'rfb_fax') continue;
-      const phone = normalizePhoneDigits(item?.value || item?.phone || item?.number);
-      if (phone) blockedFax.add(phone);
-    }
+  private async resolveRadarWhatsappStatusForDelivery(row: any): Promise<'confirmed' | 'missing' | 'unverified' | null> {
+    const existing = String(
+      this.parseMaybeJsonObject(row?.enrichmentJson)?.whatsappStatus
+      || this.parseMaybeJsonObject(row?.metadataJson)?.whatsappStatus
+      || '',
+    ).trim().toLowerCase();
+    if (existing === 'confirmed') return 'confirmed'; // já confirmado pelo Webwhats — não rebaixa nem re-checa
 
-    const phones: string[] = [];
-    const add = (value: unknown, source?: unknown) => {
-      if (String(source || '').trim().toLowerCase() === 'rfb_fax') return;
-      const phone = normalizePhoneDigits(
-        value && typeof value === 'object'
-          ? (value as any).value ?? (value as any).phone ?? (value as any).number ?? (value as any).phoneDigits
-          : value,
-      );
-      if (!phone || blockedFax.has(phone) || phones.includes(phone) || phones.length >= 3) return;
-      phones.push(phone);
-    };
-    add(row?.phoneDigits || row?.phone);
-    for (const item of Array.isArray(metadata?.phones) ? metadata.phones : []) add(item, item?.source);
-    for (const contact of contacts) {
-      if (!['phone', 'whatsapp'].includes(String(contact?.kind || '').trim().toLowerCase())) continue;
-      add(contact?.valueNormalized || contact?.value, contact?.source);
-    }
-    if (!phones.length) return (['confirmed', 'missing', 'unverified'].includes(existing) ? existing : null) as any;
-
-    const phonesWhatsapp: Record<string, boolean> = {
-      ...(metadata?.phonesWhatsapp && typeof metadata.phonesWhatsapp === 'object' ? metadata.phonesWhatsapp : {}),
-      ...(enrichment?.phonesWhatsapp && typeof enrichment.phonesWhatsapp === 'object' ? enrichment.phonesWhatsapp : {}),
-    };
-    if (existing === 'confirmed' && !Object.prototype.hasOwnProperty.call(phonesWhatsapp, phones[0])) {
-      phonesWhatsapp[phones[0]] = true;
-    }
-    const pending = phones.filter((phone) => !Object.prototype.hasOwnProperty.call(phonesWhatsapp, phone));
+    const phoneDigits = normalizePhoneDigits(row?.phoneDigits || row?.phone);
+    if (!phoneDigits) return (existing as any) || null; // sem telefone, nada a checar
 
     try {
-      if (pending.length) {
-        const results = await this.radarCheckWhatsappNumbers(pending, requesterCompanyId);
-        for (const result of Array.isArray(results) ? results : []) {
-          const phone = normalizePhoneDigits(result?.normalizedNumber || result?.input);
-          if (phone && pending.includes(phone)) phonesWhatsapp[phone] = Boolean(result?.exists);
-        }
-      }
-      metadata.phonesWhatsapp = phonesWhatsapp;
-      enrichment.phonesWhatsapp = phonesWhatsapp;
-      row.metadataJson = JSON.stringify(metadata);
-      row.enrichmentJson = JSON.stringify(enrichment);
-      const primary = phones[0];
-      if (Object.prototype.hasOwnProperty.call(phonesWhatsapp, primary)) {
-        return phonesWhatsapp[primary] ? 'confirmed' : 'missing';
-      }
-      return (['confirmed', 'missing', 'unverified'].includes(existing) ? existing : 'unverified') as any;
+      const results = await this.radarCheckWhatsappNumbers([phoneDigits]); // passa pelo freio W4 intacto
+      const match = Array.isArray(results)
+        ? results.find((item: any) => normalizePhoneDigits(item?.normalizedNumber || item?.input) === phoneDigits)
+        : null;
+      if (!match) return (existing as any) || 'unverified'; // motor indisponivel/sem sessao (degrada p/ [])
+      if (match.exists === true) return 'confirmed';        // confirmação REAL do Webwhats
+      if (match.exists === false) return 'missing';         // estado explícito "sem zap"
+      return (existing as any) || 'unverified';
     } catch (error: any) {
       this.logger?.warn?.(`[radar-zap-gate] check indisponivel lead=${row?.id || '-'}: ${String(error?.message || error)}`);
-      return (['confirmed', 'missing', 'unverified'].includes(existing) ? existing : 'unverified') as any;
+      return (existing as any) || 'unverified'; // fail-open: nunca derruba a entrega
     }
   }
 
@@ -2419,6 +3050,42 @@ export class RadarCoreDeliveryMixin {
     row.enrichmentJson = JSON.stringify(enr);
     row.metadataJson = JSON.stringify(meta);
     row.whatsappStatus = status;
+  }
+
+  /**
+   * Etapa 7 (IA 7b pós-entrega só-aditiva): agenda o saneamento em memória, sem bloquear a
+   * resposta da entrega. `RadarPostDeliveryAiSaneamentoService.enqueue` já é no-op se a flag
+   * `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default) — chamada sempre segura.
+   * `companyId` (CRÉDITO UNIVERSAL, PR11072026): empresa dona da importação, já validada por
+   * `resolveContext` no caller — repassado como ação `ai_batch`, nunca inventado.
+   */
+  private enqueueRadarPostDeliveryAiSaneamento(row: any, companyId?: number | null) {
+    const radarLeadId = String(row?.id || '').trim();
+    const name = String(row?.name || '').trim();
+    if (!radarLeadId || !name) return;
+    this.getRadarPostDeliveryAiSaneamento().enqueue(
+      {
+        radarLeadId,
+        name,
+        city: row?.city || null,
+        state: row?.state || null,
+        segment: row?.segment || null,
+        companyId: companyId ?? null,
+      },
+      {
+        loadRadarLeadPoolRow: (id: string) => (this.prisma as any).radarLeadPool.findUnique({
+          where: { id },
+          select: { id: true, metadataJson: true },
+        }).catch(() => null),
+        updateRadarLeadPoolMetadata: async (id: string, metadataJson: string) => {
+          await (this.prisma as any).radarLeadPool.update({
+            where: { id },
+            data: { metadataJson },
+          }).catch(() => null);
+        },
+        logger: this.logger,
+      },
+    );
   }
 
   private async persistClaimSourceCoverage(row: any, source: 'rfb' | 'motor', patch: Record<string, any>) {
@@ -2448,23 +3115,20 @@ export class RadarCoreDeliveryMixin {
       attempted: true,
       status: 'running',
       attemptedAt,
-    }).catch(() => row);
+    });
     const cnpj = extractCnpjFromRadarLead(leadRow);
-    const fail = async (reason: string, detail: string) => {
-      const coveredRow = await this.persistClaimSourceCoverage(leadRow, 'rfb', {
+    const fail = async (reason: string, detail: string) => ({
+      row: await this.persistClaimSourceCoverage(leadRow, 'rfb', {
         attempted: true,
         succeeded: false,
         status: 'failed',
         reason,
         ...(cnpj ? { cnpj } : {}),
         finishedAt: new Date().toISOString(),
-      }).catch(() => leadRow);
-      return {
-        row: coveredRow,
-        succeeded: false,
-        reason: detail,
-      };
-    };
+      }),
+      succeeded: false,
+      reason: detail,
+    });
     if (!cnpj) return fail('cnpj_not_resolved', 'CNPJ não identificado para hidratação RFB.');
     if (!(await this.prisma.hasTable('CnpjPublicCompany').catch(() => false))) {
       return fail('rfb_table_unavailable', 'Base RFB indisponível neste ambiente.');
@@ -2497,19 +3161,13 @@ export class RadarCoreDeliveryMixin {
         website: true,
         phone: true,
         phone2: true,
-        fax: true,
-        faxDigits: true,
         email: true,
       },
     }).catch(() => null);
     if (!rfb) return fail('cnpj_not_found', 'CNPJ não localizado na base RFB.');
 
-    const rawPhone1 = normalizePhoneDigits(rfb.phone);
-    const rawPhone2 = normalizePhoneDigits(rfb.phone2);
-    const rawPhone3 = normalizePhoneDigits(rfb.faxDigits || rfb.fax);
-    const phone1 = isLikelyValidBrPhone(rawPhone1) ? rawPhone1 : null;
-    const phone2 = isLikelyValidBrPhone(rawPhone2) ? rawPhone2 : null;
-    const phone3 = isLikelyValidBrPhone(rawPhone3) ? rawPhone3 : null;
+    const phone1 = normalizePhoneDigits(rfb.phone);
+    const phone2 = normalizePhoneDigits(rfb.phone2);
     const email = normalizeBusinessEmail(rfb.email);
     const secondaryCnaeCodes = Array.from(new Set(
       String(rfb.cnaeSecundarias || '')
@@ -2542,15 +3200,10 @@ export class RadarCoreDeliveryMixin {
     const candidates = [
       ...(phone1 ? [{ kind: 'phone' as const, value: phone1, source: 'rfb_primary', confidence: 100, rank: 1 }] : []),
       ...(phone2 && phone2 !== phone1 ? [{ kind: 'phone' as const, value: phone2, source: 'rfb_secondary', confidence: 100, rank: 2 }] : []),
-      ...(phone3 && phone3 !== phone1 && phone3 !== phone2 ? [{ kind: 'phone' as const, value: phone3, source: 'rfb_fax', confidence: 100, rank: 3 }] : []),
       ...(email ? [{ kind: 'email' as const, value: email, source: 'rfb_email', confidence: 100, rank: 1 }] : []),
     ];
     if (candidates.length) {
-      try {
-        await this.getLeadContactWrite().writeContacts(this.prisma, row.id, candidates);
-      } catch (error: any) {
-        return fail('rfb_contact_persistence_failed', `Falha ao persistir contatos RFB: ${String(error?.message || error)}`);
-      }
+      await this.getLeadContactWrite().writeContacts(this.prisma, row.id, candidates).catch(() => null);
     }
     const metadata = this.parseMaybeJsonObject(leadRow.metadataJson);
     const phones = Array.from(new Set([
@@ -2558,7 +3211,6 @@ export class RadarCoreDeliveryMixin {
       ...(Array.isArray(metadata?.phones) ? metadata.phones.map(normalizePhoneDigits) : []),
       phone1,
       phone2,
-      phone3,
     ].filter(Boolean))).slice(0, 3);
     const emails = Array.from(new Set([
       normalizeBusinessEmail(leadRow.email),
@@ -2566,7 +3218,7 @@ export class RadarCoreDeliveryMixin {
       email,
     ].filter(Boolean))).slice(0, 3);
     const currentPhoneDigits = normalizePhoneDigits(leadRow.phoneDigits || leadRow.phone);
-    const rfbPrimaryCandidate = phone1 || phone2 || phone3 || null;
+    const rfbPrimaryCandidate = phone1 || phone2 || null;
     let scalarPhoneDigits = currentPhoneDigits || rfbPrimaryCandidate;
     // RadarLeadPool.phoneDigits continua sendo a chave de identidade histórica e é
     // única. Telefones RFB compartilhados (contador/central) não podem abortar a
@@ -2598,7 +3250,6 @@ export class RadarCoreDeliveryMixin {
         website: officialWebsite,
         ownerName: rfb.ownerName || null,
         ownerQualification: rfb.ownerQualification || null,
-        phones: [phone1, phone2, phone3].filter(Boolean),
         capitalSocial: rfb.capitalSocial == null ? null : String(rfb.capitalSocial),
         naturezaJuridica: rfb.naturezaJuridica || null,
         simples: rfb.simples ?? null,
@@ -2652,20 +3303,10 @@ export class RadarCoreDeliveryMixin {
         },
       },
     };
-    const scalarPhoneValue = scalarPhoneDigits
-      ? phone1 === scalarPhoneDigits
-        ? rfb.phone
-        : phone2 === scalarPhoneDigits
-          ? rfb.phone2
-          : phone3 === scalarPhoneDigits
-            ? rfb.fax
-            : scalarPhoneDigits
-      : null;
-    try {
-      await (this.prisma as any).radarLeadPool.update({
-        where: { id: row.id },
-        data: {
-        phone: leadRow.phone || scalarPhoneValue,
+    await (this.prisma as any).radarLeadPool.update({
+      where: { id: row.id },
+      data: {
+        phone: leadRow.phone || (scalarPhoneDigits ? (phone1 === scalarPhoneDigits ? rfb.phone : rfb.phone2) : null),
         phoneDigits: scalarPhoneDigits,
         email: normalizeBusinessEmail(leadRow.email) || email || null,
         emailStatus: normalizeBusinessEmail(leadRow.email) || email ? leadRow.emailStatus || 'confirmed' : leadRow.emailStatus,
@@ -2680,426 +3321,18 @@ export class RadarCoreDeliveryMixin {
         websiteStatus: leadRow.website || officialWebsite ? 'present' : leadRow.websiteStatus,
         metadataJson: JSON.stringify(nextMetadata),
         lastSeenAt: new Date(),
-        },
-      });
-    } catch (error: any) {
-      return fail('rfb_pool_persistence_failed', `Falha ao persistir dados RFB: ${String(error?.message || error)}`);
-    }
+      },
+    });
     const refreshed = await (this.prisma as any).radarLeadPool.findUnique({
       where: { id: row.id },
       include: { companyStates: true, contacts: true },
     }).catch(() => null);
-    if (!refreshed) return fail('rfb_reload_failed', 'Não foi possível validar os dados RFB persistidos.');
-    const persistedContacts = new Set((Array.isArray(refreshed.contacts) ? refreshed.contacts : []).map((contact: any) => {
-      const kind = String(contact?.kind || '').toLowerCase();
-      return kind === 'email'
-        ? normalizeBusinessEmail(contact?.valueNormalized || contact?.value)
-        : normalizePhoneDigits(contact?.valueNormalized || contact?.value);
-    }).filter(Boolean));
-    const missingContact = candidates.find((candidate) => {
-      const normalized = candidate.kind === 'email'
-        ? normalizeBusinessEmail(candidate.value)
-        : normalizePhoneDigits(candidate.value);
-      return normalized && !persistedContacts.has(normalized);
-    });
-    if (missingContact) {
-      return fail('rfb_contact_verification_failed', 'Um contato oficial da RFB não permaneceu na projeção canônica.');
-    }
-    return { row: refreshed, succeeded: true, reason: null };
-  }
-
-  /**
-   * Crawl gratuito e limitado do site oficial durante a puxada paga. Ele não
-   * roda na pesquisa, não confirma WhatsApp por inferência e não inicia
-   * qualquer fábrica/scheduler. O payload volta no mesmo contrato canônico do
-   * motor para completar apenas as vagas restantes de telefone/e-mail (até 3).
-   */
-  private async crawlRadarLeadWebsiteForClaim(row: any) {
-    const websiteRaw = String(row?.website || '').trim();
-    const website = websiteRaw
-      && !this.isBlockedLeadOfficialWebsite(websiteRaw)
-      && websiteHostLooksCompatibleWithLead(row, websiteRaw)
-      ? websiteRaw
-      : null;
-    if (!website) {
-      return { attempted: false, succeeded: false, payload: null, reason: 'website_not_available' };
-    }
-
-    const configuredTimeout = Math.trunc(Number(process.env.HBX_RADAR_CLAIM_WEBSITE_CRAWL_TIMEOUT_MS || 2_500));
-    const timeoutMs = Math.max(1_000, Math.min(4_000, Number.isFinite(configuredTimeout) ? configuredTimeout : 2_500));
-    try {
-      const result = await new WebsiteCrawlProviderService().crawl(website, {
-        timeoutMs,
-        maxHtmlBytes: 250_000,
-        paths: ['/', '/contato', '/fale-conosco'],
-      });
-      const fields = result?.fields || {};
-      const phones = Array.from(new Set([
-        ...(Array.isArray(fields?.phoneDigits) ? fields.phoneDigits : []),
-        ...(Array.isArray(fields?.whatsappPhoneDigits) ? fields.whatsappPhoneDigits : []),
-      ].map(normalizePhoneDigits).filter((value) => value && isLikelyValidBrPhone(value)))).slice(0, 3);
-      const emails = Array.from(new Set(
-        (Array.isArray(fields?.emails) ? fields.emails : [])
-          .map(normalizeBusinessEmail)
-          .filter(Boolean),
-      )).slice(0, 3);
-      const instagramUrl = String(fields?.instagramUrls?.[0] || '').trim() || null;
-      const facebookUrl = String(fields?.facebookUrls?.[0] || '').trim() || null;
-      const address = String(fields?.address || '').trim() || null;
-      const hasUsefulData = Boolean(phones.length || emails.length || instagramUrl || facebookUrl || address);
-      const payload = hasUsefulData ? {
-        website,
-        address,
-        phone: phones[0] ? { value: phones[0], source: 'website_crawl', confidence: 80 } : null,
-        phones: phones.map((value, index) => ({
-          value,
-          source: 'website_crawl',
-          confidence: 80,
-          rank: index + 1,
-          // Um link wa.me prova que o número foi publicado, não que a conta
-          // continua ativa. A confirmação real permanece no verificador dedicado.
-          whatsappStatus: 'unverified',
-        })),
-        email: emails[0] || null,
-        emails: emails.map((value, index) => ({
-          value,
-          source: 'website_crawl',
-          confidence: 85,
-          rank: index + 1,
-        })),
-        emailStatus: emails.length ? 'confirmed' : null,
-        emailSource: emails.length ? 'website' : null,
-        emailConfidence: emails.length ? 85 : 0,
-        instagramUrl,
-        facebookUrl,
-        socialStatus: instagramUrl || facebookUrl ? 'found' : null,
-        socialConfidence: instagramUrl || facebookUrl ? 80 : 0,
-        phonesWhatsapp: {},
-        stats: {
-          identity: 'website_crawl',
-          processed: Array.isArray(result?.evidence?.pages) ? result.evidence.pages.length : 0,
-          enriched: phones.length + emails.length + Number(Boolean(instagramUrl)) + Number(Boolean(facebookUrl)),
-          elapsedMs: 0,
-        },
-      } : null;
-      return {
-        attempted: true,
-        succeeded: result?.status === 'completed' || result?.status === 'partial_error',
-        payload,
-        reason: String(result?.reason || 'website_crawl_completed'),
-      };
-    } catch (error: any) {
-      const reason = String(error?.message || error || 'website_crawl_failed').slice(0, 300);
-      this.logger.warn(`[claim-website-crawl] falha lead=${row?.id || 'unknown'}: ${reason}`);
-      return { attempted: true, succeeded: false, payload: null, reason };
-    }
-  }
-
-  /**
-   * Ponto de não-retorno da compra. Antes desta transação nenhum CustomerProfile
-   * nem CompanyConversation é criado. A mesma transação confirma fencing + ledger
-   * ativo e materializa (ou vincula) o card core de Vendas à operação paga.
-   * Efeitos auxiliares do CRM rodam somente depois e nunca causam estorno.
-   */
-  private async commitPaidRadarVendasCore(input: {
-    context: SearchExecutionContext;
-    operationId: string;
-    workerToken: string;
-    usageKey: string;
-    leadRow: any;
-    assignedUserId?: number | null;
-    assignedByUserId?: number | null;
-  }) {
-    const { context, leadRow } = input;
-    const operationId = String(input.operationId || '').trim();
-    const workerToken = String(input.workerToken || '').trim();
-    const usageKey = String(input.usageKey || '').trim();
-    if (!operationId || !workerToken || !usageKey) {
-      throw new ServiceUnavailableException('Prova segura da aquisição ausente. Nenhum card foi entregue.');
-    }
-    const metadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
-    const whatsappStatus = this.extractRadarLeadWhatsappStatus(leadRow) || 'unverified';
-    const contacts = this.buildRadarLeadContactProjection(leadRow, metadata, whatsappStatus);
-    const contactSnapshotJson = JSON.stringify({
-      version: 1,
-      radarLeadId: String(leadRow.id),
-      phones: contacts.phoneContacts.slice(0, 3),
-      emails: contacts.emailContacts.slice(0, 3),
-    });
-    const phoneNormalized = normalizePhoneDigits(
-      contacts.phoneContacts[0]?.value || leadRow?.phoneDigits || leadRow?.phone,
-    ) || null;
-    const sourceHistoryId = `radar:${leadRow.id}`;
-    const now = new Date();
-    const debitKey = `enforce:lead_delivery:${usageKey}`;
-
-    return (this.prisma as any).$transaction(async (tx: any) => {
-      const fencedRun = await tx.radarLeadProcessRun.findFirst({
-        where: {
-          id: operationId,
-          companyId: context.companyId,
-          radarLeadId: String(leadRow.id),
-          mode: 'claim',
-          workerToken,
-          workerLeaseUntil: { gt: now },
-          status: { notIn: ['completed', 'partial', 'failed', 'refund_pending', 'refunded'] },
-        },
-        select: { id: true },
-      });
-      if (!fencedRun) {
-        throw new ConflictException({
-          code: 'RADAR_CLAIM_WORKER_FENCED',
-          message: 'A execução perdeu o lease antes da entrega core.',
-        });
-      }
-      const [debit, refund] = await Promise.all([
-        tx.creditLedgerEntry.findFirst({
-          where: { companyId: context.companyId, kind: 'debit', usageKey: debitKey },
-          select: { id: true },
-        }),
-        tx.creditLedgerEntry.findFirst({
-          where: { companyId: context.companyId, kind: 'refund', usageKey: `refund:${debitKey}` },
-          select: { id: true },
-        }),
-      ]);
-      if (!debit?.id || refund?.id) {
-        throw new ConflictException('O débito ativo não foi confirmado no ponto de entrega.');
-      }
-
-      const byOperation = await tx.vendasLead.findUnique({
-        where: { claimOperationId: operationId },
-        select: { id: true, companyId: true },
-      });
-      if (byOperation) {
-        if (Number(byOperation.companyId) !== context.companyId) {
-          throw new ConflictException('A operação já está vinculada a outro tenant.');
-        }
-        const primaryPhoneCollision = phoneNormalized
-          ? await tx.vendasLead.findFirst({
-              where: {
-                companyId: context.companyId,
-                phoneNormalized,
-                id: { not: byOperation.id },
-              },
-              select: { id: true },
-            })
-          : null;
-        try {
-          await tx.vendasLead.update({
-            where: { id: byOperation.id },
-            data: {
-              contactSnapshotJson,
-              ...(leadRow?.name ? { name: leadRow.name } : {}),
-              ...(!primaryPhoneCollision && (contacts.phoneContacts[0]?.value || leadRow?.phone || leadRow?.phoneDigits) ? {
-                phone: contacts.phoneContacts[0]?.value || leadRow.phone || leadRow.phoneDigits,
-                phoneNormalized,
-              } : {}),
-              ...(contacts.emailContacts[0]?.value || leadRow?.email
-                ? { email: contacts.emailContacts[0]?.value || leadRow.email }
-                : {}),
-              ...(leadRow?.address ? { address: leadRow.address } : {}),
-              ...(leadRow?.website ? { website: leadRow.website } : {}),
-              ...(leadRow?.city ? { city: leadRow.city } : {}),
-              ...(leadRow?.state ? { state: leadRow.state } : {}),
-              ...(leadRow?.segment ? { segment: leadRow.segment } : {}),
-            },
-          });
-          return {
-            id: String(byOperation.id),
-            created: false,
-            idempotent: true,
-            ...(primaryPhoneCollision ? { convergenceWarning: 'primary_phone_collision_snapshot_preserved' } : {}),
-          };
-        } catch (error: any) {
-          // O card desta operação já é a prova material do reveal. Uma falha de
-          // convergência não pode transformar um retry em estorno com PII grátis.
-          return {
-            id: String(byOperation.id),
-            created: false,
-            idempotent: true,
-            convergenceWarning: String(error?.message || error || 'vendas_core_retry_update_failed'),
-          };
-        }
-      }
-
-      // Nunca anexar uma compra paga a um card manual só porque o telefone
-      // coincide. Sem vínculo explícito de origem, a colisão deve falhar antes
-      // do reveal e a saga compensa o débito.
-      const existing = await tx.vendasLead.findFirst({
-        where: {
-          companyId: context.companyId,
-          sourceHistoryId,
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
-      if (existing) {
-        throw new ConflictException(
-          'Já existe um card sem vínculo com esta compra. A entrega paga não pode mesclar dados preexistentes.',
-        );
-      }
-
-      const commonData = {
-        claimOperationId: operationId,
-        contactSnapshotJson,
-        sourceHistoryId,
-        sourceSignature: [leadRow?.segment, leadRow?.city].filter(Boolean).join('|') || null,
-        name: leadRow?.name || null,
-        // O snapshot adquirido é canônico. Escalares acompanham o rank 1 para
-        // não empurrar um contato divergente à frente e cortar o 3º no slice(3).
-        phone: contacts.phoneContacts[0]?.value || leadRow?.phone || leadRow?.phoneDigits || null,
-        phoneNormalized: normalizePhoneDigits(contacts.phoneContacts[0]?.value) || phoneNormalized || null,
-        email: contacts.emailContacts[0]?.value || leadRow?.email || null,
-        address: leadRow?.address || null,
-        website: leadRow?.website || null,
-        rating: leadRow?.rating ?? null,
-        reviews: safeInteger(leadRow?.reviews),
-        opportunityScore: leadRow?.opportunityScore ?? null,
-        city: leadRow?.city || null,
-        state: leadRow?.state || null,
-        segment: leadRow?.segment || null,
-        assignedUserId: input.assignedUserId || null,
-        assignedByUserId: input.assignedByUserId || null,
-        assignedAt: input.assignedUserId ? now : null,
-        returnAt: now,
-        nextAction: 'Primeiro contato',
-        shortNote: leadRow?.opportunityReason || 'Lead adquirido no Radar.',
-      };
-      const vendasLead = await tx.vendasLead.create({
-        data: {
-          companyId: context.companyId,
-          sourceType: 'webscraping',
-          primarySource: 'webscraping',
-          status: 'novo',
-          createdByUserId: context.userId,
-          ...commonData,
-        },
-      });
-      await tx.vendasLeadTimelineEvent.create({
-        data: {
-          leadId: vendasLead.id,
-          eventType: 'radar_paid_claim_committed',
-          title: 'Lead adquirido no Radar',
-          description: 'Entrega core confirmada após débito do crédito.',
-          sourceType: 'webscraping',
-          createdByUserId: context.userId,
-          idempotencyKey: `radar-paid-claim:${operationId}`,
-        },
-      });
-      return { id: String(vendasLead.id), created: true, idempotent: false };
-    });
-  }
-
-  /**
-   * Convergência durável do snapshot 3+3 depois de RFB+motor. Diferente do
-   * primeiro commit, este write idempotente não depende do lease curto que pode
-   * expirar durante o crawl; ele exige a prova permanente state+ledger e recusa
-   * refund_pending/refunded. Assim retry/recovery pode completar o mesmo claim
-   * sem criar outro card ou reabrir uma aquisição revogada.
-   */
-  private async refreshPaidRadarVendasSnapshot(input: {
-    context: SearchExecutionContext;
-    operationId: string;
-    usageKey: string;
-    leadRow: any;
-  }) {
-    const operationId = String(input.operationId || '').trim();
-    const usageKey = String(input.usageKey || '').trim();
-    const leadRow = input.leadRow;
-    const contacts = this.buildRadarLeadContactProjection(
-      leadRow,
-      this.parseMaybeJsonObject(leadRow?.metadataJson),
-      this.extractRadarLeadWhatsappStatus(leadRow) || 'unverified',
-    );
-    const contactSnapshotJson = JSON.stringify({
-      version: 1,
-      radarLeadId: String(leadRow.id),
-      phones: contacts.phoneContacts.slice(0, 3),
-      emails: contacts.emailContacts.slice(0, 3),
-    });
-    const primaryPhone = contacts.phoneContacts[0]?.value || leadRow?.phone || leadRow?.phoneDigits || null;
-    const primaryEmail = contacts.emailContacts[0]?.value || leadRow?.email || null;
-    const debitKey = `enforce:lead_delivery:${usageKey}`;
-    return (this.prisma as any).$transaction(async (tx: any) => {
-      const [state, run, debit, refund, card] = await Promise.all([
-        tx.radarLeadCompanyState.findUnique({
-          where: {
-            companyId_radarLeadId: {
-              companyId: input.context.companyId,
-              radarLeadId: String(leadRow.id),
-            },
-          },
-          select: { paidClaimOperationId: true, claimUsageKey: true, acquiredAt: true },
-        }),
-        tx.radarLeadProcessRun.findFirst({
-          where: {
-            id: operationId,
-            companyId: input.context.companyId,
-            radarLeadId: String(leadRow.id),
-            mode: 'claim',
-            status: { notIn: ['refund_pending', 'refunded', 'failed'] },
-          },
-          select: { id: true },
-        }),
-        tx.creditLedgerEntry.findFirst({
-          where: { companyId: input.context.companyId, kind: 'debit', usageKey: debitKey },
-          select: { id: true },
-        }),
-        tx.creditLedgerEntry.findFirst({
-          where: { companyId: input.context.companyId, kind: 'refund', usageKey: `refund:${debitKey}` },
-          select: { id: true },
-        }),
-        tx.vendasLead.findUnique({
-          where: { claimOperationId: operationId },
-          select: { id: true, companyId: true },
-        }),
-      ]);
-      if (!run?.id
-        || !state?.acquiredAt
-        || String(state.paidClaimOperationId || '') !== operationId
-        || String(state.claimUsageKey || '') !== usageKey
-        || !debit?.id
-        || refund?.id
-        || !card?.id
-        || Number(card.companyId) !== input.context.companyId) {
-        throw new ConflictException('A aquisição foi revogada ou perdeu sua prova antes da convergência 3+3.');
-      }
-      const normalizedPrimaryPhone = normalizePhoneDigits(primaryPhone) || null;
-      const scalarCollision = normalizedPrimaryPhone
-        ? await tx.vendasLead.findFirst({
-            where: {
-              companyId: input.context.companyId,
-              phoneNormalized: normalizedPrimaryPhone,
-              id: { not: card.id },
-            },
-            select: { id: true },
-          })
-        : null;
-      await tx.vendasLead.update({
-        where: { id: card.id },
-        data: {
-          contactSnapshotJson,
-          ...(leadRow?.name ? { name: leadRow.name } : {}),
-          // A colisão do escalar não invalida os contatos comprados. O snapshot
-          // 3+3 sempre converge; só o atalho denormalizado fica preservado.
-          ...(primaryPhone && !scalarCollision
-            ? { phone: primaryPhone, phoneNormalized: normalizedPrimaryPhone }
-            : {}),
-          ...(primaryEmail ? { email: primaryEmail } : {}),
-          ...(leadRow?.address ? { address: leadRow.address } : {}),
-          ...(leadRow?.website ? { website: leadRow.website } : {}),
-          ...(leadRow?.city ? { city: leadRow.city } : {}),
-          ...(leadRow?.state ? { state: leadRow.state } : {}),
-          ...(leadRow?.segment ? { segment: leadRow.segment } : {}),
-        },
-      });
-      return { id: String(card.id), refreshed: true };
-    });
+    return { row: refreshed || { ...leadRow, metadataJson: JSON.stringify(nextMetadata) }, succeeded: true, reason: null };
   }
 
   private async rollbackRadarClaimAttempt(input: {
     context: SearchExecutionContext;
     originalRow: any;
-    operationId?: string | null;
     vendasLeadId?: string | null;
     vendasCreated?: boolean;
   }) {
@@ -3111,23 +3344,11 @@ export class RadarCoreDeliveryMixin {
       return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
     const previousState = Array.isArray(originalRow?.companyStates) ? originalRow.companyStates[0] || null : null;
-    const operationId = String(input.operationId || '').trim();
-    // Arquitetura do ponto de não-retorno: antes do VendasLead carimbado com
-    // claimOperationId não existe mutação em Vendas/Profile/Conversation. Depois
-    // dele não há estorno. Logo a compensação pré-commit restaura só Radar; nunca
-    // apaga ou sobrescreve um card manual preexistente por coincidência de telefone.
     if (previousState) {
-      await (this.prisma as any).radarLeadCompanyState.updateMany({
-        where: {
-          companyId: context.companyId,
-          radarLeadId: originalRow.id,
-          ...(operationId ? { paidClaimOperationId: operationId } : {}),
-        },
+      await (this.prisma as any).radarLeadCompanyState.update({
+        where: { companyId_radarLeadId: { companyId: context.companyId, radarLeadId: originalRow.id } },
         data: {
           vendasLeadId: previousState.vendasLeadId || null,
-          paidClaimOperationId: previousState.paidClaimOperationId || null,
-          claimUsageKey: previousState.claimUsageKey || null,
-          acquiredAt: restoredDate(previousState.acquiredAt),
           status: previousState.status,
           assignedUserId: previousState.assignedUserId || null,
           assignedByUserId: previousState.assignedByUserId || null,
@@ -3141,15 +3362,11 @@ export class RadarCoreDeliveryMixin {
           complaintReason: previousState.complaintReason || null,
           deniedReason: previousState.deniedReason || null,
         },
-      });
+      }).catch(() => null);
     } else {
       await (this.prisma as any).radarLeadCompanyState.deleteMany({
-        where: {
-          companyId: context.companyId,
-          radarLeadId: originalRow.id,
-          ...(operationId ? { paidClaimOperationId: operationId } : {}),
-        },
-      });
+        where: { companyId: context.companyId, radarLeadId: originalRow.id },
+      }).catch(() => null);
     }
     await (this.prisma as any).radarLeadPool.updateMany({
       where: { id: originalRow.id, ownerCompanyId: context.companyId },
@@ -3158,172 +3375,19 @@ export class RadarCoreDeliveryMixin {
         claimedAt: restoredDate(originalRow.claimedAt),
         status: originalRow.status || 'clean',
       },
-    });
-
-    const restoredPool = await (this.prisma as any).radarLeadPool.findUnique({
-      where: { id: originalRow.id },
-      select: { ownerCompanyId: true },
-    });
-    const restoredOwnerId = Number(restoredPool?.ownerCompanyId || 0);
-    const expectedOwnerId = Number(originalRow.ownerCompanyId || 0);
-    const winnerFromAnotherTenant = restoredOwnerId > 0 && restoredOwnerId !== context.companyId;
-    if (!restoredPool || (!winnerFromAnotherTenant && restoredOwnerId !== expectedOwnerId)) {
-      throw new ServiceUnavailableException('A restauração da posse ficou pendente; o crédito não foi estornado.');
+    }).catch(() => null);
+    if (input.vendasCreated && input.vendasLeadId) {
+      await (this.prisma as any).vendasLead.deleteMany({
+        where: {
+          id: input.vendasLeadId,
+          companyId: context.companyId,
+          sourceHistoryId: `radar:${originalRow.id}`,
+        },
+      }).catch(() => null);
     }
-    return { ownershipRestored: true, vendasRemoved: false, winnerPreserved: winnerFromAnotherTenant };
   }
 
-  private async removeExactRadarPaidVendasCardForRefund(input: {
-    companyId: number;
-    operationId: string;
-  }) {
-    const companyId = Math.trunc(Number(input.companyId || 0));
-    const operationId = String(input.operationId || '').trim();
-    if (!companyId || !operationId) throw new ServiceUnavailableException('Prova exata do card a revogar ausente.');
-    return (this.prisma as any).$transaction(async (tx: any) => {
-      const card = await tx.vendasLead.findUnique({
-        where: { claimOperationId: operationId },
-        select: { id: true, companyId: true },
-      });
-      if (!card) return { removed: false, alreadyAbsent: true };
-      if (Number(card.companyId) !== companyId) {
-        throw new ConflictException('O card pago pertence a outro tenant e não pode ser revogado por esta operação.');
-      }
-      // Conversas são histórico independente e ficam apenas desvinculadas. Artefatos
-      // próprios do card (timeline, cockpit, automações, atividades) caem por cascade.
-      if (typeof tx.companyConversation?.updateMany === 'function') {
-        await tx.companyConversation.updateMany({
-          where: { companyId, vendasLeadId: card.id },
-          data: { vendasLeadId: null },
-        });
-      }
-      await tx.vendasLead.delete({ where: { id: card.id } });
-      const remaining = await tx.vendasLead.findUnique({
-        where: { claimOperationId: operationId },
-        select: { id: true },
-      });
-      if (remaining?.id) throw new ServiceUnavailableException('O card pago continuou acessível após a revogação.');
-      return { removed: true, alreadyAbsent: false };
-    });
-  }
-
-  private async compensateFailedRadarClaim(input: {
-    context: SearchExecutionContext;
-    originalRow: any;
-    creditReserved: boolean;
-    creditUsageKey: string;
-    error: any;
-    reportProgress: (state: string, payload?: Record<string, any>) => Promise<void>;
-    vendasLeadId?: string | null;
-    cleanupRequired?: boolean;
-    operationId?: string | null;
-    workerToken?: string | null;
-  }) {
-    const originalError = String(input.error?.message || input.error || 'Falha na entrega do lead.');
-    if (input.operationId && input.workerToken) {
-      await this.assertRadarClaimWorkerFence(input.context, input.operationId, input.workerToken);
-    }
-    // Falha anterior ao débito e anterior a qualquer mutação não exige
-    // reconciliação financeira. Consultar um ledger indisponível aqui escondia
-    // a causa real e deixava uma operação inocente em refund_pending.
-    if (!input.creditReserved && !input.cleanupRequired) {
-      await input.reportProgress('failed', {
-        radarLeadId: input.originalRow.id,
-        error: originalError,
-        contactAccessRevoked: true,
-      });
-      return;
-    }
-    if (typeof this.commercialUsageLimits?.hasActiveLeadDeliveryCredit !== 'function') {
-      await input.reportProgress('refund_pending', {
-        radarLeadId: input.originalRow.id,
-        usageKey: input.creditUsageKey,
-        error: 'Não foi possível consultar o ledger após uma falha ambígua.',
-        cleanupPending: Boolean(input.cleanupRequired),
-      }).catch(() => undefined);
-      throw new ServiceUnavailableException('Reconciliação do crédito indisponível; a operação ficou pendente.');
-    }
-    let activeCredit: boolean;
-    try {
-      activeCredit = await this.commercialUsageLimits.hasActiveLeadDeliveryCredit(
-        input.context.companyId,
-        { usageKey: input.creditUsageKey },
-      );
-    } catch {
-      await input.reportProgress('refund_pending', {
-        radarLeadId: input.originalRow.id,
-        usageKey: input.creditUsageKey,
-        error: 'Falha ao confirmar o estado do ledger.',
-        cleanupPending: Boolean(input.cleanupRequired),
-      }).catch(() => undefined);
-      throw new ServiceUnavailableException('O estado do crédito é ambíguo; a operação ficou pendente.');
-    }
-    if (!input.cleanupRequired && !activeCredit) {
-      await input.reportProgress('failed', {
-        radarLeadId: input.originalRow.id,
-        error: originalError,
-        contactAccessRevoked: true,
-      });
-      return;
-    }
-    if (input.cleanupRequired) {
-      try {
-        // Ordem absoluta: primeiro apagar Vendas/restaurar posse, só depois
-        // devolver o crédito. Assim nunca existe contato acessível já estornado.
-        await this.rollbackRadarClaimAttempt({
-          context: input.context,
-          originalRow: input.originalRow,
-          operationId: input.operationId || null,
-          vendasLeadId: input.vendasLeadId || null,
-          vendasCreated: Boolean(input.vendasLeadId),
-        });
-      } catch (cleanupError: any) {
-        await input.reportProgress('refund_pending', {
-          radarLeadId: input.originalRow.id,
-          usageKey: input.creditUsageKey,
-          originalError,
-          error: String(cleanupError?.message || cleanupError),
-          refundConfirmed: false,
-          contactAccessRevoked: false,
-          cleanupPending: true,
-          creditStillReserved: activeCredit,
-        }).catch(() => undefined);
-        throw cleanupError;
-      }
-    }
-
-    if (activeCredit) {
-      try {
-        await this.confirmRadarClaimCreditRefund(
-          input.context.companyId,
-          input.context.userId,
-          input.creditUsageKey,
-        );
-      } catch (refundError: any) {
-        await input.reportProgress('refund_pending', {
-          radarLeadId: input.originalRow.id,
-          usageKey: input.creditUsageKey,
-          originalError,
-          error: String(refundError?.message || refundError),
-          refundConfirmed: false,
-          ownershipRestored: true,
-          contactAccessRevoked: true,
-        }).catch(() => undefined);
-        throw refundError;
-      }
-    }
-
-    await input.reportProgress(activeCredit ? 'refunded' : 'failed', {
-      radarLeadId: input.originalRow.id,
-      usageKey: input.creditUsageKey,
-      error: originalError,
-      refundConfirmed: activeCredit,
-      ownershipRestored: true,
-      contactAccessRevoked: true,
-    });
-  }
-
-  private buildPublicLeadProcessSnapshot(snapshot: any, options: { contactAccessGranted?: boolean } = {}) {
+  private buildPublicLeadProcessSnapshot(snapshot: any) {
     const data = snapshot?.data && typeof snapshot.data === 'object' ? snapshot.data : {};
     const internalStatus = String(snapshot?.status || 'queued');
     const status = internalStatus === 'completed'
@@ -3338,76 +3402,33 @@ export class RadarCoreDeliveryMixin {
     const stageProgress = Array.isArray(snapshot?.stages) && snapshot.stages.length
       ? Math.round((snapshot.stages.filter((stage: any) => stage?.state === 'completed').length / snapshot.stages.length) * 100)
       : 0;
-    const mode = snapshot?.mode === 'search' ? 'search' : 'claim';
-    const contactAccessRevoked = data?.contactAccessRevoked === true
-      || data?.ownershipRestored === true
-      || data?.refundConfirmed === true
-      || internalStatus === 'refund_pending'
-      || internalStatus === 'refunded'
-      || internalStatus === 'failed';
-    const canRevealLead = options.contactAccessGranted === true
-      && mode === 'claim'
-      && !contactAccessRevoked
-      && ['base_revealed', 'motor_enriching', 'vendas_creating', 'completed', 'partial'].includes(internalStatus);
-    const sanitizeProcessLead = (lead: any, fallbackId?: string | null) => {
-      if (!lead || typeof lead !== 'object') return null;
-      return canRevealLead
-        ? lead
-        : this.sanitizeRadarPreDebitLead(lead, { id: String(lead?.id || fallbackId || snapshot?.radarLeadId || '') });
-    };
-    const currentLead = sanitizeProcessLead(data?.currentLead, snapshot?.radarLeadId);
-    const recentLeads = Array.isArray(data?.recentLeads)
-      ? data.recentLeads.map((lead: any) => sanitizeProcessLead(lead)).filter(Boolean)
-      : [];
-    const publicEventDetail = (eventData: any) => {
-      if (!eventData || typeof eventData !== 'object') return null;
-      // Nunca projeta usageKey, snapshots de compensação, payloads de fonte ou
-      // qualquer blob arbitrário. A esteira pública precisa apenas destes sinais.
-      return {
-        ...(typeof eventData.rfbSucceeded === 'boolean' ? { rfbSucceeded: eventData.rfbSucceeded } : {}),
-        ...(typeof eventData.refundConfirmed === 'boolean' ? { refundConfirmed: eventData.refundConfirmed } : {}),
-        ...(typeof eventData.ownershipRestored === 'boolean' ? { ownershipRestored: eventData.ownershipRestored } : {}),
-        ...(typeof eventData.contactAccessRevoked === 'boolean' ? { contactAccessRevoked: eventData.contactAccessRevoked } : {}),
-        ...(typeof eventData.cleanupPending === 'boolean' ? { cleanupPending: eventData.cleanupPending } : {}),
-        ...(typeof eventData.skipped === 'boolean' ? { skipped: eventData.skipped } : {}),
-        ...(canRevealLead && eventData.vendasLeadId ? { vendasLeadId: String(eventData.vendasLeadId) } : {}),
-      };
-    };
     return {
       operationId: String(snapshot?.id || ''),
-      mode,
+      mode: snapshot?.mode === 'search' ? 'search' : 'claim',
       status,
       progress: Math.max(0, Math.min(100, safeInteger(data?.progress ?? stageProgress))),
       stages: Array.isArray(snapshot?.stages) ? snapshot.stages.map((stage: any) => ({
         key: String(stage?.key || ''),
         label: String(stage?.label || ''),
         status: stage?.state === 'active' ? 'running' : stage?.state,
-        detail: canRevealLead ? stage?.message || null : null,
+        detail: stage?.message || null,
       })) : [],
       counters: data?.counters && typeof data.counters === 'object' ? data.counters : {},
-      currentLead,
-      recentLeads,
+      currentLead: data?.currentLead || null,
+      recentLeads: Array.isArray(data?.recentLeads) ? data.recentLeads : [],
       events: Array.isArray(snapshot?.events) ? snapshot.events.map((event: any) => ({
         id: event.id,
         key: event.type,
-        label: canRevealLead ? (event.message || event.type) : event.type,
+        label: event.message || event.type,
         status: event.statusTo,
-        detail: publicEventDetail(event.data),
+        detail: event.data || null,
         at: event.occurredAt,
       })) : [],
-      error: snapshot?.error
-        ? {
-            code: snapshot.error.code || null,
-            message: canRevealLead ? snapshot.error.message || null : 'A operação não foi concluída. Nenhum dado foi liberado.',
-          }
-        : null,
+      error: snapshot?.error || null,
       internalStatus,
       radarLeadId: snapshot?.radarLeadId || null,
-      vendasLeadId: canRevealLead ? data?.vendasLeadId || null : null,
-      sourceCoverage: canRevealLead ? data?.sourceCoverage || null : null,
-      creditRefundConfirmed: data?.refundConfirmed === true,
-      contactAccessRevoked: data?.contactAccessRevoked === true,
-      contactAccessGranted: canRevealLead,
+      vendasLeadId: data?.vendasLeadId || null,
+      sourceCoverage: data?.sourceCoverage || null,
       createdAt: snapshot?.createdAt || null,
       updatedAt: snapshot?.updatedAt || null,
     };
@@ -3427,118 +3448,9 @@ export class RadarCoreDeliveryMixin {
       'completed',
     ];
     if (status === 'partial' || status === 'completed') return 100;
-    if (status === 'refund_pending') return 35;
     if (status === 'failed' || status === 'refunded') return Math.max(0, Math.round(((order.indexOf(status) + 1) / order.length) * 100));
     const index = Math.max(0, order.indexOf(status));
     return Math.round((index / Math.max(1, order.length - 1)) * 100);
-  }
-
-  private async hasRadarClaimContactAccess(
-    context: SearchExecutionContext,
-    radarLeadId: string,
-    operationId: string,
-  ) {
-    const row = await (this.prisma as any).radarLeadPool.findUnique({
-      where: { id: String(radarLeadId || '').trim() },
-      select: {
-        id: true,
-        ownerCompanyId: true,
-        companyStates: {
-          where: { companyId: context.companyId },
-          take: 1,
-          select: {
-            paidClaimOperationId: true,
-            claimUsageKey: true,
-            acquiredAt: true,
-          },
-        },
-      },
-    }).catch(() => null);
-    return row
-      ? this.hasRadarPaidAcquisition(context, row, operationId)
-      : false;
-  }
-
-  private async buildRadarClaimHttpResponse(
-    user: any,
-    context: SearchExecutionContext,
-    radarLeadId: string,
-    operationId: string,
-    extra: Record<string, any> = {},
-  ) {
-    const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, operationId);
-    const contactAccessGranted = await this.hasRadarClaimContactAccess(context, radarLeadId, operationId);
-    const vendasLead = contactAccessGranted
-      ? await (this.prisma as any).vendasLead.findFirst({
-          where: { companyId: context.companyId, claimOperationId: operationId },
-          select: { id: true },
-        }).catch(() => null)
-      : null;
-    const item = contactAccessGranted && vendasLead?.id
-      ? await this.getRadarLeadForUser(user, radarLeadId)
-          .then((value: any) => value?.item || null)
-          .catch(() => null)
-      : null;
-    const operation = this.buildPublicLeadProcessSnapshot(snapshot, { contactAccessGranted });
-    const terminalSuccess = ['completed', 'partial'].includes(String(snapshot?.status || ''));
-    return {
-      ok: terminalSuccess && contactAccessGranted && Boolean(vendasLead?.id) && Boolean(item),
-      ...extra,
-      contactAccessGranted,
-      radarLeadId,
-      vendasLeadId: contactAccessGranted ? String(vendasLead?.id || operation?.vendasLeadId || '') || null : null,
-      item,
-      operation,
-    };
-  }
-
-  private async resolveExistingRadarClaimForHttp(
-    user: any,
-    context: SearchExecutionContext,
-    radarLeadId: string,
-    operation: any,
-  ) {
-    const operationId = String(operation?.id || '').trim();
-    if (!operationId) {
-      throw new ServiceUnavailableException('A execução concorrente não pôde ser identificada.');
-    }
-    const configuredWait = Math.trunc(Number(process.env.HBX_RADAR_CLAIM_HTTP_WAIT_MS || 45_000));
-    const waitMs = Math.max(5_000, Math.min(55_000, Number.isFinite(configuredWait) ? configuredWait : 45_000));
-    const deadline = Date.now() + waitMs;
-    let recoveryAttempted = false;
-
-    for (;;) {
-      const current = await (this.prisma as any).radarLeadProcessRun.findFirst({
-        where: { id: operationId, companyId: context.companyId, radarLeadId, mode: 'claim' },
-        select: { id: true, status: true, updatedAt: true },
-      }).catch(() => null);
-      if (!current) {
-        throw new ServiceUnavailableException('A execução concorrente desapareceu antes da entrega.');
-      }
-      const status = String(current.status || '');
-      if (['completed', 'partial', 'failed', 'refund_pending', 'refunded'].includes(status)) {
-        return this.buildRadarClaimHttpResponse(user, context, radarLeadId, operationId);
-      }
-
-      const updatedAtMs = current.updatedAt instanceof Date ? current.updatedAt.getTime() : 0;
-      if (!recoveryAttempted && updatedAtMs && updatedAtMs < Date.now() - 2 * 60 * 1000) {
-        recoveryAttempted = true;
-        await this.recoverStaleRadarLeadClaimOperations({
-          updatedBefore: new Date(Date.now() - 2 * 60 * 1000),
-        }).catch(() => null);
-        continue;
-      }
-      if (Date.now() >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-
-    const response = await this.buildRadarClaimHttpResponse(user, context, radarLeadId, operationId);
-    if (response.ok) return response;
-    throw new ConflictException({
-      code: 'RADAR_CLAIM_IN_PROGRESS',
-      message: 'A puxada ainda está sendo concluída. Nenhum contato foi liberado por esta resposta.',
-      operation: response.operation,
-    });
   }
 
   async startRadarLeadClaimForUser(
@@ -3570,7 +3482,16 @@ export class RadarCoreDeliveryMixin {
       orderBy: { createdAt: 'desc' },
     }).catch(() => null);
     if (existingActive) {
-      return this.resolveExistingRadarClaimForHttp(user, context, leadId, existingActive);
+      const updatedAtMs = existingActive.updatedAt instanceof Date ? existingActive.updatedAt.getTime() : 0;
+      if (updatedAtMs && updatedAtMs < Date.now() - 2 * 60 * 1000) {
+        setImmediate(() => {
+          void this.recoverStaleRadarLeadClaimOperations({
+            updatedBefore: new Date(Date.now() - 2 * 60 * 1000),
+          }).catch(() => null);
+        });
+      }
+      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, existingActive.id);
+      return { ok: true, operation: this.buildPublicLeadProcessSnapshot(snapshot) };
     }
     const previousAcquisition = await processDelegate.findFirst({
       where: {
@@ -3585,10 +3506,8 @@ export class RadarCoreDeliveryMixin {
       // Aquisição é uma vez por identidade/tenant. Uma nova chave HTTP não
       // transforma o mesmo lead em nova compra; devolvemos a operação que já
       // comprovou débito + entrega.
-      const contactAccessGranted = await this.hasRadarClaimContactAccess(context, leadId, previousAcquisition.id);
-      if (contactAccessGranted) {
-        return this.buildRadarClaimHttpResponse(user, context, leadId, previousAcquisition.id, { alreadyAcquired: true });
-      }
+      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, previousAcquisition.id);
+      return { ok: true, alreadyAcquired: true, operation: this.buildPublicLeadProcessSnapshot(snapshot) };
     }
     const previousCount = await processDelegate.count({
       where: { companyId: context.companyId, radarLeadId: leadId, mode: 'claim' },
@@ -3611,9 +3530,6 @@ export class RadarCoreDeliveryMixin {
           take: 1,
           select: {
             vendasLeadId: true,
-            paidClaimOperationId: true,
-            claimUsageKey: true,
-            acquiredAt: true,
             status: true,
             assignedUserId: true,
             assignedByUserId: true,
@@ -3640,9 +3556,8 @@ export class RadarCoreDeliveryMixin {
       throw new ConflictException('Este lead já foi adquirido por esta empresa e já está em Vendas.');
     }
     let created: any;
-    let operationWasCreated = false;
     try {
-      const creation = await this.getRadarLeadProcessStore().createOperation({
+      created = await this.getRadarLeadProcessStore().createOperation({
       companyId: context.companyId,
       userId: context.userId,
       radarLeadId: leadId,
@@ -3651,7 +3566,7 @@ export class RadarCoreDeliveryMixin {
       snapshot: {
         progress: 0,
         counters: { queued: 1, completed: 0, partial: 0, failed: 0 },
-        currentLead: this.sanitizeRadarPreDebitLead(lead, { id: lead.id }),
+        currentLead: { id: lead.id, name: lead.name, city: lead.city, state: lead.state, segment: lead.segment },
         recentLeads: [],
         // Dados internos para compensação após queda do processo. O presenter da
         // operação nunca projeta este bloco para o cliente.
@@ -3669,8 +3584,6 @@ export class RadarCoreDeliveryMixin {
         },
       },
       });
-      created = creation.operation;
-      operationWasCreated = creation.created;
     } catch (error: any) {
       // O índice parcial no PostgreSQL serializa compras concorrentes do mesmo
       // lead/tenant, mesmo quando chegaram com idempotency keys diferentes.
@@ -3685,74 +3598,48 @@ export class RadarCoreDeliveryMixin {
         orderBy: { createdAt: 'desc' },
       }).catch(() => null);
       if (!winner) throw error;
-      return this.resolveExistingRadarClaimForHttp(user, context, leadId, winner);
+      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, winner.id);
+      return { ok: true, operation: this.buildPublicLeadProcessSnapshot(snapshot) };
     }
     // Uma repetição com a mesma chave pode devolver uma operação já terminal.
     // Nunca reabre uma compra concluída/compensada: a resposta idempotente é o
     // snapshot persistido e somente uma nova operação recebe um novo débito.
-    if (operationWasCreated && !['completed', 'partial', 'failed', 'refund_pending', 'refunded'].includes(String(created.status))) {
-      // A requisição que debita o crédito só responde depois que o card
-      // core existe em Vendas e o snapshot final 3+3 foi persistido. Isso mantém
-      // a animação desacoplada do frontend sem deixá-la presa em polling por
-      // horas/dias. Cada fonte abaixo possui timeout próprio e limitado.
-      await this.processRadarLeadClaimOperation(created.id, user, leadId, options);
-    } else if (!operationWasCreated && !['completed', 'partial', 'failed', 'refund_pending', 'refunded'].includes(String(created.status))) {
-      return this.resolveExistingRadarClaimForHttp(user, context, leadId, created);
+    if (!['completed', 'partial', 'failed', 'refunded'].includes(String(created.status))) {
+      setImmediate(() => {
+        void this.processRadarLeadClaimOperation(created.id, user, leadId, options);
+      });
     }
-    return this.buildRadarClaimHttpResponse(user, context, leadId, created.id);
+    return { ok: true, operation: this.buildPublicLeadProcessSnapshot(created) };
   }
 
   private async processRadarLeadClaimOperation(operationId: string, user: any, radarLeadId: string, options: any) {
     const context = this.resolveContext(user);
     const store = this.getRadarLeadProcessStore();
-    const workerToken = String(options?.workerToken || '').trim()
-      || await store.acquireWorkerLease({ companyId: context.companyId, operationId });
-    if (!workerToken) return;
     const onProgress = async (status: string, payload: Record<string, any> = {}) => {
       let currentLead: any = undefined;
-      // Compensação pendente já é revogação de acesso. O ledger pode continuar
-      // reservado enquanto o estorno é reconciliado, mas isso não autoriza PII
-      // no snapshot nem uma nova leitura do lead.
-      const terminalStatusRevoked = ['failed', 'refund_pending', 'refunded'].includes(status);
-      const contactAccessRevoked = terminalStatusRevoked
-        || payload?.contactAccessRevoked === true
-        || payload?.ownershipRestored === true
-        || payload?.refundConfirmed === true;
-      const contactsMayBeRevealed = ['base_revealed', 'motor_enriching', 'vendas_creating', 'completed', 'partial'].includes(status)
-        && !contactAccessRevoked;
+      const contactsMayBeRevealed = ['base_revealed', 'motor_enriching', 'vendas_creating', 'completed', 'partial'].includes(status);
       if (contactsMayBeRevealed) {
         currentLead = await this.getRadarLeadForUser(user, radarLeadId)
           .then((result: any) => result?.item || null)
           .catch(() => null);
-      } else if (status === 'failed' || status === 'refunded' || contactAccessRevoked) {
+      } else if (status === 'failed' || status === 'refunded') {
         // Se a operação falhou/foi compensada, o crédito não sustenta mais a
-        // revelação. Não releia sequer nome/localização: persista só o id opaco.
-        currentLead = this.sanitizeRadarPreDebitLead({ id: radarLeadId }, { id: radarLeadId });
+        // revelação. Regrava somente o resumo seguro no snapshot persistente.
+        currentLead = await (this.prisma as any).radarLeadPool.findUnique({
+          where: { id: radarLeadId },
+          select: { id: true, name: true, city: true, state: true, segment: true },
+        }).catch(() => null);
       }
       const metadata = this.parseMaybeJsonObject(currentLead?.metadataJson);
-      const terminalRevocation = contactAccessRevoked;
-      const safeTerminalEventData = {
-        ...(payload?.refundConfirmed === true ? { refundConfirmed: true } : {}),
-        ...(payload?.ownershipRestored === true ? { ownershipRestored: true } : {}),
-        ...(contactAccessRevoked ? { contactAccessRevoked: true } : {}),
-        ...(payload?.cleanupPending === true ? { cleanupPending: true } : {}),
-      };
       await store.transitionOperation({
         companyId: context.companyId,
         operationId,
-        workerToken,
         status: status as any,
         eventType: `claim.${status}`,
-        eventMessage: terminalRevocation ? 'Acesso ao contato revogado.' : payload?.detail || payload?.error || null,
-        eventData: terminalRevocation ? safeTerminalEventData : payload,
-        errorCode: status === 'refund_pending'
-          ? 'RADAR_CLAIM_REFUND_PENDING'
-          : status === 'failed' || status === 'refunded'
-            ? 'RADAR_CLAIM_FAILED'
-            : status === 'partial' ? 'RADAR_CLAIM_PARTIAL' : null,
-        errorMessage: terminalRevocation
-          ? 'A operação não foi concluída. Nenhum dado foi liberado.'
-          : status === 'refund_pending' || status === 'partial'
+        eventMessage: payload?.detail || payload?.error || null,
+        eventData: payload,
+        errorCode: status === 'failed' || status === 'refunded' ? 'RADAR_CLAIM_FAILED' : status === 'partial' ? 'RADAR_CLAIM_PARTIAL' : null,
+        errorMessage: status === 'failed' || status === 'refunded' || status === 'partial'
           ? String(payload?.error || payload?.detail || (Array.isArray(payload?.partialReasons) ? payload.partialReasons.join(' ') : '') || '').slice(0, 1000) || null
           : null,
         snapshotPatch: {
@@ -3760,66 +3647,36 @@ export class RadarCoreDeliveryMixin {
           ...(currentLead !== undefined
             ? { currentLead, recentLeads: contactsMayBeRevealed && currentLead ? [currentLead] : [] }
             : {}),
-          ...(!terminalRevocation && payload?.vendasLeadId ? { vendasLeadId: payload.vendasLeadId } : {}),
-          ...(payload?.refundConfirmed === true ? { refundConfirmed: true } : {}),
-          ...(payload?.ownershipRestored === true ? { ownershipRestored: true } : {}),
-          ...(contactAccessRevoked ? { contactAccessRevoked: true } : {}),
-          ...(!terminalRevocation && (currentLead?.sourceCoverage || metadata?.sourceCoverage) ? { sourceCoverage: currentLead?.sourceCoverage || metadata?.sourceCoverage } : {}),
+          ...(payload?.vendasLeadId ? { vendasLeadId: payload.vendasLeadId } : {}),
+          ...(currentLead?.sourceCoverage || metadata?.sourceCoverage ? { sourceCoverage: currentLead?.sourceCoverage || metadata?.sourceCoverage } : {}),
           counters: {
             queued: 0,
             completed: status === 'completed' ? 1 : 0,
             partial: status === 'partial' ? 1 : 0,
-            failed: status === 'failed' || status === 'refund_pending' || status === 'refunded' ? 1 : 0,
+            failed: status === 'failed' || status === 'refunded' ? 1 : 0,
           },
         },
       });
     };
-    let leaseLost = false;
-    let heartbeatBusy = false;
-    const heartbeat = setInterval(() => {
-      if (heartbeatBusy || leaseLost) return;
-      heartbeatBusy = true;
-      void store.renewWorkerLease({
-        companyId: context.companyId,
-        operationId,
-        workerToken,
-      }).then((active) => {
-        if (!active) leaseLost = true;
-      }).catch(() => {
-        leaseLost = true;
-      }).finally(() => {
-        heartbeatBusy = false;
-      });
-    }, 25_000);
-    (heartbeat as any).unref?.();
     try {
       await this.importRadarLeadToVendasForUser(user, radarLeadId, {
         ...options,
         debitOnImport: options?.debitOnImport !== false,
         claimOperationId: operationId,
-        workerToken,
         onProgress,
       });
-      if (leaseLost) {
-        throw new ConflictException('O worker perdeu o lease durante a aquisição.');
-      }
     } catch (error) {
       const current = await store.getSnapshot(context.companyId, operationId).catch(() => null);
-      if (current && !['failed', 'refund_pending', 'refunded'].includes(String(current.status))) {
+      if (current && !['failed', 'refunded'].includes(String(current.status))) {
         await onProgress('failed', { error: String((error as any)?.message || error) }).catch(() => null);
       }
-    } finally {
-      clearInterval(heartbeat);
     }
   }
 
   async getRadarClaimRunForUser(user: any, operationId: string) {
     const context = this.resolveContext(user);
     const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, operationId);
-    const contactAccessGranted = snapshot.radarLeadId
-      ? await this.hasRadarClaimContactAccess(context, snapshot.radarLeadId, snapshot.id)
-      : false;
-    return this.buildPublicLeadProcessSnapshot(snapshot, { contactAccessGranted });
+    return this.buildPublicLeadProcessSnapshot(snapshot);
   }
 
   /**
@@ -3834,12 +3691,11 @@ export class RadarCoreDeliveryMixin {
     if (!delegate || !(await this.prisma.hasTable('RadarLeadProcessRun').catch(() => false))) return;
     (this as any).radarClaimRecoveryActive = true;
     try {
-      const staleBefore = options.updatedBefore || new Date(Date.now() - 2 * 60 * 1000);
       const runs = await delegate.findMany({
         where: {
           mode: 'claim',
           status: { notIn: ['completed', 'partial', 'failed', 'refunded'] },
-          updatedAt: { lt: staleBefore },
+          ...(options.updatedBefore ? { updatedAt: { lt: options.updatedBefore } } : {}),
         },
         orderBy: { updatedAt: 'asc' },
         take: 100,
@@ -3852,14 +3708,6 @@ export class RadarCoreDeliveryMixin {
         const userId = Math.trunc(Number(run?.userId || 0));
         if (!operationId || !radarLeadId || !companyId || !userId) continue;
         const store = this.getRadarLeadProcessStore();
-        const recoveryWorkerToken = await store.acquireRecoveryLease({
-          companyId,
-          operationId,
-          expectedVersion: Number(run?.version || 0),
-          expectedStatus: String(run?.status || 'queued') as any,
-          staleBefore,
-        }).catch(() => null);
-        if (!recoveryWorkerToken) continue;
         const snapshot = await store.getSnapshot(companyId, operationId).catch(() => null);
         if (!snapshot) continue;
         const recoveryData = snapshot.data && typeof snapshot.data === 'object' ? snapshot.data as any : {};
@@ -3868,45 +3716,20 @@ export class RadarCoreDeliveryMixin {
           : {};
         const recoveredAssignedUserId = Math.trunc(Number(claimOptions.assignedUserId || 0)) || userId;
         const recoveredAssignedByUserId = Math.trunc(Number(claimOptions.assignedByUserId || 0)) || userId;
-        const refundPreviouslyConfirmed = recoveryData.refundConfirmed === true
-          || snapshot.events.some((event: any) => Boolean((event?.data as any)?.refundConfirmed));
-        const refundUsageKey = `radar:${radarLeadId}:claim:${operationId}`;
-        let activeCredit: boolean | null = null;
-        if (typeof this.commercialUsageLimits?.hasActiveLeadDeliveryCredit === 'function') {
-          activeCredit = await this.commercialUsageLimits.hasActiveLeadDeliveryCredit(
-            companyId,
-            { usageKey: refundUsageKey },
-          ).catch(() => null);
-        }
-        if (activeCredit == null) {
-          await store.transitionOperation({
-            companyId,
-            operationId,
-            workerToken: recoveryWorkerToken,
-            status: 'refund_pending',
-            eventType: 'claim.ledger_reconciliation_pending',
-            eventMessage: 'A confirmação do ledger está indisponível.',
-            eventData: { cleanupPending: true },
-            errorCode: 'RADAR_CLAIM_LEDGER_UNAVAILABLE',
-            errorMessage: 'A confirmação do ledger está indisponível.',
-            snapshotPatch: { contactAccessRevoked: true },
-          }).catch(() => null);
-          continue;
-        }
 
         const persistedUser = await (this.prisma as any).user.findFirst({
           where: { id: userId, companyId, isActive: true },
           select: { id: true },
         }).catch(() => null);
-        if (preDebitStatuses.has(String(snapshot.status)) && persistedUser && !activeCredit) {
+        if (preDebitStatuses.has(String(run.status)) && persistedUser) {
           const queueUser = await this.buildQueueUser(run);
-          await this.processRadarLeadClaimOperation(operationId, queueUser, radarLeadId, {
-            debitOnImport: true,
-            assignedUserId: Math.trunc(Number(claimOptions.assignedUserId || 0)) || null,
-            assignedByUserId: Math.trunc(Number(claimOptions.assignedByUserId || 0)) || null,
-            skipWhatsappValidation: Boolean(claimOptions.skipWhatsappValidation),
-            resumeStatus: snapshot.status,
-            workerToken: recoveryWorkerToken,
+          setImmediate(() => {
+            void this.processRadarLeadClaimOperation(operationId, queueUser, radarLeadId, {
+              debitOnImport: true,
+              assignedUserId: Math.trunc(Number(claimOptions.assignedUserId || 0)) || null,
+              assignedByUserId: Math.trunc(Number(claimOptions.assignedByUserId || 0)) || null,
+              skipWhatsappValidation: Boolean(claimOptions.skipWhatsappValidation),
+            });
           });
           continue;
         }
@@ -3914,19 +3737,11 @@ export class RadarCoreDeliveryMixin {
         const vendasDelegate = (this.prisma as any).vendasLead;
         const vendasLead = vendasDelegate
           ? await vendasDelegate.findFirst({
-              where: { companyId, claimOperationId: operationId },
+              where: { companyId, sourceHistoryId: `radar:${radarLeadId}` },
               select: { id: true },
             }).catch(() => null)
           : null;
-        // `refund_pending` já revogou o direito de acesso. Mesmo que o ledger ainda
-        // reporte o débito como ativo, a recuperação deve terminar a compensação;
-        // jamais pode reativar o card nem recolocar PII no snapshot.
-        if (
-          vendasLead?.id
-          && activeCredit
-          && !refundPreviouslyConfirmed
-          && String(snapshot.status) !== 'refund_pending'
-        ) {
+        if (vendasLead?.id) {
           const now = new Date();
           await (this.prisma as any).radarLeadCompanyState.upsert({
             where: { companyId_radarLeadId: { companyId, radarLeadId } },
@@ -3934,9 +3749,6 @@ export class RadarCoreDeliveryMixin {
               companyId,
               radarLeadId,
               vendasLeadId: vendasLead.id,
-              paidClaimOperationId: operationId,
-              claimUsageKey: refundUsageKey,
-              acquiredAt: now,
               status: 'sent_to_vendas',
               assignedUserId: recoveredAssignedUserId,
               assignedByUserId: recoveredAssignedByUserId,
@@ -3945,9 +3757,6 @@ export class RadarCoreDeliveryMixin {
             },
             update: {
               vendasLeadId: vendasLead.id,
-              paidClaimOperationId: operationId,
-              claimUsageKey: refundUsageKey,
-              acquiredAt: now,
               status: 'sent_to_vendas',
               lastActionAt: now,
             },
@@ -3964,245 +3773,60 @@ export class RadarCoreDeliveryMixin {
               lastSeenAt: now,
             },
           }).catch(() => null);
-          const recoveryReasons: string[] = [];
-          let recoveredLead = await (this.prisma as any).radarLeadPool.findUnique({
-            where: { id: radarLeadId },
-            include: { companyStates: true, contacts: true },
-          }).catch(() => null);
-          if (!recoveredLead) {
-            recoveryReasons.push('Lead do Radar não foi recarregado para concluir as fontes.');
-          } else {
-            const rfb = await this.hydrateRadarLeadFromRfbForClaim(recoveredLead).catch((error: any) => ({
-              row: recoveredLead,
-              succeeded: false,
-              reason: String(error?.message || error || 'Falha ao consultar a RFB.'),
-            }));
-            recoveredLead = rfb.row || recoveredLead;
-            if (!rfb.succeeded) recoveryReasons.push(rfb.reason || 'RFB não concluída.');
-
-            const recoveryContext = { companyId, userId, user: null } as SearchExecutionContext;
-            const motorPayload = await this.enrichRadarLeadViaHbxMotor(recoveryContext, recoveredLead).catch((error: any) => {
-              recoveryReasons.push(`Motor HBX falhou: ${String(error?.message || error)}`);
-              return null;
-            });
-            if (motorPayload) {
-              recoveredLead = await this.applyHbxMotorEnrichment(recoveryContext, recoveredLead, motorPayload).catch((error: any) => {
-                recoveryReasons.push(`Persistência do Motor HBX falhou: ${String(error?.message || error)}`);
-                return recoveredLead;
-              });
-            } else if (!recoveryReasons.some((reason) => reason.startsWith('Motor HBX'))) {
-              recoveryReasons.push('Motor HBX não retornou dados.');
-            }
-          }
-
-          const creditStillActive = typeof this.commercialUsageLimits?.hasActiveLeadDeliveryCredit === 'function'
-            ? await this.commercialUsageLimits.hasActiveLeadDeliveryCredit(companyId, { usageKey: refundUsageKey }).catch(() => null)
+          const queueUser = persistedUser ? await this.buildQueueUser(run) : null;
+          const currentLead = queueUser
+            ? await this.getRadarLeadForUser(queueUser, radarLeadId).then((value: any) => value?.item || null).catch(() => null)
             : null;
-          if (creditStillActive === false) {
-            activeCredit = false;
-          } else if (creditStillActive == null) {
-            await store.transitionOperation({
-              companyId,
-              operationId,
-              workerToken: recoveryWorkerToken,
-              status: 'refund_pending',
-              eventType: 'claim.recovery_ledger_pending',
-              eventMessage: 'As fontes foram tentadas, mas o ledger precisa ser reconciliado.',
-              eventData: { cleanupPending: true },
-              snapshotPatch: { contactAccessRevoked: true, recentLeads: [] },
-            }).catch(() => null);
-            continue;
-          } else if (recoveredLead) {
-            await this.refreshPaidRadarVendasSnapshot({
-              context: { companyId, userId, user: null } as SearchExecutionContext,
-              operationId,
-              usageKey: refundUsageKey,
-              leadRow: recoveredLead,
-            }).catch((error: any) => {
-              recoveryReasons.push(`Snapshot 3+3 pendente: ${String(error?.message || error)}`);
-              return null;
-            });
-            await store.renewWorkerLease({
-              companyId,
-              operationId,
-              workerToken: recoveryWorkerToken,
-            }).catch(() => false);
-            const queueUser = persistedUser ? await this.buildQueueUser(run) : null;
-            const currentLead = queueUser
-              ? await this.getRadarLeadForUser(queueUser, radarLeadId).then((value: any) => value?.item || null).catch(() => null)
-              : null;
-            const recoveredStatus = recoveryReasons.length ? 'partial' : 'completed';
-            await store.transitionOperation({
-              companyId,
-              operationId,
-              workerToken: recoveryWorkerToken,
-              status: recoveredStatus,
-              eventType: recoveredStatus === 'completed' ? 'claim.recovered_completed' : 'claim.recovered_partial',
-              eventMessage: recoveredStatus === 'completed'
-                ? 'Operação reconciliada após reinício; RFB e Motor HBX foram tentados.'
-                : 'Operação reconciliada com pendências após tentar RFB e Motor HBX.',
-              eventData: { vendasLeadId: vendasLead.id },
-              errorCode: recoveredStatus === 'partial' ? 'RADAR_CLAIM_PARTIAL' : null,
-              errorMessage: recoveredStatus === 'partial' ? recoveryReasons.join(' ').slice(0, 1000) : null,
-              snapshotPatch: {
-                progress: 100,
-                vendasLeadId: vendasLead.id,
-                ...(currentLead ? { currentLead, recentLeads: [currentLead] } : {}),
-                counters: {
-                  queued: 0,
-                  completed: recoveredStatus === 'completed' ? 1 : 0,
-                  partial: recoveredStatus === 'partial' ? 1 : 0,
-                  failed: 0,
-                },
-              },
-            }).catch(() => null);
-            continue;
-          } else {
-            await store.transitionOperation({
-              companyId,
-              operationId,
-              workerToken: recoveryWorkerToken,
-              status: 'partial',
-              eventType: 'claim.recovered_partial',
-              eventMessage: 'O card pago foi preservado; a retomada das fontes ficou pendente.',
-              eventData: { vendasLeadId: vendasLead.id },
-              errorCode: 'RADAR_CLAIM_PARTIAL',
-              errorMessage: recoveryReasons.join(' ').slice(0, 1000),
-              snapshotPatch: {
-                progress: 100,
-                vendasLeadId: vendasLead.id,
-                counters: { queued: 0, completed: 0, partial: 1, failed: 0 },
-              },
-            }).catch(() => null);
-            continue;
-          }
-        }
-
-        const original = recoveryData.originalOwnership && typeof recoveryData.originalOwnership === 'object'
-          ? recoveryData.originalOwnership
-          : { id: radarLeadId, ownerCompanyId: null, claimedAt: null, status: 'clean', companyStates: [] };
-        try {
-          if (vendasLead?.id) {
-            await this.removeExactRadarPaidVendasCardForRefund({ companyId, operationId });
-          }
-          await this.rollbackRadarClaimAttempt({
-            context: { companyId, userId } as SearchExecutionContext,
-            originalRow: { ...original, id: radarLeadId },
-            operationId,
-            vendasLeadId: vendasLead?.id || null,
-            vendasCreated: Boolean(vendasLead?.id),
-          });
-        } catch (rollbackError: any) {
           await store.transitionOperation({
             companyId,
             operationId,
-            workerToken: recoveryWorkerToken,
-            status: 'refund_pending',
-            eventType: 'claim.compensation_pending',
-            eventMessage: refundPreviouslyConfirmed
-              ? 'Crédito já estornado; resta remover o acesso ao lead.'
-              : 'Limpeza de posse/Vendas pendente; o crédito continua reservado.',
-            eventData: {
-              usageKey: refundUsageKey,
-              refundConfirmed: refundPreviouslyConfirmed,
-              contactAccessRevoked: refundPreviouslyConfirmed,
-              cleanupPending: true,
-              error: String(rollbackError?.message || rollbackError),
-            },
-            errorCode: 'RADAR_CLAIM_COMPENSATION_PENDING',
-            errorMessage: String(rollbackError?.message || rollbackError).slice(0, 1000),
+            status: 'completed',
+            eventType: 'claim.recovered_completed',
+            eventMessage: 'Operação reconciliada após reinício.',
+            eventData: { vendasLeadId: vendasLead.id },
             snapshotPatch: {
-              progress: this.claimOperationProgress('refund_pending'),
-              ...(refundPreviouslyConfirmed ? { refundConfirmed: true, contactAccessRevoked: true } : {}),
-              counters: { queued: 0, completed: 0, partial: 0, failed: 1 },
+              progress: 100,
+              vendasLeadId: vendasLead.id,
+              ...(currentLead ? { currentLead, recentLeads: [currentLead] } : {}),
+              counters: { queued: 0, completed: 1, partial: 0, failed: 0 },
             },
           }).catch(() => null);
           continue;
         }
-        const safeLead = this.sanitizeRadarPreDebitLead({ id: radarLeadId }, { id: radarLeadId });
-        // Persista primeiro a revogação de contato. Se o processo cair depois
-        // da limpeza e antes do refund, a próxima réplica repete ambos de forma
-        // idempotente sem que o snapshot antigo continue carregando PII.
-        const safePending = await store.transitionOperation({
-          companyId,
-          operationId,
-          workerToken: recoveryWorkerToken,
-          status: 'refund_pending',
-          eventType: 'claim.cleanup_completed',
-          eventMessage: refundPreviouslyConfirmed
-            ? 'Acesso removido após estorno confirmado.'
-            : 'Acesso removido; confirmando a devolução do crédito.',
-          eventData: {
-            usageKey: refundUsageKey,
-            refundConfirmed: refundPreviouslyConfirmed,
-            ownershipRestored: true,
-            contactAccessRevoked: true,
-          },
-          errorCode: 'RADAR_CLAIM_REFUND_PENDING',
-          errorMessage: 'Compensação financeira em andamento.',
-          snapshotPatch: {
-            progress: this.claimOperationProgress('refund_pending'),
-            currentLead: safeLead,
-            recentLeads: [],
-            ownershipRestored: true,
-            contactAccessRevoked: true,
-            ...(refundPreviouslyConfirmed ? { refundConfirmed: true } : {}),
-            counters: { queued: 0, completed: 0, partial: 0, failed: 1 },
-          },
-        }).then(() => true).catch(() => false);
-        if (!safePending) continue;
 
-        if (!refundPreviouslyConfirmed) {
-          try {
-            await this.confirmRadarClaimCreditRefund(companyId, userId, refundUsageKey);
-          } catch (refundError: any) {
-            await store.transitionOperation({
-              companyId,
-              operationId,
-              workerToken: recoveryWorkerToken,
-              status: 'refund_pending',
-              eventType: 'claim.refund_pending',
-              eventMessage: 'Estorno ainda não confirmado; a operação será reconciliada novamente.',
-              eventData: {
-                usageKey: refundUsageKey,
-                refundConfirmed: false,
-                ownershipRestored: true,
-                contactAccessRevoked: true,
-                error: String(refundError?.message || refundError),
-              },
-              errorCode: 'RADAR_CLAIM_REFUND_PENDING',
-              errorMessage: String(refundError?.message || refundError).slice(0, 1000),
-              snapshotPatch: {
-                progress: this.claimOperationProgress('refund_pending'),
-                currentLead: safeLead,
-                recentLeads: [],
-                ownershipRestored: true,
-                contactAccessRevoked: true,
-                counters: { queued: 0, completed: 0, partial: 0, failed: 1 },
-              },
-            }).catch(() => null);
-            continue;
-          }
+        if (typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit === 'function') {
+          await this.commercialUsageLimits.releaseLeadDeliveryCredit(
+            companyId,
+            userId,
+            { usageKey: `radar:${radarLeadId}:claim:${operationId}` },
+          ).catch(() => undefined);
         }
+        const original = recoveryData.originalOwnership && typeof recoveryData.originalOwnership === 'object'
+          ? recoveryData.originalOwnership
+          : { id: radarLeadId, ownerCompanyId: null, claimedAt: null, status: 'clean', companyStates: [] };
+        await this.rollbackRadarClaimAttempt({
+          context: { companyId, userId } as SearchExecutionContext,
+          originalRow: { ...original, id: radarLeadId },
+        });
+        const safeLead = await (this.prisma as any).radarLeadPool.findUnique({
+          where: { id: radarLeadId },
+          select: { id: true, name: true, city: true, state: true, segment: true },
+        }).catch(() => null);
         await store.transitionOperation({
           companyId,
           operationId,
-          workerToken: recoveryWorkerToken,
           status: 'refunded',
           eventType: 'claim.recovered_refunded',
           eventMessage: persistedUser
             ? 'Operação interrompida compensada após reinício.'
             : 'Operação compensada porque o usuário não está mais ativo.',
-          eventData: { creditReleased: true, refundConfirmed: true, ownershipRestored: true, contactAccessRevoked: true },
+          eventData: { creditReleased: true, ownershipRestored: true },
           errorCode: 'RADAR_CLAIM_INTERRUPTED',
           errorMessage: 'A puxada foi interrompida e compensada com segurança.',
           snapshotPatch: {
             progress: this.claimOperationProgress('refunded'),
             currentLead: safeLead,
             recentLeads: [],
-            refundConfirmed: true,
-            ownershipRestored: true,
-            contactAccessRevoked: true,
             counters: { queued: 0, completed: 0, partial: 0, failed: 1 },
           },
         }).catch(() => null);
@@ -4210,80 +3834,6 @@ export class RadarCoreDeliveryMixin {
     } finally {
       (this as any).radarClaimRecoveryActive = false;
     }
-  }
-
-  private async confirmRadarClaimCreditRefund(
-    companyId: number,
-    userId: number,
-    usageKey: string,
-  ) {
-    if (typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit !== 'function') {
-      throw new ServiceUnavailableException('O estorno do crédito ficou pendente de confirmação.');
-    }
-    const result = await this.commercialUsageLimits.releaseLeadDeliveryCredit(
-      companyId,
-      userId,
-      { usageKey },
-    );
-    if (Number(result?.refunded || 0) < 1 && result?.alreadyRefunded !== true) {
-      throw new ServiceUnavailableException('O estorno do crédito ficou pendente de confirmação.');
-    }
-    return result;
-  }
-
-  private async assertRadarClaimWorkerFence(
-    context: SearchExecutionContext,
-    operationId: string,
-    workerToken: string,
-  ) {
-    if (!operationId || !workerToken) {
-      throw new ServiceUnavailableException('Worker seguro da compra ausente. Nenhum efeito foi aplicado.');
-    }
-    const active = await this.getRadarLeadProcessStore().renewWorkerLease({
-      companyId: context.companyId,
-      operationId,
-      workerToken,
-    });
-    if (!active) {
-      throw new ConflictException({
-        code: 'RADAR_CLAIM_WORKER_FENCED',
-        message: 'Esta execução foi assumida pela recuperação e não pode mais gravar dados.',
-      });
-    }
-  }
-
-  /**
-   * Saneamento Ollama local, somente aditivo e fora do caminho da resposta.
-   * O serviço e no-op enquanto `HBX_RADAR_AI_SANEAMENTO_ENABLED` não estiver
-   * explicitamente ligado; portanto permanece desligado por padrão no VPS.
-   */
-  private enqueueRadarPostDeliveryAiSaneamento(row: any, companyId?: number | null) {
-    const radarLeadId = String(row?.id || '').trim();
-    const name = String(row?.name || '').trim();
-    if (!radarLeadId || !name) return;
-    this.getRadarPostDeliveryAiSaneamento().enqueue(
-      {
-        radarLeadId,
-        name,
-        city: row?.city || null,
-        state: row?.state || null,
-        segment: row?.segment || null,
-        companyId: companyId ?? null,
-      },
-      {
-        loadRadarLeadPoolRow: (id: string) => (this.prisma as any).radarLeadPool.findUnique({
-          where: { id },
-          select: { id: true, metadataJson: true },
-        }).catch(() => null),
-        updateRadarLeadPoolMetadata: async (id: string, metadataJson: string) => {
-          await (this.prisma as any).radarLeadPool.update({
-            where: { id },
-            data: { metadataJson },
-          }).catch(() => null);
-        },
-        logger: this.logger,
-      },
-    );
   }
 
   async importRadarLeadToVendasForUser(
@@ -4295,14 +3845,8 @@ export class RadarCoreDeliveryMixin {
       assignedUserId?: number | null;
       assignedByUserId?: number | null;
       claimOperationId?: string | null;
-      /** Fencing token persistido da saga paga. */
-      workerToken?: string | null;
       /** Uso interno: transfere para Vendas um card que já pertence ao tenant. */
       transferAlreadyOwnedWithoutDebit?: boolean;
-      /** Uso interno: impede nova consulta de fonte durante a transferência. */
-      skipSourceHydration?: boolean;
-      /** Uso interno do recovery: evita regredir a máquina ao repetir passos idempotentes. */
-      resumeStatus?: string | null;
       onProgress?: (state: string, payload?: Record<string, any>) => Promise<void> | void;
     } = {},
   ) {
@@ -4310,18 +3854,11 @@ export class RadarCoreDeliveryMixin {
       throw new ServiceUnavailableException('Servico de Vendas indisponivel para importacao.');
     }
     const context = this.resolveContext(user);
-    const resumeStatus = String(options.resumeStatus || '').trim();
-    const resumeProgressFloor = resumeStatus ? this.claimOperationProgress(resumeStatus) : -1;
     const reportProgress = async (state: string, payload: Record<string, any> = {}) => {
       if (typeof options.onProgress !== 'function') return;
-      if (!['failed', 'partial', 'completed', 'refund_pending', 'refunded'].includes(state)
-        && this.claimOperationProgress(state) < resumeProgressFloor) return;
-      try {
-        await Promise.resolve(options.onProgress(state, payload));
-      } catch (error: any) {
+      await Promise.resolve(options.onProgress(state, payload)).catch((error: any) => {
         this.logger.warn(`[radar-claim-progress] falha ao persistir state=${state}: ${String(error?.message || error)}`);
-        throw error;
-      }
+      });
     };
     await reportProgress('validating', { radarLeadId: String(radarLeadId || '').trim() });
     await this.assertSellerTeamPolicyAccess(user, 'radar.cards.sendToVendas', 'Envio do Radar para Vendas bloqueado pela politica da equipe.');
@@ -4383,7 +3920,7 @@ export class RadarCoreDeliveryMixin {
     const qualityV2 = this.extractLeadQualityV2FromObject(leadRow)
       || this.extractLeadQualityV2FromObject(leadRow?.enrichmentJson)
       || this.extractLeadQualityV2FromObject(leadRow?.metadataJson);
-    if (!this.isLeadDeliverableCard(leadRow, importQualityInput, quality, qualityV2)) {
+    if (!this.isListDeliverableCard(leadRow, importQualityInput, quality, qualityV2)) {
       throw new BadRequestException('Card nao passou na qualidade minima para esse segmento. Descartados nao consomem limite.');
     }
     const deliveryClassification = this.classifyCardDelivery(leadRow, importQualityInput, quality, qualityV2);
@@ -4399,49 +3936,32 @@ export class RadarCoreDeliveryMixin {
     // débito e o teto de cards-em-mãos já foram resolvidos aqui, então NÃO há débito duplo nem
     // dupla contagem do teto S4 do vendedor. Estorno atômico no catch se a gravação falhar depois.
     const wantsCreditDebit = options.debitOnImport !== false;
-    const isOwnedTransfer = !wantsCreditDebit
-      && options.transferAlreadyOwnedWithoutDebit === true
-      && Number(leadRow.ownerCompanyId || 0) === context.companyId
-      && Boolean(leadRow?.companyStates?.[0]?.paidClaimOperationId)
-      && Boolean(leadRow?.companyStates?.[0]?.claimUsageKey)
-      && Boolean(leadRow?.companyStates?.[0]?.acquiredAt);
-    if (options.skipSourceHydration === true && !isOwnedTransfer) {
-      throw new ConflictException('Só um lead já adquirido pode ser transferido sem reconsultar as fontes.');
-    }
-    // Transferência sem débito sempre reutiliza o ativo adquirido. A flag é
-    // explícita no caller atual, mas a regra permanece fail-safe se outro caller
-    // interno a omitir no futuro.
-    const skipSourceHydration = isOwnedTransfer;
     if (!wantsCreditDebit) {
+      const isOwnedTransfer = options.transferAlreadyOwnedWithoutDebit === true
+        && Number(leadRow.ownerCompanyId || 0) === context.companyId;
       if (!isOwnedTransfer) {
         throw new ConflictException('A transferência sem débito só é permitida para um lead já adquirido por esta empresa.');
       }
     }
     const claimOperationId = String(options.claimOperationId || '').trim();
-    const workerToken = String(options.workerToken || '').trim();
     if (wantsCreditDebit && !claimOperationId) {
       throw new ServiceUnavailableException('Operação segura de compra ausente. Nenhum dado foi revelado.');
-    }
-    if (wantsCreditDebit && !workerToken) {
-      throw new ServiceUnavailableException('Worker seguro da compra ausente. Nenhum dado foi revelado.');
     }
     const creditUsageKey = wantsCreditDebit
       ? `radar:${leadRow.id}:claim:${claimOperationId}`
       : `radar:${leadRow.id}:owned-transfer`;
     let creditReserved = false;
-    let imported: any = null;
-    let vendasLeadId: string | null = null;
-    let claimMutationStarted = false;
-    let deliveryCoreCommitted = false;
-    const partialReasons: string[] = [];
-    try {
-    if (wantsCreditDebit) {
-      await this.assertRadarClaimWorkerFence(context, claimOperationId, workerToken);
-    }
     if (wantsCreditDebit) {
       await reportProgress('debit_pending', { radarLeadId: leadRow.id });
-      // O lead custa um crédito. Não há teto paralelo de plano, quantidade
-      // mensal/diária ou cards ativos: saldo + RBAC + segurança são as travas.
+      // (1) Teto operacional de cards-em-mãos do vendedor (mesmo gate do importador em lote —
+      //     preservado aqui de propósito porque desligamos o debitOnImport downstream).
+      if (typeof this.commercialUsageLimits?.assertSellerActiveCardSlots === 'function') {
+        await this.commercialUsageLimits.assertSellerActiveCardSlots(
+          context.companyId,
+          assignedUserId || context.userId,
+        );
+      }
+      // (2) Débito REAL do crédito, fail-closed, ANTES da gravação.
       if (typeof this.commercialUsageLimits?.reserveLeadDeliveryCredit !== 'function') {
         throw new ServiceUnavailableException('Débito de crédito indisponível. Nenhum dado foi revelado.');
       }
@@ -4460,6 +3980,12 @@ export class RadarCoreDeliveryMixin {
         usageKey: creditUsageKey,
       });
     }
+
+    let imported: any = null;
+    let vendasLeadId: string | null = null;
+    let ownershipClaimed = false;
+    const partialReasons: string[] = [];
+    try {
     await this.claimRadarLeadForCompany(context, leadRow, {
       poolStatus: 'in_attendance',
       companyStatus: 'in_attendance',
@@ -4469,232 +3995,145 @@ export class RadarCoreDeliveryMixin {
         : 'Card reservado para envio ao módulo Vendas.',
       assignedUserId,
       assignedByUserId,
-      ...(wantsCreditDebit ? {
-        paidClaimOperationId: claimOperationId,
-        claimUsageKey: creditUsageKey,
-      } : {}),
+      countUsage: false,
     });
-    claimMutationStarted = true;
+    ownershipClaimed = true;
     await reportProgress('ownership_claimed', { radarLeadId: leadRow.id });
 
-    if (isOwnedTransfer) {
-      const paidState = leadRow?.companyStates?.[0] || null;
-      const paidOperationId = String(paidState?.paidClaimOperationId || '').trim();
-      const paidUsageKey = String(paidState?.claimUsageKey || '').trim();
-      const activeCredit = paidUsageKey
-        && typeof this.commercialUsageLimits?.hasActiveLeadDeliveryCredit === 'function'
-        ? await this.commercialUsageLimits.hasActiveLeadDeliveryCredit(
-            context.companyId,
-            { usageKey: paidUsageKey },
-          ).catch(() => false)
-        : false;
-      if (!activeCredit || !paidOperationId) {
-        throw new ConflictException('A aquisição anterior não possui débito ativo comprovado.');
-      }
-      const paidCard = await (this.prisma as any).vendasLead.findUnique({
-        where: { claimOperationId: paidOperationId },
-        select: { id: true, companyId: true },
-      });
-      if (!paidCard || Number(paidCard.companyId) !== context.companyId) {
-        throw new ConflictException('O card core da aquisição anterior não foi localizado.');
-      }
-      vendasLeadId = String(paidCard.id);
-      deliveryCoreCommitted = true;
-      imported = {
-        ok: true,
-        createdCount: 0,
-        updatedCount: 0,
-        deliveredCount: 1,
-        leads: [{ id: vendasLeadId }],
-        reusedPaidAcquisition: true,
-      };
-    }
+    await reportProgress('rfb_hydrating', { radarLeadId: leadRow.id });
+    const rfbHydration = await this.hydrateRadarLeadFromRfbForClaim(leadRow).catch((error: any) => ({
+      row: leadRow,
+      succeeded: false,
+      reason: String(error?.message || error || 'Falha ao consultar a RFB.'),
+    }));
+    leadRow = rfbHydration.row || leadRow;
+    if (!rfbHydration.succeeded && rfbHydration.reason) partialReasons.push(rfbHydration.reason);
+    await reportProgress('base_revealed', {
+      radarLeadId: leadRow.id,
+      rfbSucceeded: Boolean(rfbHydration.succeeded),
+      detail: rfbHydration.reason || null,
+    });
 
-    // Ponto de não-retorno ANTES do primeiro reveal. Se esta transação falhar,
-    // o snapshot ainda está mascarado e a compensação pode estornar. Depois que
-    // ela confirma, RFB/motor/CRM auxiliar são reparáveis e jamais geram lead grátis.
-    if (wantsCreditDebit) {
-      const core = await this.commitPaidRadarVendasCore({
-        context,
-        operationId: claimOperationId,
-        workerToken,
-        usageKey: creditUsageKey,
-        leadRow,
-        assignedUserId,
-        assignedByUserId,
-      });
-      vendasLeadId = core.id;
-      deliveryCoreCommitted = true;
-      if (core.convergenceWarning) {
-        partialReasons.push(`Card pago preservado; convergência pendente: ${core.convergenceWarning}`);
-      }
-    }
-
-    if (skipSourceHydration) {
-      // Transferência interna só move para Vendas um ativo que já foi comprado.
-      // Reconsultar RFB, motor ou WhatsApp aqui seria enriquecimento fora da puxada
-      // explícita e poderia alterar silenciosamente o produto já adquirido.
-      await reportProgress('base_revealed', {
-        radarLeadId: leadRow.id,
-        rfbSucceeded: true,
-        skipped: true,
-        detail: 'Dados previamente adquiridos preservados; nenhuma fonte foi reexecutada.',
-      }).catch(() => undefined);
-      await reportProgress('motor_enriching', {
-        radarLeadId: leadRow.id,
-        skipped: true,
-        detail: 'Transferência interna sem novo enriquecimento.',
-      }).catch(() => undefined);
-    } else {
-      await reportProgress('rfb_hydrating', { radarLeadId: leadRow.id }).catch(() => undefined);
-      const rfbHydration = await this.hydrateRadarLeadFromRfbForClaim(leadRow).catch((error: any) => ({
-        row: leadRow,
-        succeeded: false,
-        reason: String(error?.message || error || 'Falha ao consultar a RFB.'),
-      }));
-      leadRow = rfbHydration.row || leadRow;
-      if (!rfbHydration.succeeded && rfbHydration.reason) partialReasons.push(rfbHydration.reason);
-      await reportProgress('base_revealed', {
-        radarLeadId: leadRow.id,
-        rfbSucceeded: Boolean(rfbHydration.succeeded),
-        detail: rfbHydration.reason || null,
-      }).catch(() => undefined);
-
-      await reportProgress('motor_enriching', { radarLeadId: leadRow.id }).catch(() => undefined);
-      const motorAttemptedAt = new Date().toISOString();
+    await reportProgress('motor_enriching', { radarLeadId: leadRow.id });
+    const motorAttemptedAt = new Date().toISOString();
+    leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
+      attempted: true,
+      status: 'running',
+      attemptedAt: motorAttemptedAt,
+    });
+    const motorPayload = await this.enrichRadarLeadViaLeadPlusEngine(context, leadRow).catch(() => null);
+    if (motorPayload) {
+      leadRow = await this.applyLeadPlusEnrichmentToRadarRow(context, leadRow, motorPayload).catch(() => leadRow);
       leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
         attempted: true,
-        status: 'running',
-        attemptedAt: motorAttemptedAt,
-      }).catch(() => leadRow);
-      // Site conhecido: motor e crawl gratuito rodam juntos, sem somar o tempo
-      // de ambos. Site descoberto pelo motor é crawleado logo depois, ainda
-      // dentro desta compra cercada por débito + claim.
-      const hadWebsiteBeforeMotor = Boolean(String(leadRow?.website || '').trim());
-      const [motorPayload, initialWebsiteCrawl] = await Promise.all([
-        this.enrichRadarLeadViaHbxMotor(context, leadRow).catch((error: any) => {
-          partialReasons.push(`Motor HBX falhou: ${String(error?.message || error)}`);
-          return null;
-        }),
-        hadWebsiteBeforeMotor
-          ? this.crawlRadarLeadWebsiteForClaim(leadRow)
-          : Promise.resolve({ attempted: false, succeeded: false, payload: null, reason: 'waiting_motor_website' }),
-      ]);
-      await this.assertRadarClaimWorkerFence(context, claimOperationId, workerToken);
-      let motorPersisted = false;
-      if (motorPayload) {
-        try {
-          leadRow = await this.applyHbxMotorEnrichment(context, leadRow, motorPayload);
-          motorPersisted = true;
-        } catch (motorPersistenceError: any) {
-          partialReasons.push(`Motor respondeu, mas a persistência canônica falhou: ${String(motorPersistenceError?.message || motorPersistenceError)}`);
-        }
-      } else {
-        partialReasons.push('Motor HBX não concluiu o enriquecimento; os dados RFB foram preservados.');
-      }
-
-      let websiteCrawl = initialWebsiteCrawl;
-      if (!websiteCrawl?.attempted && String(leadRow?.website || '').trim()) {
-        await reportProgress('motor_enriching', {
-          radarLeadId: leadRow.id,
-          phase: 'website_crawl',
-          detail: 'Lendo os contatos publicados no site oficial.',
-        }).catch(() => undefined);
-        websiteCrawl = await this.crawlRadarLeadWebsiteForClaim(leadRow);
-        await this.assertRadarClaimWorkerFence(context, claimOperationId, workerToken);
-      }
-      let crawlPersisted = false;
-      if (websiteCrawl?.payload) {
-        try {
-          leadRow = await this.applyHbxMotorEnrichment(context, leadRow, websiteCrawl.payload);
-          crawlPersisted = true;
-        } catch (crawlPersistenceError: any) {
-          partialReasons.push(`Crawl do site respondeu, mas a persistência canônica falhou: ${String(crawlPersistenceError?.message || crawlPersistenceError)}`);
-        }
-      }
-      const sourceSucceeded = motorPersisted || crawlPersisted;
-      leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
-        attempted: true,
-        succeeded: sourceSucceeded,
-        status: sourceSucceeded ? 'completed' : 'failed',
-        reason: sourceSucceeded ? null : 'motor_and_site_crawl_without_persisted_result',
+        succeeded: true,
+        status: 'completed',
         attemptedAt: motorAttemptedAt,
         finishedAt: new Date().toISOString(),
-        websiteCrawl: {
-          attempted: Boolean(websiteCrawl?.attempted),
-          succeeded: Boolean(websiteCrawl?.succeeded),
-          contactsPersisted: crawlPersisted,
-          reason: websiteCrawl?.reason || null,
-        },
-      }).catch(() => leadRow);
-
-      // Verificação de WhatsApp também é enriquecimento: só pode acontecer após
-      // débito + claim, junto do motor. Ela apenas sinaliza; nunca bloqueia entrega.
-      const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow, context.companyId).catch((error: any) => {
-        partialReasons.push(`Verificação de WhatsApp pendente: ${String(error?.message || error)}`);
-        return null;
       });
-      if (resolvedWhatsappStatus) this.applyRadarWhatsappStatusSignalToRow(leadRow, resolvedWhatsappStatus);
+    } else {
+      partialReasons.push('Motor HBX não concluiu o enriquecimento; os dados RFB foram preservados.');
+      leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
+        attempted: true,
+        succeeded: false,
+        status: 'failed',
+        attemptedAt: motorAttemptedAt,
+        finishedAt: new Date().toISOString(),
+      });
     }
 
-    if (wantsCreditDebit) {
-      const core = await this.refreshPaidRadarVendasSnapshot({
-        context,
-        operationId: claimOperationId,
-        usageKey: creditUsageKey,
-        leadRow,
-      });
-      vendasLeadId = core.id;
-      deliveryCoreCommitted = true;
-    }
+    // Verificação de WhatsApp também é enriquecimento: só pode acontecer após
+    // débito + claim, junto do motor. Ela apenas sinaliza; nunca bloqueia entrega.
+    const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow);
+    if (resolvedWhatsappStatus) this.applyRadarWhatsappStatusSignalToRow(leadRow, resolvedWhatsappStatus);
+
     await reportProgress('vendas_creating', {
       radarLeadId: leadRow.id,
       partialReasons,
-    }).catch((error: any) => {
-      partialReasons.push(`Snapshot 3+3 salvo; telemetria da execução ficou pendente: ${String(error?.message || error)}`);
     });
-    // A compra canônica já materializou o VendasLead core. Não chame o importador
-    // genérico aqui: ele cria/mescla CustomerProfile e Inbox por telefone e tornava
-    // a revogação de uma compra indistinguível de dados CRM legítimos preexistentes.
-    if (!vendasLeadId || !deliveryCoreCommitted) {
-      throw new ServiceUnavailableException('O card core pago não foi confirmado.');
+    imported = await this.vendasService.importWebscrapingLeadsForUser(user, {
+      sourceHistoryId: `radar:${leadRow.id}`,
+      assignedUserId: assignedUserId || undefined,
+      skipWhatsappValidation: Boolean(options.skipWhatsappValidation),
+      // Débito e teto de cards-em-mãos já resolvidos ANTES de gravar (bloco CRÉDITOS acima);
+      // aqui é sempre false pra não debitar nem contar o teto S4 em dobro. Estorno no catch.
+      debitOnImport: false,
+      leads: [
+        {
+          sourceHistoryId: `radar:${leadRow.id}`,
+          placeId: leadRow.placeId || undefined,
+          name: leadRow.name,
+          phone: leadRow.phone || leadRow.phoneDigits,
+          phoneDigits: leadRow.phoneDigits || normalizePhoneDigits(leadRow.phone),
+          email: leadRow.email || undefined,
+          emailStatus: leadRow.emailStatus || undefined,
+          emailSource: leadRow.emailSource || undefined,
+          emailConfidence: leadRow.emailConfidence ?? undefined,
+          address: leadRow.address || undefined,
+          website: leadRow.website || undefined,
+          websiteStatus: leadRow.websiteStatus || undefined,
+          rating: leadRow.rating ?? undefined,
+          reviews: leadRow.reviews ?? undefined,
+          city: leadRow.city || undefined,
+          state: leadRow.state || undefined,
+          segment: leadRow.segment || undefined,
+          instagramUrl: leadRow.instagramUrl || undefined,
+          facebookUrl: leadRow.facebookUrl || undefined,
+          socialStatus: leadRow.socialStatus || undefined,
+          socialConfidence: leadRow.socialConfidence ?? undefined,
+          primarySocial: leadRow.instagramUrl && leadRow.facebookUrl
+              ? 'both'
+              : leadRow.instagramUrl
+                ? 'instagram'
+                : leadRow.facebookUrl
+                  ? 'facebook'
+                  : undefined,
+          googleMapsUrl: leadRow.googleMapsUrl || undefined,
+          businessCategory: leadRow.businessCategory || undefined,
+          openingHoursStatus: leadRow.openingHoursStatus || undefined,
+          recommendedChannel: leadRow.recommendedChannel || undefined,
+          painType: leadRow.painType || undefined,
+          painLabel: leadRow.painLabel || undefined,
+          painPitch: leadRow.painPitch || undefined,
+          enrichmentScore: leadRow.enrichmentScore ?? undefined,
+          enrichmentConfidence: leadRow.enrichmentConfidence ?? undefined,
+          opportunityScore: leadRow.opportunityScore ?? undefined,
+          opportunityReason: leadRow.opportunityReason || undefined,
+          source: leadRow.source || undefined,
+          sourceEngine: leadRow.sourceEngine || undefined,
+          sourceUrl: leadRow.sourceUrl || undefined,
+          enrichmentJson: this.buildCompactVendasEnrichmentJson(leadRow, quality, qualityV2, deliveryClassification),
+          quality,
+          ...deliveryClassification,
+          shortNote: leadRow.opportunityReason || 'Lead herdado do Radar Digital.',
+          scriptText: leadRow.painPitch || leadRow.opportunityReason || undefined,
+        },
+      ],
+    } as any);
+    vendasLeadId = imported?.leads?.[0]?.id || null;
+    if (!vendasLeadId) {
+      throw new BadRequestException('O lead não foi criado em Vendas; a compra foi desfeita.');
     }
-    imported = imported || {
-      ok: true,
-      createdCount: 1,
-      updatedCount: 0,
-      deliveredCount: 1,
-      leads: [{ id: vendasLeadId }],
-      coreOnly: true,
-    };
     } catch (error) {
-      if (deliveryCoreCommitted && vendasLeadId) {
-        partialReasons.push(`Entrega core preservada após falha auxiliar: ${String((error as any)?.message || error)}`);
-        await reportProgress('partial', {
-          radarLeadId: leadRow.id,
-          vendasLeadId,
-          partialReasons,
-          deliveryCoreCommitted: true,
-        }).catch(() => undefined);
-        return {
-          ok: true,
-          radarLeadId: leadRow.id,
-          vendasLeadId,
-          import: imported || { ok: true, leads: [{ id: vendasLeadId }], auxiliaryPending: true },
-          partialReasons,
-        };
+      // Estorno atômico: a gravação falhou DEPOIS do débito — devolve o crédito reservado
+      // (best-effort, idempotente pela mesma usageKey). O caso "sem saldo" já barrou ANTES de
+      // gravar, então aqui só cai falha real de entrega (ex.: erro de banco), nunca saldo zero.
+      if (creditReserved && typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit === 'function') {
+        await this.commercialUsageLimits
+          .releaseLeadDeliveryCredit(context.companyId, context.userId, { usageKey: creditUsageKey })
+          .catch(() => undefined);
       }
-      await this.compensateFailedRadarClaim({
-        context,
-        originalRow: row,
-        creditReserved,
-        creditUsageKey,
-        error,
-        reportProgress,
-        vendasLeadId,
-        cleanupRequired: claimMutationStarted || Boolean(imported),
-        operationId: claimOperationId,
-        workerToken,
+      if (ownershipClaimed) {
+        await this.rollbackRadarClaimAttempt({
+          context,
+          originalRow: row,
+          vendasLeadId,
+          vendasCreated: Boolean(imported?.createdCount),
+        });
+      }
+      await reportProgress(creditReserved ? 'refunded' : 'failed', {
+        radarLeadId: row.id,
+        error: String((error as any)?.message || error),
       });
       throw error;
     }
@@ -4718,25 +4157,8 @@ export class RadarCoreDeliveryMixin {
       ...deliveredState.enrichmentPatch,
     };
     try {
-      if (wantsCreditDebit) {
-        await this.assertRadarClaimWorkerFence(context, claimOperationId, workerToken);
-      }
-      const ownershipEnabledForFinal = await this.supportsRadarOwnershipPersistence();
-      await (this.prisma as any).$transaction(async (tx: any) => {
-        if (wantsCreditDebit) {
-          const fenced = await tx.radarLeadProcessRun.findFirst({
-            where: {
-              id: claimOperationId,
-              companyId: context.companyId,
-              workerToken,
-              workerLeaseUntil: { gt: new Date() },
-              status: { notIn: ['completed', 'partial', 'failed', 'refund_pending', 'refunded'] },
-            },
-            select: { id: true },
-          });
-          if (!fenced) throw new ConflictException('Worker perdeu o lease antes da projeção final do Radar.');
-        }
-        await tx.radarLeadCompanyState.upsert({
+      await (this.prisma as any).$transaction([
+        (this.prisma as any).radarLeadCompanyState.upsert({
         where: {
           companyId_radarLeadId: {
             companyId: context.companyId,
@@ -4747,9 +4169,6 @@ export class RadarCoreDeliveryMixin {
           companyId: context.companyId,
           radarLeadId: leadRow.id,
           vendasLeadId,
-          paidClaimOperationId: claimOperationId || leadRow?.companyStates?.[0]?.paidClaimOperationId || null,
-          claimUsageKey: creditUsageKey || leadRow?.companyStates?.[0]?.claimUsageKey || null,
-          acquiredAt: now,
           status: 'sent_to_vendas',
           assignedUserId,
           assignedByUserId,
@@ -4758,28 +4177,25 @@ export class RadarCoreDeliveryMixin {
         },
         update: {
           vendasLeadId,
-          paidClaimOperationId: claimOperationId || undefined,
-          claimUsageKey: wantsCreditDebit ? creditUsageKey : undefined,
-          acquiredAt: now,
           status: 'sent_to_vendas',
           assignedUserId: assignedUserId || undefined,
           assignedByUserId: assignedByUserId || undefined,
           assignedAt: assignedUserId ? now : undefined,
           lastActionAt: now,
         },
-        });
-        await tx.radarLeadPool.update({
+        }),
+        (this.prisma as any).radarLeadPool.update({
         where: { id: leadRow.id },
         data: {
-          ...(ownershipEnabledForFinal ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
+          ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
           status: 'sent_to_vendas',
           globalImportedCount: { increment: 1 },
           lastSeenAt: now,
           metadataJson: JSON.stringify(nextDeliveryMetadata),
           enrichmentJson: JSON.stringify(nextDeliveryEnrichment),
         },
-        });
-      });
+        }),
+      ]);
       await this.recordRadarLeadEvent({
         leadId: leadRow.id,
         companyId: context.companyId,
@@ -4788,68 +4204,41 @@ export class RadarCoreDeliveryMixin {
         statusFrom: this.normalizeRadarLeadStatus(leadRow.status),
         statusTo: 'sent_to_vendas',
       });
-    } catch (error: any) {
-      // O card core já existe com claimOperationId e ledger ativo. Falhas nesta
-      // projeção Radar são reparáveis e não invalidam a entrega cobrada.
-      partialReasons.push(`Card entregue; sincronização final do Radar pendente: ${String(error?.message || error)}`);
-    }
-    if (wantsCreditDebit) {
-      const metadataForMission = this.parseMaybeJsonObject(leadRow?.metadataJson);
-      const notePayload = {
-        razaoSocial: metadataForMission?.razaoSocial || leadRow?.name || null,
-        nomeFantasia: metadataForMission?.nomeFantasia || leadRow?.name || null,
-        situacao: metadataForMission?.companySituation || null,
-        cnaeDescription: metadataForMission?.cnaeDescription || leadRow?.segment || null,
-        porte: metadataForMission?.porte || null,
-        city: leadRow?.city || null,
-        state: leadRow?.state || null,
-        hasWebsite: Boolean(leadRow?.website),
-        hasWhatsappValidado: this.extractRadarLeadWhatsappStatus(leadRow) === 'validated',
-        hasEmail: Boolean(leadRow?.email),
-      };
-      const paidMissionBase = {
-        companyId: context.companyId,
-        radarLeadId: String(leadRow.id),
-        claimOperationId,
-        claimUsageKey: creditUsageKey,
-      };
-      const missionResults = await Promise.allSettled([
-        this.getMissionQueue().enqueuePaidAcquisitionMission({
-          ...paidMissionBase,
-          stage: 'enrich_lead',
-          payload: {
-            cnpj: metadataForMission?.cnpj || extractCnpjFromRadarLead(leadRow) || null,
-            website: leadRow?.website || null,
-            name: leadRow?.name || null,
-          },
-        }),
-        this.getMissionQueue().enqueuePaidAcquisitionMission({
-          ...paidMissionBase,
-          stage: 'xray_note',
-          payload: { note: notePayload },
-        }),
-      ]);
-      const rejectedMission = missionResults.find((result) => result.status === 'rejected');
-      if (rejectedMission?.status === 'rejected') {
-        partialReasons.push(`Lead entregue; fila local pós-compra pendente: ${String(rejectedMission.reason?.message || rejectedMission.reason)}`);
-      } else if (missionResults.some((result) => result.status === 'fulfilled' && !result.value?.missionId)) {
-        partialReasons.push('Lead entregue; persistência da fila local pós-compra ainda não está disponível.');
+    } catch (error) {
+      if (creditReserved && typeof this.commercialUsageLimits?.releaseLeadDeliveryCredit === 'function') {
+        await this.commercialUsageLimits
+          .releaseLeadDeliveryCredit(context.companyId, context.userId, { usageKey: creditUsageKey })
+          .catch(() => undefined);
       }
+      await this.rollbackRadarClaimAttempt({
+        context,
+        originalRow: row,
+        vendasLeadId,
+        vendasCreated: Boolean(imported?.createdCount),
+      });
+      await reportProgress(creditReserved ? 'refunded' : 'failed', {
+        radarLeadId: row.id,
+        error: String((error as any)?.message || error),
+      });
+      throw error;
     }
     if (!assignedUserId && leadRow?.segment) {
       this._bumpSegmentAffinity(context.userId, String(leadRow.segment)).catch(() => null);
     }
-    if (wantsCreditDebit) {
-      // Apenas nome/segmento/nota, em Ollama local e default-OFF. Não recria PII,
-      // não bloqueia a puxada e nunca substitui RFB/motor/crawl síncronos.
-      this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
-    }
+    // Etapa 7 da árvore mestra: dispara DEPOIS que a entrega já respondeu (fire-and-forget,
+    // igual ao padrão L4/web-enrichment desta mesma função) — nunca atrasa nem falha a
+    // entrega. No-op silencioso se `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default).
+    // companyId REAL da importação (context.companyId, validado por resolveContext) — vira
+    // autorização da ação ai_batch.
+    this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
+    // NÚCLEO-CRM N2 — materializa Conta(PJ)+Contato(dono) na espinha a partir do CNPJ do lead
+    // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`
+    // (default OFF → no-op total). NUNCA quebra o pull (a função engole o próprio erro).
+    void this.materializeNucleoFromRadarLead(context.companyId, leadRow);
     await reportProgress(partialReasons.length ? 'partial' : 'completed', {
       radarLeadId: leadRow.id,
       vendasLeadId,
       partialReasons,
-    }).catch((error: any) => {
-      partialReasons.push(`Entrega concluída; fechamento da telemetria pendente: ${String(error?.message || error)}`);
     });
     return {
       ok: true,
@@ -4860,8 +4249,50 @@ export class RadarCoreDeliveryMixin {
     };
   }
 
+  // NÚCLEO-CRM N2 — hook aditivo da ingestão no PULL. O único choke onde um lead da base 28M
+  // vira VendasLead é `importRadarLeadToVendasForUser` (acima); aqui, DEPOIS que ele já
+  // respondeu, plugamos a materialização da espinha (Conta+Contato). Delega toda a lógica pro
+  // helper puro/testável `materializeNucleoIngestaoFromRadarLead` (nucleo/nucleo-ingestao.ts),
+  // que checa a flag `HBX_NUCLEO_INGESTAO_ENABLED` (default OFF) e recupera o CNPJ do pool row
+  // (sourceUrl `internal://cnpj-base/<cnpj>` ou evidenceJson). Flag OFF: no-op total, pull
+  // idêntico ao de hoje (protege o refab "Buscar empresas" do dono).
+  private materializeNucleoFromRadarLead(companyId: number, leadRow: any): Promise<void> {
+    // Sai barato quando a flag está OFF, sem instanciar serviço nem tocar env duas vezes.
+    if (!nucleoIngestaoEnabled()) return Promise.resolve();
+    return materializeNucleoIngestaoFromRadarLead(
+      {
+        // getNucleoCadastro() devolve o serviço inteiro; o Pick (upsertContaFromCnpj /
+        // upsertContaFromRadarWebLead / upsertContatoPrincipal) é satisfeito por estrutura.
+        cadastro: this.getNucleoCadastro(),
+        loadCnpjPublic: async (cnpj: string) => {
+          if (!(await this.prisma.hasTable('CnpjPublicCompany').catch(() => false))) return null;
+          return (this.prisma as any).cnpjPublicCompany
+            .findUnique({
+              where: { cnpj },
+              select: {
+                cnpj: true,
+                razaoSocial: true,
+                nomeFantasia: true,
+                ownerName: true,
+                ownerQualification: true,
+                address: true,
+                city: true,
+                state: true,
+              },
+            })
+            .catch(() => null);
+        },
+        logger: this.logger,
+      },
+      companyId,
+      leadRow,
+    )
+      .then(() => undefined)
+      .catch(() => undefined);
+  }
+
   // distributeRadarLeadsToVendedoresForUser (o "push" admin→vendedor de CARDS):
   // REMOVIDO (LIMPEZA-DESTRUTIVA L4, 04/07). No modelo novo admin distribui
-  // CRÉDITO (CREDITOS S4), não card. A puxada manual canônica
+  // CRÉDITO (CREDITOS S4), não card. pullRadarLeadsForUser (puxada manual do
   // próprio vendedor) e importRadarLeadToVendasForUser seguem intocados.
 }

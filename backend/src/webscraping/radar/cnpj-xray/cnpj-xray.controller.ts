@@ -7,10 +7,10 @@ import { CnpjXrayService, estimateCnpjXrayCost } from './cnpj-xray.service';
 import { parseAndValidateCnpjBatch } from './cnpj-xray-validate';
 
 // ─── Contrato do painel Owner "Raio-X de CNPJ" (HOT-04, 02/07) — mesma cadeia de auth dos demais
-// endpoints do dono (JWT + Master). Este modulo le somente a base RFB local.
+// endpoints do dono (JWT + Master), igual fabrica/missions/cnpj-backfill.
 //
-// POST /modules/owner/cnpj-xray/estimate  { cnpjs: string[] }   (nao cria job, so estimativa local)
-// POST /modules/owner/cnpj-xray/start     { cnpjs: string[] (max 10k) }
+// POST /modules/owner/cnpj-xray/estimate  { cnpjs: string[], layers: string[] }   (não cria job — só orçamento)
+// POST /modules/owner/cnpj-xray/start     { cnpjs: string[] (máx 10k), layers: string[] }
 // GET  /modules/owner/cnpj-xray/jobs                 (histórico, mais recentes primeiro)
 // GET  /modules/owner/cnpj-xray/jobs/:id             (status de 1 job)
 // GET  /modules/owner/cnpj-xray/jobs/:id/download    (XLSX — só quando status=done)
@@ -19,19 +19,21 @@ import { parseAndValidateCnpjBatch } from './cnpj-xray-validate';
 export class CnpjXrayController {
   constructor(private readonly xray: CnpjXrayService) {}
 
-  /** Estimativa cadastral local. */
+  /** Orçamento por camada ANTES de iniciar — dedup+valida na hora (síncrono, é só contagem). */
   @Post('estimate')
-  estimate(@Body() body: { cnpjs?: string[] }) {
+  estimate(@Body() body: { cnpjs?: string[]; layers?: string[] }) {
     const rawLines = Array.isArray(body?.cnpjs) ? body.cnpjs.map(String) : [];
     const { valid, invalid } = parseAndValidateCnpjBatch(rawLines);
-    const estimate = estimateCnpjXrayCost(valid.length);
+    const layers = (Array.isArray(body?.layers) ? body.layers : ['cadastral']) as any;
+    const estimate = estimateCnpjXrayCost(valid.length, layers.length ? layers : ['cadastral']);
     return { validCount: valid.length, invalidCount: invalid.length, invalidReport: invalid.slice(0, 200), estimate };
   }
 
   @Post('start')
-  start(@Req() req: any, @Body() body: { cnpjs?: string[] }) {
+  start(@Req() req: any, @Body() body: { cnpjs?: string[]; layers?: string[] }) {
     return this.xray.start({
       cnpjs: Array.isArray(body?.cnpjs) ? body.cnpjs : [],
+      layers: Array.isArray(body?.layers) ? body.layers : [],
       requestedByUserId: Number(req?.user?.id) || null,
     });
   }

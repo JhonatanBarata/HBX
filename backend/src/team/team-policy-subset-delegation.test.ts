@@ -28,6 +28,16 @@ function buildStoredPolicy(overrides: Record<string, any> = {}) {
       { key: 'webscraping', allowed: true },
       { key: 'atendimento', allowed: true },
     ]),
+    enrichmentDailyMode: 'inherit',
+    enrichmentDailyLimit: null,
+    cardDeliveryDailyMode: 'inherit',
+    cardDeliveryDailyLimit: null,
+    activeCardsMode: 'inherit',
+    activeCardsLimit: null,
+    monthlyCardsMode: 'inherit',
+    monthlyCardsLimit: null,
+    vendasPullQuantityMode: 'inherit',
+    vendasPullQuantityLimit: null,
     allowedSegmentsJson: '[]',
     blockedSegmentsJson: '[]',
     allowedCitiesJson: '[]',
@@ -66,6 +76,7 @@ function buildUser(overrides: Record<string, any> = {}) {
     sellerReferralCommissionPercent: 0,
     referredByUserId: null,
     referredByCommissionPercentSnapshot: 0,
+    sellerDistributionDailyLimitOverride: null,
     company,
     teamPolicy: buildStoredPolicy({ companyId: company.id }),
     referredByUser: null,
@@ -78,12 +89,30 @@ function buildUser(overrides: Record<string, any> = {}) {
   };
 }
 
+function buildUsageSnapshot(overrides: Record<string, any> = {}) {
+  return {
+    dailyResetAt: '2026-06-08T03:00:00.000Z',
+    resetAt: '2026-07-01T03:00:00.000Z',
+    enrichment: { dailyLimit: 30, dailyUsed: 4, dailyRemaining: 26 },
+    cards: {
+      dailySafetyLimit: 30,
+      dailyUsed: 3,
+      dailyRemaining: 27,
+      monthlyLimit: 250,
+      monthlyUsed: 40,
+      monthlyRemaining: 210,
+    },
+    ...overrides,
+  };
+}
+
 // requesterTeamPolicy: policy PERSISTIDA do concedente (requester), usada por
 // resolveGranterAccessMap via loadUserTeamPolicyRuntime(requester.id).
 function createService(input: {
   requester?: Record<string, any>;
   requesterTeamPolicy?: Record<string, any> | null;
   user?: Record<string, any>;
+  usage?: Record<string, any>;
 } = {}) {
   const state = {
     user: buildUser(input.user || {}),
@@ -146,7 +175,17 @@ function createService(input: {
     },
   };
 
-  const service = new TeamPolicyService(prisma as any, modulesService as any);
+  const commercialUsageLimits = {
+    getUsageSnapshot: async () => buildUsageSnapshot(input.usage || {}),
+    getSellerActiveCardQuotaSnapshot: async () => ({
+      seller: true,
+      effectiveLimit: 30,
+      activeCount: 9,
+      availableSlots: 21,
+    }),
+  };
+
+  const service = new TeamPolicyService(prisma as any, modulesService as any, commercialUsageLimits as any);
   const requester = input.requester || {
     id: 1,
     role: 'USERMASTER',

@@ -328,14 +328,6 @@ export class PlanejarRotaDto {
   @Min(-180)
   @Max(180)
   origemLng?: number;
-
-  // Quando o operador monta uma rota por dia(s), só essas entregas entram no
-  // cálculo. As demais continuam agendadas para uma próxima montagem.
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @MaxLength(80, { each: true })
-  deliveryIds?: string[];
 }
 
 // Iniciar: re-planeja com a origem atual e marca a 1ª parada em rota.
@@ -356,12 +348,6 @@ export class IniciarRotaDto {
   @Min(-180)
   @Max(180)
   origemLng?: number;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @MaxLength(80, { each: true })
-  deliveryIds?: string[];
 }
 
 // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ───────────────────

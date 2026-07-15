@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SourceBudgetService } from './source-budget.service';
+import { RadarWebEnrichmentService } from '../radar/03-enrichment/radar-web-enrichment.service';
 
 /**
  * Aceite do Sprint 3 MOTOR-RFB-FILA (governor físico por fonte), nível unitário:
@@ -118,6 +119,27 @@ test('TRAVA LEI Nº1: HBX_ROLE=local recusa tryConsumePaid ANTES do contador (R$
   const ym = new Date().toISOString().slice(0, 7);
   assert.equal(db.rows.get(`brave|${ym}`), undefined);
   delete process.env.HBX_ROLE;
+});
+
+test('searchBrave degrada gracioso no teto: [] e ZERO chamada real na API', async () => {
+  resetGovernorRuntime();
+  const ym = new Date().toISOString().slice(0, 7);
+  injectDb(makeFakeDb([{ source: 'brave', yearMonth: ym, count: 2 }]));
+  process.env.HBX_BRAVE_MONTHLY_CAP = '2';
+  process.env.HBX_BRAVE_MIN_INTERVAL_MS = '0';
+  process.env.BRAVE_SEARCH_API_KEY = 'chave-de-teste';
+  let realCalls = 0;
+  const fetcher = (async () => {
+    realCalls += 1;
+    return { ok: true, status: 200, json: async () => ({ web: { results: [] } }), headers: { get: () => null } };
+  }) as unknown as typeof fetch;
+  const service = new RadarWebEnrichmentService();
+  const results = await (service as any).searchBrave(fetcher, `query-teto-${Date.now()}`, 2000);
+  assert.deepEqual(results, []);
+  assert.equal(realCalls, 0);
+  delete process.env.BRAVE_SEARCH_API_KEY;
+  process.env.HBX_BRAVE_MONTHLY_CAP = '900';
+  delete process.env.HBX_BRAVE_MIN_INTERVAL_MS;
 });
 
 test('semáforo grátis: no máx N simultâneas por fonte (N=2 via env por fonte)', async () => {

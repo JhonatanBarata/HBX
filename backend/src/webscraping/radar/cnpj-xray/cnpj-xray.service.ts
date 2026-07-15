@@ -4,17 +4,31 @@ import { join } from 'path';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { parseAndValidateCnpjBatch, type CnpjXrayInvalidRow } from './cnpj-xray-validate';
+import { RadarCnpjL4EnrichmentService, type CnpjL4Result } from '../03-enrichment/radar-cnpj-l4-enrichment.service';
+import { RadarMissionQueueService } from '../missions/radar-mission-queue.service';
+import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
+import { AiContactExtractionService } from '../03-enrichment/ai-contact-extraction.service';
+import { CnpjXrayAiNoteService } from './cnpj-xray-ai-note.service';
+import type { LeadContactCandidate } from '../persistence/lead-contact-gate';
 
-// O Raio-X do Owner e somente um exportador cadastral da base RFB ja carregada.
-// Ele nao consulta rede, nao materializa RadarLeadPool, nao faz crawl/WhatsApp/IA e
-// nao produz RadarMission. Enriquecimento nasce exclusivamente na saga paga de claim.
+// ─── RAIO-X DE CNPJ EM LOTE (HOT-04, 02/07) ─────────────────────────────────────────────────────
+// Cola até 10k CNPJs → 3 camadas OPCIONAIS, cada uma acumulando em cima da anterior:
+//   1. cadastral (instantânea, grátis): CnpjPublicCompany local → BrasilAPI (throttle do
+//      SourceBudgetService, já embutido no RadarCnpjL4EnrichmentService.lookup) → cacheia local.
+//   2. vivo: materializa o CNPJ como RadarLeadPool (placeId `cnpj_public:<cnpj>`) e
+//      enfileira uma missão `enrich_lead` (RadarMissionQueueService — a fila JÁ existente, nenhuma
+//      fila nova). A ponte do HBX Owner local é o executor permitido para `enrich_lead`.
+//   3. IA (opcional): nota ICP 0-100 + resumo de 1 linha via qwen2.5:7b (CnpjXrayAiNoteService).
+// TRAVA LEI Nº1: nenhuma camada aqui toca fonte paga — L4/BrasilAPI é grátis; a camada vivo usa os
+// MESMOS serviços gratuitos da fábrica (nenhuma chamada a brave/google_places).
 
 const MAX_CNPJS = 10_000;
 
-export type CnpjXrayLayer = 'cadastral';
+export type CnpjXrayLayer = 'cadastral' | 'vivo' | 'ia';
 
 export type CnpjXrayStartInput = {
   cnpjs: unknown[];
+  layers: unknown[];
   requestedByUserId?: number | null;
 };
 
@@ -22,49 +36,49 @@ export type CnpjXrayStartResult =
   | { started: false; reason: string }
   | { started: true; jobId: string; validCount: number; invalidCount: number };
 
-type CnpjXrayCadastralResult = {
-  found: boolean;
-  cnpj: string;
-  razaoSocial: string | null;
-  nomeFantasia: string | null;
-  companySituation: string | null;
-  cnae: string | null;
-  cnaeDescription: string | null;
-  cnaeSecundarias: string | null;
-  porte: string | null;
-  matrizFilial: string | null;
-  naturezaJuridica: string | null;
-  capitalSocial: string | number | null;
-  simples: boolean | null;
-  mei: boolean | null;
-  regimeTributario: string | null;
-  openedAt: Date | string | null;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  phone: string | null;
-  phone2: string | null;
-  fax: string | null;
-  email: string | null;
-  ownerNames: string[];
-};
+function normalizeLayers(raw: unknown[]): CnpjXrayLayer[] {
+  const allowed: CnpjXrayLayer[] = ['cadastral', 'vivo', 'ia'];
+  const set = new Set(
+    (Array.isArray(raw) ? raw : [])
+      .map((v) => String(v || '').trim().toLowerCase())
+      .filter((v): v is CnpjXrayLayer => (allowed as string[]).includes(v)),
+  );
+  if (!set.size) set.add('cadastral'); // camada 1 é sempre o mínimo (grátis, instantânea)
+  return allowed.filter((layer) => set.has(layer));
+}
 
-/** Estimativa honesta: existe uma unica camada, leitura local cadastral. */
-export function estimateCnpjXrayCost(validCount: number) {
+/** Estimativa de custo/tempo por camada — exibida na tela ANTES de iniciar (não é medição viva). */
+export function estimateCnpjXrayCost(validCount: number, layers: CnpjXrayLayer[]) {
   const n = Math.max(0, Math.trunc(validCount));
-  const secondsEstimate = n * 0.05;
-  return {
-    perLayer: [{ layer: 'cadastral' as const, label: 'Cadastral RFB local', secondsEstimate, free: true }],
-    totalSecondsEstimate: Math.round(secondsEstimate),
+  const perLayer: Record<CnpjXrayLayer, { label: string; secondsEstimate: number; free: boolean }> = {
+    cadastral: { label: 'Cadastral (local + BrasilAPI)', secondsEstimate: n * 0.05, free: true },
+    vivo: { label: 'Vivo — crawl + WhatsApp-gate (fila da fábrica)', secondsEstimate: n * 3, free: true },
+    ia: { label: 'IA — nota ICP + resumo (qwen2.5:7b)', secondsEstimate: n * 23, free: true },
   };
+  const selected = layers.map((layer) => ({ layer, ...perLayer[layer] }));
+  const totalSeconds = selected.reduce((sum, l) => sum + l.secondsEstimate, 0);
+  return { perLayer: selected, totalSecondsEstimate: Math.round(totalSeconds) };
+}
+
+function normalizeCnpjDigits(value: unknown): string {
+  return String(value || '').replace(/\D/g, '');
 }
 
 @Injectable()
 export class CnpjXrayService {
   private readonly logger = new Logger(CnpjXrayService.name);
+  private readonly l4: RadarCnpjL4EnrichmentService;
+  private readonly aiExtraction = new AiContactExtractionService();
+  private readonly aiNote = new CnpjXrayAiNoteService();
   private draining = new Set<string>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly missionQueue: RadarMissionQueueService,
+    private readonly leadContactWrite: LeadContactWriteService,
+  ) {
+    this.l4 = new RadarCnpjL4EnrichmentService(this.leadContactWrite);
+  }
 
   private db() {
     return this.prisma as any;
@@ -78,21 +92,23 @@ export class CnpjXrayService {
     return process.env.HBX_XRAY_STORAGE_DIR || join(process.cwd(), 'storage', 'cnpj-xray');
   }
 
-  /** Valida + cria o job cadastral + dispara a exportacao em background. */
+  /** Valida + cria o job + dispara o processamento em background (a rota responde na hora). */
   async start(input: CnpjXrayStartInput): Promise<CnpjXrayStartResult> {
     if (!(await this.supports())) return { started: false, reason: 'xray_indisponivel_migration_ausente' };
 
-    const rawLines = (Array.isArray(input.cnpjs) ? input.cnpjs : []).map((value) => String(value ?? ''));
+    const rawLines = (Array.isArray(input.cnpjs) ? input.cnpjs : []).map((v) => String(v ?? ''));
     if (!rawLines.length) return { started: false, reason: 'lista_vazia' };
     if (rawLines.length > MAX_CNPJS) return { started: false, reason: `maximo_${MAX_CNPJS}_cnpjs` };
 
+    const layers = normalizeLayers(input.layers);
     const { valid, invalid } = parseAndValidateCnpjBatch(rawLines, MAX_CNPJS);
     if (!valid.length) return { started: false, reason: 'nenhum_cnpj_valido' };
 
-    const job = await this.db().cnpjXrayJob.create({
+    const db = this.db();
+    const job = await db.cnpjXrayJob.create({
       data: {
         status: 'queued',
-        layers: JSON.stringify(['cadastral']),
+        layers: JSON.stringify(layers),
         requestedCount: rawLines.length,
         validCount: valid.length,
         invalidCount: invalid.length,
@@ -102,8 +118,8 @@ export class CnpjXrayService {
       },
     });
 
-    this.logger.log(`[xray] job=${job.id} start cadastral_only valid=${valid.length} invalid=${invalid.length}`);
-    void this.runJob(job.id, valid.map((value) => value.cnpj)).catch((error) => {
+    this.logger.log(`[xray] job=${job.id} start layers=${layers.join(',')} valid=${valid.length} invalid=${invalid.length}`);
+    void this.runJob(job.id, valid.map((v) => v.cnpj), layers).catch((error) => {
       this.logger.warn(`[xray] job=${job.id} caiu: ${error instanceof Error ? error.message : String(error)}`);
     });
 
@@ -111,28 +127,35 @@ export class CnpjXrayService {
   }
 
   async status(jobId: string) {
-    const job = await this.db().cnpjXrayJob.findUnique({ where: { id: jobId } }).catch(() => null);
+    const db = this.db();
+    const job = await db.cnpjXrayJob.findUnique({ where: { id: jobId } }).catch(() => null);
     if (!job) return { found: false };
     return { found: true, job: this.presentJob(job) };
   }
 
   async listJobs(limit = 50) {
     if (!(await this.supports())) return { supported: false, jobs: [] };
-    const jobs = await this.db().cnpjXrayJob
+    const db = this.db();
+    const jobs = await db.cnpjXrayJob
       .findMany({ orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(1, limit), 200) })
       .catch(() => []);
-    return { supported: true, jobs: (jobs as any[]).map((job) => this.presentJob(job)) };
+    return { supported: true, jobs: (jobs as any[]).map((j) => this.presentJob(j)) };
   }
 
   private presentJob(job: any) {
+    let layers: string[] = [];
+    try { layers = JSON.parse(job.layers || '[]'); } catch { layers = []; }
     return {
       id: job.id,
       status: job.status,
-      layers: ['cadastral'],
+      layers,
       requestedCount: job.requestedCount,
       validCount: job.validCount,
       invalidCount: job.invalidCount,
       processedCount: job.processedCount,
+      missionsQueued: job.missionsQueued,
+      missionsDone: job.missionsDone,
+      aiDone: job.aiDone,
       resultFileName: job.resultFileName || null,
       lastError: job.lastError || null,
       startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : null,
@@ -141,47 +164,114 @@ export class CnpjXrayService {
     };
   }
 
+  /** Caminho do arquivo no disco (usado pelo controller pra servir o download). */
   async resolveDownloadPath(jobId: string): Promise<{ path: string; fileName: string } | null> {
-    const job = await this.db().cnpjXrayJob
-      .findUnique({ where: { id: jobId }, select: { resultPath: true, resultFileName: true, status: true } })
-      .catch(() => null);
+    const db = this.db();
+    const job = await db.cnpjXrayJob.findUnique({ where: { id: jobId }, select: { resultPath: true, resultFileName: true, status: true } }).catch(() => null);
     if (!job || job.status !== 'done' || !job.resultPath || !job.resultFileName) return null;
     return { path: job.resultPath, fileName: job.resultFileName };
   }
 
-  private async runJob(jobId: string, cnpjs: string[]): Promise<void> {
+  // ── processamento (background) ────────────────────────────────────────────────────────────────
+
+  private async runJob(jobId: string, cnpjs: string[], layers: CnpjXrayLayer[]): Promise<void> {
     if (this.draining.has(jobId)) return;
     this.draining.add(jobId);
     const db = this.db();
     try {
       await db.cnpjXrayJob.update({ where: { id: jobId }, data: { status: 'running_cadastral' } }).catch(() => null);
+
       const rows: Array<Record<string, any>> = [];
       let processedCount = 0;
+      let missionsQueued = 0;
+      let missionsDone = 0;
+      let aiDone = 0;
 
       for (const cnpj of cnpjs) {
-        const cadastral = await this.lookupLocalCadastral(cnpj).catch(() => null);
+        const cadastral = await this.l4.lookup(this.prisma, cnpj).catch(() => null);
+        // openedAt não faz parte do CnpjL4Result — leitura complementar SÓ-LEITURA direto na tabela
+        // (não escreve, não altera CnpjPublicCompany — outro worker é dono dessa model).
+        const openedAt = await db.cnpjPublicCompany
+          ?.findUnique?.({ where: { cnpj }, select: { openedAt: true } })
+          .catch(() => null);
         processedCount += 1;
-        rows.push(this.buildRow(cnpj, cadastral));
+
+        let leadId: string | null = null;
+        let whatsappValidado = false;
+        let siteVivo: string | null = cadastral?.website || null;
+        let instagram: string | null = null;
+
+        if (layers.includes('vivo') && cadastral?.found && (cadastral.phone || cadastral.website)) {
+          const materialized = await this.materializeLead(cadastral, cnpj).catch(() => null);
+          if (materialized) {
+            leadId = materialized.id;
+            missionsQueued += 1;
+            await this.enqueueEnrichMission(materialized.id, cnpj, cadastral?.website || null, cadastral?.nomeFantasia || cadastral?.razaoSocial || null);
+            const enriched = await this.processVivoLayer(materialized.id).catch(() => null);
+            if (enriched) {
+              missionsDone += 1;
+              whatsappValidado = enriched.whatsappValidado;
+              siteVivo = enriched.website || siteVivo;
+              instagram = enriched.instagram;
+            }
+          }
+        }
+
+        let notaIcp: number | null = null;
+        let resumoIa: string | null = null;
+        if (layers.includes('ia') && CnpjXrayAiNoteService.enabled()) {
+          const noteInput = {
+            razaoSocial: cadastral?.razaoSocial || null,
+            nomeFantasia: cadastral?.nomeFantasia || null,
+            situacao: cadastral?.companySituation || null,
+            cnaeDescription: cadastral?.cnaeDescription || null,
+            porte: cadastral?.porte || null,
+            city: cadastral?.city || null,
+            state: cadastral?.state || null,
+            hasWebsite: Boolean(siteVivo),
+            hasWhatsappValidado: whatsappValidado,
+            hasEmail: Boolean(cadastral?.email),
+          };
+          const noteResult = await this.aiNote.note(noteInput).catch(() => null);
+          if (noteResult?.ok) {
+            aiDone += 1;
+            notaIcp = noteResult.notaIcp;
+            resumoIa = noteResult.resumo;
+          }
+          // CHIP E1: a nota HONESTA do 30B roda pela PONTE (só quando há lead materializado pra gravar).
+          if (leadId) await this.enqueueXrayNoteMission(leadId, noteInput);
+        }
+
+        rows.push(this.buildRow(cnpj, cadastral, {
+          whatsappValidado, site: siteVivo, instagram, notaIcp, resumoIa,
+          openedAt: openedAt?.openedAt ? new Date(openedAt.openedAt).toISOString().slice(0, 10) : null,
+        }));
+
+        // checkpoint a cada 25 linhas — job sobrevive a restart com progresso visível
         if (processedCount % 25 === 0) {
           await db.cnpjXrayJob.update({
             where: { id: jobId },
-            data: { processedCount, status: 'running_cadastral' },
+            data: { processedCount, missionsQueued, missionsDone, aiDone, status: this.statusForLayers(layers) },
           }).catch(() => null);
         }
       }
 
       const { fileName, filePath } = await this.writeXlsx(jobId, rows);
+
       await db.cnpjXrayJob.update({
         where: { id: jobId },
         data: {
           status: 'done',
           processedCount,
+          missionsQueued,
+          missionsDone,
+          aiDone,
           resultFileName: fileName,
           resultPath: filePath,
           finishedAt: new Date(),
         },
       }).catch(() => null);
-      this.logger.log(`[xray] job=${jobId} concluido cadastral_only (${processedCount} linhas) -> ${fileName}`);
+      this.logger.log(`[xray] job=${jobId} concluído (${processedCount} linhas) → ${fileName}`);
     } catch (error) {
       const message = String(error instanceof Error ? error.message : error).slice(0, 300);
       await db.cnpjXrayJob.update({
@@ -194,109 +284,228 @@ export class CnpjXrayService {
     }
   }
 
-  /** Somente tabelas RFB locais; nenhuma queda para BrasilAPI ou qualquer fetch. */
-  private async lookupLocalCadastral(cnpj: string): Promise<CnpjXrayCadastralResult | null> {
-    const db = this.db();
-    const row = await db.cnpjPublicCompany?.findUnique?.({ where: { cnpj } });
-    if (!row) return null;
-    const partnerQuery = db.cnpjPublicPartner?.findMany?.({
-      where: { cnpjBasico: cnpj.slice(0, 8) },
-      select: { nome: true },
-      take: 12,
-    });
-    const partners = partnerQuery ? await partnerQuery.catch(() => []) : [];
-    const ownerNames = Array.from(new Set(
-      [row.ownerName, ...(Array.isArray(partners) ? partners.map((partner: any) => partner?.nome) : [])]
-        .map((value) => String(value || '').trim())
-        .filter(Boolean),
-    ));
-    return {
-      found: true,
-      cnpj,
-      razaoSocial: String(row.razaoSocial || '').trim() || null,
-      nomeFantasia: String(row.nomeFantasia || '').trim() || null,
-      companySituation: String(row.situacao || '').trim().toLowerCase() || null,
-      cnae: String(row.cnae || '').trim() || null,
-      cnaeDescription: String(row.cnaeDescription || '').trim() || null,
-      cnaeSecundarias: String(row.cnaeSecundarias || '').trim() || null,
-      porte: String(row.porte || '').trim() || null,
-      matrizFilial: String(row.matrizFilial || '').trim() || null,
-      naturezaJuridica: String(row.naturezaJuridica || '').trim() || null,
-      capitalSocial: row.capitalSocial == null ? null : String(row.capitalSocial),
-      simples: typeof row.simples === 'boolean' ? row.simples : null,
-      mei: typeof row.mei === 'boolean' ? row.mei : null,
-      regimeTributario: String(row.regimeTributario || '').trim() || null,
-      openedAt: row.openedAt || null,
-      address: String(row.address || '').trim() || null,
-      city: String(row.city || '').trim() || null,
-      state: String(row.state || '').trim().toUpperCase() || null,
-      phone: String(row.phone || '').trim() || null,
-      phone2: String(row.phone2 || '').trim() || null,
-      fax: String(row.fax || '').trim() || null,
-      email: String(row.email || '').trim().toLowerCase() || null,
-      ownerNames,
-    };
+  private statusForLayers(layers: CnpjXrayLayer[]): string {
+    if (layers.includes('ia')) return 'running_ia';
+    if (layers.includes('vivo')) return 'running_vivo';
+    return 'running_cadastral';
   }
 
-  private buildRow(cnpj: string, cadastral: CnpjXrayCadastralResult | null): Record<string, any> {
-    const formatted = cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
-    const hasContact = Boolean(cadastral?.phone || cadastral?.phone2 || cadastral?.email);
+  /** MESMO placeId `cnpj_public:<cnpj>` da fábrica F2 — nunca duplica lead entre fábrica e raio-x. */
+  private async materializeLead(cadastral: CnpjL4Result, cnpj: string): Promise<{ id: string } | null> {
+    const db = this.db();
+    const placeId = `cnpj_public:${cnpj}`;
+    const existing = await db.radarLeadPool.findFirst({ where: { placeId }, select: { id: true } }).catch(() => null);
+    if (existing) return existing;
+
+    const name = String(cadastral.nomeFantasia || cadastral.razaoSocial || '').trim();
+    if (!name) return null;
+    const phoneDigits = normalizeCnpjDigits(cadastral.phone) || null; // reaproveita o normalizador (só dígitos)
+    try {
+      const created = await db.radarLeadPool.create({
+        data: {
+          placeId,
+          name,
+          phone: cadastral.phone || null,
+          phoneDigits: phoneDigits && phoneDigits.length >= 10 && !(await this.phoneTaken(phoneDigits)) ? phoneDigits : null,
+          address: cadastral.address || null,
+          city: cadastral.city || null,
+          state: cadastral.state || null,
+          normalizedCity: this.normalizeLookupValue(cadastral.city || ''),
+          segment: cadastral.cnaeDescription || cadastral.cnae || null,
+          normalizedSegment: this.normalizeLookupValue(cadastral.cnaeDescription || ''),
+          website: cadastral.website || null,
+          email: cadastral.email || null,
+          source: 'cnpj_public',
+          sourceEngine: 'cnpj_xray',
+          sourceEngines: JSON.stringify(['cnpj_public']),
+          metadataJson: JSON.stringify({ cnpj, xrayMaterializedAt: Date.now() }),
+        },
+        select: { id: true },
+      });
+      return created;
+    } catch {
+      const found = await db.radarLeadPool.findFirst({ where: { placeId }, select: { id: true } }).catch(() => null);
+      return found || null;
+    }
+  }
+
+  private normalizeLookupValue(value: unknown) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private async phoneTaken(phoneDigits: string): Promise<boolean> {
+    const found = await this.db().radarLeadPool.findFirst({ where: { phoneDigits }, select: { id: true } }).catch(() => null);
+    return Boolean(found);
+  }
+
+  /**
+   * Missão `enrich_lead` idempotente (dedupeKey `lead:<id>`) — MESMA fila da fábrica, sem fila nova.
+   * `website`/`name` no payload (aditivo, o consumo in-process ignora extras) dão ao worker da PONTE
+   * o que ele precisa pra crawlear+extrair no 30B; o gate anti-alucinação roda no BACKEND na volta.
+   */
+  private async enqueueEnrichMission(leadId: string, cnpj: string, website?: string | null, name?: string | null): Promise<void> {
+    await this.missionQueue.enqueue({
+      stage: 'enrich_lead',
+      payload: { radarLeadId: leadId, cnpj, website: website || null, name: name || null },
+      dedupeKey: `lead:${leadId}`,
+      correlationId: 'cnpj-xray',
+    }).catch(() => null);
+  }
+
+  /**
+   * Missão `xray_note` (CHIP E1) — a nota ICP HONESTA vira trabalho da PONTE no 30B (T1 provou que
+   * ranqueia). Idempotente por dedupeKey `xray-note:<leadId>`. O payload carrega os campos que o
+   * prompt real precisa; o worker roda o 30B e devolve {notaIcp, resumo}, que o backend grava no
+   * metadataJson do lead (MissionResultApplyService). Só enfileira com o worker/fila LIGADOS — o
+   * inline (7b VPS-sim) segue servindo o XLSX do job pra não mudar o comportamento atual do dono.
+   */
+  private async enqueueXrayNoteMission(leadId: string, noteInput: Record<string, unknown>): Promise<void> {
+    if (!this.missionQueue.enabled()) return;
+    await this.missionQueue.enqueue({
+      stage: 'xray_note',
+      payload: { radarLeadId: leadId, note: noteInput },
+      dedupeKey: `xray-note:${leadId}`,
+      correlationId: 'cnpj-xray',
+    }).catch(() => null);
+  }
+
+  /**
+   * Consumo da camada vivo: MESMOS passos da fábrica (L4 já rodou na camada 1; aqui completa
+   * crawl leve do site + extração IA opcional, tudo grátis) e marca a missão completa.
+   * whatsappValidado só fica true se o gate/consumo social já tiver confirmado — este lote NÃO
+   * dispara L5 (whatsapp-check) diretamente (regra do dono: WhatsApp-gate roda no consumo normal
+   * da fábrica/delivery, não duplicado aqui) — o campo reflete o que já existir gravado no lead.
+   */
+  private async processVivoLayer(leadId: string): Promise<{ whatsappValidado: boolean; website: string | null; instagram: string | null } | null> {
+    const db = this.db();
+    try {
+      const row = await db.radarLeadPool.findUnique({
+        where: { id: leadId },
+        select: { id: true, name: true, website: true, email: true, phone: true, phoneDigits: true, instagramUrl: true, metadataJson: true, evidenceJson: true },
+      }).catch(() => null);
+      if (!row) return null;
+
+      await this.l4.enrichRow(db, row).catch(() => null);
+
+      if (this.aiExtractionEnabled() && row.website) {
+        const sourceText = await this.fetchSiteText(row.website).catch(() => '');
+        if (sourceText.trim()) {
+          const result = await this.aiExtraction.extract({ leadName: row.name, sourceText }).catch(() => null);
+          if (result?.ok && result.contacts.length) {
+            await this.leadContactWrite.writeContacts(db, leadId, result.contacts as LeadContactCandidate[], { sourceText }).catch(() => null);
+          }
+        }
+      }
+
+      await this.completeEnrichMission(leadId);
+
+      const refreshed = await db.radarLeadPool.findUnique({
+        where: { id: leadId },
+        select: { website: true, instagramUrl: true, phoneDigits: true },
+      }).catch(() => row);
+      const zapCache = refreshed?.phoneDigits
+        ? await db.whatsappNumberCheckCache?.findUnique?.({ where: { phoneDigits: refreshed.phoneDigits }, select: { exists: true } }).catch(() => null)
+        : null;
+      return {
+        whatsappValidado: Boolean(zapCache?.exists),
+        website: refreshed?.website || row.website || null,
+        instagram: refreshed?.instagramUrl || row.instagramUrl || null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async completeEnrichMission(leadId: string): Promise<void> {
+    await this.db().radarMission.updateMany({
+      where: { stage: 'enrich_lead', dedupeKey: `lead:${leadId}`, status: { in: ['queued', 'leased'] } },
+      data: { status: 'completed', completedAt: new Date(), leaseExpiresAt: null, lastError: null },
+    }).catch(() => null);
+  }
+
+  private aiExtractionEnabled(): boolean {
+    return ['true', '1', 'yes', 'on'].includes(String(process.env.HBX_AI_EXTRACTION_ENABLED || '').trim().toLowerCase());
+  }
+
+  private async fetchSiteText(website: string): Promise<string> {
+    if (!website || !/^https?:\/\//i.test(website)) return '';
+    try {
+      const response = await fetch(website, {
+        signal: AbortSignal.timeout(8000),
+        headers: { 'user-agent': 'Mozilla/5.0 (compatible; HBX-Xray/1.0)' },
+      });
+      if (!response.ok) return '';
+      const html = await response.text();
+      return html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  private buildRow(
+    cnpj: string,
+    cadastral: CnpjL4Result | null,
+    vivo: { whatsappValidado: boolean; site: string | null; instagram: string | null; notaIcp: number | null; resumoIa: string | null; openedAt: string | null },
+  ): Record<string, any> {
+    const cnpjFormatted = cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    const phone = cadastral?.phone || null;
+    const waLink = phone ? `https://wa.me/55${phone}` : null;
     return {
-      cnpj: formatted,
+      cnpj: cnpjFormatted,
       situacao: cadastral?.companySituation || (cadastral?.found ? 'ativa' : 'nao_encontrado'),
       razaoSocial: cadastral?.razaoSocial || null,
       nomeFantasia: cadastral?.nomeFantasia || null,
       email: cadastral?.email || null,
-      abertura: cadastral?.openedAt ? new Date(cadastral.openedAt).toISOString().slice(0, 10) : null,
+      abertura: vivo.openedAt,
       porte: cadastral?.porte || null,
-      matrizFilial: cadastral?.matrizFilial || null,
-      naturezaJuridica: cadastral?.naturezaJuridica || null,
-      capitalSocial: cadastral?.capitalSocial || null,
-      simples: cadastral?.simples == null ? null : cadastral.simples ? 'sim' : 'nao',
-      mei: cadastral?.mei == null ? null : cadastral.mei ? 'sim' : 'nao',
-      regimeTributario: cadastral?.regimeTributario || null,
       endereco: cadastral?.address || null,
-      cidade: cadastral?.city || null,
-      uf: cadastral?.state || null,
-      telefone1: cadastral?.phone || null,
-      telefone2: cadastral?.phone2 || null,
-      fax: cadastral?.fax || null,
+      telefone: phone,
+      linkWhatsapp: waLink,
       socios: (cadastral?.ownerNames || []).join('; ') || null,
       cnae: cadastral?.cnae || null,
       cnaeDescricao: cadastral?.cnaeDescription || null,
-      cnaesSecundarios: cadastral?.cnaeSecundarias || null,
-      seloContato: cadastral?.found ? (hasContact ? 'CADASTRAL COM CONTATO' : 'CADASTRAL SEM CONTATO') : 'NAO ENCONTRADO NA BASE LOCAL',
+      // NOSSAS colunas (o "humilha o deles" do plano):
+      whatsappValidado: vivo.whatsappValidado ? 'sim' : 'não checado',
+      site: vivo.site || null,
+      instagram: vivo.instagram || null,
+      notaIcp: vivo.notaIcp,
+      resumoIa: vivo.resumoIa,
+      seloContato: cadastral?.found && (cadastral.phone || cadastral.email || vivo.site) ? 'VIVO' : 'SEM CONTATO',
     };
   }
 
   private async writeXlsx(jobId: string, rows: Array<Record<string, any>>): Promise<{ fileName: string; filePath: string }> {
     const headerMap: Array<[string, string]> = [
       ['cnpj', 'CNPJ'],
-      ['situacao', 'Situacao'],
-      ['razaoSocial', 'Razao social'],
+      ['situacao', 'Situação'],
+      ['razaoSocial', 'Razão social'],
       ['nomeFantasia', 'Nome fantasia'],
-      ['email', 'E-mail cadastral'],
+      ['email', 'E-mail'],
       ['abertura', 'Abertura'],
       ['porte', 'Porte'],
-      ['matrizFilial', 'Matriz/filial'],
-      ['naturezaJuridica', 'Natureza juridica'],
-      ['capitalSocial', 'Capital social'],
-      ['simples', 'Simples'],
-      ['mei', 'MEI'],
-      ['regimeTributario', 'Regime tributario'],
-      ['endereco', 'Endereco'],
-      ['cidade', 'Cidade'],
-      ['uf', 'UF'],
-      ['telefone1', 'Telefone cadastral 1'],
-      ['telefone2', 'Telefone cadastral 2'],
-      ['fax', 'Fax cadastral'],
-      ['socios', 'Socios'],
+      ['endereco', 'Endereço'],
+      ['telefone', 'Telefone'],
+      ['linkWhatsapp', 'Link WhatsApp'],
+      ['socios', 'Sócios'],
       ['cnae', 'CNAE'],
-      ['cnaeDescricao', 'CNAE descricao'],
-      ['cnaesSecundarios', 'CNAEs secundarios'],
-      ['seloContato', 'Selo cadastral'],
+      ['cnaeDescricao', 'CNAE descrição'],
+      ['whatsappValidado', 'WhatsApp validado'],
+      ['site', 'Site'],
+      ['instagram', 'Instagram'],
+      ['notaIcp', 'Nota ICP'],
+      ['resumoIa', 'Resumo IA'],
+      ['seloContato', 'Selo'],
     ];
-    const aoa = [headerMap.map(([, label]) => label), ...rows.map((row) => headerMap.map(([key]) => row[key] ?? ''))];
+    const aoa = [
+      headerMap.map(([, label]) => label),
+      ...rows.map((row) => headerMap.map(([key]) => row[key] ?? '')),
+    ];
     const sheet = XLSX.utils.aoa_to_sheet(aoa);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, 'Raio-X CNPJ');

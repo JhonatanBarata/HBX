@@ -687,7 +687,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return { companyId, userId };
   }
 
-  private async assertBotArmed(user: any) {
+  private async assertEntitlement(user: any) {
     const companyId = Number(
       user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0,
     );
@@ -1639,7 +1639,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   async getLiveStatusForUser(user: any) {
     const context = this.resolveUserContext(user);
-    await this.assertBotArmed(user);
+    await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) {
       return {
@@ -1873,7 +1873,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   async patchProspectingConfigForUser(user: any, dto: UpdateVendasProspectingConfigDto) {
     const context = this.resolveUserContext(user);
-    await this.assertBotArmed(user);
+    await this.assertEntitlement(user);
     this.assertCanManageProspecting(user);
     await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
     const botConfig = await this.inboxService.getBotConfig(user);
@@ -2086,7 +2086,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   async startProspectingForUser(user: any, dto: StartVendasProspectingDto) {
     const context = this.resolveUserContext(user);
-    await this.assertBotArmed(user);
+    await this.assertEntitlement(user);
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
@@ -2199,7 +2199,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   async resumeProspectingForUser(user: any) {
     const context = this.resolveUserContext(user);
-    await this.assertBotArmed(user);
+    await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     this.assertCanArmProspecting(user, campaign);
@@ -2270,7 +2270,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   async cancelProspectingForUser(user: any) {
     const context = this.resolveUserContext(user);
-    await this.assertBotArmed(user);
+    await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -2350,7 +2350,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   private async setCampaignStatusForUser(user: any, status: 'running' | 'paused', text: string, type: string) {
     const context = this.resolveUserContext(user);
-    await this.assertBotArmed(user);
+    await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     // 5º muro fail-closed (PR13062026007): ligar a prospecção exige TRIAGEM.

@@ -3,14 +3,437 @@ import assert from 'node:assert/strict';
 import { ConflictException } from '@nestjs/common';
 import { CommercialUsageLimitsService } from './commercial-usage-limits.service';
 
-// A aquisição de lead possui uma única fronteira: débito confirmado de um crédito.
-function buildCreditDebitPrismaMock() {
+function buildTeamPolicyMock(input: Record<string, any> = {}) {
+  return {
+    id: 'policy-7',
+    userId: 7,
+    companyId: 1,
+    status: 'active',
+    subjectKind: 'common_seller',
+    modulesJson: '[]',
+    enrichmentDailyMode: 'inherit',
+    enrichmentDailyLimit: null,
+    cardDeliveryDailyMode: 'inherit',
+    cardDeliveryDailyLimit: null,
+    activeCardsMode: 'inherit',
+    activeCardsLimit: null,
+    monthlyCardsMode: 'inherit',
+    monthlyCardsLimit: null,
+    vendasPullQuantityMode: 'inherit',
+    vendasPullQuantityLimit: null,
+    allowedSegmentsJson: '[]',
+    blockedSegmentsJson: '[]',
+    allowedCitiesJson: '[]',
+    allowedStatesJson: '[]',
+    requiresLocation: true,
+    requiredChannelsJson: '{}',
+    ...input,
+  };
+}
+
+function buildPrismaMock(input: {
+  activeVendas?: number;
+  activeRadar?: number;
+  wonLast30?: number;
+  targetStockPerSeller?: number;
+  noDistributionRule?: boolean;
+  sellerMode?: string;
+  sellerPausedUntil?: Date | null;
+  lastSeenAt?: Date | null;
+  companyKind?: string;
+  teamPolicy?: Record<string, any> | null;
+} = {}) {
+  const now = new Date();
+  const lastSeenAt = input.lastSeenAt === undefined ? now : input.lastSeenAt;
+  return {
+    company: {
+      findUnique: async () => ({ companyKind: input.companyKind || 'tenant' }),
+    },
+    user: {
+      findFirst: async () => ({
+        id: 7,
+        role: 'USER',
+        isSystemMaster: false,
+        isActive: true,
+        deactivatedAt: null,
+        createdAt: now,
+        sellerDistributionMode: input.sellerMode || 'normal',
+        sellerDistributionPausedUntil: input.sellerPausedUntil || null,
+        sellerDistributionDailyLimitOverride: input.targetStockPerSeller ?? null,
+      }),
+      findUnique: async () => ({ isSystemMaster: false }),
+    },
+    userTeamPolicy: {
+      findUnique: async () => input.teamPolicy === undefined
+        ? null
+        : input.teamPolicy,
+    },
+    radarAutoDistributionRule: {
+      findFirst: async () => input.noDistributionRule
+        ? null
+        : ({ targetStockPerSeller: input.targetStockPerSeller ?? 20 }),
+    },
+    vendasLead: {
+      count: async (args: any) => args?.where?.closedAt === null
+        ? input.activeVendas || 0
+        : input.wonLast30 || 0,
+    },
+    radarLeadCompanyState: {
+      count: async () => input.activeRadar || 0,
+    },
+    authSession: {
+      findFirst: async () => lastSeenAt ? ({ lastSeenAt }) : null,
+    },
+    companyCommercialUsageLog: {
+      create: async () => ({}),
+      count: async () => 0,
+      findFirst: async () => null,
+    },
+  };
+}
+
+test('seller active card quota blocks when active count reaches effective limit', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 18,
+    activeRadar: 2,
+    targetStockPerSeller: 20,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.activeCount, 20);
+  assert.equal(snapshot.effectiveLimit, 20);
+  assert.equal(snapshot.availableSlots, 0);
+  assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
+});
+
+// RBAC 03/07: USERMASTER (dono do tenant) NAO e vendedor — o teto de carteira
+// (cap de cards ativos) so se aplica a role 'USER'. Como o dono e admin, ele nasce
+// ILIMITADO aqui, identico ao ADMIN (seller=false, unlimited=true). Confirma que o
+// reconhecimento de papel deixa o admin naturalmente fora do limite de vendedor,
+// SEM codigo de isencao especial.
+test('seller active card quota: USERMASTER (dono/admin) fica isento (seller=false, unlimited)', async () => {
+  const now = new Date();
+  const prisma = {
+    company: { findUnique: async () => ({ companyKind: 'tenant' }) },
+    user: {
+      findFirst: async () => ({
+        id: 7,
+        role: 'USERMASTER',
+        isSystemMaster: false,
+        isActive: true,
+        deactivatedAt: null,
+        createdAt: now,
+        sellerDistributionMode: 'normal',
+        sellerDistributionPausedUntil: null,
+        sellerDistributionDailyLimitOverride: 20,
+      }),
+      findUnique: async () => ({ isSystemMaster: false }),
+    },
+    userTeamPolicy: { findUnique: async () => null },
+    radarAutoDistributionRule: { findFirst: async () => ({ targetStockPerSeller: 20 }) },
+    vendasLead: { count: async () => 50 },
+    radarLeadCompanyState: { count: async () => 50 },
+    authSession: { findFirst: async () => ({ lastSeenAt: now }) },
+    companyCommercialUsageLog: { create: async () => ({}), count: async () => 0, findFirst: async () => null },
+  };
+  const service = new CommercialUsageLimitsService(prisma as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, false);
+  assert.equal(snapshot.unlimited, true);
+  assert.equal(snapshot.code, null);
+});
+
+test('LEI DO DONO 27/06: vendedor SEM teto configurado nasce ILIMITADO (não trava em 20)', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 40,
+    activeRadar: 5,
+    noDistributionRule: true,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.unlimited, true);
+  assert.equal(snapshot.activeCount, 45);
+  // 45 cards ativos e NADA de bloqueio — o teto antigo de 20 não existe mais por padrão
+  assert.equal(snapshot.code, null);
+  assert.ok(snapshot.availableSlots > 0);
+});
+
+test('admin que CONFIGURA teto por vendedor corta o ilimitado (regra de distribuição manda)', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 30,
+    activeRadar: 0,
+    targetStockPerSeller: 25,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.unlimited, false);
+  assert.equal(snapshot.effectiveLimit, 25);
+  assert.equal(snapshot.code, 'SELLER_CARD_QUOTA_REACHED');
+});
+
+test('VENDAS-REFAB S1: penalidade de inatividade fica OFF por default mesmo com teto explicito e vendedor sumido ha 30 dias', async () => {
+  delete process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED;
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 5,
+    activeRadar: 0,
+    targetStockPerSeller: 20,
+    lastSeenAt: thirtyDaysAgo,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.baseLimit, 20);
+  assert.equal(snapshot.inactivityPenalty, 0);
+  // Sem a env ligada, 30 dias sumido NAO zera/reduz o teto sozinho.
+  assert.equal(snapshot.effectiveLimit, 20);
+});
+
+test('VENDAS-REFAB S1: penalidade de inatividade só corta o teto quando o admin liga HBX_SELLER_INACTIVITY_PENALTY_ENABLED', async () => {
+  process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED = 'true';
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const service = new CommercialUsageLimitsService(buildPrismaMock({
+      activeVendas: 5,
+      activeRadar: 0,
+      targetStockPerSeller: 20,
+      lastSeenAt: thirtyDaysAgo,
+    }) as any);
+
+    const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+    assert.equal(snapshot.seller, true);
+    assert.ok(snapshot.inactivityPenalty > 0);
+    assert.ok(snapshot.effectiveLimit < 20);
+  } finally {
+    delete process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED;
+  }
+});
+
+test('tenant seller active quota follows configured distribution rule', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    targetStockPerSeller: 80,
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.seller, true);
+  assert.equal(snapshot.baseLimit, 80);
+  assert.equal(snapshot.effectiveLimit, 80);
+  assert.equal(snapshot.availableSlots, 80);
+});
+
+test('team policy can override active card quota exactly', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 10,
+    activeRadar: 1,
+    teamPolicy: buildTeamPolicyMock({
+      activeCardsMode: 'limited',
+      activeCardsLimit: 12,
+    }),
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.baseLimit, 12);
+  assert.equal(snapshot.effectiveLimit, 12);
+  assert.equal(snapshot.activeCount, 11);
+  assert.equal(snapshot.availableSlots, 1);
+});
+
+test('platform_infra company has zero commercial usage limits', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        selectedPlanKey: null,
+        premiumAccess: true,
+        paymentStatus: null,
+        subscriptionStatus: null,
+        timezone: 'America/Sao_Paulo',
+        companyKind: 'platform_infra',
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: null }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      count: async (args: any) => {
+        const eventTypes = args?.where?.eventType?.in || [];
+        const userScoped = Number(args?.where?.userId || 0) === 7;
+        if (eventTypes.includes('lead_enrichment_used')) return userScoped ? 30 : 90;
+        if (eventTypes.includes('vendas_card_refunded')) return 0;
+        if (eventTypes.includes('radar_card_claimed')) return userScoped ? 29 : 90;
+        return 0;
+      },
+    },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.planKey, 'platform_infra');
+  assert.equal(snapshot.cards.dailySafetyLimit, 0);
+  assert.equal(snapshot.cards.dailyUsed, 0);
+  assert.equal(snapshot.cards.dailyRemaining, 0);
+  assert.equal((snapshot as any).enrichment, undefined);
+});
+
+test('team policy legada não recria superfície de enriquecimento extra', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        companyKind: 'tenant',
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: null }),
+    },
+    userTeamPolicy: {
+      findUnique: async () => buildTeamPolicyMock({
+        enrichmentDailyMode: 'limited',
+        enrichmentDailyLimit: 80,
+      }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      count: async (args: any) => {
+        const eventTypes = args?.where?.eventType?.in || [];
+        const userScoped = Number(args?.where?.userId || 0) === 7;
+        if (eventTypes.includes('lead_enrichment_used')) return userScoped ? 15 : 90;
+        return 0;
+      },
+    },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal((snapshot as any).enrichment, undefined);
+});
+
+test('tenant usage does not become special seller quota from legacy user override alone', async () => {
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        companyKind: 'tenant',
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: 12 }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: { count: async () => 0 },
+  } as any);
+
+  const snapshot = await service.getUsageSnapshot(1, 7);
+
+  assert.equal(snapshot.planKey, 'hbx_padrao');
+  assert.equal((snapshot as any).enrichment, undefined);
+  assert.equal(snapshot.cards.limit, 999999);
+});
+
+// R5 (FASE 2 — REMOÇÃO, definitivo): cota count-based (mensal/diária por plano)
+// deixou de bloquear — vira só telemetria (`card_import_limit_shadow`). O teto
+// real agora é o saldo de crédito (CreditWalletService), gate separado nesta
+// mesma chamada (enforceLeadDeliveryDebit) que não faz parte deste cenário.
+test('team policy card delivery daily limit no longer blocks import (R5: cota vira telemetria)', async () => {
+  const shadowLogs: Array<Record<string, any>> = [];
+  const service = new CommercialUsageLimitsService({
+    company: {
+      findUnique: async () => ({
+        timezone: 'America/Sao_Paulo',
+        companyKind: 'tenant',
+      }),
+    },
+    user: {
+      count: async () => 3,
+      findUnique: async () => ({ isSystemMaster: false, role: 'USER', sellerDistributionDailyLimitOverride: null }),
+    },
+    userTeamPolicy: {
+      findUnique: async () => buildTeamPolicyMock({
+        cardDeliveryDailyMode: 'limited',
+        cardDeliveryDailyLimit: 2,
+      }),
+    },
+    $queryRawUnsafe: async () => [],
+    companyCommercialUsageLog: {
+      create: async ({ data }: any) => {
+        shadowLogs.push(data);
+        return {};
+      },
+      count: async (args: any) => {
+        const eventTypes = args?.where?.eventType?.in || [];
+        const userScoped = Number(args?.where?.userId || 0) === 7;
+        if (eventTypes.includes('radar_card_claimed')) return userScoped ? 2 : 90;
+        return 0;
+      },
+    },
+  } as any);
+
+  const snapshot = await service.assertCanImportCard(1, 7);
+  assert.ok(snapshot);
+  assert.ok(shadowLogs.some((row) => row.eventType === 'card_import_limit_shadow'));
+});
+
+test('seller active card quota limits requested Radar quantity to available slots', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 9,
+    activeRadar: 3,
+    targetStockPerSeller: 20,
+  }) as any);
+
+  const result = await service.limitRequestedCardsBySellerActiveQuota(1, 7, 50);
+
+  assert.equal(result.quota.activeCount, 12);
+  assert.equal(result.quota.availableSlots, 8);
+  assert.equal(result.limit, 8);
+});
+
+test('seller active card quota pauses new cards when governance is paused', async () => {
+  const service = new CommercialUsageLimitsService(buildPrismaMock({
+    activeVendas: 1,
+    sellerMode: 'paused',
+    sellerPausedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  }) as any);
+
+  const snapshot = await service.getSellerActiveCardQuotaSnapshot(1, 7);
+
+  assert.equal(snapshot.paused, true);
+  assert.equal(snapshot.effectiveLimit, 0);
+  assert.equal(snapshot.availableSlots, 0);
+  assert.equal(snapshot.code, 'SELLER_QUOTA_PAUSED');
+});
+
+// ─── FRONTEIRA cota-de-plano × crédito (decisão do dono 07/07) ──────────────────────────────────
+// Conta de CRÉDITO (cortesia, modelo grátis) NÃO tem cota de plano; o teto real é o saldo de
+// crédito, checado no débito por-lead (enforceLeadDeliveryDebit). Aqui provamos, no ponto de
+// integração (recordCardCommercialUseOnce), que:
+//   (A) cota de plano ESGOTADA não barra a baixa da conta de crédito — o crédito é quem decide —
+//       e o shadow-log de "limite de plano" é PULADO (não confunde a telemetria da conta grátis);
+//   (B) o gate de crédito BARRA (fail-closed) mesmo com cota de plano SOBRANDO.
+// Empresa PAGA (não-conta-de-crédito) segue com o shadow-log normal (coberto pelo teste R5 acima).
+
+function buildFrontierPrismaMock(input: { cardsExhausted: boolean }) {
   const logs: Array<Record<string, any>> = [];
   const prisma = {
     company: {
+      // hbx_lite (cota 880/mês) — plano concreto pra a cota ter um teto finito a estourar.
       findUnique: async () => ({ selectedPlanKey: 'hbx_lite', timezone: 'America/Sao_Paulo', companyKind: 'tenant' }),
     },
     user: {
+      // NÃO-master: getUsageSnapshot roda a cota real de plano (não o snapshot ilimitado).
       findUnique: async () => ({ isSystemMaster: false, role: 'USER' }),
       count: async () => 1,
     },
@@ -19,23 +442,27 @@ function buildCreditDebitPrismaMock() {
     $queryRawUnsafe: async () => [],
     companyCommercialUsageLog: {
       create: async ({ data }: any) => { logs.push(data); return { id: `log-${logs.length}`, ...data }; },
-      findFirst: async ({ where }: any) => logs.find((row) =>
-        row.eventType === where?.eventType
-        && String(row.metadataJson || '').includes(String(where?.metadataJson?.contains || '')),
-      ) || null,
-      count: async () => 0,
+      // findFirst = dedup do recordCardCommercialUseOnce: sem log anterior -> null -> segue a baixa.
+      findFirst: async () => null,
+      // Cota de plano ESGOTADA = muitos CARD_SUCCESS no mês; refunds/e-mail/enriquecimento = 0.
+      count: async (args: any) => {
+        const types = args?.where?.eventType?.in || [];
+        if (input.cardsExhausted && types.includes('radar_card_claimed')) return 999999;
+        return 0;
+      },
     },
   };
   return { prisma, logs };
 }
 
-test('primeiro uso comercial é somente telemetria e nunca chama débito', async () => {
-  const { prisma, logs } = buildCreditDebitPrismaMock();
+test('FRONTEIRA: conta de crédito com cota de plano ESGOTADA ainda puxa (crédito decide) e o shadow-log de limite é PULADO', async () => {
+  const { prisma, logs } = buildFrontierPrismaMock({ cardsExhausted: true });
   const debitCalls: Array<Record<string, any>> = [];
   const credits = {
+    isCreditsAccountCompany: async () => true, // é conta de crédito (cortesia)
     assertAndDebitLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
       debitCalls.push({ companyId, userId, ...i });
-      return { applied: true, debited: 1 };
+      return { applied: true, debited: 1 }; // saldo cobriu -> baixa liberada
     },
     refundLeadDelivery: async () => ({ refunded: 0 }),
   } as any;
@@ -45,59 +472,38 @@ test('primeiro uso comercial é somente telemetria e nunca chama débito', async
     source: 'radar_contact_click', usageKey: 'radar:ct-1', radarLeadId: 'ct-1',
   });
 
-  assert.deepEqual(result, { debited: false, alreadyDebited: false });
-  assert.equal(debitCalls.length, 0);
-  assert.equal(logs.some((l) => l.eventType === 'card_import_attempt'), false);
-  assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), true);
-});
-
-test('claim, contato Radar e contato Vendas resultam em exatamente um débito', async () => {
-  const debitCalls: Array<Record<string, any>> = [];
-  const { prisma, logs } = buildCreditDebitPrismaMock();
-  const credits = {
-    assertAndDebitLeadDelivery: async (companyId: number, userId: number | null, input: any) => {
-      debitCalls.push({ companyId, userId, ...input });
-      return { applied: true, debited: 1 };
-    },
-  } as any;
-  const service = new CommercialUsageLimitsService(prisma as any, credits);
-
-  const purchase = await service.reserveLeadDeliveryCredit(1, 7, {
-    usageKey: 'radar:lead-paid:claim:operation-1',
-  });
-  const radarContact = await service.recordCardCommercialUseOnce(1, 7, {
-    source: 'radar_contact_click',
-    usageKey: 'radar:lead-paid',
-    radarLeadId: 'lead-paid',
-  });
-  const vendasContact = await service.recordCardCommercialUseOnce(1, 7, {
-    source: 'vendas_first_contact',
-    usageKey: 'radar:lead-paid',
-    radarLeadId: 'lead-paid',
-  });
-
-  assert.deepEqual(purchase, { applied: true, debited: 1 });
-  assert.deepEqual(radarContact, { debited: false, alreadyDebited: false });
-  assert.deepEqual(vendasContact, { debited: false, alreadyDebited: true });
+  assert.equal(result.debited, true);
+  // Débito de crédito FOI o gate consultado (com a chave canônica do lead).
   assert.equal(debitCalls.length, 1);
-  assert.equal(debitCalls[0].leadId, 'radar:lead-paid:claim:operation-1');
-  assert.equal(logs.filter((row) => row.eventType === 'card_commercial_used').length, 1);
+  assert.equal(debitCalls[0].leadId, 'radar:ct-1');
+  // Cota de plano estourada NÃO gerou ruído: nenhum card_import_limit_shadow p/ conta de crédito.
+  assert.equal(logs.some((l) => l.eventType === 'card_import_limit_shadow'), false);
+  // Mas a telemetria que NÃO bloqueia segue: tentativa + baixa registradas.
+  assert.equal(logs.some((l) => l.eventType === 'card_import_attempt'), true);
+  assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), true);
 });
 
-test('telemetria de contato não consulta o serviço financeiro', async () => {
-  const { prisma, logs } = buildCreditDebitPrismaMock();
+test('FRONTEIRA: gate de crédito BARRA a baixa (fail-closed) mesmo com cota de plano SOBRANDO', async () => {
+  const { prisma, logs } = buildFrontierPrismaMock({ cardsExhausted: false }); // cota de plano livre
   const credits = {
+    isCreditsAccountCompany: async () => true,
+    // Sem saldo -> o gate real (CreditsService) lança ConflictException fail-closed.
     assertAndDebitLeadDelivery: async () => {
-      throw new Error('não deveria ser chamado');
+      throw new ConflictException({ ok: false, code: 'CREDIT_BALANCE_EXHAUSTED', message: 'Saldo de créditos esgotado.' });
     },
+    refundLeadDelivery: async () => ({ refunded: 0 }),
   } as any;
   const service = new CommercialUsageLimitsService(prisma as any, credits);
 
-  const result = await service.recordCardCommercialUseOnce(1, 7, {
-    source: 'radar_contact_click', usageKey: 'radar:ct-2', radarLeadId: 'ct-2',
-  });
-  assert.deepEqual(result, { debited: false, alreadyDebited: false });
-  assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), true);
+  await assert.rejects(
+    () => service.recordCardCommercialUseOnce(1, 7, { source: 'radar_contact_click', usageKey: 'radar:ct-2', radarLeadId: 'ct-2' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'CREDIT_BALANCE_EXHAUSTED');
+      return true;
+    },
+  );
+  // Fail-closed: a baixa PAROU antes de logar sucesso — nenhum card_commercial_used gravado.
+  assert.equal(logs.some((l) => l.eventType === 'card_commercial_used'), false);
 });
 
 // ─── CRÉDITOS ATOMICIDADE: reserva ANTES de gravar + estorno (fix "entrega parcial + 409") ───────
@@ -165,84 +571,229 @@ test('reserveLeadDeliveryCredit: resposta sem débito aplicado falha fechado', a
   );
 });
 
-test('releaseLeadDeliveryCredit: confirma estorno pela mesma usageKey e falha fechado sem serviço', async () => {
+test('releaseLeadDeliveryCredit: estorna pela MESMA usageKey; sem CreditsService é no-op silencioso', async () => {
   const refunds: Array<Record<string, any>> = [];
   const credits = {
     assertAndDebitLeadDelivery: async () => ({ applied: true, debited: 1 }),
     refundLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
       refunds.push({ companyId, userId, ...i });
-      return { refunded: 1, alreadyRefunded: false };
+      return { refunded: 1 };
     },
   } as any;
   const service = new CommercialUsageLimitsService({} as any, credits);
-  const result = await service.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-2' });
-  assert.deepEqual(result, { refunded: 1, alreadyRefunded: false });
+  await service.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-2' });
   assert.equal(refunds.length, 1);
   assert.equal(refunds[0].leadId, 'radar:ct-2');
   assert.equal(refunds[0].actionKey, 'lead_delivery');
 
+  // Sem CreditsService injetado: não lança, não faz nada.
   const bare = new CommercialUsageLimitsService({} as any);
+  await assert.doesNotReject(() => bare.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-9' }));
+});
+
+// ─── GUARDRAILS S3 (10/07) — teto DIÁRIO de entregas por empresa (anti-scraper) ──────────────────
+// Roda no MESMO choke do débito real (enforceLeadDeliveryDebit via recordCardImport /
+// reserveLeadDeliveryCredit), ANTES do débito — bloqueia MESMO com saldo sobrando. Config lida por
+// SQL cru numa query só (override da empresa + default global via LEFT-subselect); qualquer erro
+// nessa leitura OU na contagem é fail-open (nunca derruba a venda por bug do guardrail).
+
+function buildDailyCapPrismaMock(input: {
+  isSystemMaster?: boolean;
+  companyKind?: string;
+  companyName?: string;
+  override?: number | null;
+  globalDefault?: number | null;
+  deliveredTodayCount?: number;
+  existingUsageKeys?: string[];
+  queryRawThrows?: boolean;
+  countThrows?: boolean;
+} = {}) {
+  const createdLogs: Array<Record<string, any>> = [];
+  return {
+    prisma: {
+      company: {
+        findUnique: async () => ({
+          selectedPlanKey: 'hbx_padrao',
+          timezone: 'America/Sao_Paulo',
+          companyKind: input.companyKind || 'tenant',
+        }),
+      },
+      user: {
+        findUnique: async () => ({ isSystemMaster: Boolean(input.isSystemMaster) }),
+      },
+      userTeamPolicy: { findUnique: async () => null },
+      $queryRawUnsafe: async () => {
+        if (input.queryRawThrows) throw new Error('boom: coluna ainda nao migrada');
+        return [{
+          companyKind: input.companyKind || 'tenant',
+          companyName: input.companyName ?? 'Empresa Teste',
+          override: input.override === undefined ? null : input.override,
+          globalDefault: input.globalDefault === undefined ? 500 : input.globalDefault,
+        }];
+      },
+      companyCommercialUsageLog: {
+        create: async ({ data }: any) => {
+          createdLogs.push(data);
+          return { id: `log-${createdLogs.length}`, ...data };
+        },
+        findFirst: async ({ where }: any) => {
+          const needle = String(where?.metadataJson?.contains || '');
+          if (!needle) return null;
+          const hit = (input.existingUsageKeys || []).some((key) => needle.includes(`"usageKey":"${key}"`));
+          return hit ? { id: 'existing' } : null;
+        },
+        count: async () => {
+          if (input.countThrows) throw new Error('boom: banco fora do ar');
+          return input.deliveredTodayCount ?? 0;
+        },
+      },
+    },
+    createdLogs,
+  };
+}
+
+function buildDailyCapCredits() {
+  const debitCalls: Array<Record<string, any>> = [];
+  return {
+    debitCalls,
+    service: {
+      assertAndDebitLeadDelivery: async (companyId: number, userId: number | null, i: any) => {
+        debitCalls.push({ companyId, userId, ...i });
+        return { applied: true, debited: 1 };
+      },
+      refundLeadDelivery: async () => ({ refunded: 0 }),
+      isCreditsAccountCompany: async () => false,
+    } as any,
+  };
+}
+
+test('GUARDRAILS S3 (1): 4a entrega do dia com cap=3 lanca DAILY_DELIVERY_CAP_REACHED MESMO com saldo (débito nunca chamado)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 3, deliveredTodayCount: 3 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
   await assert.rejects(
-    () => bare.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:ct-9' }),
-    (error: any) => error?.response?.code === 'CREDIT_REFUND_UNAVAILABLE',
+    () => service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-4', isBillingAudienceUser: true }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      return true;
+    },
+  );
+  // O bloqueio aconteceu ANTES do débito de crédito — saldo sobrando não importa.
+  assert.equal(credits.debitCalls.length, 0);
+});
+
+test('GUARDRAILS S3 (2): override por empresa VENCE o default global', async () => {
+  // Global folgado (100) mas override apertado (2) — a 3a entrega já bloqueia pelo override.
+  const { prisma } = buildDailyCapPrismaMock({ override: 2, globalDefault: 100, deliveredTodayCount: 2 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.rejects(
+    () => service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-3' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      return true;
+    },
+  );
+  assert.equal(credits.debitCalls.length, 0);
+});
+
+test('GUARDRAILS S3 (3): override = 0 significa SEM teto (mesmo com contagem gigante)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ override: 0, globalDefault: 5, deliveredTodayCount: 999 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-1000' }),
+  );
+  assert.equal(credits.debitCalls.length, 1);
+});
+
+test('GUARDRAILS S3 (4): erro simulado na contagem de hoje -> FAIL-OPEN (entrega segue, débito chamado)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 3, countThrows: true });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-x' }),
+  );
+  assert.equal(credits.debitCalls.length, 1);
+});
+
+test('GUARDRAILS S3 (5): vendedor recebe MENSAGEM NEUTRA (mesmo code, sem citar teto/credito)', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 3, deliveredTodayCount: 3 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  await assert.rejects(
+    // isBillingAudienceUser OMITIDO -> LEI DO VENDEDOR: bloqueio neutro.
+    () => service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-4' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      assert.equal(error?.response?.message, 'Acesso pausado pela administracao da conta.');
+      return true;
+    },
   );
 });
 
-test('releaseLeadDeliveryCredit: retry preserva o valor histórico confirmado sem creditar novamente', async () => {
-  let calls = 0;
-  const credits = {
-    refundLeadDelivery: async () => {
-      calls += 1;
-      return { refunded: 2, alreadyRefunded: true };
-    },
-  } as any;
-  const service = new CommercialUsageLimitsService({} as any, credits);
+test('GUARDRAILS S3 (6): lead JÁ entregue hoje (idempotente) re-tentado NÃO é bloqueado pelo cap', async () => {
+  // Cap já ESTOURADO (3/3), mas a usageKey desta tentativa é a MESMA de uma das 3 já contadas —
+  // um retry (rede/duplo-clique) não pode ser barrado por um cap que ele mesmo já compõe.
+  const { prisma } = buildDailyCapPrismaMock({
+    globalDefault: 3,
+    deliveredTodayCount: 3,
+    existingUsageKeys: ['radar:lead-1'],
+  });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
 
-  const result = await service.releaseLeadDeliveryCredit(1, 7, { usageKey: 'radar:retry-confirmado' });
-
-  assert.deepEqual(result, { refunded: 2, alreadyRefunded: true });
-  assert.equal(calls, 1);
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-1' }),
+  );
+  assert.equal(credits.debitCalls.length, 1);
 });
 
-test('recordCardRefund só grava refunded após confirmar o crédito devolvido', async () => {
-  const logs: Array<Record<string, any>> = [];
-  const refunds: Array<Record<string, any>> = [];
-  const prisma = {
-    company: { findUnique: async () => ({ companyKind: 'tenant', selectedPlanKey: 'hbx_padrao' }) },
-    radarLeadProcessRun: { findFirst: async () => ({ id: 'claim-op-1' }) },
-    companyCommercialUsageLog: {
-      create: async ({ data }: any) => { logs.push(data); return data; },
-    },
-  } as any;
-  const credits = {
-    refundLeadDelivery: async (companyId: number, userId: number | null, input: any) => {
-      refunds.push({ companyId, userId, ...input });
-      return { refunded: 1 };
-    },
-  } as any;
-  const service = new CommercialUsageLimitsService(prisma, credits);
+test('GUARDRAILS S3: bypass isSystemMaster — nunca é capado mesmo com cap estourado', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ isSystemMaster: true, globalDefault: 1, deliveredTodayCount: 999 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
 
-  await service.recordCardRefund(1, 7, { radarLeadId: 'lead-1', complaintId: 'complaint-1' });
-
-  assert.equal(refunds[0].leadId, 'radar:lead-1:claim:claim-op-1');
-  assert.deepEqual(logs.map((row) => row.eventType), ['vendas_card_refunded']);
+  await assert.doesNotReject(() =>
+    service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-master' }),
+  );
 });
 
-test('recordCardRefund grava pending e falha quando o estorno não é confirmado', async () => {
-  const logs: Array<Record<string, any>> = [];
-  const prisma = {
-    company: { findUnique: async () => ({ companyKind: 'tenant', selectedPlanKey: 'hbx_padrao' }) },
-    radarLeadProcessRun: { findFirst: async () => ({ id: 'claim-op-2' }) },
-    companyCommercialUsageLog: {
-      create: async ({ data }: any) => { logs.push(data); return data; },
-    },
-  } as any;
-  const credits = { refundLeadDelivery: async () => ({ refunded: 0 }) } as any;
-  const service = new CommercialUsageLimitsService(prisma, credits);
+test('GUARDRAILS S3: flag HBX_DELIVERY_DAILY_CAP_ENABLED=false desliga o guardrail inteiro', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 1, deliveredTodayCount: 999 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
+
+  const prev = process.env.HBX_DELIVERY_DAILY_CAP_ENABLED;
+  process.env.HBX_DELIVERY_DAILY_CAP_ENABLED = 'false';
+  try {
+    await assert.doesNotReject(() =>
+      service.recordCardImport(1, 7, { source: 'radar_claim', radarLeadId: 'lead-flag-off' }),
+    );
+  } finally {
+    if (prev === undefined) delete process.env.HBX_DELIVERY_DAILY_CAP_ENABLED;
+    else process.env.HBX_DELIVERY_DAILY_CAP_ENABLED = prev;
+  }
+});
+
+// Segundo choke (reserveLeadDeliveryCredit — reserva atômica do Radar->Vendas) também aplica o
+// MESMO teto: prova que os "MESMOS 2 chokes" do R1 estão cobertos, não só recordCardImport.
+test('GUARDRAILS S3: reserveLeadDeliveryCredit (outro choke) também aplica o teto diário', async () => {
+  const { prisma } = buildDailyCapPrismaMock({ globalDefault: 2, deliveredTodayCount: 2 });
+  const credits = buildDailyCapCredits();
+  const service = new CommercialUsageLimitsService(prisma as any, credits.service);
 
   await assert.rejects(
-    () => service.recordCardRefund(1, 7, { radarLeadId: 'lead-2', complaintId: 'complaint-2' }),
-    (error: any) => error?.response?.code === 'CREDIT_REFUND_UNCONFIRMED',
+    () => service.reserveLeadDeliveryCredit(1, 7, { usageKey: 'radar:lead-9', isBillingAudienceUser: true }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'DAILY_DELIVERY_CAP_REACHED');
+      return true;
+    },
   );
-  assert.deepEqual(logs.map((row) => row.eventType), ['vendas_card_refund_pending']);
+  assert.equal(credits.debitCalls.length, 0);
 });

@@ -19,7 +19,7 @@ import {
   isCommercialPlanPaused,
 } from './commercial-plan-catalog';
 
-test('HBX commercial catalog preserva preços sem diferenciar entrega de leads por plano', () => {
+test('HBX commercial catalog preserva preços, mas capacidades e envelope são universais', () => {
   assert.equal(COMMERCIAL_PRICING.liteMonthly, 49.00);
   assert.equal(COMMERCIAL_PRICING.padraoMonthly, 99.00);
   assert.equal(COMMERCIAL_PRICING.proMonthly, 249.00);
@@ -39,7 +39,12 @@ test('HBX commercial catalog preserva preços sem diferenciar entrega de leads p
   assert.equal(lite?.includedUsers, 1);
   assert.equal(lite?.extraUserMonthlyPrice, 0);
   assert.equal(lite?.requiresCheckout, false);
-  assert.equal('quotas' in (lite || {}), false);
+  assert.equal(lite?.quotas?.googleSearchesPerDay, 6);
+  assert.equal(lite?.quotas?.cardsPerMonth, 999999);
+  assert.equal(lite?.quotas?.dailyCardSafetyLimit, 999999);
+  assert.equal(lite?.quotas?.cardsPerSearch, 999999);
+  assert.equal(lite?.quotas?.searchesPerCycle, 999999);
+  assert.equal(lite?.quotas?.totalCards, 999999);
 
   const fullCatalog = buildCommercialPlansCatalog({ includeHidden: true });
   const padrao = fullCatalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PADRAO);
@@ -50,7 +55,7 @@ test('HBX commercial catalog preserva preços sem diferenciar entrega de leads p
   assert.equal(padrao?.recommended, true);
   assert.equal(padrao?.includedUsers, 2);
   assert.equal(padrao?.extraUserMonthlyPrice, 24.90);
-  assert.equal('quotas' in (padrao || {}), false);
+  assert.deepEqual(padrao?.quotas, lite?.quotas);
 
   const pro = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.PRO);
   assert.equal(pro?.title, 'HBX Pro');
@@ -58,7 +63,7 @@ test('HBX commercial catalog preserva preços sem diferenciar entrega de leads p
   assert.equal(pro?.trialDays, 0);
   assert.equal(pro?.includedUsers, 3);
   assert.equal(pro?.requiresAssistedSetup, false);
-  assert.equal('quotas' in (pro || {}), false);
+  assert.deepEqual(pro?.quotas, lite?.quotas);
 
   const melhor = catalog.find((plan) => plan.key === COMMERCIAL_PLAN_KEYS.MELHOR);
   assert.equal(melhor?.title, 'Implantação');
@@ -72,7 +77,7 @@ test('HBX commercial catalog preserva preços sem diferenciar entrega de leads p
   assert.equal(melhor?.requiresAssistedSetup, false);
   assert.equal(melhor?.setupFeeMode, 'negotiated');
   assert.equal(melhor?.requiresCheckout, false);
-  assert.equal('quotas' in (melhor || {}), false);
+  assert.deepEqual(melhor?.quotas, lite?.quotas);
   assert.deepEqual(melhor?.features, lite?.features);
 });
 

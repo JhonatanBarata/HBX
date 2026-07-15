@@ -580,7 +580,7 @@ const SELLER_CHECKLIST: ChecklistStep[] = [
 // carimba `company_identity_set` — o checklist auto-cura do dado real (ramo salvo).
 const ADMIN_COMMON_STEPS: ChecklistStep[] = [
   { key: 'company_identity_set', label: 'Defina a identidade da empresa', hint: 'Nome, ramo-alvo e o que você vende — é o que alimenta o Radar e o fechamento.', href: '/configuracoes', cta: 'Abrir Configurações', milestone: false },
-  { key: 'first_module_confirmed', label: 'Confirme os módulos', hint: 'Confira os módulos disponíveis e o que sua equipe vai usar.', href: '/configuracoes', cta: 'Ver módulos', milestone: false },
+  { key: 'first_module_confirmed', label: 'Confirme os módulos', hint: 'Já vêm ligados pelo seu plano. Confira o que sua equipe vai usar.', href: '/configuracoes', cta: 'Ver módulos', milestone: false },
 ];
 const ADMIN_TEAM_STEPS: ChecklistStep[] = [
   ...ADMIN_COMMON_STEPS,

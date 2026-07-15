@@ -181,6 +181,11 @@ test('LeadHarvestImport importa batch oficial com aceitos, duplicados e rejeitad
   assert.equal(prisma.items.filter((item: any) => item.importedRadarLeadId).length, 2);
   assert.equal(prisma.items.find((item: any) => item.externalId === 'lead-duplicado').rejectReason, 'duplicate_phone');
   assert.equal(prisma.items.find((item: any) => item.externalId === 'email-invalido').rejectReason, 'invalid_email');
+
+  const detail = await service.getImportForUser(adminUser(), 'batch-vps-1');
+  assert.equal(detail.batchId, 'batch-vps-1');
+  assert.equal(detail.sourceMode, 'imported_lab');
+  assert.equal(detail.items.length, 4);
 });
 
 test('LeadHarvestImport rejeita dominio bloqueado sem aceitar item', async () => {

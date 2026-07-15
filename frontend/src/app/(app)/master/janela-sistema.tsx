@@ -4,7 +4,7 @@
 // Catálogo de módulos saiu daqui (21/06). S4 (10/07): a janela Self-Checkout MORREU
 // (modelo de plano-catálogo acabou) — a política de indicação (única parte viva no
 // runtime) migrou pra Créditos → Config. S7 (10/07): desconto anual/PlanModuleConfig/editor
-// de plano foram removidos do backend — esta janela nunca editou
+// de plano foram APOSENTADOS no backend (escrita bloqueada, 410) — esta janela nunca editou
 // nenhum dos dois. Subabas: Credenciais/Exclusões/Reclamações.
 // Contratos ligados (ModulesController, todos JWT+MasterGuard):
 //   GET     modules/master/global-integrations     → política + bibliotecas
@@ -444,7 +444,7 @@ export function JanelaSistema() {
                         {["new", "reviewing"].includes(String(c.status)) && (
                           <React.Fragment>
                             <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem", padding: "0 7px" }} disabled={compBusy != null}
-                              onClick={() => atualizarComplaint(c, { status: "refunded", refundCards: 1 })} title="Aceitar e devolver 1 crédito à carteira">
+                              onClick={() => atualizarComplaint(c, { status: "refunded", refundCards: 1 })} title="Aceitar e devolver 1 card à cota">
                               {compBusy === c.id ? "…" : "Reembolsar"}
                             </button>
                             <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem", padding: "0 7px", color: "var(--hbx-danger)" }} disabled={compBusy != null}
@@ -454,7 +454,7 @@ export function JanelaSistema() {
                           </React.Fragment>
                         )}
                         {!["new", "reviewing"].includes(String(c.status)) && (
-                          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{c.refundedCards ? `${c.refundedCards} crédito(s) devolvido(s)` : "triada"}</span>
+                          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{c.refundedCards ? `${c.refundedCards} card(s) devolvido(s)` : "triada"}</span>
                         )}
                       </div>
                     </td>

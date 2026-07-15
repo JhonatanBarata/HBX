@@ -8,6 +8,8 @@ export type RadarLeadSourceKind =
   | 'hbx_engine'
   | 'google_textual'
   | 'radar_web_enrichment'
+  | 'reprocess_missing_social'
+  | 'reprocess_old_cards'
   | 'website_crawl_light'
   | 'cnpj_public'
   | 'local_directory'
@@ -24,7 +26,8 @@ export type RadarLeadSourceStatus =
 export type RadarSearchStrategyMode =
   | 'fast'
   | 'quality'
-  | 'deep';
+  | 'deep'
+  | 'night_factory';
 
 export type RadarLeadSourceStep = {
   source: RadarLeadSourceKind;

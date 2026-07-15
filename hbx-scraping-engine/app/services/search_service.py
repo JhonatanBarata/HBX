@@ -3132,7 +3132,7 @@ class SearchService:
             public_item["_technicalScore"] = int(item.get("score") or 0)
             if request.targetType == "pj":
                 public_item["source"] = "hbx_scraping:free_pj"
-            public_item["visibilityTier"] = "eligible"
+            public_item["visibilityTier"] = "list_basic"
             public_item["recommendedChannel"] = self.recommended_channel_for_contact(item, request.requiredChannels)
             public_items.append(public_item)
             stats["approved"] += 1

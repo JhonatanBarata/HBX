@@ -4,6 +4,24 @@ export type TeamPolicyActorKind =
   | 'common_seller'
   | 'unknown';
 
+export type TeamPolicyLimitMode = 'inherit' | 'limited' | 'unlimited' | 'blocked';
+export type TeamPolicyLimitSource =
+  | 'team_policy'
+  | 'legacy_user_field'
+  | 'usage_snapshot'
+  | 'active_card_quota'
+  | 'company_default'
+  | 'not_persisted_yet';
+
+export type TeamPolicyLimit = {
+  mode: TeamPolicyLimitMode;
+  value: number | null;
+  used?: number | null;
+  remaining?: number | null;
+  resetAt?: string | null;
+  source: TeamPolicyLimitSource;
+};
+
 export type TeamPolicyModule = {
   key: string;
   name?: string | null;
@@ -51,6 +69,10 @@ export type TeamPolicyAccessPreset = {
   label: string;
   description: string;
   access: TeamPolicyAccessMap;
+  limits?: Partial<Record<'cardDeliveryDaily' | 'activeCards' | 'monthlyCards' | 'vendasPullQuantity', {
+    mode: TeamPolicyLimitMode;
+    value: number | null;
+  }>>;
 };
 
 export type TeamPolicyMissingBackendEnforcement = {
@@ -109,7 +131,9 @@ export type TeamPolicyVisibility = {
   sellerCanViewOwnPolicy: boolean;
   sellerCanViewCommission: boolean;
   sellerCanViewSellerNetwork: boolean;
+  sellerCanViewLimits: boolean;
   adminCanEditLegacyFields: boolean;
+  masterCanUseUnlimited: boolean;
 };
 
 export type TeamPolicyPersistence = {
@@ -133,6 +157,12 @@ export type TeamPolicy = {
   missingBackendEnforcement: TeamPolicyMissingBackendEnforcement[];
   compensation: TeamPolicyCompensation;
   sellerNetwork: TeamPolicySellerNetwork;
+  limits: {
+    cardDeliveryDaily: TeamPolicyLimit;
+    activeCards: TeamPolicyLimit;
+    monthlyCards: TeamPolicyLimit;
+    vendasPullQuantity: TeamPolicyLimit;
+  };
   radar: TeamPolicyRadarFilters;
   visibility: TeamPolicyVisibility;
   persistence: TeamPolicyPersistence;

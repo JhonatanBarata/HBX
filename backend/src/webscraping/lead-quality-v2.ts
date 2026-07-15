@@ -48,7 +48,7 @@ export type LeadQualityV2SalesProfile = {
   negativeRules?: Record<string, any>;
 };
 
-export type RadarVisibilityTier = 'blocked' | 'eligible' | 'review_backup';
+export type RadarVisibilityTier = 'blocked' | 'list_basic' | 'review_backup';
 
 export type RadarVisibilityFromQualityV2 = {
   visibilityTier: RadarVisibilityTier;
@@ -676,7 +676,7 @@ export function resolveRadarVisibilityFromQualityV2(input: {
     if (genericName) return block('generic_name');
     if (!hasChannel) return block('no_actionable_channel');
     return {
-      visibilityTier: 'eligible',
+      visibilityTier: 'list_basic',
       hardBlocked: false,
       blockReason: null,
       rankScore,
@@ -699,7 +699,7 @@ export function resolveRadarVisibilityFromQualityV2(input: {
     }
     if (reason === 'weak_contactability' || reason === 'required_channel_missing') {
       return {
-        visibilityTier: 'eligible',
+        visibilityTier: 'list_basic',
         hardBlocked: false,
         blockReason: null,
         rankScore,
@@ -713,7 +713,7 @@ export function resolveRadarVisibilityFromQualityV2(input: {
   if (rankScore > 0 && rankScore < 45) return review('low_rank_score_review');
 
   return {
-    visibilityTier: 'eligible',
+    visibilityTier: 'list_basic',
     hardBlocked: false,
     blockReason: null,
     rankScore,

@@ -22,9 +22,9 @@ echo "== HBX engine containers 1..50 =="
 docker ps --format '{{.Names}}\t{{.Status}}\t{{.Ports}}' | awk '/hbx-engine-([0-9]+)(\t|$)/ { print }' | sort -V || true
 
 echo
-echo "== Backend engine/env =="
+echo "== Backend factory/env =="
 BACKEND_CONTAINER="${HBX_BACKEND_CONTAINER:-hbx-backend}"
-docker exec "$BACKEND_CONTAINER" sh -lc 'printenv | grep -E "^(HBX_ENGINE_COUNT|HBX_ENGINE_MAX_COUNT|HBX_ENGINE_URLS|HBX_CLIENT_RESERVED_ENGINES|HBX_RADAR_CLIENT_PRIORITY_)" | sort' || true
+docker exec "$BACKEND_CONTAINER" sh -lc 'printenv | grep -E "^(HBX_ENGINE_COUNT|HBX_ENGINE_MAX_COUNT|HBX_ENGINE_URLS|HBX_FACTORY_|HBX_CLIENT_RESERVED_ENGINES|HBX_RADAR_CLIENT_PRIORITY_)" | sort' || true
 
 echo
 echo "== Health from backend network =="
@@ -37,7 +37,7 @@ done
 
 echo
 echo "== Recent scheduler logs =="
-docker logs "$BACKEND_CONTAINER" --since=30m 2>&1 | grep -E "engine-scheduler|acquired engine" | tail -n 160 || true
+docker logs "$BACKEND_CONTAINER" --since=30m 2>&1 | grep -E "engine-scheduler|factory-scheduler|factoryPump|factory-stop|acquired engine" | tail -n 160 || true
 
 echo
 echo "== Compose usage hint =="

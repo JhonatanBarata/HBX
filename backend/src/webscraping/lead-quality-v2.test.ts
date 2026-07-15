@@ -116,7 +116,7 @@ test('LeadQualityV2 reduz ranking de duplicado com negativo global', () => {
   assert.ok(quality.finalRankScore < quality.opportunityScore);
 });
 
-test('LeadQualityV2 entrega lead com telefone valido e WhatsApp nao confirmado', () => {
+test('LeadQualityV2 List entrega lead com telefone valido e WhatsApp nao confirmado', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Padaria Central',
@@ -136,7 +136,7 @@ test('LeadQualityV2 entrega lead com telefone valido e WhatsApp nao confirmado',
   assert.equal(quality.recommendedChannel, 'call');
 });
 
-test('LeadQualityV2 descarta diretorio ou lista generica', () => {
+test('LeadQualityV2 List descarta diretorio ou lista generica', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Lista Telefonica de Empresas',
@@ -153,7 +153,7 @@ test('LeadQualityV2 descarta diretorio ou lista generica', () => {
   assert.equal(quality.discardReason, 'generic_directory');
 });
 
-test('LeadQualityV2 descarta titulo de categoria local sem bloquear empresa real', () => {
+test('LeadQualityV2 List descarta titulo de categoria local sem bloquear empresa real', () => {
   const generic = calculateLeadQualityV2({
     lead: {
       name: 'Clínicas de Estética e Esteticistas em Altair, SP',
@@ -180,7 +180,7 @@ test('LeadQualityV2 descarta titulo de categoria local sem bloquear empresa real
   assert.notEqual(real.decision, 'discard');
 });
 
-test('LeadQualityV2 descarta materia ou produto com telefone capturado', () => {
+test('LeadQualityV2 List descarta materia ou produto com telefone capturado', () => {
   for (const name of [
     'Assistência Técnica da Brastemp: Tudo o Que Você Precisa Saber para Contratar o Serviço Ideal',
     'Ar-Condicionado Split HW Inverter Hitachi AirHome 600 12.000 BTUs Só Frio 220V',
@@ -255,7 +255,7 @@ test('LeadQualityV2 ignora canal obrigatorio e nao descarta por rede social ause
   }
 });
 
-test('LeadQualityV2 protege opt_out', () => {
+test('LeadQualityV2 List protege opt_out', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Mercado Bloqueado',
@@ -269,7 +269,7 @@ test('LeadQualityV2 protege opt_out', () => {
   assert.equal(quality.decision, 'protect');
 });
 
-test('LeadQualityV2 nao entrega sem fit de segmento', () => {
+test('LeadQualityV2 Lead+ nao entrega sem fit de segmento', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Auto Escola Avenida',
@@ -292,7 +292,7 @@ test('LeadQualityV2 nao entrega sem fit de segmento', () => {
   assert.equal(quality.discardReason, 'segment_mismatch');
 });
 
-test('LeadQualityV2 descarta fora da cidade quando avoidOutOfCity=true', () => {
+test('LeadQualityV2 Lead+ descarta fora da cidade quando avoidOutOfCity=true', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Clínica Horizonte',
@@ -349,7 +349,7 @@ test('LeadQualityV2 evita entrega direta sem WhatsApp quando avoidNoWhatsapp=tru
   assert.equal(quality.discardReason, null);
 });
 
-test('LeadQualityV2 entrega clinica boa com WhatsApp confirmado e fit correto', () => {
+test('LeadQualityV2 Lead+ entrega clinica boa com WhatsApp confirmado e fit correto', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Clínica Boa Vida',
@@ -412,7 +412,7 @@ test('LeadQualityV2 nao bloqueia card bom quando publico-alvo nao tem evidencia 
   assert.match(quality.reasons.join(' '), /sem evidencia forte/i);
 });
 
-test('LeadQualityV2 manda para review quando email e provavel e WhatsApp ausente', () => {
+test('LeadQualityV2 Lead+ manda para review quando email e provavel e WhatsApp ausente', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Clínica Revisão',
@@ -530,10 +530,10 @@ test('LeadQualityV2 Instagram preferido nao vira regra de bloqueio', () => {
   assert.notEqual(matched.discardReason, 'required_channel_missing');
 });
 
-test('LeadQualityV2 canal Instagram obrigatorio nao descarta se ausente', () => {
+test('LeadQualityV2 canal Instagram obrigatorio em List nao descarta se ausente', () => {
   const quality = calculateLeadQualityV2({
     lead: {
-      name: 'Barbearia Central',
+      name: 'Barbearia List',
       phoneDigits: '19999990001',
       city: 'Campinas',
       state: 'SP',
@@ -613,7 +613,7 @@ test('LeadQualityV2 Instagram e Facebook obrigatorios aceita uma rede social pre
   assert.equal(quality.channelAvailability?.facebook, false);
 });
 
-test('LeadQualityV2 canal Instagram obrigatorio nao vira motivo de descarte', () => {
+test('LeadQualityV2 canal Instagram obrigatorio em Lead+ nao vira motivo de descarte', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Barbearia Fraca',
@@ -631,7 +631,7 @@ test('LeadQualityV2 canal Instagram obrigatorio nao vira motivo de descarte', ()
   assert.notEqual(quality.discardReason, 'required_channel_missing');
 });
 
-test('LeadQualityV2 canal WhatsApp obrigatorio nao vira regra de bloqueio', () => {
+test('LeadQualityV2 canal WhatsApp obrigatorio nao vira regra de bloqueio Lead+', () => {
   const quality = calculateLeadQualityV2({
     lead: {
       name: 'Clínica Sem Wpp',
@@ -671,7 +671,7 @@ test('RadarVisibility salva empresa real com segmento adjacente como card basico
   });
 
   assert.equal(visibility.hardBlocked, false);
-  assert.ok(['eligible', 'review_backup'].includes(visibility.visibilityTier));
+  assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
 });
 
 test('RadarVisibility canal preferido WhatsApp ausente nao bloqueia card real', () => {
@@ -695,7 +695,7 @@ test('RadarVisibility canal preferido WhatsApp ausente nao bloqueia card real', 
   assert.notEqual(visibility.visibilityTier, 'blocked');
 });
 
-test('RadarVisibility nao impede card elegivel por falta de destaque', () => {
+test('RadarVisibility Lead+ nao impede card basico quando nao qualifica destaque', () => {
   const lead = {
     name: 'Clinica Sem WhatsApp',
     phoneDigits: '1933334444',
@@ -713,7 +713,7 @@ test('RadarVisibility nao impede card elegivel por falta de destaque', () => {
   const visibility = resolveRadarVisibilityFromQualityV2({ lead, quality, requestedSegment: 'clinica' });
 
   assert.equal(visibility.hardBlocked, false);
-  assert.ok(['eligible', 'review_backup'].includes(visibility.visibilityTier));
+  assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
 });
 
 test('RadarVisibility score baixo vira review_backup, nao bloqueio', () => {
@@ -757,7 +757,7 @@ test('RadarVisibility C2: procedencia de diretorio (source) com empresa real e t
   assert.notEqual(quality.decision, 'discard');
   assert.notEqual(quality.discardReason, 'generic_directory');
   assert.equal(visibility.hardBlocked, false);
-  assert.ok(['eligible', 'review_backup'].includes(visibility.visibilityTier));
+  assert.ok(['list_basic', 'review_backup'].includes(visibility.visibilityTier));
 });
 
 test('LeadQualityV2 C2: nome real + sourceUrl booksy + fone valido NAO descarta (canal proprio acionavel)', () => {

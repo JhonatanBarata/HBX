@@ -37,8 +37,8 @@ export async function ensureTrialPhoneAvailableTx(
   throw new ConflictException({
     code: 'TRIAL_PHONE_ALREADY_USED',
     message: mode === 'activate'
-      ? 'Este telefone já utilizou o período de avaliação HBX. Entre na conta existente ou fale com o suporte.'
-      : 'Este telefone já utilizou o período de avaliação HBX. Use outro telefone ou fale com o suporte.',
+      ? 'Este telefone já utilizou o trial HBX. Escolha um plano pago para continuar.'
+      : 'Este telefone já utilizou o trial HBX. Use outro telefone ou escolha um plano pago para continuar.',
   });
 }
 
@@ -65,7 +65,7 @@ export async function ensureTrialDocumentAvailableTx(
   if (!trialCompany) return;
   throw new ConflictException({
     code: 'TRIAL_TAX_DOCUMENT_ALREADY_USED',
-    message: 'Este CPF já utilizou o período de avaliação HBX. Entre na conta existente ou fale com o suporte.',
+    message: 'Este CPF já utilizou o trial HBX. Use outro CPF ou escolha um plano pago para continuar.',
   });
 }
 

@@ -59,7 +59,7 @@ function applyData(row: Row, data: Row) {
 function createFakePrisma(companyIds: number[] = [1]) {
   const wallets: Row[] = [];
   const entries: Row[] = [];
-  const companies: Row[] = companyIds.map((id) => ({ id, companyKind: 'tenant' }));
+  const companies: Row[] = companyIds.map((id) => ({ id, companyKind: 'tenant', creditsEnforceEnabled: false }));
   const packs: Row[] = [];
   const globalConfig: Row[] = [];
   const teamPolicies: Row[] = [];
@@ -305,6 +305,12 @@ function createFakePrisma(companyIds: number[] = [1]) {
     charges.push({ status: 'approved', description: '', amount: 0, paidAt: new Date(), ...row });
   };
 
+  // Handles de teste (R1): mutar direto o estado in-memory sem passar por métodos do serviço —
+  // simula o admin ligando `Company.creditsEnforceEnabled` e o RuntimeTeamPolicy do vendedor.
+  client.__setCompanyEnforce = (companyId: number, enabled: boolean) => {
+    const row = companies.find((item) => item.id === companyId);
+    if (row) row.creditsEnforceEnabled = enabled;
+  };
   // MASTER-REFAB S6 (10/07 noite): permite semear accountType/status/companyKind na company
   // in-memory pra exercitar o gatilho de débito real por TIPO de conta.
   client.__setCompanyFields = (companyId: number, patch: Record<string, any>) => {
@@ -326,6 +332,16 @@ function createFakePrisma(companyIds: number[] = [1]) {
       status: 'active',
       subjectKind: 'common_seller',
       modulesJson: '[]',
+      enrichmentDailyMode: 'inherit',
+      enrichmentDailyLimit: null,
+      cardDeliveryDailyMode: 'inherit',
+      cardDeliveryDailyLimit: null,
+      activeCardsMode: 'inherit',
+      activeCardsLimit: null,
+      monthlyCardsMode: 'inherit',
+      monthlyCardsLimit: null,
+      vendasPullQuantityMode: 'inherit',
+      vendasPullQuantityLimit: null,
       allowedSegmentsJson: '[]',
       blockedSegmentsJson: '[]',
       allowedCitiesJson: '[]',
@@ -688,9 +704,14 @@ test('grantWelcomeBatch: empresas DIFERENTES recebem lotes INDEPENDENTES (usageK
 // ─── Débito universal por lead ────────────────────────────────────────────────────────────────
 // Plano, accountType, flags antigas e o papel do ator não podem liberar dados sem débito.
 
-test('tenant enterprise debita sem depender de accountType', async () => {
+test.afterEach(() => {
+  delete process.env.HBX_CREDITS_ENFORCE;
+});
+
+test('tenant debita mesmo com HBX_CREDITS_ENFORCE OFF e flag da empresa ON', async () => {
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   await wallet.grant(1, 10, { kind: 'grant' });
 
   const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-1', actionKey: 'lead_delivery' });
@@ -700,9 +721,11 @@ test('tenant enterprise debita sem depender de accountType', async () => {
   assert.equal(await wallet.getBalance(1), 9);
 });
 
-test('tenant debita lead mesmo com a flag geral da vitrine de créditos desligada', async () => {
+test('tenant debita mesmo com flag da empresa OFF', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
-  delete process.env.HBX_CREDITS_ENABLED;
+  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, false); // explícito: empresa NÃO optou
 
   await wallet.grant(1, 10, { kind: 'grant' });
   const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-1', actionKey: 'lead_delivery' });
@@ -712,9 +735,12 @@ test('tenant debita lead mesmo com a flag geral da vitrine de créditos desligad
   assert.equal(await wallet.getBalance(1), 9);
 });
 
-test('saldo >=1 debita 1 crédito real com usageKey canônica', async () => {
+// Teste 2 — gate ON + saldo >= 1 -> entrega debita 1; ledger ganha linha `debit` com a usageKey certa.
+test('R1 gate: as 2 chaves ON + saldo >=1 -> debita 1 crédito real, usageKey enforce:<actionKey>:<leadId>', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   await wallet.grant(1, 5, { kind: 'grant' });
 
   const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-42', actionKey: 'lead_delivery' });
@@ -732,8 +758,10 @@ test('saldo >=1 debita 1 crédito real com usageKey canônica', async () => {
 // Teste 3 — gate ON + saldo 0 -> BLOQUEIA fail-closed; vendedor recebe código neutro; admin
 // recebe CREDIT_BALANCE_EXHAUSTED.
 test('R1 gate: saldo ZERO -> bloqueia fail-closed, vendedor recebe código NEUTRO (company_access_paused)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   // sem grant nenhum -> saldo 0
 
   await assert.rejects(
@@ -748,8 +776,10 @@ test('R1 gate: saldo ZERO -> bloqueia fail-closed, vendedor recebe código NEUTR
 });
 
 test('R1 gate: saldo ZERO -> admin/dono recebe código claro CREDIT_BALANCE_EXHAUSTED', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
 
   await assert.rejects(
     () => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-1', actionKey: 'lead_delivery', isBillingAudienceUser: true }),
@@ -761,8 +791,10 @@ test('R1 gate: saldo ZERO -> admin/dono recebe código claro CREDIT_BALANCE_EXHA
 });
 
 test('R1 gate: saldo ZERO -> nenhuma linha debit é gravada (fail-closed, nunca negativo)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
 
   await assert.rejects(() => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-1', actionKey: 'lead_delivery' }));
 
@@ -773,8 +805,10 @@ test('R1 gate: saldo ZERO -> nenhuma linha debit é gravada (fail-closed, nunca 
 
 // Teste 4 — falha pós-débito -> refund devolve (mesma usageKey, idempotente).
 test('R1 refund: refundLeadDelivery devolve o crédito debitado (mesma usageKey)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   await wallet.grant(1, 5, { kind: 'grant' });
 
   await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-99', actionKey: 'lead_delivery' });
@@ -782,63 +816,111 @@ test('R1 refund: refundLeadDelivery devolve o crédito debitado (mesma usageKey)
 
   const refundResult = await service.refundLeadDelivery(1, 7, { leadId: 'lead-99', actionKey: 'lead_delivery' });
   assert.equal(refundResult.refunded, 1);
-  assert.equal(refundResult.alreadyRefunded, false);
   assert.equal(await wallet.getBalance(1), 5); // saldo volta
 });
 
 test('R1 refund: idempotente — chamar 2x só devolve 1 vez (mesma usageKey do débito)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   await wallet.grant(1, 5, { kind: 'grant' });
 
   await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-77', actionKey: 'lead_delivery' });
-  const first = await service.refundLeadDelivery(1, 7, { leadId: 'lead-77', actionKey: 'lead_delivery' });
-  const retry = await service.refundLeadDelivery(1, 7, { leadId: 'lead-77', actionKey: 'lead_delivery' });
+  await service.refundLeadDelivery(1, 7, { leadId: 'lead-77', actionKey: 'lead_delivery' });
+  await service.refundLeadDelivery(1, 7, { leadId: 'lead-77', actionKey: 'lead_delivery' });
 
-  assert.equal(first.alreadyRefunded, false);
-  assert.equal(retry.alreadyRefunded, true);
-  assert.equal(retry.refunded, 1);
   assert.equal(await wallet.getBalance(1), 5); // não dobrou o refund
 });
 
-test('R1 refund: sem débito retorna zero para o orquestrador marcar estorno pendente', async () => {
+test('R1 refund: sem débito registrado pra usageKey -> no-op silencioso (nada a reverter)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
 
   const result = await service.refundLeadDelivery(1, 7, { leadId: 'lead-nunca-debitado', actionKey: 'lead_delivery' });
   assert.equal(result.refunded, 0);
-  assert.equal(result.alreadyRefunded, false);
 });
 
-test('R1 refund: falha da carteira é propagada e nunca vira sucesso com refunded=0', async () => {
+// Teste 5 (S4) — vendedor com teto atingido bloqueia SÓ ele; outro vendedor segue.
+test('R1 S4: vendedor com teto MENSAL atingido bloqueia só ele (empresa segue com saldo)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
-  (wallet as any).refund = async () => {
-    throw new Error('ledger indisponível');
-  };
-
-  await assert.rejects(
-    () => service.refundLeadDelivery(1, 7, { leadId: 'lead-failed-refund', actionKey: 'lead_delivery' }),
-    /ledger indisponível/,
-  );
-});
-
-test('havendo créditos, vendedores adquirem o mesmo produto sem cota paralela', async () => {
-  const { service, wallet, fake } = buildService();
-  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
+  fake.__setUserTeamPolicy(7, { monthlyCardsMode: 'limited', monthlyCardsLimit: 1 });
   await wallet.grant(1, 10, { kind: 'grant' });
 
-  for (const [sellerId, leadId] of [[7, 'lead-A'], [7, 'lead-B'], [8, 'lead-C'], [8, 'lead-D']] as const) {
-    const result = await service.assertAndDebitLeadDelivery(1, sellerId, { leadId, actionKey: 'lead_delivery' });
+  // 1ª entrega do vendedor 7: sob o teto (0 débitos até agora) -> passa.
+  const first = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-A', actionKey: 'lead_delivery' });
+  assert.equal(first.applied, true);
+  assert.equal(await wallet.getBalance(1), 9);
+
+  // 2ª entrega do MESMO vendedor: já tem 1 débito no mês (teto=1) -> bloqueia ele.
+  await assert.rejects(
+    () => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-B', actionKey: 'lead_delivery' }),
+    (error: any) => {
+      assert.equal(error?.response?.code, 'company_access_paused');
+      return true;
+    },
+  );
+  assert.equal(await wallet.getBalance(1), 9); // não debitou no bloqueio
+});
+
+test('R1 S4: outro vendedor da MESMA empresa sem teto configurado segue livre (admin nunca capado por vendedor)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
+  const { service, wallet, fake } = buildService();
+  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
+  fake.__setUserTeamPolicy(7, { monthlyCardsMode: 'limited', monthlyCardsLimit: 1 });
+  // vendedor 8 SEM policy nenhuma -> sem teto (inherit).
+
+  await wallet.grant(1, 10, { kind: 'grant' });
+  await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-A', actionKey: 'lead_delivery' }); // vendedor 7 usa o teto dele
+  await assert.rejects(() => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-C', actionKey: 'lead_delivery' })); // 7 bloqueado
+
+  // vendedor 8 (empresa/carteira A MESMA) segue entregando normal — não é capado pelo teto do 7.
+  const forOther = await service.assertAndDebitLeadDelivery(1, 8, { leadId: 'lead-D', actionKey: 'lead_delivery' });
+  assert.equal(forOther.applied, true);
+  assert.equal(await wallet.getBalance(1), 8); // 9 - 1(vendedor7) - 1(vendedor8) = 8
+});
+
+test('R1 S4: teto DIÁRIO (cardDeliveryDailyLimit) também bloqueia só o vendedor que estourou', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
+  const { service, wallet, fake } = buildService();
+  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
+  fake.__setUserTeamPolicy(7, { cardDeliveryDailyMode: 'limited', cardDeliveryDailyLimit: 1 });
+  await wallet.grant(1, 10, { kind: 'grant' });
+
+  const first = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-X', actionKey: 'lead_delivery' });
+  assert.equal(first.applied, true);
+
+  await assert.rejects(() => service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-Y', actionKey: 'lead_delivery' }));
+});
+
+test('R1 S4: vendedor SEM teto configurado (inherit) nunca bloqueia por S4 (default sem teto)', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
+  const { service, wallet, fake } = buildService();
+  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
+  // sem __setUserTeamPolicy -> loadUserTeamPolicyRuntime devolve null -> sem teto.
+
+  await wallet.grant(1, 3, { kind: 'grant' });
+  for (let i = 0; i < 3; i++) {
+    const result = await service.assertAndDebitLeadDelivery(1, 7, { leadId: `lead-${i}`, actionKey: 'lead_delivery' });
     assert.equal(result.applied, true);
   }
-  assert.equal(await wallet.getBalance(1), 6);
+  assert.equal(await wallet.getBalance(1), 0);
 });
 
 // Teste 6 — idempotência: mesmo lead 2x = 1 débito (usageKey).
 test('R1 idempotência: mesmo lead debitado 2x (mesma usageKey) -> só 1 débito real', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
   const { service, wallet, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   await wallet.grant(1, 5, { kind: 'grant' });
 
   const first = await service.assertAndDebitLeadDelivery(1, 7, { leadId: 'lead-dup', actionKey: 'lead_delivery' });
@@ -854,15 +936,34 @@ test('R1 idempotência: mesmo lead debitado 2x (mesma usageKey) -> só 1 débito
 
 // ─── isEnforceActiveForCompany — todo tenant, sem gate comercial ───────────────────────────────
 
-test('isEnforceActiveForCompany: todo tenant existente é debitável', async () => {
+test('isEnforceActiveForCompany: tenant enterprise continua ativo com env OFF', async () => {
   const { service, fake } = buildService();
   fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
+  assert.equal(await service.isEnforceActiveForCompany(1), true);
+});
+
+test('isEnforceActiveForCompany: tenant enterprise continua ativo com flag da empresa OFF', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
+  const { service, fake } = buildService();
+  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, false);
+  assert.equal(await service.isEnforceActiveForCompany(1), true);
+});
+
+test('isEnforceActiveForCompany: tenant permanece ativo com flags antigas ON', async () => {
+  process.env.HBX_CREDITS_ENFORCE = 'true';
+  const { service, fake } = buildService();
+  fake.__setCompanyFields(1, { accountType: 'enterprise' });
+  fake.__setCompanyEnforce(1, true);
   assert.equal(await service.isEnforceActiveForCompany(1), true);
 });
 
 // AccountType/status são metadados financeiros e não mudam o débito do lead.
 
-test('conta credit debita por ser tenant, não pelo accountType', async () => {
+test('conta credit (accountType=credit, default da coluna): débito real LIGADO por default, SEM HBX_CREDITS_ENFORCE', async () => {
+  // credits ENABLED (beforeEach); enforce env OFF; empresa NÃO optou (creditsEnforceEnabled=false).
+  // accountType nem precisa ser setado — o default da company fake já é ausente -> normaliza credit.
   const { service, wallet, fake } = buildService();
   assert.equal(await service.isEnforceActiveForCompany(1), true);
 

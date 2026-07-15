@@ -14,10 +14,6 @@ export type CnpjPublicCompanyRecord = {
   matrizFilial?: string | null;
   email?: string | null;
   phone?: string | null;
-  phone2?: string | null;
-  /** Fax cadastral da RFB tratado como terceiro candidato de telefone, nunca como WhatsApp. */
-  fax?: string | null;
-  faxDigits?: string | null;
   website?: string | null;
   address?: string | null;
   // Sócio-administrador do dump da RFB (coluna ownerName da CnpjPublicCompany) — opcional,

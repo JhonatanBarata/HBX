@@ -4,7 +4,6 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -20,12 +19,10 @@ import {
 import {
   CreateMobilePairingCodeDto,
   ConsumeMobileWebTicketDto,
-  GooglePairMobileDeviceDto,
   MobileAccessProfile,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
 } from './dto/mobile-device.dto';
-import { AuthService } from './auth.service';
 import { MAX_MOBILE_DEVICES_PER_USER } from './session-policy';
 
 type PairingCodeRow = {
@@ -71,7 +68,6 @@ export class MobileDeviceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly authService: AuthService,
   ) {}
 
   /** Hash para segredos aleatórios de alta entropia (token do aparelho/ticket). */
@@ -354,89 +350,6 @@ export class MobileDeviceService {
         platform: device.platform,
       },
     };
-  }
-
-  async pairDeviceWithGoogle(
-    dto: GooglePairMobileDeviceDto,
-    opts?: { userAgent?: string; ip?: string },
-  ) {
-    const clientId = String(process.env.GOOGLE_CLIENT_ID || '').trim();
-    if (!clientId) {
-      throw new ServiceUnavailableException('Login com Google não está configurado neste ambiente.');
-    }
-
-    let identity: { sub: string; email: string; email_verified?: boolean };
-    try {
-      const { OAuth2Client } = await import('google-auth-library');
-      const ticket = await new OAuth2Client(clientId).verifyIdToken({
-        idToken: String(dto.idToken || ''),
-        audience: clientId,
-      });
-      const payload = ticket.getPayload();
-      if (!payload?.sub || !payload.email) throw new Error('Identidade Google incompleta');
-      identity = {
-        sub: payload.sub,
-        email: payload.email,
-        email_verified: payload.email_verified,
-      };
-    } catch {
-      throw new UnauthorizedException('Login Google inválido ou expirado. Tente novamente.');
-    }
-
-    if (identity.email_verified === false) {
-      throw new UnauthorizedException('Confirme seu e-mail no Google antes de entrar.');
-    }
-
-    const email = identity.email.toLowerCase().trim();
-    let user = await withoutTenantScope('mobile google pairing: localizar conta existente', async () => {
-      const byGoogle = await this.prisma.user.findUnique({
-        where: { googleId: identity.sub },
-        select: { id: true, googleId: true, role: true },
-      });
-      if (byGoogle) return byGoogle;
-      return this.prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' } },
-        select: { id: true, googleId: true, role: true },
-      });
-    });
-
-    if (user?.googleId && user.googleId !== identity.sub) {
-      throw new UnauthorizedException('Este e-mail já está vinculado a outra conta Google.');
-    }
-
-    if (!user) {
-      const login = await this.authService.googleLoginOrSignup(dto.idToken, opts);
-      const decoded = this.jwtService.verify<{ sub?: number }>(String(login?.access_token || ''));
-      const createdUserId = Number(decoded?.sub || 0);
-      if (!Number.isInteger(createdUserId) || createdUserId <= 0) {
-        throw new UnauthorizedException('Não foi possível criar a conta Google no HBX.');
-      }
-      user = await withoutTenantScope('mobile google pairing: carregar conta criada', () =>
-        this.prisma.user.findUnique({
-          where: { id: createdUserId },
-          select: { id: true, googleId: true, role: true },
-        }),
-      );
-    } else if (!user.googleId) {
-      user = await withoutTenantScope('mobile google pairing: vincular identidade à conta', () =>
-        this.prisma.user.update({
-          where: { id: user!.id },
-          data: { googleId: identity.sub, emailConfirmedAt: new Date() },
-          select: { id: true, googleId: true, role: true },
-        }),
-      );
-    }
-
-    if (!user) throw new UnauthorizedException('Não foi possível acessar a conta Google no HBX.');
-    const role = String(user.role || '').trim().toUpperCase();
-    const accessProfile: MobileAccessProfile = role === 'ADMIN' || role === 'USERMASTER' ? 'ADMIN' : 'STANDARD';
-    const pairing = await this.createPairingCode(user.id, { accessProfile });
-    return this.pairDevice({
-      code: pairing.code,
-      installationId: dto.installationId,
-      deviceName: dto.deviceName,
-      platform: dto.platform,
-    });
   }
 
   async openDeviceSession(dto: OpenMobileDeviceSessionDto) {

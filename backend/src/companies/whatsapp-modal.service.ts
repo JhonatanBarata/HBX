@@ -1475,13 +1475,13 @@ export class WhatsAppModalService {
           statusChangedAt: new Date(),
           isActive: false,
           deactivatedAt: new Date(),
-          whatsappModalLastError: 'Este WhatsApp já utilizou o período de avaliação HBX. Fale com o suporte para regularizar a conta.',
+          whatsappModalLastError: 'Este WhatsApp já utilizou o trial HBX. Escolha um plano para continuar.',
           whatsappModalUpdatedAt: new Date(),
         },
       });
       throw new WhatsAppModalProviderError(
         'TRIAL_PHONE_ALREADY_USED',
-        'Este WhatsApp já utilizou o período de avaliação HBX. Fale com o suporte para regularizar a conta.',
+        'Este WhatsApp já utilizou o trial HBX. Escolha um plano para continuar.',
         402,
       );
     }

@@ -117,8 +117,8 @@ test('catálogo preserva nomes de cobrança, mas capacidades são universais', (
   assert.equal(getCommercialPlanTitle(COMMERCIAL_PLAN_KEYS.MELHOR), 'Implantação');
 
   assert.deepEqual(
-    getCommercialPlanCapabilities(),
-    getCommercialPlanCapabilities(),
+    getCommercialPlanCapabilities(COMMERCIAL_PLAN_KEYS.LITE),
+    getCommercialPlanCapabilities(COMMERCIAL_PLAN_KEYS.MELHOR),
   );
 });
 

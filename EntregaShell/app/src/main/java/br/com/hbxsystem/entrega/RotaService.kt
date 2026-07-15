@@ -277,10 +277,7 @@ class RotaService : Service() {
 
     private fun onChegada(alvo: Parada, location: Location) {
         registrarMarcoRastreado(TrackingPointEvent.ARRIVAL, alvo.id, location)
-        // Com o app aberto, a própria ficha de entrega aparece na tela. Falar o
-        // nome nesse cenário só repete o aviso a cada recarga/atualização.
-        // A voz fica reservada ao uso em segundo plano.
-        if (!RotaState.temListenerAtivo()) falar(alvo.nome)
+        falar(alvo.nome)
         // Sempre publica o aviso. Em background, ChegadaActivity só abre após o
         // motorista tocar na notificação; em foreground, o listener abaixo abre
         // a entrega diretamente dentro do WebView.

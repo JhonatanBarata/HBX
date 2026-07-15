@@ -110,7 +110,7 @@ export class RadarPostDeliveryVendasUpdateService {
     row: any;
     data: Record<string, any>;
     compactEnrichment?: Record<string, any> | null;
-    hbxMotor?: any;
+    leadPlus?: any;
   }) {
     const current = normalizeObject(input.currentLead);
     const data = normalizeObject(input.data);
@@ -145,7 +145,7 @@ export class RadarPostDeliveryVendasUpdateService {
       row: input.row,
       data,
       compactEnrichment: input.compactEnrichment || null,
-      hbxMotor: input.hbxMotor || null,
+      leadPlus: input.leadPlus || null,
       updatedFields,
     });
     return { updateData, updatedFields, timelineEvents };
@@ -157,7 +157,7 @@ export class RadarPostDeliveryVendasUpdateService {
     row: any;
     data: Record<string, any>;
     enrichment?: any;
-    hbxMotor?: any;
+    leadPlus?: any;
     compactEnrichment?: Record<string, any> | null;
     now?: Date | string | null;
   }): Promise<RadarPostDeliveryVendasUpdateResult> {
@@ -191,7 +191,7 @@ export class RadarPostDeliveryVendasUpdateService {
         row: input.row,
         data: input.data,
         compactEnrichment: input.compactEnrichment,
-        hbxMotor: input.hbxMotor,
+        leadPlus: input.leadPlus,
       });
       if (Object.keys(plan.updateData).length) {
         await input.prisma.vendasLead.update({
@@ -328,7 +328,7 @@ export class RadarPostDeliveryVendasUpdateService {
     row: any;
     data: Record<string, any>;
     compactEnrichment?: Record<string, any> | null;
-    hbxMotor?: any;
+    leadPlus?: any;
     updatedFields: string[];
   }): Array<{ eventType: string; title: string; description: string; resultLabel?: string | null }> {
     const data = input.data;
@@ -347,7 +347,7 @@ export class RadarPostDeliveryVendasUpdateService {
       recommendedChannel: data.recommendedChannel || null,
       opportunityReason: data.opportunityReason || null,
       enrichmentStatus: data.enrichmentStatus || input.compactEnrichment?.enrichmentStatus || 'completed',
-      cnpj: stringOrNull(input.hbxMotor?.cnpj),
+      cnpj: stringOrNull(input.leadPlus?.cnpj),
       rating: data.rating ?? null,
       reviews: data.reviews ?? null,
       updatedFields: input.updatedFields,

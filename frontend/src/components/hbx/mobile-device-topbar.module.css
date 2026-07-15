@@ -261,10 +261,15 @@
 
 .actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   padding-top: 2px;
   border-top: 1px solid var(--border-hairline);
+}
+
+.downloads {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
 }
 
 .actions :global(.btn-ghost) {
@@ -273,7 +278,6 @@
   justify-content: center;
   text-decoration: none;
   font-size: 0.7rem;
-  white-space: nowrap;
 }
 
 @media (max-width: 360px) {

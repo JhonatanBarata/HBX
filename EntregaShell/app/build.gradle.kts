@@ -36,7 +36,6 @@ fun buildConfigString(value: String): String =
 
 val productionApiBaseUrl = "https://api.hbxsystem.com.br"
 val productionWebBaseUrl = "https://www.hbxsystem.com.br"
-val googleWebClientId = "959050454992-6pcir0fud29ttoo1sb1ig29q59ovedbh.apps.googleusercontent.com"
 val debugApiBaseUrl = providers.gradleProperty("hbxApiBaseUrl")
     .orElse(productionApiBaseUrl)
     .get()
@@ -59,7 +58,6 @@ android {
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
         buildConfigField("String", "APP_MODE", buildConfigString("vendas"))
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", buildConfigString(googleWebClientId))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
         manifestPlaceholders["hbxAppLabel"] = "HBX Vendas"
     }
@@ -76,9 +74,9 @@ android {
             dimension = "experience"
             applicationId = "br.com.hbxsystem.logistica"
             versionCode = 3
-            versionName = "1.1.0"
+            versionName = "1.0.2"
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
-            manifestPlaceholders["hbxAppLabel"] = "HBX Mobile"
+            manifestPlaceholders["hbxAppLabel"] = "HBX Logística"
         }
     }
 
@@ -141,34 +139,10 @@ android {
     }
 }
 
-// O HBX Mobile reaproveita o frontend canônico do flavor Vendas sem duplicá-lo
-// no repositório. No APK Logística ele é empacotado em /assets/vendas e usa a
-// mesma bridge/sessão nativa do restante do aplicativo.
-val generatedMobileVendasAssets = layout.buildDirectory.dir("generated/mobileVendasAssets")
-val prepareMobileVendasAssets = tasks.register<Sync>("prepareMobileVendasAssets") {
-    into(generatedMobileVendasAssets)
-    from("src/vendas/assets/app") { into("vendas") }
-    from("src/main/assets/app") {
-        include("app.css", "native.js")
-        into("vendas")
-    }
-}
-
-android.sourceSets.getByName("logistica").assets.srcDir(generatedMobileVendasAssets)
-tasks.configureEach {
-    if (name.startsWith("mergeLogistica") && name.endsWith("Assets")) {
-        dependsOn(prepareMobileVendasAssets)
-    }
-}
-
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.webkit:webkit:1.11.0")
-    implementation("androidx.credentials:credentials:1.3.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation(platform("com.google.firebase:firebase-bom:34.15.0"))
     implementation("com.google.firebase:firebase-messaging")
     testImplementation("junit:junit:4.13.2")

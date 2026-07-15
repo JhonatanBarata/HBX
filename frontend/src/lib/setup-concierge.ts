@@ -73,7 +73,7 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
       };
     case "first_module_confirmed":
       return {
-        intro: "Os módulos disponíveis para a empresa já estão prontos; você só precisa revisar.",
+        intro: "Os módulos já vêm do seu plano; você só precisa revisar.",
         guidance: ["Veja as categorias disponíveis.", "Mantenha apenas o que sua operação vai usar.", "As regras de acesso e segurança continuam protegidas pelo HBX."],
         solutions: mobile
           ? [{ id: "modules-desktop", label: "Ver o que falta", description: "A revisão de módulos é concluída no computador.", action: { kind: "notice", message: "A revisão de módulos está disponível no computador. Seus acessos continuam protegidos até lá." } }]

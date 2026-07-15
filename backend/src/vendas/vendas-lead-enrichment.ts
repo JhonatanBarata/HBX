@@ -5,8 +5,6 @@ export type VendasLeadIntelligenceInput = {
   whatsappAvailability?: { status?: AvailabilityStatus | string | null; checkedAt?: string | null } | null;
   verifiedBy?: 'platform_engine' | 'manual' | null;
   templateOffset?: number;
-  radarOrigin?: boolean;
-  contactAccessGranted?: boolean;
 };
 
 type PrimarySocial = 'instagram' | 'facebook' | 'both' | null;
@@ -133,7 +131,6 @@ function arrayOrEmpty(value: unknown) {
 
 function extractRadarEnrichment(lead: any) {
   const direct = parseJsonObject(lead?.enrichmentJson || lead?.metadataJson);
-  const contactSnapshot = parseJsonObject(lead?.contactSnapshotJson);
   const timeline = Array.isArray(lead?.timelineEvents) ? lead.timelineEvents : [];
   const event = [...timeline]
     .sort((left: any, right: any) => {
@@ -244,45 +241,22 @@ function extractRadarEnrichment(lead: any) {
     // Empresa + dono + multi-contatos (metadata/enrichment do Radar). WhatsApp
     // qualifica a ação do botão; nunca decide se o telefone fica visível.
     razaoSocial: normalizeText(fromEvent.razaoSocial || nested?.razaoSocial || direct?.razaoSocial),
-    nomeFantasia: normalizeText(fromEvent.nomeFantasia || nested?.nomeFantasia || direct?.nomeFantasia),
     cnae: normalizeText(fromEvent.cnae || nested?.cnae || direct?.cnae),
-    cnaeDescription: normalizeText(fromEvent.cnaeDescription || nested?.cnaeDescription || direct?.cnaeDescription),
-    secondaryCnaes: arrayOrEmpty(fromEvent.secondaryCnaes).concat(arrayOrEmpty(nested?.secondaryCnaes)).concat(arrayOrEmpty(direct?.secondaryCnaes)),
-    naturezaJuridica: normalizeText(fromEvent.naturezaJuridica || nested?.naturezaJuridica || direct?.naturezaJuridica),
-    porte: normalizeText(fromEvent.porte || nested?.porte || direct?.porte),
-    matrizFilial: normalizeText(fromEvent.matrizFilial || nested?.matrizFilial || direct?.matrizFilial),
-    openedAt: normalizeText(fromEvent.openedAt || nested?.openedAt || direct?.openedAt),
-    capitalSocial: fromEvent.capitalSocial ?? nested?.capitalSocial ?? direct?.capitalSocial ?? null,
-    simples: fromEvent.simples ?? nested?.simples ?? direct?.simples ?? null,
-    mei: fromEvent.mei ?? nested?.mei ?? direct?.mei ?? null,
-    regimeTributario: normalizeText(fromEvent.regimeTributario || nested?.regimeTributario || direct?.regimeTributario),
-    shareCounts: fromEvent.shareCounts || nested?.shareCounts || direct?.shareCounts || null,
-    rfbOfficial: fromEvent.rfbOfficial || nested?.rfbOfficial || direct?.rfbOfficial || null,
     ownerName: normalizeText(fromEvent.ownerName || nested?.ownerName || direct?.ownerName),
     ownerNames: arrayOrEmpty(fromEvent.ownerNames).concat(arrayOrEmpty(nested?.ownerNames)).concat(arrayOrEmpty(direct?.ownerNames)),
-    ownerQualification: normalizeText(fromEvent.ownerQualification || nested?.ownerQualification || direct?.ownerQualification),
     ownerPhone: normalizeText(fromEvent.ownerPhone || nested?.ownerPhone || direct?.ownerPhone),
     ownerInstagram: normalizeText(fromEvent.ownerInstagram || nested?.ownerInstagram || direct?.ownerInstagram),
     ownerFacebook: normalizeText(fromEvent.ownerFacebook || nested?.ownerFacebook || direct?.ownerFacebook),
     companySituation: normalizeText(fromEvent.companySituation || nested?.companySituation || direct?.companySituation),
-    officialAddress: normalizeText(fromEvent.officialAddress || nested?.officialAddress || direct?.officialAddress),
-    officialCity: normalizeText(fromEvent.officialCity || nested?.officialCity || direct?.officialCity),
-    officialState: normalizeText(fromEvent.officialState || nested?.officialState || direct?.officialState),
-    officialWebsite: normalizeUrl(fromEvent.officialWebsite || nested?.officialWebsite || direct?.officialWebsite),
-    emails: arrayOrEmpty(contactSnapshot?.emails).map((item: any) => item?.value || item).concat(arrayOrEmpty(fromEvent.emails)).concat(arrayOrEmpty(nested?.emails)).concat(arrayOrEmpty(direct?.emails)),
-    phones: arrayOrEmpty(contactSnapshot?.phones).map((item: any) => item?.value || item).concat(arrayOrEmpty(fromEvent.phones)).concat(arrayOrEmpty(nested?.phones)).concat(arrayOrEmpty(direct?.phones)),
-    phoneContacts: arrayOrEmpty(contactSnapshot?.phones).concat(arrayOrEmpty(fromEvent.phoneContacts)).concat(arrayOrEmpty(nested?.phoneContacts)).concat(arrayOrEmpty(direct?.phoneContacts)),
-    emailContacts: arrayOrEmpty(contactSnapshot?.emails).concat(arrayOrEmpty(fromEvent.emailContacts)).concat(arrayOrEmpty(nested?.emailContacts)).concat(arrayOrEmpty(direct?.emailContacts)),
-    phonesWhatsapp: {
-      ...Object.fromEntries(arrayOrEmpty(contactSnapshot?.phones).map((item: any) => [String(item?.valueNormalized || ''), item?.whatsappStatus === 'confirmed'])),
-      ...((nested?.phonesWhatsapp || direct?.phonesWhatsapp || (fromEvent as any)?.phonesWhatsapp || {})),
-    },
+    emails: arrayOrEmpty(fromEvent.emails).concat(arrayOrEmpty(nested?.emails)).concat(arrayOrEmpty(direct?.emails)),
+    phones: arrayOrEmpty(fromEvent.phones).concat(arrayOrEmpty(nested?.phones)).concat(arrayOrEmpty(direct?.phones)),
+    phoneContacts: arrayOrEmpty(fromEvent.phoneContacts).concat(arrayOrEmpty(nested?.phoneContacts)).concat(arrayOrEmpty(direct?.phoneContacts)),
+    emailContacts: arrayOrEmpty(fromEvent.emailContacts).concat(arrayOrEmpty(nested?.emailContacts)).concat(arrayOrEmpty(direct?.emailContacts)),
+    phonesWhatsapp: (nested?.phonesWhatsapp || direct?.phonesWhatsapp || (fromEvent as any)?.phonesWhatsapp || {}),
     sourceConfidence: nested?.sourceConfidence || direct?.sourceConfidence || null,
-    visibilityTier: normalizeText(fromEvent.visibilityTier || nested?.visibilityTier || direct?.visibilityTier) === 'blocked'
-      ? 'blocked'
-      : 'eligible',
-    deliveryProduct: 'lead',
-    debitEligible: normalizeText(fromEvent.visibilityTier || nested?.visibilityTier || direct?.visibilityTier) !== 'blocked',
+    visibilityTier: normalizeText(fromEvent.visibilityTier || nested?.visibilityTier || direct?.visibilityTier),
+    deliveryProduct: normalizeText(fromEvent.deliveryProduct || nested?.deliveryProduct || direct?.deliveryProduct),
+    debitEligible: typeof fromEvent.debitEligible === 'boolean' ? fromEvent.debitEligible : nested?.debitEligible ?? direct?.debitEligible ?? null,
     qualityReason: normalizeText(fromEvent.qualityReason || nested?.qualityReason || direct?.qualityReason),
   };
 }
@@ -347,74 +321,6 @@ function selectTemplates(lead: any, tags: string[], offset = 0) {
 }
 
 export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) {
-  if (input.radarOrigin === true && input.contactAccessGranted !== true) {
-    return {
-      email: null,
-      emailStatus: 'missing',
-      websiteStatus: 'none',
-      instagramUrl: null,
-      facebookUrl: null,
-      socialStatus: 'missing',
-      socialConfidence: null,
-      possibleSocialCandidates: [],
-      confirmedSocialCandidates: [],
-      primarySocial: null,
-      whatsappStatus: 'unverified',
-      contactQuality: 'blocked',
-      opportunityScore: 0,
-      opportunityReason: null,
-      painType: null,
-      painPitch: null,
-      recommendedChannel: 'review',
-      emailSource: null,
-      confidence: { email: null, enrichment: null },
-      leadReasonTags: [],
-      nextBestAction: 'review',
-      lastVerifiedAt: null,
-      verifiedBy: null,
-      visibilityTier: null,
-      deliveryProduct: null,
-      debitEligible: null,
-      qualityReason: null,
-      enrichmentStatus: null,
-      enrichedAt: null,
-      cnpj: null,
-      razaoSocial: null,
-      nomeFantasia: null,
-      cnae: null,
-      cnaeDescription: null,
-      secondaryCnaes: [],
-      naturezaJuridica: null,
-      porte: null,
-      matrizFilial: null,
-      openedAt: null,
-      capitalSocial: null,
-      simples: null,
-      mei: null,
-      regimeTributario: null,
-      shareCounts: null,
-      rfbOfficial: null,
-      ownerName: null,
-      ownerNames: [],
-      ownerQualification: null,
-      ownerPhone: null,
-      ownerInstagram: null,
-      ownerFacebook: null,
-      companySituation: null,
-      officialAddress: null,
-      officialCity: null,
-      officialState: null,
-      officialWebsite: null,
-      emails: [],
-      phones: [],
-      phoneContacts: [],
-      emailContacts: [],
-      phonesWhatsapp: {},
-      messageTemplate: null,
-      messageTemplates: [],
-      templateLibrarySize: VENDAS_LEAD_MESSAGE_TEMPLATES.length,
-    };
-  }
   const lead = input.lead || {};
   const radarEnrichment = extractRadarEnrichment(lead);
   const whatsappStatusRaw = normalizeKey(input.whatsappAvailability?.status);
@@ -453,35 +359,19 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     if ((digits.length === 12 || digits.length === 13) && digits.startsWith('55')) digits = digits.slice(2);
     return digits.length >= 10 && digits.length <= 11 ? digits : '';
   };
-  const canonicalContactSource = (rawSource: unknown, kind: 'phone' | 'email', _rank: number) => {
-    const source = normalizeKey(rawSource);
-    // Ausência e valores desconhecidos continuam neutros: origem nunca concede
-    // acesso a um contato nem pode ser reinterpretada como prova da Receita.
-    if (!source || source === 'unknown' || source === 'null') return source || 'unknown';
-    if (source === 'rfb_email' && kind === 'email') return source;
-    if (['rfb_primary', 'rfb_secondary', 'rfb_fax'].includes(source) && kind === 'phone') return source;
-    if (['website_crawl', 'google', 'brave', 'manual', 'hbx_engine'].includes(source)) return source;
-    // A migration já converteu origens históricas. Valores fora do vocabulário
-    // nunca ganham semântica RFB por heurística em runtime.
-    return 'hbx_engine';
-  };
-  const addPhone = (item: any, index: number, fallbackSource = 'hbx_engine') => {
+  const addPhone = (item: any, index: number, fallbackSource = 'radar') => {
     const value = item && typeof item === 'object'
       ? item.value ?? item.valueNormalized ?? item.phone ?? item.number
       : item;
     const valueNormalized = normalizePhone(value);
     if (!valueNormalized) return;
     const mappedWhatsapp = radarEnrichment.phonesWhatsapp?.[valueNormalized];
-    const rank = Math.max(1, Math.trunc(Number(item?.rank ?? index + 1)) || index + 1);
-    const sourceInput = item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'source')
-      ? item.source
-      : fallbackSource;
     const next = {
       kind: 'phone',
       value: String(value || valueNormalized),
       valueNormalized,
-      source: canonicalContactSource(sourceInput, 'phone', rank),
-      rank,
+      source: String(item?.source || fallbackSource),
+      rank: Math.max(1, Math.trunc(Number(item?.rank || index + 1)) || index + 1),
       confidence: Math.max(0, Math.min(100, Math.trunc(Number(item?.confidence || 0)) || 0)),
       whatsappStatus: item?.whatsappStatus === 'confirmed' || mappedWhatsapp === true
         ? 'confirmed'
@@ -504,19 +394,15 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
       } : next);
     }
   };
-  const addEmail = (item: any, index: number, fallbackSource = 'hbx_engine') => {
+  const addEmail = (item: any, index: number, fallbackSource = 'radar') => {
     const value = normalizeText(item && typeof item === 'object' ? item.value ?? item.valueNormalized ?? item.email : item).toLowerCase();
     if (!hasUsableEmail(value)) return;
-    const rank = Math.max(1, Math.trunc(Number(item?.rank ?? index + 1)) || index + 1);
-    const sourceInput = item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'source')
-      ? item.source
-      : fallbackSource;
     const next = {
       kind: 'email',
       value,
       valueNormalized: value,
-      source: canonicalContactSource(sourceInput, 'email', rank),
-      rank,
+      source: String(item?.source || fallbackSource),
+      rank: Math.max(1, Math.trunc(Number(item?.rank || index + 1)) || index + 1),
       confidence: Math.max(0, Math.min(100, Math.trunc(Number(item?.confidence || 0)) || 0)),
       status: String(item?.status || (value === emailCandidate ? emailStatus : 'unverified')),
     };
@@ -530,14 +416,12 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
       } : next);
     }
   };
-  // O snapshot pago é canônico e entra antes dos escalares legados. Um escalar
-  // divergente não pode ganhar rank 1 e expulsar o terceiro contato adquirido.
+  addPhone(lead?.phone || lead?.phoneNormalized, 0, 'primary');
   arrayOrEmpty(radarEnrichment.phoneContacts).forEach((item, index) => addPhone(item, index));
   arrayOrEmpty(radarEnrichment.phones).forEach((item, index) => addPhone(item, index));
-  addPhone(lead?.phone || lead?.phoneNormalized, 99, 'hbx_engine');
+  addEmail(emailCandidate, 0, 'primary');
   arrayOrEmpty(radarEnrichment.emailContacts).forEach((item, index) => addEmail(item, index));
   arrayOrEmpty(radarEnrichment.emails).forEach((item, index) => addEmail(item, index));
-  addEmail(emailCandidate, 99, 'hbx_engine');
   const contactSorter = (left: any, right: any) => left.rank - right.rank || right.confidence - left.confidence || left.valueNormalized.localeCompare(right.valueNormalized);
   const phoneContacts = Array.from(phoneMap.values()).sort(contactSorter).slice(0, 3);
   const emailContacts = Array.from(emailMap.values()).sort(contactSorter).slice(0, 3);
@@ -668,31 +552,13 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     enrichedAt: radarEnrichment.enrichedAt || null,
     cnpj: radarEnrichment.cnpj || null,
     razaoSocial: radarEnrichment.razaoSocial || null,
-    nomeFantasia: radarEnrichment.nomeFantasia || null,
     cnae: radarEnrichment.cnae || null,
-    cnaeDescription: radarEnrichment.cnaeDescription || null,
-    secondaryCnaes: radarEnrichment.secondaryCnaes || [],
-    naturezaJuridica: radarEnrichment.naturezaJuridica || null,
-    porte: radarEnrichment.porte || null,
-    matrizFilial: radarEnrichment.matrizFilial || null,
-    openedAt: radarEnrichment.openedAt || null,
-    capitalSocial: radarEnrichment.capitalSocial ?? null,
-    simples: radarEnrichment.simples ?? null,
-    mei: radarEnrichment.mei ?? null,
-    regimeTributario: radarEnrichment.regimeTributario || null,
-    shareCounts: radarEnrichment.shareCounts || null,
-    rfbOfficial: radarEnrichment.rfbOfficial || null,
     ownerName: radarEnrichment.ownerName || null,
     ownerNames: radarEnrichment.ownerNames || [],
-    ownerQualification: radarEnrichment.ownerQualification || null,
     ownerPhone: radarEnrichment.ownerPhone || null,
     ownerInstagram: radarEnrichment.ownerInstagram || null,
     ownerFacebook: radarEnrichment.ownerFacebook || null,
     companySituation: radarEnrichment.companySituation || null,
-    officialAddress: radarEnrichment.officialAddress || null,
-    officialCity: radarEnrichment.officialCity || null,
-    officialState: radarEnrichment.officialState || null,
-    officialWebsite: radarEnrichment.officialWebsite || null,
     emails,
     phones,
     phoneContacts,

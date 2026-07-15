@@ -18,6 +18,7 @@ import {
   toCommercialCurrency,
   type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
+  type CommercialPlanTier,
 } from './commercial-plan-catalog';
 // R4 (FASE 2 — REMOÇÃO): seat-billing.util não é mais consumido aqui — assento
 // grátis, computeCompanyCommercialAmount não soma mais custo por cabeça.
@@ -52,6 +53,10 @@ type CommercialCurrentState = {
     completedAt: string | null;
     message: string | null;
   };
+  // Tier de inteligência de lead: list | lead | full.
+  // Additive (25/06): exposto para o front gate o cadeado por tier sem
+  // precisar re-derivar do planKey no cliente.
+  tier: CommercialPlanTier;
   canSeeLeadIntelligence: boolean;
   canSeeCompanyData: boolean;
   // Modelo de cobrança da conta (decisão do dono 07/07, decisão C): true = conta de CRÉDITO
@@ -193,6 +198,8 @@ export class CommercialPlansService {
       atendimento_chat: enabled,
       webscraping: enabled,
       recovery: enabled,
+      night_factory: enabled,
+      radar_premium: enabled,
       recovery_intelligence: enabled,
       digital_audit: enabled,
       opportunity_score: enabled,
@@ -216,6 +223,8 @@ export class CommercialPlansService {
       atendimento_chat: true,
       webscraping: true,
       recovery: true,
+      night_factory: true,
+      radar_premium: true,
       recovery_intelligence: true,
       digital_audit: true,
       opportunity_score: true,
@@ -260,6 +269,7 @@ export class CommercialPlansService {
         : 'pending'
       : 'not_required';
 
+    const tier: CommercialPlanTier = 'full';
     const canSeeLeadIntelligence = true;
     const canSeeCompanyData = true;
 
@@ -297,6 +307,7 @@ export class CommercialPlansService {
             ? 'Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.'
             : null,
       },
+      tier,
       canSeeLeadIntelligence,
       canSeeCompanyData,
       creditsAccount,

@@ -76,8 +76,6 @@ const baseRow: MockRow = {
   state: 'CE',
   phone: '85992617022',
   phone2: '8533334444',
-  fax: '8533335555',
-  faxDigits: '8533335555',
   email: 'contato@pizzaria.com',
   website: null,
   openedAt: new Date('2020-01-10'),
@@ -133,8 +131,6 @@ test('query: devolve count + amostra com selo de qualidade', async () => {
   assert.equal(result.count, 42);
   assert.equal(result.sample.length, 1);
   assert.equal(result.sample[0].cnpj, baseRow.cnpj);
-  assert.equal(result.sample[0].phone2, baseRow.phone2);
-  assert.equal(result.sample[0].phone3, baseRow.fax);
   // 85992617022 -> local 11 dígitos, 3º dígito '9' => celular provável (sem whatsapp validado no mock)
   assert.equal(result.sample[0].selo, 'celular_provavel');
 });
@@ -346,7 +342,6 @@ test('materialize: chama LeadHarvestImportService com leads mapeados da CnpjPubl
   assert.equal(capturedBody.leads[0].sourceProvider, 'cnpj_base_query');
   assert.equal(capturedBody.leads[0].phone, baseRow.phone);
   assert.equal(capturedBody.leads[0].phone2, baseRow.phone2);
-  assert.equal(capturedBody.leads[0].phone3, baseRow.fax);
   assert.equal(capturedBody.leads[0].email, baseRow.email);
 });
 

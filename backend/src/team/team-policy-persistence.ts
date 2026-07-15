@@ -15,6 +15,16 @@ export const TEAM_POLICY_DEFAULT_REQUIRED_CHANNELS = {
   email: false,
   website: false,
 };
+export const TEAM_POLICY_UNLIMITED_LIMIT = 999999;
+
+export type RuntimeTeamPolicyLimitMode = 'inherit' | 'limited' | 'unlimited' | 'blocked';
+export type RuntimeTeamPolicyLimit = {
+  applies: boolean;
+  mode: RuntimeTeamPolicyLimitMode;
+  limit: number | null;
+  configuredLimit: number | null;
+};
+
 export type RuntimeTeamPolicy = {
   id: string;
   userId: number;
@@ -114,6 +124,53 @@ export function getTeamPolicyRequiredChannelList(policyOrChannels: RuntimeTeamPo
     .filter((channel) => Boolean((channels as any)?.[channel]));
 }
 
+export function normalizeTeamPolicyLimitMode(value: unknown): RuntimeTeamPolicyLimitMode {
+  const normalized = String(value || 'inherit').trim().toLowerCase();
+  if (normalized === 'limited' || normalized === 'unlimited' || normalized === 'blocked') return normalized;
+  return 'inherit';
+}
+
+function normalizePolicyLimitValue(value: unknown) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Math.trunc(Number(value));
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(0, Math.min(TEAM_POLICY_UNLIMITED_LIMIT, numeric));
+}
+
+export function resolveTeamPolicyStoredLimit(policy: RuntimeTeamPolicy | any | null | undefined, prefix: string): RuntimeTeamPolicyLimit {
+  const raw = (policy as RuntimeTeamPolicy)?.raw || policy || null;
+  const mode = normalizeTeamPolicyLimitMode(raw?.[`${prefix}Mode`]);
+  if (!raw || mode === 'inherit') {
+    return { applies: false, mode: 'inherit', limit: null, configuredLimit: null };
+  }
+  if (mode === 'unlimited') {
+    return {
+      applies: true,
+      mode,
+      limit: TEAM_POLICY_UNLIMITED_LIMIT,
+      configuredLimit: 0,
+    };
+  }
+  if (mode === 'blocked') {
+    return {
+      applies: true,
+      mode,
+      limit: 0,
+      configuredLimit: 0,
+    };
+  }
+  const value = normalizePolicyLimitValue(raw?.[`${prefix}Limit`]);
+  if (value === null) {
+    return { applies: false, mode: 'inherit', limit: null, configuredLimit: null };
+  }
+  return {
+    applies: true,
+    mode: value <= 0 ? 'blocked' : 'limited',
+    limit: value,
+    configuredLimit: value,
+  };
+}
+
 export async function loadUserTeamPolicyRuntime(
   prisma: any,
   userIdRaw: unknown,
@@ -131,6 +188,14 @@ export async function loadUserTeamPolicyRuntime(
       status: true,
       subjectKind: true,
       modulesJson: true,
+      cardDeliveryDailyMode: true,
+      cardDeliveryDailyLimit: true,
+      activeCardsMode: true,
+      activeCardsLimit: true,
+      monthlyCardsMode: true,
+      monthlyCardsLimit: true,
+      vendasPullQuantityMode: true,
+      vendasPullQuantityLimit: true,
       allowedSegmentsJson: true,
       blockedSegmentsJson: true,
       allowedCitiesJson: true,
@@ -194,6 +259,14 @@ export function buildUserTeamPolicySnapshotData(user: any, options?: { source?: 
     canRegisterHbxSellers: Boolean(user?.canRegisterHbxSellers),
     sellerReferralCommissionPercent: clampPercent(user?.sellerReferralCommissionPercent),
     referredByCommissionPercentSnapshot: clampPercent(user?.referredByCommissionPercentSnapshot),
+    cardDeliveryDailyMode: 'inherit',
+    cardDeliveryDailyLimit: null,
+    activeCardsMode: 'inherit',
+    activeCardsLimit: null,
+    monthlyCardsMode: 'inherit',
+    monthlyCardsLimit: null,
+    vendasPullQuantityMode: 'inherit',
+    vendasPullQuantityLimit: null,
     allowedSegmentsJson: '[]',
     blockedSegmentsJson: '[]',
     allowedCitiesJson: '[]',

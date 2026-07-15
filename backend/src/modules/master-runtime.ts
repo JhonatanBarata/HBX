@@ -145,6 +145,16 @@ async function ensureMasterBillingRuntimeSchemaUncached(prisma: PrismaService) {
     ADD COLUMN IF NOT EXISTS "freeMonths" INTEGER NOT NULL DEFAULT 0
   `);
 
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "commercialCardsMonthlyLimitOverride" INTEGER
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Company"
+    ADD COLUMN IF NOT EXISTS "commercialCardsDailyLimitOverride" INTEGER
+  `);
+
   // Teto rígido de assentos por empresa (PR13062026005)
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Company"

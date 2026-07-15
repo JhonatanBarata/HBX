@@ -3,35 +3,91 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { RadarDisc } from "@/components/hbx/radar-disc";
-import {
-  canRevealLeadContacts,
-  leadContactAccessIsRevoked,
-  leadCreditWasDebited,
-  sanitizeLeadProcessSnapshot,
-  type LeadProcessContact,
-  type LeadProcessEvent,
-  type LeadProcessLead,
-  type LeadProcessMode,
-  type LeadProcessSnapshot,
-  type LeadProcessSourceState,
-  type LeadProcessStage,
-  type LeadProcessStatus,
-} from "@/components/hbx/lead-process-contract";
 
 import styles from "./lead-process-view.module.css";
 
-export type {
-  LeadProcessContact,
-  LeadProcessCounters,
-  LeadProcessDiscardReason,
-  LeadProcessEvent,
-  LeadProcessLead,
-  LeadProcessMode,
-  LeadProcessSnapshot,
-  LeadProcessSourceState,
-  LeadProcessStage,
-  LeadProcessStatus,
-} from "@/components/hbx/lead-process-contract";
+export type LeadProcessMode = "search" | "claim";
+export type LeadProcessStatus = "starting" | "running" | "completed" | "partial" | "failed";
+
+export type LeadProcessStage = {
+  key: string;
+  label: string;
+  detail?: string | null;
+  status?: string | null;
+  current?: number | null;
+  total?: number | null;
+};
+
+export type LeadProcessCounters = Record<string, number | null | undefined>;
+
+export type LeadProcessContact = {
+  value?: string | null;
+  label?: string | null;
+  source?: string | null;
+  sourceLabel?: string | null;
+  whatsappStatus?: string | null;
+  kind?: string | null;
+};
+
+export type LeadProcessLead = {
+  id?: string | null;
+  name?: string | null;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  status?: string | null;
+  detail?: string | null;
+  source?: string | null;
+  sourceChain?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  phones?: Array<string | LeadProcessContact> | null;
+  emails?: Array<string | LeadProcessContact> | null;
+  phoneContacts?: LeadProcessContact[] | null;
+  emailContacts?: LeadProcessContact[] | null;
+};
+
+export type LeadProcessEvent = {
+  id?: string | null;
+  key?: string | null;
+  type?: string | null;
+  label?: string | null;
+  status?: string | null;
+  detail?: unknown;
+  leadId?: string | null;
+  at?: string | null;
+  createdAt?: string | null;
+};
+
+export type LeadProcessSourceState = {
+  status?: string | null;
+  attempted?: boolean | null;
+  found?: number | null;
+  error?: string | null;
+};
+
+export type LeadProcessDiscardReason = {
+  label: string;
+  count: number;
+};
+
+export type LeadProcessSnapshot = {
+  operationId: string;
+  mode: LeadProcessMode;
+  status: LeadProcessStatus;
+  internalStatus?: string | null;
+  progress: number;
+  stages: LeadProcessStage[];
+  counters: LeadProcessCounters;
+  currentLead?: LeadProcessLead | null;
+  recentLeads: LeadProcessLead[];
+  events: LeadProcessEvent[];
+  sourceCoverage?: Record<string, LeadProcessSourceState | unknown> | null;
+  filters?: string[];
+  discardReasons?: LeadProcessDiscardReason[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
 
 type LeadProcessViewProps = {
   snapshot: LeadProcessSnapshot | null;
@@ -47,13 +103,25 @@ type LeadProcessViewProps = {
 type SourceVisualState = "done" | "running" | "failed" | "pending";
 
 const TERMINAL = new Set<LeadProcessStatus>(["completed", "partial", "failed"]);
+const POST_DEBIT_STATUSES = new Set([
+  "credit_debited",
+  "ownership_claimed",
+  "rfb_hydrating",
+  "base_revealed",
+  "motor_enriching",
+  "vendas_creating",
+  "completed",
+  "partial",
+]);
+const REVEALED_STATUSES = new Set([
+  "base_revealed",
+  "motor_enriching",
+  "vendas_creating",
+  "completed",
+  "partial",
+]);
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("pt-BR");
-const TIME_FORMATTER = new Intl.DateTimeFormat("pt-BR", {
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZone: "America/Sao_Paulo",
-});
 
 function clampProgress(value: number) {
   if (!Number.isFinite(value)) return 0;
@@ -96,36 +164,20 @@ function detailText(value: unknown): string | null {
 }
 
 function statusCopy(snapshot: LeadProcessSnapshot | null, loading: boolean, error: string | null | undefined) {
-  if (snapshot?.creditRefundConfirmed || snapshot?.contactAccessRevoked || ["refunded", "refund_confirmed"].includes(String(snapshot?.internalStatus || "").toLowerCase())) {
-    return "Crédito estornado. A liberação foi revogada e os dados voltaram a ficar protegidos.";
-  }
-  if (String(snapshot?.internalStatus || "").toLowerCase() === "refund_pending") {
-    return "Liberação suspensa enquanto o estorno é reconciliado. Nenhum contato é exibido.";
-  }
   if (error || snapshot?.status === "failed") return "O processamento foi interrompido. Nada é revelado sem uma liberação válida.";
   if (snapshot?.status === "partial") return "A operação terminou parcialmente; o que foi confirmado permanece preservado.";
   if (snapshot?.status === "completed") return snapshot.mode === "claim"
-    ? canRevealContacts(snapshot)
-      ? "Crédito debitado, dados liberados e lead transferido para Vendas."
-      : "A operação terminou, mas os dados permanecem protegidos sem autorização explícita de acesso."
+    ? "Crédito debitado, dados liberados e lead transferido para Vendas."
     : "Pesquisa concluída. Os contatos continuam protegidos até o lead ser puxado.";
   if (loading || snapshot?.status === "starting") return "Preparando a operação e conectando às fontes.";
   return snapshot?.mode === "claim"
     ? "Validando o crédito, conferindo a RFB e completando o lead no motor."
-    : "Localizando empresas na Receita e no motor HBX. Os contatos permanecem protegidos até o lead ser puxado.";
-}
-
-function operationStatusLabel(status: LeadProcessStatus | null | undefined) {
-  if (status === "completed") return "Concluída";
-  if (status === "partial") return "Concluída";
-  if (status === "failed") return "Encerrada";
-  return "Ao vivo";
+    : "Cruzando Receita Federal e motor HBX, sem enriquecimento antecipado.";
 }
 
 function pageTitle(snapshot: LeadProcessSnapshot | null) {
   if (snapshot?.mode !== "claim") return "Empresas chegando ao vivo";
-  if (leadContactAccessIsRevoked(snapshot)) return "Dados protegidos";
-  if (snapshot.status === "completed") return canRevealContacts(snapshot) ? "Lead pronto para Vendas" : "Dados protegidos";
+  if (snapshot.status === "completed") return "Lead pronto para Vendas";
   if (canRevealContacts(snapshot)) return "Lead sendo liberado ao vivo";
   return "Liberando lead com segurança";
 }
@@ -143,7 +195,7 @@ function eventDate(event: LeadProcessEvent) {
 
 function eventTime(event: LeadProcessEvent) {
   const date = eventDate(event);
-  return date ? TIME_FORMATTER.format(date) : null;
+  return date?.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) || null;
 }
 
 function latestUpdate(snapshot: LeadProcessSnapshot | null) {
@@ -152,15 +204,23 @@ function latestUpdate(snapshot: LeadProcessSnapshot | null) {
     ? new Date(snapshot.updatedAt)
     : snapshot.events.map(eventDate).filter((value): value is Date => Boolean(value)).at(-1);
   if (!candidate || Number.isNaN(candidate.getTime())) return "Atualização ao vivo";
-  return `Atualizado às ${TIME_FORMATTER.format(candidate)}`;
+  return `Atualizado às ${candidate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function stageIsDone(snapshot: LeadProcessSnapshot, key: string) {
+  return snapshot.stages.some(stage => stage.key === key && normalizedState(stage.status) === "done");
 }
 
 function creditWasDebited(snapshot: LeadProcessSnapshot | null) {
-  return leadCreditWasDebited(snapshot);
+  if (!snapshot || snapshot.mode !== "claim") return false;
+  const internal = String(snapshot.internalStatus || "").toLowerCase();
+  return POST_DEBIT_STATUSES.has(internal) || stageIsDone(snapshot, "credit_debited");
 }
 
 function canRevealContacts(snapshot: LeadProcessSnapshot | null) {
-  return canRevealLeadContacts(snapshot);
+  if (!snapshot || snapshot.mode !== "claim" || !creditWasDebited(snapshot)) return false;
+  const internal = String(snapshot.internalStatus || "").toLowerCase();
+  return REVEALED_STATUSES.has(internal) || stageIsDone(snapshot, "base_revealed");
 }
 
 function sourceVisualState(snapshot: LeadProcessSnapshot | null, source: "rfb" | "motor"): SourceVisualState {
@@ -181,12 +241,8 @@ function sourceVisualState(snapshot: LeadProcessSnapshot | null, source: "rfb" |
 function sourceStateLabel(state: SourceVisualState, source: "rfb" | "motor" = "rfb") {
   if (state === "done") return source === "motor" ? "Conferido" : "Conferida";
   if (state === "running") return "Consultando";
-  if (state === "failed") return "Consulta encerrada";
-  return "Disponível";
-}
-
-function sourceTone(state: SourceVisualState) {
-  return state === "failed" ? "pending" : state;
+  if (state === "failed") return "Falhou";
+  return "Aguardando";
 }
 
 function sourceCount(snapshot: LeadProcessSnapshot | null, source: "rfb" | "motor") {
@@ -212,7 +268,7 @@ function feedLeads(snapshot: LeadProcessSnapshot | null) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).slice(0, 5);
+  }).slice(0, 8);
 }
 
 function sourceLabel(source: string | null | undefined) {
@@ -254,16 +310,14 @@ function contactChannel(contact: LeadProcessContact, type: "phone" | "email") {
 function leadTone(snapshot: LeadProcessSnapshot, lead: LeadProcessLead) {
   const value = String(lead.status || "").toLowerCase();
   if (["failed", "error", "rejected", "discarded", "negative"].some(item => value.includes(item))) return "danger";
-  if (snapshot.status === "completed" || ["approved", "published"].some(item => value.includes(item))) return "success";
+  if (snapshot.mode === "search" || snapshot.status === "completed" || ["approved", "published"].some(item => value.includes(item))) return "success";
   return "working";
 }
 
-function leadStatusLabel(snapshot: LeadProcessSnapshot, lead: LeadProcessLead, index: number) {
+function leadStatusLabel(snapshot: LeadProcessSnapshot, lead: LeadProcessLead) {
   if (snapshot.mode === "search") {
     const value = String(lead.status || "").toLowerCase();
-    if (value.includes("discard") || value.includes("reject")) return "Descartada";
-    if (value.includes("approved") || value.includes("published") || snapshot.status === "completed") return "Pronta";
-    return ["Validando", "Cruzando fontes", "Localizada"][index % 3];
+    return value.includes("discard") || value.includes("reject") ? "Descartada" : "Aprovada";
   }
   const internal = String(snapshot.internalStatus || "").toLowerCase();
   if (!creditWasDebited(snapshot)) return "Protegido";
@@ -279,37 +333,10 @@ function journey(snapshot: LeadProcessSnapshot, lead: LeadProcessLead) {
   const chain = `${lead.sourceChain || ""} ${lead.source || ""}`.toLowerCase();
   if (chain.includes("rfb") || chain.includes("receita")) result.push({ label: "Receita Federal", tone: "source" });
   if (chain.includes("web") || chain.includes("motor") || chain.includes("google") || chain.includes("brave")) result.push({ label: "Motor HBX", tone: "source" });
-  if (snapshot.mode === "search" && result.length === 0) {
-    result.push({ label: "Receita Federal", tone: "source" }, { label: "Motor HBX", tone: "source" });
-  }
   if (snapshot.mode === "claim" && creditWasDebited(snapshot)) result.push({ label: "Crédito debitado", tone: "success" });
   if (snapshot.mode === "search") result.push({ label: "Contato protegido", tone: "working" });
   if (snapshot.mode === "claim" && canRevealContacts(snapshot)) result.push({ label: "Dados liberados", tone: "success" });
   return result;
-}
-
-const SEARCH_STAGE_COPY: Array<Pick<LeadProcessStage, "key" | "label" | "detail">> = [
-  { key: "rfb", label: "Lendo a base nacional", detail: "empresa, cidade e situação cadastral" },
-  { key: "cross_deduplicate", label: "Cruzando com o motor HBX", detail: "fontes reunidas sem duplicar empresas" },
-  { key: "validate_eligibility", label: "Validando o recorte", detail: "cidade, segmento e critérios da pesquisa" },
-  { key: "motor", label: "Conferindo empresas", detail: "presença digital e qualidade do cadastro" },
-  { key: "publishing", label: "Montando os resultados", detail: "contatos seguem protegidos até a puxada" },
-];
-
-function visualStages(snapshot: LeadProcessSnapshot | null, progress: number, terminal: boolean): LeadProcessStage[] {
-  if (snapshot?.stages.length) {
-    return snapshot.stages.map(stage => ({
-      ...stage,
-      status: normalizedState(stage.status) === "failed" ? "pending" : stage.status,
-    }));
-  }
-  const activeIndex = terminal ? SEARCH_STAGE_COPY.length : Math.min(SEARCH_STAGE_COPY.length - 1, Math.floor(progress / 20));
-  return SEARCH_STAGE_COPY.map((stage, index) => ({
-    ...stage,
-    status: index < activeIndex ? "done" : index === activeIndex ? "running" : "pending",
-    current: null,
-    total: null,
-  } satisfies LeadProcessStage));
 }
 
 function metricValue(snapshot: LeadProcessSnapshot | null, key: string) {
@@ -344,7 +371,7 @@ function failureReason(lead: LeadProcessLead) {
 }
 
 export function LeadProcessView({
-  snapshot: unsafeSnapshot,
+  snapshot,
   loading = false,
   error = null,
   variant = "page",
@@ -353,7 +380,6 @@ export function LeadProcessView({
   onPrimary,
   primaryLabel,
 }: LeadProcessViewProps) {
-  const snapshot = useMemo(() => sanitizeLeadProcessSnapshot(unsafeSnapshot), [unsafeSnapshot]);
   const rootRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const modal = variant === "overlay";
@@ -370,7 +396,6 @@ export function LeadProcessView({
   const poolTotal = metricValue(snapshot, "operationalPoolTotal");
   const poolExclusive = metricValue(snapshot, "poolExclusiveTotal");
   const approved = metricValue(snapshot, snapshot?.mode === "claim" ? "completed" : "approved");
-  const stages = useMemo(() => visualStages(snapshot, progress, terminal), [progress, snapshot, terminal]);
   const leadForContacts = snapshot?.currentLead || snapshot?.recentLeads?.[0];
   const phones = revealContacts && leadForContacts ? collectContacts(leadForContacts, "phone") : [];
   const emails = revealContacts && leadForContacts ? collectContacts(leadForContacts, "email") : [];
@@ -437,7 +462,7 @@ export function LeadProcessView({
             <div className={styles.titleRow}>
               <h1 id="lead-process-title">{pageTitle(snapshot)}</h1>
               <span className={`${styles.liveBadge} ${terminal ? styles.liveBadgeTerminal : ""}`}>
-                <i aria-hidden="true" /> {terminal ? operationStatusLabel(snapshot?.status) : "Ao vivo"}
+                <i aria-hidden="true" /> {terminal ? humanize(snapshot?.status || "encerrado") : "Ao vivo"}
               </span>
             </div>
             <p id="lead-process-status" aria-live="polite">{error || statusCopy(snapshot, loading, error)}</p>
@@ -457,7 +482,7 @@ export function LeadProcessView({
               <strong>{formatInt(nationalTotal)}</strong>
               <small>Empresas ativas na fonte nacional</small>
             </div>
-            <span className={`${styles.sourceState} ${styles[`source_${sourceTone(rfbState)}`]}`}>{sourceStateLabel(rfbState, "rfb")}</span>
+            <span className={`${styles.sourceState} ${styles[`source_${rfbState}`]}`}>{sourceStateLabel(rfbState, "rfb")}</span>
           </article>
 
           <div className={styles.bridgeLine} aria-label={`Universo unificado: ${formatInt(universeTotal)}`}>
@@ -476,7 +501,7 @@ export function LeadProcessView({
               <strong>{formatInt(poolTotal)}</strong>
               <small>{poolExclusive == null ? "Deduplicado contra a Receita" : `${formatInt(poolExclusive)} exclusivo(s) somados sem duplicar`}</small>
             </div>
-            <span className={`${styles.sourceState} ${styles[`source_${sourceTone(motorState)}`]}`}>{sourceStateLabel(motorState, "motor")}</span>
+            <span className={`${styles.sourceState} ${styles[`source_${motorState}`]}`}>{sourceStateLabel(motorState, "motor")}</span>
           </article>
         </section>
 
@@ -503,7 +528,7 @@ export function LeadProcessView({
             <div className={styles.radarStage} aria-hidden="true"><RadarDisc hideLabels={snapshot?.mode === "search"} /></div>
             <div className={styles.pipeline}>
               {loading && !snapshot ? <div className={styles.loadingLine}><span /> Aguardando o servidor</div> : null}
-              {stages.map((stage, index) => {
+              {snapshot?.stages.map((stage, index) => {
                 const state = normalizedState(stage.status);
                 const count = typeof stage.current === "number" && typeof stage.total === "number"
                   ? `${formatInt(stage.current)}/${formatInt(stage.total)}`
@@ -520,6 +545,7 @@ export function LeadProcessView({
                   </div>
                 );
               })}
+              {!loading && snapshot && snapshot.stages.length === 0 ? <p className={styles.empty}>O servidor ainda não publicou as etapas.</p> : null}
             </div>
           </aside>
 
@@ -539,16 +565,16 @@ export function LeadProcessView({
                 const journeyItems = snapshot ? journey(snapshot, lead) : [];
                 const reason = failureReason(lead);
                 return (
-                  <article className={`${styles.leadEvent} ${styles[`lead_${tone}`]}`} style={{ animationDelay: `${Math.min(index * 55, 220)}ms` }} key={lead.id || `${lead.name || "lead"}-${index}`}>
+                  <article className={`${styles.leadEvent} ${styles[`lead_${tone}`]}`} key={lead.id || `${lead.name || "lead"}-${index}`}>
                     <div className={styles.eventRail}><span /></div>
                     <div className={styles.eventBody}>
                       <div className={styles.eventTop}>
-                        <span className={styles.companyAvatar} aria-hidden="true">{String(lead.name || "HB").trim().split(/\s+/).slice(0, 2).map(part => part.charAt(0)).join("").toUpperCase()}</span>
+                        <span className={styles.companyAvatar} aria-hidden="true">{String(lead.name || "E").trim().charAt(0).toUpperCase()}</span>
                         <div className={styles.companyCopy}>
-                          <strong>{lead.name || "Empresa localizada"}</strong>
+                          <strong>{lead.name || "Empresa identificada"}</strong>
                           <span>{[leadLocation(lead), lead.segment].filter(Boolean).join(" · ") || "Contexto sendo confirmado"}</span>
                         </div>
-                        <span className={`${styles.eventStatus} ${styles[`event_${tone}`]}`}>{snapshot ? leadStatusLabel(snapshot, lead, index) : "Processando"}</span>
+                        <span className={`${styles.eventStatus} ${styles[`event_${tone}`]}`}>{snapshot ? leadStatusLabel(snapshot, lead) : "Processando"}</span>
                       </div>
 
                       {journeyItems.length ? <div className={styles.journey}>{journeyItems.map((item, itemIndex) => (
@@ -577,7 +603,7 @@ export function LeadProcessView({
                             ))}
                           </div>
                         ) : <p className={styles.inlineEmpty}>Dados liberados; nenhum contato utilizável foi confirmado até agora.</p>
-                      ) : <ProtectedContacts mode={snapshot?.mode || "search"} compact={snapshot?.mode === "search"} />}
+                      ) : <ProtectedContacts mode={snapshot?.mode || "search"} />}
 
                       {snapshot?.mode === "claim" && revealContacts && !terminal ? (
                         <div className={styles.fieldScan} aria-label="Motor completando o lead" role="status"><span /><span /><span /></div>
@@ -606,12 +632,10 @@ export function LeadProcessView({
 
             {snapshot?.mode === "claim" ? (
               <section className={styles.telemetrySection}>
-                <div className={styles.sectionTitle}><strong>Proteção da liberação</strong><span>{leadContactAccessIsRevoked(snapshot) ? "revogada" : creditWasDebited(snapshot) ? "autorizada" : "ativa"}</span></div>
-                <p className={styles.telemetryCopy}>{leadContactAccessIsRevoked(snapshot)
-                  ? "A liberação foi suspensa. Nenhuma identidade, telefone ou e-mail real permanece na tela."
-                  : creditWasDebited(snapshot)
-                    ? "O débito foi confirmado. Os dados só aparecem após a etapa de liberação da base."
-                    : "Nenhuma identidade, telefone ou e-mail real é inserido na tela antes da confirmação do débito."}</p>
+                <div className={styles.sectionTitle}><strong>Proteção da liberação</strong><span>{creditWasDebited(snapshot) ? "autorizada" : "ativa"}</span></div>
+                <p className={styles.telemetryCopy}>{creditWasDebited(snapshot)
+                  ? "O débito foi confirmado. Os dados só aparecem após a etapa de liberação da base."
+                  : "Nenhum telefone ou e-mail real é inserido na tela antes da confirmação do débito."}</p>
               </section>
             ) : (
               <section className={styles.telemetrySection}>
@@ -658,9 +682,9 @@ export function LeadProcessView({
   );
 }
 
-function ProtectedContacts({ mode, compact = false }: { mode: LeadProcessMode; compact?: boolean }) {
+function ProtectedContacts({ mode }: { mode: LeadProcessMode }) {
   return (
-    <div className={`${styles.protectedContacts} ${compact ? styles.protectedContactsCompact : ""}`} aria-label={mode === "claim" ? "Contatos protegidos até a confirmação do débito" : "Contatos protegidos até o lead ser puxado"}>
+    <div className={styles.protectedContacts} aria-label={mode === "claim" ? "Contatos protegidos até a confirmação do débito" : "Contatos protegidos até o lead ser puxado"}>
       <div className={styles.blurGrid} aria-hidden="true">
         <span /><span /><span /><span /><span /><span />
       </div>

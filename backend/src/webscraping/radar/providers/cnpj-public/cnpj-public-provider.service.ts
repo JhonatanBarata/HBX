@@ -169,12 +169,7 @@ export class CnpjPublicProviderService {
     if (!cnpj || !name) return null;
     // Fonte cnpj_public: cadastro pode ser celular legado (10 dig, 3º dígito 6-9) —
     // normaliza pra nono-dígito atual da Anatel na FONTE, nunca no filtro.
-    const phoneCandidates = Array.from(new Set([
-      normalizeLegacyBrCellphone(normalizePhoneDigits(record.phone)),
-      normalizeLegacyBrCellphone(normalizePhoneDigits(record.phone2)),
-      normalizePhoneDigits(record.faxDigits || record.fax),
-    ].filter(Boolean))).slice(0, 3);
-    const phoneDigits = phoneCandidates[0] || '';
+    const phoneDigits = normalizeLegacyBrCellphone(normalizePhoneDigits(record.phone));
     const phone = phoneDigits || record.phone || '';
     return {
       placeId: `cnpj_public:${cnpj}`,
@@ -182,9 +177,6 @@ export class CnpjPublicProviderService {
       legalName: legalName || null,
       phone,
       phoneDigits,
-      phone2: phoneCandidates[1] || null,
-      phone3: phoneCandidates[2] || null,
-      phones: phoneCandidates,
       rating: null,
       reviews: null,
       address: record.address || null,
@@ -211,11 +203,6 @@ export class CnpjPublicProviderService {
           // sócio-administrador do dump RFB — opcional, o L4 promove pro metadataJson
           ownerName: record.ownerName || null,
           ownerQualification: record.ownerQualification || null,
-          phoneSources: phoneCandidates.map((value, index) => ({
-            value,
-            source: index === 0 ? 'rfb_primary' : index === 1 ? 'rfb_secondary' : 'rfb_fax',
-            rank: index + 1,
-          })),
           raw: record.raw || null,
         },
       },

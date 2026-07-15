@@ -1219,6 +1219,9 @@ export class UsersService {
         sellerReferralCommissionPercent: true,
         referredByUserId: true,
         referredByCommissionPercentSnapshot: true,
+        // Reaproveitar dados no Gerenciar (P4): o modal pré-preenche o limite/dia
+        // a partir daqui em vez de cair no default genérico.
+        sellerDistributionDailyLimitOverride: true,
         referredByUser: {
           select: {
             id: true,
@@ -1433,8 +1436,11 @@ export class UsersService {
       await tx.techAssistantInteraction.deleteMany({ where: { userId } });
       await tx.webscrapingSearchHistory.deleteMany({ where: { userId } });
       await tx.webscrapingSearchRun.deleteMany({ where: { userId } });
+      await tx.webscrapingCampaign.deleteMany({ where: { userId } });
       await tx.webscrapingUsageLog.deleteMany({ where: { userId } });
+      await tx.nightFactoryRewardClaim.deleteMany({ where: { userId } });
       await tx.salesProfile.deleteMany({ where: { userId } });
+      await tx.radarDistributionDailyUsage.deleteMany({ where: { userId } });
       if (sellerOnboardingCleanup.onboardingIds.length) {
         await tx.sellerOnboardingAttachment.deleteMany({
           where: { onboardingId: { in: sellerOnboardingCleanup.onboardingIds } },
@@ -1482,6 +1488,39 @@ export class UsersService {
         data: { assignedByUserId: null },
       });
 
+      await tx.radarAutoDistributionRule.updateMany({
+        where: { adminUserId: userId },
+        data: { adminUserId: null },
+      });
+      await tx.radarAutoDistributionRule.updateMany({
+        where: { createdByUserId: userId },
+        data: { createdByUserId: null },
+      });
+      await tx.radarAutoDistributionRule.updateMany({
+        where: { updatedByUserId: userId },
+        data: { updatedByUserId: null },
+      });
+      const distributionRules = await tx.radarAutoDistributionRule.findMany({
+        where: { targetUserIdsJson: { contains: String(userId) } },
+        select: { id: true, targetUserIdsJson: true },
+      });
+      for (const rule of distributionRules) {
+        try {
+          const targetUserIds = JSON.parse(rule.targetUserIdsJson || '[]');
+          if (!Array.isArray(targetUserIds)) continue;
+          const nextTargetUserIds = targetUserIds.filter((value) => Number(value) !== userId);
+          if (nextTargetUserIds.length === targetUserIds.length) continue;
+          await tx.radarAutoDistributionRule.update({
+            where: { id: rule.id },
+            data: { targetUserIdsJson: JSON.stringify(nextTargetUserIds) },
+          });
+        } catch {
+          await tx.radarAutoDistributionRule.update({
+            where: { id: rule.id },
+            data: { targetUserIdsJson: '[]' },
+          });
+        }
+      }
 
       await tx.vendasLead.updateMany({
         where: { createdByUserId: userId },

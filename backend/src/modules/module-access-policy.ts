@@ -204,7 +204,7 @@ export function resolveCompanyModuleAccessPolicy(
       planKey,
       moduleKeys: new Set<string>(),
       blockedCode: 'subscription_inactive',
-      blockedReason: 'Acesso da empresa inativo. Regularize a conta para liberar este modulo.',
+      blockedReason: 'Plano inativo. Regularize o acesso para liberar este modulo.',
     };
   }
 

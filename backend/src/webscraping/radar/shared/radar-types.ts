@@ -130,9 +130,9 @@ export type RadarSearchRunMetrics = {
   noChannelBlockedCount: number;
   genericNameBlockedCount: number;
   segmentHardMismatchBlockedCount: number;
-  savedEligibleCount: number;
+  savedListBasicCount: number;
   savedReviewBackupCount: number;
-  claimQualifiedCount: number;
+  leadPlusQualifiedCount: number;
   downgradedByQualityCount: number;
   urlsDiscovered: number;
   pagesFetched: number;

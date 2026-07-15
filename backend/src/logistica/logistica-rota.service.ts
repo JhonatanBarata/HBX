@@ -69,8 +69,7 @@ export class LogisticaRotaService {
     const config = await this.loadConfig(companyId);
     const origem = coordFromInput(input.origemLat, input.origemLng);
 
-    const deliveryIds = normalizeDeliveryIds(input.deliveryIds);
-    const rows = await this.fetchParadasAbertas(companyId, start, end, entregadorId, deliveryIds);
+    const rows = await this.fetchParadasAbertas(companyId, start, end, entregadorId);
 
     // Ordena (NN + 2-opt) e calcula ETA cumulativo a partir de AGORA (ou input.startAt).
     const partida = parseDateOrNull(input.startAt) ?? new Date();
@@ -178,7 +177,6 @@ export class LogisticaRotaService {
       date: input.date,
       origemLat: input.origemLat,
       origemLng: input.origemLng,
-      deliveryIds: input.deliveryIds,
     }, effectiveDriverId, actorUserId, true);
 
     if (plan.paradas.length === 0) throw new BadRequestException('Não há entregas abertas para iniciar.');
@@ -345,12 +343,11 @@ export class LogisticaRotaService {
     return { velocidadeMediaKmH, tempoParadaMin };
   }
 
-  private async fetchParadasAbertas(companyId: number, start: Date, end: Date, entregadorId?: number, deliveryIds?: string[]): Promise<ParadaRow[]> {
+  private async fetchParadasAbertas(companyId: number, start: Date, end: Date, entregadorId?: number): Promise<ParadaRow[]> {
     return this.prisma.entrega.findMany({
       where: {
         companyId,
         ...(entregadorId ? { entregadorId } : {}),
-        ...(deliveryIds?.length ? { id: { in: deliveryIds } } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },
@@ -710,7 +707,6 @@ export interface PlanejarRotaInput {
   date?: string;
   origemLat?: number;
   origemLng?: number;
-  deliveryIds?: string[];
   startAt?: string; // hora de partida (default: agora) — usado no cálculo do ETA
 }
 
@@ -718,13 +714,6 @@ export interface IniciarRotaInput {
   date?: string;
   origemLat?: number;
   origemLng?: number;
-  deliveryIds?: string[];
-}
-
-function normalizeDeliveryIds(value?: string[]): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const ids = [...new Set(value.map(id => String(id || '').trim()).filter(id => id.length > 0 && id.length <= 80))].slice(0, 300);
-  return ids.length ? ids : undefined;
 }
 
 export interface PlanejarRotaParada {

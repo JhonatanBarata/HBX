@@ -130,6 +130,24 @@ function createService(overrides?: Partial<Record<string, any>>) {
   } as any;
 
   const commercialUsageLimits = {
+    getUsageSnapshot: async () => ({ cards: { remaining: 999, dailyRemaining: 999 } }),
+    // Snapshot neutro (não-vendedor, sem teto) para o medidor de carteira do
+    // board — espelha o ramo "não vendedor" de getSellerCardCapacitySnapshot.
+    getSellerCardCapacitySnapshot: async () => ({
+      isSeller: false,
+      unlimited: true,
+      activeCards: null,
+      capacity: 999999,
+      availableSlots: null,
+      paused: false,
+      full: false,
+      code: null,
+      companyTarget: null,
+    }),
+    assertCanImportCard: async () => true,
+    assertSellerActiveCardSlots: async () => true,
+    recordCardImport: async () => true,
+    recordCardCommercialUseOnce: async () => ({ debited: true, alreadyDebited: false }),
     assertCanSendPresentationEmail: async () => true,
     recordPresentationEmailAttempt: async () => true,
     recordPresentationEmailResult: async () => true,
@@ -170,7 +188,6 @@ function createService(overrides?: Partial<Record<string, any>>) {
     authService,
     masterAlert,
     cockpitProjector,
-    overrides?.radarPaidAccess,
   );
   return { service, getOrCreateCalls, updateConversationStateCalls };
 }
@@ -485,7 +502,7 @@ test('getBoardForUser exposes full lead intelligence regardless of selectedPlanK
   const result = await service.getBoardForUser({ companyId: 7, id: 99 });
   const lead = result.blocks.today[0];
 
-  assert.equal(Object.prototype.hasOwnProperty.call(result, 'planTier'), false);
+  assert.equal(result.planTier, 'full');
   assert.equal(result.capabilities.canSeeLeadIntelligence, true);
   assert.equal(lead.leadIntelligence.opportunityReason, 'Instagram encontrado + sem site: oportunidade premium.');
   assert.equal(lead.leadIntelligence.instagramUrl, 'https://instagram.com/loja');
@@ -709,8 +726,10 @@ test('buildLeadPayload hides product catalog price when access context is missin
   assert.equal(payload.saleValue, 123.45);
 });
 
-test('import interno de Vendas nunca debita; a cobrança pertence exclusivamente ao claim', async () => {
+test('importWebscrapingLeadsForUser debits quota for new delivered card with WhatsApp available', async () => {
   const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   let checkWhatsappCalls = 0;
   const { service } = createService({
     prisma,
@@ -723,11 +742,21 @@ test('import interno de Vendas nunca debita; a cobrança pertence exclusivamente
         return [{ input: '5519999990001', normalizedNumber: '5519999990001', exists: true }];
       },
     },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
   });
 
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       leads: [
         {
           name: 'Auto Mecânica São José',
@@ -740,9 +769,12 @@ test('import interno de Vendas nunca debita; a cobrança pertence exclusivamente
 
   assert.equal(result.createdCount, 1);
   assert.equal(result.updatedCount, 0);
+  assert.equal(result.quotaDebited, 1);
   assert.equal(result.deliveredCount, 1);
   assert.equal(result.skippedWithoutWhatsapp, 0);
-  assert.equal(checkWhatsappCalls, 0);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 1);
+  assert.equal(checkWhatsappCalls, 1);
 });
 
 test('importWebscrapingLeadsForUser hides product price when products.viewPrice=false', async () => {
@@ -810,24 +842,36 @@ test('importWebscrapingLeadsForUser hides product price when products.viewPrice=
 
   assert.equal(result.createdCount, 1);
   assert.equal(createdRows[0].productPriceCentsSnapshot, 12345);
-  assert.equal(result.leads[0].contactAccessGranted, false);
-  assert.equal(result.leads[0].name, null);
-  assert.equal('productPriceCentsSnapshot' in result.leads[0], false);
-  assert.equal('product' in result.leads[0], false);
+  assert.equal(result.leads[0].productPriceCentsSnapshot, null);
+  assert.equal(result.leads[0].product.priceCents, null);
+  assert.equal(result.leads[0].product.priceLabel, null);
+  assert.equal(result.leads[0].product.canViewPrice, false);
 });
 
-test('importWebscrapingLeadsForUser importa weak_contact acionável sem regra de plano', async () => {
+test('importWebscrapingLeadsForUser no modo List importa weak_contact sem cortar', async () => {
   const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   const { service } = createService({
     prisma,
     vendasLead: {
       findFirst: async () => null,
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
     },
   });
 
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       skipWhatsappValidation: true,
       leads: [
         {
@@ -867,9 +911,11 @@ test('importWebscrapingLeadsForUser importa weak_contact acionável sem regra de
 
   assert.equal(result.createdCount, 1);
   assert.equal(result.deliveredCount, 1);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser importa card acionável sem regra adicional de plano', async () => {
+test('importWebscrapingLeadsForUser no Lead+ importa card basico quando nao qualifica destaque', async () => {
   const { prisma } = createImportPrismaHarness();
   const { service } = createService({
     prisma,
@@ -906,7 +952,7 @@ test('importWebscrapingLeadsForUser importa card acionável sem regra adicional 
               opportunityScore: 35,
               finalRankScore: 32,
               decision: 'discard',
-              reasons: ['Contato fraco, mas há canal público acionável.'],
+              reasons: ['Lead+ fraco, mas contato publico existe.'],
               discardReason: 'weak_contactability',
               protectionReason: null,
               recommendedChannel: 'call',
@@ -953,12 +999,23 @@ test('importWebscrapingLeadsForUser importa card com site mesmo sem telefone', a
   assert.equal(createdRows[0].website, 'https://studiobelezaviva.com.br');
 });
 
-test('importWebscrapingLeadsForUser entrega card sem cobrança adicional após o claim', async () => {
+test('importWebscrapingLeadsForUser entrega card sem debitar quando importacao nao e uso comercial', async () => {
   const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   const { service } = createService({
     prisma,
     vendasLead: {
       findFirst: async () => null,
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
     },
   });
 
@@ -978,10 +1035,15 @@ test('importWebscrapingLeadsForUser entrega card sem cobrança adicional após o
 
   assert.equal(result.createdCount, 1);
   assert.equal(result.deliveredCount, 1);
+  assert.equal(result.quotaDebited, 0);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser não condiciona a entrega à disponibilidade de WhatsApp', async () => {
+test('importWebscrapingLeadsForUser does not debit quota when WhatsApp is unavailable', async () => {
   const { prisma } = createImportPrismaHarness();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   const { service } = createService({
     prisma,
     vendasLead: {
@@ -992,11 +1054,21 @@ test('importWebscrapingLeadsForUser não condiciona a entrega à disponibilidade
         { input: '5519999990001', normalizedNumber: '5519999990001', exists: false },
       ],
     },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
   });
 
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       leads: [
         {
           name: 'Auto Mecânica São José',
@@ -1008,26 +1080,20 @@ test('importWebscrapingLeadsForUser não condiciona a entrega à disponibilidade
   );
 
   assert.equal(result.createdCount, 1);
-  assert.equal(result.deliveredCount, 1);
-  assert.equal(result.skippedWithoutWhatsapp, 0);
-  assert.equal(result.skippedByFilterCount, 0);
-  assert.match(result.message, /1 lead\(s\) enviados ao CRM de Vendas/);
+  assert.equal(result.quotaDebited, 0);
+  assert.equal(result.deliveredCount, 0);
+  assert.equal(result.skippedWithoutWhatsapp, 1);
+  assert.equal(result.skippedByFilterCount, 1);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 0);
+  assert.match(result.message, /0 lead\(s\) entregues ao CRM/);
+  assert.match(result.message, /Descartados nao consomem limite/);
 });
 
 test('previewWebscrapingImportForUser hides duplicate CRM details outside USER wallet', async () => {
   const now = new Date('2026-01-10T12:00:00.000Z');
   let seenWhere: any = null;
   const { service } = createService({
-    radarPaidAccess: {
-      resolveForRows: async (_companyId: number, rows: any[]) => new Map(rows.map((row) => [String(row.id), {
-        isRadarOrigin: true,
-        contactAccessGranted: true,
-        radarLeadId: 'lead-other',
-        operationId: 'claim-other',
-        usageKey: 'claim-other',
-        reason: null,
-      }])),
-    },
     vendasLead: {
       findMany: async ({ where }: any) => {
         seenWhere = where;
@@ -1084,16 +1150,6 @@ test('previewWebscrapingImportForUser hides duplicate CRM details outside USER w
 test('previewWebscrapingImportForUser shows duplicate CRM details inside USER wallet', async () => {
   const now = new Date('2026-01-10T12:00:00.000Z');
   const { service } = createService({
-    radarPaidAccess: {
-      resolveForRows: async (_companyId: number, rows: any[]) => new Map(rows.map((row) => [String(row.id), {
-        isRadarOrigin: true,
-        contactAccessGranted: true,
-        radarLeadId: 'lead-own',
-        operationId: 'claim-own',
-        usageKey: 'claim-own',
-        reason: null,
-      }])),
-    },
     vendasLead: {
       findMany: async () => [
         {
@@ -1395,8 +1451,10 @@ test('importWebscrapingLeadsForUser lets ADMIN assign to an active seller in sam
   assert.equal(createdRows[0].commissionPercentSnapshot, 15);
 });
 
-test('importWebscrapingLeadsForUser reaproveita card duplicado sem nova cobrança', async () => {
+test('importWebscrapingLeadsForUser does not debit quota for duplicate card', async () => {
   const now = new Date();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   const existing = {
     id: 'lead-existing',
     companyId: 7,
@@ -1429,6 +1487,15 @@ test('importWebscrapingLeadsForUser reaproveita card duplicado sem nova cobranç
     vendasLeadTimelineEvent: {
       create: async () => ({}),
     },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
   });
 
   const result = await service.importWebscrapingLeadsForUser(
@@ -1447,11 +1514,15 @@ test('importWebscrapingLeadsForUser reaproveita card duplicado sem nova cobranç
 
   assert.equal(result.updatedCount, 1);
   assert.equal(result.createdCount, 0);
+  assert.equal(result.quotaDebited, 0);
   assert.equal(result.deliveredCount, 1);
   assert.equal(result.skippedDuplicateCount, 1);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser blocks duplicate commercial domain', async () => {
+test('importWebscrapingLeadsForUser blocks duplicate commercial domain before quota', async () => {
+  let activeQuotaCalls = 0;
   const existing = {
     id: 'lead-domain',
     name: 'Clinica Exemplo',
@@ -1464,12 +1535,18 @@ test('importWebscrapingLeadsForUser blocks duplicate commercial domain', async (
         return [existing];
       },
     },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
+      },
+    },
   });
 
   await assert.rejects(
     () => service.importWebscrapingLeadsForUser(
       { companyId: 7, id: 99 },
       {
+        debitOnImport: true,
         skipWhatsappValidation: true,
         leads: [
           {
@@ -1483,9 +1560,12 @@ test('importWebscrapingLeadsForUser blocks duplicate commercial domain', async (
     ),
     /Contato comercial duplicado/i,
   );
+
+  assert.equal(activeQuotaCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser blocks duplicate Google place', async () => {
+test('importWebscrapingLeadsForUser blocks duplicate Google place before quota', async () => {
+  let activeQuotaCalls = 0;
   const { service } = createService({
     prisma: {
       hasTable: async (table: string) => ['RadarLeadPool', 'RadarLeadCompanyState'].includes(table),
@@ -1503,12 +1583,18 @@ test('importWebscrapingLeadsForUser blocks duplicate Google place', async () => 
         },
       },
     },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
+      },
+    },
   });
 
   await assert.rejects(
     () => service.importWebscrapingLeadsForUser(
       { companyId: 7, id: 99 },
       {
+        debitOnImport: true,
         skipWhatsappValidation: true,
         leads: [
           {
@@ -1521,14 +1607,22 @@ test('importWebscrapingLeadsForUser blocks duplicate Google place', async () => 
     ),
     /Contato comercial duplicado/i,
   );
+
+  assert.equal(activeQuotaCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser blocks duplicate name and city fallback', async () => {
+test('importWebscrapingLeadsForUser blocks duplicate name and city fallback before quota', async () => {
+  let activeQuotaCalls = 0;
   const { service } = createService({
     vendasLead: {
       findMany: async ({ where }: any) => {
         assert.equal(where.state, 'SP');
         return [{ id: 'lead-name-city', name: 'Studio Alfa', city: 'Sao Paulo', state: 'SP' }];
+      },
+    },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
       },
     },
   });
@@ -1537,6 +1631,7 @@ test('importWebscrapingLeadsForUser blocks duplicate name and city fallback', as
     () => service.importWebscrapingLeadsForUser(
       { companyId: 7, id: 99 },
       {
+        debitOnImport: true,
         skipWhatsappValidation: true,
         leads: [
           {
@@ -1550,14 +1645,22 @@ test('importWebscrapingLeadsForUser blocks duplicate name and city fallback', as
     ),
     /Contato comercial duplicado/i,
   );
+
+  assert.equal(activeQuotaCalls, 0);
 });
 
-test('createManualLeadForUser blocks duplicate website', async () => {
+test('createManualLeadForUser blocks duplicate website before active quota', async () => {
+  let activeQuotaCalls = 0;
   const { service } = createService({
     vendasLead: {
       findMany: async ({ where }: any) => {
         assert.equal(where.website.contains, 'empresaativa.com.br');
         return [{ id: 'lead-site', name: 'Empresa Ativa', website: 'https://empresaativa.com.br' }];
+      },
+    },
+    commercialUsageLimits: {
+      assertSellerActiveCardSlots: async () => {
+        activeQuotaCalls += 1;
       },
     },
   });
@@ -1572,6 +1675,8 @@ test('createManualLeadForUser blocks duplicate website', async () => {
     ),
     /Contato comercial duplicado/i,
   );
+
+  assert.equal(activeQuotaCalls, 0);
 });
 
 test('createManualLeadForUser requires createManual access', async () => {
@@ -1805,9 +1910,6 @@ test('updateLeadForUser hides product price when products.viewPrice=false', asyn
   );
 
   assert.equal(result.lead.name, 'Cliente Atualizado');
-  if (result.lead.contactAccessGranted !== true) {
-    throw new Error('O lead não Radar deveria ter o payload completo liberado.');
-  }
   assert.equal(result.lead.productPriceCentsSnapshot, null);
   assert.equal(result.lead.product.priceCents, null);
   assert.equal(result.lead.product.priceLabel, null);
@@ -2563,13 +2665,19 @@ test('cancelCommissionPayoutForUser requires cancel commission access before loa
   assert.equal(payoutFindCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser reports protected Radar card', async () => {
+test('importWebscrapingLeadsForUser reports protected Radar card without quota debit', async () => {
+  let assertCanImportCalls = 0;
   const { service } = createService({
     prisma: {
       hasTable: async (name: string) => name === 'RadarLeadPool',
       hasColumn: async () => true,
       radarLeadPool: {
         findUnique: async () => ({ id: 'radar-1', ownerCompanyId: null, status: 'blocked' }),
+      },
+    },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
       },
     },
   });
@@ -2591,20 +2699,33 @@ test('importWebscrapingLeadsForUser reports protected Radar card', async () => {
     ),
     /protegido/i,
   );
+  assert.equal(assertCanImportCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser importa segment_mismatch acionável sem regra extra de plano', async () => {
+test('importWebscrapingLeadsForUser importa segment_mismatch fraco como card basico sem debitar', async () => {
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   const { prisma } = createImportPrismaHarness();
   const { service } = createService({
     prisma,
     vendasLead: {
       findFirst: async () => null,
     },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
   });
 
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       skipWhatsappValidation: true,
       leads: [
         {
@@ -2626,10 +2747,24 @@ test('importWebscrapingLeadsForUser importa segment_mismatch acionável sem regr
 
   assert.equal(result.createdCount, 1);
   assert.equal(result.deliveredCount, 1);
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
 });
 
-test('importWebscrapingLeadsForUser blocks LeadQualityV2 protect/discard', async () => {
-  const { service } = createService();
+test('importWebscrapingLeadsForUser blocks LeadQualityV2 protect/discard before quota', async () => {
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
+  const { service } = createService({
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
+  });
 
   await assert.rejects(
     () => service.importWebscrapingLeadsForUser(
@@ -2664,12 +2799,17 @@ test('importWebscrapingLeadsForUser blocks LeadQualityV2 protect/discard', async
         ],
       } as any,
     ),
-    /qualidade minima/i,
+    /LeadQualityV2|Descartados nao consomem limite/i,
   );
+
+  assert.equal(assertCanImportCalls, 0);
+  assert.equal(recordCardImportCalls, 0);
 });
 
-test('import interno reporta descartes sem executar cobrança pós-claim', async () => {
+test('importWebscrapingLeadsForUser debita somente aprovado criado e reporta descartes', async () => {
   const now = new Date();
+  let assertCanImportCalls = 0;
+  let recordCardImportCalls = 0;
   let checkWhatsappCalls = 0;
   const createdRows: any[] = [];
   const { service } = createService({
@@ -2712,6 +2852,15 @@ test('import interno reporta descartes sem executar cobrança pós-claim', async
         return [];
       },
     },
+    commercialUsageLimits: {
+      assertCanImportCard: async () => {
+        assertCanImportCalls += 1;
+      },
+      recordCardCommercialUseOnce: async () => {
+        recordCardImportCalls += 1;
+        return { debited: true, alreadyDebited: false };
+      },
+    },
   });
 
   const approvedQuality = {
@@ -2725,6 +2874,7 @@ test('import interno reporta descartes sem executar cobrança pós-claim', async
   const result = await service.importWebscrapingLeadsForUser(
     { companyId: 7, id: 99 },
     {
+      debitOnImport: true,
       skipWhatsappValidation: true,
       leads: [
         {
@@ -2750,14 +2900,17 @@ test('import interno reporta descartes sem executar cobrança pós-claim', async
   );
 
   assert.equal(result.createdCount, 3);
+  assert.equal(result.quotaDebited, 1);
   assert.equal(result.deliveredCount, 3);
   assert.equal(result.whatsappValidationSkipped, true);
   assert.equal(result.skippedByQualityCount, 0);
   assert.equal(result.skippedGenericDirectoryCount, 0);
   assert.equal(result.skippedBySegmentMismatchCount, 0);
   assert.equal(result.failedImports.length, 0);
+  assert.equal(assertCanImportCalls, 1);
+  assert.equal(recordCardImportCalls, 1);
   assert.equal(checkWhatsappCalls, 0);
-  assert.match(result.message, /3 lead\(s\) enviados ao CRM de Vendas/);
+  assert.match(result.message, /Descartados nao consomem limite/);
 });
 
 test('buildSaleCommissionPatch keeps trial without payable commission', async () => {

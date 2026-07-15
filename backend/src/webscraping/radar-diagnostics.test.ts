@@ -25,6 +25,7 @@ function presenterHost() {
     normalizeChannelMatchMode: (value: unknown) => String(value || 'prefer'),
     isRunItemQualityDeliverable: () => true,
     attachDeliveryClassification: (item: any) => item,
+    stripListPremiumFields: (item: any) => item,
     normalizeRadiusKm: () => 0,
     getHbxRunBatchLimit: () => 20,
     getHbxRunMaxAttempts: () => 3,
