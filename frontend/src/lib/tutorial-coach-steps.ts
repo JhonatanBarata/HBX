@@ -215,7 +215,7 @@ function leadsModuleSteps(): CoachStep[] {
       route: "/vendas",
       target: '[data-tut="leads-filtros"]',
       title: "Aqui você mira",
-      body: "Digite o segmento que você atende e clique em Filtro pra escolher estado, cidade e alcance. É o que diz pro Radar o tipo de empresa que você procura.",
+      body: "Digite o segmento e escolha UF e cidade na mesma linha. Use Avançado só para alcance, canais, dados da Receita e pesquisas salvas.",
       gate: "next",
     },
     {

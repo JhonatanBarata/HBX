@@ -305,7 +305,7 @@ export function FiltroAvancadoModal({
     <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="hbx-drawer be-adv-modal" onClick={e => e.stopPropagation()}>
         <h3>
-          Filtro
+          Filtros avançados
           <span className="x" role="button" tabIndex={0} aria-label="Fechar" onClick={onClose} onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onClose(); }}>
             <I d={ICONS.x} size={16} />
           </span>
@@ -313,7 +313,7 @@ export function FiltroAvancadoModal({
         <div className="be-adv-body">
           {quickSlot && (
             <section className="be-adv-sec">
-              <h4>Onde buscar</h4>
+              <h4>Refinar a busca</h4>
               {quickSlot}
             </section>
           )}

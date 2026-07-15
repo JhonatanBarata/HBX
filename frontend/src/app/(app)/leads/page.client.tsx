@@ -559,9 +559,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [segMenuOpen, setSegMenuOpen] = useState(false);
   const segBoxRef = useRef<HTMLDivElement | null>(null);
 
-  // "Minhas pesquisas" (LEADS-FINAL/03, 06/07): dropdown na barra — mesmo padrão
-  // de popover ancorado do combobox de segmento acima (ref + click-fora/Escape).
-  // savedBar reusa o mesmo boolean que já existia (era accordion no aside).
+  // "Minhas pesquisas" mora dentro da gaveta Avançado. Mantém ref + click-fora/
+  // Escape e reusa o mesmo estado do antigo popover da barra.
   const savedMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Geolocalização — sincroniza com o botão do Topbar via localStorage + evento
@@ -1119,7 +1118,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
         : city
           ? `Nenhuma empresa disponível em ${city} ainda. Use o Radar ao lado para buscar.`
-          : "Escolha cidade + segmento no painel ao lado e busque leads.";
+          : "Escolha cidade + segmento na barra acima e busque leads.";
 
   const meterPct = Math.min(100, Math.round(
     isSeller
@@ -1272,282 +1271,310 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  // ── Onde buscar (LEADS-FINAL/03, 06/07): Estado/Cidade/Alcance/Tem site/Tem
-  // WhatsApp — antes viviam inline na barra ("be-cmdbar__refine"), MOVIDOS pra
-  // dentro da gaveta "Filtro" (renderizados no quickSlot do FiltroAvancadoModal,
-  // seção "Onde buscar"). Mesmos estados (uf/city/alcance/siteFiltro/zapFiltro),
-  // mesmo efeito ao vivo (debounce já existente recarrega a lista sozinho) —
-  // só mudou ONDE moram os controles, não o comportamento.
+  // ── Filtros opcionais: os dois campos obrigatórios (segmento + cidade) ficam
+  // na barra principal. Alcance, canais, pesquisas salvas e filtros da Receita
+  // vivem somente na gaveta Avançado.
   function renderQuickFilters() {
+    const chips = activeChips();
     return (
       <>
         <div className="be-adv-grid2">
           <div className="f">
-            <label htmlFor="cb-uf">Estado</label>
-            <select id="cb-uf" className="select-dark" value={uf} onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}>
-              <option value="">Todos</option>
-              {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <label htmlFor="cb-alcance">Alcance</label>
+            <select id="cb-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
+              <option value="">Só a cidade</option>
+              <option value="25">+ 25 km</option>
+              <option value="50">+ 50 km</option>
+              <option value="100">+ 100 km</option>
             </select>
           </div>
           <div className="f">
-            <label htmlFor="cb-city">Cidade</label>
-            <select id="cb-city" className="select-dark" value={city} onChange={e => { setAlcance(""); setCity(e.target.value); }}>
-              <option value="">Cidade</option>
-              {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-            </select>
+            <label>Localização atual</label>
+            {geo ? (
+              <button
+                type="button"
+                className="btn-ghost btn-xs"
+                onClick={pullGeoLocation}
+                disabled={geoBusy}
+              >
+                <I d={ICONS.mapin} size={14} /> {geoBusy ? "Atualizando…" : "Usar minha localização"}
+              </button>
+            ) : (
+              <p className="hint be-adv-location-hint">Ative a localização no topo do sistema para usar como alternativa à cidade.</p>
+            )}
           </div>
         </div>
-        <div className="f">
-          <label htmlFor="cb-alcance">Alcance</label>
-          <select id="cb-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
-            <option value="">Só a cidade</option>
-            <option value="25">+ 25 km</option>
-            <option value="50">+ 50 km</option>
-            <option value="100">+ 100 km</option>
-          </select>
+
+        <div className="be-adv-grid2">
+          <div className="f">
+            <label><I d={ICONS.website} size={13} /> Tem site</label>
+            <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
+              {([
+                { key: "qualquer", label: "Qualquer" },
+                { key: "com", label: "Com" },
+                { key: "sem", label: "Sem" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                  onClick={() => setSiteFiltro(opt.key)}
+                  aria-pressed={siteFiltro === opt.key}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="f">
+            <label><WhatsAppMark size={13} /> Tem WhatsApp</label>
+            <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
+              {([
+                { key: "qualquer", label: "Qualquer" },
+                { key: "com", label: "Com" },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
+                  onClick={() => setZapFiltro(opt.key)}
+                  aria-pressed={zapFiltro === opt.key}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-        {/* Localização do vendedor — aparece quando geo está ativo no Topbar. */}
-        {geo && (
-          <button
-            type="button"
-            className="btn-ghost btn-xs"
-            onClick={pullGeoLocation}
-            disabled={geoBusy}
-            style={{ justifySelf: "start" }}
-          >
-            <I d={ICONS.mapin} size={14} /> {geoBusy ? "Buscando sua localização…" : "Usar minha localização"}
-          </button>
+
+        {chips.length > 0 && (
+          <div className="be-adv-active">
+            <span className="be-adv-active__label">Filtros opcionais ativos</span>
+            <div className="be-adv-active__chips">
+              {chips.map(chip => (
+                <span key={chip.key} className="be-chip-active">
+                  {chip.label}
+                  <button type="button" onClick={chip.onRemove} aria-label={`Remover filtro ${chip.label}`}>
+                    <I d={ICONS.x} size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
         )}
-        <div className="f">
-          <label><I d={ICONS.website} size={13} /> Tem site</label>
-          <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
-            {([
-              { key: "qualquer", label: "Qualquer" },
-              { key: "com", label: "Com" },
-              { key: "sem", label: "Sem" },
-            ] as const).map(opt => (
+
+        <div className="be-adv-searches" ref={savedMenuRef}>
+          <div className="be-adv-searches__head">
+            <div className="be-adv-searches__copy">
+              <strong>Pesquisas salvas</strong>
+              <span>Guarde ou reaplique um recorte sem ocupar a barra principal.</span>
+            </div>
+            <div className="be-adv-searches__actions">
               <button
-                key={opt.key}
                 type="button"
-                className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                onClick={() => setSiteFiltro(opt.key)}
-                aria-pressed={siteFiltro === opt.key}
+                className="btn-ghost btn-xs"
+                onClick={openSaveModal}
+                disabled={!segment.trim() && !city.trim() && !uf.trim()}
               >
-                {opt.label}
+                Salvar atual
               </button>
-            ))}
-          </div>
-        </div>
-        <div className="f">
-          <label><WhatsAppMark size={13} /> Tem WhatsApp</label>
-          <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
-            {([
-              { key: "qualquer", label: "Qualquer" },
-              { key: "com", label: "Com" },
-            ] as const).map(opt => (
               <button
-                key={opt.key}
                 type="button"
-                className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                onClick={() => setZapFiltro(opt.key)}
-                aria-pressed={zapFiltro === opt.key}
+                className="btn-ghost btn-xs"
+                onClick={() => setSavedBar(v => !v)}
+                aria-expanded={savedBar}
               >
-                {opt.label}
+                Minhas pesquisas{savedSearches.length > 0 ? ` (${savedSearches.length})` : ""} <I d={ICONS.chevronDown} size={13} />
               </button>
-            ))}
+            </div>
           </div>
+
+          {savedBar && (
+            <div className="be-adv-searches__panel">
+              {savedSearches.length === 0 ? (
+                <p className="radar-saved__empty">Nenhuma pesquisa salva ainda. Monte o recorte e clique em &quot;Salvar atual&quot;.</p>
+              ) : (
+                <ul className="radar-saved__list">
+                  {savedSearches.map(s => (
+                    <li key={s.id} className="radar-saved__item">
+                      <button
+                        type="button"
+                        className="radar-saved__apply"
+                        onClick={() => { applySavedSearch(s); setAdvOpen(false); }}
+                        title="Aplicar este recorte aos filtros"
+                      >
+                        <span className="radar-saved__name">{s.nome}</span>
+                        <span className="radar-saved__desc">{describeFiltro(s.filtro)}</span>
+                        {s.lastCount != null && (
+                          <span className="radar-saved__meta">{s.lastCount} leads na última busca</span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-xs radar-saved__del"
+                        onClick={() => deleteSavedSearch(s.id)}
+                        disabled={savedBusy}
+                        title="Remover pesquisa salva"
+                        aria-label={`Remover ${s.nome}`}
+                      >
+                        <I d={ICONS.x} size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
+
+        <button
+          type="button"
+          className="btn-ghost btn-xs be-adv-clear"
+          onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); limparFiltros(); }}
+        >
+          <I d={ICONS.x} size={13} /> Limpar busca
+        </button>
       </>
     );
   }
 
-  // Chips de filtro ativo (LEADS-FINAL/03): removíveis, refletem 1:1 o que está
-  // setado (uf/city/alcance/site/WhatsApp) — MESMA leitura que activeSummary já
-  // fazia como texto no aside idle; aqui vira chip clicável (✕ limpa só aquele
-  // campo, sem mexer nos outros nem disparar limparFiltros geral).
+  // Chips dos filtros opcionais. Cidade/UF e segmento não viram chips porque
+  // agora são os campos obrigatórios, sempre visíveis e editáveis na linha principal.
   type ActiveChip = { key: string; label: string; onRemove: () => void };
   function activeChips(): ActiveChip[] {
     const chips: ActiveChip[] = [];
-    if (uf) chips.push({ key: "uf", label: city ? `${city}/${uf}` : uf, onRemove: () => { setUf(""); setCity(""); setAlcance(""); } });
-    else if (city) chips.push({ key: "city", label: city, onRemove: () => { setCity(""); setAlcance(""); } });
     if (alcance) chips.push({ key: "alcance", label: `+ ${alcance} km`, onRemove: () => setAlcance("") });
     if (siteFiltro !== "qualquer") chips.push({ key: "site", label: siteFiltro === "com" ? "Com site" : "Sem site", onRemove: () => setSiteFiltro("qualquer") });
     if (zapFiltro !== "qualquer") chips.push({ key: "zap", label: "Com WhatsApp", onRemove: () => setZapFiltro("qualquer") });
     return chips;
   }
 
-  // ── Barra de comando (desktop): MÍNIMA — busca + Buscar + Filtro + Limpar +
-  // Salvar filtro numa linha só (ordem do dono, 06/07: "1 linha, resolve de
-  // vez"). Estado/Cidade/Alcance/Tem site/Tem WhatsApp saíram pra dentro da
-  // gaveta "Filtro" (renderQuickFilters); o que sobra visível na barra é chip
-  // de filtro ativo (removível) + dropdown "Minhas pesquisas".
+  // ── Barra de comando: uma linha no desktop, com somente o que é necessário
+  // para executar a busca — segmento, UF/cidade e Buscar. Todo o restante
+  // fica atrás de Avançado.
   function renderCommandBar() {
+    const optionalCount = activeChips().length;
+    const cityIsKnown = cityOptions.some(o => o.label === city);
     return (
-      <div className="be-cmdbar" data-tut="leads-filtros">
-        <div className="be-cmdbar__primary">
-          <div className="be-search" data-tut="leads-busca-criativa" ref={segBoxRef}>
-            <I d={ICONS.search} size={16} />
-            <input
-              className="be-search__input"
-              placeholder="O que você procura? Ex.: restaurantes em São Paulo com WhatsApp"
-              value={segment}
-              onChange={e => { setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
-                else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
-              }}
-              role="combobox"
-              aria-expanded={segMenuOpen}
-              aria-controls="rc-seg-menu"
-              aria-autocomplete="list"
-            />
-            <button
-              type="button"
-              className={"be-search__chevron" + (segMenuOpen ? " be-search__chevron--open" : "")}
-              onClick={() => setSegMenuOpen(o => !o)}
-              aria-label={segMenuOpen ? "Fechar lista de segmentos" : "Abrir lista de segmentos"}
-              tabIndex={-1}
-            >
-              <I d={ICONS.chevronDown} size={16} />
-            </button>
-            {segMenuOpen && (
-              <div className="be-search__menu" id="rc-seg-menu" role="listbox">
-                {segOptions.length === 0 ? (
-                  <div className="be-search__opt be-search__opt--empty" aria-disabled>
-                    Digite pra buscar
-                  </div>
-                ) : (
-                  // Lista SEMPRE completa (aberta pela seta mostra tudo); o texto
-                  // digitado só prioriza — matches sobem pro topo e ficam realçados.
-                  [...segOptions]
-                    .sort((a, b) => {
-                      const q = segment.trim().toLowerCase();
-                      if (!q) return 0;
-                      const am = a.label.toLowerCase().includes(q) ? 0 : 1;
-                      const bm = b.label.toLowerCase().includes(q) ? 0 : 1;
-                      return am - bm;
-                    })
-                    .map(o => {
-                      const q = segment.trim().toLowerCase();
-                      const match = q.length > 0 && o.label.toLowerCase().includes(q);
-                      const selected = o.label === segment;
-                      return (
-                        <button
-                          key={o.value}
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          className={
-                            "be-search__opt"
-                            + (match ? " be-search__opt--match" : "")
-                            + (selected ? " be-search__opt--active" : "")
-                          }
-                          onClick={() => { setSegment(o.label); setSegMenuOpen(false); }}
-                        >
-                          <span>{o.label}</span>
-                          {typeof o.count === "number" && (
-                            <span className="be-search__opt-count">{o.count}</span>
-                          )}
-                        </button>
-                      );
-                    })
-                )}
-              </div>
-            )}
-          </div>
-          {runActive ? (
-            <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
-          ) : (
-            <button className="btn-teal be-cmdbar__go" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>
-              {runBusy ? "Iniciando…" : "Buscar"}
-            </button>
+      <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
+        <div className="be-search be-required-segment" data-tut="leads-busca-criativa" ref={segBoxRef}>
+          <I d={ICONS.search} size={16} />
+          <input
+            className="be-search__input"
+            placeholder="Segmento ou tipo de empresa"
+            value={segment}
+            onChange={e => { setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
+              else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
+            }}
+            role="combobox"
+            aria-label="Segmento obrigatório"
+            aria-required="true"
+            aria-expanded={segMenuOpen}
+            aria-controls="rc-seg-menu"
+            aria-autocomplete="list"
+          />
+          <button
+            type="button"
+            className={"be-search__chevron" + (segMenuOpen ? " be-search__chevron--open" : "")}
+            onClick={() => setSegMenuOpen(o => !o)}
+            aria-label={segMenuOpen ? "Fechar lista de segmentos" : "Abrir lista de segmentos"}
+            tabIndex={-1}
+          >
+            <I d={ICONS.chevronDown} size={16} />
+          </button>
+          {segMenuOpen && (
+            <div className="be-search__menu" id="rc-seg-menu" role="listbox">
+              {segOptions.length === 0 ? (
+                <div className="be-search__opt be-search__opt--empty" aria-disabled>
+                  Digite pra buscar
+                </div>
+              ) : (
+                [...segOptions]
+                  .sort((a, b) => {
+                    const q = segment.trim().toLowerCase();
+                    if (!q) return 0;
+                    const am = a.label.toLowerCase().includes(q) ? 0 : 1;
+                    const bm = b.label.toLowerCase().includes(q) ? 0 : 1;
+                    return am - bm;
+                  })
+                  .map(o => {
+                    const q = segment.trim().toLowerCase();
+                    const match = q.length > 0 && o.label.toLowerCase().includes(q);
+                    const selected = o.label === segment;
+                    return (
+                      <button
+                        key={o.value}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={
+                          "be-search__opt"
+                          + (match ? " be-search__opt--match" : "")
+                          + (selected ? " be-search__opt--active" : "")
+                        }
+                        onClick={() => { setSegment(o.label); setSegMenuOpen(false); }}
+                      >
+                        <span>{o.label}</span>
+                        {typeof o.count === "number" && (
+                          <span className="be-search__opt-count">{o.count}</span>
+                        )}
+                      </button>
+                    );
+                  })
+              )}
+            </div>
           )}
         </div>
 
-        <div className="be-cmdbar__refine">
-          <button
-            type="button"
-            className="btn-ghost btn-xs"
-            data-tut="leads-filtro-avancado"
-            onClick={() => setAdvOpen(true)}
-            title="Abrir filtros (Estado, cidade, alcance, site, WhatsApp e filtro avançado da base Receita)"
+        <div
+          className={"be-required-location" + (geo && !city.trim() ? " is-geo" : "")}
+          aria-label="Localização obrigatória da busca"
+          title={geo && !city.trim() ? "Sua localização atual será usada na busca" : "Escolha UF e cidade"}
+        >
+          <select
+            id="cb-uf-inline"
+            value={uf}
+            onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}
+            aria-label="Estado"
+            aria-required="true"
           >
-            <I d={ICONS.filter} size={13} /> Filtro
-          </button>
-          {activeChips().map(chip => (
-            <span key={chip.key} className="be-chip-active">
-              {chip.label}
-              <button type="button" onClick={chip.onRemove} aria-label={`Remover filtro ${chip.label}`}>
-                <I d={ICONS.x} size={11} />
-              </button>
-            </span>
-          ))}
-          <button type="button" className="be-cmdbar__iconbtn" onClick={limparFiltros} title="Limpar todos os filtros e pesquisas">
-            <I d={ICONS.x} size={15} />
-          </button>
-          <div className="be-cmdbar__spacer" />
-          <div className="be-cmdbar__actions">
-            <button
-              type="button"
-              className="btn-ghost btn-xs"
-              onClick={openSaveModal}
-              disabled={!segment.trim() && !city.trim() && !uf.trim()}
-              title="Salvar este filtro como pesquisa"
-            >
-              Salvar filtro
-            </button>
-            <div className="be-saved-menu" ref={savedMenuRef}>
-              <button
-                type="button"
-                className="btn-ghost btn-xs"
-                onClick={() => setSavedBar(v => !v)}
-                aria-expanded={savedBar}
-                aria-haspopup="menu"
-              >
-                Minhas pesquisas{savedSearches.length > 0 ? ` (${savedSearches.length})` : ""} <I d={ICONS.chevronDown} size={13} />
-              </button>
-              {savedBar && (
-                // Reusa o vocabulário visual .radar-saved__* (mesma classe do antigo
-                // accordion do aside — só o container mudou de accordion pra popover
-                // ancorado, .be-saved-menu__pop). Zero CSS novo duplicado.
-                <div className="be-saved-menu__pop hbx-pop" role="menu">
-                  {savedSearches.length === 0 ? (
-                    <p className="radar-saved__empty">Nenhuma pesquisa salva ainda. Monte um filtro e clique em &quot;Salvar filtro&quot;.</p>
-                  ) : (
-                    <ul className="radar-saved__list">
-                      {savedSearches.map(s => (
-                        <li key={s.id} className="radar-saved__item">
-                          <button
-                            type="button"
-                            className="radar-saved__apply"
-                            onClick={() => applySavedSearch(s)}
-                            title="Aplicar este recorte aos filtros"
-                          >
-                            <span className="radar-saved__name">{s.nome}</span>
-                            <span className="radar-saved__desc">{describeFiltro(s.filtro)}</span>
-                            {s.lastCount != null && (
-                              <span className="radar-saved__meta">{s.lastCount} leads na última busca</span>
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-ghost btn-xs radar-saved__del"
-                            onClick={() => deleteSavedSearch(s.id)}
-                            disabled={savedBusy}
-                            title="Remover pesquisa salva"
-                            aria-label={`Remover ${s.nome}`}
-                          >
-                            <I d={ICONS.x} size={12} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+            <option value="">UF</option>
+            {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <select
+            id="cb-city-inline"
+            value={city}
+            disabled={!uf.trim()}
+            onChange={e => { setAlcance(""); setCity(e.target.value); }}
+            aria-label="Cidade obrigatória"
+            aria-required="true"
+          >
+            <option value="">{geo && !city.trim() ? "Localização ativa" : "Cidade"}</option>
+            {city && !cityIsKnown && <option value={city}>{city}</option>}
+            {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
+          </select>
         </div>
+
+        {runActive ? (
+          <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
+        ) : (
+          <button className="btn-teal be-cmdbar__go" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>
+            {runBusy ? "Iniciando…" : "Buscar"}
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="btn-ghost btn-xs be-cmdbar__advanced"
+          data-tut="leads-filtro-avancado"
+          onClick={() => setAdvOpen(true)}
+          title="Alcance, site, WhatsApp, dados da Receita e pesquisas salvas"
+        >
+          <I d={ICONS.filter} size={13} /> Avançado
+          {optionalCount > 0 && <span className="be-cmdbar__advanced-count">{optionalCount}</span>}
+        </button>
       </div>
     );
   }
