@@ -23,8 +23,7 @@ type MobileDevice = {
   active: boolean;
 };
 
-const VENDAS_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
-const LOGISTICA_APK_URL = "/download/android-logistica";
+const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
 
 function formatDate(value?: string | null) {
   if (!value) return "Ainda não usado";
@@ -154,16 +153,13 @@ export function MobileDevicePanel() {
         <div style={{ padding: 18, display: "grid", gap: 18 }}>
           <div className={styles.setupGrid}>
             <article className={styles.setupCard}>
-              <strong>1. Instale o aplicativo da função</strong>
+              <strong>1. Instale o aplicativo HBX</strong>
               <p className={styles.description}>
-                Vendas e Logística têm interfaces próprias. Nenhum deles exibe o site HBX nem pede e-mail e senha.
+                Um único aplicativo reúne Vendas e Logística. Ele não exibe o site HBX nem pede e-mail e senha.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                <a className="btn-ghost" href={VENDAS_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
-                  Baixar HBX Vendas
-                </a>
-                <a className="btn-ghost" href={LOGISTICA_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
-                  Baixar HBX Logística
+                <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
+                  Baixar aplicativo HBX
                 </a>
               </div>
             </article>
