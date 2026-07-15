@@ -1826,51 +1826,83 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               )}
               {/* Barra de comando horizontal — os filtros saíram do aside paredão pra cá. */}
               {renderCommandBar()}
-              {/* Barra de abas escondida no modo embutido (produção): sobrava só
-                  "Disponíveis" — rótulo redundante. No alias não-embutido as duas
-                  abas continuam. 05/07. Toggle Linhas|Cards sempre visível — vive na
-                  mesma linha, alinhado à direita. */}
-              <div className="leads-headrow">
-                {!embedded ? (
-                  <div className="tabs" data-tut="leads-abas">
-                    <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
-                      Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
-                    </button>
-                    {/* "Minha carteira" = o FUNIL. Embutido no Vendas a aba some (redundante);
-                        o que você puxa aparece no "Meu funil" do slide. 27/06. */}
+              {/* Segunda linha operacional: ações em massa à esquerda/direita e o modo
+                  de visualização centralizado. O rodapé de ações sai de baixo da lista,
+                  liberando a altura dos resultados até a paginação. */}
+              <div className="leads-headrow leads-headrow--toolbar">
+                <div className="leads-headrow__start">
+                  {!embedded && (
+                    <div className="tabs" data-tut="leads-abas">
+                      <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                        Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                      </button>
+                      <button
+                        className={"tab" + (tab === "carteira" ? " active" : "")}
+                        onClick={() => switchTab("carteira")}
+                      >
+                        Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                      </button>
+                    </div>
+                  )}
+                  {tab === "shelf" && (
                     <button
-                      className={"tab" + (tab === "carteira" ? " active" : "")}
-                      onClick={() => switchTab("carteira")}
+                      type="button"
+                      className="btn-ghost btn-xs leads-bulk-select"
+                      disabled={items.length === 0}
+                      aria-pressed={items.length > 0 && selected.size === items.length}
+                      onClick={() => {
+                        if (selected.size === items.length && items.length > 0) {
+                          setSelected(new Set());
+                        } else {
+                          setSelected(new Set(items.map(r => r.id)));
+                        }
+                      }}
                     >
-                      Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                      {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  )}
+                </div>
+
+                <div className="leads-headrow__center">
+                  <div className="glass-pill-track leads-viewtoggle" role="group" aria-label="Modo de exibição da lista">
+                    <GlassPill {...viewPill} />
+                    <button
+                      type="button"
+                      ref={viewPill.itemRef("linhas")}
+                      className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "linhas" ? " active" : "")}
+                      onClick={() => setViewMode("linhas")}
+                      aria-pressed={viewMode === "linhas"}
+                      title="Ver em linhas (denso)"
+                    >
+                      <I d={ICONS.list} size={14} /> Linhas
+                    </button>
+                    <button
+                      type="button"
+                      ref={viewPill.itemRef("cards")}
+                      className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "cards" ? " active" : "")}
+                      onClick={() => setViewMode("cards")}
+                      aria-pressed={viewMode === "cards"}
+                      title="Ver em cards"
+                    >
+                      <I d={ICONS.grid} size={14} /> Cards
                     </button>
                   </div>
-                ) : <span />}
-                <div className="glass-pill-track leads-viewtoggle" role="group" aria-label="Modo de exibição da lista">
-                  <GlassPill {...viewPill} />
-                  <button
-                    type="button"
-                    ref={viewPill.itemRef("linhas")}
-                    className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "linhas" ? " active" : "")}
-                    onClick={() => setViewMode("linhas")}
-                    aria-pressed={viewMode === "linhas"}
-                    title="Ver em linhas (denso)"
-                  >
-                    <I d={ICONS.list} size={14} /> Linhas
-                  </button>
-                  <button
-                    type="button"
-                    ref={viewPill.itemRef("cards")}
-                    className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "cards" ? " active" : "")}
-                    onClick={() => setViewMode("cards")}
-                    aria-pressed={viewMode === "cards"}
-                    title="Ver em cards"
-                  >
-                    <I d={ICONS.grid} size={14} /> Cards
-                  </button>
+                </div>
+
+                <div className="leads-headrow__end">
+                  {tab === "shelf" && (
+                    <button
+                      type="button"
+                      className="btn-teal radar2-pull-btn leads-bulk-pull"
+                      data-tut="leads-puxar"
+                      onClick={puxarSelecionados}
+                      disabled={selected.size === 0 || meterBlocked || bulkBusy}
+                    >
+                      <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                    </button>
+                  )}
                 </div>
               </div>
-
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
@@ -1974,27 +2006,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   </div>
                   )}
 
-              {tab === "shelf" && (
-                <div className={"radar2-actionbar" + (meterBlocked ? " blocked" : "")}>
-                  <div className="radar2-sel-all">
-                    <button
-                      className="btn-ghost btn-xs"
-                      onClick={() => {
-                        if (selected.size === items.length && items.length > 0) {
-                          setSelected(new Set());
-                        } else {
-                          setSelected(new Set(items.map(r => r.id)));
-                        }
-                      }}
-                    >
-                      {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
-                    </button>
-                  </div>
-                  <button className="btn-teal radar2-pull-btn" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
-                    <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
-                  </button>
-                </div>
-              )}
               {meterBlocked && isSeller && (
                 <p className="radar2-cap--danger">
                   Carteira cheia — feche ou agende um retorno pra liberar vaga.

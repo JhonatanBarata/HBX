@@ -5519,3 +5519,69 @@ html, body { height: 100%; }
     grid-template-columns: 72px minmax(0, 1fr);
   }
 }
+
+
+/* ── Buscar empresas: ações em massa no painel superior (15/07/2026) ── */
+.leads-headrow.leads-headrow--toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.leads-headrow__start,
+.leads-headrow__center,
+.leads-headrow__end {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.leads-headrow__start {
+  justify-content: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.leads-headrow__center { justify-content: center; }
+.leads-headrow__end { justify-content: flex-end; }
+.leads-headrow--toolbar .tabs { min-width: 0; }
+.leads-headrow--toolbar .leads-viewtoggle { margin: 0; }
+.leads-headrow--toolbar .radar2-pull-btn {
+  width: auto;
+  margin: 0;
+}
+.leads-bulk-select,
+.leads-bulk-pull {
+  min-height: 34px;
+  white-space: nowrap;
+}
+.leads-bulk-pull {
+  min-width: 184px;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .leads-headrow.leads-headrow--toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .leads-headrow__end {
+    grid-column: 1 / -1;
+  }
+  .leads-bulk-pull { width: 100%; }
+}
+@media (max-width: 620px) {
+  .leads-headrow.leads-headrow--toolbar {
+    grid-template-columns: 1fr;
+    padding: 8px 12px;
+  }
+  .leads-headrow__start,
+  .leads-headrow__center,
+  .leads-headrow__end {
+    grid-column: 1;
+    width: 100%;
+  }
+  .leads-headrow__center { justify-content: center; }
+  .leads-headrow__end { justify-content: stretch; }
+}
