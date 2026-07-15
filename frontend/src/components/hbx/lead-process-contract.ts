@@ -257,18 +257,28 @@ function sanitizedLeadStatus(value: unknown) {
   return "processing";
 }
 
-function sanitizeLead(lead: LeadProcessLead, reveal: boolean): LeadProcessLead {
-  if (!reveal) return { status: sanitizedLeadStatus(lead.status) };
-  return {
+function sanitizeLead(lead: LeadProcessLead, revealContacts: boolean): LeadProcessLead {
+  const status = sanitizedLeadStatus(lead.status);
+  const safeLead: LeadProcessLead = {
     id: optionalText(lead.id, 160),
     name: optionalText(lead.name, 240),
     city: optionalText(lead.city, 120),
     state: optionalText(lead.state, 32),
     segment: optionalText(lead.segment, 160),
-    status: sanitizedLeadStatus(lead.status),
-    detail: optionalText(lead.detail, 360),
+    status,
+    // `detail` vem de provedores e pode carregar telefone/e-mail em texto
+    // livre. Antes da compra mostramos apenas um motivo comercial genérico.
+    detail: revealContacts
+      ? optionalText(lead.detail, 360)
+      : status === "discarded"
+        ? "Não passou pelos critérios desta busca"
+        : null,
     source: optionalText(lead.source, 100),
     sourceChain: optionalText(lead.sourceChain, 240),
+  };
+  if (!revealContacts) return safeLead;
+  return {
+    ...safeLead,
     phoneContacts: sanitizeContacts(lead, "phone"),
     emailContacts: sanitizeContacts(lead, "email"),
   };
@@ -360,8 +370,8 @@ function safeDiscardLabel(value: unknown) {
 /**
  * Fronteira defensiva do frontend. O backend continua sendo a barreira de
  * segurança, mas nenhum snapshot arbitrário é guardado/renderizado sem uma
- * allowlist. Antes da liberação paga, até a identidade da empresa é substituída
- * por um item de processo sem valor identificável.
+ * allowlist. Antes da liberação paga, a empresa e o contexto da busca continuam
+ * visíveis; somente telefones, e-mails e outros contatos permanecem fora do DOM.
  */
 export function sanitizeLeadProcessSnapshot(snapshot: LeadProcessSnapshot | null): LeadProcessSnapshot | null {
   if (!snapshot) return null;

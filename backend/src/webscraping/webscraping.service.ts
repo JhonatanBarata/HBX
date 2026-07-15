@@ -31,6 +31,13 @@ import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.se
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarWebSourceGateService } from './radar/02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
+import { RadarCnpjL4EnrichmentService } from './radar/03-enrichment/radar-cnpj-l4-enrichment.service';
+import { RadarPublicDataService } from './radar/03-enrichment/radar-public-data.service';
+import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
+import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
+import { RadarPostDeliveryAiSaneamentoService } from './radar/05-delivery/radar-post-delivery-ai-saneamento.service';
+import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
+import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
@@ -41,6 +48,7 @@ import { RadarRunRepositoryService } from './radar/persistence/radar-run-reposit
 import { GoogleSearchProviderService } from './radar/providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './radar/providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './radar/providers/hbx-engine/radar-hbx-engine-errors.service';
+import { CnpjBaseQueryService } from './radar/providers/cnpj-public/cnpj-base-query.service';
 import { normalizeLookupValue, normalizePhoneDigits, buildWaLink } from './radar/shared/radar-core-shared';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
 import { RadarWebscrapingCoreService } from './radar/radar-webscraping-core.service';
@@ -56,6 +64,20 @@ const RADAR_PAID_RUN_STATUSES = new Set([
   'completed',
   'partial',
 ]);
+const RADAR_PAID_FENCING_CUTOFF = new Date('2026-07-15T03:42:29.000Z');
+
+function isLegacyRadarAcquisitionState(state: any, radarLeadId: string) {
+  const createdAt = state?.createdAt instanceof Date
+    ? state.createdAt
+    : new Date(String(state?.createdAt || ''));
+  return String(state?.radarLeadId || '') === radarLeadId
+    && Boolean(String(state?.vendasLeadId || '').trim())
+    && !String(state?.paidClaimOperationId || '').trim()
+    && !String(state?.claimUsageKey || '').trim()
+    && !state?.acquiredAt
+    && Number.isFinite(createdAt.getTime())
+    && createdAt < RADAR_PAID_FENCING_CUTOFF;
+}
 
 @Injectable()
 export class WebscrapingService extends RadarWebscrapingCoreService {
@@ -95,6 +117,11 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() googleSearchProvider?: GoogleSearchProviderService,
     @Optional() radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() radarHbxEngineErrors?: RadarHbxEngineErrorsService,
+    @Optional() cnpjBaseQuery?: CnpjBaseQueryService,
+    @Optional() radarSocialLookup?: RadarSocialLookupService,
+    @Optional() radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
+    @Optional() radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
+    @Optional() radarPostDeliveryAiSaneamento?: RadarPostDeliveryAiSaneamentoService,
   ) {
     super(
       internalPrisma,
@@ -131,6 +158,11 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       googleSearchProvider,
       radarGoogleResponse,
       radarHbxEngineErrors,
+      cnpjBaseQuery,
+      radarSocialLookup,
+      radarWebsiteCrawlSource,
+      radarWebEnrichmentJob,
+      radarPostDeliveryAiSaneamento,
     );
   }
 
@@ -417,6 +449,153 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     return Math.max(min, Math.min(max, value));
   }
 
+  async cnpjBackfillForMaster(opts: { limit?: number; socials?: boolean } = {}): Promise<{ scanned: number; enriched: number; errors: number; sitesFound: number; cnpjsFound: number; phonesFound: number; socialsFound: number }> {
+    const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 200, 2000));
+    // Worker 1 "CNPJ → dono": por padrão também caça as redes sociais DO DONO.
+    const withSocials = opts.socials !== false;
+    let socialBudget = withSocials ? 40 : 0;
+    // ORÇAMENTO BRAVE por execução. Brave free = 2.000 buscas/mês; 1 busca "CNPJ por nome" por
+    // lead sem site queimaria o mês numa única passada (5.900+ leads). Teto por execução +
+    // marcador `cnpjTriedAt` (faz o cursor AVANÇAR pela base, não re-moer os mesmos leads novos).
+    const braveBudgetMax = Math.max(0, Number(process.env.HBX_CNPJ_BACKFILL_BRAVE_BUDGET ?? 40) || 0);
+    let braveBudget = braveBudgetMax;
+    const retryAfterMs = Math.max(1, Number(process.env.HBX_CNPJ_BACKFILL_RETRY_DAYS ?? 14) || 14) * 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    const prisma = this.internalPrisma as any;
+
+    // Pega um lote grande e filtra em memória (campos JSON não são filtráveis no DB de forma segura).
+    const candidates = await prisma.radarLeadPool.findMany({
+      select: { id: true, name: true, city: true, state: true, segment: true, website: true, email: true, instagramUrl: true, facebookUrl: true, metadataJson: true, evidenceJson: true, signalsJson: true },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(limit * 20, 3000),
+    });
+
+    const parseMeta = (row: any): Record<string, any> => {
+      try {
+        const v = row.metadataJson;
+        if (!v) return {};
+        return typeof v === 'object' ? v : JSON.parse(v);
+      } catch { return {}; }
+    };
+
+    // Dois grupos de pendência, em ordem de PRIORIDADE:
+    //   (1) tem CNPJ mas L4 incompleto → barato (só BrasilAPI), zero Brave.
+    //   (2) sem site, sem CNPJ, não tentado há `retryAfterMs` → Brave CNPJ-por-nome (com teto).
+    // Lead COM site fica de fora aqui — quem cobre é o crawl local (Tipo 2, ilimitado/grátis).
+    const l4Pending: any[] = [];
+    const bravePending: any[] = [];
+    for (const row of candidates) {
+      const meta = parseMeta(row);
+      const cnpjDigits = String(meta?.cnpj || row?.cnpj || '').replace(/\D/g, '');
+      const hasCnpj = cnpjDigits.length >= 14;
+      const l4Complete = Boolean(meta?.razaoSocial)
+        && (Boolean(meta?.ownerName) || (Array.isArray(meta?.ownerNames) && meta.ownerNames.length > 0));
+      const hasSite = Boolean(String(row?.website || '').trim());
+      const triedAt = Number(meta?.cnpjTriedAt || 0);
+      const triedRecently = triedAt > 0 && (nowMs - triedAt) < retryAfterMs;
+      if (hasCnpj && !l4Complete) { l4Pending.push(row); continue; }
+      if (!hasSite && !hasCnpj && !triedRecently) { bravePending.push(row); }
+    }
+    const pending = [...l4Pending, ...bravePending].slice(0, limit);
+
+    const l4Enricher = new RadarCnpjL4EnrichmentService();
+    const l1Enricher = new RadarPublicDataService();
+    const webEnrichService = new RadarWebEnrichmentService();
+
+    let enriched = 0;
+    let errors = 0;
+    let sitesFound = 0;
+    let cnpjsFound = 0;
+    let phonesFound = 0;
+    let socialsFound = 0;
+
+    for (const row of pending) {
+      try {
+        const metaBefore = parseMeta(row);
+        const hasSiteBefore = Boolean(String(row?.website || '').trim());
+        const hasCnpjBefore = String(metaBefore?.cnpj || row?.cnpj || '').replace(/\D/g, '').length >= 14;
+
+        // (a) CNPJ por NOME p/ lead SEM site e SEM CNPJ: base LOCAL da RFB primeiro (SELECT,
+        // zero API — Sprint 2 MOTOR-RFB-FILA), Brave só no que o local não resolve. Marca SEMPRE
+        // `cnpjTriedAt` (achando ou não) pra o backfill AVANÇAR e não re-moer o mesmo lead novo.
+        // Teto de Brave por execução (orçamento free). O run() completo (16s/lead,
+        // busca de site/social) foi removido daqui de propósito: estourava o timeout e a
+        // descoberta de site rende pouco — quem acha e-mail/telefone é o crawl local (Tipo 2,
+        // ilimitado). Com CNPJ em mãos, o passo (b) L4 dispara → razão/dono/telefone do dono.
+        if (!hasSiteBefore && !hasCnpjBefore && braveBudget > 0) {
+          braveBudget -= 1;
+          const found = await webEnrichService.discoverCnpjByName(globalThis.fetch, {
+            name: String(row.name || ''),
+            city: String(row.city || ''),
+            state: String(row.state || '') || null,
+          }, prisma).catch(() => null);
+          const patchedMeta = { ...metaBefore, cnpjTriedAt: nowMs, ...(found ? { cnpj: found } : {}) };
+          await prisma.radarLeadPool.update({
+            where: { id: row.id },
+            data: { metadataJson: JSON.stringify(patchedMeta) },
+          }).catch(() => null);
+          row.metadataJson = patchedMeta;
+          if (found) { cnpjsFound += 1; enriched += 1; }
+        }
+
+        // (b) L4 enrichment: CNPJ → razão/CNAE/sócio/situação/telefone do dono
+        const hadPhoneBefore = Boolean(metaBefore?.ownerPhone);
+        const l4Result = await l4Enricher.enrichRow(prisma, row);
+        if (l4Result !== null) {
+          enriched += 1;
+          const metaAfterL4 = parseMeta({ metadataJson: l4Result });
+          // cnpjsFound é contabilizado no passo (a); aqui só telefone do dono (novo).
+          if (metaAfterL4?.ownerPhone && !hadPhoneBefore) phonesFound += 1;
+          // Update in-memory metadataJson so L1 sees the fresh data
+          row.metadataJson = l4Result;
+        }
+
+        // (b2) Sociais DO DONO: com o nome do sócio em mãos, caça o perfil pessoal dele.
+        // Best-effort, gasta orçamento por execução; não bloqueia a cadeia se falhar.
+        const metaForSocial = parseMeta(row);
+        const ownerForSocial = String(metaForSocial?.ownerName || (Array.isArray(metaForSocial?.ownerNames) ? metaForSocial.ownerNames[0] : '') || '').trim();
+        const alreadyHasOwnerSocial = Boolean(metaForSocial?.ownerInstagram || metaForSocial?.ownerFacebook);
+        if (socialBudget > 0 && ownerForSocial.length >= 4 && !alreadyHasOwnerSocial) {
+          socialBudget -= 1;
+          const social = await webEnrichService.findOwnerSocials(globalThis.fetch, ownerForSocial, {
+            city: String(row.city || '').trim() || null,
+            state: String(row.state || '').trim() || null,
+            segment: String(row.segment || '').trim() || null,
+            companyName: String(metaForSocial?.razaoSocial || row.name || '').trim() || null,
+          }).catch(() => null);
+          if (social && (social.instagramUrl || social.facebookUrl)) {
+            const patchedMeta = {
+              ...metaForSocial,
+              ...(social.instagramUrl ? { ownerInstagram: social.instagramUrl } : {}),
+              ...(social.facebookUrl ? { ownerFacebook: social.facebookUrl } : {}),
+              ...(social.candidates.length ? { ownerSocialCandidates: social.candidates } : {}),
+            };
+            await prisma.radarLeadPool.update({
+              where: { id: row.id },
+              data: { metadataJson: JSON.stringify(patchedMeta) },
+            }).catch(() => null);
+            row.metadataJson = patchedMeta;
+            socialsFound += 1;
+            // Escrita dupla ADITIVA em LeadContact (Sprint 5): social do DONO é candidato
+            // (matching por nome), não confirmação — confiança baixa e origem própria.
+            const ownerSocialContacts: LeadContactCandidate[] = [
+              ...(social.instagramUrl ? [{ kind: 'instagram' as const, value: social.instagramUrl, source: 'owner_social', confidence: 55 }] : []),
+              ...(social.facebookUrl ? [{ kind: 'facebook' as const, value: social.facebookUrl, source: 'owner_social', confidence: 55 }] : []),
+            ];
+            await this.getLeadContactWrite().writeContacts(prisma, row.id, ownerSocialContacts).catch(() => null);
+          }
+        }
+
+        // (c) L1 signals: DDD/região/sinais derivados do metadataJson atualizado
+        await l1Enricher.enrichSignals(prisma, row).catch(() => null);
+      } catch {
+        errors += 1;
+      }
+    }
+
+    return { scanned: pending.length, enriched, errors, sitesFound, cnpjsFound, phonesFound, socialsFound };
+  }
+
   /**
    * Worker 2 "Email finder" — aplica nos cards EXISTENTES o que o Local Lab achou (e-mail/CNPJ/
    * redes), casando por `id`. ADITIVO: só preenche campo vazio, nunca sobrescreve dado já bom.
@@ -442,16 +621,15 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           where: {
             radarLeadId: { in: requestedIds },
             companyId: { in: ownerCompanyIds },
-            paidClaimOperationId: { not: null },
-            claimUsageKey: { not: null },
-            acquiredAt: { not: null },
           },
           select: {
             radarLeadId: true,
             companyId: true,
+            vendasLeadId: true,
             paidClaimOperationId: true,
             claimUsageKey: true,
             acquiredAt: true,
+            createdAt: true,
           },
         }).catch(() => [])
       : [];
@@ -503,10 +681,18 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         && String(run?.mode || '') === 'claim'
         && RADAR_PAID_RUN_STATUSES.has(String(run?.status || '').toLowerCase());
     }).map((candidate: any) => candidate.id));
-    // Filtra antes da verificação de WhatsApp: owner isolado não é autorização.
-    // É obrigatória a tríade state carimbado + débito append-only + ausência de
-    // refund/refund_pending.
-    const eligibleList = list.filter((item) => paidIds.has(String(item?.id || '').trim()));
+    const legacyIds = new Set((ownedRows || []).flatMap((row: any) => {
+      const companyId = Math.trunc(Number(row.ownerCompanyId || 0));
+      const id = String(row.id || '');
+      const state = stateByPair.get(`${companyId}:${id}`) as any;
+      return isLegacyRadarAcquisitionState(state, id) ? [id] : [];
+    }));
+    // Filtra antes da verificação de WhatsApp. Owner isolado nunca é
+    // autorização: uma aquisição moderna exige a prova paga completa; um card
+    // anterior ao fencing exige o vínculo bilateral state -> VendasLead e data
+    // anterior ao corte.
+    const eligibleIds = new Set([...paidIds, ...legacyIds]);
+    const eligibleList = list.filter((item) => eligibleIds.has(String(item?.id || '').trim()));
     const rejectedUnowned = Math.max(0, list.length - eligibleList.length);
     let updated = 0;
     let emails = 0;
@@ -572,39 +758,45 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
             },
           },
           select: {
+            radarLeadId: true,
+            vendasLeadId: true,
             paidClaimOperationId: true,
             claimUsageKey: true,
             acquiredAt: true,
+            createdAt: true,
           },
         });
+        const isLegacyAcquisition = isLegacyRadarAcquisitionState(state, id);
         const usageKey = String(state?.claimUsageKey || '').trim();
-        if (!state?.paidClaimOperationId || !state?.acquiredAt || !usageKey) {
+        if (!isLegacyAcquisition && (!state?.paidClaimOperationId || !state?.acquiredAt || !usageKey)) {
           throw new Error('paid_state_missing');
         }
-        const debitKey = `enforce:lead_delivery:${usageKey}`;
-        const [debit, refund, paidRun] = await Promise.all([
-          tx.creditLedgerEntry.findFirst({
-            where: { companyId: ownerCompanyId, kind: 'debit', usageKey: debitKey },
-            select: { id: true },
-          }),
-          tx.creditLedgerEntry.findFirst({
-            where: { companyId: ownerCompanyId, kind: 'refund', usageKey: `refund:${debitKey}` },
-            select: { id: true },
-          }),
-          tx.radarLeadProcessRun.findUnique({
-            where: { id: String(state.paidClaimOperationId) },
-            select: { id: true, companyId: true, radarLeadId: true, mode: true, status: true },
-          }),
-        ]);
-        if (
-          !debit?.id
-          || refund?.id
-          || Number(paidRun?.companyId) !== ownerCompanyId
-          || String(paidRun?.radarLeadId || '') !== id
-          || String(paidRun?.mode || '') !== 'claim'
-          || !RADAR_PAID_RUN_STATUSES.has(String(paidRun?.status || '').toLowerCase())
-        ) {
-          throw new Error('paid_ledger_revoked');
+        if (!isLegacyAcquisition) {
+          const debitKey = `enforce:lead_delivery:${usageKey}`;
+          const [debit, refund, paidRun] = await Promise.all([
+            tx.creditLedgerEntry.findFirst({
+              where: { companyId: ownerCompanyId, kind: 'debit', usageKey: debitKey },
+              select: { id: true },
+            }),
+            tx.creditLedgerEntry.findFirst({
+              where: { companyId: ownerCompanyId, kind: 'refund', usageKey: `refund:${debitKey}` },
+              select: { id: true },
+            }),
+            tx.radarLeadProcessRun.findUnique({
+              where: { id: String(state.paidClaimOperationId) },
+              select: { id: true, companyId: true, radarLeadId: true, mode: true, status: true },
+            }),
+          ]);
+          if (
+            !debit?.id
+            || refund?.id
+            || Number(paidRun?.companyId) !== ownerCompanyId
+            || String(paidRun?.radarLeadId || '') !== id
+            || String(paidRun?.mode || '') !== 'claim'
+            || !RADAR_PAID_RUN_STATUSES.has(String(paidRun?.status || '').toLowerCase())
+          ) {
+            throw new Error('paid_ledger_revoked');
+          }
         }
         const meta = parseMeta(row);
         const data: Record<string, any> = {};
@@ -688,11 +880,16 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           }
         } catch { /* best-effort — LeadContact é índice de consulta, não fonte de verdade */ }
 
-        const paidOperationId = String(state.paidClaimOperationId);
-        const paidCard = await tx.vendasLead.findUnique({
-          where: { claimOperationId: paidOperationId },
-          select: { id: true, companyId: true },
-        });
+        const paidOperationId = String(state?.paidClaimOperationId || '');
+        const paidCard = isLegacyAcquisition
+          ? await tx.vendasLead.findFirst({
+              where: { id: String(state.vendasLeadId), companyId: ownerCompanyId },
+              select: { id: true, companyId: true },
+            })
+          : await tx.vendasLead.findUnique({
+              where: { claimOperationId: paidOperationId },
+              select: { id: true, companyId: true },
+            });
         if (!paidCard || Number(paidCard.companyId) !== ownerCompanyId) {
           throw new Error('paid_vendas_card_missing');
         }
@@ -713,6 +910,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           const normalized = String(source || '').toLowerCase();
           if (normalized === 'rfb_primary' || normalized === 'rfb_email') return 1;
           if (normalized === 'rfb_secondary') return 2;
+          if (normalized === 'rfb_fax') return 3;
           if (/hbx_engine|website|google|brave|motor/.test(normalized)) return 3;
           return kind === 'phone' ? 10 : 9;
         };
@@ -773,7 +971,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           where: {
             id: paidCard.id,
             companyId: ownerCompanyId,
-            claimOperationId: paidOperationId,
+            ...(isLegacyAcquisition ? {} : { claimOperationId: paidOperationId }),
           },
           data: { contactSnapshotJson },
         });

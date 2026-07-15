@@ -67,6 +67,8 @@ export class CnpjPublicDatasetService {
     // busca nunca voltar vazia.
     const hasContact: Array<Record<string, any>> = [
       { AND: [{ phone: { not: null } }, { phone: { not: '' } }] },
+      { AND: [{ phone2: { not: null } }, { phone2: { not: '' } }] },
+      { AND: [{ fax: { not: null } }, { fax: { not: '' } }] },
       { AND: [{ email: { not: null } }, { email: { not: '' } }] },
     ];
     const withContactWhere = { AND: [where, { OR: hasContact }] };
@@ -106,6 +108,11 @@ export class CnpjPublicDatasetService {
       // Linha pode ter sido gravada com celular legado (10 dig, 3º dígito 6-9) antes deste
       // fix — normaliza na leitura pra nono-dígito atual da Anatel, na FONTE cnpj_public.
       phone: row.phone ? (normalizeLegacyBrCellphone(row.phone) || row.phone) : null,
+      phone2: row.phone2 ? (normalizeLegacyBrCellphone(row.phone2) || row.phone2) : null,
+      // Fax permanece identificado na origem, mas participa da projeção comercial como
+      // terceiro telefone ligável. Não ganha nono dígito nem status de WhatsApp por inferência.
+      fax: row.fax || null,
+      faxDigits: row.faxDigits || null,
       website: row.website || null,
       address: row.address || null,
       ownerName: row.ownerName || null,

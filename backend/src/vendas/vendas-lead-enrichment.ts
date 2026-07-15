@@ -459,7 +459,7 @@ export function buildVendasLeadIntelligence(input: VendasLeadIntelligenceInput) 
     // acesso a um contato nem pode ser reinterpretada como prova da Receita.
     if (!source || source === 'unknown' || source === 'null') return source || 'unknown';
     if (source === 'rfb_email' && kind === 'email') return source;
-    if (['rfb_primary', 'rfb_secondary'].includes(source) && kind === 'phone') return source;
+    if (['rfb_primary', 'rfb_secondary', 'rfb_fax'].includes(source) && kind === 'phone') return source;
     if (['website_crawl', 'google', 'brave', 'manual', 'hbx_engine'].includes(source)) return source;
     // A migration já converteu origens históricas. Valores fora do vocabulário
     // nunca ganham semântica RFB por heurística em runtime.

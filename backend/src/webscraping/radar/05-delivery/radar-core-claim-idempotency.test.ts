@@ -11,6 +11,7 @@ test('duas puxadas do mesmo tenant com chaves diferentes iniciam um único débi
   instance.assertSellerTeamPolicyAccess = async () => undefined;
   instance.sanitizeRadarPreDebitLead = (lead: any) => ({ id: lead.id, contactsMasked: true });
   instance.hasRadarClaimContactAccess = async () => true;
+  instance.getRadarLeadForUser = async () => ({ item: { id: 'lead-1', phone: '11999990000' } });
   instance.buildPublicLeadProcessSnapshot = (snapshot: any) => ({
     operationId: snapshot.id,
     status: snapshot.status,
@@ -42,6 +43,9 @@ test('duas puxadas do mesmo tenant com chaves diferentes iniciam um único débi
         status: 'clean',
         companyStates: [],
       }),
+    },
+    vendasLead: {
+      findFirst: async () => ({ id: 'vendas-1' }),
     },
   };
   instance.getRadarLeadProcessStore = () => ({

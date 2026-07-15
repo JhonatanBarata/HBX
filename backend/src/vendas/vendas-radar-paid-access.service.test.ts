@@ -41,6 +41,49 @@ test('sourceHistoryId legado isolado nunca vira prova de aquisição', async () 
   assert.equal(access.reason, 'company_state_proof_missing');
 });
 
+test('card Radar anterior ao fencing permanece acessível com vínculo bilateral legado', async () => {
+  const service = new VendasRadarPaidAccessService(makePrisma({
+    states: [{
+      companyId: 7,
+      radarLeadId: 'pool-antigo',
+      vendasLeadId: 'card-antigo',
+      paidClaimOperationId: null,
+      claimUsageKey: null,
+      acquiredAt: null,
+      createdAt: new Date('2026-07-14T12:00:00.000Z'),
+    }],
+  }));
+  const access = await service.resolveForRow(7, {
+    id: 'card-antigo',
+    sourceType: 'webscraping',
+    sourceHistoryId: 'radar:pool-antigo',
+  });
+  assert.equal(access.isRadarOrigin, true);
+  assert.equal(access.contactAccessGranted, true);
+  assert.equal(access.reason, 'legacy_vendas_company_state');
+});
+
+test('state novo parcialmente gravado nunca é reclassificado como legado', async () => {
+  const service = new VendasRadarPaidAccessService(makePrisma({
+    states: [{
+      companyId: 7,
+      radarLeadId: 'pool-parcial',
+      vendasLeadId: 'card-parcial',
+      paidClaimOperationId: null,
+      claimUsageKey: 'claim:parcial',
+      acquiredAt: null,
+      createdAt: new Date('2026-07-15T12:00:00.000Z'),
+    }],
+  }));
+  const access = await service.resolveForRow(7, {
+    id: 'card-parcial',
+    sourceType: 'webscraping',
+    sourceHistoryId: 'radar:pool-parcial',
+  });
+  assert.equal(access.contactAccessGranted, false);
+  assert.equal(access.reason, 'company_state_proof_missing');
+});
+
 test('claim moderno exige mesma empresa, operação, Radar, state adquirido e débito ativo', async () => {
   const usageKey = 'claim:op-1';
   const service = new VendasRadarPaidAccessService(makePrisma({

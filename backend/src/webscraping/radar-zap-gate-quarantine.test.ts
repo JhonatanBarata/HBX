@@ -132,6 +132,57 @@ test('zap-gate: sem telefone no card nao checa (retorna existente/null)', async 
   assert.equal(called, false);
 });
 
+test('zap-gate: claim valida ate 3 telefones em lote e nunca trata rfb_fax como WhatsApp', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const checked: string[] = [];
+  service.radarCheckWhatsappNumbers = async (numbers: string[]) => {
+    checked.push(...numbers);
+    return numbers.map((number) => ({ input: number, normalizedNumber: number, exists: number.endsWith('1') }));
+  };
+  const row: any = {
+    id: 'lead-3x3',
+    phoneDigits: '19999990001',
+    metadataJson: JSON.stringify({
+      phones: [
+        { value: '19999990001', source: 'rfb_primary' },
+        { value: '1933330002', source: 'rfb_secondary' },
+        { value: '1933330003', source: 'rfb_fax' },
+      ],
+    }),
+    enrichmentJson: '{}',
+    contacts: [
+      { kind: 'phone', value: '19999990001', source: 'rfb_primary' },
+      { kind: 'phone', value: '1933330002', source: 'rfb_secondary' },
+      { kind: 'phone', value: '1933330003', source: 'rfb_fax' },
+    ],
+  };
+  const result = await service.resolveRadarWhatsappStatusForDelivery(row, 7);
+  assert.equal(result, 'confirmed');
+  assert.deepEqual(checked, ['19999990001', '1933330002']);
+  assert.deepEqual(JSON.parse(row.metadataJson).phonesWhatsapp, {
+    '19999990001': true,
+    '1933330002': false,
+  });
+});
+
+test('whatsapp only_valid legado vira enrich e nunca filtra telefone/lead', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  service.webwhatsBridge = {};
+  service.radarCheckWhatsappNumbers = async (numbers: string[]) => numbers.map((number) => ({
+    input: number,
+    normalizedNumber: number,
+    exists: false,
+  }));
+  const response = await service.applyRadarWhatsappCheck(
+    { companyId: 7, userId: 11 },
+    [{ id: 'a', phone: '19999990001' }, { id: 'b', phone: '19999990002' }],
+    'only_valid',
+  );
+  assert.equal(response.items.length, 2);
+  assert.equal(response.meta.effectiveMode, 'enrich');
+  assert.deepEqual(response.items.map((item: any) => item.whatsappStatus), ['missing', 'missing']);
+});
+
 test('applyRadarWhatsappStatusSignalToRow: aplica missing seta whatsappStatus no enrichmentJson/metadataJson', async () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const row: any = { id: 'lead-1', enrichmentJson: JSON.stringify({}), metadataJson: JSON.stringify({}) };

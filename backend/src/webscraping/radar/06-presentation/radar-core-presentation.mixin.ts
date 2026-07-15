@@ -1195,12 +1195,15 @@ export class RadarCorePresentationMixin {
 
   private normalizeRadarWhatsappCheckMode(value: unknown): RadarWhatsappCheckMode {
     const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'enrich' || normalized === 'only_valid') return normalized;
+    if (normalized === 'off') return 'off';
+    // Compatibilidade de contrato: `only_valid` deixou de filtrar leads. WhatsApp
+    // e apenas um sinal aditivo; telefone sem WhatsApp continua sendo contato util.
+    if (normalized === 'enrich' || normalized === 'only_valid') return 'enrich';
     // Default configuravel: liga a verificacao de existencia nos runs SEM mode explicito
     // Eventos legados sem `mode` caem aqui. `enrich` anota whatsappStatus sem derrubar;
-    // 'only_valid' filtra os nao-confirmados. Inocuo enquanto o chip do motor nao conectar.
+    // Valores legados `only_valid` tambem viram `enrich`: nunca escondem um telefone.
     const envDefault = String(process.env.HBX_RADAR_WHATSAPP_CHECK_MODE || '').trim().toLowerCase();
-    if (envDefault === 'enrich' || envDefault === 'only_valid') return envDefault as RadarWhatsappCheckMode;
+    if (envDefault === 'enrich' || envDefault === 'only_valid') return 'enrich';
     return 'off';
   }
 
@@ -1863,7 +1866,8 @@ export class RadarCorePresentationMixin {
       const source = sourceKey(value);
       if (source === 'rfb_primary') return 500;
       if (source === 'rfb_secondary') return 490;
-      if (source === 'rfb_email') return 480;
+      if (source === 'rfb_fax') return 480;
+      if (source === 'rfb_email') return 470;
       if (source === 'website_crawl') return 320;
       if (['hbx_engine', 'google_places', 'brave'].includes(source)) return 300;
       return 10;
@@ -1872,6 +1876,7 @@ export class RadarCorePresentationMixin {
       const key = sourceKey(source);
       if (key === 'rfb_primary') return 1;
       if (key === 'rfb_secondary') return 2;
+      if (key === 'rfb_fax') return 3;
       if (key === 'website_crawl' || ['hbx_engine', 'google_places', 'brave'].includes(key)) return 2 + Math.max(1, safeInteger(rank) || 1);
       return Math.max(10, safeInteger(rank) || 10);
     };
@@ -2302,10 +2307,16 @@ export class RadarCorePresentationMixin {
     const emailCount = Math.max(0, safeInteger(value?.emailCount), projectedEmailCount, Number(value?.hasEmail === true));
     return {
       id,
-      name: 'Empresa localizada',
-      city: null,
-      state: null,
-      segment: null,
+      // A vitrine pode identificar a empresa e contextualizar a oportunidade.
+      // O sigilo pré-débito é dos meios de contato (telefone/e-mail/site/
+      // redes/endereço), não de nome, cidade, segmento ou indicadores públicos.
+      name: String(value?.name || '').trim() || 'Empresa localizada',
+      city: String(value?.city || '').trim() || null,
+      state: String(value?.state || '').trim() || null,
+      segment: String(value?.segment || '').trim() || null,
+      source: String(value?.source || '').trim() || null,
+      sourceEngine: String(value?.sourceEngine || '').trim() || null,
+      sourceChain: String(value?.sourceChain || '').trim() || null,
       status: 'available',
       ownershipStatus: 'available',
       ownerCompanyId: null,
@@ -2314,16 +2325,13 @@ export class RadarCorePresentationMixin {
       contactAccessGranted: false,
       hasPhone: phoneCount > 0,
       hasEmail: emailCount > 0,
-      hasWebsite: Boolean(value?.website),
+      hasWebsite: value?.hasWebsite === true || Boolean(value?.website),
       phoneCount,
       emailCount,
       contactCount: Math.max(0, phoneCount + emailCount),
-      // Avaliação, quantidade de reviews e score individual podem servir como
-      // impressão digital da empresa mesmo sem nome. Só agregados de canal saem
-      // antes do débito.
-      rating: null,
-      reviews: null,
-      opportunityScore: 0,
+      rating: value?.rating == null ? null : Number(value.rating),
+      reviews: Math.max(0, safeInteger(value?.reviews)),
+      opportunityScore: Math.max(0, safeInteger(value?.opportunityScore)),
       phone: '',
       phoneDigits: '',
       ddd: '',
@@ -2569,6 +2577,14 @@ export class RadarCorePresentationMixin {
     }
   }
 
+  private withRadarWhatsappStatus(item: any, status: RadarWhatsappCheckStatus) {
+    return {
+      ...item,
+      whatsappStatus: status,
+      whatsappCheckStatus: status,
+    };
+  }
+
   // protected: o enricher (applyDiscoveredContactsForMaster) reusa esta MESMA verificação
   // em lote (motor WhatsApp dedicado, sessão já conectada — NUNCA reconecta) p/ checar os
   // multi-telefones capturados. 1 request por lote; degrada p/ [] se o motor não estiver no ar.
@@ -2603,6 +2619,150 @@ export class RadarCorePresentationMixin {
     return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers);
   }
 
+  /**
+   * Valida em lote, com o freio tecnico global do Webwhats, sem qualquer gate
+   * comercial. O resultado e somente informativo: nunca filtra o lead e nunca
+   * esconde telefone. Contato marcado como `rfb_fax` nao e candidato a WhatsApp.
+   */
+  private async applyRadarWhatsappCheck(
+    context: SearchExecutionContext,
+    items: any[],
+    requestedMode: RadarWhatsappCheckMode,
+  ) {
+    const effectiveMode: RadarWhatsappCheckMode = requestedMode === 'off' ? 'off' : 'enrich';
+    const baseMeta = {
+      requestedMode,
+      effectiveMode,
+      checked: false,
+      checkedCount: 0,
+      message: null as string | null,
+    };
+    const safeItems = Array.isArray(items) ? items : [];
+    if (effectiveMode === 'off') {
+      return {
+        items: safeItems.map((item) => this.withRadarWhatsappStatus(item, 'unverified')),
+        meta: baseMeta,
+      };
+    }
+
+    const itemPhones = safeItems.map((item) => {
+      const blockedFax = new Set<string>();
+      for (const contact of Array.isArray(item?.phoneContacts) ? item.phoneContacts : []) {
+        if (String(contact?.source || '').trim().toLowerCase() !== 'rfb_fax') continue;
+        const value = normalizePhoneDigits(contact?.valueNormalized || contact?.value || contact?.phone);
+        if (value) blockedFax.add(value);
+      }
+      const candidates: string[] = [];
+      const add = (value: unknown) => {
+        const normalized = normalizePhoneDigits(
+          value && typeof value === 'object'
+            ? (value as any).value ?? (value as any).phone ?? (value as any).number ?? (value as any).phoneDigits
+            : value,
+        );
+        if (!normalized || blockedFax.has(normalized) || candidates.includes(normalized) || candidates.length >= 3) return;
+        candidates.push(normalized);
+      };
+      add(item?.phoneDigits || item?.phone);
+      for (const value of Array.isArray(item?.phones) ? item.phones : []) add(value);
+      for (const contact of Array.isArray(item?.phoneContacts) ? item.phoneContacts : []) {
+        if (String(contact?.source || '').trim().toLowerCase() === 'rfb_fax') continue;
+        add(contact?.valueNormalized || contact?.value || contact?.phone);
+      }
+      return candidates;
+    });
+    const allPhones = Array.from(new Set(itemPhones.flat()));
+    if (!this.webwhatsBridge || !allPhones.length) {
+      return {
+        items: safeItems.map((item, index) => this.withRadarWhatsappStatus(
+          item,
+          itemPhones[index].length ? 'unverified' : 'missing',
+        )),
+        meta: {
+          ...baseMeta,
+          message: !this.webwhatsBridge
+            ? 'Validação de WhatsApp indisponível agora; os telefones foram preservados.'
+            : null,
+        },
+      };
+    }
+
+    try {
+      const lookupResults = await this.radarCheckWhatsappNumbers(
+        allPhones,
+        Number(context?.companyId || 0) || undefined,
+      );
+      const byPhone = new Map<string, boolean>();
+      for (const result of lookupResults || []) {
+        const phone = normalizePhoneDigits(result?.normalizedNumber || result?.input);
+        if (phone && !byPhone.has(phone)) byPhone.set(phone, Boolean(result?.exists));
+      }
+
+      const enriched = safeItems.map((item, index) => {
+        const phones = itemPhones[index];
+        const primary = phones[0] || '';
+        const status: RadarWhatsappCheckStatus = !primary
+          ? 'missing'
+          : byPhone.has(primary)
+            ? byPhone.get(primary) ? 'confirmed' : 'missing'
+            : 'unverified';
+        const phonesWhatsapp = {
+          ...(item?.phonesWhatsapp && typeof item.phonesWhatsapp === 'object' ? item.phonesWhatsapp : {}),
+          ...Object.fromEntries(phones.filter((phone) => byPhone.has(phone)).map((phone) => [phone, byPhone.get(phone)])),
+        };
+        const phoneContacts = (Array.isArray(item?.phoneContacts) ? item.phoneContacts : []).map((contact: any) => {
+          const phone = normalizePhoneDigits(contact?.valueNormalized || contact?.value || contact?.phone);
+          if (!phone || String(contact?.source || '').trim().toLowerCase() === 'rfb_fax' || !byPhone.has(phone)) return contact;
+          return { ...contact, whatsappStatus: byPhone.get(phone) ? 'confirmed' : 'missing' };
+        });
+        const radarEnrichment = buildRadarLeadEnrichment({
+          ...item,
+          phonesWhatsapp,
+          whatsappStatus: status,
+          companyStatus: item?.companyStatus || item?.status,
+        });
+        return this.withRadarWhatsappStatus({
+          ...item,
+          phonesWhatsapp,
+          phoneContacts,
+          email: radarEnrichment.email || item?.email || null,
+          emailStatus: radarEnrichment.emailStatus,
+          emailSource: radarEnrichment.emailSource,
+          emailConfidence: radarEnrichment.emailConfidence,
+          recommendedChannel: radarEnrichment.recommendedChannel,
+          painType: radarEnrichment.painType,
+          painLabel: radarEnrichment.painLabel,
+          painPitch: radarEnrichment.painPitch,
+          opportunityReason: radarEnrichment.opportunityReason || item?.opportunityReason,
+          enrichmentScore: radarEnrichment.enrichmentScore,
+          enrichmentConfidence: radarEnrichment.enrichmentConfidence,
+          enrichmentJson: parseJsonObject(radarEnrichment.enrichmentJson),
+          lastEnrichedAt: radarEnrichment.lastEnrichedAt.toISOString(),
+          enrichmentVersion: radarEnrichment.enrichmentVersion,
+        }, status);
+      });
+      return {
+        items: enriched,
+        meta: {
+          ...baseMeta,
+          checked: byPhone.size > 0,
+          checkedCount: byPhone.size,
+        },
+      };
+    } catch (error: any) {
+      this.logger.warn(`[radar] validacao WebWhats ignorada company=${context.companyId}: ${String(error?.message || error)}`);
+      return {
+        items: safeItems.map((item, index) => this.withRadarWhatsappStatus(
+          item,
+          itemPhones[index].length ? 'unverified' : 'missing',
+        )),
+        meta: {
+          ...baseMeta,
+          message: 'Não consegui validar WhatsApp agora; os telefones foram preservados.',
+        },
+      };
+    }
+  }
+
   private async searchRadarDirectForUser(user: any, filters: NormalizedRadarFilters, reason: string, technicalMessage?: string | null) {
     const response = await this.searchContactsForUser(
       user,
@@ -2634,10 +2794,16 @@ export class RadarCorePresentationMixin {
     }));
     const approvedPairs = qualityPairs.filter(({ quality }) => this.isApprovedLeadQuality(quality));
     const rejectionMeta = this.summarizeLeadQualityRejections(qualityPairs.map((item) => item.quality));
-    const publicItems = approvedPairs.map(({ result, quality }, index) => {
-      const item = this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index) as any;
-      return this.sanitizeRadarPreDebitLead(item, { id: `direct:${filters.targetType}:${index + 1}` });
-    });
+    const context = this.resolveContext(user);
+    const whatsapp = await this.applyRadarWhatsappCheck(
+      context,
+      approvedPairs.map(({ result, quality }, index) => this.buildDirectRadarLeadPublic({ ...(result as any), quality }, filters, index)),
+      filters.whatsappCheckMode,
+    );
+    const publicItems = whatsapp.items.map((item: any, index: number) => this.sanitizeRadarPreDebitLead(
+      item,
+      { id: `direct:${filters.targetType}:${index + 1}` },
+    ));
     return {
       items: publicItems,
       total: publicItems.length,
@@ -2673,7 +2839,7 @@ export class RadarCorePresentationMixin {
           message: response.meta.message || null,
           technicalMessage: technicalMessage || null,
         },
-        whatsappCheck: { mode: 'off', checked: 0, deferredUntilClaim: true },
+        whatsappCheck: whatsapp.meta,
       },
     };
   }
@@ -3098,7 +3264,10 @@ export class RadarCorePresentationMixin {
         instagramUrl: body.instagramUrl || null,
         facebookUrl: body.facebookUrl || null,
       });
-      const timeoutMs = Math.max(5_000, this.getHbxBatchTimeoutMs());
+      // A puxada é síncrona até o card existir em Vendas. O motor pode completar
+      // o restante em background, mas esta etapa HTTP nunca fica presa no
+      // timeout amplo usado pelos lotes de pesquisa.
+      const timeoutMs = Math.max(5_000, Math.min(30_000, this.getHbxBatchTimeoutMs()));
       const response = await fetch(`${String(engineUrl).replace(/\/+$/, '')}/enrich-lead`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

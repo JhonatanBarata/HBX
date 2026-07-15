@@ -1,5 +1,12 @@
 'use strict';
 
+// O Local Lab é filho do HBX Owner na estação Windows do dono. Mesmo com
+// loopback, token e watchdog, ele não pode ser executável no checkout da VPS.
+if (process.platform !== 'win32' || String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production') {
+  console.error('HBX Local Lab bloqueado: execução permitida somente no PC Windows local e fora de produção.');
+  process.exit(1);
+}
+
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');

@@ -5,6 +5,14 @@ const http = require("http");
 const path = require("path");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
+
+// O HBX Owner é uma ferramenta da estação Windows do dono. O repositório
+// também existe na VPS para o deploy do produto, portanto o bloqueio precisa
+// ocorrer no próprio processo — não basta confiar que nenhum serviço o chame.
+if (process.platform !== "win32" || String(process.env.NODE_ENV || "").trim().toLowerCase() === "production") {
+  console.error("HBX Owner bloqueado: execução permitida somente no PC Windows local e fora de produção.");
+  process.exit(1);
+}
 // Journal em disco (estado durável do enriquecedor local). Escrita atômica, zero-dep. Ver lib/state.js.
 const stateStore = require("./lib/state");
 // Utilitários puros (Sprint 5) — sem estado de módulo. Ver lib/util.js e lib/engine-capacity.js.

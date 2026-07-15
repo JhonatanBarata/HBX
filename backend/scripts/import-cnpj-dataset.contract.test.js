@@ -15,15 +15,13 @@ test('importador RFB preserva fax e dígitos em campos separados', () => {
   assert.match(source, /"faxDigits" = COALESCE\(EXCLUDED\."faxDigits", "CnpjPublicCompany"\."faxDigits"\)/);
 });
 
-test('fax não entra no contrato público nem no materializador de contatos 3x3', () => {
-  const commercialProjectionFiles = [
-    'src/webscraping/radar/providers/cnpj-public/cnpj-public-types.ts',
-    'src/webscraping/radar/providers/cnpj-public/cnpj-base-query.service.ts',
-    'src/webscraping/radar/05-delivery/radar-core-delivery.mixin.ts',
-    'src/webscraping/radar/06-presentation/radar-core-presentation.mixin.ts',
-  ];
+test('fax preserva a origem RFB e entra como terceiro telefone ligável', () => {
+  const query = read('src/webscraping/radar/providers/cnpj-public/cnpj-base-query.service.ts');
+  const delivery = read('src/webscraping/radar/05-delivery/radar-core-delivery.mixin.ts');
+  const harvest = read('src/webscraping/lead-harvest/lead-harvest-import.service.ts');
 
-  for (const relativePath of commercialProjectionFiles) {
-    assert.doesNotMatch(read(relativePath), /\bfax(?:Digits)?\b/i, relativePath);
-  }
+  assert.match(query, /phone3:\s*row\.fax/);
+  assert.match(delivery, /source:\s*'rfb_fax'/);
+  assert.match(delivery, /\[phone1,\s*phone2,\s*phone3\]/);
+  assert.match(harvest, /source:\s*isRfb\s*\?\s*'rfb_fax'/);
 });

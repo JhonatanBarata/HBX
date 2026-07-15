@@ -23,7 +23,7 @@ function snapshot(overrides: Partial<LeadProcessSnapshot> = {}): LeadProcessSnap
   };
 }
 
-test("fallback pré-débito elimina identidade, contatos, URLs e blobs do snapshot", () => {
+test("pré-débito preserva a empresa e elimina somente contatos e blobs do snapshot", () => {
   const unsafe = snapshot({
     currentLead: {
       id: "lead-real-123",
@@ -46,34 +46,41 @@ test("fallback pré-débito elimina identidade, contatos, URLs e blobs do snapsh
   const safe = sanitizeLeadProcessSnapshot(unsafe);
   const serialized = JSON.stringify(safe);
   for (const forbidden of [
-    "Empresa Real",
-    "Cidade Real",
     "11999990000",
     "real@empresa.test",
     "empresa.test",
     "00.000.000/0001-00",
     "Pessoa Real",
     "SEGREDO-HTML",
-    "lead-real-123",
   ]) {
     assert.equal(serialized.includes(forbidden), false, forbidden);
   }
   assert.equal(canRevealLeadContacts(safe), false);
-  assert.equal(safe?.currentLead?.name, undefined);
+  assert.equal(safe?.currentLead?.name, "Empresa Real Ltda");
+  assert.equal(safe?.currentLead?.city, "Cidade Real");
+  assert.equal(safe?.currentLead?.id, "lead-real-123");
   assert.equal(safe?.stages[0]?.detail, null);
   assert.equal(safe?.events[0]?.detail, null);
 });
 
-test("busca nunca projeta identidade do lead, mesmo concluída e com backend antigo", () => {
+test("busca projeta a empresa, mas nunca projeta contatos", () => {
   const safe = sanitizeLeadProcessSnapshot(snapshot({
     mode: "search",
     status: "completed",
     internalStatus: "completed",
-    currentLead: { name: "Lead da busca", city: "Fortaleza", phone: "85999990000" },
+    currentLead: {
+      name: "Lead da busca",
+      city: "Fortaleza",
+      status: "discarded",
+      phone: "85999990000",
+      detail: "Telefone 85999990000 compartilhado por 37 empresas",
+    },
   }));
   assert.equal(canRevealLeadContacts(safe), false);
-  assert.equal(JSON.stringify(safe).includes("Lead da busca"), false);
+  assert.equal(safe?.currentLead?.name, "Lead da busca");
+  assert.equal(safe?.currentLead?.city, "Fortaleza");
   assert.equal(JSON.stringify(safe).includes("85999990000"), false);
+  assert.equal(safe?.currentLead?.detail, "Não passou pelos critérios desta busca");
 });
 
 test("estorno pendente, confirmado ou falha vencem etapas antigas concluídas", () => {
@@ -108,7 +115,7 @@ test("status completed legado sem contactAccessGranted nunca libera dados", () =
     currentLead: { name: "Resposta legada", phone: "11977776666" },
   }));
   assert.equal(canRevealLeadContacts(safe), false);
-  assert.equal(JSON.stringify(safe).includes("Resposta legada"), false);
+  assert.equal(safe?.currentLead?.name, "Resposta legada");
   assert.equal(JSON.stringify(safe).includes("11977776666"), false);
 });
 

@@ -90,6 +90,7 @@ import {
 import { incrementAffinity } from '../../../users/segment-affinity.util';
 import { isBillingOwnerActor } from '../../../access/actor-kind';
 import { extractCnpjFromRadarLead } from '../../../nucleo/nucleo-ingestao';
+import { WebsiteCrawlProviderService } from '../providers/website-crawl/website-crawl-provider.service';
 
 import type {
   ExternalRuntimeStatus,
@@ -607,8 +608,10 @@ export class RadarCoreDeliveryMixin {
       failures: [],
     };
     const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
+    // Mantem os contatos somente em memoria para o check em lote. A fronteira
+    // `sanitizeRadarPreDebitLead` abaixo continua sendo a unica saida HTTP.
     const rowPublicItems = orderedRows.map((row) => this.buildRadarLeadPublic(row, {
-      maskContact: true,
+      maskContact: false,
       viewerCompanyId: context.companyId,
       ownershipEnabled,
     }));
@@ -658,14 +661,16 @@ export class RadarCoreDeliveryMixin {
         radarRunItemId: item.id,
       };
     });
-    const publicCandidates = [...rowPublicItems, ...fallbackPublicItems]
-      .slice(0, requestedQuantity)
+    const rawPublicCandidates = [...rowPublicItems, ...fallbackPublicItems].slice(0, requestedQuantity);
+    const whatsappMode = this.radarWhatsappCheckModeByRunId.get(effectiveRun.id)
+      || this.normalizeRadarWhatsappCheckMode(undefined);
+    const whatsapp = await this.applyRadarWhatsappCheck(context, rawPublicCandidates, whatsappMode);
+    const publicCandidates = whatsapp.items
       .map((item: any, index: number) => this.sanitizeRadarPreDebitLead(item, {
         // O id opaco mantém a seleção do card sem revelar a identidade da empresa.
         // O presenter resolve o id real somente dentro do endpoint autenticado de pull.
         id: String(item?.id || `run:${effectiveRun.id}:${index + 1}`),
       }));
-    // WhatsApp é enriquecimento e fica adiado até o pull pós-débito.
     const items = publicCandidates;
     const deliveredCount = items.length;
     const databaseCount = foundItems.filter((item: any) => String(item.source || '') === 'radar_database').length;
@@ -762,7 +767,7 @@ export class RadarCoreDeliveryMixin {
           radiusKm: filters.radiusKm,
         },
         qualitySummary,
-        whatsappCheck: { mode: 'off', checked: 0, deferredUntilClaim: true },
+        whatsappCheck: whatsapp.meta,
       },
     };
   }
@@ -2325,29 +2330,74 @@ export class RadarCoreDeliveryMixin {
    * O freio físico W4 (cache/rate/disjuntor) mora no serviço do check e continua intacto;
    * `confirmed` só vem do Webwhats de verdade (radarCheckWhatsappNumbers).
    */
-  private async resolveRadarWhatsappStatusForDelivery(row: any): Promise<'confirmed' | 'missing' | 'unverified' | null> {
-    const existing = String(
-      this.parseMaybeJsonObject(row?.enrichmentJson)?.whatsappStatus
-      || this.parseMaybeJsonObject(row?.metadataJson)?.whatsappStatus
-      || '',
-    ).trim().toLowerCase();
-    if (existing === 'confirmed') return 'confirmed'; // já confirmado pelo Webwhats — não rebaixa nem re-checa
+  private async resolveRadarWhatsappStatusForDelivery(
+    row: any,
+    requesterCompanyId?: number,
+  ): Promise<'confirmed' | 'missing' | 'unverified' | null> {
+    const enrichment = this.parseMaybeJsonObject(row?.enrichmentJson);
+    const metadata = this.parseMaybeJsonObject(row?.metadataJson);
+    const existing = String(enrichment?.whatsappStatus || metadata?.whatsappStatus || '').trim().toLowerCase();
+    const blockedFax = new Set<string>();
+    const contacts = Array.isArray(row?.contacts) ? row.contacts : [];
+    for (const contact of contacts) {
+      if (String(contact?.source || '').trim().toLowerCase() !== 'rfb_fax') continue;
+      const phone = normalizePhoneDigits(contact?.valueNormalized || contact?.value);
+      if (phone) blockedFax.add(phone);
+    }
+    for (const item of Array.isArray(metadata?.phones) ? metadata.phones : []) {
+      if (!item || typeof item !== 'object' || String(item?.source || '').trim().toLowerCase() !== 'rfb_fax') continue;
+      const phone = normalizePhoneDigits(item?.value || item?.phone || item?.number);
+      if (phone) blockedFax.add(phone);
+    }
 
-    const phoneDigits = normalizePhoneDigits(row?.phoneDigits || row?.phone);
-    if (!phoneDigits) return (existing as any) || null; // sem telefone, nada a checar
+    const phones: string[] = [];
+    const add = (value: unknown, source?: unknown) => {
+      if (String(source || '').trim().toLowerCase() === 'rfb_fax') return;
+      const phone = normalizePhoneDigits(
+        value && typeof value === 'object'
+          ? (value as any).value ?? (value as any).phone ?? (value as any).number ?? (value as any).phoneDigits
+          : value,
+      );
+      if (!phone || blockedFax.has(phone) || phones.includes(phone) || phones.length >= 3) return;
+      phones.push(phone);
+    };
+    add(row?.phoneDigits || row?.phone);
+    for (const item of Array.isArray(metadata?.phones) ? metadata.phones : []) add(item, item?.source);
+    for (const contact of contacts) {
+      if (!['phone', 'whatsapp'].includes(String(contact?.kind || '').trim().toLowerCase())) continue;
+      add(contact?.valueNormalized || contact?.value, contact?.source);
+    }
+    if (!phones.length) return (['confirmed', 'missing', 'unverified'].includes(existing) ? existing : null) as any;
+
+    const phonesWhatsapp: Record<string, boolean> = {
+      ...(metadata?.phonesWhatsapp && typeof metadata.phonesWhatsapp === 'object' ? metadata.phonesWhatsapp : {}),
+      ...(enrichment?.phonesWhatsapp && typeof enrichment.phonesWhatsapp === 'object' ? enrichment.phonesWhatsapp : {}),
+    };
+    if (existing === 'confirmed' && !Object.prototype.hasOwnProperty.call(phonesWhatsapp, phones[0])) {
+      phonesWhatsapp[phones[0]] = true;
+    }
+    const pending = phones.filter((phone) => !Object.prototype.hasOwnProperty.call(phonesWhatsapp, phone));
 
     try {
-      const results = await this.radarCheckWhatsappNumbers([phoneDigits]); // passa pelo freio W4 intacto
-      const match = Array.isArray(results)
-        ? results.find((item: any) => normalizePhoneDigits(item?.normalizedNumber || item?.input) === phoneDigits)
-        : null;
-      if (!match) return (existing as any) || 'unverified'; // motor indisponivel/sem sessao (degrada p/ [])
-      if (match.exists === true) return 'confirmed';        // confirmação REAL do Webwhats
-      if (match.exists === false) return 'missing';         // estado explícito "sem zap"
-      return (existing as any) || 'unverified';
+      if (pending.length) {
+        const results = await this.radarCheckWhatsappNumbers(pending, requesterCompanyId);
+        for (const result of Array.isArray(results) ? results : []) {
+          const phone = normalizePhoneDigits(result?.normalizedNumber || result?.input);
+          if (phone && pending.includes(phone)) phonesWhatsapp[phone] = Boolean(result?.exists);
+        }
+      }
+      metadata.phonesWhatsapp = phonesWhatsapp;
+      enrichment.phonesWhatsapp = phonesWhatsapp;
+      row.metadataJson = JSON.stringify(metadata);
+      row.enrichmentJson = JSON.stringify(enrichment);
+      const primary = phones[0];
+      if (Object.prototype.hasOwnProperty.call(phonesWhatsapp, primary)) {
+        return phonesWhatsapp[primary] ? 'confirmed' : 'missing';
+      }
+      return (['confirmed', 'missing', 'unverified'].includes(existing) ? existing : 'unverified') as any;
     } catch (error: any) {
       this.logger?.warn?.(`[radar-zap-gate] check indisponivel lead=${row?.id || '-'}: ${String(error?.message || error)}`);
-      return (existing as any) || 'unverified'; // fail-open: nunca derruba a entrega
+      return (['confirmed', 'missing', 'unverified'].includes(existing) ? existing : 'unverified') as any;
     }
   }
 
@@ -2447,13 +2497,19 @@ export class RadarCoreDeliveryMixin {
         website: true,
         phone: true,
         phone2: true,
+        fax: true,
+        faxDigits: true,
         email: true,
       },
     }).catch(() => null);
     if (!rfb) return fail('cnpj_not_found', 'CNPJ não localizado na base RFB.');
 
-    const phone1 = normalizePhoneDigits(rfb.phone);
-    const phone2 = normalizePhoneDigits(rfb.phone2);
+    const rawPhone1 = normalizePhoneDigits(rfb.phone);
+    const rawPhone2 = normalizePhoneDigits(rfb.phone2);
+    const rawPhone3 = normalizePhoneDigits(rfb.faxDigits || rfb.fax);
+    const phone1 = isLikelyValidBrPhone(rawPhone1) ? rawPhone1 : null;
+    const phone2 = isLikelyValidBrPhone(rawPhone2) ? rawPhone2 : null;
+    const phone3 = isLikelyValidBrPhone(rawPhone3) ? rawPhone3 : null;
     const email = normalizeBusinessEmail(rfb.email);
     const secondaryCnaeCodes = Array.from(new Set(
       String(rfb.cnaeSecundarias || '')
@@ -2486,6 +2542,7 @@ export class RadarCoreDeliveryMixin {
     const candidates = [
       ...(phone1 ? [{ kind: 'phone' as const, value: phone1, source: 'rfb_primary', confidence: 100, rank: 1 }] : []),
       ...(phone2 && phone2 !== phone1 ? [{ kind: 'phone' as const, value: phone2, source: 'rfb_secondary', confidence: 100, rank: 2 }] : []),
+      ...(phone3 && phone3 !== phone1 && phone3 !== phone2 ? [{ kind: 'phone' as const, value: phone3, source: 'rfb_fax', confidence: 100, rank: 3 }] : []),
       ...(email ? [{ kind: 'email' as const, value: email, source: 'rfb_email', confidence: 100, rank: 1 }] : []),
     ];
     if (candidates.length) {
@@ -2501,6 +2558,7 @@ export class RadarCoreDeliveryMixin {
       ...(Array.isArray(metadata?.phones) ? metadata.phones.map(normalizePhoneDigits) : []),
       phone1,
       phone2,
+      phone3,
     ].filter(Boolean))).slice(0, 3);
     const emails = Array.from(new Set([
       normalizeBusinessEmail(leadRow.email),
@@ -2508,7 +2566,7 @@ export class RadarCoreDeliveryMixin {
       email,
     ].filter(Boolean))).slice(0, 3);
     const currentPhoneDigits = normalizePhoneDigits(leadRow.phoneDigits || leadRow.phone);
-    const rfbPrimaryCandidate = phone1 || phone2 || null;
+    const rfbPrimaryCandidate = phone1 || phone2 || phone3 || null;
     let scalarPhoneDigits = currentPhoneDigits || rfbPrimaryCandidate;
     // RadarLeadPool.phoneDigits continua sendo a chave de identidade histórica e é
     // única. Telefones RFB compartilhados (contador/central) não podem abortar a
@@ -2540,6 +2598,7 @@ export class RadarCoreDeliveryMixin {
         website: officialWebsite,
         ownerName: rfb.ownerName || null,
         ownerQualification: rfb.ownerQualification || null,
+        phones: [phone1, phone2, phone3].filter(Boolean),
         capitalSocial: rfb.capitalSocial == null ? null : String(rfb.capitalSocial),
         naturezaJuridica: rfb.naturezaJuridica || null,
         simples: rfb.simples ?? null,
@@ -2593,11 +2652,20 @@ export class RadarCoreDeliveryMixin {
         },
       },
     };
+    const scalarPhoneValue = scalarPhoneDigits
+      ? phone1 === scalarPhoneDigits
+        ? rfb.phone
+        : phone2 === scalarPhoneDigits
+          ? rfb.phone2
+          : phone3 === scalarPhoneDigits
+            ? rfb.fax
+            : scalarPhoneDigits
+      : null;
     try {
       await (this.prisma as any).radarLeadPool.update({
         where: { id: row.id },
         data: {
-        phone: leadRow.phone || (scalarPhoneDigits ? (phone1 === scalarPhoneDigits ? rfb.phone : rfb.phone2) : null),
+        phone: leadRow.phone || scalarPhoneValue,
         phoneDigits: scalarPhoneDigits,
         email: normalizeBusinessEmail(leadRow.email) || email || null,
         emailStatus: normalizeBusinessEmail(leadRow.email) || email ? leadRow.emailStatus || 'confirmed' : leadRow.emailStatus,
@@ -2638,6 +2706,93 @@ export class RadarCoreDeliveryMixin {
       return fail('rfb_contact_verification_failed', 'Um contato oficial da RFB não permaneceu na projeção canônica.');
     }
     return { row: refreshed, succeeded: true, reason: null };
+  }
+
+  /**
+   * Crawl gratuito e limitado do site oficial durante a puxada paga. Ele não
+   * roda na pesquisa, não confirma WhatsApp por inferência e não inicia
+   * qualquer fábrica/scheduler. O payload volta no mesmo contrato canônico do
+   * motor para completar apenas as vagas restantes de telefone/e-mail (até 3).
+   */
+  private async crawlRadarLeadWebsiteForClaim(row: any) {
+    const websiteRaw = String(row?.website || '').trim();
+    const website = websiteRaw
+      && !this.isBlockedLeadOfficialWebsite(websiteRaw)
+      && websiteHostLooksCompatibleWithLead(row, websiteRaw)
+      ? websiteRaw
+      : null;
+    if (!website) {
+      return { attempted: false, succeeded: false, payload: null, reason: 'website_not_available' };
+    }
+
+    const configuredTimeout = Math.trunc(Number(process.env.HBX_RADAR_CLAIM_WEBSITE_CRAWL_TIMEOUT_MS || 2_500));
+    const timeoutMs = Math.max(1_000, Math.min(4_000, Number.isFinite(configuredTimeout) ? configuredTimeout : 2_500));
+    try {
+      const result = await new WebsiteCrawlProviderService().crawl(website, {
+        timeoutMs,
+        maxHtmlBytes: 250_000,
+        paths: ['/', '/contato', '/fale-conosco'],
+      });
+      const fields = result?.fields || {};
+      const phones = Array.from(new Set([
+        ...(Array.isArray(fields?.phoneDigits) ? fields.phoneDigits : []),
+        ...(Array.isArray(fields?.whatsappPhoneDigits) ? fields.whatsappPhoneDigits : []),
+      ].map(normalizePhoneDigits).filter((value) => value && isLikelyValidBrPhone(value)))).slice(0, 3);
+      const emails = Array.from(new Set(
+        (Array.isArray(fields?.emails) ? fields.emails : [])
+          .map(normalizeBusinessEmail)
+          .filter(Boolean),
+      )).slice(0, 3);
+      const instagramUrl = String(fields?.instagramUrls?.[0] || '').trim() || null;
+      const facebookUrl = String(fields?.facebookUrls?.[0] || '').trim() || null;
+      const address = String(fields?.address || '').trim() || null;
+      const hasUsefulData = Boolean(phones.length || emails.length || instagramUrl || facebookUrl || address);
+      const payload = hasUsefulData ? {
+        website,
+        address,
+        phone: phones[0] ? { value: phones[0], source: 'website_crawl', confidence: 80 } : null,
+        phones: phones.map((value, index) => ({
+          value,
+          source: 'website_crawl',
+          confidence: 80,
+          rank: index + 1,
+          // Um link wa.me prova que o número foi publicado, não que a conta
+          // continua ativa. A confirmação real permanece no verificador dedicado.
+          whatsappStatus: 'unverified',
+        })),
+        email: emails[0] || null,
+        emails: emails.map((value, index) => ({
+          value,
+          source: 'website_crawl',
+          confidence: 85,
+          rank: index + 1,
+        })),
+        emailStatus: emails.length ? 'confirmed' : null,
+        emailSource: emails.length ? 'website' : null,
+        emailConfidence: emails.length ? 85 : 0,
+        instagramUrl,
+        facebookUrl,
+        socialStatus: instagramUrl || facebookUrl ? 'found' : null,
+        socialConfidence: instagramUrl || facebookUrl ? 80 : 0,
+        phonesWhatsapp: {},
+        stats: {
+          identity: 'website_crawl',
+          processed: Array.isArray(result?.evidence?.pages) ? result.evidence.pages.length : 0,
+          enriched: phones.length + emails.length + Number(Boolean(instagramUrl)) + Number(Boolean(facebookUrl)),
+          elapsedMs: 0,
+        },
+      } : null;
+      return {
+        attempted: true,
+        succeeded: result?.status === 'completed' || result?.status === 'partial_error',
+        payload,
+        reason: String(result?.reason || 'website_crawl_completed'),
+      };
+    } catch (error: any) {
+      const reason = String(error?.message || error || 'website_crawl_failed').slice(0, 300);
+      this.logger.warn(`[claim-website-crawl] falha lead=${row?.id || 'unknown'}: ${reason}`);
+      return { attempted: true, succeeded: false, payload: null, reason };
+    }
   }
 
   /**
@@ -3304,6 +3459,88 @@ export class RadarCoreDeliveryMixin {
       : false;
   }
 
+  private async buildRadarClaimHttpResponse(
+    user: any,
+    context: SearchExecutionContext,
+    radarLeadId: string,
+    operationId: string,
+    extra: Record<string, any> = {},
+  ) {
+    const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, operationId);
+    const contactAccessGranted = await this.hasRadarClaimContactAccess(context, radarLeadId, operationId);
+    const vendasLead = contactAccessGranted
+      ? await (this.prisma as any).vendasLead.findFirst({
+          where: { companyId: context.companyId, claimOperationId: operationId },
+          select: { id: true },
+        }).catch(() => null)
+      : null;
+    const item = contactAccessGranted && vendasLead?.id
+      ? await this.getRadarLeadForUser(user, radarLeadId)
+          .then((value: any) => value?.item || null)
+          .catch(() => null)
+      : null;
+    const operation = this.buildPublicLeadProcessSnapshot(snapshot, { contactAccessGranted });
+    const terminalSuccess = ['completed', 'partial'].includes(String(snapshot?.status || ''));
+    return {
+      ok: terminalSuccess && contactAccessGranted && Boolean(vendasLead?.id) && Boolean(item),
+      ...extra,
+      contactAccessGranted,
+      radarLeadId,
+      vendasLeadId: contactAccessGranted ? String(vendasLead?.id || operation?.vendasLeadId || '') || null : null,
+      item,
+      operation,
+    };
+  }
+
+  private async resolveExistingRadarClaimForHttp(
+    user: any,
+    context: SearchExecutionContext,
+    radarLeadId: string,
+    operation: any,
+  ) {
+    const operationId = String(operation?.id || '').trim();
+    if (!operationId) {
+      throw new ServiceUnavailableException('A execução concorrente não pôde ser identificada.');
+    }
+    const configuredWait = Math.trunc(Number(process.env.HBX_RADAR_CLAIM_HTTP_WAIT_MS || 45_000));
+    const waitMs = Math.max(5_000, Math.min(55_000, Number.isFinite(configuredWait) ? configuredWait : 45_000));
+    const deadline = Date.now() + waitMs;
+    let recoveryAttempted = false;
+
+    for (;;) {
+      const current = await (this.prisma as any).radarLeadProcessRun.findFirst({
+        where: { id: operationId, companyId: context.companyId, radarLeadId, mode: 'claim' },
+        select: { id: true, status: true, updatedAt: true },
+      }).catch(() => null);
+      if (!current) {
+        throw new ServiceUnavailableException('A execução concorrente desapareceu antes da entrega.');
+      }
+      const status = String(current.status || '');
+      if (['completed', 'partial', 'failed', 'refund_pending', 'refunded'].includes(status)) {
+        return this.buildRadarClaimHttpResponse(user, context, radarLeadId, operationId);
+      }
+
+      const updatedAtMs = current.updatedAt instanceof Date ? current.updatedAt.getTime() : 0;
+      if (!recoveryAttempted && updatedAtMs && updatedAtMs < Date.now() - 2 * 60 * 1000) {
+        recoveryAttempted = true;
+        await this.recoverStaleRadarLeadClaimOperations({
+          updatedBefore: new Date(Date.now() - 2 * 60 * 1000),
+        }).catch(() => null);
+        continue;
+      }
+      if (Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    const response = await this.buildRadarClaimHttpResponse(user, context, radarLeadId, operationId);
+    if (response.ok) return response;
+    throw new ConflictException({
+      code: 'RADAR_CLAIM_IN_PROGRESS',
+      message: 'A puxada ainda está sendo concluída. Nenhum contato foi liberado por esta resposta.',
+      operation: response.operation,
+    });
+  }
+
   async startRadarLeadClaimForUser(
     user: any,
     radarLeadId: string,
@@ -3333,17 +3570,7 @@ export class RadarCoreDeliveryMixin {
       orderBy: { createdAt: 'desc' },
     }).catch(() => null);
     if (existingActive) {
-      const updatedAtMs = existingActive.updatedAt instanceof Date ? existingActive.updatedAt.getTime() : 0;
-      if (updatedAtMs && updatedAtMs < Date.now() - 2 * 60 * 1000) {
-        setImmediate(() => {
-          void this.recoverStaleRadarLeadClaimOperations({
-            updatedBefore: new Date(Date.now() - 2 * 60 * 1000),
-          }).catch(() => null);
-        });
-      }
-      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, existingActive.id);
-      const contactAccessGranted = await this.hasRadarClaimContactAccess(context, leadId, existingActive.id);
-      return { ok: true, operation: this.buildPublicLeadProcessSnapshot(snapshot, { contactAccessGranted }) };
+      return this.resolveExistingRadarClaimForHttp(user, context, leadId, existingActive);
     }
     const previousAcquisition = await processDelegate.findFirst({
       where: {
@@ -3358,14 +3585,9 @@ export class RadarCoreDeliveryMixin {
       // Aquisição é uma vez por identidade/tenant. Uma nova chave HTTP não
       // transforma o mesmo lead em nova compra; devolvemos a operação que já
       // comprovou débito + entrega.
-      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, previousAcquisition.id);
       const contactAccessGranted = await this.hasRadarClaimContactAccess(context, leadId, previousAcquisition.id);
       if (contactAccessGranted) {
-        return {
-          ok: true,
-          alreadyAcquired: true,
-          operation: this.buildPublicLeadProcessSnapshot(snapshot, { contactAccessGranted: true }),
-        };
+        return this.buildRadarClaimHttpResponse(user, context, leadId, previousAcquisition.id, { alreadyAcquired: true });
       }
     }
     const previousCount = await processDelegate.count({
@@ -3463,20 +3685,21 @@ export class RadarCoreDeliveryMixin {
         orderBy: { createdAt: 'desc' },
       }).catch(() => null);
       if (!winner) throw error;
-      const snapshot = await this.getRadarLeadProcessStore().getSnapshot(context.companyId, winner.id);
-      const contactAccessGranted = await this.hasRadarClaimContactAccess(context, leadId, winner.id);
-      return { ok: true, operation: this.buildPublicLeadProcessSnapshot(snapshot, { contactAccessGranted }) };
+      return this.resolveExistingRadarClaimForHttp(user, context, leadId, winner);
     }
     // Uma repetição com a mesma chave pode devolver uma operação já terminal.
     // Nunca reabre uma compra concluída/compensada: a resposta idempotente é o
     // snapshot persistido e somente uma nova operação recebe um novo débito.
     if (operationWasCreated && !['completed', 'partial', 'failed', 'refund_pending', 'refunded'].includes(String(created.status))) {
-      setImmediate(() => {
-        void this.processRadarLeadClaimOperation(created.id, user, leadId, options);
-      });
+      // A requisição que debita o crédito só responde depois que o card
+      // core existe em Vendas e o snapshot final 3+3 foi persistido. Isso mantém
+      // a animação desacoplada do frontend sem deixá-la presa em polling por
+      // horas/dias. Cada fonte abaixo possui timeout próprio e limitado.
+      await this.processRadarLeadClaimOperation(created.id, user, leadId, options);
+    } else if (!operationWasCreated && !['completed', 'partial', 'failed', 'refund_pending', 'refunded'].includes(String(created.status))) {
+      return this.resolveExistingRadarClaimForHttp(user, context, leadId, created);
     }
-    const contactAccessGranted = await this.hasRadarClaimContactAccess(context, leadId, created.id);
-    return { ok: true, operation: this.buildPublicLeadProcessSnapshot(created, { contactAccessGranted }) };
+    return this.buildRadarClaimHttpResponse(user, context, leadId, created.id);
   }
 
   private async processRadarLeadClaimOperation(operationId: string, user: any, radarLeadId: string, options: any) {
@@ -3677,15 +3900,13 @@ export class RadarCoreDeliveryMixin {
         }).catch(() => null);
         if (preDebitStatuses.has(String(snapshot.status)) && persistedUser && !activeCredit) {
           const queueUser = await this.buildQueueUser(run);
-          setImmediate(() => {
-            void this.processRadarLeadClaimOperation(operationId, queueUser, radarLeadId, {
-              debitOnImport: true,
-              assignedUserId: Math.trunc(Number(claimOptions.assignedUserId || 0)) || null,
-              assignedByUserId: Math.trunc(Number(claimOptions.assignedByUserId || 0)) || null,
-              skipWhatsappValidation: Boolean(claimOptions.skipWhatsappValidation),
-              resumeStatus: snapshot.status,
-              workerToken: recoveryWorkerToken,
-            });
+          await this.processRadarLeadClaimOperation(operationId, queueUser, radarLeadId, {
+            debitOnImport: true,
+            assignedUserId: Math.trunc(Number(claimOptions.assignedUserId || 0)) || null,
+            assignedByUserId: Math.trunc(Number(claimOptions.assignedByUserId || 0)) || null,
+            skipWhatsappValidation: Boolean(claimOptions.skipWhatsappValidation),
+            resumeStatus: snapshot.status,
+            workerToken: recoveryWorkerToken,
           });
           continue;
         }
@@ -4031,6 +4252,40 @@ export class RadarCoreDeliveryMixin {
     }
   }
 
+  /**
+   * Saneamento Ollama local, somente aditivo e fora do caminho da resposta.
+   * O serviço e no-op enquanto `HBX_RADAR_AI_SANEAMENTO_ENABLED` não estiver
+   * explicitamente ligado; portanto permanece desligado por padrão no VPS.
+   */
+  private enqueueRadarPostDeliveryAiSaneamento(row: any, companyId?: number | null) {
+    const radarLeadId = String(row?.id || '').trim();
+    const name = String(row?.name || '').trim();
+    if (!radarLeadId || !name) return;
+    this.getRadarPostDeliveryAiSaneamento().enqueue(
+      {
+        radarLeadId,
+        name,
+        city: row?.city || null,
+        state: row?.state || null,
+        segment: row?.segment || null,
+        companyId: companyId ?? null,
+      },
+      {
+        loadRadarLeadPoolRow: (id: string) => (this.prisma as any).radarLeadPool.findUnique({
+          where: { id },
+          select: { id: true, metadataJson: true },
+        }).catch(() => null),
+        updateRadarLeadPoolMetadata: async (id: string, metadataJson: string) => {
+          await (this.prisma as any).radarLeadPool.update({
+            where: { id },
+            data: { metadataJson },
+          }).catch(() => null);
+        },
+        logger: this.logger,
+      },
+    );
+  }
+
   async importRadarLeadToVendasForUser(
     user: any,
     radarLeadId: string,
@@ -4312,47 +4567,70 @@ export class RadarCoreDeliveryMixin {
         status: 'running',
         attemptedAt: motorAttemptedAt,
       }).catch(() => leadRow);
-      const motorPayload = await this.enrichRadarLeadViaHbxMotor(context, leadRow).catch((error: any) => {
-        partialReasons.push(`Motor HBX falhou: ${String(error?.message || error)}`);
-        return null;
-      });
+      // Site conhecido: motor e crawl gratuito rodam juntos, sem somar o tempo
+      // de ambos. Site descoberto pelo motor é crawleado logo depois, ainda
+      // dentro desta compra cercada por débito + claim.
+      const hadWebsiteBeforeMotor = Boolean(String(leadRow?.website || '').trim());
+      const [motorPayload, initialWebsiteCrawl] = await Promise.all([
+        this.enrichRadarLeadViaHbxMotor(context, leadRow).catch((error: any) => {
+          partialReasons.push(`Motor HBX falhou: ${String(error?.message || error)}`);
+          return null;
+        }),
+        hadWebsiteBeforeMotor
+          ? this.crawlRadarLeadWebsiteForClaim(leadRow)
+          : Promise.resolve({ attempted: false, succeeded: false, payload: null, reason: 'waiting_motor_website' }),
+      ]);
       await this.assertRadarClaimWorkerFence(context, claimOperationId, workerToken);
+      let motorPersisted = false;
       if (motorPayload) {
         try {
           leadRow = await this.applyHbxMotorEnrichment(context, leadRow, motorPayload);
-          leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
-            attempted: true,
-            succeeded: true,
-            status: 'completed',
-            attemptedAt: motorAttemptedAt,
-            finishedAt: new Date().toISOString(),
-          }).catch(() => leadRow);
+          motorPersisted = true;
         } catch (motorPersistenceError: any) {
-          const detail = `Motor respondeu, mas a persistência canônica falhou: ${String(motorPersistenceError?.message || motorPersistenceError)}`;
-          partialReasons.push(detail);
-          leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
-            attempted: true,
-            succeeded: false,
-            status: 'failed',
-            reason: 'canonical_persistence_failed',
-            attemptedAt: motorAttemptedAt,
-            finishedAt: new Date().toISOString(),
-          }).catch(() => leadRow);
+          partialReasons.push(`Motor respondeu, mas a persistência canônica falhou: ${String(motorPersistenceError?.message || motorPersistenceError)}`);
         }
       } else {
         partialReasons.push('Motor HBX não concluiu o enriquecimento; os dados RFB foram preservados.');
-        leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
-          attempted: true,
-          succeeded: false,
-          status: 'failed',
-          attemptedAt: motorAttemptedAt,
-          finishedAt: new Date().toISOString(),
-        }).catch(() => leadRow);
       }
+
+      let websiteCrawl = initialWebsiteCrawl;
+      if (!websiteCrawl?.attempted && String(leadRow?.website || '').trim()) {
+        await reportProgress('motor_enriching', {
+          radarLeadId: leadRow.id,
+          phase: 'website_crawl',
+          detail: 'Lendo os contatos publicados no site oficial.',
+        }).catch(() => undefined);
+        websiteCrawl = await this.crawlRadarLeadWebsiteForClaim(leadRow);
+        await this.assertRadarClaimWorkerFence(context, claimOperationId, workerToken);
+      }
+      let crawlPersisted = false;
+      if (websiteCrawl?.payload) {
+        try {
+          leadRow = await this.applyHbxMotorEnrichment(context, leadRow, websiteCrawl.payload);
+          crawlPersisted = true;
+        } catch (crawlPersistenceError: any) {
+          partialReasons.push(`Crawl do site respondeu, mas a persistência canônica falhou: ${String(crawlPersistenceError?.message || crawlPersistenceError)}`);
+        }
+      }
+      const sourceSucceeded = motorPersisted || crawlPersisted;
+      leadRow = await this.persistClaimSourceCoverage(leadRow, 'motor', {
+        attempted: true,
+        succeeded: sourceSucceeded,
+        status: sourceSucceeded ? 'completed' : 'failed',
+        reason: sourceSucceeded ? null : 'motor_and_site_crawl_without_persisted_result',
+        attemptedAt: motorAttemptedAt,
+        finishedAt: new Date().toISOString(),
+        websiteCrawl: {
+          attempted: Boolean(websiteCrawl?.attempted),
+          succeeded: Boolean(websiteCrawl?.succeeded),
+          contactsPersisted: crawlPersisted,
+          reason: websiteCrawl?.reason || null,
+        },
+      }).catch(() => leadRow);
 
       // Verificação de WhatsApp também é enriquecimento: só pode acontecer após
       // débito + claim, junto do motor. Ela apenas sinaliza; nunca bloqueia entrega.
-      const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow).catch((error: any) => {
+      const resolvedWhatsappStatus = await this.resolveRadarWhatsappStatusForDelivery(leadRow, context.companyId).catch((error: any) => {
         partialReasons.push(`Verificação de WhatsApp pendente: ${String(error?.message || error)}`);
         return null;
       });
@@ -4561,9 +4839,11 @@ export class RadarCoreDeliveryMixin {
     if (!assignedUserId && leadRow?.segment) {
       this._bumpSegmentAffinity(context.userId, String(leadRow.segment)).catch(() => null);
     }
-    // Não existem escritores assíncronos pós-resposta. Eles podiam atravessar uma
-    // revogação/estorno e recriar PII depois do cleanup. RFB + motor já rodaram
-    // dentro da puxada cercada pelo débito e pelo claim.
+    if (wantsCreditDebit) {
+      // Apenas nome/segmento/nota, em Ollama local e default-OFF. Não recria PII,
+      // não bloqueia a puxada e nunca substitui RFB/motor/crawl síncronos.
+      this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
+    }
     await reportProgress(partialReasons.length ? 'partial' : 'completed', {
       radarLeadId: leadRow.id,
       vendasLeadId,

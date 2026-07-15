@@ -7,6 +7,8 @@ export type RadarLeadSourceKind =
   | 'global_cache'
   | 'hbx_engine'
   | 'google_textual'
+  | 'radar_web_enrichment'
+  | 'website_crawl_light'
   | 'cnpj_public'
   | 'local_directory'
   | 'vertical_source'

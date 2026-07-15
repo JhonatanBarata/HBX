@@ -164,6 +164,77 @@ function pruneRadarCnpjPublicClientRunState(now: number) {
 
 export class RadarCoreSearchLoopMixin {
   [key: string]: any;
+  private enqueueRadarSocialLookupForSavedLeads(
+    context: SearchExecutionContext,
+    runId: string,
+    input: NormalizedSearchInput,
+    leadIds: string[] = [],
+    engineUrl?: string | null,
+  ) {
+    return this.getRadarSocialLookupService().enqueue(
+      context,
+      runId,
+      input,
+      leadIds,
+      engineUrl,
+      this.buildRadarSocialLookupHost(),
+    );
+  }
+
+  private enqueueRadarWebEnrichmentForSavedLeads(
+    context: SearchExecutionContext,
+    runId: string,
+    input: NormalizedSearchInput,
+    leadIds: string[] = [],
+    engineUrl?: string | null,
+  ) {
+    return this.getRadarWebEnrichmentJobService().enqueue(
+      context,
+      runId,
+      input,
+      leadIds,
+      engineUrl,
+      this.buildRadarWebEnrichmentJobHost(),
+    );
+  }
+
+  private async drainRadarSocialLookupQueue() {
+    return this.getRadarSocialLookupService().drain();
+  }
+
+  private async drainRadarWebEnrichmentQueue() {
+    return this.getRadarWebEnrichmentJobService().drain();
+  }
+
+  async runRadarSocialLookupForSavedLead(
+    context: SearchExecutionContext,
+    leadId: string,
+    input: NormalizedSearchInput,
+    engineUrl?: string | null,
+  ) {
+    return this.getRadarSocialLookupService().runForSavedLead(
+      context,
+      leadId,
+      input,
+      engineUrl,
+      this.buildRadarSocialLookupHost(),
+    );
+  }
+
+  async runRadarWebEnrichmentForSavedLead(
+    context: SearchExecutionContext,
+    leadId: string,
+    input: NormalizedSearchInput,
+    engineUrl?: string | null,
+  ) {
+    return this.getRadarWebEnrichmentJobService().runForSavedLead(
+      context,
+      leadId,
+      input,
+      engineUrl,
+      this.buildRadarWebEnrichmentJobHost(),
+    );
+  }
   /**
    * Fonte Receita (cnpj_public) soldada no run de cliente — tentativa obrigatória para PJ.
    * (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md).
@@ -214,6 +285,11 @@ export class RadarCoreSearchLoopMixin {
           'cnpj_public',
         );
         accepted = safeInteger(savedCounts?.found);
+        const enrichmentIds = Array.isArray(savedCounts?.savedLeadIds) ? savedCounts.savedLeadIds : [];
+        if (enrichmentIds.length) {
+          this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, normalized, enrichmentIds);
+          this.enqueueRadarSocialLookupForSavedLeads(context, runId, normalized, enrichmentIds);
+        }
       }
       if (accepted === 0) {
         radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: true, updatedAt: now });
@@ -988,6 +1064,11 @@ export class RadarCoreSearchLoopMixin {
         safeInteger(current.attemptCount) * batchLimit,
         engineUrl,
       );
+      const enrichmentIds = Array.isArray(savedCounts?.savedLeadIds) ? savedCounts.savedLeadIds : [];
+      if (enrichmentIds.length) {
+        this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, discoveryInput, enrichmentIds, engineUrl);
+        this.enqueueRadarSocialLookupForSavedLeads(context, runId, discoveryInput, enrichmentIds, engineUrl);
+      }
       if (lease) {
         await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
       }

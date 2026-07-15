@@ -12,6 +12,11 @@ const PAID_RUN_STATUSES = new Set([
   'partial',
 ]);
 
+// A prova financeira passou a existir no corte de 15/07/2026. O fallback
+// abaixo existe somente para cards materializados antes desse corte e nunca
+// deve transformar uma saga nova parcialmente gravada em aquisição legada.
+const RADAR_PAID_FENCING_CUTOFF = new Date('2026-07-15T03:42:29.000Z');
+
 export type VendasRadarPaidAccess = {
   isRadarOrigin: boolean;
   contactAccessGranted: boolean;
@@ -156,6 +161,7 @@ export class VendasRadarPaidAccessService {
           paidClaimOperationId: true,
           claimUsageKey: true,
           acquiredAt: true,
+          createdAt: true,
         },
       });
     } catch {
@@ -199,6 +205,35 @@ export class VendasRadarPaidAccessService {
           operationId: null,
           usageKey: null,
           reason: null,
+        });
+        continue;
+      }
+
+      // Compatibilidade de cards adquiridos antes da saga paga: o próprio
+      // VendasLead já é o ativo entregue e o CompanyState do MESMO tenant
+      // aponta de volta para ele. Esses registros nunca tiveram
+      // claimOperationId/claimUsageKey e não podem desaparecer retroativamente.
+      // Uma nova puxada continua passando obrigatoriamente pelo ramo financeiro
+      // abaixo; o fallback só vale sem operation explícita e com vínculo bilateral.
+      const legacyState = !explicitOperationId
+        ? Array.from(stateCandidates).find((state: any) => (
+            compact(state?.vendasLeadId) === rowId
+            && Boolean(compact(state?.radarLeadId))
+            && !compact(state?.paidClaimOperationId)
+            && !compact(state?.claimUsageKey)
+            && !state?.acquiredAt
+            && state?.createdAt instanceof Date
+            && state.createdAt < RADAR_PAID_FENCING_CUTOFF
+          ))
+        : null;
+      if (legacyState) {
+        result.set(rowId, {
+          isRadarOrigin: true,
+          contactAccessGranted: true,
+          radarLeadId: compact(legacyState.radarLeadId),
+          operationId: null,
+          usageKey: null,
+          reason: 'legacy_vendas_company_state',
         });
         continue;
       }

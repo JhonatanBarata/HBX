@@ -602,10 +602,12 @@
   padding: 10px;
   overflow: auto;
   scrollbar-width: thin;
+  grid-auto-rows: max-content;
 }
 
 .leadEvent {
   min-width: 0;
+  min-height: 126px;
   display: grid;
   grid-template-columns: 5px minmax(0, 1fr);
   gap: 9px;
@@ -831,6 +833,20 @@
 }
 
 .protectedContacts p span { color: var(--text-strong); }
+
+.protectedContactsCompact {
+  min-height: 48px;
+}
+
+.protectedContactsCompact .blurGrid {
+  inset: 6px;
+  filter: blur(3px);
+  opacity: 0.58;
+}
+
+.protectedContactsCompact p {
+  padding: 6px 9px;
+}
 .inlineEmpty { margin-top: 9px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); }
 
 .fieldScan,
@@ -1060,13 +1076,28 @@
     align-content: normal;
   }
   .panel > * { flex: 0 0 auto; }
-  .sourceBridge,
-  .grid { grid-template-columns: 1fr; }
-  .bridgeLine { min-height: 44px; }
-  .processPanel { min-height: 520px; }
-  .scanPanel { min-height: 610px; }
-  .telemetryPanel { min-height: 690px; }
-  .radarStage { min-height: 220px; }
+  .sourceBridge {
+    grid-template-columns: minmax(0, 1fr) 130px minmax(0, 1fr);
+  }
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .streamPanel {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    min-height: 570px;
+  }
+  .scanPanel {
+    grid-column: 1;
+    grid-row: 2;
+    min-height: 470px;
+  }
+  .telemetryPanel {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 470px;
+  }
+  .radarStage { min-height: 160px; }
 }
 
 @media (max-width: 720px) {
@@ -1081,14 +1112,20 @@
   .primaryButton,
   .secondaryButton { flex: 1; }
   .sourceCard { grid-template-columns: 40px minmax(0, 1fr); }
+  .sourceBridge,
+  .grid { grid-template-columns: 1fr; }
+  .bridgeLine { min-height: 44px; }
   .sourceState { grid-column: 2; justify-self: start; }
   .progressWrap { width: 100%; }
   .contactGrid,
   .metricGrid,
   .blurGrid { grid-template-columns: 1fr; }
+  .protectedContactsCompact .blurGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .contactGrid > div { min-height: 58px; }
   .protectedContacts { min-height: 112px; }
-  .processPanel { min-height: 500px; }
+  .streamPanel { grid-column: 1; grid-row: 1; min-height: 520px; }
+  .scanPanel,
+  .telemetryPanel { display: none; }
   .eventTop { grid-template-columns: 35px minmax(0, 1fr); }
   .eventStatus { grid-column: 2; justify-self: start; }
   .footer > div:first-child { grid-template-columns: auto minmax(0, 1fr); }

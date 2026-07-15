@@ -116,18 +116,31 @@ function normalizedOwnershipStatus(value: RadarLead["ownershipStatus"]): RadarLe
   return RADAR_OWNERSHIP_STATUSES.has(String(value || "")) ? value : null;
 }
 
-function topLeadContacts(values: LeadContactRecord[] | null | undefined) {
-  return Array.isArray(values)
-    ? values.slice().sort((a, b) => Number(a?.rank || 99) - Number(b?.rank || 99)).slice(0, 3)
-    : null;
+function topLeadContacts(
+  values: LeadContactRecord[] | null | undefined,
+  kind: "phone" | "email",
+) {
+  if (!Array.isArray(values)) return null;
+  const seen = new Set<string>();
+  const result: LeadContactRecord[] = [];
+  for (const contact of values
+    .slice()
+    .sort((a, b) => Number(a?.rank || 99) - Number(b?.rank || 99))) {
+    const raw = String(contact?.value || "").trim();
+    const key = kind === "phone" ? raw.replace(/\D/g, "") : raw.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(contact);
+    if (result.length === 3) break;
+  }
+  return result;
 }
 
 /**
- * Defesa fail-closed para qualquer resposta: um lead sem a prova explícita
- * `ownershipStatus === "mine" && contactAccessGranted === true`
- * entra no estado React apenas com
- * o ID operacional, flags agregadas de canal e placeholders. Nome, localização,
- * documentos, pessoas, contatos, URLs e blobs nunca chegam ao DOM da vitrine.
+ * Defesa fail-closed para os canais de contato. A vitrine pode identificar a
+ * empresa e explicar por que ela combina com a busca; telefone, e-mail, site,
+ * redes sociais e dados pessoais só entram no estado React depois da prova
+ * explícita `ownershipStatus === "mine" && contactAccessGranted === true`.
  */
 export function sanitizeRadarLeadForClient(input: RadarLead): RadarLead {
   const ownershipStatus = normalizedOwnershipStatus(input?.ownershipStatus);
@@ -140,18 +153,48 @@ export function sanitizeRadarLeadForClient(input: RadarLead): RadarLead {
   if (ownershipStatus !== "mine" || !contactAccessGranted) {
     return {
       ...base,
-      name: "Empresa protegida",
+      name: String(input?.name || "Empresa localizada"),
       phone: "",
       email: null,
-      city: null,
-      state: null,
-      segment: null,
-      businessCategory: null,
-      opportunityScore: 0,
+      city: input?.city ?? null,
+      state: input?.state ?? null,
+      segment: input?.segment ?? null,
+      businessCategory: input?.businessCategory ?? null,
+      opportunityScore: Number(input?.opportunityScore || 0),
+      opportunityReason: input?.opportunityReason ?? null,
+      opportunitySignals: Array.isArray(input?.opportunitySignals)
+        ? input.opportunitySignals.slice(0, 12)
+        : null,
+      fitScore: input?.fitScore ?? null,
       hasPhone: input?.hasPhone === true,
       hasEmail: input?.hasEmail === true,
       hasWhatsapp: input?.hasWhatsapp === true,
-      sourceChain: null,
+      sourceChain: input?.sourceChain ?? null,
+      rating: input?.rating ?? null,
+      reviews: input?.reviews ?? null,
+      cnpj: input?.cnpj ?? null,
+      cnae: input?.cnae ?? null,
+      razaoSocial: input?.razaoSocial ?? null,
+      companySituation: input?.companySituation ?? null,
+      phones: null,
+      emails: null,
+      phoneContacts: null,
+      emailContacts: null,
+      phonesWhatsapp: null,
+      people: null,
+      ownerName: null,
+      ownerNames: null,
+      ownerPhone: null,
+      ownerInstagram: null,
+      ownerFacebook: null,
+      instagramUrl: null,
+      facebookUrl: null,
+      website: null,
+      enrichmentScore: input?.enrichmentScore ?? null,
+      lastEnrichedAt: input?.lastEnrichedAt ?? null,
+      enrichmentStatus: input?.enrichmentStatus ?? null,
+      isFreshCompany: input?.isFreshCompany ?? null,
+      daysSinceOpened: input?.daysSinceOpened ?? null,
     };
   }
   return {
@@ -192,8 +235,8 @@ export function sanitizeRadarLeadForClient(input: RadarLead): RadarLead {
     })) : null,
     emails: Array.isArray(input?.emails) ? input.emails.slice(0, 3) : null,
     phones: Array.isArray(input?.phones) ? input.phones.slice(0, 3) : null,
-    phoneContacts: topLeadContacts(input?.phoneContacts),
-    emailContacts: topLeadContacts(input?.emailContacts),
+    phoneContacts: topLeadContacts(input?.phoneContacts, "phone"),
+    emailContacts: topLeadContacts(input?.emailContacts, "email"),
     phonesWhatsapp: input?.phonesWhatsapp && typeof input.phonesWhatsapp === "object" ? { ...input.phonesWhatsapp } : null,
     enrichmentScore: input?.enrichmentScore ?? null,
     lastEnrichedAt: input?.lastEnrichedAt ?? null,
@@ -1145,7 +1188,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setPullBusyId(id);
     setPullMsg(null);
     try {
-      await claimLead(id);
+      const lead = data?.items.find(item => item.id === id) || (selLead?.id === id ? selLead : null);
+      await claimLead(id, {
+        name: lead?.name,
+        location: [lead?.city, lead?.state].filter(Boolean).join("/") || null,
+        segment: lead?.segment || lead?.businessCategory,
+      });
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
       if (selLead?.id === id) setSelLead(null);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
@@ -1166,16 +1214,27 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setPullMsg(null);
     let ok = 0;
     let stopMsg: string | null = null;
+    const completedIds: string[] = [];
     for (const id of Array.from(selected)) {
       try {
-        await claimLead(id);
+        const lead = data?.items.find(item => item.id === id);
+        await claimLead(id, {
+          name: lead?.name,
+          location: [lead?.city, lead?.state].filter(Boolean).join("/") || null,
+          segment: lead?.segment || lead?.businessCategory,
+        });
         ok += 1;
+        completedIds.push(id);
       } catch (err) {
         stopMsg = err instanceof Error ? err.message : "Não foi possível puxar este lead — parei aqui.";
         break;
       }
     }
-    setSelected(new Set());
+    setSelected(previous => {
+      const remaining = new Set(previous);
+      completedIds.forEach(id => remaining.delete(id));
+      return remaining;
+    });
     setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
     if (ok > 0) void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)
     setBulkBusy(false);

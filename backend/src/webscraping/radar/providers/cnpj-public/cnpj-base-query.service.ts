@@ -85,6 +85,8 @@ export type CnpjBaseSampleRow = {
   state: string | null;
   phone: string | null;
   phone2: string | null;
+  /** Terceiro telefone comercial; na base RFB sua origem é o fax cadastral. */
+  phone3: string | null;
   email: string | null;
   website: string | null;
   openedAt: string | null;
@@ -155,7 +157,13 @@ export class CnpjBaseQueryService {
     }
     if (input.ddd) {
       const ddd = String(input.ddd).replace(/\D/g, '').slice(0, 2);
-      if (ddd) and.push({ OR: [{ phoneDigits: { contains: ddd } }, { phone: { contains: ddd } }] });
+      if (ddd) and.push({ OR: [
+        { phoneDigits: { contains: ddd } },
+        { phone: { contains: ddd } },
+        { phone2: { contains: ddd } },
+        { faxDigits: { contains: ddd } },
+        { fax: { contains: ddd } },
+      ] });
     }
     // bairro/CEP REMOVIDOS (correção de escopo 02/07): `address` é uma string concatenada
     // (logradouro+numero+bairro), não há coluna estruturada — um LIKE aqui seria vitrine vazia
@@ -244,12 +252,22 @@ export class CnpjBaseQueryService {
     // ---- HOT-03 anti-contador / opções de contato ----
     const contato = input.contato || {};
     if (contato.comEmail) where.email = { not: null };
-    if (contato.comTelefone) where.phoneDigits = { not: null };
+    if (contato.comTelefone) {
+      and.push({ OR: [
+        { phoneDigits: { not: null } },
+        { phone2: { not: null } },
+        { faxDigits: { not: null } },
+        { fax: { not: null } },
+      ] });
+    }
     if (contato.comCelular) {
       // regra-do-9 aproximada em SQL: 11 dígitos locais com 3º = '9'. Prisma não faz regex
       // portável fácil aqui — filtragem fina do "celular" acontece em memória na amostra
       // (isLikelyCelular), este filtro só garante que HÁ telefone.
-      where.phoneDigits = { not: null };
+      and.push({ OR: [
+        { phoneDigits: { not: null } },
+        { phone2: { not: null } },
+      ] });
     }
     const maxPhoneShare = contato.maxPhoneShare ?? 3;
     const maxEmailShare = contato.maxEmailShare ?? 3;
@@ -320,7 +338,7 @@ export class CnpjBaseQueryService {
         select: {
           cnpj: true, razaoSocial: true, nomeFantasia: true, cnae: true, cnaeDescription: true,
           porte: true, situacao: true, matrizFilial: true, capitalSocial: true, naturezaJuridica: true,
-          simples: true, mei: true, city: true, state: true, phone: true, phone2: true, email: true,
+          simples: true, mei: true, city: true, state: true, phone: true, phone2: true, fax: true, email: true,
           website: true, openedAt: true, firstSeenAt: true, phoneShareCount: true, emailShareCount: true,
           phoneDigits: true, ownerName: true, ownerQualification: true,
         },
@@ -347,6 +365,7 @@ export class CnpjBaseQueryService {
       state: row.state || null,
       phone: row.phone || null,
       phone2: row.phone2 || null,
+      phone3: row.fax || null,
       email: row.email || null,
       website: row.website || null,
       openedAt: row.openedAt ? new Date(row.openedAt).toISOString() : null,
@@ -355,7 +374,7 @@ export class CnpjBaseQueryService {
       emailShareCount: row.emailShareCount ?? null,
       ownerName: row.ownerName || null,
       ownerQualification: row.ownerQualification || null,
-      selo: selarQualidade({ phone: row.phone, email: row.email, phoneShareCount: row.phoneShareCount, emailShareCount: row.emailShareCount, whatsappValidado: whatsappValidados.has(normalizePhoneDigits(row.phoneDigits) || '') }, maxShare),
+      selo: selarQualidade({ phone: row.phone || row.phone2 || row.fax, email: row.email, phoneShareCount: row.phoneShareCount, emailShareCount: row.emailShareCount, whatsappValidado: whatsappValidados.has(normalizePhoneDigits(row.phoneDigits) || '') }, maxShare),
     }));
 
     // Estatística de topo (HOT-03 "criatividade"): quantos da AMOSTRA têm celular próprio vs contador.
@@ -440,7 +459,7 @@ export class CnpjBaseQueryService {
       take: maxItems,
       select: {
         cnpj: true, razaoSocial: true, nomeFantasia: true, city: true, state: true,
-        cnaeDescription: true, website: true, phone: true, phone2: true, phoneDigits: true, email: true,
+        cnaeDescription: true, website: true, phone: true, phone2: true, fax: true, phoneDigits: true, email: true,
       },
     }).catch(() => []);
 
@@ -459,6 +478,7 @@ export class CnpjBaseQueryService {
       website: row.website || null,
       phone: row.phone || null,
       phone2: row.phone2 || null,
+      phone3: row.fax || null,
       email: row.email || null,
       emailStatus: row.email ? 'probable' : 'missing',
       sourceUrl: `internal://cnpj-base/${row.cnpj}`,

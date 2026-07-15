@@ -15,6 +15,8 @@ const backendAppSource = fs.readFileSync(path.join(rootDir, 'backend', 'src', 'a
 const prismaSchema = fs.readFileSync(path.join(rootDir, 'backend', 'prisma', 'schema.prisma'), 'utf8');
 
 test('Night Factory só pode ser acionada explicitamente no HBX Owner 127.0.0.1:3107', () => {
+  assert.match(agentSource, /process\.platform !== "win32"/);
+  assert.match(agentSource, /process\.env\.NODE_ENV[\s\S]*=== "production"/);
   assert.match(agentSource, /const HOST = "127\.0\.0\.1";/);
   assert.match(agentSource, /const PORT = 3107;/);
   assert.match(agentSource, /if \(!TOKEN\)[\s\S]*process\.exit\(1\);/);
@@ -40,6 +42,8 @@ test('Local Lab nasce como filho controlado e morre com o HBX Owner', () => {
   assert.match(agentSource, /await stopLocalLab\(\)/);
 
   assert.match(localLabSource, /const LOOPBACK_HOST = '127\.0\.0\.1'/);
+  assert.match(localLabSource, /process\.platform !== 'win32'/);
+  assert.match(localLabSource, /process\.env\.NODE_ENV[\s\S]*=== 'production'/);
   assert.match(localLabSource, /HBX_LOCAL_LAB_HOST_BLOCKED/);
   assert.match(localLabSource, /HBX_LOCAL_LAB_CONTROL_TOKEN_REQUIRED/);
   assert.match(localLabSource, /HBX_OWNER_PARENT_PID_REQUIRED/);

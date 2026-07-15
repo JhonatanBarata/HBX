@@ -74,6 +74,10 @@ test('presenter falha fechado e nunca revela contato de lead pertencente a outro
   // pública pré-débito volta ao placeholder neutro.
   assert.equal(item.ownershipStatus, 'available');
   assert.equal(item.ownerCompanyId, null);
+  assert.equal(item.name, 'Empresa Teste');
+  assert.equal(item.city, 'Campinas');
+  assert.equal(item.state, 'SP');
+  assert.equal(item.segment, 'comercio');
   assert.equal(item.phone, '');
   assert.equal(item.phoneDigits, '');
   assert.equal(item.email, null);

@@ -110,6 +110,7 @@ export class LeadHarvestNormalizerService {
 
     const phone = normalizeHarvestPhone(input?.phone);
     const phone2 = normalizeHarvestPhone(input?.phone2);
+    const phone3 = normalizeHarvestPhone(input?.phone3);
     const whatsapp = normalizeHarvestPhone(input?.whatsapp);
     const value: LeadHarvestCandidate = {
       externalId,
@@ -122,6 +123,7 @@ export class LeadHarvestNormalizerService {
       website: normalizeHarvestWebsite(input?.website),
       phone,
       phone2: phone2 && phone2 !== phone ? phone2 : null,
+      phone3: phone3 && phone3 !== phone && phone3 !== phone2 ? phone3 : null,
       whatsapp,
       email: email || null,
       emailStatus: normalizeLeadHarvestEmailStatus(input?.emailStatus, Boolean(email)),

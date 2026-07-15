@@ -42,14 +42,21 @@ test('pós-entrega cria evento de social possível sem promover contato', () => 
   assert.equal(plan.timelineEvents.some((event: any) => event.eventType === 'radar_social_possible'), true);
 });
 
-test('backend não registra filas autônomas de enriquecimento no DI', () => {
+test('backend registra filas gratuitas e Ollama local default-off sem ressuscitar fábrica', () => {
   const moduleSource = readFileSync(join(process.cwd(), 'src/webscraping/webscraping.module.ts'), 'utf8');
   const coreSource = readFileSync(join(process.cwd(), 'src/webscraping/radar/radar-webscraping-core.service.ts'), 'utf8');
-  for (const forbidden of [
+  for (const restored of [
     'RadarWebEnrichmentJobService',
     'RadarSocialLookupService',
     'RadarPostDeliveryAiSaneamentoService',
+  ]) {
+    assert.equal(moduleSource.includes(restored), true);
+    assert.equal(coreSource.includes(restored), true);
+  }
+  for (const forbidden of [
     'RadarInternalReprocessSourceService',
+    'RadarFabricaService',
+    'NightFactoryService',
   ]) {
     assert.equal(moduleSource.includes(forbidden), false);
     assert.equal(coreSource.includes(forbidden), false);

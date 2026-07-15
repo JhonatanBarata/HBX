@@ -635,6 +635,19 @@ export class MasterWebscrapingController {
   }
 
   /**
+   * Backfill explícito e gratuito: RFB local/BrasilAPI, Brave com orçamento
+   * físico e sinais públicos. Não inicia Night Factory nem scheduler no VPS.
+   */
+  @Post('cnpj-backfill')
+  cnpjBackfill(@Query('limit') limit?: string, @Query('socials') socials?: string) {
+    const parsed = limit ? Number(limit) : undefined;
+    return this.webscrapingService.cnpjBackfillForMaster({
+      limit: Number.isFinite(parsed) ? parsed : 200,
+      socials: socials === '0' || socials === 'false' ? false : true,
+    });
+  }
+
+  /**
    * POST /modules/owner/radar/apply-contacts
    * Worker 2 "Email finder": aplica nos cards o que o Local Lab achou (e-mail/CNPJ/redes),
    * casando por `id`. ADITIVO — só preenche campo vazio. Body: { items: [{ id, email?, cnpj?,
