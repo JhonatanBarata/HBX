@@ -29,7 +29,7 @@ PJ_DISCOVERY_MAX_QUERIES = 4
 
 
 def discovery_budget(name: str, default: float, minimum: float = 1, maximum: float = 900) -> float:
-    # Orcamentos configuraveis por env: night_factory/deep podem rodar com folga
+    # Orçamentos configuráveis por env para buscas manuais com maior profundidade.
     # sem mudar o comportamento padrao da busca interativa.
     try:
         value = float(os.getenv(name, "") or default)

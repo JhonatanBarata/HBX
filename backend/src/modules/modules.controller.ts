@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, GoneException, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
@@ -12,15 +12,6 @@ import { IntegrationSyncDto } from '../integrations/dto/integration-sync.dto';
 import { IsArray, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { probeWebscrapingRuntime } from './webscraping-runtime.util';
-
-// MASTER-REFAB S7 (10/07): plano/trial/plan-taste/cortesia (endpoint master) aposentados —
-// zero chamador no front (grep confirmado antes da retirada). A exceção comercial agora é
-// montada na ficha (Company.accountType 'enterprise', S6); o padrão é conta de crédito
-// (Carteira). Dado histórico (Company.status/selectedPlanKey já gravado) NÃO muda — só a
-// escrita NOVA por estas rotas fica bloqueada. Leitura legada intacta em outro lugar
-// (GET .../detail, STATUS_LABEL do front, financeiro.service).
-export const RETIRED_PLAN_ENDPOINT_MESSAGE =
-  'Modelo de planos/trial/cortesia foi descontinuado. Use créditos (Carteira) ou o toggle Crédito|Empresarial na ficha da empresa.';
 
 class ModulePermissionDto {
   @IsString()
@@ -179,23 +170,13 @@ class SetAccountTypeDto {
   accountType!: string;
 }
 
-// MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto que junta accountType
-// enterprise (S6) + módulos full (teto W1) + valor fixo (finance-settings) + teto diário (S3).
-// Ambos opcionais; ausente/null = não mexe no valor já gravado (dailyDeliveryCap=0 é o único
-// jeito de zerar o teto — mesma semântica de UpdateMasterCompanyDeliveryCapDto).
+// Contrato empresarial altera somente metadados de cobrança; não muda produto.
 class ActivateEnterpriseContractDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   monthlyValue?: number | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(999999)
-  dailyDeliveryCap?: number | null;
 }
 
 class CompleteAssistedSetupDto {
@@ -320,21 +301,7 @@ class UpdateMasterCompanyFinanceSettingsDto {
   monthlyValueOverride?: number;
 }
 
-class UpdateMasterCompanyQuotaDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(999999)
-  monthlyCardLimit?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(999999)
-  dailyCardLimit?: number;
-
+class UpdateMasterCompanySeatCapDto {
   // Teto rígido de assentos (0/ausente = sem teto) — PR13062026005
   @IsOptional()
   @Type(() => Number)
@@ -342,17 +309,6 @@ class UpdateMasterCompanyQuotaDto {
   @Min(0)
   @Max(999)
   seatCap?: number;
-}
-
-// GUARDRAILS S3 (10/07) — override por empresa do teto diário de entregas (anti-scraper).
-// null explícito = limpa o override (herda o default global); 0 = sem teto só nesta empresa.
-class UpdateMasterCompanyDeliveryCapDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(999999)
-  dailyDeliveryCapOverride?: number | null;
 }
 
 class PermanentDeleteDto {
@@ -502,22 +458,6 @@ export class ModulesController {
     return this.modulesService.updateMasterSystemModule(Number(req.user?.id), moduleKey, dto || {});
   }
 
-  // MASTER-REFAB S7 (10/07): editor de módulos-por-plano (PlanModuleConfig) aposentado — a
-  // janela Self-Checkout que o consumia morreu no S4; zero chamador no front (GET e PUT). O
-  // dado (tabela PlanModuleConfig) e a LEITURA em runtime (getPlanModuleDefaults, usada quando
-  // a empresa não tem post-it) continuam intactos — só o editor master parou de aceitar visita.
-  @Get('master/plan/:planKey/modules')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  getMasterPlanModules() {
-    throw new GoneException('Editor de módulos por plano foi descontinuado. Módulos da empresa: kill-switch (SystemModule) na ficha.');
-  }
-
-  @Put('master/plan/:planKey/modules')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  setMasterPlanModules() {
-    throw new GoneException('Editor de módulos por plano foi descontinuado. Módulos da empresa: kill-switch (SystemModule) na ficha.');
-  }
-
   @Get('master/global-integrations')
   @UseGuards(JwtAuthGuard, MasterGuard)
   getMasterGlobalIntegrations(@Req() req: any) {
@@ -607,27 +547,6 @@ export class ModulesController {
     return this.modulesService.setCompanyModuleByMaster(Number(req.user?.id), companyId, dto?.moduleKey, Boolean(dto?.enabled));
   }
 
-  // MASTER-REFAB S7 (10/07): "trocar plano"/"degustação de plano" aposentados — zero
-  // chamador no front (removidos no S1). A exceção comercial (accountType 'enterprise')
-  // é montada na ficha (toggle S6) e o crédito é concedido pela Carteira.
-  @Put('master/company/:companyId/plan')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  setCompanyPlan() {
-    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
-  }
-
-  @Post('master/company/:companyId/plan-taste')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  grantPlanTaste() {
-    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
-  }
-
-  @Delete('master/company/:companyId/plan-taste')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  revokePlanTaste() {
-    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
-  }
-
   @Post('master/company/:companyId/assisted-setup/complete')
   @UseGuards(JwtAuthGuard, MasterGuard)
   completeAssistedSetup(
@@ -656,14 +575,6 @@ export class ModulesController {
     @Body() dto: ImportCompanyTokensToMasterDto,
   ) {
     return this.modulesService.importCompanyTokensToMaster(Number(req.user?.id), companyId, dto || {});
-  }
-
-  // MASTER-REFAB S7 (10/07): grant/end de trial pelo master aposentado (ordem literal do
-  // dono — trial morre em definitivo). Zero chamador no front (removido no S1).
-  @Post('master/company/:companyId/trial')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  grantTrial() {
-    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
   }
 
   @Put('master/company/:companyId/suspension')
@@ -707,15 +618,6 @@ export class ModulesController {
     return this.modulesService.updateCompanyProfileByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
-  // MASTER-REFAB S7 (10/07): endpoint de cortesia (box da ficha) aposentado — a UI já morreu
-  // no S6 (cortesia deixou de ser estado de conta); zero chamador no front. Presente vira
-  // grant na Carteira; liberação manual sem prazo vira toggle accountType='enterprise'.
-  @Put('master/company/:companyId/courtesy')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  setCompanyCourtesy() {
-    throw new GoneException(RETIRED_PLAN_ENDPOINT_MESSAGE);
-  }
-
   // MASTER-REFAB S6 (10/07 noite): toggle Crédito|Empresarial na ficha — PUT enxuto (padrão dos
   // PUTs vizinhos), substitui a derivação por cobrança do S1.
   @Put('master/company/:companyId/account-type')
@@ -728,10 +630,7 @@ export class ModulesController {
     return this.modulesService.setCompanyAccountTypeByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
-  // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto (ordem literal do dono
-  // — "combino um valor fixo com a empresa, e libero full os módulos, mantendo as limitações de
-  // abuso"). Junta accountType enterprise (S6) + libera módulos full (teto W1) + valor fixo
-  // opcional (finance-settings) + teto diário opcional (GUARDRAILS S3) — nenhum bypass novo.
+  // Contrato empresarial: tipo de cobrança + valor combinado. Não muda produto.
   @Post('master/company/:companyId/enterprise-contract')
   @UseGuards(JwtAuthGuard, MasterGuard)
   activateCompanyEnterpriseContract(
@@ -762,25 +661,14 @@ export class ModulesController {
     return this.modulesService.updateCompanyFinanceSettingsByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
-  @Put('master/company/:companyId/card-quota')
+  @Put('master/company/:companyId/seat-cap')
   @UseGuards(JwtAuthGuard, MasterGuard)
-  updateCompanyCardQuota(
+  updateCompanySeatCap(
     @Req() req: any,
     @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: UpdateMasterCompanyQuotaDto,
+    @Body() dto: UpdateMasterCompanySeatCapDto,
   ) {
-    return this.modulesService.updateCompanyCardQuotaByMaster(Number(req.user?.id), companyId, dto || {});
-  }
-
-  // GUARDRAILS S3 (10/07) — override por empresa do teto diário de entregas (anti-scraper).
-  @Put('master/company/:companyId/delivery-cap')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  updateCompanyDeliveryCap(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: UpdateMasterCompanyDeliveryCapDto,
-  ) {
-    return this.modulesService.updateCompanyDailyDeliveryCapByMaster(Number(req.user?.id), companyId, dto || {});
+    return this.modulesService.updateCompanySeatCapByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
   @Get('master/exclusoes')

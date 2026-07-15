@@ -15,12 +15,10 @@
 // leads são entregues — o concierge NÃO cria caminho novo de débito.
 // ============================================================================
 
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebscrapingService } from '../webscraping/webscraping.service';
-import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
-import { CreditsService } from '../credits/credits.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { AiPressureSignals } from '../master-alert/ai-pressure-signals';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
@@ -95,8 +93,6 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly webscraping: WebscrapingService,
-    private readonly usageLimits: CommercialUsageLimitsService,
-    private readonly credits: CreditsService,
     private readonly creditActions: CreditActionConfigService,
   ) {}
 
@@ -562,7 +558,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
   private previewReply(slots: ConciergeSlots, preview: CostPreview, user: any): string {
     const where = slots.state ? `${slots.city} - ${slots.state}` : String(slots.city);
     const clampNote = preview.clamped
-      ? ` Você pediu ${preview.requestedQuantity}, consigo até ${preview.quantity} agora (limite do seu plano/dia).`
+      ? ` Você pediu ${preview.requestedQuantity}, consigo processar ${preview.quantity} agora.`
       : '';
     if (isBillingOwnerActor(user) && preview.costCredits != null) {
       const costText = preview.mode === 'free'
@@ -570,7 +566,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
         : `custo ${preview.costCredits} crédito${preview.costCredits === 1 ? '' : 's'}`;
       return `Vou buscar ${preview.quantity} ${slots.targetSegment} em ${where} — ${costText}.${clampNote} Confirma?`;
     }
-    return `Vou buscar ${preview.quantity} ${slots.targetSegment} em ${where} — dentro do seu limite.${clampNote} Confirma?`;
+    return `Vou buscar ${preview.quantity} ${slots.targetSegment} em ${where}.${clampNote} Confirma?`;
   }
 
   private outOfScopeReply(slots: ConciergeSlots): string {
@@ -579,45 +575,23 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     return 'Isso eu não faço por aqui — eu busco empresas no Radar. Me diga o tipo de empresa e a cidade.';
   }
 
-  /** `radar.estimateSearchCost` — cota clampada + custo do catálogo (§2.3). */
+  /** `radar.estimateSearchCost` — custo por lead, sem cota por plano ou vendedor. */
   private async estimateCost(ctx: { companyId: number; userId: number }, user: any, slots: ConciergeSlots): Promise<CostPreview> {
     const requested = Math.max(1, slots.desiredCount ?? DEFAULT_QUANTITY);
-    let quantity = requested;
-    let blocked = false;
-
-    const snapshot: any = await this.usageLimits.getUsageSnapshot(ctx.companyId, ctx.userId).catch(() => null);
-    if (snapshot) {
-      // Mesma conta do caminho real (radar-core-delivery.mixin.ts:1017-1058).
-      const cards = snapshot.cards || {};
-      const daily = Number(cards.dailyRemaining);
-      const monthly = Number(cards.remaining);
-      const perUser = cards.perUserLimit != null ? Number(cards.userLimit || 0) - Number(cards.userUsed || 0) : monthly;
-      const effective = Math.min(...[daily, monthly, perUser].filter((value) => Number.isFinite(value)));
-      if (Number.isFinite(effective)) {
-        if (effective <= 0) blocked = true;
-        else quantity = Math.max(1, Math.min(quantity, Math.trunc(effective)));
-      }
-    }
-    if (!blocked) {
-      const sellerQuota: any = await this.usageLimits
-        .limitRequestedCardsBySellerActiveQuota(ctx.companyId, ctx.userId, quantity)
-        .catch(() => null);
-      if (sellerQuota?.quota?.seller) {
-        const limit = Math.trunc(Number(sellerQuota.limit || 0));
-        if (limit <= 0) blocked = true;
-        else quantity = Math.min(quantity, limit);
-      }
-    }
+    const quantity = requested;
+    const blocked = false;
 
     const billingAudience = isBillingOwnerActor(user);
     let costCredits: number | null = null;
     let mode: 'free' | 'debit' | null = null;
     if (billingAudience) {
       const definition = await this.creditActions.resolveEffective('lead_delivery');
-      const unitCost = definition?.mode === 'free' ? 0 : Math.max(0, Number(definition?.cost ?? 1));
+      if (!definition || definition.mode !== 'debit' || Number(definition.cost) !== 1) {
+        throw new ServiceUnavailableException('Cobrança por lead indisponível. Nenhum dado será liberado.');
+      }
+      const unitCost = 1;
       costCredits = Math.round(quantity * unitCost * 1000) / 1000;
-      const enforceActive = await this.credits.isEnforceActiveForCompany(ctx.companyId).catch(() => false);
-      mode = enforceActive ? (definition?.mode ?? 'debit') : 'free';
+      mode = 'debit';
     }
 
     return { requestedQuantity: requested, quantity, clamped: quantity < requested, blocked, costCredits, mode };

@@ -423,7 +423,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     if (String(input.sourceModule || '').trim().toLowerCase() === 'atendimento_bot') {
       const tenantContext = await this.resolveAtendimentoBotSanitizationContext(input.companyId);
       const configuredBot = await this.getAtendimentoBotConfig(input.companyId, tenantContext);
-      const botAiEnabled = await this.hasCommercialBotAiEntitlementForCompany(input.companyId);
+      const botAiEnabled = await this.isBotArmedForCompany(input.companyId);
       if (!botAiEnabled || !isAtendimentoBotSetupComplete(configuredBot) || !configuredBot.routingRules.globalBotEnabled) {
         return 'bot_atendimento_global_desativado';
       }
@@ -547,7 +547,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         where: { id: companyId },
         select: {
           whatsappConnectionMode: true,
-          trialModuleSelection: true,
           // Guarda de suspensao: campos lidos por resolveCompanyAccessState.
           companyKind: true,
           slug: true,
@@ -580,7 +579,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private async hasCommercialBotAiEntitlementForCompany(companyId: number) {
+  private async isBotArmedForCompany(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
       select: { botArmedAt: true },
@@ -7015,7 +7014,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const { companyId, from, text, conversationId, inboundMessageId, company, recoveryCustomer, rawPayload } = input;
     const tenantContext = await this.resolveAtendimentoBotSanitizationContext(companyId);
     const configuredBot = await this.getAtendimentoBotConfig(companyId, tenantContext);
-    const botAiEnabled = await this.hasCommercialBotAiEntitlementForCompany(companyId);
+    const botAiEnabled = await this.isBotArmedForCompany(companyId);
     const setupComplete = isAtendimentoBotSetupComplete(configuredBot);
     const config = botAiEnabled && setupComplete
       ? configuredBot

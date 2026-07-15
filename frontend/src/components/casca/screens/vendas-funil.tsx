@@ -26,6 +26,7 @@ import {
   BLOCK_ORDER_MOBILE,
   fmtMoneyMobile,
   normalizeStageMobile,
+  sanitizeVendasBoardForClient,
   STAGE_ORDER_MOBILE,
   vendasLeadToDetail,
   vendasLeadValueLabel,
@@ -145,7 +146,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   const load = useCallback(async () => {
     try {
       const res = await apiFetch<VendasBoardResponse>("/vendas/board");
-      setBoard(res);
+      setBoard(sanitizeVendasBoardForClient(res) as VendasBoardResponse);
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Falha ao carregar o funil.");

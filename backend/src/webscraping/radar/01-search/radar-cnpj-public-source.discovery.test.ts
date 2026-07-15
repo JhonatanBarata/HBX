@@ -42,115 +42,56 @@ function makeProviderStub() {
       foundCount: (input.records || []).length,
       acceptedCount: (input.records || []).length,
       rejectedCount: 0,
-      results: (input.records || []).map((r: any) => ({ cnpj: r.cnpj, name: r.nomeFantasia })),
+      results: (input.records || []).map((record: any) => ({
+        cnpj: record.cnpj,
+        name: record.nomeFantasia,
+      })),
     }),
   } as any;
 }
 
-test('dataset vazio + flag ON: chama discovery e usa o resultado dela', async () => {
-  const original = process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  const originalDiscovery = process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'true';
-  process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = 'true';
+test('fonte RFB usa exclusivamente o dataset local carregado', async () => {
+  const records = [
+    { cnpj: '11222333000181', nomeFantasia: 'Barbearia Nova', razaoSocial: 'Barbearia Nova Ltda' },
+  ];
+  const service = new RadarCnpjPublicSourceService(makeProviderStub(), makeDatasetStub(records));
 
-  let discoveryCalled = false;
-  const discoveryStub = {
-    discover: async () => {
-      discoveryCalled = true;
-      return [{ cnpj: '11222333000181', nomeFantasia: 'Barbearia Nova', razaoSocial: 'Barbearia Nova Ltda' }];
-    },
-  } as any;
-
-  const service = new RadarCnpjPublicSourceService(makeProviderStub(), makeDatasetStub([]), discoveryStub);
   const result = await service.run({ normalized: baseNormalized(), limit: 20, prisma: {} });
 
-  assert.equal(discoveryCalled, true, 'discovery deveria ter sido chamado (dataset vazio + flag on)');
+  assert.equal(result.status, 'completed');
   assert.equal(result.foundCount, 1);
-  assert.equal(result.acceptedCount, 1);
-  assert.ok(result.reason?.includes('discovery_encontrou_1'), `reason deveria mencionar discovery: ${result.reason}`);
-
-  if (original === undefined) delete process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = original;
-  if (originalDiscovery === undefined) delete process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = originalDiscovery;
+  assert.equal((result.results as any[])[0]?.cnpj, '11222333000181');
 });
 
-test('flag OFF: nao chama discovery mesmo com dataset vazio', async () => {
-  const original = process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  const originalDiscovery = process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'true';
-  process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = 'false';
-
-  let discoveryCalled = false;
-  const discoveryStub = {
-    discover: async () => {
-      discoveryCalled = true;
-      return [];
+test('dataset RFB vazio não dispara descoberta web nem fallback externo', async () => {
+  let providerCalls = 0;
+  const provider = {
+    search: async () => {
+      providerCalls += 1;
+      return { status: 'completed', retryable: false, reason: 'ok', foundCount: 0, acceptedCount: 0, rejectedCount: 0, results: [] };
     },
   } as any;
+  const service = new RadarCnpjPublicSourceService(provider, makeDatasetStub([]));
 
-  const service = new RadarCnpjPublicSourceService(makeProviderStub(), makeDatasetStub([]), discoveryStub);
   const result = await service.run({ normalized: baseNormalized(), limit: 20, prisma: {} });
 
-  assert.equal(discoveryCalled, false, 'discovery NAO deveria ser chamado com a flag off');
   assert.equal(result.foundCount, 0);
-
-  if (original === undefined) delete process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = original;
-  if (originalDiscovery === undefined) delete process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = originalDiscovery;
+  assert.equal(providerCalls, 1);
+  assert.deepEqual(result.results, []);
 });
 
-test('discovery com erro: degrade gracioso, devolve so o dataset (nao derruba a fonte)', async () => {
+test('flag legada não desliga a fonte RFB obrigatória', async () => {
   const original = process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  const originalDiscovery = process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'true';
-  process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = 'true';
-
-  const datasetRecords = [{ cnpj: '64711048000190', nomeFantasia: 'Barbearia Dataset', razaoSocial: 'Barbearia Dataset Ltda' }];
-  const discoveryStub = {
-    discover: async () => {
-      throw new Error('engine indisponivel');
-    },
-  } as any;
-
-  const service = new RadarCnpjPublicSourceService(makeProviderStub(), makeDatasetStub(datasetRecords), discoveryStub);
-  const result = await service.run({ normalized: baseNormalized(), limit: 20, prisma: {} });
-
-  assert.equal(result.status, 'completed', 'falha do discovery nao deve virar partial_error da fonte inteira');
-  assert.equal(result.foundCount, 1, 'deve seguir so com o dataset');
-  assert.equal((result.results as any[])[0]?.cnpj, '64711048000190');
-
-  if (original === undefined) delete process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = original;
-  if (originalDiscovery === undefined) delete process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = originalDiscovery;
-});
-
-test('merge dedup por cnpj: dataset primeiro, discovery so completa (sem duplicar)', async () => {
-  const original = process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  const originalDiscovery = process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'true';
-  process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = 'true';
-
-  const sharedCnpj = '11222333000181';
-  const datasetRecords = [{ cnpj: sharedCnpj, nomeFantasia: 'Ja No Dataset', razaoSocial: 'Ja No Dataset Ltda' }];
-  const discoveryStub = {
-    discover: async () => [
-      { cnpj: sharedCnpj, nomeFantasia: 'Duplicado Via Discovery', razaoSocial: 'Duplicado Ltda' },
-      { cnpj: '64711048000190', nomeFantasia: 'Novo Via Discovery', razaoSocial: 'Novo Ltda' },
-    ],
-  } as any;
-
-  const service = new RadarCnpjPublicSourceService(makeProviderStub(), makeDatasetStub(datasetRecords), discoveryStub);
-  const result = await service.run({ normalized: baseNormalized(), limit: 20, prisma: {} });
-
-  assert.equal(result.foundCount, 2, 'deve ter 2 registros unicos (1 dataset + 1 novo do discovery, sem duplicar o compartilhado)');
-  const cnpjs = (result.results as any[]).map((r) => r.cnpj).sort();
-  assert.deepEqual(cnpjs, ['11222333000181', '64711048000190'].sort());
-
-  if (original === undefined) delete process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = original;
-  if (originalDiscovery === undefined) delete process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED;
-  else process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = originalDiscovery;
+  process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'false';
+  try {
+    const service = new RadarCnpjPublicSourceService(
+      makeProviderStub(),
+      makeDatasetStub([{ cnpj: '64711048000190', nomeFantasia: 'Empresa RFB' }]),
+    );
+    const result = await service.run({ normalized: baseNormalized(), limit: 20, prisma: {} });
+    assert.equal(result.foundCount, 1);
+  } finally {
+    if (original === undefined) delete process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED;
+    else process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = original;
+  }
 });

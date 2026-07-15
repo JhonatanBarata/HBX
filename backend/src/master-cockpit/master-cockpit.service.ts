@@ -112,7 +112,7 @@ type CreditsBlock = {
 // 30d → "Ativou" (1º consumo) → 1ª recarga aprovada, com taxas de conversão.
 // FONTE ESCOLHIDA pro "Ativou": primeiro débito REAL no ledger (kind='debit') — a
 // MESMA fonte única de saldo/burn/consumo deste cockpit (uma régua só). NÃO usamos
-// CARD_SUCCESS do usage-log de propósito: aquele trilho mistura cota de plano
+// CARD_SUCCESS do usage-log de propósito: aquele trilho mistura telemetria comercial
 // legado e não diferencia consumo de crédito.
 type ActivationFunnel = {
   signups30d: number;

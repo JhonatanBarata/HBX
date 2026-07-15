@@ -25,6 +25,11 @@ function fakePrisma() {
     radarLeadProcessRun: {
       findFirst: async ({ where }: any) => Array.from(rows.values()).find((row) => matches(row, where)) || null,
       create: async ({ data }: any) => {
+        if (data.idempotencyKey && Array.from(rows.values()).some((row) => (
+          row.companyId === data.companyId && row.idempotencyKey === data.idempotencyKey
+        ))) {
+          throw Object.assign(new Error('unique conflict'), { code: 'P2002' });
+        }
         const now = new Date();
         const id = `operation-${++sequence}`;
         const row = {
@@ -72,6 +77,7 @@ test('contrato inclui todos os estados persistentes do pull', () => {
     'completed',
     'partial',
     'failed',
+    'refund_pending',
     'refunded',
   ]);
 });
@@ -88,10 +94,14 @@ test('cria claim tenant-scoped e reaproveita a mesma chave idempotente', async (
     snapshot: { masked: true },
   };
 
-  const first = await service.createOperation(input);
-  const repeated = await service.createOperation(input);
+  const firstResult = await service.createOperation(input);
+  const repeatedResult = await service.createOperation(input);
+  const first = firstResult.operation;
+  const repeated = repeatedResult.operation;
 
   assert.equal(first.id, repeated.id);
+  assert.equal(firstResult.created, true);
+  assert.equal(repeatedResult.created, false);
   assert.equal(prisma.rows.size, 1);
   assert.equal(first.companyId, 7);
   assert.equal(first.radarLeadId, 'radar-1');
@@ -101,10 +111,31 @@ test('cria claim tenant-scoped e reaproveita a mesma chave idempotente', async (
   assert.deepEqual(first.data, { masked: true });
 });
 
+test('duas criações concorrentes da mesma chave elegem somente um criador', async () => {
+  const prisma = fakePrisma();
+  const service = new RadarLeadProcessStoreService(prisma as any);
+  const input = {
+    companyId: 7,
+    userId: 11,
+    radarLeadId: 'radar-1',
+    mode: 'claim' as const,
+    idempotencyKey: 'claim:parallel',
+  };
+
+  const [left, right] = await Promise.all([
+    service.createOperation(input),
+    service.createOperation(input),
+  ]);
+
+  assert.equal(left.operation.id, right.operation.id);
+  assert.deepEqual([left.created, right.created].sort(), [false, true]);
+  assert.equal(prisma.rows.size, 1);
+});
+
 test('transição persiste estágio, evento e patch sem perder a linha do tempo', async () => {
   const prisma = fakePrisma();
   const service = new RadarLeadProcessStoreService(prisma as any);
-  const created = await service.createOperation({
+  const { operation: created } = await service.createOperation({
     companyId: 7,
     userId: 11,
     radarLeadId: 'radar-1',
@@ -141,7 +172,7 @@ test('transição persiste estágio, evento e patch sem perder a linha do tempo'
 
 test('modo search não exige radarLeadId e não recebe etapas de débito', async () => {
   const service = new RadarLeadProcessStoreService(fakePrisma() as any);
-  const operation = await service.createOperation({
+  const { operation } = await service.createOperation({
     companyId: 7,
     userId: 11,
     mode: 'search',

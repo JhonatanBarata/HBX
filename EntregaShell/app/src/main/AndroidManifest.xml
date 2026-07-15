@@ -44,10 +44,9 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Única porta pública de cada APK: código de vinculação no primeiro
-             acesso e reentrada automática nas próximas aberturas. -->
+        <!-- A abertura vem antes do gate de autenticação/vinculação. -->
         <activity
-            android:name=".PairingActivity"
+            android:name=".OpeningActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
@@ -57,6 +56,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".PairingActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.EntregaShell.NoActionBar" />
 
         <!-- Interface local do flavor. O ticket descartável é consumido pela
              camada nativa e nunca é exposto ao JavaScript empacotado. -->

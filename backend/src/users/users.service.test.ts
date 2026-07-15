@@ -112,7 +112,6 @@ function createUsersService(input: { users: FakeUser[]; companyKind?: string }) 
 
   const tx = new Proxy({
     user: userModel,
-    radarAutoDistributionRule: { ...createNoopModel(), findMany: async () => [] },
     $executeRawUnsafe: async () => ({}),
   } as any, {
     get(target, prop: string) {

@@ -531,6 +531,7 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
+      deliveryIds: dto?.deliveryIds,
     }, entregadorId, Number(req.user?.id) || null);
   }
 
@@ -547,6 +548,7 @@ export class LogisticaController {
       date: dto?.date,
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
+      deliveryIds: dto?.deliveryIds,
     }, entregadorId, Number(req.user?.id) || null, isBillingOwnerActor(req.user));
   }
 

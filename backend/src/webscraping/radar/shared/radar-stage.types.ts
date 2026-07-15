@@ -17,9 +17,7 @@ export type RadarPipelineStage =
   | 'email'
   | 'whatsapp'
   | 'site'
-  | 'presentation'
-  | 'campaign'
-  | 'factory';
+  | 'presentation';
 
 export type RadarPipelineLeadStatus =
   | 'candidate'

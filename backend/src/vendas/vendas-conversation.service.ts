@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InboxService } from '../inbox/inbox.service';
@@ -12,6 +13,7 @@ import { isMetaConnected } from '../messaging/whatsapp-connection-state';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
+import { VendasRadarPaidAccessService } from './vendas-radar-paid-access.service';
 
 type AccessibleLead = {
   id: string;
@@ -21,6 +23,10 @@ type AccessibleLead = {
   name: string | null;
   phone: string | null;
   phoneNormalized: string | null;
+  sourceType: string | null;
+  primarySource: string | null;
+  sourceHistoryId: string | null;
+  claimOperationId: string | null;
 };
 
 type ResolvedConversation = {
@@ -48,7 +54,12 @@ export class VendasConversationService {
     private readonly prisma: PrismaService,
     private readonly inboxService: InboxService,
     private readonly cockpitProjector: VendasLeadCockpitProjectorService,
+    @Optional() private readonly radarPaidAccess?: VendasRadarPaidAccessService,
   ) {}
+
+  private getRadarPaidAccessService() {
+    return this.radarPaidAccess || new VendasRadarPaidAccessService(this.prisma);
+  }
 
   private buildLeadAccessWhere(context: VendasAccessContext, leadId: string) {
     const base = { companyId: context.companyId, id: leadId };
@@ -74,9 +85,22 @@ export class VendasConversationService {
         name: true,
         phone: true,
         phoneNormalized: true,
+        sourceType: true,
+        primarySource: true,
+        sourceHistoryId: true,
+        claimOperationId: true,
       },
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
+    const paidAccess = await this.getRadarPaidAccessService().resolveForRow(context.companyId, lead);
+    if (paidAccess.isRadarOrigin && !paidAccess.contactAccessGranted) {
+      // Toda operação abaixo (resolver por telefone, criar vínculo, listar e
+      // enviar mensagem) fica depois da prova e, portanto, não produz side effect.
+      throw new ForbiddenException({
+        code: 'RADAR_PAID_ACQUISITION_REQUIRED',
+        message: 'Este lead não possui uma aquisição paga ativa para liberar a conversa.',
+      });
+    }
     return { context, lead: lead as AccessibleLead };
   }
 

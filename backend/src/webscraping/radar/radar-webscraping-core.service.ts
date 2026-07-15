@@ -7,7 +7,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleDestroy,
   OnModuleInit,
   Optional,
   ServiceUnavailableException,
@@ -22,20 +21,12 @@ import { HbxPresentationEmailService } from '../../mail/hbx-presentation-email.s
 import { CommercialUsageLimitsService } from '../../commercial-plans/commercial-usage-limits.service';
 import { MasterContextService } from '../../master-context/master-context.service';
 import { buildLocalHbxEngineUrls, getConfiguredHbxEngineCount, HbxEnginePoolService, isHbxEngineLocalhostUrl, type HbxEngineLease, type HbxEnginePurpose } from '../hbx-engine-pool.service';
-import {
-  COMMERCIAL_PLAN_QUOTAS,
-  COMMERCIAL_PLAN_KEYS,
-  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
-  resolveCommercialPlanKeyForCapabilities,
-} from '../../commercial-plans/commercial-plan-catalog';
 import { WebwhatsBridgeService } from '../../messaging/webwhats-bridge.service';
 import { buildRadarLeadEnrichment, RADAR_LEAD_ENRICHMENT_VERSION } from '../radar-lead-enrichment';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../lead-quality-v2';
-import { RadarSocialLookupService } from './04-socials/radar-social-lookup.service';
 import { RadarDeliveryOrchestratorService } from './05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './05-delivery/radar-post-delivery-vendas-update.service';
-import { RadarPostDeliveryAiSaneamentoService } from './05-delivery/radar-post-delivery-ai-saneamento.service';
 import { RadarVendasSyncService } from './05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService, type RadarLeadPresenterHost } from './06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService, type RadarRunPresenterHost } from './06-presentation/radar-run-presenter.service';
@@ -50,18 +41,15 @@ import { RadarSearchStrategyService } from './01-search/radar-search-strategy.se
 import { RadarSourcePlannerService } from './01-search/radar-source-planner.service';
 import { RadarMissionQueueService } from './missions/radar-mission-queue.service';
 import { RadarPonteStatusService } from './missions/radar-ponte-status.service';
-import { RadarInternalReprocessSourceService } from './01-search/radar-internal-reprocess-source.service';
 import { RadarCnpjPublicSourceService } from './01-search/radar-cnpj-public-source.service';
 import { RadarLocalDirectorySourceService } from './01-search/radar-local-directory-source.service';
 import { RadarVerticalSourceService } from './01-search/radar-vertical-source.service';
-import { RadarWebsiteCrawlSourceService } from './01-search/radar-website-crawl-source.service';
 import { RadarDuplicateFilterService, type RadarDuplicateSortHost } from './02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService, type RadarQualityGateHost } from './02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService, type RadarRunItemFilterHost } from './02-filter/radar-run-item-filter.service';
 import { RadarWebSourceGateService } from './02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService, type RadarScoreEnrichmentHost } from './03-enrichment/radar-score-enrichment.service';
 import { RadarDuplicateFieldDonationService } from './03-enrichment/radar-duplicate-field-donation.service';
-import { RadarWebEnrichmentJobService } from './03-enrichment/radar-web-enrichment-job.service';
 import { GoogleSearchProviderService } from './providers/google-search/google-search-provider.service';
 import { RadarGoogleResponseService } from './providers/google-search/radar-google-response.service';
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
@@ -83,13 +71,7 @@ import {
   RECENT_HISTORY_LIMIT,
   IBGE_CITIES_URL,
   CITY_CACHE_TTL_MS,
-  MASS_DATA_INTERNAL_SEGMENTS,
   ACRE_CITIES_FALLBACK,
-  AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK,
-  AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
-  AUTONOMOUS_MASS_DATA_MAX_TASKS,
-  DEFAULT_MASS_DATA_ENGINE_URLS,
-  TURBO_OPERATIONAL_CONFIG_KEY,
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
   RADAR_PROTECTED_STATUSES,
@@ -145,13 +127,6 @@ import {
   RadarFiltersInput,
   RadarLeadEventType,
   RadarLeadStatus,
-  RadarCampaignInput,
-  WebscrapingOperationalConfigInput,
-  MasterMassDataCampaignInput,
-  AutonomousMassDataStrategyMode,
-  AutonomousMassDataWorkReason,
-  AutonomousMassDataWork,
-  AutonomousMassDataCandidate,
   NormalizedRadarFilters,
   RadarChannelFilter,
   RadarChannelMatchMode,
@@ -194,7 +169,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
   maxQuantityFor,
@@ -212,12 +186,10 @@ let cityCache: {
 } | null = null;
 
 @Injectable()
-export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestroy {
+export class RadarWebscrapingCoreService implements OnModuleInit {
   [key: string]: any;
   private readonly logger = new Logger('WebscrapingService');
   private searchRunQueuePumpActive = false;
-  private radarAutoDistributionPumpActive = false;
-  private radarAutoDistributionTimer: NodeJS.Timeout | null = null;
   private radarWhatsappCheckModeByRunId = new Map<string, RadarWhatsappCheckMode>();
   // Lazy (não entra no construtor: mudar a assinatura quebraria o super() posicional
   // de webscraping.service.ts, fora do escopo do radar).
@@ -232,13 +204,11 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly commercialUsageLimits?: CommercialUsageLimitsService,
     @Optional() private readonly masterContextService?: MasterContextService,
     @Optional() private readonly radarRunRepository?: RadarRunRepositoryService,
-    @Optional() private readonly radarSocialLookup?: RadarSocialLookupService,
     @Optional() private readonly radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() private readonly radarRunPresenter?: RadarRunPresenterService,
     @Optional() private readonly radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
     @Optional() private readonly radarPostDeliveryVendasUpdate?: RadarPostDeliveryVendasUpdateService,
     @Optional() private readonly radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
-    @Optional() private readonly radarPostDeliveryAiSaneamento?: RadarPostDeliveryAiSaneamentoService,
     @Optional() private readonly radarVendasSync?: RadarVendasSyncService,
     @Optional() private readonly radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() private readonly radarSearchGeo?: RadarSearchGeoService,
@@ -249,17 +219,14 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarResultMerger?: RadarResultMergerService,
     @Optional() private readonly radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() private readonly radarSearchRunConfig?: RadarSearchRunConfigService,
-    @Optional() private readonly radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() private readonly radarCnpjPublicSource?: RadarCnpjPublicSourceService,
     @Optional() private readonly radarLocalDirectorySource?: RadarLocalDirectorySourceService,
     @Optional() private readonly radarVerticalSource?: RadarVerticalSourceService,
-    @Optional() private readonly radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() private readonly radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() private readonly radarQualityGate?: RadarQualityGateService,
     @Optional() private readonly radarWebSourceGate?: RadarWebSourceGateService,
     @Optional() private readonly radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() private readonly radarScoreEnrichment?: RadarScoreEnrichmentService,
-    @Optional() private readonly radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
     @Optional() private readonly googleSearchProvider?: GoogleSearchProviderService,
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
@@ -267,33 +234,21 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
   ) {}
 
   onModuleInit() {
-    // Fábrica de DESCOBERTA autônoma DEMOLIDA (F0, 02/07): os pumps de campanha/night_factory
-    // (processNextRadarCampaigns / ensureNightFactoryWork / recoverRadarCampaignWork) saíram junto
-    // com os mixins mass-data/campaign-planner/factory-admin. A fábrica nova é de ENRIQUECIMENTO,
-    // roda sobre a fila S4 (radar/missions/) via PONTE local — não nasce aqui.
-    //
-    // VENDAS-REFAB item 5 (04/07, ordem do dono): pump de auto-distribuição ~2min
-    // DESLIGADO — self-serve puro, ninguém alimenta o Vendas sozinho. O timer
-    // `radarAutoDistributionTimer`/`processActiveRadarAutoDistributions` (era
-    // setInterval 60s + disparo aos 7s do boot) foi removido daqui. Os endpoints
-    // de distribuição sob demanda (POST radar/auto-distribution/run,
-    // POST radar-auto-distribution/run) continuam existindo como AÇÃO EXPLÍCITA
-    // do admin/master — não são "automação que alimenta sozinho".
+    // O backend inicia somente manutenção das execuções solicitadas por clientes.
+    // Enriquecimento local depende do HBX Owner e não nasce neste processo.
     setTimeout(() => {
       void this.processNextQueuedSearchRun();
     }, 2_000);
     setTimeout(() => {
-      void this.recoverStaleRadarLeadClaimOperations().catch((error: any) => {
+      // Nunca toque numa saga viva de outra réplica durante rolling deploy.
+      // Apenas operações sem heartbeat por 2 minutos entram no recovery; cada
+      // run ainda precisa adquirir o lease distribuído no banco.
+      void this.recoverStaleRadarLeadClaimOperations({
+        updatedBefore: new Date(Date.now() - 2 * 60 * 1000),
+      }).catch((error: any) => {
         this.logger.error(`[radar-claim-recovery] falha no boot: ${String(error?.message || error)}`);
       });
     }, 3_000);
-  }
-
-  onModuleDestroy() {
-    if (this.radarAutoDistributionTimer) {
-      clearInterval(this.radarAutoDistributionTimer);
-      this.radarAutoDistributionTimer = null;
-    }
   }
 
   private getEnginePool() {
@@ -351,10 +306,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     return this.radarDeliveryOrchestrator || new RadarDeliveryOrchestratorService(this.getRadarPostDeliveryUpdate());
   }
 
-  private getRadarPostDeliveryAiSaneamento() {
-    return this.radarPostDeliveryAiSaneamento || new RadarPostDeliveryAiSaneamentoService();
-  }
-
   private radarLeadProcessStoreLazy: RadarLeadProcessStoreService | null = null;
   private getRadarLeadProcessStore() {
     if (!this.radarLeadProcessStoreLazy) {
@@ -381,14 +332,6 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarSearchRunConfig() {
     return this.radarSearchRunConfig || new RadarSearchRunConfigService();
-  }
-
-  private getRadarInternalReprocessSource() {
-    return this.radarInternalReprocessSource || new RadarInternalReprocessSourceService();
-  }
-
-  private getRadarWebsiteCrawlSource() {
-    return this.radarWebsiteCrawlSource || new RadarWebsiteCrawlSourceService();
   }
 
   private getRadarCnpjPublicSource() {

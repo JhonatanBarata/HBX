@@ -9,9 +9,7 @@ export type RadarAsyncEnrichmentJobType =
   | 'whatsapp_check'
   | 'cnpj_enrichment'
   | 'opportunity_signal'
-  | 'post_delivery_update'
-  | 'reprocess_missing_social'
-  | 'reprocess_old_cards';
+  | 'post_delivery_update';
 
 export type RadarAsyncEnrichmentJobStatus =
   | 'queued'
@@ -101,8 +99,6 @@ export class RadarEnrichmentJobPipelineService {
       cnpj_enrichment: 'enrichment',
       opportunity_signal: 'enrichment',
       post_delivery_update: 'post_delivery_update',
-      reprocess_missing_social: 'enrichment',
-      reprocess_old_cards: 'enrichment',
     };
     return stages[jobType];
   }
@@ -118,8 +114,6 @@ export class RadarEnrichmentJobPipelineService {
       cnpj_enrichment: 'cnpj_public',
       opportunity_signal: 'opportunity_signal',
       post_delivery_update: 'post_delivery_update',
-      reprocess_missing_social: 'reprocess_missing_social',
-      reprocess_old_cards: 'reprocess_old_cards',
     };
     return sources[jobType];
   }
@@ -291,8 +285,6 @@ export class RadarEnrichmentJobPipelineService {
       'cnpj_enrichment',
       'opportunity_signal',
       'post_delivery_update',
-      'reprocess_missing_social',
-      'reprocess_old_cards',
     ].includes(value);
   }
 }

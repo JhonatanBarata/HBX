@@ -33,7 +33,7 @@ import { apiFetch, getApiBase, getToken } from "@/lib/api";
 type OperationalProfile = "SELLER" | "DRIVER" | "BOTH";
 type OperationalCapability = "SELLER" | "DRIVER";
 
-type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null; phone?: string | null; commissionPercent?: number | null; referredByUserId?: number | null; sellerDistributionDailyLimitOverride?: number | null; deactivatedAt?: string | null; operationalCapabilities?: OperationalCapability[] | null };
+type CompanyUser = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean; commissionMonthlyCap?: number | null; setupCommissionCap?: number | null; phone?: string | null; commissionPercent?: number | null; referredByUserId?: number | null; deactivatedAt?: string | null; operationalCapabilities?: OperationalCapability[] | null };
 
 function operationalProfileFromCapabilities(value?: OperationalCapability[] | null): OperationalProfile {
   const seller = value?.includes("SELLER") !== false;
@@ -94,7 +94,6 @@ const FORM_VAZIO = {
   password: "",
   declaredAddress: "",
   referredByUserId: "",
-  dailyLimit: "30",
 };
 
 // Rascunho do cadastro em andamento (ordem do dono 14/06: F5 não pode perder o
@@ -131,7 +130,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
   const [form, setForm] = useState(() => (isEdit
     ? {
         // Reaproveitar dados no Gerenciar (P4): pré-preenche tudo que o membro já
-        // tem (a lista /users/company traz telefone, comissão, indicador, limite/dia).
+        // tem (a lista /users/company traz telefone, comissão e indicador).
         // O resto (CPF/endereço/D+) chega depois via refreshOnboarding.
         ...FORM_VAZIO,
         role: (String(member?.role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER") as "USER" | "ADMIN",
@@ -143,7 +142,6 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
         commissionMonthlyCap: member?.commissionMonthlyCap != null ? String(member.commissionMonthlyCap) : "",
         setupCommissionCap: member?.setupCommissionCap != null ? String(member.setupCommissionCap) : "",
         referredByUserId: member?.referredByUserId != null ? String(member.referredByUserId) : "",
-        dailyLimit: member?.sellerDistributionDailyLimitOverride != null ? String(member.sellerDistributionDailyLimitOverride) : "30",
       }
     : { ...FORM_VAZIO, ...(rascunho0.current?.form || {}) }));
   const [busy, setBusy] = useState(false);
@@ -283,7 +281,6 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
         ...(form.role === "USER" && form.cpf.trim() ? { cpf: form.cpf.trim() } : {}),
         ...(form.role === "USER" && form.declaredAddress.trim() ? { declaredAddress: form.declaredAddress.trim() } : {}),
         ...(form.role === "USER" && form.referredByUserId ? { referredByUserId: Number(form.referredByUserId) } : {}),
-        ...(form.dailyLimit !== "" ? { sellerDistributionDailyLimitOverride: Number(form.dailyLimit) } : {}),
         operationalCapabilities: form.role === "ADMIN"
           ? ["SELLER", "DRIVER"]
           : capabilitiesFromOperationalProfile(form.operationalProfile),
@@ -328,7 +325,6 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
           ...(form.commissionMonthlyCap !== "" ? { commissionMonthlyCap: Number(form.commissionMonthlyCap) } : {}),
           ...(form.setupCommissionCap !== "" ? { setupCommissionCap: Number(form.setupCommissionCap) } : {}),
           ...(form.referredByUserId ? { referredByUserId: Number(form.referredByUserId) } : {}),
-          ...(form.dailyLimit !== "" ? { sellerDistributionDailyLimitOverride: Number(form.dailyLimit) } : {}),
           operationalCapabilities: form.role === "ADMIN"
             ? ["SELLER", "DRIVER"]
             : capabilitiesFromOperationalProfile(form.operationalProfile),
@@ -796,12 +792,6 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                 </div>
               </div>
             )}
-            <div style={{ display: "grid", gap: 6 }}>
-              <label style={lbl}>Enriquecimentos/dia</label>
-              <input className="field-dark" type="number" min={0} max={500} value={form.dailyLimit} disabled={travaForm}
-                onChange={e => setForm(f => ({ ...f, dailyLimit: e.target.value }))} />
-            </div>
-
             {isEdit ? (
               <React.Fragment>
                 <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 40 }}>

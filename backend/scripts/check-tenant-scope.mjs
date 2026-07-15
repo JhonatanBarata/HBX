@@ -36,8 +36,7 @@ const LIST = args.has('--list');
 // schema mudar, atualizar as DUAS listas (esta + TENANT_SCOPED_MODELS na extensão).
 const TENANT_MODELS = new Set(
   [
-    'WhatsAppConnectionSession', 'WhatsappConsentLedger', 'NightFactoryRewardClaim', 'NightOrder',
-    'NightOrderDelivery', 'CompanyCommercialEntitlement', 'CompanyCommercialUsageLog',
+    'WhatsAppConnectionSession', 'WhatsappConsentLedger', 'CompanyCommercialEntitlement', 'CompanyCommercialUsageLog',
     'EnrichmentCostLedger', 'TrialPhoneUsage', 'CompanyWhatsAppEndpoint', 'CompanySubscription',
     'HbxRecoveryCustomer', 'HbxRecoveryPayment', 'HbxRecoveryPaymentEvent', 'FinanceiroCharge',
     'RecoveryDebtItem', 'RecoveryDebtAllocation', 'RecoveryAutomationStepRun', 'EntregaComprovante', 'HbxRecoveryFlowStage',
@@ -53,8 +52,8 @@ const TENANT_MODELS = new Set(
     'MasterPaymentNotificationLog', 'VendasCardComplaint', 'WebscrapingSearchHistory', 'WebscrapingSearchRun',
     'RadarLeadProcessRun',
     'WebscrapingSearchRunItem', 'WebscrapingUsageLog', 'RadarLeadPool', 'RadarLeadCompanyState',
-    'RadarLeadEvent', 'RadarAutoDistributionRule', 'RadarDistributionDailyUsage', 'RadarLeadEnrichment',
-    'RecoveryOpportunity', 'WebscrapingCampaign', 'HarvestImportBatch', 'VendasLead', 'VendasCommissionPayout',
+    'RadarLeadEvent', 'RadarLeadEnrichment',
+    'RecoveryOpportunity', 'HarvestImportBatch', 'VendasLead', 'VendasCommissionPayout',
     'VendasCommissionReceivable', 'Atividade', 'SavedSearch', 'SalesProfile', 'VendasAutomationCampaign',
     'VendasAutomationJob', 'AutomationEnrollment', 'AutomationStepRun', 'AutomationLedgerEvent',
     'ConversationAssistantRun', 'EmailOutboundMessage', 'Cadencia', 'CadenciaInscricao', 'CadenciaGatilho', 'CadenciaRotina',

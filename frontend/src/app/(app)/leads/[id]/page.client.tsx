@@ -26,7 +26,12 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { useLeadClaim } from "@/components/hbx/lead-pull-progress-overlay";
 import { apiFetch } from "@/lib/api";
-import { buildNegocioDetailFromLead, isRadarLeadOwned, type RadarLead } from "@/app/(app)/leads/page.client";
+import {
+  buildNegocioDetailFromLead,
+  isRadarLeadOwned,
+  sanitizeRadarLeadForClient,
+  type RadarLead,
+} from "@/app/(app)/leads/page.client";
 import { CopilotoPanel } from "./copiloto-panel";
 import { EmailPanel } from "./email-panel";
 
@@ -149,7 +154,8 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
     // quando o efeito chama load(); `loading` já nasce true no useState acima.
     try {
       const res = await apiFetch<LeadDetailResponse>(`/webscraping/radar/leads/${encodeURIComponent(leadId)}`);
-      setData(res);
+      const item = sanitizeRadarLeadForClient(res.item);
+      setData({ item, events: isRadarLeadOwned(item) && Array.isArray(res.events) ? res.events : [] });
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Não consegui carregar este lead.");
@@ -194,7 +200,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
     setPullBusy(true);
     setPullMsg(null);
     try {
-      await claimLead(lead.id, { lead: { id: lead.id, name: lead.name, city: lead.city, state: lead.state, segment: lead.segment } });
+      await claimLead(lead.id);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
       await load();
     } catch (err) {

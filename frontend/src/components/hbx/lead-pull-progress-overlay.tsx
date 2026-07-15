@@ -13,20 +13,16 @@ import {
 
 import {
   LeadProcessView,
-  type LeadProcessLead,
   type LeadProcessSnapshot,
   type LeadProcessStatus,
 } from "@/components/hbx/lead-process-view";
+import { sanitizeLeadProcessSnapshot } from "@/components/hbx/lead-process-contract";
 import { apiFetch } from "@/lib/api";
 
 type ClaimResponse = {
   ok?: boolean;
   operation?: LeadProcessSnapshot | null;
   [key: string]: unknown;
-};
-
-type ClaimOptions = {
-  lead?: LeadProcessLead | null;
 };
 
 type BankTotals = {
@@ -38,7 +34,7 @@ type BankTotals = {
 };
 
 type LeadProcessContextValue = {
-  claimLead: (leadId: string, options?: ClaimOptions) => Promise<ClaimResponse>;
+  claimLead: (leadId: string) => Promise<ClaimResponse>;
   dismiss: () => void;
   snapshot: LeadProcessSnapshot | null;
   error: string | null;
@@ -74,8 +70,7 @@ function operationFrom(payload: unknown): LeadProcessSnapshot | null {
   const operationId = snapshot.operationId || snapshot.runId || snapshot.id || record.operationId || record.runId;
   if (!operationId) return null;
   const mode = snapshot.mode === "search" ? "search" : "claim";
-  return {
-    ...snapshot,
+  return sanitizeLeadProcessSnapshot({
     operationId: String(operationId),
     mode,
     status: normalizeStatus(snapshot.status || snapshot.internalStatus),
@@ -88,7 +83,13 @@ function operationFrom(payload: unknown): LeadProcessSnapshot | null {
     sourceCoverage: snapshot.sourceCoverage && typeof snapshot.sourceCoverage === "object" ? snapshot.sourceCoverage : null,
     filters: Array.isArray(snapshot.filters) ? snapshot.filters : undefined,
     discardReasons: Array.isArray(snapshot.discardReasons) ? snapshot.discardReasons : undefined,
-  };
+    internalStatus: typeof snapshot.internalStatus === "string" ? snapshot.internalStatus : null,
+    contactAccessGranted: snapshot.contactAccessGranted === true,
+    creditRefundConfirmed: snapshot.creditRefundConfirmed === true,
+    contactAccessRevoked: snapshot.contactAccessRevoked === true,
+    createdAt: typeof snapshot.createdAt === "string" ? snapshot.createdAt : null,
+    updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : null,
+  });
 }
 
 function withBankTotals(snapshot: LeadProcessSnapshot | null, bank: BankTotals | null | undefined) {
@@ -115,7 +116,7 @@ function eventFailureText(value: unknown) {
   return null;
 }
 
-function startingSnapshot(leadId: string, lead?: LeadProcessLead | null): LeadProcessSnapshot {
+function startingSnapshot(): LeadProcessSnapshot {
   return {
     operationId: "",
     mode: "claim",
@@ -123,7 +124,7 @@ function startingSnapshot(leadId: string, lead?: LeadProcessLead | null): LeadPr
     progress: 0,
     stages: [],
     counters: {},
-    currentLead: lead || { id: leadId },
+    currentLead: { status: "processing" },
     recentLeads: [],
     events: [],
   };
@@ -158,10 +159,10 @@ export function LeadProcessProvider({ children }: { children: ReactNode }) {
     setSnapshot(null);
   }, [snapshot]);
 
-  const claimLead = useCallback(async (leadId: string, options?: ClaimOptions) => {
+  const claimLead = useCallback(async (leadId: string) => {
     const token = ++runTokenRef.current;
     setBank(undefined);
-    setSnapshot(startingSnapshot(leadId, options?.lead));
+    setSnapshot(startingSnapshot());
     setError(null);
     setOpen(true);
 
@@ -174,12 +175,12 @@ export function LeadProcessProvider({ children }: { children: ReactNode }) {
       if (!operation) {
         throw new Error("O servidor confirmou a entrega, mas não retornou o acompanhamento da operação.");
       }
-      if (token !== runTokenRef.current) return response;
+      if (token !== runTokenRef.current) return { ok: response.ok, operation };
       setSnapshot(operation);
 
       while (!TERMINAL.has(operation.status)) {
         await pollDelay();
-        if (token !== runTokenRef.current) return response;
+        if (token !== runTokenRef.current) return { ok: response.ok, operation };
         const polled = await apiFetch<unknown>(
           `/webscraping/radar/claim-runs/${encodeURIComponent(operation.operationId)}`,
         );
@@ -197,13 +198,13 @@ export function LeadProcessProvider({ children }: { children: ReactNode }) {
         throw new Error(eventFailureText(failureEvent?.detail) || failureEvent?.label || "O servidor não concluiu a entrega do lead.");
       }
 
-      return { ...response, operation };
+      return { ok: response.ok, operation };
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Não foi possível concluir a entrega do lead.";
       if (token === runTokenRef.current) {
         setError(message);
         setSnapshot(current => ({
-          ...(current || startingSnapshot(leadId, options?.lead)),
+          ...(current || startingSnapshot()),
           status: "failed",
         }));
       }

@@ -22,7 +22,6 @@ function createPrisma(opts: {
   canViewBilling?: boolean;
   vendasLead?: any[];
   conversations?: any[];
-  usage?: any[];
   users?: any[];
 } = {}) {
   const role = opts.role || 'ADMIN';
@@ -52,7 +51,6 @@ function createPrisma(opts: {
     userTeamPolicy: { findUnique: async () => null },
     vendasLead: { findMany: async () => opts.vendasLead || [] },
     companyConversation: { findMany: async () => opts.conversations || [] },
-    radarDistributionDailyUsage: { findMany: async () => opts.usage || [] },
   } as any;
 }
 
@@ -122,23 +120,19 @@ test('chats sem resposta: conta so quando a ultima msg e do lead (INBOUND) ha >2
 
 // ── Widget 3 — entregues x trabalhados x convertidos ────────────────────────
 
-test('seller-funnel soma entregues, conta trabalhados e convertidos por vendedor', async () => {
+test('seller-funnel conta cards criados, trabalhados e convertidos por vendedor', async () => {
   const now = new Date();
   const prisma = createPrisma({
-    usage: [
-      { userId: SELLER_ID, deliveredCount: 5 },
-      { userId: SELLER_ID, deliveredCount: 3 },
-    ],
     vendasLead: [
-      { assignedUserId: SELLER_ID, attemptCount: 2, lastContactAt: now, saleStatus: 'none', saleConfirmedAt: null },
-      { assignedUserId: SELLER_ID, attemptCount: 0, lastContactAt: null, saleStatus: 'sale_confirmed', saleConfirmedAt: now },
+      { assignedUserId: SELLER_ID, createdAt: now, attemptCount: 2, lastContactAt: now, saleStatus: 'none', saleConfirmedAt: null },
+      { assignedUserId: SELLER_ID, createdAt: now, attemptCount: 0, lastContactAt: null, saleStatus: 'sale_confirmed', saleConfirmedAt: now },
     ],
   });
   const service = new RelatoriosService(prisma);
   const out = await service.getSellerFunnel(adminUser, '30d');
   const row = out.rows.find((r: any) => r.userId === SELLER_ID);
   assert.ok(row);
-  assert.equal(row.delivered, 8);
+  assert.equal(row.delivered, 2);
   assert.equal(row.worked, 1); // so o de attemptCount>0
   assert.equal(row.converted, 1);
 });

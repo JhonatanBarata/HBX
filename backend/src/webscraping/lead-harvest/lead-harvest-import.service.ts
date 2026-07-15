@@ -3,7 +3,6 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -148,24 +147,6 @@ export class LeadHarvestImportService {
       counts,
       result,
     };
-  }
-
-  async getImportForUser(user: any, idOrBatchId: string) {
-    this.assertAdminOrMaster(user);
-    await this.assertPersistenceAvailable();
-    const id = compactHarvestText(idOrBatchId, 200);
-    if (!id) throw new BadRequestException('Informe o ID da importacao.');
-    const context = this.resolveUserContext(user);
-    const where: any = {
-      OR: [{ id }, { batchId: id }],
-    };
-    if (!context.isMaster && context.companyId) where.companyId = context.companyId;
-    const batch = await (this.prisma as any).harvestImportBatch.findFirst({
-      where,
-      include: { items: { orderBy: { createdAt: 'asc' } } },
-    }).catch(() => null);
-    if (!batch) throw new NotFoundException('Importacao de harvest nao encontrada.');
-    return this.serializeBatch(batch);
   }
 
   private normalizeBatchMetadata(body: Record<string, any>) {
@@ -445,11 +426,11 @@ export class LeadHarvestImportService {
         if (row?.id) {
           const isRfb = /cnpj[_-](?:base|public)|receita/i.test(`${item.sourceProvider} ${item.sourceUrl}`);
           const contacts = [
-            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: isRfb ? 'rfb_email' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50 }] : []),
-            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: isRfb ? 'rfb_primary' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50, rank: 1 }] : []),
-            ...(item.normalizedPhone2 ? [{ kind: 'phone' as const, value: item.normalizedPhone2, source: isRfb ? 'rfb_secondary' : 'lead_harvest_import', confidence: isRfb ? 100 : item.confidence || 50, rank: 2 }] : []),
+            ...(item.normalizedEmail ? [{ kind: 'email' as const, value: item.normalizedEmail, source: isRfb ? 'rfb_email' : 'hbx_engine', confidence: isRfb ? 100 : item.confidence || 50 }] : []),
+            ...(item.normalizedPhone ? [{ kind: 'phone' as const, value: item.normalizedPhone, source: isRfb ? 'rfb_primary' : 'hbx_engine', confidence: isRfb ? 100 : item.confidence || 50, rank: 1 }] : []),
+            ...(item.normalizedPhone2 ? [{ kind: 'phone' as const, value: item.normalizedPhone2, source: isRfb ? 'rfb_secondary' : 'hbx_engine', confidence: isRfb ? 100 : item.confidence || 50, rank: 2 }] : []),
             ...(item.normalizedWhatsapp && item.normalizedWhatsapp !== item.normalizedPhone
-              ? [{ kind: 'whatsapp' as const, value: item.normalizedWhatsapp, source: 'lead_harvest_import', confidence: item.confidence || 50 }]
+              ? [{ kind: 'whatsapp' as const, value: item.normalizedWhatsapp, source: 'hbx_engine', confidence: item.confidence || 50 }]
               : []),
           ];
           if (contacts.length) {
@@ -488,7 +469,7 @@ export class LeadHarvestImportService {
       evidence: item.payload?.evidence || null,
     };
     const enrichment = {
-      source: 'lead_harvest_import',
+      source: 'hbx_engine',
       sourceMode: batch.sourceMode,
       sourceRisk,
       batch: {
@@ -532,13 +513,13 @@ export class LeadHarvestImportService {
       enrichmentJson: JSON.stringify(enrichment),
       enrichmentScore: opportunityScore,
       enrichmentConfidence: item.confidence,
-      enrichmentVersion: 'lead_harvest_import_v1',
+      enrichmentVersion: 'hbx_engine_v1',
       recommendedChannel: item.normalizedEmail ? 'email' : phoneDigits ? 'whatsapp' : 'review',
       opportunityScore,
       opportunityReason: 'Importado com validacao segura do Lead Harvest.',
       status: 'clean',
       metadataJson: JSON.stringify({
-        source: 'lead_harvest_import',
+        source: 'hbx_engine',
         batchId: batch.batchId,
         externalId: item.externalId,
         noVendasImport: true,
@@ -687,56 +668,6 @@ export class LeadHarvestImportService {
     return 'imported';
   }
 
-  private serializeBatch(batch: any) {
-    const result = this.parseJson(batch?.resultJson);
-    return {
-      id: batch.id,
-      batchId: batch.batchId,
-      sourceMode: batch.sourceMode,
-      sourceName: batch.sourceName,
-      requestedBy: batch.requestedBy,
-      city: batch.city,
-      state: batch.state,
-      segment: batch.segment,
-      targetEmails: batch.targetEmails,
-      providers: this.parseJsonArray(batch.providersJson),
-      stats: this.parseJson(batch.statsJson),
-      status: batch.status,
-      counts: {
-        received: batch.receivedCount,
-        accepted: batch.acceptedCount,
-        rejected: batch.rejectedCount,
-        duplicates: batch.duplicateCount,
-        negatives: batch.negativeCount,
-        optOuts: batch.optOutCount,
-      },
-      result,
-      items: Array.isArray(batch.items)
-        ? batch.items.map((item: any) => ({
-            id: item.id,
-            externalId: item.externalId,
-            kind: item.kind,
-            normalizedEmail: item.normalizedEmail,
-            normalizedPhone: item.normalizedPhone,
-            normalizedDomain: item.normalizedDomain,
-            companyName: item.companyName,
-            website: item.website,
-            sourceUrl: item.sourceUrl,
-            sourceProvider: item.sourceProvider,
-            confidence: item.confidence,
-            status: item.status,
-            rejectReason: item.rejectReason,
-            importedRadarLeadId: item.importedRadarLeadId,
-            importedVendasLeadId: item.importedVendasLeadId,
-            payload: this.parseJson(item.payloadJson),
-            createdAt: item.createdAt,
-          }))
-        : [],
-      createdAt: batch.createdAt,
-      updatedAt: batch.updatedAt,
-    };
-  }
-
   private resolveUserContext(user: any) {
     const isMaster = Boolean(user?.isSystemMaster);
     return {
@@ -801,21 +732,4 @@ export class LeadHarvestImportService {
     return null;
   }
 
-  private parseJson(value: unknown) {
-    try {
-      const parsed = JSON.parse(String(value || '{}'));
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
-  private parseJsonArray(value: unknown) {
-    try {
-      const parsed = JSON.parse(String(value || '[]'));
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
 }

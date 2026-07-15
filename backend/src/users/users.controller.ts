@@ -128,13 +128,6 @@ class CreateCompanyUserDto {
 	commissionDueBusinessDays?: number;
 
 	@IsOptional()
-	@Type(() => Number)
-	@IsInt()
-	@Min(0)
-	@Max(500)
-	sellerDistributionDailyLimitOverride?: number;
-
-	@IsOptional()
 	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role?: 'USER' | 'ADMIN';
@@ -219,12 +212,6 @@ class UpdateCompanyUserProfileDto {
 	@Max(100)
 	referredByCommissionPercentSnapshot?: number;
 
-	@IsOptional()
-	@Type(() => Number)
-	@IsInt()
-	@Min(0)
-	@Max(500)
-	sellerDistributionDailyLimitOverride?: number;
 }
 
 class MasterCreateUserDto {
@@ -1029,13 +1016,6 @@ export class UsersController {
 			targetUserId: id,
 		});
 		const sellerOptionsEnabled = await this.usersService.isSellerNetworkCompany(companyId);
-		if (
-			dto.sellerDistributionDailyLimitOverride !== undefined &&
-			['USER', 'ADMIN'].includes(String(target.role || '').toUpperCase()) &&
-			sellerOptionsEnabled
-		) {
-			data.sellerDistributionDailyLimitOverride = Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0)));
-		}
 		const changedReferrerId = sellerNetworkData.referredByUserId
 			? Number(sellerNetworkData.referredByUserId || 0)
 			: 0;
@@ -1082,7 +1062,6 @@ export class UsersController {
 			commissionPercent: updated.commissionPercent,
 			commissionMonthlyCap: (updated as any).commissionMonthlyCap,
 			setupCommissionCap: (updated as any).setupCommissionCap,
-			sellerDistributionDailyLimitOverride: updated.sellerDistributionDailyLimitOverride,
 			...(operational || {}),
 			...this.sellerNetworkPayload(updated),
 		};
@@ -1370,9 +1349,6 @@ export class UsersController {
 			// Régua única (PR13062026007 P5): o Dono só cunha GERENTE (ADMIN sem ver $).
 			// Admin COM cobrança (canViewBilling=true) só o Master cria, por outro fluxo.
 			...(role === 'ADMIN' ? { canViewBilling: false } : {}),
-			...((role === 'USER' || role === 'ADMIN') && sellerOptionsEnabled && dto.sellerDistributionDailyLimitOverride !== undefined
-				? { sellerDistributionDailyLimitOverride: Math.max(0, Math.min(500, Math.trunc(Number(dto.sellerDistributionDailyLimitOverride || 0) || 0))) }
-				: {}),
 			...(requiresSellerOnboarding ? { isActive: false } : {}),
 		});
 		const operational = dto.operationalCapabilities !== undefined
@@ -1429,7 +1405,6 @@ export class UsersController {
 				isSystemMaster: created.isSystemMaster,
 				isActive: created.isActive,
 				...(operational || {}),
-				sellerDistributionDailyLimitOverride: (created as any).sellerDistributionDailyLimitOverride,
 				...this.sellerNetworkPayload(created),
 			},
 			invite,

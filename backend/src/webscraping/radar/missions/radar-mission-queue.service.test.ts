@@ -39,22 +39,38 @@ function applyData(row: Row, data: Row) {
   row.updatedAt = new Date();
 }
 
-function createFakePrisma(options: { cursorEnabled?: boolean | null; hasCursorTable?: boolean; activeSessions?: number; hasAuthSessionTable?: boolean } = {}) {
+function createFakePrisma(options: {
+  activeSessions?: number;
+  hasAuthSessionTable?: boolean;
+  acquiredState?: boolean;
+  activeDebit?: boolean;
+} = {}) {
   const missions: Row[] = [];
   let nextId = 1;
   const tableSet = new Set(['RadarMission']);
-  if (options.hasCursorTable !== false) tableSet.add('RadarFactoryCursor');
   if (options.hasAuthSessionTable !== false) tableSet.add('AuthSession');
-  const fake = {
+  const fake: any = {
     missions,
     hasTable: async (name: string) => tableSet.has(name),
-    radarFactoryCursor: {
-      findUnique: async () => (options.cursorEnabled == null ? null : { enabled: options.cursorEnabled }),
-    },
     authSession: {
       // conta "sessões ativas na janela" — o teste injeta o número direto (não simula lastSeenAt real)
       count: async () => Math.max(0, Math.trunc(Number(options.activeSessions) || 0)),
     },
+    radarLeadCompanyState: {
+      findUnique: async ({ where }: any) => options.acquiredState === false ? null : ({
+        paidClaimOperationId: `op-${where.companyId_radarLeadId.radarLeadId}`,
+        claimUsageKey: `usage-${where.companyId_radarLeadId.radarLeadId}`,
+        acquiredAt: new Date(),
+      }),
+    },
+    radarLeadProcessRun: { findFirst: async ({ where }: any) => ({ id: where.id }) },
+    creditLedgerEntry: {
+      findFirst: async ({ where }: any) => {
+        if (where.kind === 'refund') return null;
+        return options.activeDebit === false ? null : { id: 'debit-1' };
+      },
+    },
+    vendasLead: { findUnique: async () => ({ id: 'card-1', companyId: 1 }) },
     radarMission: {
       create: async ({ data }: any) => {
         const row: Row = { id: `m${nextId++}`, createdAt: new Date(), updatedAt: new Date(), ...data };
@@ -99,13 +115,33 @@ function createFakePrisma(options: { cursorEnabled?: boolean | null; hasCursorTa
       groupBy: async () => [],
     },
   };
+  fake.$transaction = async (callback: (tx: any) => Promise<any>) => callback(fake);
   return fake;
 }
 
 function buildService(options: Parameters<typeof createFakePrisma>[0] = {}) {
-  const fake = createFakePrisma({ cursorEnabled: true, ...options });
+  const fake = createFakePrisma(options);
   const service = new RadarMissionQueueService(fake as any);
+  // Os testes abaixo exercitam a semântica da fila em isolamento. O gate de ambiente, fail-closed,
+  // tem um teste próprio para não depender de estado global entre casos concorrentes.
+  (service as any).isQueuePaused = async () => false;
   return { fake, service };
+}
+
+// Os testes mecanicos da fila entram depois do choke pago. Testes especificos
+// abaixo exercitam a porta publica e sua prova state+ledger.
+async function enqueueForTest(service: RadarMissionQueueService, input: Record<string, any>) {
+  const radarLeadId = String(input?.payload?.radarLeadId || 'lead-test');
+  return (service as any).enqueueVerified((service as any).prisma, {
+    ...input,
+    payload: {
+      ...(input.payload || {}),
+      companyId: 1,
+      radarLeadId,
+      claimOperationId: `op-${radarLeadId}`,
+      claimUsageKey: `usage-${radarLeadId}`,
+    },
+  });
 }
 
 // ─── Funções puras ───────────────────────────────────────────────────────────────────────────────
@@ -148,46 +184,121 @@ test('isMissionQueueEnabled: default OFF (aditivo/reversível)', () => {
 
 // ─── Serviço (fila) ──────────────────────────────────────────────────────────────────────────────
 
-test('pausa real: cursor desligado/ausente → lease devolve vazio e nada drena', async () => {
-  for (const cursorEnabled of [false, null]) {
-    const { fake, service } = buildService({ cursorEnabled });
-    await service.enqueue({ stage: 'alvo', payload: { x: 1 } });
-    const result = await service.lease({ workerId: 'w1', batchSize: 5 });
-    assert.equal(result.paused, true);
-    assert.equal(result.missions.length, 0);
+test('pausa real: fila local fica fail-closed sem opt-in explícito', async () => {
+  const previous = process.env.HBX_MISSION_QUEUE_ENABLED;
+  try {
+    delete process.env.HBX_MISSION_QUEUE_ENABLED;
+    const fake = createFakePrisma();
+    const service = new RadarMissionQueueService(fake as any);
+    await enqueueForTest(service, { stage: 'enrich_lead', payload: { x: 1 } });
+    const paused = await service.lease({ workerId: 'w1', batchSize: 5 });
+    assert.equal(paused.paused, true);
+    assert.equal(paused.missions.length, 0);
     assert.equal(fake.missions[0].status, 'queued');
+
+    process.env.HBX_MISSION_QUEUE_ENABLED = 'true';
+    const enabled = await service.lease({ workerId: 'w1', batchSize: 5 });
+    assert.equal(enabled.paused, false);
+    assert.equal(enabled.missions.length, 1);
+  } finally {
+    if (previous == null) delete process.env.HBX_MISSION_QUEUE_ENABLED;
+    else process.env.HBX_MISSION_QUEUE_ENABLED = previous;
   }
+});
+
+test('stage fora de enrich_lead/xray_note falha fechado antes de persistir', async () => {
+  const { fake, service } = buildService();
+  await assert.rejects(
+    () => service.enqueuePaidAcquisitionMission({
+      stage: 'legacy_stage' as any,
+      companyId: 1,
+      radarLeadId: 'lead-test',
+      claimOperationId: 'op-lead-test',
+      claimUsageKey: 'usage-lead-test',
+    }),
+    /RADAR_MISSION_STAGE_BLOCKED:legacy_stage/,
+  );
+  assert.equal(fake.missions.length, 0);
+});
+
+test('P0: produtor exige state adquirido + ledger ativo e e idempotente por claim', async () => {
+  const { fake, service } = buildService();
+  const input = {
+    stage: 'enrich_lead' as const,
+    companyId: 1,
+    radarLeadId: 'paid',
+    claimOperationId: 'op-paid',
+    claimUsageKey: 'usage-paid',
+    payload: { website: 'https://empresa.test' },
+  };
+  const first = await service.enqueuePaidAcquisitionMission(input);
+  const retry = await service.enqueuePaidAcquisitionMission(input);
+  assert.equal(first.created, true);
+  assert.equal(retry.created, false);
+  assert.equal(fake.missions.length, 1);
+  assert.equal(fake.missions[0].dedupeKey, 'claim:op-paid');
+  assert.equal(fake.missions[0].payloadJson.claimOperationId, 'op-paid');
+});
+
+test('P0: produtor nao grava missao sem state adquirido', async () => {
+  const { fake, service } = buildService({ acquiredState: false });
+  await assert.rejects(
+    () => service.enqueuePaidAcquisitionMission({
+      stage: 'enrich_lead', companyId: 1, radarLeadId: 'paid', claimOperationId: 'op-paid', claimUsageKey: 'usage-paid',
+    }),
+    /RADAR_MISSION_PAID_PROOF_REQUIRED:state_not_acquired/,
+  );
+  assert.equal(fake.missions.length, 0);
+});
+
+test('P0: produtor nao grava missao sem debito ativo', async () => {
+  const { fake, service } = buildService({ activeDebit: false });
+  await assert.rejects(
+    () => service.enqueuePaidAcquisitionMission({
+      stage: 'xray_note', companyId: 1, radarLeadId: 'paid', claimOperationId: 'op-paid', claimUsageKey: 'usage-paid',
+    }),
+    /RADAR_MISSION_PAID_PROOF_REQUIRED:debit_missing/,
+  );
+  assert.equal(fake.missions.length, 0);
 });
 
 test('lease: claim otimista, attempts incrementa, segunda passada não pega a mesma missão', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: { taskId: 't1' }, dedupeKey: 'task:t1' });
-  const first = await service.lease({ workerId: 'w1', stages: ['alvo'], batchSize: 5 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: { taskId: 't1' }, dedupeKey: 'task:t1' });
+  const first = await service.lease({ workerId: 'w1', stages: ['enrich_lead'], batchSize: 5 });
   assert.equal(first.missions.length, 1);
   assert.equal(first.missions[0].attempts, 1);
   assert.equal(fake.missions[0].status, 'leased');
-  const second = await service.lease({ workerId: 'w2', stages: ['alvo'], batchSize: 5 });
+  const second = await service.lease({ workerId: 'w2', stages: ['enrich_lead'], batchSize: 5 });
   assert.equal(second.missions.length, 0);
 });
 
-test('enqueue idempotente: dedupeKey vivo não duplica; terminal re-arma', async () => {
+test('P0 lease: missao cuja prova foi revogada e cancelada antes de sair para o Owner', async () => {
   const { fake, service } = buildService();
-  const a = await service.enqueue({ stage: 'alvo', payload: { v: 1 }, dedupeKey: 'k' });
-  const b = await service.enqueue({ stage: 'alvo', payload: { v: 2 }, dedupeKey: 'k' });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: { radarLeadId: 'revogado' } });
+  fake.radarLeadCompanyState.findUnique = async () => null;
+  const leased = await service.lease({ workerId: 'owner-local', batchSize: 1 });
+  assert.equal(leased.missions.length, 0);
+  assert.equal(fake.missions[0].status, 'canceled');
+});
+
+test('enqueue idempotente: dedupeKey vivo não duplica e retry da claim não rearma terminal', async () => {
+  const { fake, service } = buildService();
+  const a = await enqueueForTest(service, { stage: 'enrich_lead', payload: { v: 1 }, dedupeKey: 'k' });
+  const b = await enqueueForTest(service, { stage: 'enrich_lead', payload: { v: 2 }, dedupeKey: 'k' });
   assert.equal(a.created, true);
   assert.equal(b.created, false);
   assert.equal(fake.missions.length, 1);
   fake.missions[0].status = 'dead';
-  const c = await service.enqueue({ stage: 'alvo', payload: { v: 3 }, dedupeKey: 'k' });
-  assert.equal(c.created, true);
+  const c = await enqueueForTest(service, { stage: 'enrich_lead', payload: { v: 3 }, dedupeKey: 'k' });
+  assert.equal(c.created, false);
   assert.equal(fake.missions.length, 1);
-  assert.equal(fake.missions[0].status, 'queued');
-  assert.equal(fake.missions[0].attempts, 0);
+  assert.equal(fake.missions[0].status, 'dead');
 });
 
 test('heartbeat: estende só com leaseId certo', async () => {
   const { service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {} });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {} });
   const { missions } = await service.lease({ workerId: 'w1', batchSize: 1 });
   const mission = missions[0];
   assert.equal((await service.heartbeat(mission.id, mission.leaseId)).ok, true);
@@ -196,7 +307,7 @@ test('heartbeat: estende só com leaseId certo', async () => {
 
 test('complete: idempotente com o mesmo leaseId; lease alheio é stale', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {} });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {} });
   const { missions } = await service.lease({ workerId: 'w1', batchSize: 1 });
   const mission = missions[0];
   const first = await service.complete(mission.id, mission.leaseId, { ok: 1 });
@@ -211,7 +322,7 @@ test('complete: idempotente com o mesmo leaseId; lease alheio é stale', async (
 
 test('fail: retryable re-enfileira com backoff; tentativas esgotadas → dead-letter', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {}, maxAttempts: 2 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {}, maxAttempts: 2 });
   let leased = await service.lease({ workerId: 'w1', batchSize: 1 });
   const fail1 = await service.fail(leased.missions[0].id, leased.missions[0].leaseId, 'timeout', true);
   assert.equal(fail1.status, 'queued');
@@ -229,7 +340,7 @@ test('fail: retryable re-enfileira com backoff; tentativas esgotadas → dead-le
 
 test('fail não-retryable vai direto pro dead-letter', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {}, maxAttempts: 5 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {}, maxAttempts: 5 });
   const { missions } = await service.lease({ workerId: 'w1', batchSize: 1 });
   const failed = await service.fail(missions[0].id, missions[0].leaseId, 'erro permanente', false);
   assert.equal(failed.status, 'dead');
@@ -238,8 +349,8 @@ test('fail não-retryable vai direto pro dead-letter', async () => {
 
 test('lease vencido volta pra fila sozinho (kill -9 → re-enfileira); heartbeat concorrente não é derrubado', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {}, maxAttempts: 3 });
-  await service.enqueue({ stage: 'alvo', payload: {}, dedupeKey: 'vivo', maxAttempts: 3 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {}, maxAttempts: 3 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {}, dedupeKey: 'vivo', maxAttempts: 3 });
   const { missions } = await service.lease({ workerId: 'w1', batchSize: 2 });
   assert.equal(missions.length, 2);
   // missão 1: lease vencido (worker morreu); missão 2: heartbeat mudou o leaseExpiresAt depois do scan
@@ -253,7 +364,7 @@ test('lease vencido volta pra fila sozinho (kill -9 → re-enfileira); heartbeat
 
 test('lease vencido com tentativas esgotadas vira dead-letter', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {}, maxAttempts: 1 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {}, maxAttempts: 1 });
   await service.lease({ workerId: 'w1', batchSize: 1 });
   fake.missions[0].leaseExpiresAt = new Date(Date.now() - 60_000);
   await service.reviveExpiredLeases();
@@ -262,7 +373,7 @@ test('lease vencido com tentativas esgotadas vira dead-letter', async () => {
 
 test('redriveDead: dead-letter volta pra fila com tentativas zeradas', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {}, maxAttempts: 1 });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {}, maxAttempts: 1 });
   const { missions } = await service.lease({ workerId: 'w1', batchSize: 1 });
   await service.fail(missions[0].id, missions[0].leaseId, 'x', false);
   assert.equal(fake.missions[0].status, 'dead');
@@ -274,8 +385,8 @@ test('redriveDead: dead-letter volta pra fila com tentativas zeradas', async () 
 
 test('lag da fila: conta só missão devida; idade do item mais velho', async () => {
   const { fake, service } = buildService();
-  await service.enqueue({ stage: 'alvo', payload: {} });
-  await service.enqueue({ stage: 'receita', payload: {} });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: {} });
+  await enqueueForTest(service, { stage: 'xray_note', payload: {}, dedupeKey: 'xray-lag' });
   fake.missions[1].nextAttemptAt = new Date(Date.now() + 60_000); // backoff futuro = não devida
   const lag = await service.getQueueLagSnapshot();
   assert.equal(lag.queuedDue, 1);
@@ -302,7 +413,7 @@ test('CHIP E1: activity degrada gracioso sem tabela AuthSession (activeUsers 0, 
 
 test('CHIP E1: stage xray_note é leasável e getLeasedContext devolve stage+payload sob o lease', async () => {
   const { service } = buildService();
-  await service.enqueue({ stage: 'xray_note', payload: { radarLeadId: 'lead-9', note: { razaoSocial: 'ACME' } }, dedupeKey: 'xray-note:lead-9' });
+  await enqueueForTest(service, { stage: 'xray_note', payload: { radarLeadId: 'lead-9', note: { razaoSocial: 'ACME' } }, dedupeKey: 'xray-note:lead-9' });
   const leased = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
   assert.equal(leased.missions.length, 1);
   const m = leased.missions[0];
@@ -320,7 +431,7 @@ test('CHIP E1: stage xray_note é leasável e getLeasedContext devolve stage+pay
 
 test('CHIP E1: getLeasedContext após complete sinaliza alreadyCompleted (idempotência do apply)', async () => {
   const { service } = buildService();
-  await service.enqueue({ stage: 'enrich_lead', payload: { radarLeadId: 'l1' }, dedupeKey: 'lead:l1' });
+  await enqueueForTest(service, { stage: 'enrich_lead', payload: { radarLeadId: 'l1' }, dedupeKey: 'lead:l1' });
   const leased = await service.lease({ workerId: 'ponte', stages: ['enrich_lead'], batchSize: 1 });
   const m = leased.missions[0];
   await service.complete(m.id, m.leaseId, { ok: true });

@@ -12,10 +12,6 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   isHbxEngineLocalhostUrl,
-  COMMERCIAL_PLAN_QUOTAS,
-  COMMERCIAL_PLAN_KEYS,
-  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
-  resolveCommercialPlanKeyForCapabilities,
   buildRadarLeadEnrichment,
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
@@ -32,13 +28,7 @@ import {
   RECENT_HISTORY_LIMIT,
   IBGE_CITIES_URL,
   CITY_CACHE_TTL_MS,
-  MASS_DATA_INTERNAL_SEGMENTS,
   ACRE_CITIES_FALLBACK,
-  AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK,
-  AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
-  AUTONOMOUS_MASS_DATA_MAX_TASKS,
-  DEFAULT_MASS_DATA_ENGINE_URLS,
-  TURBO_OPERATIONAL_CONFIG_KEY,
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
   RADAR_PROTECTED_STATUSES,
@@ -86,7 +76,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
   maxQuantityFor,
@@ -99,10 +88,6 @@ import {
 import { RadarCnpjPublicSourceService } from './radar-cnpj-public-source.service';
 
 import type {
-  AutonomousMassDataCandidate,
-  AutonomousMassDataStrategyMode,
-  AutonomousMassDataWork,
-  AutonomousMassDataWorkReason,
   ExternalRuntimeStatus,
   GlobalCacheRow,
   HbxBatchStatus,
@@ -119,13 +104,11 @@ import type {
   LeadQualityStatus,
   LeadQualityV2,
   LeadQualityV2SalesProfile,
-  MasterMassDataCampaignInput,
   NativeRuntimeDiagnostic,
   NormalizedRadarFilters,
   NormalizedSearchInput,
   NormalizeSearchInputOptions,
   PlaceDetails,
-  RadarCampaignInput,
   RadarChannelFilter,
   RadarChannelMatchMode,
   RadarFiltersInput,
@@ -152,7 +135,6 @@ import type {
   WebscrapingContactResult,
   WebscrapingEngine,
   WebscrapingHistorySummary,
-  WebscrapingOperationalConfigInput,
   WebscrapingRuntimeDiagnostic,
   WebscrapingRuntimeResponse,
   WebscrapingSearchFilters,
@@ -633,10 +615,6 @@ export class RadarCoreSearchLoopMixin {
           nextRetryAt: new Date(),
         },
       }).catch(() => null);
-      await this.resumeDuePausedRadarSearchRuns().catch((error: any) => {
-        this.logger.warn(`[radar-run] falha ao avaliar pausas automaticas: ${String(error?.message || error)}`);
-      });
-
       for (;;) {
         const now = new Date();
         const run = await this.prisma.webscrapingSearchRun.findFirst({
@@ -791,12 +769,9 @@ export class RadarCoreSearchLoopMixin {
     const attemptInput = attemptTask.input;
     const queryUsed = attemptTask.query;
     const engineUrl = lease?.url || String(current.assignedEngineUrl || current.lastEngineUrl || this.getHbxScrapingEngineUrl());
-    // LIMPEZA-DESTRUTIVA L1 (04/07): pra TODO papel (inclusive USERMASTER/admin/master),
-    // o run NUNCA importa/reivindica pro funil de Vendas sozinho. Este passo do ciclo só
-    // enche a vitrine (RadarLeadPool com ownerCompanyId=null) e devolve se o run está
-    // pausado por limite (semântica que já existia no ramo vendedor). O funil só recebe
-    // card por puxada manual (send-to-vendas / mark-sent-to-vendas).
-    const autoImportAndStopIfPaused = async (label: string) => {
+    // A busca só localiza e persiste candidatos mascarados no pool. Ela não reivindica,
+    // não enriquece um lead individual e não consulta limites comerciais.
+    const syncDiscoveryToPool = async (label: string) => {
       const latestForSync = await this.prisma.webscrapingSearchRun.findFirst({
         where: { id: runId, companyId: context.companyId },
         include: { items: { orderBy: { createdAt: 'asc' } } },
@@ -806,11 +781,6 @@ export class RadarCoreSearchLoopMixin {
           this.logger.warn(`[radar-run] sync (vitrine) ${label} ignorado run=${runId}: ${String(error?.message || error)}`);
         });
       }
-      const latest = await this.prisma.webscrapingSearchRun.findUnique({
-        where: { id: runId },
-        select: { id: true, status: true, lastBatchStatus: true, metricsJson: true },
-      }).catch(() => null);
-      return this.isSearchRunPausedByLimit(latest);
     };
 
     try {
@@ -818,7 +788,7 @@ export class RadarCoreSearchLoopMixin {
         const requiredChannelMatches = hasRequiredChannelFilter
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(current.foundCount);
-        if (await autoImportAndStopIfPaused('final')) return;
+        await syncDiscoveryToPool('final');
         const finalStatus: WebscrapingSearchRunStatus = requiredChannelMatches >= normalized.quantity
           ? 'completed'
           : 'completed_insufficient_results';
@@ -861,7 +831,7 @@ export class RadarCoreSearchLoopMixin {
           ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
         if (counters.foundCount > 0) {
-          if (await autoImportAndStopIfPaused('parcial')) return;
+          await syncDiscoveryToPool('parcial');
           await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         }
         await this.prisma.webscrapingSearchRun.update({
@@ -918,7 +888,7 @@ export class RadarCoreSearchLoopMixin {
         const requiredChannelMatches = hasRequiredChannelFilter
           ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
           : safeInteger(liveRun.foundCount);
-        if (await autoImportAndStopIfPaused('alvo')) return;
+        await syncDiscoveryToPool('alvo');
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -1035,7 +1005,7 @@ export class RadarCoreSearchLoopMixin {
       );
 
       if (approvedCount > 0) {
-        if (await autoImportAndStopIfPaused('incremental')) return;
+        await syncDiscoveryToPool('incremental');
       }
       const consecutiveEmptyBatchCount = approvedCount === 0
         ? safeInteger(current.consecutiveEmptyBatchCount) + 1
@@ -1074,7 +1044,7 @@ export class RadarCoreSearchLoopMixin {
 
       if (reachedTarget) {
         await this.runGoogleEmergencyComplementIfEligible(runId, user, context, normalized);
-        if (await autoImportAndStopIfPaused('complemento')) return;
+        await syncDiscoveryToPool('complemento');
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         const finalStatus: WebscrapingSearchRunStatus = requiredChannelMatches >= normalized.quantity
           ? 'completed'
@@ -1225,7 +1195,7 @@ export class RadarCoreSearchLoopMixin {
           ? `Nenhum card valido foi encontrado apos ${attempt} lotes. Ultima query: ${queryUsed}.`
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
       if (counters.foundCount > 0) {
-        if (await autoImportAndStopIfPaused('pos-erro')) return;
+        await syncDiscoveryToPool('pos-erro');
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context).catch(() => null);
       }
       await this.prisma.webscrapingSearchRun.update({

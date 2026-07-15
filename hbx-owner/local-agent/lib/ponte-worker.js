@@ -38,7 +38,8 @@ const EXTRACTION_SYSTEM_PROMPT = [
   "- Nome do negócio NÃO é nome do dono.",
 ].join("\n");
 
-// Prompt de nota — VERBATIM do backend/src/webscraping/radar/cnpj-xray/cnpj-xray-ai-note.service.ts
+// Prompt de nota do lead adquirido. A missao xray_note so nasce na saga paga;
+// o Raio-X cadastral do Owner nao produz IA nem missao.
 const NOTE_SYSTEM_PROMPT = [
   "Você avalia leads B2B brasileiros pra um vendedor.",
   "Devolva SOMENTE JSON válido, nada fora dele, no formato:",
@@ -110,7 +111,7 @@ function safeParseJson(raw) {
   try { return JSON.parse(match[0]); } catch { return null; }
 }
 
-// ─── FÁBRICA DO WORKER ──────────────────────────────────────────────────────────────────────────
+// ─── CONSTRUÇÃO DO WORKER LOCAL ─────────────────────────────────────────────────────────────────
 
 /**
  * deps:
@@ -241,8 +242,8 @@ function createPonteWorker(deps) {
 
     if (stage === "enrich_lead") {
       const website = String(payload.website || "");
-      // Sem site no payload, o worker crawleia pelo lead? Não — o crawl é do backend/fábrica. Aqui o
-      // payload traz o que o 30B precisa. Se vier website, crawleia leve; senão, degrada (nada a extrair).
+      // O payload precisa trazer o site. Se vier website, o Owner faz um crawl leve local;
+      // sem website, degrada sem tentar descoberta no backend/VPS.
       const sourceText = website ? String(await fetchSiteText(website).catch(() => "")).slice(0, maxSourceChars) : "";
       if (!sourceText.trim()) {
         // Nada pra extrair — completa vazio (o backend grava 0 contatos; missão não fica presa).

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 import type { LeadContactCandidate } from '../persistence/lead-contact-gate';
+import { inspectRadarPaidAcquisitionProof } from './radar-paid-acquisition-proof';
 
 /**
  * APLICAÇÃO DE RESULTADO DE MISSÃO DA PONTE (CHIP E1, 05/07).
@@ -59,14 +60,32 @@ export class MissionResultApplyService {
     const result = (input?.result || {}) as Record<string, unknown>;
     const payload = (input?.payload || {}) as Record<string, unknown>;
 
-    if (stage === 'enrich_lead') return this.applyContacts(payload, result);
-    if (stage === 'xray_note') return this.applyNote(payload, result);
-    // Estágios da fábrica in-process não têm resultado da ponte — complete segue normal (noop).
-    return { applied: true, kind: 'noop' };
+    if (!['enrich_lead', 'xray_note'].includes(stage)) throw new Error(`RADAR_MISSION_STAGE_BLOCKED:${stage}`);
+    if (!this.resolveLeadId(payload)) {
+      return { applied: false, kind: stage === 'enrich_lead' ? 'contacts' : 'note', reason: 'lead_id_ausente' };
+    }
+    const db = this.db();
+    const execute = async (tx: any) => {
+      const proof = await inspectRadarPaidAcquisitionProof(tx, payload);
+      if ('reason' in proof) {
+        return { applied: false, kind: stage === 'enrich_lead' ? 'contacts' : 'note', reason: `paid_proof_${proof.reason}` } as MissionResultApplyOutcome;
+      }
+      if (stage === 'enrich_lead') return this.applyContacts(payload, result, tx);
+      return this.applyNote(payload, result, tx);
+    };
+    // Serializavel fecha a janela entre validar o ledger e persistir o resultado:
+    // refund concorrente faz uma das transacoes repetir/falhar, nunca grava PII
+    // silenciosamente depois da revogacao.
+    if (typeof db.$transaction === 'function') {
+      return db.$transaction((tx: any) => execute(tx), { isolationLevel: 'Serializable' });
+    }
+    return execute(db);
   }
 
-  private resolveLeadId(payload: Record<string, unknown>, result: Record<string, unknown>): string {
-    return String(result?.radarLeadId || payload?.radarLeadId || '').trim();
+  private resolveLeadId(payload: Record<string, unknown>): string {
+    // O worker nao escolhe o destino da escrita. O lead vem exclusivamente do
+    // payload cercado pela prova paga persistida na missao.
+    return String(payload?.radarLeadId || '').trim();
   }
 
   /**
@@ -77,8 +96,9 @@ export class MissionResultApplyService {
   private async applyContacts(
     payload: Record<string, unknown>,
     result: Record<string, unknown>,
+    db: any,
   ): Promise<MissionResultApplyOutcome> {
-    const leadId = this.resolveLeadId(payload, result);
+    const leadId = this.resolveLeadId(payload);
     if (!leadId) return { applied: false, kind: 'contacts', reason: 'lead_id_ausente' };
 
     const sourceText = String(result?.sourceText || '');
@@ -97,7 +117,7 @@ export class MissionResultApplyService {
     if (!candidates.length) return { applied: true, kind: 'contacts', written: 0, skipped: 0, rejected: 0 };
 
     const outcome = await this.leadContactWrite
-      .writeContacts(this.db(), leadId, candidates, { sourceText })
+      .writeContacts(db, leadId, candidates, { sourceText })
       .catch((error) => {
         this.logger.warn(`aplicação de contatos falhou lead=${leadId}: ${error instanceof Error ? error.message : error}`);
         return null;
@@ -114,8 +134,9 @@ export class MissionResultApplyService {
   private async applyNote(
     payload: Record<string, unknown>,
     result: Record<string, unknown>,
+    db: any,
   ): Promise<MissionResultApplyOutcome> {
-    const leadId = this.resolveLeadId(payload, result);
+    const leadId = this.resolveLeadId(payload);
     if (!leadId) return { applied: false, kind: 'note', reason: 'lead_id_ausente' };
 
     // null/undefined = worker degradou → nota nula (NÃO coagir null pra 0, que zeraria a nota existente).
@@ -125,9 +146,7 @@ export class MissionResultApplyService {
     const resumo = String((result as any).resumo || '').trim().slice(0, 140) || null;
     if (nota == null) return { applied: true, kind: 'note', reason: 'nota_nula_noop', written: 0 };
 
-    const db = this.db();
-    const hasTable = await this.prisma.hasTable('RadarLeadPool').catch(() => false);
-    if (!hasTable || !db?.radarLeadPool?.update) return { applied: false, kind: 'note', reason: 'sem_tabela' };
+    if (!db?.radarLeadPool?.update) return { applied: false, kind: 'note', reason: 'sem_tabela' };
 
     try {
       const row = await db.radarLeadPool.findUnique({ where: { id: leadId }, select: { metadataJson: true } }).catch(() => null);

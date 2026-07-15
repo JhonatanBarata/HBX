@@ -81,7 +81,6 @@
         <strong id="sys-engines-big" class="hidden">—</strong>
         <div class="chk-row">
           <span id="chk-elastic" class="chk">Elasticidade</span>
-          <span id="chk-factory" class="chk">Fábrica</span>
         </div>
         <div class="btn-row hero-foot">
           <button id="btn-religar" class="btn btn-sm btn-blue" title="Sobe de volta os motores que caíram">↻ Religar motores</button>
@@ -162,25 +161,15 @@
         </details>
       </section>
 
-      <!-- Banco de leads LOCAL + transferência local → VPS -->
+      <!-- Banco de leads LOCAL (somente leitura/exportação no Owner) -->
       <section class="card env-col" data-env="bank">
         <header class="env-head"><h2>Banco de leads local</h2></header>
         <div class="grid-2">
           <div class="metric"><span class="label">Sua máquina</span><strong id="sys-bank-local">—</strong><small id="sys-bank-local-delta" class="delta"></small></div>
           <div class="metric"><span class="label">VPS (destino)</span><strong id="sys-bank-vps-mini">—</strong><small id="sys-bank-vps-delta" class="delta"></small></div>
         </div>
-        <button id="btn-push-vps" class="btn btn-sm btn-green" style="display:block;width:100%;margin-top:12px;" title="MOVE todos os leads locais pro VPS e LIMPA o local (sua máquina zera) — é transferência, não cópia">⬆ Mandar tudo pro VPS</button>
-        <div id="transfer-box" style="display:none;margin-top:12px;">
-          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
-            <span id="transfer-status" class="delta" style="font-weight:600;">—</span>
-            <strong id="transfer-pct" style="margin-left:auto;font-size:18px;line-height:1;">0%</strong>
-          </div>
-          <div style="height:12px;background:rgba(255,255,255,.08);border-radius:6px;overflow:hidden;">
-            <div id="transfer-bar" style="height:100%;width:0%;background:#39d98a;transition:width .35s ease;"></div>
-          </div>
-        </div>
         <button id="btn-export-local" class="btn btn-sm btn-blue" style="display:block;width:100%;margin-top:8px;" title="Baixa o banco LOCAL inteiro em CSV compactado (.csv.gz) — o banco da VPS exporta no card BANCO, na direita">⬇ Exportar banco local (csv.gz)</button>
-        <p class="delta" style="margin-top:8px;">Move os leads prontos do local pro VPS e <strong>limpa o local</strong> — é transferência, não cópia.</p>
+        <p class="delta" style="margin-top:8px;">O Owner local não injeta cards na VPS. Leads comerciais entram pelo fluxo pago do produto.</p>
         <span id="export-local-feedback" class="delta"></span>
       </section>
     </div><!-- /v2-col local -->
@@ -450,14 +439,12 @@
         <span id="xray-status" class="pill pill-muted">pronto</span>
       </div>
     </div>
-    <p class="delta" style="margin:0 0 10px;">Cola até 10.000 CNPJs (1 por linha, com ou sem máscara). Camada cadastral é instantânea e grátis; vivo/IA enfileiram e enriquecem em background.</p>
+    <p class="delta" style="margin:0 0 10px;">Cole até 10.000 CNPJs (1 por linha, com ou sem máscara). O Raio-X exporta somente os dados cadastrais já carregados da RFB. Enriquecimento acontece apenas depois da compra do lead.</p>
 
     <textarea id="xray-input" class="cf-input" style="width:100%;min-height:140px;font-family:monospace;font-size:.8rem;" placeholder="11.222.333/0001-81&#10;11444777000161&#10;..."></textarea>
     <div style="display:flex;align-items:center;gap:14px;margin-top:8px;flex-wrap:wrap;">
       <span id="xray-line-count" class="delta">0 linha(s)</span>
-      <label class="cf-toggle"><input type="checkbox" id="xray-layer-cadastral" checked disabled /> Cadastral (grátis, instantâneo)</label>
-      <label class="cf-toggle"><input type="checkbox" id="xray-layer-vivo" /> Vivo — crawl + WhatsApp-gate</label>
-      <label class="cf-toggle"><input type="checkbox" id="xray-layer-ia" /> IA — nota ICP + resumo</label>
+      <label class="cf-toggle"><input type="checkbox" id="xray-layer-cadastral" checked disabled /> Cadastral RFB local</label>
       <button id="btn-xray-estimate" class="btn btn-sm btn-blue">Estimar custo/tempo</button>
       <button id="btn-xray-start" class="btn btn-sm btn-green">▶ Iniciar Raio-X</button>
     </div>
@@ -467,9 +454,9 @@
     <div style="overflow-x:auto;margin-top:14px;">
       <table class="cockpit-table" id="xray-jobs-table">
         <thead>
-          <tr><th>Job</th><th>Status</th><th>Camadas</th><th>Válidos</th><th>Inválidos</th><th>Processados</th><th>Vivo (fila)</th><th>IA</th><th>Criado</th><th>Ação</th></tr>
+          <tr><th>Job</th><th>Status</th><th>Camada</th><th>Válidos</th><th>Inválidos</th><th>Processados</th><th>Criado</th><th>Ação</th></tr>
         </thead>
-        <tbody id="xray-jobs-tbody"><tr><td colspan="10" class="delta">lendo histórico…</td></tr></tbody>
+        <tbody id="xray-jobs-tbody"><tr><td colspan="8" class="delta">lendo histórico…</td></tr></tbody>
       </table>
     </div>
   </section>

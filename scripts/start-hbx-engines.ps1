@@ -37,8 +37,6 @@ $urls = 1..$resolvedCount | ForEach-Object { "http://hbx-engine-$($_):8001" }
 $env:HBX_ENGINE_COUNT = [string]$resolvedCount
 $env:HBX_ENGINE_MAX_COUNT = [string]$resolvedCount
 $env:HBX_LIST_ENGINE_COUNT = [string]$resolvedCount
-$env:HBX_FACTORY_MIN_ENGINES = '1'
-$env:HBX_FACTORY_MAX_ENGINES = [string]$resolvedCount
 $env:HBX_ENGINE_URLS = ($urls -join ',')
 
 Write-Host "Starting HBX local engine warm pool: $($services -join ', ')"

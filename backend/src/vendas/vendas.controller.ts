@@ -14,7 +14,6 @@ import {
   CreateHbxSalesHandoffDto,
   CreateMasterNoticeDto,
   CreateManualVendasLeadDto,
-  ImportWebscrapingLeadsDto,
   ReportVendasLeadDto,
   SimulateProspectingDto,
   StartVendasProspectingDto,
@@ -122,11 +121,6 @@ export class VendasController {
     return this.vendasService.getBoardForUser(req.user, sellerId);
   }
 
-  @Get('usage')
-  getUsage(@Req() req: any) {
-    return this.vendasService.getUsageSnapshotForUser(req.user);
-  }
-
   @Get('pending-summary')
   getPendingSummary(@Req() req: any) {
     return this.vendasService.getPendingSummaryForUser(req.user);
@@ -187,11 +181,6 @@ export class VendasController {
   @Get('seller-audit')
   getSellerAudit(@Req() req: any, @Query('period') period?: string) {
     return this.vendasService.getSellerAuditForUser(req.user, period);
-  }
-
-  @Patch('seller-audit/:sellerId/governance')
-  updateSellerGovernance(@Req() req: any, @Param('sellerId') sellerId: string, @Body() body: any) {
-    return this.vendasService.updateSellerGovernanceForUser(req.user, Number(sellerId), body || {});
   }
 
   @Get('hbx-closing-pipeline')
@@ -265,19 +254,17 @@ export class VendasController {
     res.send(pdf.buffer);
   }
 
+  @Get('leads/export.csv')
+  async exportLeadsCsv(@Req() req: any, @Res() res: any) {
+    const csv = await this.vendasService.exportLeadsCsvForUser(req.user);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${csv.filename}"`);
+    res.send(csv.buffer);
+  }
+
   @Post('manual')
   createManualLead(@Req() req: any, @Body() dto: CreateManualVendasLeadDto) {
     return this.vendasService.createManualLeadForUser(req.user, dto);
-  }
-
-  @Post('import/webscraping')
-  importWebscrapingLeads(@Req() req: any, @Body() dto: ImportWebscrapingLeadsDto) {
-    return this.vendasService.importWebscrapingLeadsForUser(req.user, dto);
-  }
-
-  @Post('import/webscraping/preview')
-  previewWebscrapingImport(@Req() req: any, @Body() dto: ImportWebscrapingLeadsDto) {
-    return this.vendasService.previewWebscrapingImportForUser(req.user, dto);
   }
 
   @Patch('lead/:leadId')

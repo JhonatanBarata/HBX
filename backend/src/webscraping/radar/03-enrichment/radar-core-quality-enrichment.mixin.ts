@@ -12,10 +12,6 @@ import {
   buildLocalHbxEngineUrls,
   getConfiguredHbxEngineCount,
   isHbxEngineLocalhostUrl,
-  COMMERCIAL_PLAN_QUOTAS,
-  COMMERCIAL_PLAN_KEYS,
-  GOOGLE_DAILY_LIMIT_REACHED_MESSAGE,
-  resolveCommercialPlanKeyForCapabilities,
   buildRadarLeadEnrichment,
   RADAR_LEAD_ENRICHMENT_VERSION,
   calculateLeadQualityV2,
@@ -32,13 +28,7 @@ import {
   RECENT_HISTORY_LIMIT,
   IBGE_CITIES_URL,
   CITY_CACHE_TTL_MS,
-  MASS_DATA_INTERNAL_SEGMENTS,
   ACRE_CITIES_FALLBACK,
-  AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK,
-  AUTONOMOUS_MASS_DATA_DEFAULT_TASKS,
-  AUTONOMOUS_MASS_DATA_MAX_TASKS,
-  DEFAULT_MASS_DATA_ENGINE_URLS,
-  TURBO_OPERATIONAL_CONFIG_KEY,
   RADAR_RESERVATION_TTL_MS,
   RADAR_REGION_MAX_RADIUS_KM,
   RADAR_PROTECTED_STATUSES,
@@ -87,7 +77,6 @@ import {
   coerceBoolean,
   normalizeEngine,
   normalizeEnginePurpose,
-  isAutomaticEnginePurpose,
   normalizeTargetType,
   parsePositiveInteger,
   maxQuantityFor,
@@ -100,10 +89,6 @@ import {
 } from '../radar-core-method-imports';
 
 import type {
-  AutonomousMassDataCandidate,
-  AutonomousMassDataStrategyMode,
-  AutonomousMassDataWork,
-  AutonomousMassDataWorkReason,
   ExternalRuntimeStatus,
   GlobalCacheRow,
   HbxBatchStatus,
@@ -120,13 +105,11 @@ import type {
   LeadQualityStatus,
   LeadQualityV2,
   LeadQualityV2SalesProfile,
-  MasterMassDataCampaignInput,
   NativeRuntimeDiagnostic,
   NormalizedRadarFilters,
   NormalizedSearchInput,
   NormalizeSearchInputOptions,
   PlaceDetails,
-  RadarCampaignInput,
   RadarChannelFilter,
   RadarChannelMatchMode,
   RadarFiltersInput,
@@ -153,7 +136,6 @@ import type {
   WebscrapingContactResult,
   WebscrapingEngine,
   WebscrapingHistorySummary,
-  WebscrapingOperationalConfigInput,
   WebscrapingRuntimeDiagnostic,
   WebscrapingRuntimeResponse,
   WebscrapingSearchFilters,
@@ -533,7 +515,7 @@ export class RadarCoreQualityEnrichmentMixin {
     return quality?.status === 'approved' && quality.billable !== false;
   }
 
-  private isListLeadQualityDeliverable(quality: LeadQualityResult | null | undefined) {
+  private isLeadQualityDeliverable(quality: LeadQualityResult | null | undefined) {
     if (!quality) return true;
     return !['invalid', 'duplicate'].includes(quality.status);
   }
@@ -570,15 +552,7 @@ export class RadarCoreQualityEnrichmentMixin {
     } as T;
   }
 
-  private isQualityV2HardBlockForList(qualityV2: LeadQualityV2 | null | undefined, input?: NormalizedSearchInput | NormalizedRadarFilters) {
-    if (!qualityV2 || !this.shouldApplyQualityV2Gate(input)) return false;
-    if (qualityV2.decision === 'protect') return true;
-    return qualityV2.decision === 'discard'
-      && qualityV2.discardReason === 'segment_mismatch'
-      && safeInteger(qualityV2.segmentFitScore) < 25;
-  }
-
-  private isListDeliverableCard(
+  private isLeadDeliverableCard(
     candidate: Record<string, any>,
     input: NormalizedSearchInput | NormalizedRadarFilters,
     quality?: LeadQualityResult | null,
@@ -602,7 +576,7 @@ export class RadarCoreQualityEnrichmentMixin {
     quality?: LeadQualityResult | null,
     qualityV2?: LeadQualityV2 | null,
   ): HbxDeliveryClassification {
-    const deliveryProduct: HbxDeliveryProduct = 'list';
+    const deliveryProduct: HbxDeliveryProduct = 'lead';
     const effectiveQuality = quality ?? this.getCandidateQuality(candidate, input);
     const effectiveQualityV2 = qualityV2 ?? this.extractLeadQualityV2FromObject(candidate) ?? this.getCandidateQualityV2(candidate, input);
     const qualityReason = (fallback: string) => this.buildQualityReason(effectiveQuality, effectiveQualityV2, fallback);
@@ -620,14 +594,14 @@ export class RadarCoreQualityEnrichmentMixin {
           requestedSegment: (input as any)?.segment,
         })
       : {
-          visibilityTier: 'list_basic' as const,
+          visibilityTier: 'eligible' as const,
           hardBlocked: false,
           blockReason: null,
           rankScore: safeInteger((candidate as any)?.opportunityScore ?? (candidate as any)?.score),
           debitEligible: true,
         };
 
-    if (!qualityGate.deliverable || visibility.hardBlocked || !this.isListLeadQualityDeliverable(effectiveQuality)) {
+    if (!qualityGate.deliverable || visibility.hardBlocked || !this.isLeadQualityDeliverable(effectiveQuality)) {
       return {
         visibilityTier: 'blocked',
         billable: false,
@@ -638,7 +612,7 @@ export class RadarCoreQualityEnrichmentMixin {
     }
     if (!this.hasUsablePublicContactChannel(candidate)) {
       return {
-        visibilityTier: 'candidate',
+        visibilityTier: 'review_backup',
         billable: false,
         debitEligible: false,
         deliveryProduct,
@@ -647,9 +621,11 @@ export class RadarCoreQualityEnrichmentMixin {
     }
 
     return {
-      visibilityTier: visibility.visibilityTier === 'review_backup' ? 'review_backup' : 'list_basic',
-      billable: visibility.visibilityTier !== 'review_backup',
-      debitEligible: visibility.visibilityTier !== 'review_backup',
+      // review_backup é apenas um sinal interno de ordenação/qualidade. Todo
+      // lead seguro e com canal utilizável é o mesmo produto e custa 1 crédito.
+      visibilityTier: 'eligible',
+      billable: true,
+      debitEligible: true,
       deliveryProduct,
       qualityReason: qualityReason('Card valido para entrega.'),
     };
@@ -661,8 +637,7 @@ export class RadarCoreQualityEnrichmentMixin {
     _qualityV2?: LeadQualityV2 | null,
   ) {
     if (!delivery) return false;
-    if (!delivery.debitEligible || !delivery.billable) return false;
-    return delivery.visibilityTier === 'list_basic';
+    return delivery.debitEligible === true && delivery.billable === true;
   }
 
   private attachDeliveryClassification<T extends Record<string, any>>(
@@ -682,7 +657,7 @@ export class RadarCoreQualityEnrichmentMixin {
     input: NormalizedSearchInput,
     quality: LeadQualityResult | null | undefined,
   ) {
-    return this.isListDeliverableCard(candidate, input, quality, this.extractLeadQualityV2FromObject(candidate));
+    return this.isLeadDeliverableCard(candidate, input, quality, this.extractLeadQualityV2FromObject(candidate));
   }
 
   private buildDeliverableResultEntries(input: NormalizedSearchInput, results: WebscrapingContactResult[]) {
@@ -693,7 +668,7 @@ export class RadarCoreQualityEnrichmentMixin {
         quality: this.getCandidateQuality(result as any, input),
       }))
       .filter(({ result, quality, qualityV2 }) => {
-        return this.isListDeliverableCard(result as any, input, quality, qualityV2);
+        return this.isLeadDeliverableCard(result as any, input, quality, qualityV2);
       });
   }
 
@@ -919,7 +894,7 @@ export class RadarCoreQualityEnrichmentMixin {
     const candidate = { ...raw, ...item };
     const qualityV2 = this.extractLeadQualityV2FromObject(candidate) || this.getCandidateQualityV2(candidate, input);
     const quality = this.getCandidateQuality(candidate, input);
-    if (!this.isListDeliverableCard(candidate, input, quality, qualityV2)) return false;
+    if (!this.isLeadDeliverableCard(candidate, input, quality, qualityV2)) return false;
     return this.isCardDeliveryEligibleForVendas(this.classifyCardDelivery(candidate, input, quality, qualityV2), candidate, qualityV2);
   }
 
@@ -1235,17 +1210,14 @@ export class RadarCoreQualityEnrichmentMixin {
               requestedSegment: normalized.segment,
             })
           : {
-              visibilityTier: 'list_basic' as const,
+              visibilityTier: 'eligible' as const,
               hardBlocked: false,
               blockReason: null,
               rankScore: safeInteger((result as any)?.opportunityScore ?? (result as any)?.score),
               debitEligible: true,
             };
-        if (visibility.visibilityTier === 'list_basic') {
-          metricIncrements.savedListBasicCount = safeInteger(metricIncrements.savedListBasicCount) + 1;
-        } else if (visibility.visibilityTier === 'review_backup') {
-          metricIncrements.savedReviewBackupCount = safeInteger(metricIncrements.savedReviewBackupCount) + 1;
-          metricIncrements.downgradedByQualityCount = safeInteger(metricIncrements.downgradedByQualityCount) + 1;
+        if (!visibility.hardBlocked) {
+          metricIncrements.savedEligibleCount = safeInteger(metricIncrements.savedEligibleCount) + 1;
         }
       } else {
         const metricKey = this.classifyRunRejectionMetric(finalStatus, duplicateReason);

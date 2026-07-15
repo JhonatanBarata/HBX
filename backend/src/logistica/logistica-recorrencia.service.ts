@@ -400,6 +400,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     let criadas = 0;
     let puladas = 0;
     let avancados = 0;
+    const deliveryIds: string[] = [];
 
     for (const [customerProfileId, vencidos] of porCliente) {
       // MULTILOCAL (10/07) — sub-agrupa os vencidos do cliente POR LOCAL: 1 Entrega
@@ -434,6 +435,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         });
 
         if (existente) {
+          deliveryIds.push(existente.id);
           puladas++;
         } else {
           const itens = vencidosDoLocal.map((v) => ({
@@ -459,7 +461,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
             );
           }
 
-          await this.prisma.entrega.create({
+          const criada = await this.prisma.entrega.create({
             data: {
               companyId,
               customerProfileId,
@@ -479,6 +481,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
             },
             select: { id: true },
           });
+          deliveryIds.push(criada.id);
           criadas++;
         }
 
@@ -501,7 +504,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     this.logger.log(
       `[logistica] gerar-dia ${dayISO} company=${companyId}: ${criadas} criada(s), ${puladas} pulada(s) (idempotência), ${avancados} vínculo(s) avançado(s).`,
     );
-    return { date: dayISO, criadas, puladas, avancados, candidatos: vinculos.length };
+    return { date: dayISO, criadas, puladas, avancados, candidatos: vinculos.length, deliveryIds };
   }
 
   // ── TASK 7 — PREVIEW do dia (pop-up "Gerar entregas") ───────────────────────
@@ -779,6 +782,7 @@ export interface GerarDiaResult {
   puladas: number;
   avancados: number;
   candidatos: number;
+  deliveryIds: string[];
 }
 
 // ── TASK 7 — preview do dia (pop-up "Gerar entregas") ────────────────────────

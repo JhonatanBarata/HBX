@@ -57,6 +57,9 @@ export type VendasLeadMobile = {
   updatedAt?: string | null;
   sourceType?: string | null;
   primarySource?: string | null;
+  sourceHistoryId?: string | null;
+  radarOrigin?: boolean | null;
+  contactAccessGranted?: boolean | null;
   sourceChain?: string | null;
   isFreshCompany?: boolean | null;
   daysSinceOpened?: number | null;
@@ -110,6 +113,51 @@ export type VendasBoardResponse = {
   blocks: { today: VendasLeadMobile[]; overdue: VendasLeadMobile[]; scheduled: VendasLeadMobile[]; closed: VendasLeadMobile[] };
   canViewValues?: boolean;
 } | null;
+
+const RADAR_CLIENT_SOURCES = new Set(["radar", "webscraping", "radar_quarantined"]);
+
+export function isVendasRadarLeadClient(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const lead = value as Record<string, unknown>;
+  if (lead.radarOrigin === true) return true;
+  if (/^radar:[^:\s]+$/i.test(String(lead.sourceHistoryId || "").trim())) return true;
+  return [lead.sourceType, lead.primarySource]
+    .map(source => String(source || "").trim().toLowerCase())
+    .some(source => RADAR_CLIENT_SOURCES.has(source));
+}
+
+/**
+ * Segunda barreira: um payload Radar sem prova explícita nunca entra no state
+ * React. Cards manuais não são reclassificados e continuam intactos.
+ */
+export function sanitizeVendasLeadForClient<T extends Record<string, unknown>>(lead: T): T | null {
+  if (!isVendasRadarLeadClient(lead)) return lead;
+  return lead.contactAccessGranted === true ? lead : null;
+}
+
+export function sanitizeVendasBoardForClient<T extends {
+  summary?: { total?: number; today?: number; overdue?: number; scheduled?: number; closed?: number };
+  blocks?: Record<string, Array<Record<string, unknown>> | undefined>;
+} | null>(board: T): T {
+  if (!board?.blocks) return board;
+  const safeBlocks: Record<string, Array<Record<string, unknown>>> = {};
+  for (const [key, rows] of Object.entries(board.blocks)) {
+    safeBlocks[key] = (Array.isArray(rows) ? rows : [])
+      .map(row => sanitizeVendasLeadForClient(row))
+      .filter((row): row is Record<string, unknown> => Boolean(row));
+  }
+  const summary = board.summary
+    ? {
+        ...board.summary,
+        total: Object.values(safeBlocks).reduce((total, rows) => total + rows.length, 0),
+        today: safeBlocks.today?.length || 0,
+        overdue: safeBlocks.overdue?.length || 0,
+        scheduled: safeBlocks.scheduled?.length || 0,
+        closed: safeBlocks.closed?.length || 0,
+      }
+    : board.summary;
+  return { ...board, blocks: safeBlocks, summary } as T;
+}
 
 export const BLOCK_ORDER_MOBILE: { key: VendasBlockKey; label: string }[] = [
   { key: "today", label: "Hoje" },

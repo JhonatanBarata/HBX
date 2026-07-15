@@ -11,8 +11,8 @@ import { isMissionQueueEnabled, PONTE_MISSION_STAGES, type RadarMissionStage } f
  * Fonte: RadarMission (stages `enrich_lead`/`xray_note` da PONTE, CHIP E1) casada por
  * `payloadJson.radarLeadId` (dedupeKey é `lead:<id>`/`xray-note:<id>`, mas o lookup usa o
  * payload puro pra não acoplar ao formato da dedupeKey). NÃO confundir com o
- * `RadarLeadEnrichment`/`enrichmentStatus` do pipeline genérico (night-factory) que a vitrine já
- * expõe — são fontes DIFERENTES; este endpoint é o estado da fila da PONTE 30B especificamente.
+ * `RadarLeadEnrichment`/`enrichmentStatus` histórico que a vitrine já expõe — são fontes
+ * diferentes; este endpoint é o estado da fila da PONTE 30B especificamente.
  *
  * Flag `HBX_MISSION_QUEUE_ENABLED` OFF (degrade invisível): tudo vira `none` — a UI do cliente
  * não muda enquanto a ponte não estiver ligada em produção (D1).
@@ -61,7 +61,7 @@ export class RadarPonteStatusService {
     if (!(await this.prisma.hasTable('RadarMission').catch(() => false))) return result;
 
     const db = this.db();
-    // Só as missões da PONTE (enrich_lead/xray_note) — as demais são in-process (fábrica de busca).
+    // A fila aceita somente as duas missões da PONTE local.
     const rows = await db.radarMission.findMany({
       where: {
         stage: { in: PONTE_MISSION_STAGES as unknown as string[] },

@@ -1,6 +1,6 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import type { WebscrapingRuntimeDiagnostic } from '../../../modules/webscraping-runtime.util';
-import { buildLocalHbxEngineUrls, type HbxEnginePurpose } from '../../hbx-engine-pool.service';
+import type { HbxEnginePurpose } from '../../hbx-engine-pool.service';
 import type { LeadQualityV2, LeadQualityV2SalesProfile } from '../../lead-quality-v2';
 import { BLOCK_GLOBAL_POOL_STATUSES } from './radar-disposition-rules';
 import waMessageTemplates from './wa-message-templates.json';
@@ -23,142 +23,6 @@ export const GLOBAL_CACHE_TTL_HOURS = 24;
 export const RECENT_HISTORY_LIMIT = 20;
 export const IBGE_CITIES_URL = 'https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome';
 export const CITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-export const MASS_DATA_INTERNAL_SEGMENTS = [
-  // Genéricos REMOVIDOS (27/06): 'empresas','comércio','serviços','lojas','whatsapp','telefone' — não são
-  // segmentos, são termos guarda-chuva que o motor responde com o mesmo top-N genérico/duplicado. No TOPO,
-  // faziam o cursor moer combo improdutivo antes de chegar nos específicos (padaria, sorveteria, ótica…) que
-  // TÊM lead virgem. Lista agora é só segmento real.
-  'restaurantes',
-  'mercados',
-  'oficinas',
-  'auto peças',
-  'salões de beleza',
-  'barbearias',
-  'cosméticos',
-  'perfumarias',
-  'farmácias',
-  'clínicas',
-  'dentistas',
-  'pet shops',
-  'materiais de construção',
-  'papelarias',
-  'lojas de roupas',
-  'assistência técnica',
-  'hotéis',
-  'pousadas',
-  'distribuidoras',
-  'contabilidades',
-  'imobiliárias',
-  'academias',
-  'supermercados',
-  'padarias',
-  'açougues',
-  'postos de combustível',
-  'lava rápido',
-  'funilarias',
-  'borracharias',
-  'auto centers',
-  'clínicas veterinárias',
-  'ótica',
-  'joalherias',
-  'floriculturas',
-  'gráficas',
-  'marcenarias',
-  'serralherias',
-  'vidraçarias',
-  'transportadoras',
-  'depósitos de bebidas',
-  'lojas de móveis',
-  'lojas de eletrodomésticos',
-  'informática',
-  'assistência celular',
-  'escolas',
-  'cursos profissionalizantes',
-  'laboratórios',
-  'fisioterapia',
-  'estética',
-  'pilates',
-  'buffets',
-  'eventos',
-  'pizzarias',
-  'hamburguerias',
-  'sorveterias',
-  'cafeterias',
-  'confeitarias',
-  'lanchonetes',
-  'lojas de calçados',
-  'lojas de acessórios',
-  'lojas de bijuterias',
-  'moda feminina',
-  'moda masculina',
-  'moda infantil',
-  'uniformes',
-  'malharias',
-  'costureiras',
-  'lavanderias',
-  'chaveiros',
-  'relojoarias',
-  'papel de parede',
-  'cortinas e persianas',
-  'tapeçarias',
-  'decoradores',
-  'arquitetos',
-  'engenheiros',
-  'construtoras',
-  'empreiteiras',
-  'elétricas',
-  'hidráulicas',
-  'ar condicionado',
-  'refrigeração',
-  'dedetizadoras',
-  'limpeza comercial',
-  'segurança eletrônica',
-  'monitoramento',
-  'portarias',
-  'condomínios',
-  'seguros',
-  'corretoras',
-  'despachantes',
-  'advogados',
-  'cartórios',
-  'consultorias',
-  'agências de marketing',
-  'produtoras de vídeo',
-  'fotógrafos',
-  'estúdios',
-  'mecânicas diesel',
-  'motos',
-  'autoescolas',
-  'guinchos',
-  'locadoras de veículos',
-  'turismo',
-  'agências de viagem',
-  'motéis',
-  'hostels',
-  'casas de ração',
-  'agropecuárias',
-  'jardinagem',
-  'piscinas',
-  'academias de luta',
-  'nutricionistas',
-  'psicólogos',
-  'fonoaudiólogos',
-  'clínicas médicas',
-  'radiologia',
-  'material hospitalar',
-  'equipamentos industriais',
-  'ferramentas',
-  'parafusos',
-  'embalagens',
-  'brindes',
-  'copiadoras',
-  'lan houses',
-  'provedores de internet',
-  'energia solar',
-  'marmorarias',
-  'calhas',
-  'telhados',
-];
 export const ACRE_CITIES_FALLBACK = [
   'Acrelândia',
   'Assis Brasil',
@@ -183,32 +47,6 @@ export const ACRE_CITIES_FALLBACK = [
   'Tarauacá',
   'Xapuri',
 ];
-export const AUTONOMOUS_MASS_DATA_LOCATION_FALLBACK = [
-  { city: 'São Paulo', state: 'SP' },
-  { city: 'Rio de Janeiro', state: 'RJ' },
-  { city: 'Belo Horizonte', state: 'MG' },
-  { city: 'Curitiba', state: 'PR' },
-  { city: 'Porto Alegre', state: 'RS' },
-  { city: 'Florianópolis', state: 'SC' },
-  { city: 'Salvador', state: 'BA' },
-  { city: 'Recife', state: 'PE' },
-  { city: 'Fortaleza', state: 'CE' },
-  { city: 'Goiânia', state: 'GO' },
-  { city: 'Brasília', state: 'DF' },
-  { city: 'Vitória', state: 'ES' },
-  { city: 'Cuiabá', state: 'MT' },
-  { city: 'Campo Grande', state: 'MS' },
-  { city: 'Manaus', state: 'AM' },
-  { city: 'Belém', state: 'PA' },
-  { city: 'São Luís', state: 'MA' },
-  { city: 'João Pessoa', state: 'PB' },
-  { city: 'Maceió', state: 'AL' },
-  { city: 'Natal', state: 'RN' },
-];
-export const AUTONOMOUS_MASS_DATA_DEFAULT_TASKS = 300;
-export const AUTONOMOUS_MASS_DATA_MAX_TASKS = 1000;
-export const DEFAULT_MASS_DATA_ENGINE_URLS = buildLocalHbxEngineUrls();
-export const TURBO_OPERATIONAL_CONFIG_KEY = 'turbo_noturno';
 export const RADAR_RESERVATION_TTL_MS = 72 * 60 * 60 * 1000;
 export const RADAR_REGION_MAX_RADIUS_KM = 250;
 // Status que somem da VITRINE do Radar (usado em `notIn`/`in` de queries de pool e
@@ -257,13 +95,10 @@ export type LeadQualityResult = {
   reasons: string[];
 };
 export type HbxVisibilityTier =
-  | 'candidate'
-  | 'list_basic'
-  | 'enrichment_pending'
-  | 'lead_plus_qualified'
+  | 'eligible'
   | 'review_backup'
   | 'blocked';
-export type HbxDeliveryProduct = 'list' | 'lead_plus';
+export type HbxDeliveryProduct = 'lead';
 export type HbxDeliveryClassification = {
   visibilityTier: HbxVisibilityTier;
   billable: boolean;
@@ -340,9 +175,9 @@ export type RadarSearchRunMetrics = {
   noChannelBlockedCount: number;
   genericNameBlockedCount: number;
   segmentHardMismatchBlockedCount: number;
-  savedListBasicCount: number;
+  savedEligibleCount: number;
   savedReviewBackupCount: number;
-  leadPlusQualifiedCount: number;
+  claimQualifiedCount: number;
   downgradedByQualityCount: number;
   urlsDiscovered: number;
   pagesFetched: number;
@@ -884,12 +719,6 @@ export type HbxRuntimeDiagnostic = {
 export type WebscrapingRuntimeResponse = {
   native: NativeRuntimeDiagnostic;
   hbx: HbxRuntimeDiagnostic;
-  quota: {
-    remainingSearches: number | null;
-    dailyLimit: number | null;
-    isTrialLimited: boolean;
-    accessMode: 'plan' | 'blocked';
-  };
   diagnostics?: {
     checkedAt: string;
     nativeTechnicalMessage: string;
@@ -1000,12 +829,10 @@ export type WebscrapingSearchResponse = {
     }>;
     sourceExpansion?: {
       googleTextualQueries?: string[];
-      siteCrawlPaths?: string[];
       cnpjSeeds?: Array<Record<string, any>>;
       directorySeeds?: string[];
       verticalStrategies?: Array<Record<string, any>>;
       opportunitySignals?: Array<Record<string, any>>;
-      reprocessRules?: Array<Record<string, any>>;
     };
     activeSources?: string[];
     pendingSources?: string[];
@@ -1217,7 +1044,7 @@ export type NormalizeSearchInputOptions = {
   allowMissingHbxState?: boolean;
 };
 
-export type UsageEventType = 'EXECUTED' | 'GOOGLE_SEARCH_EXECUTED' | 'GOOGLE_EMERGENCY_EXECUTED' | 'BLOCKED_DAILY_LIMIT';
+export type UsageEventType = 'EXECUTED' | 'GOOGLE_SEARCH_EXECUTED' | 'GOOGLE_EMERGENCY_EXECUTED';
 
 export type UsageExecutionMeta = {
   source?: SearchSource;
@@ -1326,83 +1153,6 @@ export type RadarLeadStatus =
   | 'duplicate'
   | 'rejected'
   | 'hidden';
-
-export type RadarCampaignInput = {
-  city?: string | null;
-  state?: string | null;
-  segment?: string | null;
-  mode?: string | null;
-  targetType?: HbxTargetType | 'both' | string | null;
-  targetTotal?: number | null;
-  batchSize?: number | null;
-  maxAttemptsPerTask?: number | null;
-  nightOnly?: boolean | string | null;
-  allowedStartHour?: number | null;
-  allowedEndHour?: number | null;
-  timezone?: string | null;
-  preferredChannels?: string[] | null;
-  requiredChannels?: string[] | null;
-  channelMatchMode?: RadarChannelMatchMode | string | null;
-  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
-};
-
-export type WebscrapingOperationalConfigInput = {
-  enabled?: boolean | string | null;
-  startHour?: number | null;
-  startMinute?: number | null;
-  endHour?: number | null;
-  endMinute?: number | null;
-  engineCount?: number | null;
-  intensity?: string | null;
-  memoryTargetGb?: number | null;
-  batchSize?: number | null;
-  maxAttemptsPerTask?: number | null;
-  autonomousFillEnabled?: boolean | string | null;
-  autonomousFillBatchSize?: number | null;
-  forceNow?: boolean | string | null;
-  forcedUntil?: string | null;
-  timezone?: string | null;
-  emergencyStop?: boolean | string | null;
-  stopOutsideWindow?: boolean | string | null;
-  weekdaysOnly?: boolean | string | null;
-  weekendAlwaysOn?: boolean | string | null;
-  factoryState?: string | null;
-  factoryCity?: string | null;
-  maxEngines?: number | null;
-  minEngines?: number | null;
-  drainTimeoutSeconds?: number | null;
-  preferredChannels?: string[] | null;
-  requiredChannels?: string[] | null;
-  channelMatchMode?: RadarChannelMatchMode | string | null;
-  freshness?: 'live' | 'database_first' | 'hybrid' | string | null;
-};
-
-export type MasterMassDataCampaignInput = RadarCampaignInput & WebscrapingOperationalConfigInput & {
-  companyId?: number | string | null;
-};
-
-export type AutonomousMassDataStrategyMode = 'guided' | 'automatic';
-export type AutonomousMassDataWorkReason = 'guided_filter' | 'low_stock' | 'low_duplicate_recent' | 'unexplored' | 'fallback_national';
-
-export type AutonomousMassDataWork = {
-  mode: AutonomousMassDataStrategyMode;
-  state: string;
-  city: string;
-  segment: string;
-  targetType: HbxTargetType;
-  desiredStock: number;
-  minimumStock: number;
-  reason: AutonomousMassDataWorkReason;
-  stockCount: number;
-};
-
-export type AutonomousMassDataCandidate = AutonomousMassDataWork & {
-  key: string;
-  taskExists: boolean;
-  duplicateRatio: number;
-  explored: boolean;
-  lastWorkedAt: Date | null;
-};
 
 export type NormalizedRadarFilters = {
   city: string;
@@ -2043,14 +1793,9 @@ export function normalizeEngine(value: unknown): WebscrapingEngine {
 
 export function normalizeEnginePurpose(value: unknown): HbxEnginePurpose {
   const purpose = String(value || '').trim().toLowerCase();
-  if (purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'lead_plus_enrichment' || purpose === 'vendas' || purpose === 'autonomous' || purpose === 'mass_data') {
-    return purpose;
-  }
-  return 'manual';
-}
-
-export function isAutomaticEnginePurpose(purpose: HbxEnginePurpose) {
-  return purpose === 'autonomous' || purpose === 'mass_data';
+  if (!purpose) return 'manual';
+  if (purpose === 'manual' || purpose === 'radar_pull' || purpose === 'radar_digital' || purpose === 'claim_enrichment' || purpose === 'vendas') return purpose;
+  throw new Error(`HBX_ENGINE_PURPOSE_BLOCKED:${purpose}`);
 }
 
 export function normalizeTargetType(value: unknown): HbxTargetType {

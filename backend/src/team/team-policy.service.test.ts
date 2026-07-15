@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { TEAM_ACCESS_CATALOG } from './team-access-catalog';
 import { TeamPolicyService } from './team-policy.service';
 
@@ -22,14 +22,6 @@ function buildStoredPolicy(overrides: Record<string, any> = {}) {
       { key: 'webscraping', allowed: true },
       { key: 'atendimento', allowed: true },
     ]),
-    cardDeliveryDailyMode: 'inherit',
-    cardDeliveryDailyLimit: null,
-    activeCardsMode: 'inherit',
-    activeCardsLimit: null,
-    monthlyCardsMode: 'inherit',
-    monthlyCardsLimit: null,
-    vendasPullQuantityMode: 'inherit',
-    vendasPullQuantityLimit: null,
     allowedSegmentsJson: '[]',
     blockedSegmentsJson: '[]',
     allowedCitiesJson: '[]',
@@ -80,31 +72,9 @@ function buildUser(overrides: Record<string, any> = {}) {
   };
 }
 
-function buildUsageSnapshot(overrides: Record<string, any> = {}) {
-  return {
-    dailyResetAt: '2026-06-08T03:00:00.000Z',
-    resetAt: '2026-07-01T03:00:00.000Z',
-    enrichment: {
-      dailyLimit: 30,
-      dailyUsed: 4,
-      dailyRemaining: 26,
-    },
-    cards: {
-      dailySafetyLimit: 30,
-      dailyUsed: 3,
-      dailyRemaining: 27,
-      monthlyLimit: 250,
-      monthlyUsed: 40,
-      monthlyRemaining: 210,
-    },
-    ...overrides,
-  };
-}
-
 function createService(input: {
   requester?: Record<string, any>;
   user?: Record<string, any>;
-  usage?: Record<string, any>;
 } = {}) {
   const state = {
     user: buildUser(input.user || {}),
@@ -155,17 +125,7 @@ function createService(input: {
     },
   };
 
-  const commercialUsageLimits = {
-    getUsageSnapshot: async () => buildUsageSnapshot(input.usage || {}),
-    getSellerActiveCardQuotaSnapshot: async () => ({
-      seller: true,
-      effectiveLimit: 30,
-      activeCount: 9,
-      availableSlots: 21,
-    }),
-  };
-
-  const service = new TeamPolicyService(prisma as any, modulesService as any, commercialUsageLimits as any);
+  const service = new TeamPolicyService(prisma as any, modulesService as any);
   const requester = input.requester || {
     id: 1,
     role: 'USERMASTER',
@@ -256,7 +216,7 @@ test('team access catalog contains planned canonical keys without duplicates', (
   assert.equal(keySet.has('sellerNetwork.referral.receive'), false);
 });
 
-test('MASTER resolves unlimited team policy and writes team/master audit logs', async () => {
+test('MASTER updates module policy and writes team/master audit logs without quota metadata', async () => {
   const { service, state, requester } = createService();
 
   const result = await service.updatePolicy(requester, 7, {
@@ -265,9 +225,6 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
       { key: 'webscraping', allowed: true },
       { key: 'atendimento', allowed: false },
     ],
-    limits: {
-      activeCards: { mode: 'unlimited', value: 'unlimited' },
-    },
     audit: {
       batch: true,
       batchId: 'batch-1',
@@ -275,9 +232,7 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
     },
   } as any);
 
-  assert.equal(result.limits.activeCards.mode, 'unlimited');
-  assert.equal(state.user.teamPolicy.activeCardsMode, 'unlimited');
-  assert.equal(state.user.teamPolicy.activeCardsLimit, null);
+  assert.equal('limits' in result, false);
   assert.equal(result.modules.find((moduleItem) => moduleItem.key === 'atendimento')?.allowed, false);
 
   const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
@@ -291,13 +246,13 @@ test('MASTER resolves unlimited team policy and writes team/master audit logs', 
   assert.equal(metadata.targetUserId, 7);
   assert.equal(metadata.batch, true);
   assert.deepEqual(metadata.modulesChanged, ['atendimento']);
-  assert.deepEqual(metadata.limitsChanged, ['activeCards']);
+  assert.equal(metadata.limitsChanged, undefined);
   assert.equal(metadata.before.modules.atendimento, true);
   assert.equal(metadata.after.modules.atendimento, false);
 });
 
-test('ADMIN can edit tenant seller operational card policy', async () => {
-  const { service } = createService({
+test('ADMIN can edit tenant seller module policy without a quota service', async () => {
+  const { service, state } = createService({
     requester: {
       id: 22,
       role: 'ADMIN',
@@ -308,10 +263,12 @@ test('ADMIN can edit tenant seller operational card policy', async () => {
   });
 
   const result = await service.updatePolicy({ id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 1 }, 7, {
-    limits: { activeCards: { mode: 'limited', value: 20 } },
+    modules: [{ key: 'atendimento', allowed: false }],
   } as any);
 
-  assert.equal(result.limits.activeCards.value, 20);
+  assert.equal(result.modules.find((moduleItem) => moduleItem.key === 'atendimento')?.allowed, false);
+  assert.equal(state.moduleUpdateCalls.length, 1);
+  assert.equal('limits' in result, false);
 });
 
 test('policy update persists seller visibility and keeps system visibility derived', async () => {
@@ -322,23 +279,18 @@ test('policy update persists seller visibility and keeps system visibility deriv
       sellerCanViewOwnPolicy: true,
       sellerCanViewCommission: false,
       sellerCanViewSellerNetwork: true,
-      sellerCanViewLimits: false,
       adminCanEditLegacyFields: false,
-      masterCanUseUnlimited: false,
     },
   } as any);
 
   assert.equal(result.visibility.sellerCanViewOwnPolicy, true);
   assert.equal(result.visibility.sellerCanViewCommission, false);
   assert.equal(result.visibility.sellerCanViewSellerNetwork, true);
-  assert.equal(result.visibility.sellerCanViewLimits, false);
   assert.equal(result.visibility.adminCanEditLegacyFields, true);
-  assert.equal(result.visibility.masterCanUseUnlimited, true);
   assert.deepEqual(JSON.parse(state.user.teamPolicy.visibilityJson), {
     sellerCanViewOwnPolicy: true,
     sellerCanViewCommission: false,
     sellerCanViewSellerNetwork: true,
-    sellerCanViewLimits: false,
   });
 
   const teamAudit = findSqlCall(state, 'TeamPolicyAuditLog');
@@ -392,7 +344,7 @@ test('policy update persists explicit team access map over legacy modules', asyn
   ]);
 });
 
-test('selectedPlanKey histórico não limita a cota operacional de cards do vendedor', async () => {
+test('selectedPlanKey histórico não cria cota nem altera o contrato da policy', async () => {
   const company = {
     id: 10,
     name: 'Cliente A',
@@ -420,9 +372,10 @@ test('selectedPlanKey histórico não limita a cota operacional de cards do vend
   const result = await service.updatePolicy(
     { id: 22, role: 'ADMIN', isSystemMaster: false, companyId: 10 },
     7,
-    { limits: { activeCards: { mode: 'limited', value: 250 } } } as any,
+    { modules: [{ key: 'atendimento', allowed: false }] } as any,
   );
-  assert.equal(result.limits.activeCards.value, 250);
+  assert.equal('limits' in result, false);
+  assert.equal(result.modules.find((moduleItem) => moduleItem.key === 'atendimento')?.allowed, false);
 });
 
 test('policy update refuses USERMASTER target, including batch payload', async () => {

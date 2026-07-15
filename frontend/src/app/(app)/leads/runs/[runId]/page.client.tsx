@@ -8,6 +8,7 @@ import {
   type LeadProcessSnapshot,
   type LeadProcessStatus,
 } from "@/components/hbx/lead-process-view";
+import { sanitizeLeadProcessSnapshot } from "@/components/hbx/lead-process-contract";
 import { apiFetch } from "@/lib/api";
 
 import styles from "./page.module.css";
@@ -70,20 +71,28 @@ function snapshotFromRun(run: SearchRunResponse, fallbackId: string): LeadProces
   const provided = run.process || run.meta?.process;
   const labels = filterLabels(run);
   if (provided) {
-    return {
-      ...provided,
+    return sanitizeLeadProcessSnapshot({
       operationId: String(provided.operationId || run.id || run.runId || fallbackId),
       mode: "search",
       status: processStatus({ ...run, status: provided.status || run.status }),
       progress: Number(provided.progress || 0),
       stages: Array.isArray(provided.stages) ? provided.stages : [],
       counters: provided.counters && typeof provided.counters === "object" ? provided.counters : {},
+      currentLead: provided.currentLead ?? null,
       recentLeads: Array.isArray(provided.recentLeads) ? provided.recentLeads : [],
       events: Array.isArray(provided.events) ? provided.events : [],
-      filters: labels.length ? labels : provided.filters,
-    };
+      filters: labels,
+      sourceCoverage: provided.sourceCoverage && typeof provided.sourceCoverage === "object" ? provided.sourceCoverage : null,
+      discardReasons: Array.isArray(provided.discardReasons) ? provided.discardReasons : undefined,
+      internalStatus: typeof provided.internalStatus === "string" ? provided.internalStatus : null,
+      contactAccessGranted: provided.contactAccessGranted === true,
+      creditRefundConfirmed: provided.creditRefundConfirmed === true,
+      contactAccessRevoked: provided.contactAccessRevoked === true,
+      createdAt: typeof provided.createdAt === "string" ? provided.createdAt : null,
+      updatedAt: typeof provided.updatedAt === "string" ? provided.updatedAt : null,
+    })!;
   }
-  return {
+  return sanitizeLeadProcessSnapshot({
     operationId: String(run.id || run.runId || fallbackId),
     mode: "search",
     status: processStatus(run),
@@ -94,7 +103,7 @@ function snapshotFromRun(run: SearchRunResponse, fallbackId: string): LeadProces
     recentLeads: [],
     events: [],
     filters: labels,
-  };
+  })!;
 }
 
 function withBankTotals(snapshot: LeadProcessSnapshot | null, bank: BankTotals | null) {

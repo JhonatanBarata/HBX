@@ -1798,7 +1798,7 @@ export class AuthService implements OnModuleInit {
           ? `${identityLabel} confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
           : creditsFreeConfirm
             ? `${identityLabel} confirmado! Sua conta está ativa e seus créditos de boas-vindas já estão liberados.`
-            : `${identityLabel} confirmado. Finalize o pagamento no Financeiro para liberar o plano.`
+            : `${identityLabel} confirmado. Finalize o pagamento no Financeiro para liberar o acesso.`
         : `${identityLabel} confirmado com sucesso.`,
       trialStartsAt: trialEndsAt ? confirmedAt.toISOString() : null,
       trialEndsAt: trialEndsAt ? trialEndsAt.toISOString() : null,

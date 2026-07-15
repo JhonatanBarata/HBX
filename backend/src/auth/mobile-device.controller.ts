@@ -13,6 +13,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import {
   CreateMobilePairingCodeDto,
   ConsumeMobileWebTicketDto,
+  GooglePairMobileDeviceDto,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
 } from './dto/mobile-device.dto';
@@ -45,6 +46,15 @@ export class MobileDeviceController {
   @Throttle({ default: { limit: 10, ttl: 60 } })
   pairDevice(@Body() dto: PairMobileDeviceDto) {
     return this.mobileDevices.pairDevice(dto);
+  }
+
+  @Post('google-pair')
+  @Throttle({ default: { limit: 5, ttl: 60 } })
+  pairDeviceWithGoogle(@Body() dto: GooglePairMobileDeviceDto, @Req() req: any) {
+    return this.mobileDevices.pairDeviceWithGoogle(dto, {
+      userAgent: req?.headers?.['user-agent'],
+      ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
+    });
   }
 
   @Post('session')

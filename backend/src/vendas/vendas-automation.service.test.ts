@@ -267,7 +267,6 @@ function createService(overrides?: {
   };
 
   const webscrapingService = {
-    markRadarLeadsSentToVendasForUser: async () => ({ ok: true, updatedCount: 0 }),
     getRadarContactProtectionForUser: async () => ({ blocked: false }),
     markRadarContactDispositionForUser: async () => ({ ok: true }),
     searchContactsForUser: async (user: any, input: Record<string, any>) => {

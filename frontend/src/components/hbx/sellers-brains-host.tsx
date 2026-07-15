@@ -32,6 +32,20 @@ type BrainNotice = {
   payload?: { kind?: string; poolId?: string; href?: string; name?: string; city?: string } | null;
 };
 
+function sanitizeBrainNotice(notice: BrainNotice): BrainNotice {
+  if (notice.payload?.kind !== "lead") return notice;
+  return {
+    id: String(notice.id || ""),
+    title: "Nova oportunidade protegida",
+    body: "Uma empresa compatível foi localizada. Puxe o lead para debitar o crédito e liberar os dados.",
+    tone: notice.tone,
+    forceSeconds: Number(notice.forceSeconds || 0),
+    source: notice.source,
+    nudgeKey: notice.nudgeKey ?? null,
+    payload: { kind: "lead", poolId: String(notice.payload.poolId || "") },
+  };
+}
+
 function toneIcon(tone: string) {
   if (tone === "success") return "✦";
   if (tone === "warning") return "⚠";
@@ -91,7 +105,7 @@ export function SellersBrainsHost() {
     try {
       const res = await apiFetch<{ notice?: BrainNotice | null }>("/pulse/nudge", { method: "POST" });
       if (!res?.notice) return;
-      const n = res.notice;
+      const n = sanitizeBrainNotice(res.notice);
       const popped = getPoppedSet();
       if (popped.has(n.id)) return;
       addPopped(n.id);
@@ -146,13 +160,7 @@ export function SellersBrainsHost() {
       setClaimBusy(true);
       setClaimError(null);
       try {
-        await claimLead(notice.payload.poolId, {
-          lead: {
-            id: notice.payload.poolId,
-            name: notice.payload.name,
-            city: notice.payload.city,
-          },
-        });
+        await claimLead(notice.payload.poolId);
         await ackNotice(notice.id);
         close();
         router.push("/vendas");

@@ -243,7 +243,7 @@ export class RelatoriosService {
   }
 
   // ── Widget 3 — 📈 Leads entregues × trabalhados × convertidos por vendedor ──
-  // Entregues: RadarDistributionDailyUsage.deliveredCount (por userId no periodo).
+  // Entregues: VendasLead criado e atribuído no período (fonte real do card).
   // Trabalhados: VendasLead com attemptCount>0 ou lastContactAt no periodo.
   // Convertidos: VendasLead saleStatus=sale_confirmed no periodo.
   async getSellerFunnel(user: any, periodRaw?: string) {
@@ -253,19 +253,13 @@ export class RelatoriosService {
     const cached = this.getCached<any>(key);
     if (cached) return cached;
 
-    const startDayKey = this.dayKey(period.start);
-    const endDayKey = this.dayKey(period.end);
-
-    const [usageRows, leads, sellerNames] = await Promise.all([
-      this.prisma.radarDistributionDailyUsage.findMany({
-        where: { companyId: ctx.companyId, dayKey: { gte: startDayKey, lte: endDayKey } },
-        select: { userId: true, deliveredCount: true },
-      }),
+    const [leads, sellerNames] = await Promise.all([
       this.prisma.vendasLead.findMany({
         where: {
           companyId: ctx.companyId,
           assignedUserId: { not: null },
           OR: [
+            { createdAt: { gte: period.start, lte: period.end } },
             { updatedAt: { gte: period.start, lte: period.end } },
             { lastContactAt: { gte: period.start, lte: period.end } },
             { saleConfirmedAt: { gte: period.start, lte: period.end } },
@@ -273,6 +267,7 @@ export class RelatoriosService {
         },
         select: {
           assignedUserId: true,
+          createdAt: true,
           attemptCount: true,
           lastContactAt: true,
           saleStatus: true,
@@ -294,15 +289,17 @@ export class RelatoriosService {
       return a;
     };
 
-    for (const row of usageRows as any[]) {
-      const userId = row.userId ? Number(row.userId) : 0;
-      if (!userId) continue;
-      ensure(userId).delivered += Number(row.deliveredCount || 0) || 0;
-    }
     for (const lead of leads as any[]) {
       const userId = Number(lead.assignedUserId || 0);
       if (!userId) continue;
       const a = ensure(userId);
+      if (
+        lead.createdAt instanceof Date &&
+        lead.createdAt.getTime() >= period.start.getTime() &&
+        lead.createdAt.getTime() <= period.end.getTime()
+      ) {
+        a.delivered += 1;
+      }
       const worked =
         Number(lead.attemptCount || 0) > 0 ||
         (lead.lastContactAt instanceof Date &&
@@ -546,16 +543,5 @@ export class RelatoriosService {
       freshLeads,
       botFunnel,
     };
-  }
-
-  private dayKey(date: Date): string {
-    // dayKey no formato YYYY-MM-DD (fuso America/Sao_Paulo, igual ao Radar).
-    const fmt = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
-    return fmt.format(date);
   }
 }

@@ -8,21 +8,6 @@ export type RadarSearchSourcePlanItem = RadarLeadSourceStep;
 
 // Cutover ordem fixa (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md /
 // docs/PLANEJAMENTOS/ARVORE-MESTRA/ARVORE-MESTRA.md, lei nº3: "sem caminho legado convivendo").
-// Default OFF: as rotas legadas (radar_database-first, google_textual, local_directory,
-// vertical_source) saem da rota do CLIENTE (fast/quality/deep). Ligar HBX_LEGACY_SOURCES=true
-// traz tudo de volta (rollback barato).
-// F0 (02/07): modo `night_factory` REMOVIDO junto com a fábrica de descoberta autônoma.
-const RADAR_LEGACY_CLIENT_SOURCES = new Set<RadarLeadSourceKind>([
-  'radar_database',
-  'google_textual',
-  'local_directory',
-  'vertical_source',
-]);
-
-function legacySourcesEnabled() {
-  return String(process.env.HBX_LEGACY_SOURCES || '').trim().toLowerCase() === 'true';
-}
-
 @Injectable()
 export class RadarSourcePlannerService {
   plan(input: NormalizedSearchInput, strategy: RadarSearchStrategy, flags: {
@@ -43,26 +28,18 @@ export class RadarSourcePlannerService {
     // a Receita. Habilita em QUALQUER modo pra targetType pj quando a flag estiver ligada.
     // Cutover P1 (02/07): prioridade agora vem ANTES do hbx_engine (ordem fixa RFB->web,
     // ver byStrategy abaixo — antes vinha depois).
-    const cnpjPublicEnabledByFlag = String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED || '').trim().toLowerCase() === 'true';
-    const cnpjPublicEnabled = input.targetType === 'pj' && cnpjPublicEnabledByFlag;
-    // HBX_LEGACY_SOURCES (default OFF, P1): as 4 fontes legadas só habilitam com a flag ligada.
-    // (F0: modo night_factory removido — não há mais exceção de fábrica que force o legado.)
-    const legacyAllowedHere = legacySourcesEnabled();
+    const cnpjPublicEnabled = input.targetType === 'pj';
     const enabledBySource: Record<RadarLeadSourceKind, boolean> = {
-      radar_database: legacyAllowedHere && allowStored && flags.skipRadarLookup !== true && input.targetType === 'pj' && flags.radarEnabled !== false,
+      radar_database: false,
       company_history: allowStored && flags.skipPrivateHistory !== true && flags.historyEnabled !== false,
       global_cache: allowStored && flags.skipTechnicalCache !== true && flags.globalCacheEnabled !== false,
       hbx_engine: input.engine === 'hbx',
-      google_textual: legacyAllowedHere && strategy.allowSecondaryProviders && input.engine === 'hbx',
-      radar_web_enrichment: false,
-      reprocess_missing_social: input.targetType === 'pj',
-      reprocess_old_cards: input.targetType === 'pj',
-      website_crawl_light: strategy.allowLightCrawl,
+      google_textual: false,
       cnpj_public: cnpjPublicEnabled,
-      local_directory: legacyAllowedHere && input.targetType === 'pj' && strategy.mode === 'deep',
-      vertical_source: legacyAllowedHere && input.targetType === 'pj' && strategy.mode === 'deep',
-      local_directories_stub: strategy.mode === 'deep',
-      cnpj_public_stub: strategy.mode === 'deep',
+      local_directory: false,
+      vertical_source: false,
+      local_directories_stub: false,
+      cnpj_public_stub: false,
     };
     // Cutover ordem fixa (P1): lane do cliente é semente → RFB (cnpj_public) → web (hbx_engine)
     // → portas → fusão → crawl. cnpj_public agora vem ANTES do hbx_engine em fast/quality/deep
@@ -70,9 +47,9 @@ export class RadarSourcePlannerService {
     // primeiro"). radar_database/company_history/global_cache continuam antes (memória local,
     // não é rede — sempre mais barato checar o que já se tem antes de qualquer busca nova).
     const byStrategy: Record<string, RadarLeadSourceKind[]> = {
-      fast: ['radar_database', 'company_history', 'global_cache', 'cnpj_public', 'hbx_engine'],
-      quality: ['radar_database', 'cnpj_public', 'hbx_engine', 'google_textual', 'reprocess_missing_social'],
-      deep: ['cnpj_public', 'hbx_engine', 'google_textual', 'website_crawl_light', 'local_directory', 'vertical_source'],
+      fast: ['cnpj_public', 'hbx_engine'],
+      quality: ['cnpj_public', 'hbx_engine'],
+      deep: ['cnpj_public', 'hbx_engine'],
     };
     const implemented = new Set<RadarLeadSourceKind>([
       'radar_database',
@@ -80,9 +57,6 @@ export class RadarSourcePlannerService {
       'global_cache',
       'hbx_engine',
       'google_textual',
-      'reprocess_missing_social',
-      'reprocess_old_cards',
-      'website_crawl_light',
       'cnpj_public',
       'local_directory',
       'vertical_source',
@@ -105,10 +79,6 @@ export class RadarSourcePlannerService {
       global_cache: 'cache_tecnico_reaproveita_busca_publica',
       hbx_engine: 'motor_hbx_e_fonte_primaria_de_captura',
       google_textual: 'busca_textual_por_intencao_como_complemento_opcional',
-      radar_web_enrichment: 'enriquecimento_explicito_pos_entrega',
-      reprocess_missing_social: 'reprocessa_cards_sem_social_ou_com_status_fraco',
-      reprocess_old_cards: 'reprocessa_cards_antigos_do_radar',
-      website_crawl_light: 'crawl_leve_de_website_oficial_como_complemento_opcional',
       cnpj_public: 'base_publica_cnpj_como_descoberta_opcional_sem_inventar_contato',
       local_directory: 'diretorios_locais_como_descoberta_opcional_de_baixa_confianca',
       vertical_source: 'fontes_verticais_por_segmento_como_descoberta_opcional_sem_confirmar_contato_sozinha',

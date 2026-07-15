@@ -2,6 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
 
+test('Radar sem contactAccessGranted não vaza snapshot 3x3 nem dados RFB', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    radarOrigin: true,
+    contactAccessGranted: false,
+    lead: {
+      name: 'Empresa sigilosa',
+      phone: '11999999999',
+      email: 'um@segredo.com',
+      contactSnapshotJson: JSON.stringify({
+        phones: [{ value: '11999999999' }, { value: '1133333333' }, { value: '11888888888' }],
+        emails: [{ value: 'um@segredo.com' }, { value: 'dois@segredo.com' }, { value: 'tres@segredo.com' }],
+      }),
+      metadataJson: JSON.stringify({ cnpj: '12345678000190', ownerName: 'Pessoa Sigilosa' }),
+    },
+  });
+
+  assert.deepEqual(intelligence.phones, []);
+  assert.deepEqual(intelligence.emails, []);
+  assert.deepEqual(intelligence.phoneContacts, []);
+  assert.deepEqual(intelligence.emailContacts, []);
+  assert.equal(intelligence.cnpj, null);
+  assert.equal(intelligence.ownerName, null);
+});
+
 test('vendas intelligence preserves enriched Radar data from timeline metadata', () => {
   const intelligence = buildVendasLeadIntelligence({
     lead: {
@@ -164,7 +188,6 @@ test('vendas intelligence treats queued import with preserved enrichment as comp
           sourceType: 'radar_enrichment',
           description: JSON.stringify({
             enrichmentStatus: 'queued',
-            visibilityTier: 'review_backup',
             recommendedChannel: 'call',
             painType: 'sem_site',
             enrichmentScore: 7,
@@ -189,7 +212,7 @@ test('vendas intelligence treats queued import with preserved enrichment as comp
   });
 
   assert.equal(intelligence.enrichmentStatus, 'completed');
-  assert.equal(intelligence.visibilityTier, 'review_backup');
+  assert.equal(intelligence.visibilityTier, 'eligible');
   assert.equal(intelligence.recommendedChannel, 'call');
 });
 
@@ -291,4 +314,93 @@ test('vendas intelligence preserva telefone 1/2 da RFB, telefone 3 do motor e tr
   assert.equal(intelligence.phoneContacts[0].whatsappStatus, 'not_confirmed');
   assert.equal(intelligence.phoneContacts[2].whatsappStatus, 'confirmed');
   assert.equal(intelligence.phonesWhatsapp['1155556666'], false);
+});
+
+test('vendas intelligence preserva somente fontes canônicas sem promover fonte ausente ou desconhecida', () => {
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      timelineEvents: [
+        {
+          sourceType: 'radar_enrichment',
+          description: JSON.stringify({
+            enrichment: {
+              phoneContacts: [
+                { value: '1133334444', source: 'rfb_primary', rank: 3 },
+                { value: '1155556666', source: 'rfb_secondary', rank: 1 },
+                { value: '11988887777', source: null, rank: 2 },
+              ],
+              emailContacts: [
+                { value: 'um@empresa.com.br', source: 'rfb_email', rank: 2 },
+                { value: 'dois@empresa.com.br', source: 'unknown', rank: 1 },
+                { value: 'tres@empresa.com.br', source: 'website_crawl', rank: 3 },
+              ],
+            },
+          }),
+        },
+      ],
+    },
+  });
+
+  assert.equal(intelligence.phoneContacts.find((contact: any) => contact.valueNormalized === '1133334444')?.source, 'rfb_primary');
+  assert.equal(intelligence.phoneContacts.find((contact: any) => contact.valueNormalized === '1155556666')?.source, 'rfb_secondary');
+  assert.equal(intelligence.phoneContacts.find((contact: any) => contact.valueNormalized === '11988887777')?.source, 'unknown');
+  assert.equal(intelligence.emailContacts.find((contact: any) => contact.value === 'um@empresa.com.br')?.source, 'rfb_email');
+  assert.equal(intelligence.emailContacts.find((contact: any) => contact.value === 'dois@empresa.com.br')?.source, 'unknown');
+  assert.equal(intelligence.emailContacts.find((contact: any) => contact.value === 'tres@empresa.com.br')?.source, 'website_crawl');
+});
+
+test('vendas intelligence preserva o cadastro oficial RFB completo sem rawJson', () => {
+  const rfbOfficial = {
+    source: 'rfb',
+    cnpj: '12345678000190',
+    razaoSocial: 'EMPRESA OFICIAL LTDA',
+    nomeFantasia: 'Empresa Oficial',
+    situacao: '02',
+    cnae: '6201501',
+    cnaeDescription: 'Desenvolvimento de programas de computador',
+    secondaryCnaes: [{ code: '6202300', description: 'Desenvolvimento e licenciamento' }],
+    porte: '03',
+    matrizFilial: '1',
+    openedAt: '2019-03-04T00:00:00.000Z',
+    address: 'Rua Um, 10',
+    city: 'Campinas',
+    state: 'SP',
+    website: 'https://empresaoficial.com.br',
+    ownerName: 'Pessoa Administradora',
+    ownerQualification: 'Sócio-Administrador',
+    capitalSocial: '250000.00',
+    naturezaJuridica: '2062',
+    simples: true,
+    mei: false,
+    regimeTributario: 'lucro_presumido',
+    shareCounts: { phone: 1, email: 2 },
+  };
+  const intelligence = buildVendasLeadIntelligence({
+    lead: {
+      name: 'Empresa Oficial',
+      phone: '11999990000',
+      enrichmentJson: JSON.stringify({
+        ...rfbOfficial,
+        companySituation: rfbOfficial.situacao,
+        officialAddress: rfbOfficial.address,
+        officialCity: rfbOfficial.city,
+        officialState: rfbOfficial.state,
+        officialWebsite: rfbOfficial.website,
+        rfbOfficial,
+      }),
+    },
+  });
+
+  assert.equal(intelligence.nomeFantasia, 'Empresa Oficial');
+  assert.equal(intelligence.cnaeDescription, rfbOfficial.cnaeDescription);
+  assert.deepEqual(intelligence.secondaryCnaes, rfbOfficial.secondaryCnaes);
+  assert.equal(intelligence.ownerQualification, 'Sócio-Administrador');
+  assert.equal(intelligence.openedAt, rfbOfficial.openedAt);
+  assert.equal(intelligence.capitalSocial, '250000.00');
+  assert.equal(intelligence.simples, true);
+  assert.equal(intelligence.mei, false);
+  assert.equal(intelligence.regimeTributario, 'lucro_presumido');
+  assert.deepEqual(intelligence.shareCounts, { phone: 1, email: 2 });
+  assert.deepEqual(intelligence.rfbOfficial, rfbOfficial);
+  assert.equal(Object.prototype.hasOwnProperty.call(intelligence.rfbOfficial, 'rawJson'), false);
 });

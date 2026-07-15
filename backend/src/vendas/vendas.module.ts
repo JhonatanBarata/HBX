@@ -19,6 +19,7 @@ import { VendasAutomationService } from './vendas-automation.service';
 import { VendasConversationService } from './vendas-conversation.service';
 import { VendasCockpitProjectionBridge } from './vendas-cockpit-projection.bridge';
 import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
+import { VendasRadarPaidAccessService } from './vendas-radar-paid-access.service';
 import { VendasService } from './vendas.service';
 
 @Module({
@@ -28,6 +29,7 @@ import { VendasService } from './vendas.service';
     VendasService,
     VendasAutomationService,
     VendasConversationService,
+    VendasRadarPaidAccessService,
     VendasLeadCockpitProjectorService,
     VendasCockpitProjectionBridge,
   ],
@@ -35,6 +37,7 @@ import { VendasService } from './vendas.service';
     VendasService,
     VendasAutomationService,
     VendasConversationService,
+    VendasRadarPaidAccessService,
     VendasLeadCockpitProjectorService,
   ],
 })

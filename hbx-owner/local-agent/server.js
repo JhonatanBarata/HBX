@@ -3,8 +3,9 @@ const fsp = require("fs/promises");
 const os = require("os");
 const http = require("http");
 const path = require("path");
+const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
-// Journal em disco (estado durável do enricher/transfer). Escrita atômica, zero-dep. Ver lib/state.js.
+// Journal em disco (estado durável do enriquecedor local). Escrita atômica, zero-dep. Ver lib/state.js.
 const stateStore = require("./lib/state");
 // Utilitários puros (Sprint 5) — sem estado de módulo. Ver lib/util.js e lib/engine-capacity.js.
 const {
@@ -12,7 +13,6 @@ const {
   safeText,
   clampInt,
   cardDomain,
-  chunkLeadsBySize,
   resolveExecutable,
   assertSafeCommand,
   readDotenvValue,
@@ -25,7 +25,7 @@ const { parseEngineCapacity } = require("./lib/engine-capacity");
 // Worker local da PONTE (CHIP E1) — puxa missão do backend e executa no 30B local. Ver lib/ponte-worker.js.
 const { createPonteWorker } = require("./lib/ponte-worker");
 
-// Limiares de aviso (alinhados aos soft limits da Night Factory).
+// Limiares de aviso do painel local.
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
 const SYSTEM_CONTAINERS = ["backend", "app-db-1", "hbx-scraping-engine", "webscraping", "hbx-ops-control"];
 
@@ -39,6 +39,9 @@ const logsDir = path.join(__dirname, "logs");
 const webDir = path.join(__dirname, "web");
 const localLabDir = path.join(rootDir, "hbx-local-lab");
 const localLabUrl = "http://127.0.0.1:3098";
+const localLabControlToken = crypto.randomBytes(32).toString("hex");
+let localLabChild = null;
+let localLabHeartbeatTimer = null;
 // Ollama LOCAL (Cérebro IA) — mesma máquina; nunca sai daqui. /api/tags lista presentes,
 // /api/ps lista os que estão QUENTES (carregados em RAM/VRAM). Allowlist p/ o warm.
 // CHIP E2 (05/07): tag alinhada com a REAL usada pelo worker da ponte (lib/ponte-worker.js
@@ -51,86 +54,11 @@ const ollamaUrl = String(process.env.HBX_OWNER_OLLAMA_URL || "http://127.0.0.1:1
 const AI_MODEL_30B = "qwen3:30b-a3b-instruct-2507-q4_K_M";
 const AI_MODEL_ALLOWLIST = new Set([AI_MODEL_30B]);
 const PONTE_NUM_CTX_WARM = 8192; // T1/T2: SEMPRE capado — default 262k aloca ~45,7GB de KV (swap-morte)
-// Backend do produto (para Banco de Leads e import local→VPS). Token opcional.
+// Backend do produto (para leituras e ações autenticadas do HBX Owner). Token opcional.
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
 let backendTokenRefreshPromise = null;
-// Transferência VPS<->local em segundo plano (1 por vez) + progresso vivo pra UI.
-// processed/total = a % honesta (quantos leads já passaram ÷ total real do banco).
-// total      = total de cards da ORIGEM (push=local, pull=VPS) → denominador da %.
-// otherTotal = total de cards do DESTINO depois da transferência → pra reconciliar os dois lados.
-let transferJob = {
-  running: false, direction: null, phase: "",
-  processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
-  pulled: 0, imported: 0, sent: 0, cleared: 0,
-  done: false, ok: null, error: null, startedAt: 0, finishedAt: 0,
-};
-
-function freshTransferJob(direction) {
-  return {
-    running: true, direction, phase: "iniciando",
-    processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
-    pulled: 0, imported: 0, duplicates: 0, rejected: 0, sent: 0, cleared: 0,
-    done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
-  };
-}
-
-// Journal em disco da transferência "mandar/trazer tudo". Gravado a cada página OK. Se o agent
-// cair no meio, o boot detecta o journal não-finalizado e expõe resumable:true no /owner/transfer/
-// status → a UI mostra "retomar" (reclica a rota de start; o import é idempotente por externalId).
-// No fim OK o journal é apagado. `transferResume` é o que o boot achou (só p/ exibir até religar).
-let transferResume = null;
-function saveTransferJournal(sentIds) {
-  stateStore.save("transfer", {
-    running: true,
-    direction: transferJob.direction,
-    page: transferJob.page,
-    sentIds: Array.isArray(sentIds) ? sentIds.slice(-100000) : [],
-    pulled: transferJob.pulled,
-    sent: transferJob.sent,
-    imported: transferJob.imported,
-    startedAt: transferJob.startedAt,
-    savedAt: Date.now(),
-  });
-}
-function clearTransferJournal() {
-  transferResume = null;
-  stateStore.clear("transfer");
-}
-// No boot: se sobrou um journal (agent morreu no meio de uma transferência), guarda pra expor
-// resumable no status. NÃO retoma sozinho — o dono reclica (evita transferência-fantasma no boot).
-function loadTransferResumeOnBoot() {
-  const j = stateStore.load("transfer");
-  if (j && j.running === true) {
-    transferResume = {
-      direction: j.direction || null,
-      page: Number(j.page) || 0,
-      pulled: Number(j.pulled) || 0,
-      sent: Number(j.sent) || 0,
-      imported: Number(j.imported) || 0,
-      startedAt: Number(j.startedAt) || 0,
-    };
-  } else {
-    transferResume = null;
-    if (j) stateStore.clear("transfer"); // journal já finalizado que ficou pra trás → limpa
-  }
-  return transferResume;
-}
-
-// Total de cards transferíveis de cada lado (mesma régua nos dois → dá pra reconciliar/igualar).
-async function readVpsCardTotal() {
-  const r = await opsRequest("GET", "/api/radar/vps/database-cards?limit=1&page=1", null, 30000);
-  const d = r && r.data && r.data.data ? r.data.data : (r && r.data);
-  return d && typeof d.total === "number" ? d.total : null;
-}
-async function readLocalCardTotal() {
-  if (!backendToken) await refreshBackendToken().catch(() => null);
-  const r = await backendRequest("GET", "/modules/owner/radar/database-cards?limit=1&page=1", null, { timeoutMs: 15000 });
-  return r && r.ok && r.data && typeof r.data.total === "number" ? r.data.total : null;
-}
-
-// Tenta de novo UMA vez quando o predicado de sucesso falha (timeout/blip de rede),
-// pra a transferência não morrer por causa de um soluço passageiro do SSH/backend.
+// Tenta de novo UMA vez quando o predicado de sucesso falha (timeout/blip de rede).
 async function withRetry(fn, isOk, tries = 2, gapMs = 800) {
   let last;
   for (let i = 0; i < tries; i += 1) {
@@ -141,7 +69,6 @@ async function withRetry(fn, isOk, tries = 2, gapMs = 800) {
   return last;
 }
 
-// chunkLeadsBySize → lib/util.js (Sprint 5).
 // Ops Control = ponte JÁ pronta pra VPS (SSH + controles). Reaproveitamos por proxy:
 // a coluna VPS da guia Sistema fala com o Ops Control (modo ssh), não duplica SSH aqui.
 const opsUrl = String(process.env.HBX_OWNER_OPS_URL || "http://127.0.0.1:3099").replace(/\/+$/, "");
@@ -594,18 +521,36 @@ function findLocalLabProcesses() {
 
 async function readLocalLabStatus() {
   const health = await requestLocalLabHealth();
+  const ownedByThisOwner = health.ok ? await sendLocalLabHeartbeat() : false;
   const processes = findLocalLabProcesses();
   return {
     ok: true,
     url: localLabUrl,
-    up: Boolean(health.ok),
+    up: Boolean(health.ok && ownedByThisOwner),
+    ownedByThisOwner,
+    portConflict: Boolean(health.ok && !ownedByThisOwner),
     health,
     processes: processes.map((item) => ({ pid: item.ProcessId })),
-    message: health.ok ? "api local up" : "api local off",
+    message: ownedByThisOwner
+      ? "api local sob controle deste HBX Owner"
+      : (health.ok ? "porta ocupada por processo sem vínculo com este HBX Owner" : "api local off"),
   };
 }
 
+function isProcessAlive(pid) {
+  if (!Number.isInteger(Number(pid)) || Number(pid) <= 0) return false;
+  try {
+    process.kill(Number(pid), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function startLocalLab() {
+  if (localLabChild?.pid && isProcessAlive(localLabChild.pid)) {
+    return { pid: localLabChild.pid, alreadyRunning: true };
+  }
   if (!fs.existsSync(path.join(localLabDir, "server.js"))) {
     throw new Error("hbx-local-lab/server.js nao encontrado.");
   }
@@ -614,17 +559,32 @@ function startLocalLab() {
   const out = fs.openSync(logPath, "a");
   const child = spawn(process.execPath, ["server.js"], {
     cwd: localLabDir,
-    detached: true,
+    detached: false,
     shell: false,
     stdio: ["ignore", out, out],
     env: {
       ...process.env,
       HBX_LOCAL_LAB_HOST: "127.0.0.1",
       HBX_LOCAL_LAB_PORT: "3098",
+      HBX_LOCAL_LAB_CONTROL_TOKEN: localLabControlToken,
+      HBX_OWNER_PARENT_PID: String(process.pid),
     },
     windowsHide: true,
   });
-  child.unref();
+  fs.closeSync(out);
+  localLabChild = child;
+  startLocalLabHeartbeat();
+  child.once("exit", () => {
+    if (localLabChild !== child) return;
+    localLabChild = null;
+    stopLocalLabHeartbeat();
+    if (enricherJob.running) {
+      enricherJob.running = false;
+      enricherJob.phase = "parado";
+      enricherJob.lastError = "Local Lab encerrou; a Night Factory local foi interrompida.";
+      broadcastEnricher();
+    }
+  });
   return {
     pid: child.pid,
     logPath: relativeLogPath(logPath),
@@ -651,9 +611,11 @@ function killPidWindows(pid) {
 // 2) mata por PID quem ficar (dono da porta 3098 ∪ node do server.js do lab);
 // 3) confirma pelo /health que caiu (até ~3s). Retorna quantos PIDs foram alvo + se ficou down.
 async function stopLocalLab() {
+  stopLocalLabHeartbeat();
   // (1) shutdown cooperativo — só faz sentido se ainda está respondendo.
   const before = await requestLocalLabHealth();
-  if (before.ok) {
+  const ownedByThisOwner = before.ok ? await sendLocalLabHeartbeat() : false;
+  if (ownedByThisOwner) {
     await localLabRequest("POST", "/local-lab/shutdown", {}, 4000).catch(() => null);
     // dá um tempinho pro process.exit do lab acontecer
     for (let i = 0; i < 6; i += 1) {
@@ -664,15 +626,19 @@ async function stopLocalLab() {
   }
 
   // (2) mata o que restou (idempotente: pode não sobrar nada).
-  const processes = findLocalLabProcesses();
+  // Nunca mate às cegas um processo qualquer que tomou a porta 3098. A varredura por
+  // porta só é permitida depois de a instância provar o token/PID deste Owner.
+  const processes = ownedByThisOwner ? findLocalLabProcesses() : [];
   const pids = [];
+  if (localLabChild?.pid) processes.push({ ProcessId: localLabChild.pid });
   for (const item of processes) {
     const pid = Number(item.ProcessId);
-    if (Number.isInteger(pid) && pid > 0) {
+    if (Number.isInteger(pid) && pid > 0 && !pids.includes(pid)) {
       pids.push(pid);
       killPidWindows(pid);
     }
   }
+  localLabChild = null;
 
   // (3) confirma que o /health caiu (espera curta).
   let down = false;
@@ -696,7 +662,10 @@ function localLabRequest(method, route, payload, timeoutMs = 20000, maxBytes = 8
       return;
     }
     const data = payload ? Buffer.from(JSON.stringify(payload)) : null;
-    const headers = { Accept: "application/json" };
+    const headers = {
+      Accept: "application/json",
+      Authorization: `Bearer ${localLabControlToken}`,
+    };
     if (data) {
       headers["Content-Type"] = "application/json";
       headers["Content-Length"] = data.length;
@@ -795,7 +764,8 @@ async function readAiStatus() {
   };
 }
 
-// Crawl LEVE de site → texto puro (mesma limpeza do cnpj-xray.service.ts). Só p/ o worker da PONTE
+// Crawl LEVE de site -> texto puro. So para missao pos-compra da PONTE;
+// o Raio-X cadastral nao chama este caminho.
 // extrair contato via 30B; degrada gracioso (string vazia) em qualquer erro/timeout.
 async function fetchSiteText(website) {
   if (!website || !/^https?:\/\//i.test(website)) return "";
@@ -830,15 +800,44 @@ const ponteWorker = createPonteWorker({
 // Garante o Local Lab no ar (sobe se preciso) e espera o /health responder.
 async function ensureLocalLabUp(maxWaitMs = 6000) {
   let health = await requestLocalLabHealth();
-  if (health.ok) return true;
+  // /health é público por desenho, portanto não prova posse. Só aceitamos um Lab que
+  // responda ao token efêmero deste processo Owner e confirme o PID pai atual.
+  if (health.ok) return sendLocalLabHeartbeat();
   try { startLocalLab(); } catch { return false; }
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 500));
     health = await requestLocalLabHealth();
-    if (health.ok) return true;
+    if (health.ok && await sendLocalLabHeartbeat()) return true;
   }
   return false;
+}
+
+async function sendLocalLabHeartbeat() {
+  const health = await requestLocalLabHealth(800);
+  if (!health.ok) return false;
+  const response = await localLabRequest(
+    "POST",
+    "/local-lab/owner-heartbeat",
+    { parentPid: process.pid },
+    1200,
+  );
+  return response.ok;
+}
+
+function startLocalLabHeartbeat() {
+  if (localLabHeartbeatTimer) return;
+  localLabHeartbeatTimer = setInterval(() => {
+    void sendLocalLabHeartbeat();
+  }, 3000);
+  localLabHeartbeatTimer.unref?.();
+  void sendLocalLabHeartbeat();
+}
+
+function stopLocalLabHeartbeat() {
+  if (!localLabHeartbeatTimer) return;
+  clearInterval(localLabHeartbeatTimer);
+  localLabHeartbeatTimer = null;
 }
 
 // cardDomain → lib/util.js (Sprint 5).
@@ -912,9 +911,11 @@ async function enricherCycle() {
       if (seeds.length >= 15) break; // teto por ciclo: lote curto fecha em minutos (não horas) e o
                                      // painel vê progresso/aplicação rápido — varre 500 cards, mas só
                                      // os 15 primeiros COM site crawlável viram lote; o resto avança o cursor.
-      // Regra do produto: nada de pré-enriquecer a vitrine. A posse global só nasce depois do
-      // débito confirmado; portanto a factory local ignora qualquer card ainda não puxado.
-      if (!Number(row.ownerCompanyId || 0)) continue;
+      // Regra do produto: nada de pré-enriquecer a vitrine. `ownerCompanyId` sozinho não prova
+      // pagamento (pode ser resíduo legado ou uma saga interrompida). O backend master precisa
+      // atestar explicitamente que a aquisição paga continua ativa; ausência/valor antigo falha
+      // fechado e a Night Factory local não toca no card.
+      if (row.contactAccessGranted !== true) continue;
       if (!isCrawlableSite(row.website)) continue;
       const haveEmails = Array.isArray(row.emails) ? row.emails.length : 0;
       if (String(row.email || "").trim() && haveEmails >= 3) continue; // já tem e-mail suficiente
@@ -957,15 +958,24 @@ async function runEnricherCrawl(seeds, map) {
   enricherJob.localLabJobId = jobId;
 
   let job = null;
+  let consecutiveLocalLabFailures = 0;
   for (;;) {
     await enricherSleep(3000);
     if (!enricherJob.running) { await localLabRequest("POST", `/local-lab/jobs/${jobId}/cancel`, {}, 8000).catch(() => {}); break; }
     const s = await localLabRequest("GET", `/local-lab/jobs/${jobId}`, null, 10000);
     if (s.ok && s.data) {
+      consecutiveLocalLabFailures = 0;
       job = s.data;
       const m = job.metrics || {};
       enricherJob.phase = `caçando (IP local): ${m.sitesVisited || 0} sites · ${m.emailsFound || 0} e-mails`;
       if (["completed", "failed", "canceled"].includes(job.status)) break;
+    } else {
+      consecutiveLocalLabFailures += 1;
+      if (consecutiveLocalLabFailures >= 3) {
+        enricherJob.lastError = "Local Lab perdeu o vínculo com o HBX Owner.";
+        enricherJob.running = false;
+        break;
+      }
     }
   }
   enricherJob.localLabJobId = null;
@@ -1075,7 +1085,17 @@ function startEnricher(opts = {}) {
   broadcastEnricher(); // "iniciando" pro SSE já na largada
   return true;
 }
-function stopEnricher() { enricherJob.running = false; broadcastEnricher(); return true; }
+async function stopEnricher() {
+  enricherJob.running = false;
+  const jobId = enricherJob.localLabJobId;
+  if (jobId) {
+    await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(jobId)}/cancel`, {}, 4000).catch(() => undefined);
+  }
+  enricherJob.localLabJobId = null;
+  const stopResult = await stopLocalLab().catch(() => ({ killed: 0, pids: [], down: false }));
+  broadcastEnricher();
+  return stopResult;
+}
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
 function backendRequestOnce(method, route, payload, token, options = {}) {
@@ -1263,18 +1283,19 @@ function streamBackendToClient(method, route, clientRes, token) {
 
 async function readLeadsBank() {
   // VERDADE AO VIVO: a headline "SUA MÁQUINA" agora conta o MESMO pool que o transfer mexe
-  // (database-cards / RadarLeadPool), lido na hora. Antes vinha de /night-factory/leads-bank
+  // (database-cards / RadarLeadPool), lido na hora. O universo nacional fica no endpoint
+  // neutro /leads-bank; Night Factory não existe no VPS.
   // (outra contagem — 4998 ≠ 5035 do database-cards) e o painel mentia em relação ao
   // Trazer/Mandar: mostrava um número e transferia outro. Agora o número É o do transfer.
-  // deltaToday ("novos hoje") segue do night-factory, mas é só enfeite — o TOTAL é o real.
+  // deltaToday ("novos hoje") vem do contador unificado, mas é só telemetria — o TOTAL local é o real.
   const total = await readLocalCardTotal().catch(() => null);
   if (total == null) {
     return { ok: false, configured: Boolean(backendToken), reason: "backend local indisponível", total: null, deltaToday: null };
   }
   let deltaToday = null;
   try {
-    const nf = await backendRequest("GET", "/night-factory/leads-bank");
-    if (nf && nf.ok && nf.data) deltaToday = nf.data.deltaToday ?? null;
+    const bank = await backendRequest("GET", "/leads-bank");
+    if (bank && bank.ok && bank.data) deltaToday = bank.data.deltaToday ?? null;
   } catch { /* delta é opcional, não derruba o total */ }
   return { ok: true, configured: true, total, deltaToday, generatedAt: new Date().toISOString() };
 }
@@ -1646,7 +1667,7 @@ async function readVpsSystem(force) {
   return { ok: false, configured: true, reason: cause, message: OPS_REASON_TEXT[cause] };
 }
 
-// Total/leads/fábrica da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
+// Total/leads/motores da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
 // Cache de 90s pra não martelar SSH no ciclo do painel.
 let vpsLeadsCache = { at: 0, data: null };
 async function readVpsLeads() {
@@ -1657,15 +1678,12 @@ async function readVpsLeads() {
   const d = r.data || {};
   const ss = d.socialSummary || {};
   const ls = d.leadStock || {};
-  const fc = d.factoryCursor || {};
   const eng = d.engineSummary || {};
   const out = {
     ok: r.ok,
     configured: true,
     total: ss.totalLeads ?? null,
     today: ls.total24h ?? null,
-    factoryStatus: fc.status || null,
-    factoryWhere: [fc.currentSegment, fc.currentCity, fc.currentState].filter(Boolean).join(" · ") || null,
     engines: { total: eng.total ?? null, running: eng.running ?? null },
     reason: r.reason || d.error,
   };
@@ -1700,293 +1718,6 @@ async function readRadarCockpit(force) {
 // COPIADA aqui — agora é fonte ÚNICA no backend (radar-core-shared, com teste) exposta em
 // POST /modules/owner/radar/clean-junk (preview/confirm). O /owner/clean-junk-leads abaixo só proxia.
 // Sprint 3 HBX-OWNER: 1 régua, 1 lugar — sem divergência silenciosa com o filtro de entrada.
-
-// ----- Exportar TODOS os leads locais -> VPS + limpar o local (#2). Reusa endpoints existentes:
-// lê via master/database-cards, manda inline pelo Ops Control, limpa por leadIds. SÓ leads (e-mails ficam).
-async function readLocalCardsForExport(maxLeads = 5000) {
-  const leads = [];
-  const ids = [];
-  const limit = 1000;
-  // Pagina o banco INTEIRO (guarda alta) — antes parava em 12 páginas e cortava silenciosamente em 6k.
-  for (let page = 1; page <= 200 && leads.length < maxLeads; page += 1) {
-    // maxBytes alto: cada card é JSON gordo (80+ campos); o default de 200KB truncava e quebrava o parse.
-    const r = await backendRequest("GET", `/modules/owner/radar/database-cards?limit=${limit}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 });
-    if (!r.ok || !r.data) break;
-    const items = Array.isArray(r.data.items) ? r.data.items : [];
-    if (!items.length) break;
-    for (const row of items) {
-      const id = String(row.id || "").trim();
-      const name = safeText(row.name || row.companyName, 300);
-      if (!id || !name) continue; // sem nome o VPS rejeita; não manda nem limpa (fica local)
-      const website = row.website || null;
-      leads.push({
-        externalId: id,
-        name,
-        phone: row.phone || row.phoneDigits || null,
-        whatsapp: row.whatsapp || null,
-        website,
-        email: row.email || null,
-        emailStatus: row.emailStatus || (row.email ? "found_on_site" : "missing"),
-        city: row.city || null,
-        state: row.state || null,
-        segment: row.segment || null,
-        sourceProvider: safeText(row.source, 60) || "local_lab",
-        sourceUrl: website || row.sourceUrl || row.mapsUrl || `radar:${id}`,
-        sourceMode: "local_lab",
-        evidence: { method: "owner_export_all", origin: "local_radar_pool" },
-      });
-      ids.push(id);
-    }
-    if (items.length < limit) break;
-  }
-  return { leads: leads.slice(0, maxLeads), ids: ids.slice(0, maxLeads) };
-}
-
-// Mapeia um card (database-cards, mesmo shape local e VPS) -> lead do lead-harvest.
-function mapCardToHarvestLead(row, opts = {}) {
-  const sourceMode = opts.sourceMode || "imported_lab";
-  const method = opts.method || "owner_transfer";
-  const origin = opts.origin || "transfer_pool";
-  const provider = opts.provider || "owner_transfer";
-  const id = String(row.id || row.externalId || "").trim();
-  const name = safeText(row.name || row.companyName, 300);
-  if (!id || !name) return null;
-  const website = row.website || null;
-  return {
-    externalId: id,
-    name,
-    phone: row.phone || row.phoneDigits || null,
-    whatsapp: row.whatsapp || null,
-    website,
-    email: row.email || null,
-    emailStatus: row.emailStatus || (row.email ? "found_on_site" : "missing"),
-    city: row.city || null,
-    state: row.state || null,
-    segment: row.segment || null,
-    sourceProvider: safeText(row.source, 60) || provider,
-    // Card sem site ganha URL de PROVENIÊNCIA interna válida (não site falso) → passa no gate
-    // missing_source_url do import e NADA se perde ao "mover tudo pro local". O `website` segue
-    // null (descoberta de site continua valendo); isto só marca de onde o lead veio.
-    sourceUrl: website || row.sourceUrl || row.googleMapsUrl || row.mapsUrl || `https://radar.hbxsystem.com.br/card/${id}`,
-    sourceMode,
-    evidence: { method, origin },
-  };
-}
-
-// Roda em segundo plano: traz TUDO do VPS pro local em PÁGINAS (stream), gravando cada
-// página assim que chega. % honesta = pulled ÷ total real do banco da VPS.
-// PÁGINA ADAPTATIVA (Sprint 2 HBX-OWNER): pede 500/página (o backend do master honra limit até
-// 2000). Se a 1ª página vier ≤20 e houver mais no banco, o backend DEPLOYADO ainda capa em 20 →
-// DEGRADA sozinho pra 20/página o resto da varredura (sem buraco: a página 1 tem offset 0 seja
-// qual for o limit, então trocar 500→20 da página 2 em diante é contíguo). Assim: VPS novo = ~total/500
-// chamadas (~25× menos); VPS velho = idêntico a antes. Zero regressão, sem depender de sonda ao vivo.
-async function runTransferPull() {
-  let pageSize = 500;
-  let sizeProbed = false;
-  const maxPages = 20000;
-  let chunkSeq = 0;
-  let consecutiveFails = 0;
-  if (!backendToken) await refreshBackendToken().catch(() => null);
-  try {
-    for (let page = 1; page <= maxPages; page += 1) {
-      transferJob.page = page;
-      transferJob.phase = "lendo VPS";
-      const r = await withRetry(
-        () => opsRequest("GET", `/api/radar/vps/database-cards?limit=${pageSize}&page=${page}`, null, 45000),
-        (resp) => resp && resp.ok,
-      );
-      if (!r.configured) { transferJob.error = "Configure HBX_OWNER_OPS_TOKEN."; break; }
-      if (!r.ok) {
-        transferJob.error = r.reason || (r.data && r.data.error)
-          || (page === 1 ? "VPS indisponível" : "VPS parou de responder no meio da transferência");
-        break;
-      }
-      const data = r.data && r.data.data ? r.data.data : r.data;
-      const items = Array.isArray(data && data.items) ? data.items : [];
-      if (data && typeof data.total === "number") transferJob.total = data.total;
-      if (!items.length) break;
-      // Sonda na 1ª página real: se pedimos 500 e veio ≤20 com mais no banco, o VPS ainda capa
-      // em 20 → degrada o resto da varredura (a página 1 já foi lida com offset 0; da 2 em diante
-      // limit=20 é contíguo, sem buraco). Se veio >20, o VPS honra páginas grandes → mantém 500.
-      if (!sizeProbed) {
-        sizeProbed = true;
-        if (pageSize === 500 && items.length <= 20 && items.length < (transferJob.total ?? Infinity)) {
-          pageSize = 20;
-        }
-      }
-      transferJob.pulled += items.length;
-      transferJob.processed = transferJob.pulled;
-      const leads = items
-        .map((row) => mapCardToHarvestLead(row, { sourceMode: "imported_lab", method: "owner_import_all", origin: "vps_radar_pool", provider: "vps_radar" }))
-        .filter(Boolean);
-      // Grava em sub-lotes que cabem no body-parser do backend local (senão 413).
-      for (const sub of chunkLeadsBySize(leads)) {
-        transferJob.phase = "gravando no local";
-        const batch = {
-          batchId: `vps-pull-${transferJob.startedAt}-${page}-${chunkSeq++}`,
-          sourceMode: "imported_lab",
-          sourceName: "VPS Radar (trazer tudo)",
-          createdAt: new Date().toISOString(),
-          requestedBy: "hbx-owner-import-all",
-          providers: ["vps_radar"],
-          leads: sub,
-          emails: [],
-        };
-        const imp = await withRetry(
-          () => backendRequest("POST", "/webscraping/lead-harvest/import", batch, { timeoutMs: 60000 }),
-          (resp) => resp && resp.ok,
-          4, 1500,
-        );
-        if (imp.ok) {
-          // O backend devolve os totais em data.counts (accepted/duplicates/rejected).
-          // BUG antigo: líamos data.accepted (não existe nesse nível) → "imported" ficava
-          // SEMPRE 0 mesmo gravando cards, e a tela parecia morta. Agora conta o real e
-          // separa já-existiam (duplicates) de não-importáveis (rejected: ex. card sem
-          // site = missing_source_url) pra UI dizer a verdade em vez de um 0 fantasma.
-          const c = (imp.data && imp.data.counts) || {};
-          transferJob.imported += Number(c.accepted ?? imp.data?.accepted ?? 0) || 0;
-          transferJob.duplicates += Number(c.duplicates ?? 0) || 0;
-          transferJob.rejected += Number(c.rejected ?? 0) || 0;
-          consecutiveFails = 0;
-        } else {
-          // Lote travou após retries → pula e segue (idempotente: reclicar completa os buracos).
-          transferJob.failed += sub.length;
-          transferJob.lastError = imp.error || imp.data?.message || "falha ao gravar no local";
-          consecutiveFails += 1;
-          if (consecutiveFails >= 5) {
-            transferJob.error = `Backend local instável (${transferJob.lastError}) — parei em ${transferJob.imported} gravados; reclica pra continuar.`;
-            break;
-          }
-        }
-      }
-      saveTransferJournal([]); // pull não tem sentIds; grava progresso a cada página OK
-      broadcastTransfer();     // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
-      if (transferJob.error) break;
-      if (transferJob.total != null && transferJob.pulled >= transferJob.total) break;
-      if (items.length < pageSize) break;
-    }
-    transferJob.ok = !transferJob.error;
-    // Reconciliação: total do DESTINO (local) depois de trazer → o front mostra se igualou.
-    transferJob.phase = "reconciliando";
-    transferJob.otherTotal = await readLocalCardTotal().catch(() => null);
-  } catch (err) {
-    transferJob.error = err.message || "falha na transferência";
-    transferJob.ok = false;
-  } finally {
-    transferJob.phase = transferJob.ok ? "concluído" : "erro";
-    transferJob.done = true;
-    transferJob.running = false;
-    transferJob.finishedAt = Date.now();
-    if (transferJob.ok) clearTransferJournal(); // fim OK → sem retomada pendente
-    else saveTransferJournal([]);               // parou com erro → deixa retomável no boot
-    broadcastTransfer();                        // estado final (done) pro SSE
-  }
-}
-
-// Roda em segundo plano: TRANSFERE TUDO do local pro VPS — manda em PÁGINAS e DEPOIS apaga do
-// local só o que o VPS aceitou (é transferência, não cópia: "Sua máquina" zera).
-// % honesta = sent ÷ total real do banco local.
-// Por que apagar SÓ no fim (e não página a página): a leitura pagina por `page` (offset = page×limit).
-// Se eu apagasse no meio, o banco encolheria e o offset da próxima página pularia leads → buracos.
-// Lendo o banco inteiro primeiro (sem apagar) a paginação fica estável; a limpeza vem por leadIds no fim.
-async function runTransferPush() {
-  const pageSize = 500;
-  const maxPages = 2000;
-  let chunkSeq = 0;
-  let consecutiveFails = 0;
-  const sentIds = []; // ids locais que o VPS ACEITOU → apagados do local no fim (vira transferência)
-  if (!backendToken) await refreshBackendToken().catch(() => null);
-  try {
-    for (let page = 1; page <= maxPages; page += 1) {
-      transferJob.page = page;
-      transferJob.phase = "lendo local";
-      const r = await withRetry(
-        () => backendRequest("GET", `/modules/owner/radar/database-cards?limit=${pageSize}&page=${page}`, null, { timeoutMs: 30000, maxBytes: 16_000_000 }),
-        (resp) => resp && resp.ok && resp.data,
-      );
-      if (!r.ok || !r.data) {
-        transferJob.error = r.error || r.data?.message
-          || (page === 1 ? `backend local indisponível (http_${r.statusCode || "?"})` : "backend local parou de responder no meio");
-        break;
-      }
-      if (typeof r.data.total === "number") transferJob.total = r.data.total;
-      const items = Array.isArray(r.data.items) ? r.data.items : [];
-      if (!items.length) break;
-      const leads = items
-        .map((row) => mapCardToHarvestLead(row, { sourceMode: "imported_lab", method: "owner_push_all", origin: "local_radar_pool", provider: "local_lab" }))
-        .filter(Boolean);
-      // Manda em sub-lotes que cabem no body-parser do backend da VPS (senão 413 "entity too large").
-      for (const sub of chunkLeadsBySize(leads)) {
-        transferJob.phase = "enviando pro VPS";
-        // O import da VPS (buildEmailLabImportPayload) EXIGE batchId — sem ele dá 400 "Export sem batchId".
-        // 4 tentativas com backoff: a VPS pisca ("fetch failed") sob carga — um blip não pode matar a transferência.
-        const imp = await withRetry(
-          () => opsRequest("POST", "/api/email-lab/vps/import", {
-            batchId: `owner-push-${transferJob.startedAt}-${page}-${chunkSeq++}`,
-            sourceName: "HBX Owner (mandar tudo)",
-            leads: sub,
-            sourceMode: "imported_lab",
-            requestedBy: "hbx-owner-push-all",
-          }, 90000),
-          (resp) => resp && resp.ok && resp.data && resp.data.ok,
-          4, 1500,
-        );
-        if (!imp.configured) { transferJob.error = "Configure HBX_OWNER_OPS_TOKEN."; break; }
-        if (imp.ok && imp.data && imp.data.ok) {
-          // Contagem real de novos no VPS (counts.accepted do backend), não o tamanho do lote.
-          const accepted = imp.data?.import?.data?.counts?.accepted ?? imp.data?.import?.data?.result?.accepted ?? 0;
-          transferJob.sent += sub.length;
-          transferJob.imported += Number(accepted) || 0;
-          transferJob.processed = transferJob.sent;
-          // Só apaga o que ENTROU no VPS (por externalId = id do card local).
-          for (const l of sub) { if (l.externalId) sentIds.push(l.externalId); }
-          consecutiveFails = 0;
-        } else {
-          // Lote travou mesmo após retries → pula e segue (import é idempotente: reclicar completa os buracos).
-          transferJob.failed += sub.length;
-          transferJob.lastError = imp.reason || imp.data?.error || imp.data?.message || "falha no lote";
-          consecutiveFails += 1;
-          if (consecutiveFails >= 5) {
-            transferJob.error = `VPS instável (${transferJob.lastError}) — parei em ${transferJob.sent} enviados; reclica pra continuar.`;
-            break;
-          }
-        }
-      }
-      saveTransferJournal(sentIds); // grava progresso + ids já aceitos a cada página OK
-      broadcastTransfer();          // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
-      if (transferJob.error) break;
-      if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
-      if (items.length < pageSize) break;
-    }
-    // TRANSFERÊNCIA: apaga do local tudo que o VPS aceitou (em lotes), pra "Sua máquina" zerar.
-    // Roda mesmo com erro parcial: o que JÁ entrou no VPS não pode ficar duplicado no local.
-    if (sentIds.length) {
-      transferJob.phase = "limpando o local";
-      for (let i = 0; i < sentIds.length; i += 2000) {
-        const chunk = sentIds.slice(i, i + 2000);
-        const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
-        if (del.ok) transferJob.cleared += Number(del.data?.affected ?? chunk.length) || 0;
-        else transferJob.lastError = del.error || del.data?.message || `falha ao limpar o local (http_${del.statusCode || "?"})`;
-      }
-    }
-    transferJob.ok = !transferJob.error;
-    if (transferJob.sent > 0) vpsLeadsCache = { at: 0, data: null };
-    // Reconciliação: total do DESTINO (VPS) depois de mandar → o front mostra se igualou.
-    transferJob.phase = "reconciliando";
-    transferJob.otherTotal = await readVpsCardTotal().catch(() => null);
-  } catch (err) {
-    transferJob.error = err.message || "falha na transferência";
-    transferJob.ok = false;
-  } finally {
-    transferJob.phase = transferJob.ok ? "concluído" : "erro";
-    transferJob.done = true;
-    transferJob.running = false;
-    transferJob.finishedAt = Date.now();
-    if (transferJob.ok) clearTransferJournal(); // fim OK (enviou + limpou) → sem retomada pendente
-    else saveTransferJournal(sentIds);          // parou com erro → deixa retomável no boot
-    broadcastTransfer();                        // estado final (done) pro SSE
-  }
-}
 
 function clampEngineRange(body) {
   const from = clampInt(body.from, 1, 1, 200);
@@ -2069,15 +1800,6 @@ function sseBroadcast(event, dataObj) {
       try { res.end(); } catch { /* já morto */ }
     }
   }
-}
-
-// Empurra o estado da transferência assim que ele muda (barra atualiza em <300ms, sem esperar o
-// tick de 1.2s). Mesmo payload do GET /owner/transfer/status (o front reusa paintTransfer).
-function broadcastTransfer() {
-  if (!sseClients.size) return;
-  const payload = { ok: true, ...transferJob };
-  if (!transferJob.running && transferResume) { payload.resumable = true; payload.resume = transferResume; }
-  sseBroadcast("transfer", payload);
 }
 
 // Empurra as métricas da Night Factory local a cada ciclo/mudança.
@@ -2183,11 +1905,6 @@ async function buildTreeSnapshot(force = false) {
       lastCycleAt: enricherJob.lastCycleAt,
       error: enricherJob.lastError,
     },
-    transfer: (() => {
-      const t = { ok: true, ...transferJob };
-      if (!transferJob.running && transferResume) { t.resumable = true; t.resume = transferResume; }
-      return t;
-    })(),
   };
   treeSnapshotCache = { at: Date.now(), data: snapshot };
   return snapshot;
@@ -2361,9 +2078,8 @@ async function route(req, res) {
     req.on("close", cleanup);
     req.on("error", cleanup);
     res.on("error", cleanup);
-    // Estado inicial imediato: transfer + enricher + a árvore composta.
+    // Estado inicial imediato: enricher + a árvore composta.
     sseWrite(res, "hello", { ok: true, at: nowIso() });
-    broadcastTransfer();
     broadcastEnricher();
     try {
       const snap = (treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000)
@@ -2470,15 +2186,12 @@ async function route(req, res) {
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/fabrica/stop") {
-    stopEnricher();
-    if (enricherJob.localLabJobId) {
-      await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(enricherJob.localLabJobId)}/cancel`, {}, 8000).catch(() => {});
-    }
+    await stopEnricher();
     sendJson(res, 200, { ok: true, localOnly: true, stopped: true, message: "Night Factory local parada." });
     return;
   }
 
-  // ── RAIO-X DE CNPJ EM LOTE (HOT-04) — cola até 10k CNPJs, camadas cadastral/vivo/ia. ──
+  // ── RAIO-X DE CNPJ EM LOTE — somente leitura cadastral da base RFB local. ──
   // Mesmo padrão de proxy da fábrica: degrade gracioso (offline) se o backend ainda não tiver
   // as rotas /modules/owner/cnpj-xray/*. Download é STREAM puro (mesma função da export-all).
   if (req.method === "POST" && url.pathname === "/owner/cnpj-xray/estimate") {
@@ -2553,7 +2266,7 @@ async function route(req, res) {
 
   // F0 (02/07): rotas de proxy da FÁBRICA de descoberta (/owner/factory/stop|resume|status|
   // purge-dead-queue|force-next) REMOVIDAS — os endpoints backend /modules/owner/radar/factory-*
-  // foram demolidos. O proxy /owner/night-factory/* (módulo night-factory preservado) FICA.
+  // foram demolidos. Não existe proxy de fábrica para o VPS.
 
   // LIGAR a frota LOCAL de motores (docker nativo do agent + keep-warm). É a via que OBEDECE: o
   // governor do backend não sobe motor local. Sobe a frota INTEIRA (parcial envenena o health-check)
@@ -2649,13 +2362,13 @@ async function route(req, res) {
     return;
   }
 
-  // Total/leads/fábrica da VPS (radar-audit do Ops Control, cacheado). Sem rebuild.
+  // Total/leads/motores da VPS (radar-audit do Ops Control, cacheado). Sem rebuild.
   if (req.method === "GET" && url.pathname === "/owner/vps/leads") {
     sendJson(res, 200, await readVpsLeads());
     return;
   }
 
-  // Estado REAL da frota VPS (elástica/fábrica/motores) — pinta os botões da coluna VPS com a
+  // Estado REAL da frota VPS (elástica/motores) — pinta os botões da coluna VPS com a
   // verdade do backend, não por heurística. Mesmo shape do LOCAL (/owner/system → capacity).
   if (req.method === "GET" && url.pathname === "/owner/vps/engines-status") {
     sendJson(res, 200, await readVpsEngineCapacity());
@@ -2740,105 +2453,6 @@ async function route(req, res) {
     return;
   }
 
-  // Exportar TODOS os leads locais -> VPS e limpar o local (#2). Preview por padrão; confirm:true executa.
-  if (req.method === "POST" && url.pathname === "/owner/export-all-leads") {
-    const body = await readBody(req);
-    const cap = clampInt(body.limit, 5000, 1, 5000);
-    const { leads, ids } = await readLocalCardsForExport(cap);
-    if (!leads.length) {
-      sendJson(res, 200, { ok: true, empty: true, count: 0, message: "Nenhum lead local válido pra exportar." });
-      return;
-    }
-    if (body.confirm !== true) {
-      sendJson(res, 200, { ok: true, preview: true, count: leads.length, sample: leads.slice(0, 6).map((l) => l.name) });
-      return;
-    }
-    // 1) Manda pro VPS (inline, SÓ leads — e-mails ficam no PC).
-    const imp = await opsRequest("POST", "/api/email-lab/vps/import", { leads, sourceMode: "imported_lab", requestedBy: "hbx-owner-export-all" });
-    if (!imp.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
-    if (!imp.ok || !(imp.data && imp.data.ok)) {
-      sendJson(res, 502, { ok: false, stage: "import", count: leads.length, reason: imp.reason || imp.data?.error || imp.data?.message || "falha ao importar na VPS", import: imp.data });
-      return;
-    }
-    // 2) Limpa o local SÓ depois do import OK, por leadIds, em lotes de 2000.
-    let cleared = 0;
-    const errors = [];
-    for (let i = 0; i < ids.length; i += 2000) {
-      const chunk = ids.slice(i, i + 2000);
-      const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
-      if (del.ok) cleared += Number(del.data?.affected ?? chunk.length) || 0;
-      else errors.push(del.error || del.data?.message || `http_${del.statusCode || "?"}`);
-    }
-    vpsLeadsCache = { at: 0, data: null };
-    sendJson(res, 200, { ok: true, exported: leads.length, cleared, errors, import: imp.data });
-    return;
-  }
-
-  // Cockpit: enviar lote filtrado pro VPS (sem limpar o banco local).
-  if (req.method === "POST" && url.pathname === "/owner/cockpit/send-to-vps") {
-    const body = await readBody(req);
-    const leads = Array.isArray(body.leads) ? body.leads : [];
-    if (!leads.length) {
-      sendJson(res, 400, { ok: false, reason: "Nenhum lead no payload." });
-      return;
-    }
-    const validLeads = leads
-      .filter((l) => l && String(l.externalId || "").trim() && String(l.name || "").trim())
-      .slice(0, 50000);
-    if (!validLeads.length) {
-      sendJson(res, 400, { ok: false, reason: "Nenhum lead válido (sem id ou nome)." });
-      return;
-    }
-    const imp = await opsRequest("POST", "/api/email-lab/vps/import", { leads: validLeads, sourceMode: "imported_lab", requestedBy: "hbx-cockpit-export" });
-    if (!imp.configured) {
-      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
-      return;
-    }
-    if (!imp.ok || !(imp.data && imp.data.ok)) {
-      sendJson(res, 502, { ok: false, count: validLeads.length, reason: imp.reason || imp.data?.error || imp.data?.message || "falha ao importar na VPS", import: imp.data });
-      return;
-    }
-    vpsLeadsCache = { at: 0, data: null };
-    sendJson(res, 200, { ok: true, count: validLeads.length, imported: imp.data?.imported ?? validLeads.length, import: imp.data });
-    return;
-  }
-
-  // TUDO OU NADA — inicia a transferência em SEGUNDO PLANO (1 por vez) e responde na hora.
-  // O progresso vivo sai por GET /owner/transfer/status (a UI desenha a barra).
-  if (req.method === "POST" && (url.pathname === "/owner/import-all-from-vps" || url.pathname === "/owner/push-all-to-vps")) {
-    const isPull = url.pathname === "/owner/import-all-from-vps";
-    if (transferJob.running) {
-      sendJson(res, 200, { ok: false, running: true, reason: "Já tem uma transferência rodando — espera terminar." });
-      return;
-    }
-    transferResume = null; // recomeçou de fato → some com o aviso de retomada do boot
-    transferJob = freshTransferJob(isPull ? "pull" : "push");
-    broadcastTransfer();   // "iniciando" pro SSE já na largada
-    (isPull ? runTransferPull() : runTransferPush()).catch((err) => {
-      transferJob.error = err?.message || "falha";
-      transferJob.ok = false; transferJob.done = true;
-      transferJob.running = false; transferJob.finishedAt = Date.now();
-      saveTransferJournal([]); // falha dura → deixa retomável
-      broadcastTransfer();
-    });
-    sendJson(res, 200, { ok: true, started: true, direction: transferJob.direction });
-    return;
-  }
-
-  // Progresso da transferência (a UI faz polling disto a cada ~1.2s).
-  // ADITIVO (não muda contrato): se o agent caiu no meio de uma transferência e nada roda agora,
-  // expõe resumable:true + o snapshot do journal → a UI oferece "retomar" (reclica o start; o
-  // import é idempotente por externalId, então retomar não duplica). Some quando algo volta a rodar.
-  if (req.method === "GET" && url.pathname === "/owner/transfer/status") {
-    const payload = { ok: true, ...transferJob };
-    if (!transferJob.running && transferResume) {
-      payload.resumable = true;
-      payload.resume = transferResume;
-    }
-    sendJson(res, 200, payload);
-    return;
-  }
-
   // Parar/Ligar frota numerada hbx-engine-N na VPS (o "parar motor" do dono).
   const vpsEngineMatch = url.pathname.match(/^\/owner\/vps\/engines\/(stop|start)$/);
   if (req.method === "POST" && vpsEngineMatch) {
@@ -2913,18 +2527,16 @@ async function route(req, res) {
 
   // Status do Email Lab (Local Lab pronto? VPS import pronto?) — pro card de caça de e-mail.
   if (req.method === "GET" && url.pathname === "/owner/email-lab/status") {
-    const response = await opsRequest("GET", "/api/email-lab/status", null, 8000);
-    if (!response.configured) { sendJson(res, 200, { ok: false, configured: false, reason: "ops_token_ausente" }); return; }
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, configured: true, ...(response.data || {}), reason: response.reason });
+    const status = await readLocalLabStatus();
+    sendJson(res, 200, { ...status, configured: true, executionPolicy: "owner_local_only" });
     return;
   }
 
-  // ----- Caçar e-mail via Email Lab (Local Lab). Inicia o job; "Importar pra VPS" é passo
-  // separado (escreve na VPS = produção; degrada se OPS/VPS não configurados — clique + creds).
+  // ----- Caçar e-mail via Email Lab. Execução estritamente local no HBX Owner.
   const EMAIL_LAB_MODES = new Set(["email_first", "public_email_only", "enrich_missing_email"]);
   if (req.method === "POST" && url.pathname === "/owner/export") {
     const body = await readBody(req);
-    const scope = OPS_SCOPES.has(String(body.scope || "local").toLowerCase()) ? String(body.scope).toLowerCase() : "local";
+    const scope = "local";
     const mode = EMAIL_LAB_MODES.has(String(body.mode || "")) ? String(body.mode) : "email_first";
     // URLs dos leads a enriquecer (o crawler visita exatamente esses sites).
     const sanitizeUrlList = (arr) => (Array.isArray(arr) ? arr : [])
@@ -2939,44 +2551,28 @@ async function route(req, res) {
       websites: sanitizeUrlList(body.websites),
       candidates: sanitizeUrlList(body.candidates),
     };
-    const response = await opsRequest("POST", "/api/email-lab/local/jobs", payload, 30000);
-    if (!response.configured) {
-      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN (ponte Ops Control)." });
+    if (!(await ensureLocalLabUp())) {
+      sendJson(res, 503, { ok: false, reason: "local_lab_offline", message: "Local Lab não iniciou no HBX Owner." });
       return;
     }
-    const data = response.data || {};
-    const job = data.job || data;
+    const response = await localLabRequest("POST", "/local-lab/jobs", payload, 30000);
+    const job = response.data || {};
     sendJson(res, response.ok ? 200 : 502, {
       ok: response.ok,
       jobId: (job && (job.id || job.jobId)) || null,
       scope,
       message: response.ok ? "Caçando e-mail no Local Lab — acompanhe as métricas." : null,
-      reason: response.reason || data.error || data.message,
-      ops: data,
+      reason: response.error || job.error || job.message,
+      job,
     });
     return;
   }
 
   if (req.method === "GET" && url.pathname.startsWith("/owner/export/status/")) {
     const id = decodeURIComponent(url.pathname.slice("/owner/export/status/".length));
-    const response = await opsRequest("GET", `/api/email-lab/local/jobs/${encodeURIComponent(id)}`);
-    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente" }); return; }
+    const response = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(id)}`, null, 10000);
     const data = response.data || {};
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, job: data.job || data, reason: response.reason || data.error });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/owner/export/import") {
-    const body = await readBody(req);
-    const jobId = safeText(body.jobId, 120);
-    if (!jobId) { sendError(res, 400, "jobId obrigatorio para importar na VPS."); return; }
-    const response = await opsRequest("POST", "/api/email-lab/vps/import", { jobId });
-    if (!response.configured) {
-      sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." });
-      return;
-    }
-    const data = response.data || {};
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, result: data, reason: response.reason || data.error });
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, job: data, reason: response.error || data.error });
     return;
   }
 
@@ -2985,10 +2581,9 @@ async function route(req, res) {
     const body = await readBody(req);
     const jobId = safeText(body.jobId, 120);
     if (!jobId) { sendError(res, 400, "jobId obrigatorio para cancelar a caça."); return; }
-    const response = await opsRequest("POST", `/api/email-lab/local/jobs/${encodeURIComponent(jobId)}/cancel`, {});
-    if (!response.configured) { sendJson(res, 200, { ok: false, reason: "ops_token_ausente", message: "Configure HBX_OWNER_OPS_TOKEN." }); return; }
+    const response = await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(jobId)}/cancel`, {}, 8000);
     const data = response.data || {};
-    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, job: data.job || data, reason: response.reason || data.error });
+    sendJson(res, response.ok ? 200 : 502, { ok: response.ok, job: data, reason: response.error || data.error });
     return;
   }
 
@@ -3064,15 +2659,14 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && url.pathname === "/local-lab/start") {
-    const before = await requestLocalLabHealth();
-    if (!before.ok) startLocalLab();
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    sendJson(res, 202, await readLocalLabStatus());
+    const started = await ensureLocalLabUp();
+    const status = await readLocalLabStatus();
+    sendJson(res, started ? 202 : 409, status);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/local-lab/stop") {
-    const stopResult = await stopLocalLab();
+    const stopResult = await stopEnricher();
     sendJson(res, 200, { ...(await readLocalLabStatus()), stopped: stopResult.killed, stopResult });
     return;
   }
@@ -3281,80 +2875,6 @@ async function route(req, res) {
     return;
   }
 
-  // --- Distribuição automática: ler/editar/rodar agora ---
-  if (req.method === "GET" && url.pathname === "/owner/radar/distribution") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/radar/radar-auto-distribution");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "PUT" && url.pathname === "/owner/radar/distribution") {
-    const body = await readBody(req);
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("PUT", "/modules/owner/radar/radar-auto-distribution", body);
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "POST" && url.pathname === "/owner/radar/distribution/run") {
-    const body = await readBody(req);
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("POST", "/modules/owner/radar/radar-auto-distribution/run", body, { timeoutMs: 60000 });
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  // F0 (02/07): rotas de proxy das campanhas mass-data (/owner/radar/mass-data + :id/pause|resume|
-  // cancel) REMOVIDAS — os endpoints backend /modules/owner/radar/mass-data foram demolidos.
-
-  // ================================================================
-  // NIGHT FACTORY — P3
-  // Proxy ao backend /modules/owner/night-factory/*.
-  // ================================================================
-
-  if (req.method === "GET" && url.pathname === "/owner/night-factory/status") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/night-factory/status");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, configured: Boolean(backendToken), data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/owner/night-factory/daily-report") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/night-factory/daily-report");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/owner/night-factory/top-opportunities") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/night-factory/top-opportunities");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/owner/night-factory/segments") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/night-factory/segments");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/owner/night-factory/cities") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/night-factory/cities");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
-  if (req.method === "GET" && url.pathname === "/owner/night-factory/recovery-opportunities") {
-    if (!backendToken) { await refreshBackendToken().catch(() => null); }
-    const r = await backendRequest("GET", "/modules/owner/night-factory/recovery-opportunities");
-    sendJson(res, r.ok ? 200 : 502, { ok: r.ok, data: r.data, reason: r.error || r.data?.message });
-    return;
-  }
-
   // ── PONTE (CHIP E1): status vermelho/verde + controles p/ o cockpit :3107 (E2) ──────────────────
   if (req.method === "GET" && url.pathname === "/owner/ponte/status") {
     sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
@@ -3393,15 +2913,44 @@ const server = http.createServer((req, res) => {
   route(req, res).catch((error) => sendError(res, 500, error.message));
 });
 
+let ownerShuttingDown = false;
+async function shutdownOwner(reason, exitCode = 0) {
+  if (ownerShuttingDown) return;
+  ownerShuttingDown = true;
+  stopLocalLabHeartbeat();
+  try { ponteWorker.stop(); } catch { /* encerramento best-effort */ }
+  await stopEnricher().catch(() => undefined);
+  if (server.listening) {
+    await new Promise((resolve) => server.close(resolve));
+  }
+  process.exitCode = exitCode;
+  console.log(`[owner] encerrado (${reason})`);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    const forceExit = setTimeout(() => {
+      if (localLabChild?.pid) killPidWindows(localLabChild.pid);
+      process.exit(1);
+    }, 8000);
+    forceExit.unref?.();
+    void shutdownOwner(signal, 0).finally(() => {
+      clearTimeout(forceExit);
+      process.exit(0);
+    });
+  });
+}
+
+// Última barreira para encerramento abrupto que ainda dispare o evento `exit`.
+// Em kill forçado, o watchdog do próprio Local Lab detecta que este PID sumiu.
+process.once("exit", () => {
+  enricherJob.running = false;
+  if (localLabChild?.pid) killPidWindows(localLabChild.pid);
+});
+
 server.listen(PORT, HOST, () => {
-  // Estado durável: garante o dir e detecta transferência não-finalizada (agent morreu no meio) →
-  // vira resumable:true no /owner/transfer/status. O enricher retoma sozinho pelo journal no start.
   stateStore.ensureDir();
-  const resume = loadTransferResumeOnBoot();
-  if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
   console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
-  // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
-  try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
   // D4: 1ª checagem de drift no boot (força o throttle). Best-effort — nunca derruba a subida do agent.
   refreshOpsDrift(true).catch(() => {});
 });

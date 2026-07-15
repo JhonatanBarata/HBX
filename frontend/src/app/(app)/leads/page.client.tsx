@@ -107,7 +107,119 @@ export type RadarLead = {
   // /leads/[id] usa isto sem fallback por conteúdo pra decidir entre a
   // página cheia e o aside mascarado + CTA "Puxar".
   ownershipStatus?: "mine" | "available" | "in_attendance" | "negative" | "owned_by_other" | null;
+  contactAccessGranted?: boolean | null;
 };
+
+const RADAR_OWNERSHIP_STATUSES = new Set(["mine", "available", "in_attendance", "negative", "owned_by_other"]);
+
+function normalizedOwnershipStatus(value: RadarLead["ownershipStatus"]): RadarLead["ownershipStatus"] {
+  return RADAR_OWNERSHIP_STATUSES.has(String(value || "")) ? value : null;
+}
+
+function topLeadContacts(values: LeadContactRecord[] | null | undefined) {
+  return Array.isArray(values)
+    ? values.slice().sort((a, b) => Number(a?.rank || 99) - Number(b?.rank || 99)).slice(0, 3)
+    : null;
+}
+
+/**
+ * Defesa fail-closed para qualquer resposta: um lead sem a prova explícita
+ * `ownershipStatus === "mine" && contactAccessGranted === true`
+ * entra no estado React apenas com
+ * o ID operacional, flags agregadas de canal e placeholders. Nome, localização,
+ * documentos, pessoas, contatos, URLs e blobs nunca chegam ao DOM da vitrine.
+ */
+export function sanitizeRadarLeadForClient(input: RadarLead): RadarLead {
+  const ownershipStatus = normalizedOwnershipStatus(input?.ownershipStatus);
+  const contactAccessGranted = input?.contactAccessGranted === true;
+  const base = {
+    id: String(input?.id || ""),
+    ownershipStatus,
+    contactAccessGranted,
+  };
+  if (ownershipStatus !== "mine" || !contactAccessGranted) {
+    return {
+      ...base,
+      name: "Empresa protegida",
+      phone: "",
+      email: null,
+      city: null,
+      state: null,
+      segment: null,
+      businessCategory: null,
+      opportunityScore: 0,
+      hasPhone: input?.hasPhone === true,
+      hasEmail: input?.hasEmail === true,
+      hasWhatsapp: input?.hasWhatsapp === true,
+      sourceChain: null,
+    };
+  }
+  return {
+    ...base,
+    name: String(input?.name || ""),
+    phone: String(input?.phone || ""),
+    email: input?.email ?? null,
+    city: input?.city ?? null,
+    state: input?.state ?? null,
+    segment: input?.segment ?? null,
+    businessCategory: input?.businessCategory ?? null,
+    opportunityScore: Number(input?.opportunityScore || 0),
+    opportunityReason: input?.opportunityReason ?? null,
+    opportunitySignals: Array.isArray(input?.opportunitySignals) ? input.opportunitySignals.slice(0, 12) : null,
+    fitScore: input?.fitScore ?? null,
+    hasPhone: input?.hasPhone === true,
+    hasEmail: input?.hasEmail === true,
+    hasWhatsapp: input?.hasWhatsapp === true,
+    instagramUrl: input?.instagramUrl ?? null,
+    facebookUrl: input?.facebookUrl ?? null,
+    website: input?.website ?? null,
+    rating: input?.rating ?? null,
+    reviews: input?.reviews ?? null,
+    cnpj: input?.cnpj ?? null,
+    cnae: input?.cnae ?? null,
+    razaoSocial: input?.razaoSocial ?? null,
+    ownerName: input?.ownerName ?? null,
+    ownerNames: Array.isArray(input?.ownerNames) ? input.ownerNames.slice(0, 12) : null,
+    ownerPhone: input?.ownerPhone ?? null,
+    ownerInstagram: input?.ownerInstagram ?? null,
+    ownerFacebook: input?.ownerFacebook ?? null,
+    companySituation: input?.companySituation ?? null,
+    people: Array.isArray(input?.people) ? input.people.slice(0, 24).map(person => ({
+      name: String(person?.name || ""),
+      role: person?.role ?? null,
+      source: person?.source ?? null,
+      phoneDigits: person?.phoneDigits ?? null,
+    })) : null,
+    emails: Array.isArray(input?.emails) ? input.emails.slice(0, 3) : null,
+    phones: Array.isArray(input?.phones) ? input.phones.slice(0, 3) : null,
+    phoneContacts: topLeadContacts(input?.phoneContacts),
+    emailContacts: topLeadContacts(input?.emailContacts),
+    phonesWhatsapp: input?.phonesWhatsapp && typeof input.phonesWhatsapp === "object" ? { ...input.phonesWhatsapp } : null,
+    enrichmentScore: input?.enrichmentScore ?? null,
+    lastEnrichedAt: input?.lastEnrichedAt ?? null,
+    enrichmentStatus: input?.enrichmentStatus ?? null,
+    vendasStatus: input?.vendasStatus ?? null,
+    vendasReturnAt: input?.vendasReturnAt ?? null,
+    vendasAttemptCount: input?.vendasAttemptCount ?? null,
+    vendasShortNote: input?.vendasShortNote ?? null,
+    vendasLastResult: input?.vendasLastResult ?? null,
+    vendasSaleStatus: input?.vendasSaleStatus ?? null,
+    vendasSaleValue: input?.vendasSaleValue ?? null,
+    sourceChain: input?.sourceChain ?? null,
+    enrichedBy: Array.isArray(input?.enrichedBy) ? input.enrichedBy.slice(0, 12) : null,
+    enrichmentEngines: Array.isArray(input?.enrichmentEngines) ? input.enrichmentEngines.slice(0, 12) : null,
+    isFreshCompany: input?.isFreshCompany ?? null,
+    daysSinceOpened: input?.daysSinceOpened ?? null,
+  };
+}
+
+function sanitizeLeadsResponseForClient(response: LeadsResponse): LeadsResponse {
+  return {
+    items: Array.isArray(response?.items) ? response.items.map(sanitizeRadarLeadForClient) : [],
+    total: Number(response?.total || 0),
+    meta: response?.meta,
+  };
+}
 
 type LeadsResponse = {
   items: RadarLead[];
@@ -175,20 +287,6 @@ type BankResponse = {
   operationalPoolTotal?: number | null;
   poolExclusiveTotal?: number | null;
   unionExact?: boolean;
-} | null;
-
-type SellerActiveQuota = {
-  seller?: boolean;
-  paused?: boolean;
-  activeCount?: number;
-  effectiveLimit?: number;
-  availableSlots?: number;
-  code?: string | null;
-} | null;
-
-type UsageResponse = {
-  cards?: { used?: number; limit?: number; remaining?: number };
-  sellerActiveQuota?: SellerActiveQuota;
 } | null;
 
 type Tab = "shelf" | "carteira";
@@ -387,8 +485,9 @@ function fmtMoney(value: number | null | undefined) {
 // pra a página /leads/[id] poder chamar a MESMA função com seu próprio critério
 // de posse (ownershipStatus === 'mine', sem conceito de "aba"). Nenhuma lógica
 // de mapeamento duplicada entre lista e página.
-export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: boolean }): NegocioDetail {
-  const revealed = opts.revealed;
+export function buildNegocioDetailFromLead(inputLead: RadarLead, opts: { revealed: boolean }): NegocioDetail {
+  const lead = sanitizeRadarLeadForClient(inputLead);
+  const revealed = opts.revealed && isRadarLeadOwned(lead);
   const hasVendas = revealed && lead.vendasStatus != null;
   const saleStatus = hasVendas ? lead.vendasSaleStatus : null;
   const saleStatusLabel = fmtSaleStatusLabel(saleStatus);
@@ -446,8 +545,8 @@ export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: bo
   };
 }
 
-export function isRadarLeadOwned(lead: Pick<RadarLead, "ownershipStatus"> | null | undefined): boolean {
-  return lead?.ownershipStatus === "mine";
+export function isRadarLeadOwned(lead: Pick<RadarLead, "ownershipStatus" | "contactAccessGranted"> | null | undefined): boolean {
+  return lead?.ownershipStatus === "mine" && lead?.contactAccessGranted === true;
 }
 
 function leadPrimaryWhatsappConfirmed(lead: RadarLead) {
@@ -479,7 +578,7 @@ function getStoredViewMode(): ViewMode {
   } catch { return "linhas"; }
 }
 
-export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; recorte: number | null; sellerQuotaValue: string | null }) => void; embedTitle?: ReactNode } = {}) {
+export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; recorte: number | null }) => void; embedTitle?: ReactNode } = {}) {
   const router = useRouter();
   const { claimLead } = useLeadClaim();
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
@@ -515,7 +614,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   // dados
   const [bank, setBank] = useState<BankResponse>(null);
-  const [usage, setUsage] = useState<UsageResponse>(null);
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });
@@ -686,16 +784,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     apiFetch<BankResponse>("/leads-bank").then(setBank).catch(() => setBank(null));
   }, []);
 
-  const loadUsage = useCallback(() => {
-    apiFetch<UsageResponse>("/vendas/usage")
-      .then(res => {
-        setUsage(res);
-        const active = res?.sellerActiveQuota?.activeCount;
-        if (typeof active === "number") setCounts(c => ({ ...c, carteira: active }));
-      })
-      .catch(() => setUsage(null));
-  }, []);
-
   const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number }) => {
     const params = new URLSearchParams();
     params.set("page", String(opts?.page ?? 1));
@@ -716,7 +804,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (which === "shelf" && zapFiltro === "com") params.set("likelyWhatsapp", "true");
     return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
       .then(res => {
-        setData(res);
+        setData(sanitizeLeadsResponseForClient(res));
         setLoadError(null);
         const badge = which === "shelf" ? (res?.meta?.totalAvailable ?? res?.total ?? 0) : (res?.total ?? 0);
         setCounts(c => ({ ...c, [which]: badge }));
@@ -729,7 +817,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   useEffect(() => {
     loadBank();
-    loadUsage();
     loadList("shelf", { page: 1 });
     // P8b: só aceita run do mount se operationalState = funcionando|pausado
     // (run terminal antigo no banco engoliria o 1º clique via runActive=true)
@@ -820,7 +907,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
           loadList("shelf", { page: 1 });
           loadBank();
-          loadUsage();
           // P5/EFEITO: leads ficam na vitrine "Disponíveis"; mostra quantos achou pra
           // puxar (o standing-order/auto-feed morreu — não existe mais auto-import).
           type RunMetaExt = { progress?: number; terminal?: boolean; operationalState?: string; operationalReason?: string; operationalMessage?: string; importedCount?: number; totalAvailable?: number; deliveredCount?: number };
@@ -1059,14 +1145,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setPullBusyId(id);
     setPullMsg(null);
     try {
-      const row = data?.items?.find(item => item.id === id);
-      await claimLead(id, { lead: row ? { id: row.id, name: row.name, city: row.city, state: row.state, segment: row.segment } : { id } });
+      await claimLead(id);
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
       if (selLead?.id === id) setSelLead(null);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
       void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)
       loadList("shelf", { page });
-      loadUsage();
       loadBank();
       if (embedded) onLeadPulled?.(true);
     } catch (err) {
@@ -1084,11 +1168,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     let stopMsg: string | null = null;
     for (const id of Array.from(selected)) {
       try {
-        const row = data?.items?.find(item => item.id === id);
-        await claimLead(id, { lead: row ? { id: row.id, name: row.name, city: row.city, state: row.state, segment: row.segment } : { id } });
+        await claimLead(id);
         ok += 1;
       } catch (err) {
-        stopMsg = err instanceof Error ? err.message : "Limite operacional atingido — parei aqui.";
+        stopMsg = err instanceof Error ? err.message : "Não foi possível puxar este lead — parei aqui.";
         break;
       }
     }
@@ -1097,7 +1180,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (ok > 0) void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)
     setBulkBusy(false);
     loadList("shelf", { page: 1 });
-    loadUsage();
     loadBank();
     setPage(1);
     if (embedded && ok > 0) onLeadPulled?.(true);
@@ -1122,17 +1204,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const pageTotal = data?.total || 0;
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
 
-  // O único medidor exibido é o teto operacional do vendedor (saq/RBAC —
-  // "carteira cheia"). Uso mensal por plano não é gate nem métrica de produto.
-  const saq = usage?.sellerActiveQuota;
-  const isSeller = Boolean(saq?.seller);
-  const sellerQuotaValue = isSeller
-    ? `${fmtInt(saq?.activeCount)} / ${fmtInt(saq?.effectiveLimit)}`
-    : null;
-  const meterBlocked = isSeller
-    ? Boolean(saq?.paused) || Number(saq?.availableSlots ?? 1) <= 0
-    : false;
-
   const emptyMsg = loadError
     ? loadError
     : data?.meta?.available === false
@@ -1155,9 +1226,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       totalBrasil: totalBrasilReal,
       disponiveis: totalBrasilReal,
       recorte: counts.shelf,
-      sellerQuotaValue,
     });
-  }, [onEmbedStats, totalBrasilReal, counts.shelf, sellerQuotaValue]);
+  }, [onEmbedStats, totalBrasilReal, counts.shelf]);
 
   function contatoMascarado(row: RadarLead) {
     const has = row.hasWhatsapp || row.hasPhone || row.hasEmail
@@ -1254,7 +1324,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 <span className={`radar2-fit${lead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {lead.fitScore}</span>
               </div>
             )}
-            {waStartError && <p style={{ marginTop: 8, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>{waStartError}</p>}
+            {waStartError && <p className="radar2-start-error">{waStartError}</p>}
           </>
         }
         actions={
@@ -1262,7 +1332,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             {tab === "shelf" && (
               <button className="btn-teal"
                 onClick={() => puxar(lead.id)}
-                disabled={pullBusyId === lead.id || bulkBusy || meterBlocked}>
+                disabled={pullBusyId === lead.id || bulkBusy}>
                 {pullBusyId === lead.id ? "Puxando…" : "Puxar lead →"}
               </button>
             )}
@@ -1748,7 +1818,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                         type="button"
                         className="btn-teal btn-xs"
                         onClick={() => puxar(row.id)}
-                        disabled={pullBusyId === row.id || bulkBusy || meterBlocked}
+                        disabled={pullBusyId === row.id || bulkBusy}
                       >
                         {pullBusyId === row.id ? "Puxando…" : "Puxar"}
                       </button>
@@ -1948,7 +2018,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                                 </div>
                                 <div onClick={e => e.stopPropagation()}>
                                   {tab === "shelf"
-                                    ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
+                                    ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
                                     : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
                                 </div>
                               </div>
@@ -1961,7 +2031,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   )}
 
               {tab === "shelf" && (
-                <div className={"radar2-actionbar" + (meterBlocked ? " blocked" : "")}>
+                <div className="radar2-actionbar">
                   <div className="radar2-sel-all">
                     <button
                       className="btn-ghost btn-xs"
@@ -1976,15 +2046,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
                     </button>
                   </div>
-                  <button className="btn-teal radar2-pull-btn" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || meterBlocked || bulkBusy}>
+                  <button className="btn-teal radar2-pull-btn" data-tut="leads-puxar" onClick={puxarSelecionados} disabled={selected.size === 0 || bulkBusy}>
                     <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
                   </button>
                 </div>
-              )}
-              {meterBlocked && isSeller && (
-                <p className="radar2-cap--danger">
-                  Carteira cheia — feche ou agende um retorno pra liberar vaga.
-                </p>
               )}
               {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
 

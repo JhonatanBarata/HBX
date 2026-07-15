@@ -14,8 +14,6 @@ export const RADAR_NEVER_BLOCK_DELIVERY_STAGES = [
   'site',
   'presentation',
   'post_delivery_update',
-  'campaign',
-  'factory',
 ] as const satisfies readonly RadarPipelineStage[];
 
 export const RADAR_DELIVERY_GATE_STAGES = [
@@ -37,7 +35,6 @@ export const RADAR_NEVER_BLOCK_DELIVERY_STAGE_ALIASES = [
   'vendas_sync',
   'cache',
   'history',
-  'campaign_factory',
 ] as const;
 
 const RADAR_STAGE_ALIASES: Record<string, RadarPipelineStage> = {
@@ -51,7 +48,6 @@ const RADAR_STAGE_ALIASES: Record<string, RadarPipelineStage> = {
   optional_provider: 'search',
   cache: 'search',
   history: 'search',
-  campaign_factory: 'factory',
 };
 
 export function normalizeRadarPipelineStage(stage: unknown): RadarPipelineStage | string {

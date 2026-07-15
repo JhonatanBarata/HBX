@@ -1,154 +1,141 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CnpjXrayService } from './cnpj-xray.service';
-import { SourceBudgetService } from '../../source-budget/source-budget.service';
-
-/**
- * Aceite HOT-04 (Raio-X de CNPJ em lote), nível unitário — sem infra viva:
- *  - start recusa sem migration / lista vazia / nenhum CNPJ válido.
- *  - camada 1 (cadastral) resolve 100% LOCAL quando o dataset já tem o CNPJ (sem tocar rede).
- *  - TRAVA LEI Nº1: mesmo processando lote com camada vivo, nenhuma fonte PAGA é tentada.
- * O de-verdade (BrasilAPI real, crawl de site real) é aceite manual — aqui é contrato + travas.
- */
+import { CnpjXrayService, estimateCnpjXrayCost } from './cnpj-xray.service';
 
 const VALID_1 = '11222333000181';
 const VALID_2 = '11444777000161';
 
-function makeFakePrisma(opts: { hasXray?: boolean; company?: any[] } = {}) {
+function makeFakePrisma(options: { hasXray?: boolean; companies?: any[] } = {}) {
   const jobs: any[] = [];
-  const leads: any[] = [];
-  const missions: any[] = [];
-  const contacts: any[] = [];
-  const company = opts.company || [];
-  return {
-    _jobs: jobs, _leads: leads, _missions: missions,
+  const calls: string[] = [];
+  const companies = options.companies || [];
+  const fake = {
+    _jobs: jobs,
+    _calls: calls,
     async hasTable(name: string) {
-      if (name === 'CnpjXrayJob') return opts.hasXray !== false;
-      return true;
+      calls.push(`hasTable:${name}`);
+      return name === 'CnpjXrayJob' ? options.hasXray !== false : false;
     },
     cnpjXrayJob: {
-      async create(args: any) {
-        const row = { id: `job_${jobs.length + 1}`, createdAt: new Date(), updatedAt: new Date(), ...args.data };
+      async create({ data }: any) {
+        calls.push('cnpjXrayJob.create');
+        const row = { id: `job_${jobs.length + 1}`, createdAt: new Date(), updatedAt: new Date(), ...data };
         jobs.push(row);
         return row;
       },
-      async update(args: any) {
-        const row = jobs.find((j) => j.id === args.where.id);
-        if (row) Object.assign(row, args.data);
+      async update({ where, data }: any) {
+        calls.push('cnpjXrayJob.update');
+        const row = jobs.find((item) => item.id === where.id);
+        if (row) Object.assign(row, data);
         return row;
       },
-      async findUnique(args: any) { return jobs.find((j) => j.id === args.where.id) || null; },
-      async findMany(args: any) { return jobs.slice(0, args?.take || 50); },
+      async findUnique({ where }: any) { return jobs.find((item) => item.id === where.id) || null; },
+      async findMany({ take }: any) { return jobs.slice(0, take || 50); },
     },
     cnpjPublicCompany: {
-      async findUnique(args: any) { return company.find((c) => c.cnpj === args.where.cnpj) || null; },
+      async findUnique({ where }: any) {
+        calls.push('cnpjPublicCompany.findUnique');
+        return companies.find((company) => company.cnpj === where.cnpj) || null;
+      },
     },
     cnpjPublicPartner: {
-      async findMany() { return []; },
-    },
-    radarLeadPool: {
-      async findFirst(args: any) {
-        const where = args?.where || {};
-        return leads.find((l) => (where.placeId ? l.placeId === where.placeId : false) || (where.phoneDigits ? l.phoneDigits === where.phoneDigits : false)) || null;
-      },
-      async findUnique(args: any) { return leads.find((l) => l.id === args.where.id) || null; },
-      async create(args: any) { const row = { id: `lead_${leads.length + 1}`, ...args.data }; leads.push(row); return { id: row.id }; },
-      async update(args: any) { const row = leads.find((l) => l.id === args.where.id); if (row) Object.assign(row, args.data); return row; },
-    },
-    leadContact: {
-      async count() { return 0; },
-      async findFirst() { return null; },
-      async create(args: any) { contacts.push(args.data); return args.data; },
-    },
-    radarMission: {
-      async findUnique() { return null; },
-      async create(args: any) { const row = { id: `m_${missions.length + 1}`, ...args.data }; missions.push(row); return row; },
-      async updateMany(args: any) {
-        let count = 0;
-        for (const m of missions) {
-          if (m.stage === args.where.stage && m.dedupeKey === args.where.dedupeKey) { Object.assign(m, args.data); count += 1; }
-        }
-        return { count };
+      async findMany() {
+        calls.push('cnpjPublicPartner.findMany');
+        return [];
       },
     },
-    whatsappNumberCheckCache: {
-      async findUnique() { return null; },
-    },
-  } as any;
-}
-
-function makeFakeQueue() {
-  return { async enqueue() { return { created: true, missionId: 'm_x' }; } } as any;
+  };
+  return fake as any;
 }
 
 function makeService(prisma: any) {
-  const leadContactWrite = { async writeContacts() { return { written: 0, skipped: 0, rejected: [] }; } } as any;
-  return new CnpjXrayService(prisma, makeFakeQueue(), leadContactWrite);
+  const service = new CnpjXrayService(prisma);
+  (service as any).writeXlsx = async (jobId: string) => ({ fileName: `${jobId}.xlsx`, filePath: `${jobId}.xlsx` });
+  return service;
 }
 
-test('start sem migration → indisponível', async () => {
-  const prisma = makeFakePrisma({ hasXray: false });
-  const svc = makeService(prisma);
-  const r = await svc.start({ cnpjs: [VALID_1], layers: ['cadastral'] });
-  assert.equal(r.started, false);
-  assert.equal((r as any).reason, 'xray_indisponivel_migration_ausente');
-});
-
-test('start com lista vazia → recusa', async () => {
-  const prisma = makeFakePrisma();
-  const svc = makeService(prisma);
-  const r = await svc.start({ cnpjs: [], layers: ['cadastral'] });
-  assert.equal(r.started, false);
-  assert.equal((r as any).reason, 'lista_vazia');
-});
-
-test('start sem nenhum CNPJ válido → recusa', async () => {
-  const prisma = makeFakePrisma();
-  const svc = makeService(prisma);
-  const r = await svc.start({ cnpjs: ['00000000000000', 'lixo'], layers: ['cadastral'] });
-  assert.equal(r.started, false);
-  assert.equal((r as any).reason, 'nenhum_cnpj_valido');
-});
-
-test('start aceita lote válido, cria job e dedup+DV corretos', async () => {
-  process.env.HBX_AI_EXTRACTION_ENABLED = 'false';
-  delete process.env.HBX_ROLE; // local
-  const prisma = makeFakePrisma({
-    company: [
-      { cnpj: VALID_1, razaoSocial: 'ACME UM LTDA', nomeFantasia: 'ACME 1', city: 'Fortaleza', state: 'CE', situacao: 'ativa' },
-      { cnpj: VALID_2, razaoSocial: 'ACME DOIS LTDA', nomeFantasia: 'ACME 2', city: 'Fortaleza', state: 'CE', situacao: 'ativa' },
-    ],
-  });
-  const svc = makeService(prisma);
-  const r = await svc.start({ cnpjs: [VALID_1, VALID_2, VALID_1], layers: ['cadastral'] });
-  assert.equal(r.started, true);
-  if (r.started) {
-    assert.equal(r.validCount, 2, 'dedup: 2 CNPJs únicos válidos');
-    assert.equal(r.invalidCount, 1, '1 duplicado');
+async function waitForJob(prisma: any) {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline && prisma._jobs[0]?.status !== 'done' && prisma._jobs[0]?.status !== 'error') {
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  // job foi criado no banco fake — o processamento roda em background (void runJob), então o
-  // status pode já ter avançado de 'queued' pro próximo passo antes desta asserção rodar.
-  assert.equal(prisma._jobs.length, 1);
-  assert.ok(
-    ['queued', 'running_cadastral', 'done'].includes(prisma._jobs[0].status),
-    `status inesperado: ${prisma._jobs[0].status}`,
-  );
+  return prisma._jobs[0];
+}
+
+test('estimativa possui somente a camada cadastral', () => {
+  const estimate = estimateCnpjXrayCost(20);
+  assert.deepEqual(estimate.perLayer.map((layer) => layer.layer), ['cadastral']);
 });
 
-test('TRAVA LEI Nº1: camada vivo processando lote não toca NENHUMA fonte paga', async () => {
-  delete process.env.HBX_ROLE; // local
-  process.env.HBX_AI_EXTRACTION_ENABLED = 'false';
-  process.env.HBX_XRAY_AI_NOTE_ENABLED = 'false';
+test('start sem migration fica indisponivel', async () => {
+  const service = makeService(makeFakePrisma({ hasXray: false }));
+  const result = await service.start({ cnpjs: [VALID_1] });
+  assert.equal(result.started, false);
+  assert.equal((result as any).reason, 'xray_indisponivel_migration_ausente');
+});
+
+test('start recusa lista vazia e lote sem CNPJ valido', async () => {
+  const service = makeService(makeFakePrisma());
+  assert.equal((await service.start({ cnpjs: [] })).started, false);
+  const invalid = await service.start({ cnpjs: ['00000000000000', 'lixo'] });
+  assert.equal(invalid.started, false);
+  assert.equal((invalid as any).reason, 'nenhum_cnpj_valido');
+});
+
+test('lote deduplica CNPJ e persiste somente a camada cadastral', async () => {
   const prisma = makeFakePrisma({
-    company: [
-      { cnpj: VALID_1, razaoSocial: 'ACME UM LTDA', nomeFantasia: 'ACME 1', city: 'Fortaleza', state: 'CE', situacao: 'ativa', phone: '85999998888' },
+    companies: [
+      { cnpj: VALID_1, razaoSocial: 'ACME UM LTDA', city: 'Fortaleza', state: 'CE' },
+      { cnpj: VALID_2, razaoSocial: 'ACME DOIS LTDA', city: 'Fortaleza', state: 'CE' },
     ],
   });
-  const svc = makeService(prisma);
-  const r = await svc.start({ cnpjs: [VALID_1], layers: ['cadastral', 'vivo'] });
-  assert.equal(r.started, true);
-  // drena em background — espera o job de 1 item terminar
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  const job = prisma._jobs[0];
-  assert.ok(['done', 'running_vivo', 'running_cadastral'].includes(job.status), `status inesperado: ${job.status}`);
+  const result = await makeService(prisma).start({ cnpjs: [VALID_1, VALID_2, VALID_1] });
+  assert.equal(result.started, true);
+  if (result.started) {
+    assert.equal(result.validCount, 2);
+    assert.equal(result.invalidCount, 1);
+  }
+  const job = await waitForJob(prisma);
+  assert.equal(job.status, 'done');
+  assert.equal(job.layers, JSON.stringify(['cadastral']));
+  assert.equal(Object.prototype.hasOwnProperty.call(job, 'missionsQueued'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(job, 'aiDone'), false);
+});
+
+test('P0: Cnpj Xray nao faz fetch, crawl, materializacao, IA ou RadarMission pre-pull', async () => {
+  const prisma = makeFakePrisma({
+    companies: [{
+      cnpj: VALID_1,
+      razaoSocial: 'ACME UM LTDA',
+      nomeFantasia: 'ACME',
+      phone: '85999998888',
+      phone2: '8533334444',
+      email: 'contato@acme.test',
+      fax: '8533339999',
+      city: 'Fortaleza',
+      state: 'CE',
+    }],
+  });
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = (async () => {
+    fetchCount += 1;
+    throw new Error('fetch proibido no Xray');
+  }) as typeof fetch;
+  try {
+    const result = await makeService(prisma).start({ cnpjs: [VALID_1] });
+    assert.equal(result.started, true);
+    const job = await waitForJob(prisma);
+    assert.equal(job.status, 'done');
+    assert.equal(fetchCount, 0);
+    assert.equal(prisma._calls.some((call: string) => /radarLeadPool|radarMission|leadContact/i.test(call)), false);
+    assert.deepEqual(Array.from(new Set(prisma._calls.filter((call: string) => !call.startsWith('hasTable')))), [
+      'cnpjXrayJob.create',
+      'cnpjXrayJob.update',
+      'cnpjPublicCompany.findUnique',
+      'cnpjPublicPartner.findMany',
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

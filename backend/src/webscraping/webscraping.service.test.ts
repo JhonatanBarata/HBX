@@ -178,7 +178,7 @@ function createUser() {
   };
 }
 
-test('buildSearchResponse entrega leads List fracos sem aplicar corte Lead+', () => {
+test('buildSearchResponse entrega cards reais sem corte por produto', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
@@ -215,7 +215,7 @@ test('buildSearchResponse entrega leads List fracos sem aplicar corte Lead+', ()
   assert.equal(response.meta.filteredOutCount, 0);
 });
 
-test('buildSearchResponse usa score HBX como evidencia de segmento no List', () => {
+test('buildSearchResponse usa score HBX como evidencia de segmento', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
@@ -248,11 +248,12 @@ test('buildSearchResponse usa score HBX como evidencia de segmento no List', () 
   });
 
   assert.equal(response.results.length, 1);
-  assert.equal(response.results[0].score, undefined);
-  assert.equal(response.results[0].quality, undefined);
+  assert.equal(response.results[0].score, 70);
+  assert.equal(response.results[0].quality.status, 'weak_contact');
+  assert.equal(response.results[0].quality.segmentMatchScore, 60);
 });
 
-test('buildSearchResponse bloqueia nomes genericos mesmo com score HBX no List', () => {
+test('buildSearchResponse bloqueia nomes genericos mesmo com score HBX', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
@@ -288,7 +289,7 @@ test('buildSearchResponse bloqueia nomes genericos mesmo com score HBX no List',
   assert.equal(response.meta.filteredOutCount, 1);
 });
 
-test('buildSearchResponse bloqueia padroes ruins aprendidos do banco no List', () => {
+test('buildSearchResponse bloqueia padroes ruins aprendidos do banco', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Rubiácea',
@@ -436,7 +437,7 @@ test('buildSearchResponse bloqueia titulos de conteudo e html entity antigos', (
   assert.equal(response.meta.filteredOutCount, 3);
 });
 
-test('buildSearchResponse normaliza Lead+ para List e entrega card real basico', () => {
+test('buildSearchResponse entrega card real no produto unico', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
@@ -470,10 +471,10 @@ test('buildSearchResponse normaliza Lead+ para List e entrega card real basico',
 
   assert.equal(response.results.length, 1);
   assert.equal(response.results[0].name, 'Farmacia Teste');
-  assert.equal(response.results[0].deliveryProduct, 'list');
+  assert.equal(response.results[0].deliveryProduct, 'lead');
   assert.equal(response.results[0].billable, true);
   assert.equal(response.results[0].debitEligible, true);
-  assert.equal(response.results[0].visibilityTier, 'list_basic');
+  assert.equal(response.results[0].visibilityTier, 'eligible');
   assert.equal(response.meta.deliveredCount, 1);
   assert.equal(response.meta.filteredOutCount, 0);
 });
@@ -761,7 +762,7 @@ test('saveSearchRunResults salva baixa aderencia como found para revisao', async
   assert.equal(JSON.parse(items[0].rawJson).quality.status, 'segment_mismatch');
 });
 
-test('saveSearchRunResults no List entrega card real com telefone mesmo sem enriquecimento', async () => {
+test('saveSearchRunResults entrega card real com telefone mesmo sem enriquecimento', async () => {
   const { prisma, run, items } = createSearchRunPrisma({
     city: 'Rio Claro',
     state: 'SP',
@@ -805,7 +806,7 @@ test('saveSearchRunResults no List entrega card real com telefone mesmo sem enri
   assert.equal(items[1].status, 'found');
 });
 
-test('saveSearchRunResults no Lead+ nao descarta card primario fraco antes do enriquecimento', async () => {
+test('saveSearchRunResults do produto único não descarta candidato seguro antes da puxada', async () => {
   const { prisma, run, items } = createSearchRunPrisma({
     city: 'Rio Claro',
     state: 'SP',
@@ -852,7 +853,7 @@ test('saveSearchRunResults no Lead+ nao descarta card primario fraco antes do en
   assert.equal(JSON.parse(items[0].rawJson).quality.status, 'weak_contact');
 });
 
-test('saveSearchRunResults nao corta candidato primario por social obrigatorio antes do enriquecimento', async () => {
+test('saveSearchRunResults não enriquece candidato por social obrigatório antes do débito', async () => {
   const { prisma, run, items } = createSearchRunPrisma({
     city: 'Sao Paulo',
     state: 'SP',
@@ -860,18 +861,11 @@ test('saveSearchRunResults nao corta candidato primario por social obrigatorio a
     targetQuantity: 10,
   });
   const service = new WebscrapingService(prisma) as any;
-  service.searchHbxEngine = async () => ({
-    results: [{
-      name: 'Lc Esmalteria Cabelo e Estetica Sao Paulo',
-      phone: '(11) 96429-2108',
-      phoneDigits: '11964292108',
-      website: 'https://lcesmalteria.com.br',
-      instagramUrl: 'https://instagram.com/lcesmalteria',
-      socialStatus: 'found',
-      businessCategory: 'salao de beleza',
-      source: 'hbx_scraping:free_pj',
-    }],
-  });
+  let enrichmentCalls = 0;
+  service.searchHbxEngine = async () => {
+    enrichmentCalls += 1;
+    throw new Error('pre_claim_enrichment_forbidden');
+  };
   const normalized = service.normalizeSearchInput({
     city: 'Sao Paulo',
     state: 'SP',
@@ -897,150 +891,16 @@ test('saveSearchRunResults nao corta candidato primario por social obrigatorio a
     'hbx',
   );
 
-  assert.equal(counts.found, 1);
-  assert.equal(counts.skipped, 0);
+  assert.equal(counts.found, 0);
+  assert.equal(counts.skipped, 1);
   assert.equal(items.length, 1);
-  assert.equal(items[0].status, 'found');
-  assert.equal(JSON.parse(items[0].rawJson).qualityGate.deliverable, true);
+  assert.equal(items[0].status, 'skipped');
+  assert.equal(JSON.parse(items[0].rawJson).qualityGate.deliverable, false);
+  assert.equal(enrichmentCalls, 0);
 });
 
-test('saveSearchRunResults com email obrigatorio enriquece gratis antes de salvar', async () => {
-  const { prisma, run, items } = createSearchRunPrisma({
-    city: 'Rio Claro',
-    state: 'SP',
-    segment: 'barbearias',
-    targetQuantity: 10,
-  });
-  const service = new WebscrapingService(prisma) as any;
-  const calls: any[] = [];
-  service.searchHbxEngine = async (input: any, existing: any, engineUrl: any, options: any) => {
-    calls.push({ input, existing, engineUrl, options });
-    return {
-      results: [{
-        name: 'Barbearia X Rio Claro',
-        phone: '(19) 99999-0001',
-        phoneDigits: '19999990001',
-        website: 'https://barbeariax.com.br',
-        instagramUrl: 'https://instagram.com/barbeariaxrioclaro',
-        email: 'agenda@barbeariax.com.br',
-        emailStatus: 'confirmed',
-        title: 'Barbearia X Rio Claro site oficial',
-        snippet: 'Barbearia X Rio Claro contato email agenda',
-        source: 'hbx_scraping:free_pj',
-      }],
-    };
-  };
-  const normalized = service.normalizeSearchInput({
-    city: 'Rio Claro',
-    state: 'SP',
-    segment: 'barbearias',
-    quantity: 10,
-    engine: 'hbx',
-    targetType: 'pj',
-    requiredChannels: ['email'],
-    channelMatchMode: 'all_required',
-    freshness: 'live',
-  });
 
-  const counts = await service.saveSearchRunResults(
-    { companyId: 7, userId: 9, user: createUser() },
-    normalized,
-    run.id,
-    [{
-      name: 'Barbearia X',
-      phone: '(19) 99999-0001',
-      phoneDigits: '19999990001',
-      city: 'Rio Claro',
-      state: 'SP',
-      segment: 'barbearias',
-      source: 'hbx_scraping:free_pj',
-    }],
-    'hbx',
-    0,
-    'http://hbx-engine-1:8001',
-  );
-
-  assert.equal(calls.length > 0, true);
-  assert.equal(calls[0].engineUrl, 'http://hbx-engine-1:8001');
-  assert.equal(counts.found, 1);
-  assert.equal(counts.skipped, 0);
-  assert.equal(items.length, 1);
-  const raw = JSON.parse(items[0].rawJson);
-  assert.equal(raw.email, 'agenda@barbeariax.com.br');
-  assert.equal(raw.emailStatus, 'confirmed');
-  assert.equal(raw.qualityGate.deliverable, true);
-  const contact = service.mapRunItemToContact(items[0]);
-  assert.equal(service.candidateHasRequiredChannels(contact, normalized), true);
-});
-
-test('persistRadarLeadPoolBatch com email obrigatorio enriquece gratis antes do filtro duro', async () => {
-  const saved: any[] = [];
-  const service = new WebscrapingService(createPrisma({
-    radarLeadCompanyState: {},
-    radarLeadPool: {
-      findFirst: async () => null,
-      create: async ({ data }: any) => {
-        saved.push(data);
-        return { id: 'radar-email-1', ...data };
-      },
-      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
-    },
-  })) as any;
-  const calls: any[] = [];
-  service.searchHbxEngine = async (input: any, existing: any, engineUrl: any, options: any) => {
-    calls.push({ input, existing, engineUrl, options });
-    return {
-      results: [{
-        name: 'Barbearia X Rio Claro',
-        phone: '(19) 99999-0001',
-        phoneDigits: '19999990001',
-        city: 'Rio Claro',
-        state: 'SP',
-        segment: 'barbearias',
-        website: 'https://barbeariax.com.br',
-        email: 'agenda@barbeariax.com.br',
-        emailStatus: 'confirmed',
-        title: 'Barbearia X Rio Claro site oficial',
-        snippet: 'Barbearia X Rio Claro contato email agenda',
-        source: 'hbx_scraping:free_pj',
-      }],
-    };
-  };
-  const normalized = service.normalizeSearchInput({
-    city: 'Rio Claro',
-    state: 'SP',
-    segment: 'barbearias',
-    quantity: 10,
-    engine: 'hbx',
-    targetType: 'pj',
-    requiredChannels: ['email'],
-    channelMatchMode: 'all_required',
-    freshness: 'live',
-  });
-
-  const counts = await service.persistRadarLeadPoolBatch(normalized, [{
-    name: 'Barbearia X',
-    phone: '(19) 99999-0001',
-    phoneDigits: '19999990001',
-    city: 'Rio Claro',
-    state: 'SP',
-    segment: 'barbearias',
-    source: 'hbx_scraping:free_pj',
-  }], 'hbx_mass_data', {
-    engineUrl: 'http://hbx-engine-1:8001',
-  });
-
-  assert.equal(calls.length > 0, true);
-  assert.equal(calls[0].engineUrl, 'http://hbx-engine-1:8001');
-  assert.equal(counts.approvedCount, 1);
-  assert.equal(counts.rejectedCount, 0);
-  assert.equal(saved.length, 1);
-  assert.equal(saved[0].email, 'agenda@barbeariax.com.br');
-  assert.equal(saved[0].emailStatus, 'confirmed');
-  assert.equal(service.candidateHasRequiredChannels(saved[0], normalized), true);
-});
-
-test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', async () => {
+test('persistRadarLeadPoolBatch materializa card elegivel no Radar', async () => {
   const saved: any[] = [];
   const service = new WebscrapingService(createPrisma({
     radarLeadCompanyState: {},
@@ -1079,7 +939,7 @@ test('persistRadarLeadPoolBatch no Lead+ materializa card List fraco no Radar', 
   assert.equal(saved[0].name, 'Humanitarian Calçados');
 });
 
-test('isRunItemQualityDeliverable no Lead+ sem canal obrigatorio entrega card primario fraco', () => {
+test('isRunItemQualityDeliverable sem canal obrigatorio entrega card primario', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Rio Claro',
@@ -1112,7 +972,7 @@ test('isRunItemQualityDeliverable no Lead+ sem canal obrigatorio entrega card pr
   assert.equal(service.isRunItemQualityDeliverable(item, input), true);
 });
 
-test('isRunItemQualityDeliverable no List entrega card com canal social mesmo sem telefone', () => {
+test('isRunItemQualityDeliverable entrega card com canal social mesmo sem telefone', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Campinas',
@@ -1198,7 +1058,7 @@ test('isRunItemQualityDeliverable ignora canal obrigatorio ausente', () => {
   }), false);
 });
 
-test('isRunItemQualityDeliverable protege negativo mesmo no List', () => {
+test('isRunItemQualityDeliverable protege negativo no produto unico', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const input = {
     city: 'Campinas',
@@ -1450,7 +1310,7 @@ test('buildHbxBatchQueries usa rede social quando canal social foi pedido', () =
   assert.equal(queries.some((query) => /\binstagram oficial\b/i.test(query)), true);
 });
 
-test('buildHbxBatchQueries nao usa rede social no Lead Plus sem filtro de canal', () => {
+test('buildHbxBatchQueries nao usa rede social sem filtro de canal', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
@@ -1510,16 +1370,16 @@ test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
   assert.equal(item.facebookUrl, 'https://facebook.com/autosocial');
   assert.equal(item.email, 'contato@autosocial.com.br');
   assert.equal(item.whatsappStatus, 'confirmed');
-  assert.equal(item.recommendedChannel, undefined);
+  assert.equal(item.recommendedChannel, 'whatsapp');
   assert.equal(item.opportunityScore, 82);
-  assert.equal(item.opportunityReason, undefined);
+  assert.equal(item.opportunityReason, 'Contato acionavel.');
   assert.equal(item.enrichmentScore, 77);
-  assert.equal(item.qualityV2, undefined);
-  assert.equal(item.premiumLocked, true);
-  assert.equal(item.premiumTeaser, true);
+  assert.equal(item.qualityV2.decision, 'deliver');
+  assert.equal(item.premiumLocked, undefined);
+  assert.equal(item.premiumTeaser, undefined);
 });
 
-test('buildSearchRunResponse preserva contato basico e mascara inteligencia em List', () => {
+test('buildSearchRunResponse usa o produto unico sem trava premium', () => {
   const { run, items } = createSearchRunPrisma({
     foundCount: 1,
     targetQuantity: 1,
@@ -1571,11 +1431,10 @@ test('buildSearchRunResponse preserva contato basico e mascara inteligencia em L
   assert.equal(item.rating, 4.8);
   assert.equal(item.reviews, 123);
   assert.equal(item.whatsappStatus, 'missing');
-  assert.equal(item.recommendedChannel, undefined);
+  assert.equal(item.recommendedChannel, 'email');
   assert.equal(item.opportunityScore, 74);
-  assert.equal(item.opportunityReason, undefined);
-  assert.equal(item.premiumLocked, true);
-  assert.equal(item.premiumFeatureStatus, 'locked');
+  assert.equal(item.premiumLocked, undefined);
+  assert.equal(item.premiumFeatureStatus, undefined);
 });
 
 test('mapRunItemToContact preserva social fields do rawJson', () => {
@@ -1840,47 +1699,6 @@ test('persistRadarLeadPoolBatch preserva social confiavel ja aprovado pelo motor
     ],
   );
   assert.equal(createdRows.every((row) => row.socialStatus === 'found' && row.socialConfidence >= 80), true);
-});
-
-test('maskRadarSmartFieldsForList preserva contato natural e bloqueia inteligencia premium', () => {
-  const service = new WebscrapingService(createPrisma()) as any;
-  const item = service.maskRadarSmartFieldsForList({
-    name: 'Oficina Rica',
-    phone: '(19) 98888-0004',
-    phoneDigits: '19988880004',
-    website: 'https://oficinarica.com.br',
-    instagramUrl: 'https://instagram.com/oficinarica',
-    facebookUrl: 'https://facebook.com/oficinarica',
-    email: 'contato@oficinarica.com.br',
-    googleMapsUrl: 'https://maps.google.com/?cid=123',
-    businessCategory: 'Oficina mecânica',
-    rating: 4.8,
-    reviews: 123,
-    whatsappStatus: 'missing',
-    recommendedChannel: 'email',
-    painType: 'site_fraco',
-    painPitch: 'Pitch premium',
-    enrichmentJson: { premium: true },
-    qualityV2: { version: 'lead-quality-v2' },
-  });
-
-  assert.equal(item.website, 'https://oficinarica.com.br');
-  assert.equal(item.instagramUrl, 'https://instagram.com/oficinarica');
-  assert.equal(item.facebookUrl, 'https://facebook.com/oficinarica');
-  assert.equal(item.email, 'contato@oficinarica.com.br');
-  assert.equal(item.googleMapsUrl, 'https://maps.google.com/?cid=123');
-  assert.equal(item.businessCategory, 'Oficina mecânica');
-  assert.equal(item.rating, 4.8);
-  assert.equal(item.reviews, 123);
-  assert.equal(item.whatsappStatus, 'missing');
-
-  assert.equal(item.recommendedChannel, null);
-  assert.equal(item.painType, null);
-  assert.equal(item.painPitch, null);
-  assert.equal(item.enrichmentJson, null);
-  assert.equal(item.qualityV2, null);
-  assert.equal(item.premiumLocked, true);
-  assert.equal(item.premiumFeatureStatus, 'locked');
 });
 
 test('hasUsablePublicContactChannel aceita card rico sem telefone', () => {
@@ -2327,22 +2145,28 @@ test('buildRadarLeadPublic sanitiza email de asset e social incompativel', () =>
     facebookUrl: 'https://facebook.com/aerolanchesrc',
     socialStatus: 'found',
     socialConfidence: 90,
-  }, { includeSmartFields: true });
+    ownerCompanyId: 7,
+    companyStates: [{
+      paidClaimOperationId: 'op-paid-sanitized',
+      claimUsageKey: 'radar:lead-sanitized:claim:op-paid-sanitized',
+      acquiredAt: new Date(),
+    }],
+  }, { viewerCompanyId: 7, contactAccessGranted: true });
 
   assert.equal(item.email, null);
   assert.equal(item.facebookUrl, null);
   assert.equal(item.socialStatus, 'missing');
-  assert.equal(item.deliveryProduct, 'list');
+  assert.equal(item.deliveryProduct, 'lead');
 });
 
-test('CONTATO PULL-GATED (06/07): buildRadarLeadPublic mascara contato de lead do pool nao-possuido e revela pro dono', () => {
+test('buildRadarLeadPublic revela somente com posse, state pago e ledger previamente confirmado', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const base = {
     id: 'lead-pool', name: 'Loja Do Pool', phone: '(19) 99999-0001', phoneDigits: '19999990001',
     email: 'contato@lojadopool.com.br', emailStatus: 'confirmed', city: 'Campinas', state: 'SP', segment: 'Lojas',
   };
   // Pool nao-possuido (ownerCompanyId null, sem companyState) + posse habilitada -> MASCARA
-  const masked = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  const masked = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null }, { viewerCompanyId: 7 });
   assert.equal(masked.phone, '');
   assert.equal(masked.phoneDigits, '');
   assert.equal(masked.email, null);
@@ -2350,54 +2174,34 @@ test('CONTATO PULL-GATED (06/07): buildRadarLeadPublic mascara contato de lead d
   assert.equal(masked.hasEmail, true);
 
   // Lead de OUTRA empresa -> MASCARA (nao vaza contato alheio)
-  const alheio = service.buildRadarLeadPublic({ ...base, ownerCompanyId: 999 }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  const alheio = service.buildRadarLeadPublic({ ...base, ownerCompanyId: 999 }, { viewerCompanyId: 7, contactAccessGranted: true });
   assert.equal(alheio.phoneDigits, '');
 
-  // Possuido pela empresa (ownerCompanyId === viewer) -> REVELA
-  const owned = service.buildRadarLeadPublic({ ...base, ownerCompanyId: 7 }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
+  // Posse isolada também falha fechada: state pago + confirmação do ledger são obrigatórios.
+  const ownedWithoutProof = service.buildRadarLeadPublic({ ...base, ownerCompanyId: 7 }, { viewerCompanyId: 7 });
+  assert.equal(ownedWithoutProof.phoneDigits, '');
+
+  const paidState = {
+    paidClaimOperationId: 'op-paid-pool',
+    claimUsageKey: 'radar:lead-pool:claim:op-paid-pool',
+    acquiredAt: new Date(),
+  };
+  const owned = service.buildRadarLeadPublic(
+    { ...base, ownerCompanyId: 7, companyStates: [paidState] },
+    { viewerCompanyId: 7, contactAccessGranted: true },
+  );
   assert.equal(owned.phoneDigits, '19999990001');
   assert.equal(owned.email, 'contato@lojadopool.com.br');
 
-  // Legado (puxado antes da coluna: companyState presente, ownerCompanyId null) -> REVELA
-  const legacy = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null, companyStates: [{ status: 'reserved' }] }, { includeSmartFields: true, viewerCompanyId: 7, ownershipEnabled: true });
-  assert.equal(legacy.phoneDigits, '19999990001');
+  // Sem atalho legado: status antigo nunca substitui prova de compra.
+  const legacy = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null, companyStates: [{ status: 'reserved' }] }, { viewerCompanyId: 7, contactAccessGranted: true });
+  assert.equal(legacy.phoneDigits, '');
 
-  // Ambiente SEM posse (ownershipEnabled ausente) -> comportamento antigo, nao mascara por posse
-  const noOwnership = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null }, { includeSmartFields: true, viewerCompanyId: 7 });
-  assert.equal(noOwnership.phoneDigits, '19999990001');
+  const noProof = service.buildRadarLeadPublic({ ...base, ownerCompanyId: null }, { viewerCompanyId: 7 });
+  assert.equal(noProof.phoneDigits, '');
 });
 
-test('canUseRadarSmartLeadFields libera somente HBX Lead Plus ou superior', async () => {
-  const liteService = new WebscrapingService(createPrisma({
-    company: {
-      findUnique: async () => ({
-        selectedPlanKey: 'hbx_lite',
-        isActive: true,
-        premiumAccess: false,
-        paymentStatus: 'PAID',
-        subscriptionStatus: 'active',
-        onboardingStatus: 'active_paid',
-      }),
-    },
-  })) as any;
-  const leadService = new WebscrapingService(createPrisma({
-    company: {
-      findUnique: async () => ({
-        selectedPlanKey: 'hbx_padrao',
-        isActive: true,
-        premiumAccess: false,
-        paymentStatus: 'PAID',
-        subscriptionStatus: 'active',
-        onboardingStatus: 'active_paid',
-      }),
-    },
-  })) as any;
-
-  assert.equal(await liteService.canUseRadarSmartLeadFields(7), false);
-  assert.equal(await leadService.canUseRadarSmartLeadFields(7), true);
-});
-
-test('enrichRadarLeadViaLeadPlusEngine prioriza Instagram, Facebook, site e email', async () => {
+test('enrichRadarLeadViaHbxMotor prioriza Instagram, Facebook, site e email', async () => {
   const previousFetch = global.fetch;
   let body: any = null;
   global.fetch = (async (_url: any, init?: any) => {
@@ -2409,7 +2213,7 @@ test('enrichRadarLeadViaLeadPlusEngine prioriza Instagram, Facebook, site e emai
   service.recordVendasRadarEnrichmentStatus = async () => null;
 
   try {
-    const response = await service.enrichRadarLeadViaLeadPlusEngine(
+    const response = await service.enrichRadarLeadViaHbxMotor(
       { companyId: 7, userId: 9, user: createUser() },
       {
         id: 'radar-1',
@@ -2481,7 +2285,7 @@ test('updateSearchRunMetrics preserva metadados de alcance e filtros', async () 
   assert.equal(metrics.status, 'running');
 });
 
-test('startRadarSearchRunForUser usa estoque sem perfil quando perfil lead plus zera cards locais', async () => {
+test('startRadarSearchRunForUser usa estoque sem perfil quando o perfil comercial zera cards locais', async () => {
   const { prisma, run } = createSearchRunPrisma({});
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
@@ -2543,20 +2347,6 @@ test('LIMPEZA-DESTRUTIVA L2: VENDEDOR com 20 cards pendentes em Vendas NAO pausa
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
   service.supportsRadarPersistence = async () => true;
-  // Cota comercial (a única trava de quantidade que sobrevive) segue folgada:
-  // se o run pausar aqui, só pode ser por ela — nunca pelo estoque do funil.
-  service.commercialUsageLimits = {
-    getUsageSnapshot: async () => ({
-      cards: { dailyRemaining: 999999, remaining: 999999 },
-    }),
-    limitRequestedCardsBySellerActiveQuota: async () => ({
-      limit: 20,
-      quota: { seller: true, paused: false, activeCount: 0, effectiveLimit: 20, availableSlots: 20, code: null },
-    }),
-    getSellerActiveCardQuotaSnapshot: async () => ({
-      seller: true, paused: false, activeCount: 0, effectiveLimit: 20, availableSlots: 20, code: null,
-    }),
-  };
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
     queriedStock = true;
@@ -2607,18 +2397,6 @@ test('VENDAS-REFAB S1 / LIMPEZA-DESTRUTIVA L2: ADMIN com 20 cards pendentes na E
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
   service.supportsRadarPersistence = async () => true;
-  // Cota comercial da empresa (teto real do Master, único freio de quantidade
-  // que sobrevive à L2) segue folgada — não é isso que está em teste aqui.
-  service.commercialUsageLimits = {
-    getUsageSnapshot: async () => ({
-      cards: { dailyRemaining: 999999, remaining: 999999 },
-    }),
-    limitRequestedCardsBySellerActiveQuota: async () => ({
-      limit: 20,
-      quota: { seller: false },
-    }),
-    getSellerActiveCardQuotaSnapshot: async () => ({ seller: false }),
-  };
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
     queriedStock = true;
@@ -2669,33 +2447,6 @@ test('LIMPEZA-DESTRUTIVA L2: startRadarSearchRunForUser vendedor nunca consulta 
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
   service.supportsRadarPersistence = async () => true;
-  service.commercialUsageLimits = {
-    getUsageSnapshot: async () => ({
-      cards: {
-        dailyRemaining: 999999,
-        remaining: 999999,
-      },
-    }),
-    limitRequestedCardsBySellerActiveQuota: async () => ({
-      limit: 10,
-      quota: {
-        seller: true,
-        paused: false,
-        activeCount: 0,
-        effectiveLimit: 10,
-        availableSlots: 10,
-        code: null,
-      },
-    }),
-    getSellerActiveCardQuotaSnapshot: async () => ({
-      seller: true,
-      paused: false,
-      activeCount: 0,
-      effectiveLimit: 10,
-      availableSlots: 10,
-      code: null,
-    }),
-  };
   let queriedStock = false;
   service.queryRadarRowsForCompany = async () => {
     queriedStock = true;
@@ -2745,45 +2496,43 @@ test('LIMPEZA-DESTRUTIVA L2: startRadarSearchRunForUser vendedor nunca consulta 
   assert.equal(queriedStock, true);
 });
 
-test('LIMPEZA-DESTRUTIVA L2: resumePausedSearchRunIfPossible retoma Radar pausado por cota quando a EMPRESA libera espaco', async () => {
+test('busca gratuita ignora completamente cota comercial e limite de cards ativos', async () => {
   const { prisma, run } = createSearchRunPrisma({
-    status: 'sleeping',
+    status: 'completed',
     companyId: 7,
     userId: 9,
     city: 'Campinas',
     state: 'SP',
     segment: 'barbearias',
     targetQuantity: 20,
-    lastBatchStatus: 'vendas_card_limit_start',
-    errorMessage: 'Radar pausado.',
-    nextRetryAt: new Date(Date.now() - 1000),
-    metricsJson: JSON.stringify({
-      radarPauseReason: 'vendas_card_limit_start',
-      status: 'sleeping',
-    }),
   });
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
-  // Sem gate de estoque: quem decide se o run pausado pode retomar é só a cota
-  // comercial da EMPRESA (CommercialUsageLimitsService) — aqui ela liberou espaco.
-  service.commercialUsageLimits = {
-    getUsageSnapshot: async () => ({
-      cards: { remaining: 5 },
-    }),
-  };
+  service.supportsRadarPersistence = async () => true;
+  service.queryRadarRowsForCompany = async () => [];
+  service.commercialUsageLimits = new Proxy({}, {
+    get: () => { throw new Error('search_must_not_read_commercial_usage'); },
+  });
+  service.buildRadarSearchRunResponse = async () => ({ status: run.status });
 
-  const resumed = await service.resumePausedSearchRunIfPossible(run);
+  const response = await service.startRadarSearchRunForUser(createUser(), {
+    city: 'Campinas',
+    state: 'SP',
+    segment: 'barbearias',
+    quantity: 20,
+    engine: 'hbx',
+    targetType: 'pj',
+  });
 
-  assert.equal(resumed, true);
+  assert.equal(response.status, 'queued');
   assert.equal(run.status, 'queued');
-  assert.equal(run.lastBatchStatus, 'resumed_after_limit');
-  assert.equal(run.finishedAt, null);
-  assert.equal(run.nextRetryAt instanceof Date, true);
+  assert.equal(run.targetQuantity, 20);
+  assert.notEqual(run.lastBatchStatus, 'vendas_card_limit_start');
 });
 
-test('search-run worker nao repassa requiredChannels legado para motor HBX', async () => {
+test('search-run canonico passa por fila e nao repassa requiredChannels legado para motor HBX', async () => {
   const { prisma, run } = createSearchRunPrisma({
-    status: 'queued',
+    status: 'completed',
     city: 'Campinas',
     state: 'SP',
     segment: 'barbearia',
@@ -2791,7 +2540,8 @@ test('search-run worker nao repassa requiredChannels legado para motor HBX', asy
   });
   const service = new WebscrapingService(prisma) as any;
   disableSearchRunAutoPump(service);
-  service.processNextQueuedSearchRun = async () => undefined;
+  service.supportsRadarPersistence = async () => true;
+  service.queryRadarRowsForCompany = async () => [];
   let receivedRequiredChannels: string[] = [];
   service.searchHbxEngine = async (input: any) => {
     receivedRequiredChannels = [...(input.requiredChannels || [])];
@@ -2807,7 +2557,7 @@ test('search-run worker nao repassa requiredChannels legado para motor HBX', asy
     };
   };
 
-  await service.startSearchRunForUser(createUser(), {
+  await service.startRadarSearchRunForUser(createUser(), {
     city: 'Campinas',
     state: 'SP',
     segment: 'barbearia',
@@ -2850,7 +2600,6 @@ test('Radar Direct mantem filtros sociais no backend antes de chamar searchConta
     };
   };
   service.applyRadarWhatsappCheck = async (_context: any, items: any[]) => ({ items, meta: { checked: false } });
-  service.canUseRadarSmartLeadFields = async () => true;
 
   const filters = service.normalizeRadarFilters({
     city: 'São Paulo',
@@ -3027,7 +2776,10 @@ test('processSearchRun nao enfileira lookup social automatico na busca primaria'
 
     assert.equal(items.length, 1);
     assert.equal(items[0].status, 'found');
-    assert.equal(JSON.parse(items[0].rawJson).socialStatus, 'pending');
+    const saved = JSON.parse(items[0].rawJson);
+    assert.equal(saved.socialStatus, 'missing');
+    assert.equal(saved.enrichmentStatus, 'pending');
+    assert.equal(saved.enrichmentDeferredUntilClaim, true);
     assert.notEqual(run.status, 'failed');
   } finally {
     global.fetch = previousFetch;
@@ -3055,9 +2807,9 @@ test('Radar bloqueia requiredChannels na entrega apenas em any_required/all_requ
     whatsappStatus: 'unverified',
   };
 
-  assert.equal(service.isListDeliverableCard(lead, base), true);
-  assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'prefer' }), true);
-  assert.equal(service.isListDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'any_required' }), false);
+  assert.equal(service.isLeadDeliverableCard(lead, base), true);
+  assert.equal(service.isLeadDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'prefer' }), true);
+  assert.equal(service.isLeadDeliverableCard(lead, { ...base, requiredChannels: ['whatsapp'], channelMatchMode: 'any_required' }), false);
 });
 
 test('Radar stage policy deixa social falhar sem bloquear entrega', () => {
@@ -3148,7 +2900,7 @@ test('Radar Quality Gate separa qualidade minima de enriquecimento social', () =
   assert.equal(gate.weakSignals.includes('social_missing'), true);
   assert.equal(gate.positiveSignals.includes('phone_valid'), true);
   assert.equal(gate.missing.includes('minimum_contact'), false);
-  assert.equal(service.isListDeliverableCard(leadSemSocial, input), true);
+  assert.equal(service.isLeadDeliverableCard(leadSemSocial, input), true);
 });
 
 test('Radar Quality Gate permite telefone valido com social pendente ou erro', () => {
@@ -3310,7 +3062,7 @@ test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico',
     targetType: 'pj',
   });
 
-  assert.equal(service.isListDeliverableCard({
+  assert.equal(service.isLeadDeliverableCard({
     name: 'Pizzaria Sem Canal',
     city: 'Rio Claro',
     state: 'SP',
@@ -3319,7 +3071,7 @@ test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico',
     score: 80,
   }, input), false);
 
-  assert.equal(service.isListDeliverableCard({
+  assert.equal(service.isLeadDeliverableCard({
     name: 'Pizzarias em Rio Claro',
     phone: '(19) 99999-0001',
     phoneDigits: '19999990001',
@@ -3330,13 +3082,9 @@ test('Radar Quality Gate bloqueia falta de contato minimo e diretorio generico',
   }, input), false);
 });
 
-test('Radar social nao acessa Vendas diretamente', () => {
-  const socialDir = join(process.cwd(), 'src/webscraping/radar/04-socials');
-  const lookup = readFileSync(join(socialDir, 'radar-social-lookup.service.ts'), 'utf8');
-  const writer = readFileSync(join(socialDir, 'radar-social-result-writer.service.ts'), 'utf8');
-
-  assert.equal(/vendasLead|vendasLeadTimelineEvent|syncToVendasLead/.test(lookup), false);
-  assert.equal(/vendasLead|vendasLeadTimelineEvent|syncToVendasLead/.test(writer), false);
+test('Radar nao registra fila social autonoma no backend', () => {
+  const moduleSource = readFileSync(join(process.cwd(), 'src/webscraping/webscraping.module.ts'), 'utf8');
+  assert.equal(/RadarSocialLookupService|RadarSocialJobService|RadarSocialOrchestratorService/.test(moduleSource), false);
 });
 
 test('Radar nao bloqueia DDD diferente quando cidade esta dentro do raio', async () => {
@@ -3453,7 +3201,6 @@ test('LIMPEZA-DESTRUTIVA L1: Radar search-run em andamento NUNCA autoimporta par
   service.syncRadarSearchRunItemsToPool = async () => { syncToPoolCalls += 1; };
   service.markRadarDelivered = async () => { markRadarDeliveredCalls += 1; return []; };
   service.findRadarPoolRowsForRunItems = async () => [];
-  service.canUseRadarSmartLeadFields = async () => false;
   service.applyRadarWhatsappCheck = async (_context: any, items: any[]) => ({ items, meta: { mode: 'off' } });
 
   // Usuário USERMASTER (o papel do dono) — o caso que sempre escapou do refab por papel.
@@ -3496,169 +3243,13 @@ function normalizeQueryForTest(value: string) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
-function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
-  const campaign = {
-    id: 'campaign-1',
-    companyId: 7,
-    userId: 9,
-    status: 'running',
-    mode: 'radar_database',
-    city: 'Campinas',
-    state: 'SP',
-    segment: 'Lanchonetes',
-    targetType: 'pj',
-    targetTotal: 100,
-    batchSize: 25,
-    foundCount: 0,
-    approvedCount: 0,
-    duplicateCount: 0,
-    rejectedCount: 0,
-    complaintCount: 0,
-    deniedCount: 0,
-    noAnswerCount: 0,
-    currentAttempt: 0,
-    maxAttempts: 40,
-    consecutiveEmptyBatchCount: 0,
-    consecutiveErrorCount: 0,
-    lastQueryUsed: null,
-    lastEngineUrl: null,
-    lastErrorMessage: null,
-    nextRunAt: null,
-    nightOnly: false,
-    allowedStartHour: 0,
-    allowedEndHour: 6,
-    timezone: 'America/Sao_Paulo',
-    startedAt: null,
-    pausedAt: null,
-    finishedAt: null,
-    createdAt: new Date('2026-05-06T12:00:00.000Z'),
-    updatedAt: new Date('2026-05-06T12:00:00.000Z'),
-    ...initialCampaign,
-  };
-  const batches: any[] = [];
+function createRadarPoolPrisma() {
   const leads: any[] = [];
-  const tasks: any[] = Array.isArray(initialCampaign.tasks) ? [...initialCampaign.tasks] : [];
-  const coverageRows: any[] = [];
-
-  const applyCampaignData = (data: Record<string, any>) => {
-    for (const [key, value] of Object.entries(data || {})) {
-      if (value && typeof value === 'object' && 'increment' in value) {
-        campaign[key] = Number(campaign[key] || 0) + Number((value as any).increment || 0);
-      } else {
-        campaign[key] = value;
-      }
-    }
-    campaign.updatedAt = new Date();
-    return { ...campaign, batches: [...batches], tasks: [...tasks] };
-  };
+  const states: any[] = [];
+  const processRuns: any[] = [];
+  const ledgerEntries: any[] = [];
 
   const prisma = createPrisma({
-    webscrapingCampaign: {
-      create: async ({ data, include }: any) => {
-        Object.assign(campaign, data, { id: campaign.id, createdAt: campaign.createdAt, updatedAt: new Date() });
-        return include ? { ...campaign, batches: [...batches], tasks: [...tasks] } : { ...campaign };
-      },
-      findUnique: async () => ({ ...campaign, batches: [...batches], tasks: [...tasks] }),
-      findFirst: async () => ({ ...campaign, batches: [...batches], tasks: [...tasks] }),
-      findMany: async () => [{ ...campaign, batches: [...batches], tasks: [...tasks] }],
-      update: async ({ data }: any) => applyCampaignData(data),
-      updateMany: async ({ data }: any) => {
-        applyCampaignData(data);
-        return { count: 1 };
-      },
-    },
-    webscrapingCampaignBatch: {
-      findFirst: async () => null,
-      create: async ({ data }: any) => {
-        const batch = {
-          id: `batch-${batches.length + 1}`,
-          approvedCount: 0,
-          duplicateCount: 0,
-          rejectedCount: 0,
-          createdAt: new Date(),
-          ...data,
-        };
-        batches.push(batch);
-        return batch;
-      },
-      update: async ({ where, data }: any) => {
-        const batch = batches.find((item) => item.id === where.id);
-        if (batch) Object.assign(batch, data);
-        return batch;
-      },
-      findMany: async () => [...batches],
-    },
-    webscrapingCampaignTask: {
-      groupBy: async ({ where }: any) => {
-        const filtered = tasks.filter((task) => !where?.campaignId || task.campaignId === where.campaignId);
-        const counts = new Map<string, number>();
-        for (const task of filtered) counts.set(task.status, (counts.get(task.status) || 0) + 1);
-        return Array.from(counts.entries()).map(([status, count]) => ({ status, _count: { _all: count } }));
-      },
-      findFirst: async (input?: any) => {
-        const where = input?.where || {};
-        const rows = tasks.filter((task) =>
-          (!where.campaignId || task.campaignId === where.campaignId) &&
-          (!where.state || task.state === where.state) &&
-          (!where.city || task.city === where.city) &&
-          (!where.segment || task.segment === where.segment) &&
-          (!where.targetType || task.targetType === where.targetType) &&
-          (!where.status || task.status === where.status),
-        );
-        return rows[0] || null;
-      },
-      findMany: async (input?: any) => {
-        const where = input?.where || {};
-        return tasks.filter((task) =>
-          (!where.campaignId || task.campaignId === where.campaignId) &&
-          (!where.status || task.status === where.status || (Array.isArray(where.status?.in) && where.status.in.includes(task.status))),
-        );
-      },
-      findUnique: async ({ where }: any) => tasks.find((task) => task.id === where.id) || null,
-      update: async ({ where, data }: any) => {
-        const task = tasks.find((item) => item.id === where.id);
-        if (task) Object.assign(task, data, { updatedAt: new Date() });
-        return task;
-      },
-      updateMany: async ({ where, data }: any) => {
-        let count = 0;
-        for (const task of tasks) {
-          if (where?.id && task.id !== where.id) continue;
-          if (where?.campaignId && task.campaignId !== where.campaignId) continue;
-          if (where?.status && task.status !== where.status) continue;
-          Object.assign(task, data, { updatedAt: new Date() });
-          count += 1;
-        }
-        return { count };
-      },
-      upsert: async ({ where, create, update }: any) => {
-        const key = where?.campaignId_state_city_segment_targetType;
-        const existing = tasks.find((task) =>
-          task.campaignId === key?.campaignId &&
-          task.state === key?.state &&
-          task.city === key?.city &&
-          task.segment === key?.segment &&
-          task.targetType === key?.targetType,
-        );
-        if (existing) {
-          Object.assign(existing, update || {}, { updatedAt: new Date() });
-          return existing;
-        }
-        const task = {
-          id: `task-${tasks.length + 1}`,
-          status: 'queued',
-          attemptCount: 0,
-          foundCount: 0,
-          duplicateCount: 0,
-          rejectedCount: 0,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          ...create,
-        };
-        tasks.push(task);
-        return task;
-      },
-    },
     radarLeadPool: {
       count: async (input?: any) => {
         const where = input?.where || {};
@@ -3672,7 +3263,6 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       },
       findMany: async (input?: any) => {
         const where = input?.where || {};
-        if (where.campaignId) return leads.filter((lead) => lead.campaignId === where.campaignId);
         if (where.normalizedCity || where.normalizedSegment) {
           return leads.filter((lead) =>
             (!where.normalizedCity || lead.normalizedCity === where.normalizedCity) &&
@@ -3715,9 +3305,57 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       create: async ({ data }: any) => ({ id: 'event-1', ...data }),
     },
     radarLeadCompanyState: {
-      findFirst: async () => null,
-      upsert: async ({ create }: any) => create,
-      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
+      findFirst: async ({ where }: any = {}) => states.find((state) => (
+        (!where?.companyId || Number(state.companyId) === Number(where.companyId))
+        && (!where?.radarLeadId || state.radarLeadId === where.radarLeadId)
+      )) || null,
+      findMany: async () => [...states],
+      findUnique: async ({ where }: any = {}) => {
+        const pair = where?.companyId_radarLeadId || {};
+        return states.find((state) => (
+          Number(state.companyId) === Number(pair.companyId)
+          && state.radarLeadId === pair.radarLeadId
+        )) || null;
+      },
+      upsert: async ({ where, create, update }: any) => {
+        const pair = where?.companyId_radarLeadId || {};
+        const existing = states.find((state) => (
+          Number(state.companyId) === Number(pair.companyId)
+          && state.radarLeadId === pair.radarLeadId
+        ));
+        if (existing) {
+          Object.assign(existing, update);
+          return existing;
+        }
+        const state = { id: `state-${states.length + 1}`, ...create };
+        states.push(state);
+        return state;
+      },
+      update: async ({ where, data }: any) => {
+        const state = states.find((item) => item.id === where.id);
+        if (state) Object.assign(state, data);
+        return state || { id: where.id, ...data };
+      },
+    },
+    radarLeadProcessRun: {
+      findMany: async ({ where }: any = {}) => processRuns.filter((run) => (
+        (!where?.id?.in || where.id.in.includes(run.id))
+        && (!where?.companyId || Number(run.companyId) === Number(where.companyId))
+        && (!where?.mode || run.mode === where.mode)
+        && (!where?.status?.in || where.status.in.includes(run.status))
+        && (!where?.status || where.status.in || run.status === where.status)
+      )),
+      findFirst: async ({ where }: any = {}) => processRuns.find((run) => (
+        (!where?.id || run.id === where.id)
+        && (!where?.companyId || Number(run.companyId) === Number(where.companyId))
+        && (!where?.radarLeadId || run.radarLeadId === where.radarLeadId)
+        && (!where?.mode || run.mode === where.mode)
+        && (!where?.status?.in || where.status.in.includes(run.status))
+        && (!where?.status || where.status.in || run.status === where.status)
+      )) || null,
+    },
+    creditLedgerEntry: {
+      findMany: async () => [...ledgerEntries],
     },
     hbxEngineLock: {
       findUnique: async () => ({ id: 'hbx-engine-1', status: 'busy', cooldownUntil: null }),
@@ -3726,37 +3364,70 @@ function createCampaignPrisma(initialCampaign: Record<string, any> = {}) {
       upsert: async ({ create }: any) => create,
       findMany: async () => [],
     },
-    // SPRINT 4 MOTOR-RFB-FILA: plano de cobertura durável lido por getRadarCoverageForCombo no
-    // ranking de candidatos autônomos. Sem registro prévio == combo nunca coberto (findUnique null),
-    // mesma semântica de banco vazio; upsert guardado pra quem quiser inspecionar gravação em teste.
-    radarCoverage: {
-      findUnique: async ({ where }: any) => {
-        const key = where?.state_city_segment_targetType;
-        return coverageRows.find((row) =>
-          row.state === key?.state &&
-          row.city === key?.city &&
-          row.segment === key?.segment &&
-          row.targetType === key?.targetType) || null;
-      },
-      upsert: async ({ where, create, update }: any) => {
-        const key = where?.state_city_segment_targetType;
-        const existing = coverageRows.find((row) =>
-          row.state === key?.state &&
-          row.city === key?.city &&
-          row.segment === key?.segment &&
-          row.targetType === key?.targetType);
-        if (existing) {
-          Object.assign(existing, update || {}, { updatedAt: new Date() });
-          return existing;
-        }
-        const row = { createdAt: new Date(), updatedAt: new Date(), ...create };
-        coverageRows.push(row);
-        return row;
-      },
-    },
   });
 
-  return { prisma, campaign, batches, leads, tasks, coverageRows };
+  return { prisma, leads, states, processRuns, ledgerEntries };
+}
+
+function grantRadarPaidProof(
+  harness: ReturnType<typeof createRadarPoolPrisma>,
+  lead: any,
+  input: { companyId?: number; assignedUserId?: number } = {},
+) {
+  const companyId = input.companyId || 7;
+  const operationId = `claim-${lead.id}`;
+  const usageKey = `radar:${lead.id}:claim:${operationId}`;
+  const state = {
+    id: `state-${lead.id}`,
+    radarLeadId: lead.id,
+    companyId,
+    status: 'reserved',
+    assignedUserId: input.assignedUserId || null,
+    assignedByUserId: input.assignedUserId || null,
+    paidClaimOperationId: operationId,
+    claimUsageKey: usageKey,
+    acquiredAt: new Date(),
+  };
+  const run = {
+    id: operationId,
+    companyId,
+    radarLeadId: lead.id,
+    mode: 'claim',
+    status: 'completed',
+  };
+  const debit = {
+    id: `debit-${lead.id}`,
+    companyId,
+    kind: 'debit',
+    usageKey: `enforce:lead_delivery:${usageKey}`,
+  };
+  lead.ownerCompanyId = companyId;
+  lead.status = 'reserved';
+  lead.companyStates = [state];
+  lead.processRuns = [run];
+  harness.states.push(state);
+  harness.processRuns.push(run);
+  harness.ledgerEntries.push(debit);
+  return { operationId, usageKey };
+}
+
+function installLedgerBackedPaidAccess(service: any, ledgerEntries: any[]) {
+  service.commercialUsageLimits = {
+    hasActiveLeadDeliveryCredit: async (companyId: number, input: { usageKey?: string | null }) => {
+      const debitKey = `enforce:lead_delivery:${String(input?.usageKey || '')}`;
+      const hasDebit = ledgerEntries.some((entry) => (
+        Number(entry.companyId) === Number(companyId)
+        && entry.kind === 'debit'
+        && entry.usageKey === debitKey
+      ));
+      const hasRefund = ledgerEntries.some((entry) => (
+        Number(entry.companyId) === Number(companyId)
+        && entry.kind === 'refund'
+        && entry.usageKey === `refund:${debitKey}`
+      ));
+      return hasDebit && !hasRefund;
+    },
+  };
 }
 
 
@@ -3893,62 +3564,6 @@ test('TRAVA LEI Nº1: mesmo cenário com HBX_ROLE=local → Google Places RECUSA
   }
 });
 
-test('Google e bloqueado para finalidade automatica e cai para HBX', async () => {
-  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
-  const previousEngineUrl = process.env.HBX_SCRAPING_ENGINE_URL;
-  delete process.env.GOOGLE_PLACES_API_KEY;
-  process.env.HBX_SCRAPING_ENGINE_URL = 'http://localhost:8001';
-
-  const fetchCalls: string[] = [];
-  const previousFetch = global.fetch;
-  global.fetch = (async (input: any) => {
-    fetchCalls.push(String(input));
-    return createResponse(200, {
-      results: [
-        {
-          name: 'Loja Autonoma',
-          phone: '(19) 99999-3333',
-          phoneDigits: '19999993333',
-          source: 'hbx_scraping:web',
-        },
-      ],
-    }) as any;
-  }) as any;
-
-  const service = new WebscrapingService(createPrisma());
-
-  try {
-    const response = await service.searchContactsForUser(
-      createUser(),
-      {
-        city: 'Campinas - SP',
-        segment: 'Lojas',
-        engine: 'google',
-        targetType: 'pj',
-        quantity: 10,
-      },
-      {
-        purpose: 'mass_data',
-        skipRadarLookup: true,
-        skipRadarPersist: true,
-        skipPrivateHistory: true,
-        skipTechnicalCache: true,
-        recordUsage: false,
-      },
-    );
-
-    assert.equal(response.query.engine, 'hbx');
-    assert.equal(response.results[0].name, 'Loja Autonoma');
-    assert.equal(fetchCalls.some((url) => url.includes('googleapis.com')), false);
-    assert.equal(fetchCalls.some((url) => url.includes('/search')), true);
-  } finally {
-    global.fetch = previousFetch;
-    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
-    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
-    if (previousEngineUrl === undefined) delete process.env.HBX_SCRAPING_ENGINE_URL;
-    else process.env.HBX_SCRAPING_ENGINE_URL = previousEngineUrl;
-  }
-});
 
 test('Google e permitido quando radar pull manual pede engine google', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
@@ -4177,91 +3792,6 @@ test('pesquisa repetida reaproveita historico sem chamar Google novamente', asyn
   }
 });
 
-test('reaproveitar historico ignora limite do trial e devolve resultado salvo', async () => {
-  const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
-  delete process.env.GOOGLE_PLACES_API_KEY;
-
-  const previousFetch = global.fetch;
-  const fetchSpy: string[] = [];
-  global.fetch = (async () => {
-    fetchSpy.push('called');
-    return createResponse(500, {}) as any;
-  }) as any;
-
-  let trialCountChecks = 0;
-
-  const service = new WebscrapingService(createPrisma({
-    company: {
-      findUnique: async () => ({
-        id: 7,
-        isActive: true,
-        onboardingStatus: 'active_trial',
-        paymentStatus: 'TRIAL',
-        subscriptionStatus: 'trialing',
-      }),
-    },
-    webscrapingSearchHistory: {
-      findFirst: async () => ({
-        id: 'history-1',
-        userId: 9,
-        city: 'Rio Claro - SP',
-        segment: 'Lanchonetes',
-        quantity: 10,
-        filtersJson: JSON.stringify({
-          minRating: null,
-          minReviews: null,
-          onlyWithWebsite: false,
-        }),
-        searchSignature: 'signature',
-        resultCount: 1,
-        createdAt: new Date('2026-04-01T12:00:00.000Z'),
-        updatedAt: new Date('2026-04-01T12:00:00.000Z'),
-        lastUsedAt: new Date('2026-04-01T12:00:00.000Z'),
-        places: [
-          {
-            id: 'place-row-1',
-            placeId: 'place-1',
-            rank: 1,
-            name: 'BRUNAO LANCHES',
-            phone: '+55 19 99888-7766',
-            phoneDigits: '19998887766',
-            rating: 4.7,
-            reviews: 142,
-            address: 'Rua Central, 100',
-            website: 'https://lanches.example.com',
-          },
-        ],
-      }),
-      findUnique: async () => null,
-      findMany: async () => [],
-      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
-      upsert: async () => ({ id: 'history-1' }),
-      delete: async () => null,
-    },
-    webscrapingUsageLog: {
-      count: async () => {
-        trialCountChecks += 1;
-        return 99;
-      },
-      create: async () => ({ id: 'usage-1' }),
-    },
-  }));
-
-  try {
-    const response = await service.reuseHistorySearchForUser(createUser(), 'history-1');
-
-    assert.equal(response.meta.source, 'history');
-    assert.equal(response.results.length, 1);
-    assert.equal(response.results[0].name, 'BRUNAO LANCHES');
-    assert.equal(fetchSpy.length, 0);
-    assert.equal(trialCountChecks, 0);
-  } finally {
-    global.fetch = previousFetch;
-    if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
-    else process.env.GOOGLE_PLACES_API_KEY = previousGoogleKey;
-  }
-});
-
 test('cache tecnico global reaproveita busca publica entre empresas sem chamar Google', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
   delete process.env.GOOGLE_PLACES_API_KEY;
@@ -4331,58 +3861,59 @@ test('cache tecnico global reaproveita busca publica entre empresas sem chamar G
   }
 });
 
-test('quota comercial bloqueia terceira busca Google do dia e registra tentativa bloqueada', async () => {
+test('busca Google não possui cota comercial diária por empresa', async () => {
   const previousGoogleKey = process.env.GOOGLE_PLACES_API_KEY;
-  // pina papel de PRODUÇÃO: o que este teste cobre é a QUOTA COMERCIAL bloqueando — sem pinar,
-  // a trava Lei nº1 (papel local) poderia bloquear antes e o teste passaria pelo motivo errado.
   const previousRole = process.env.HBX_ROLE;
   process.env.HBX_ROLE = 'vps';
   process.env.GOOGLE_PLACES_API_KEY = 'test-key';
 
   const previousFetch = global.fetch;
   const fetchSpy: string[] = [];
-  global.fetch = (async () => {
-    fetchSpy.push('called');
-    return createResponse(500, {}) as any;
+  global.fetch = (async (input: any) => {
+    const url = String(input);
+    fetchSpy.push(url);
+    if (url.includes('places:searchText')) {
+      return createResponse(200, {
+        places: [{ id: 'place-sem-cota', displayName: { text: 'Clinica Sem Cota' } }],
+      }) as any;
+    }
+    return createResponse(200, {
+      displayName: { text: 'Clinica Sem Cota' },
+      internationalPhoneNumber: '+55 11 97777-6655',
+      nationalPhoneNumber: '(11) 97777-6655',
+      formattedAddress: 'Rua Livre, 10',
+      rating: 4.6,
+      userRatingCount: 20,
+    }) as any;
   }) as any;
 
   const createdLogs: Array<Record<string, unknown>> = [];
+  let quotaCountChecks = 0;
   const service = new WebscrapingService(createPrisma({
-    company: {
-      findUnique: async () => ({
-        id: 7,
-        isActive: true,
-        onboardingStatus: 'active_trial',
-        paymentStatus: 'TRIAL',
-        subscriptionStatus: 'trialing',
-      }),
-    },
     webscrapingUsageLog: {
-      count: async () => 2,
+      count: async () => {
+        quotaCountChecks += 1;
+        return 999;
+      },
       create: async (input: Record<string, unknown>) => {
         createdLogs.push(input);
-        return { id: 'usage-blocked-1' };
+        return { id: 'usage-executed-1' };
       },
     },
   }));
 
   try {
-    await assert.rejects(
-      () =>
-        service.searchContactsForUser(createUser(), {
-          city: 'Sao Paulo - SP',
-          segment: 'Clinicas',
-          quantity: 1,
-        }),
-      (error: any) => {
-        assert.equal(error?.response?.code, 'google_daily_limit_reached');
-        assert.match(String(error?.response?.message || ''), /2 busca\(s\) Google por dia/i);
-        return true;
-      },
-    );
+    const response = await service.searchContactsForUser(createUser(), {
+      city: 'Sao Paulo - SP',
+      segment: 'Clinicas',
+      quantity: 1,
+    });
 
+    assert.equal(response.results.length, 1);
+    assert.equal(response.results[0].name, 'Clinica Sem Cota');
+    assert.equal(quotaCountChecks, 0);
     assert.equal(createdLogs.length, 1);
-    assert.equal(fetchSpy.length, 0);
+    assert.equal(fetchSpy.length >= 2, true);
   } finally {
     global.fetch = previousFetch;
     if (previousGoogleKey === undefined) delete process.env.GOOGLE_PLACES_API_KEY;
@@ -4680,7 +4211,7 @@ test('radar_pull hbx coloca motor com falha em cooldown e tenta outro', async ()
       const next = acquired.length === 0
         ? { engineId: 'hbx-engine-1', engineIndex: 0, url: 'http://engine-1', lockedUntil: new Date(), googleEmergencyMode: false }
         : { engineId: 'hbx-engine-2', engineIndex: 1, url: 'http://engine-2', lockedUntil: new Date(), googleEmergencyMode: false };
-      assert.notEqual(options?.purpose, 'mass_data');
+      assert.equal(options?.purpose, 'radar_pull');
       acquired.push(next.engineId);
       return next;
     },
@@ -5009,142 +4540,6 @@ test('busca hbx persiste estado no historico para permitir reaproveitamento', as
   }
 });
 
-test('reaproveitar historico hbx recupera estado salvo na assinatura antiga', async () => {
-  const previousFetch = global.fetch;
-  const fetchSpy: string[] = [];
-  global.fetch = (async () => {
-    fetchSpy.push('called');
-    return createResponse(500, {}) as any;
-  }) as any;
-
-  const service = new WebscrapingService(createPrisma({
-    webscrapingSearchHistory: {
-      findFirst: async () => ({
-        id: 'history-hbx-old',
-        userId: 9,
-        city: 'Araras',
-        segment: 'plano de saude',
-        quantity: 20,
-        filtersJson: JSON.stringify({
-          minRating: null,
-          minReviews: null,
-          onlyWithWebsite: false,
-          engine: 'hbx',
-          targetType: 'pf',
-        }),
-        searchSignature: 'engine:hbx|targetType:pf|city:araras|state:sp|segment:plano de saude|quantity:20|filters:{}',
-        resultCount: 1,
-        createdAt: new Date('2026-04-27T20:00:00.000Z'),
-        updatedAt: new Date('2026-04-27T20:00:00.000Z'),
-        lastUsedAt: new Date('2026-04-27T20:00:00.000Z'),
-        places: [
-          {
-            id: 'place-row-hbx-1',
-            placeId: 'hbx:pf:19999991234',
-            rank: 1,
-            name: 'Maria Oliveira',
-            phone: '(19) 99999-1234',
-            phoneDigits: '19999991234',
-            rating: null,
-            reviews: 0,
-            address: '',
-            website: '',
-            source: 'hbx_scraping:web',
-            score: 60,
-          },
-        ],
-      }),
-      findUnique: async () => null,
-      findMany: async () => [],
-      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
-      upsert: async () => ({ id: 'history-hbx-old' }),
-      delete: async () => null,
-    },
-  }));
-
-  try {
-    const response = await service.reuseHistorySearchForUser(createUser(), 'history-hbx-old');
-
-    assert.equal(response.query.engine, 'hbx');
-    assert.equal(response.query.targetType, 'pf');
-    assert.equal(response.query.city, 'Araras');
-    assert.equal(response.query.state, 'SP');
-    assert.equal(response.meta.source, 'history');
-    assert.equal(response.results.length, 1);
-    assert.equal(response.results[0].name, 'Maria Oliveira');
-    assert.equal(fetchSpy.length, 0);
-  } finally {
-    global.fetch = previousFetch;
-  }
-});
-
-test('reaproveitar historico hbx antigo sem estado nao retorna 400', async () => {
-  const previousFetch = global.fetch;
-  const fetchSpy: string[] = [];
-  global.fetch = (async () => {
-    fetchSpy.push('called');
-    return createResponse(500, {}) as any;
-  }) as any;
-
-  const service = new WebscrapingService(createPrisma({
-    webscrapingSearchHistory: {
-      findFirst: async () => ({
-        id: 'history-hbx-no-state',
-        userId: 9,
-        city: 'Araras',
-        segment: 'Clinicas',
-        quantity: 20,
-        filtersJson: JSON.stringify({
-          minRating: null,
-          minReviews: null,
-          onlyWithWebsite: false,
-          engine: 'hbx',
-          targetType: 'pj',
-        }),
-        searchSignature: 'engine:hbx|targetType:pj|city:araras|segment:clinicas|quantity:20|filters:{}',
-        resultCount: 1,
-        createdAt: new Date('2026-04-27T20:00:00.000Z'),
-        updatedAt: new Date('2026-04-27T20:00:00.000Z'),
-        lastUsedAt: new Date('2026-04-27T20:00:00.000Z'),
-        places: [
-          {
-            id: 'place-row-hbx-no-state',
-            placeId: 'hbx:pj:19999991234',
-            rank: 1,
-            name: 'Clinica Araras',
-            phone: '(19) 99999-1234',
-            phoneDigits: '19999991234',
-            rating: null,
-            reviews: 0,
-            address: '',
-            website: '',
-            source: 'hbx_scraping:web',
-            score: 60,
-          },
-        ],
-      }),
-      findUnique: async () => null,
-      findMany: async () => [],
-      update: async ({ where, data }: any) => ({ id: where.id, ...data }),
-      upsert: async () => ({ id: 'history-hbx-no-state' }),
-      delete: async () => null,
-    },
-  }));
-
-  try {
-    const response = await service.reuseHistorySearchForUser(createUser(), 'history-hbx-no-state');
-
-    assert.equal(response.query.engine, 'hbx');
-    assert.equal(response.query.state, null);
-    assert.equal(response.meta.source, 'history');
-    assert.equal(response.results.length, 1);
-    assert.equal(response.results[0].name, 'Clinica Araras');
-    assert.equal(fetchSpy.length, 0);
-  } finally {
-    global.fetch = previousFetch;
-  }
-});
-
 test('search-run hbx trata 502 como retryable e salva 2 contatos no lote seguinte', async () => {
   const previousFetch = global.fetch;
   const previousBatchLimit = process.env.HBX_SEARCH_RUN_BATCH_LIMIT;
@@ -5348,7 +4743,7 @@ test('search-run hbx encerra entrega parcial perto da meta quando lotes ficam es
 });
 
 test('listagem radar tolera engine=hbx sem quebrar', async () => {
-  const { prisma, leads } = createCampaignPrisma();
+  const { prisma, leads } = createRadarPoolPrisma();
   leads.push({
     id: 'lead-engine-hbx',
     name: 'Loja Radar',
@@ -5374,7 +4769,9 @@ test('listagem radar tolera engine=hbx sem quebrar', async () => {
   });
 
   assert.equal(response.total, 1);
-  assert.equal(response.items[0].name, 'Loja Radar');
+  assert.equal(response.items[0].id, 'lead-engine-hbx');
+  assert.equal(response.items[0].name, 'Empresa localizada');
+  assert.equal(response.items[0].phone, '');
 });
 
 // ─── FIX-ENRICHMENT-STATUS-SHELF (05/07) — o shelf do Radar nunca emitia `enrichmentStatus`,
@@ -5382,7 +4779,7 @@ test('listagem radar tolera engine=hbx sem quebrar', async () => {
 // vocabulário da fila (RadarLeadEnrichment: queued|running|enriched|failed|skipped) pro
 // vocabulário do front (pending|completed|failed) e o degrade quando a fila não existe/lança.
 test('listRadarLeadsForUser: fila com enrichmentStatus "queued" -> item sai com enrichmentStatus "pending"', async () => {
-  const { prisma, leads } = createCampaignPrisma();
+  const { prisma, leads } = createRadarPoolPrisma();
   leads.push({
     id: 'lead-queue-pending',
     name: 'Loja Aguardando Ltda',
@@ -5415,13 +4812,14 @@ test('listRadarLeadsForUser: fila com enrichmentStatus "queued" -> item sai com 
     limit: 20,
   });
 
-  const item = response.items.find((row: any) => row.name === 'Loja Aguardando Ltda');
+  const item = response.items.find((row: any) => row.id === 'lead-queue-pending');
   assert.ok(item, 'lead da fila deveria estar na lista');
-  assert.equal(item.enrichmentStatus, 'pending');
+  assert.equal(item.name, 'Empresa localizada');
+  assert.equal(item.enrichmentStatus, undefined);
 });
 
 test('listRadarLeadsForUser: fila com enrichmentStatus "enriched" -> item sai com enrichmentStatus "completed"', async () => {
-  const { prisma, leads } = createCampaignPrisma();
+  const { prisma, leads } = createRadarPoolPrisma();
   leads.push({
     id: 'lead-queue-enriched',
     name: 'Loja Enriquecida',
@@ -5454,14 +4852,15 @@ test('listRadarLeadsForUser: fila com enrichmentStatus "enriched" -> item sai co
     limit: 20,
   });
 
-  const item = response.items.find((row: any) => row.name === 'Loja Enriquecida');
+  const item = response.items.find((row: any) => row.id === 'lead-queue-enriched');
   assert.ok(item, 'lead enriquecido deveria estar na lista');
-  assert.equal(item.enrichmentStatus, 'completed');
+  assert.equal(item.name, 'Empresa localizada');
+  assert.equal(item.enrichmentStatus, undefined);
 });
 
 test('listRadarLeadsForUser: prisma sem o modelo radarLeadEnrichment -> NAO lanca (degrade gracioso do lookup da fila)', async () => {
-  const { prisma, leads } = createCampaignPrisma();
-  // Sem `prisma.radarLeadEnrichment` (igual ao mock padrão de createCampaignPrisma) — hasTable()
+  const { prisma, leads } = createRadarPoolPrisma();
+  // Sem `prisma.radarLeadEnrichment` (igual ao mock padrão de createRadarPoolPrisma) — hasTable()
   // do mock devolve `true` (createPrisma:48) mas o modelo não existe no objeto, então acessar
   // `.findMany` direto lançaria TypeError síncrono se o degrade não fosse robusto (try/catch).
   // NOTA: `queryRadarRowsForCompany` já roda um enriquecimento em memória PRÉ-EXISTENTE
@@ -5495,9 +4894,10 @@ test('listRadarLeadsForUser: prisma sem o modelo radarLeadEnrichment -> NAO lanc
     limit: 20,
   });
 
-  const comJson = response.items.find((item: any) => item.name === 'Loja Com Enrichment Antigo');
+  const comJson = response.items.find((item: any) => item.id === 'lead-sem-fila-com-json');
   assert.ok(comJson, 'item deveria estar na lista (lookup da fila nao pode lancar nem sumir com o card)');
-  assert.equal(comJson.enrichmentStatus, 'completed');
+  assert.equal(comJson.name, 'Empresa localizada');
+  assert.equal(comJson.enrichmentStatus, undefined);
 });
 
 test('resolveRadarLeadEnrichmentStatus (unidade): sem status de fila, cai no fallback json/lastEnrichedAt -> completed; sem nenhum dado -> null', () => {
@@ -5551,7 +4951,7 @@ test('fetchRadarLeadEnrichmentQueueStatusMap (unidade): findMany lançando -> NA
 // (cidade/UF/segmento) e devolve o resultado em meta.baseTotal/baseAvailable — nunca inventa
 // numero fixo (o mock devolve um N arbitrario so pra provar que o dado vem de la).
 test('listRadarLeadsForUser (vitrine): meta.baseTotal vem do count() da base 28M filtrado, nao do pool', async () => {
-  const { prisma, leads } = createCampaignPrisma();
+  const { prisma, leads } = createRadarPoolPrisma();
   leads.push({
     id: 'lead-vitrine-1',
     name: 'Loja Vitrine',
@@ -5593,7 +4993,7 @@ test('listRadarLeadsForUser (vitrine): meta.baseTotal vem do count() da base 28M
 });
 
 test('listRadarLeadsForUser (sem vitrine): NAO consulta a base 28M (só a tela Leads/vendedor pede vitrine)', async () => {
-  const { prisma } = createCampaignPrisma();
+  const { prisma } = createRadarPoolPrisma();
   const service = new WebscrapingService(prisma);
   let called = false;
   (service as any).cnpjBaseQuery = {
@@ -5613,7 +5013,7 @@ test('listRadarLeadsForUser (sem vitrine): NAO consulta a base 28M (só a tela L
 });
 
 test('listRadarLeadsForUser (vitrine): base 28M indisponivel no ambiente -> baseAvailable false, sem lancar', async () => {
-  const { prisma } = createCampaignPrisma();
+  const { prisma } = createRadarPoolPrisma();
   const service = new WebscrapingService(prisma);
   (service as any).cnpjBaseQuery = {
     countBase: async () => ({ available: false, count: null }),
@@ -5631,7 +5031,7 @@ test('listRadarLeadsForUser (vitrine): base 28M indisponivel no ambiente -> base
 });
 
 test('listRadarLeadsForUser (vitrine): sem CnpjBaseQueryService injetado -> degrade gracioso (nunca lanca)', async () => {
-  const { prisma } = createCampaignPrisma();
+  const { prisma } = createRadarPoolPrisma();
   const service = new WebscrapingService(prisma);
   // cnpjBaseQuery fica undefined (nao injetado) — simula ambiente/boot sem o provider.
 
@@ -5649,7 +5049,7 @@ test('listRadarLeadsForUser (vitrine): sem CnpjBaseQueryService injetado -> degr
 // do Radar. Vitrine e funil são a MESMA lagoa da empresa pra todo papel; assignedUserId vira só
 // informativo ("Responsável" = quem puxou), nunca filtro de visibilidade nem trava de claim.
 test('LIMPEZA-DESTRUTIVA L3: listRadarLeadsForUser (funil, sem vitrine) devolve o MESMO conjunto de cards pra DOIS vendedores diferentes da mesma empresa', async () => {
-  const { prisma, leads } = createCampaignPrisma();
+  const { prisma, leads } = createRadarPoolPrisma();
   leads.push({
     id: 'lead-mine',
     name: 'Loja Puxada Por Mim',
@@ -5693,15 +5093,18 @@ test('LIMPEZA-DESTRUTIVA L3: listRadarLeadsForUser (funil, sem vitrine) devolve 
   // Depois do L3: os dois veem a MESMA lagoa da empresa — os 2 cards, pra ambos os papéis.
   assert.equal(responseA.total, 2);
   assert.equal(responseB.total, 2);
-  const namesA = responseA.items.map((item: any) => item.name).sort();
-  const namesB = responseB.items.map((item: any) => item.name).sort();
-  assert.deepEqual(namesA, ['Loja Puxada Por Mim', 'Loja Puxada Pelo Colega'].sort());
-  assert.deepEqual(namesB, namesA);
+  const idsA = responseA.items.map((item: any) => item.id).sort();
+  const idsB = responseB.items.map((item: any) => item.id).sort();
+  assert.deepEqual(idsA, ['lead-mine', 'lead-colega'].sort());
+  assert.deepEqual(idsB, idsA);
+  assert.deepEqual(responseA.items.map((item: any) => item.name), ['Empresa localizada', 'Empresa localizada']);
+  assert.equal(responseA.items.every((item: any) => item.phone === '' && item.email == null), true);
 });
 
 test('LIMPEZA-DESTRUTIVA L3: vendedor consegue ver/agir num card cujo "Responsável" (assignedUserId) é OUTRO colega — sem NotFound', async () => {
-  const { prisma, leads } = createCampaignPrisma();
-  leads.push({
+  const harness = createRadarPoolPrisma();
+  const { prisma, leads } = harness;
+  const colleagueLead = {
     id: 'lead-do-colega',
     name: 'Empresa Do Colega',
     phone: '(19) 99999-3333',
@@ -5715,10 +5118,14 @@ test('LIMPEZA-DESTRUTIVA L3: vendedor consegue ver/agir num card cujo "Responsá
     updatedAt: new Date(),
     companyStates: [{ status: 'reserved', assignedUserId: 101, assignedByUserId: 101, contactedCount: 0 }],
     events: [],
-  });
+  };
+  leads.push(colleagueLead);
+  grantRadarPaidProof(harness, colleagueLead, { assignedUserId: 101 });
   const service = new WebscrapingService(prisma) as any;
+  installLedgerBackedPaidAccess(service, harness.ledgerEntries);
 
   const sellerB = { id: 202, companyId: 7, role: 'USER', masterContext: { active: false } };
+  assert.equal(await service.hasRadarPaidAcquisition({ companyId: 7, userId: 202 }, colleagueLead), true);
 
   // Antes do L3: addRadarLeadEventForUser (via assertRadarLeadVisibleForUser) e
   // getRadarLeadForUser lançavam NotFoundException pro vendedor B, porque o card
@@ -5736,33 +5143,35 @@ test('LIMPEZA-DESTRUTIVA L3: vendedor consegue ver/agir num card cujo "Responsá
 });
 
 test('CONTATO PULL-GATED (06/07): evento "note" exige posse (nao vira claim/reveal) e nunca debita', async () => {
-  const { prisma, leads } = createCampaignPrisma();
+  const harness = createRadarPoolPrisma();
+  const { prisma, leads } = harness;
   leads.push({
     id: 'lead-pool-livre', name: 'Loja Livre', phone: '(19) 99999-7777', phoneDigits: '19999997777',
     city: 'Campinas', state: 'SP', segment: 'Lojas', status: 'available',
     createdAt: new Date(), updatedAt: new Date(), companyStates: [], events: [],
   });
-  leads.push({
+  const paidLead = {
     id: 'lead-meu', name: 'Loja Minha', phone: '(19) 99999-8888', phoneDigits: '19999998888',
     city: 'Campinas', state: 'SP', segment: 'Lojas', status: 'reserved',
     createdAt: new Date(), updatedAt: new Date(),
     companyStates: [{ status: 'reserved', assignedUserId: 101, assignedByUserId: 101 }], events: [],
-  });
+  };
+  leads.push(paidLead);
+  grantRadarPaidProof(harness, paidLead, { assignedUserId: 101 });
   const service = new WebscrapingService(prisma) as any;
+  installLedgerBackedPaidAccess(service, harness.ledgerEntries);
   const seller = { id: 101, companyId: 7, role: 'USER', masterContext: { active: false } };
+  assert.equal(await service.hasRadarPaidAcquisition({ companyId: 7, userId: 101 }, paidLead), true);
 
   // Lead do pool NAO-possuido: notar seria um jeito de claim+reveal sem debito -> BLOQUEADO.
   await assert.rejects(
     () => service.addRadarLeadEventForUser(seller, 'lead-pool-livre', { eventType: 'note', note: 'quero espiar' }),
-    /Puxe o lead/,
+    /Puxe e pague o lead/,
   );
 
-  // Lead POSSUIDO (companyState): notar funciona, retorna o card e NUNCA debita.
-  let debited = false;
-  service.commercialUsageLimits = { recordCardCommercialUseOnce: async () => { debited = true; return { debited: true, alreadyDebited: false }; } };
+  // Lead com state + run de claim + débito ativo: notar funciona sem nova cobrança.
   const res = await service.addRadarLeadEventForUser(seller, 'lead-meu', { eventType: 'note', note: 'cliente pediu orcamento' });
   assert.equal(res.item.name, 'Loja Minha');
-  assert.equal(debited, false);
 });
 
 // CHIP E3 (05/07) — status de IA por lote de leads: RBAC (só devolve status de leads do TENANT

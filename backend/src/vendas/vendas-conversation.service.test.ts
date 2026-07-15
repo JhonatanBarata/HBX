@@ -10,7 +10,7 @@ const USER = {
   isSystemMaster: false,
 };
 
-function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: any } = {}) {
+function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: any; paidAccess?: any } = {}) {
   let writes = 0;
   let rebuilds = 0;
   let readOnlyDerivations = 0;
@@ -101,7 +101,7 @@ function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: an
   } as any;
 
   return {
-    service: new VendasConversationService(prisma, inbox, projector),
+    service: new VendasConversationService(prisma, inbox, projector, options.paidAccess),
     get writes() { return writes; },
     get rebuilds() { return rebuilds; },
     get readOnlyDerivations() { return readOnlyDerivations; },
@@ -156,4 +156,27 @@ test('envio pelo Vendas permanece humano e entra pela outbox do Inbox', async ()
   assert.equal(harness.sends[0][3].sourceModule, 'vendas_human');
   assert.equal(harness.sends[0][3].variables.purpose, 'human_reply');
   assert.equal(harness.rebuilds, 1);
+});
+
+test('Radar sem prova paga falha antes de resolver, vincular ou enviar conversa', async () => {
+  const harness = createHarness({
+    paidAccess: {
+      resolveForRow: async () => ({
+        isRadarOrigin: true,
+        contactAccessGranted: false,
+        radarLeadId: 'pool-1',
+        operationId: null,
+        usageKey: null,
+        reason: 'company_state_proof_missing',
+      }),
+    },
+  });
+
+  await assert.rejects(
+    () => harness.service.sendMessageForUser({ ...USER }, 'lead-1', 'Não deve enviar'),
+    (error: any) => error?.response?.code === 'RADAR_PAID_ACQUISITION_REQUIRED',
+  );
+  assert.equal(harness.sends.length, 0);
+  assert.equal(harness.writes, 0);
+  assert.equal(harness.rebuilds, 0);
 });

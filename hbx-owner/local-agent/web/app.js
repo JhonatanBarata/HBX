@@ -228,17 +228,16 @@ async function renderVpsEngines(preEngines) {
   return false;
 }
 
-/* ---------- Botões-interruptor (motores / Lab / Turbo / fábrica) ----------
+/* ---------- Botão-interruptor do Local Lab ----------
    1 botão por função. A COR é SEMPRE o estado REAL que o front entrega (verde = ligado,
    vermelho = desligado) e o texto é a ação oposta (Ligar ↔ Desligar).
 
-   O problema antigo: clicava, disparava a ação e relia na hora — mas o backend ainda não
-   tinha refletido (motor leva ~1 min pra subir, turbo/fábrica levam um instante), então o
+   O problema antigo: clicava, disparava a ação e relia na hora — mas o processo ainda não
+   tinha refletido, então o
    botão "voltava" pro estado velho e parecia que o clique não fez nada. Aqui cada botão
    guarda uma INTENÇÃO ({desired, deadline}) ao ser clicado: fica âmbar "aplicando…" até o
    FRONT entregar o novo estado (real === desired) — aí solta e mostra a verdade. Se estourar
    o prazo sem o front confirmar, volta a mostrar o estado real honesto (sem mentir/fixar). */
-// F0 (02/07): toggle 'factory' REMOVIDO (fábrica de descoberta demolida). Lab permanece.
 const TOGGLE = {
   lab:        { sel: "#btn-lab-toggle",    on: "Desligar Lab",      off: "Ligar Lab",       window: 18000 },
 };
@@ -337,17 +336,13 @@ async function renderSistema(preSystem, preBank) {
     bar.style.width = `${Math.max(realRunning > 0 ? 5 : 0, Math.min(100, pct))}%`;
     bar.className = "bar-fill" + (cap.queue > 0 && realRunning >= cap.ceiling ? " warn" : "");
     const ghost = ec && cap.alive > realRunning ? ` · backend acha ${cap.alive}` : "";
-    // Legenda única e sem contradição: "N de 20 motores ligados". A produção real (novos/hora)
-    // mora no painel "🏭 Fábrica · a verdade" logo abaixo — aqui não duplicamos pra não brigar.
+    // Legenda única e sem contradição: "N de 20 motores ligados".
     $("#sys-engines-counts").textContent = `${realRunning} de ${cap.ceiling} motores ligados${ghost}`;
     paintChk("#chk-elastic", cap.elastic);
-    // F0 (02/07): chk-factory / toggle da fábrica removidos (fábrica de descoberta demolida).
-    paintChk("#chk-factory", !cap.factoryStopped);
   } else {
     $("#sys-engines-big").textContent = "—";
     $("#sys-engines-counts").textContent = cap.configured ? "backend não respondeu" : "sem token do backend";
     paintChk("#chk-elastic", false);
-    paintChk("#chk-factory", false);
   }
 
   await bankPromise.catch(() => ({ total: null }));
@@ -624,19 +619,33 @@ function ckGetFilters() {
   };
 }
 
-// Telefones exibidos = principal + extras do crawl QUE PASSARAM no motor do WhatsApp (confirmados).
-// Sem mapa de verificação → só o principal (regra do dono: telefone extra só aparece se verificado).
+// Todo telefone válido fica visível. A confirmação controla somente a ação de
+// WhatsApp; nunca esconde fixo, secundário da RFB ou terceiro número do motor.
 function ckDisplayPhones(row) {
-  const wa = (row && row.phonesWhatsapp) || {};
   const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    const text = String(value || "").trim();
+    const digits = text.replace(/\D/g, "");
+    if (!text || !digits || seen.has(digits)) return;
+    seen.add(digits);
+    out.push(text);
+  };
   const primary = (row && (row.phone || row.phoneDigits)) || "";
-  if (primary) out.push(primary);
+  add(primary);
   const extras = Array.isArray(row && row.phones) ? row.phones : [];
-  for (const p of extras) {
-    const d = String(p || "").replace(/\D/g, "");
-    if (p && wa[d] === true && !out.includes(p)) out.push(p);
-  }
+  for (const p of extras) add(p);
   return out.slice(0, 3);
+}
+
+function ckConfirmedWhatsappPhone(row) {
+  const wa = (row && row.phonesWhatsapp) || {};
+  const primaryDigits = String((row && (row.phone || row.phoneDigits)) || "").replace(/\D/g, "");
+  const status = String((row && (row.whatsappStatus || row.whatsappCheckStatus)) || "").toLowerCase();
+  return ckDisplayPhones(row).find((phone) => {
+    const digits = String(phone || "").replace(/\D/g, "");
+    return wa[digits] === true || (digits === primaryDigits && (status === "valid" || status === "confirmed"));
+  }) || "";
 }
 
 function ckGetValue(row, key) {
@@ -647,10 +656,8 @@ function ckGetValue(row, key) {
     if (!phone) return "";
     return ws === "valid" || ws === "confirmed" ? phone : "";
   }
-  // HOT-05: telefone usado no botão "Abrir WhatsApp" (principal verificado > principal cru).
   if (key === "_waAction") {
-    const primary = ckDisplayPhones(row)[0] || row.phone || row.phoneDigits || "";
-    return primary || "";
+    return ckConfirmedWhatsappPhone(row);
   }
   if (key === "website") return row.website || "";
   if (key === "email") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(", ");
@@ -689,8 +696,7 @@ function ckApplyFilters(rows) {
     }
     if (f.hasSite && !String(row.website || "").trim()) return false;
     if (f.hasWhats) {
-      const ws = String(row.whatsappStatus || row.whatsappCheckStatus || "").toLowerCase();
-      if (ws !== "valid" && ws !== "confirmed") return false;
+      if (!ckConfirmedWhatsappPhone(row)) return false;
     }
     return true;
   });
@@ -715,25 +721,20 @@ function ckApplySort(rows) {
 }
 
 function ckCellHtml(row, key) {
-  // HOT-05: botão "Abrir WhatsApp" — 1 clique no wa.me do vendedor com o lead (ação humana,
-  // não passa pelo motor/Webwhats). Verde = WhatsApp validado no gate do motor; cinza =
-  // não validado (ainda abre, só não tem a garantia do gate — CNPJ Biz não tem essa distinção).
+  // Ação humana só aparece para número confirmado; números não verificados
+  // continuam visíveis normalmente na coluna Telefone.
   if (key === "_waAction") {
-    const primary = ckDisplayPhones(row)[0] || row.phone || row.phoneDigits || "";
-    const link = owWaLink(primary);
+    const confirmedPhone = ckConfirmedWhatsappPhone(row);
+    const link = owWaLink(confirmedPhone);
     if (!link) return '<span style="color:var(--text-muted);">—</span>';
-    const ws = String(row.whatsappStatus || row.whatsappCheckStatus || "").toLowerCase();
-    const validated = ws === "valid" || ws === "confirmed";
-    const cls = validated ? "ck-pill ok" : "ck-pill muted";
-    const title = validated ? "WhatsApp validado — abrir conversa" : "WhatsApp não validado — abrir mesmo assim";
-    return `<a href="${esc(link)}" target="_blank" rel="noopener" class="${cls}" title="${esc(title)}">${validated ? "✓" : ""} WhatsApp</a>`;
+    return `<a href="${esc(link)}" target="_blank" rel="noopener" class="ck-pill ok" title="WhatsApp validado — abrir conversa">✓ WhatsApp</a>`;
   }
 
   // E-mail e Telefone: mostram até 3 (dos arrays emails[]/phones[] achados no scraper).
   if (key === "email" || key === "phone") {
     const arr = key === "email"
       ? (Array.isArray(row.emails) && row.emails.length ? row.emails : (row.email ? [row.email] : []))
-      : ckDisplayPhones(row);  // principal + extras VERIFICADOS no WhatsApp
+      : ckDisplayPhones(row);
     const list = arr.filter(Boolean).slice(0, 3);
     if (!list.length) return '<span style="color:var(--text-muted);">—</span>';
     let head = "";
@@ -852,12 +853,10 @@ function ckUpdateActionButtons() {
   const total = ckFiltered.length;
   const isLocal = ckSource === "local";
   const csvBtn = $("#btn-cockpit-csv");
-  const vpsBtn = $("#btn-cockpit-vps");
   const enrichBtn = $("#btn-cockpit-enrich");
   const cleanBtn = $("#btn-clean-junk");
-  // CSV vale nas duas guias; enriquecer/mover/limpar agem no LOCAL.
+  // CSV vale nas duas guias; enriquecer/limpar agem no LOCAL.
   if (csvBtn) csvBtn.disabled = total === 0;
-  if (vpsBtn) vpsBtn.disabled = !isLocal || ckAllLeads.length === 0 || ckEnrichRunning;
   if (enrichBtn) enrichBtn.disabled = !isLocal || total === 0 || ckEnrichRunning;
   if (cleanBtn) cleanBtn.disabled = !isLocal;
 }
@@ -975,7 +974,7 @@ function ckExportCsv() {
   const csvVal = (row, key) => {
     if (key === "_emails") return (Array.isArray(row.emails) && row.emails.length ? row.emails : [row.email]).filter(Boolean).join(" | ");
     if (key === "_phones") return (Array.isArray(row.phones) && row.phones.length ? row.phones : [row.phone || row.phoneDigits]).filter(Boolean).join(" | ");
-    if (key === "_linkWhatsapp") return owWaLink(ckDisplayPhones(row)[0] || row.phone || row.phoneDigits) || "";
+    if (key === "_linkWhatsapp") return owWaLink(ckConfirmedWhatsappPhone(row)) || "";
     if (key === "ownerName") return (Array.isArray(row.ownerNames) && row.ownerNames.length ? row.ownerNames : [row.ownerName]).filter(Boolean).join(" | ");
     return row[key];
   };
@@ -1089,38 +1088,6 @@ async function ckExportAllStream(route, btnSel, fbSel, filePrefix, label) {
 }
 function ckExportAllVps()   { return ckExportAllStream("/owner/vps/export-all", "#btn-export-all", "#export-feedback", "hbx-leads-vps", "da VPS"); }
 function ckExportAllLocal() { return ckExportAllStream("/owner/export-all", "#btn-export-local", "#export-local-feedback", "hbx-leads-local", "local"); }
-
-/* ---------- Mover TUDO pro VPS (envia tudo + limpa o local; SEM cópia) ---------- */
-async function ckSendToVps() {
-  const fb = $("#export-feedback");
-  if (ckSource !== "local") return; // só move o banco local
-  if (!confirm(`MOVER todo o banco local pro VPS (produção) e LIMPAR o local?\n\nEnvia TUDO e apaga a cópia local — sem duplicar. Os leads aparecem na guia VPS.`)) return;
-  fb.textContent = "movendo todo o banco local pro VPS…"; fb.className = "delta";
-  const btn = $("#btn-cockpit-vps");
-  if (btn) btn.disabled = true;
-  pushFeed("Cockpit: movendo TODO o banco local pro VPS (envia + limpa)…", "info");
-  try {
-    // /owner/export-all-leads envia todos e limpa o local por leadIds após o import OK.
-    const r = await api("POST", "/owner/export-all-leads", { confirm: true });
-    if (r.ok && !r.empty) {
-      fb.textContent = `pronto: ${r.exported || 0} movidos pro VPS · ${r.cleared || 0} limpos do local.`; fb.className = "delta up";
-      pushFeed(`Cockpit: ${r.exported || 0} leads movidos pro VPS (local limpo).`, "ok");
-      if (typeof refreshVpsBank === "function") refreshVpsBank(true);
-      if (typeof renderLocalBank === "function") renderLocalBank();
-      loadCockpit();
-    } else if (r.empty) {
-      fb.textContent = "nada pra mover (banco local vazio)."; fb.className = "delta";
-    } else {
-      fb.textContent = r.reason || r.message || "falha ao mover."; fb.className = "delta";
-      pushFeed(`Cockpit mover pro VPS falhou: ${r.reason || r.message || "erro"}.`, "warn");
-    }
-  } catch (err) {
-    fb.textContent = err.message; fb.className = "delta";
-  } finally {
-    if (btn) btn.disabled = false;
-    ckUpdateActionButtons();
-  }
-}
 
 /* ---------- Enriquecer (Email Lab) ---------- */
 const EL_TERMINAL_SET = new Set(["done", "completed", "finished", "failed", "error", "cancelled", "canceled"]);
@@ -1237,115 +1204,6 @@ async function ckCancelEnrich() {
   }
 }
 
-/* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) com progresso vivo ---------- */
-let transferPollTimer = null;
-
-function setBankButtonsDisabled(v) {
-  const b = $("#btn-push-vps");
-  if (b) b.disabled = v;
-}
-
-function paintTransfer(st) {
-  const box = $("#transfer-box");
-  const statusEl = $("#transfer-status");
-  const bar = $("#transfer-bar");
-  const pctEl = $("#transfer-pct");
-  if (box) box.style.display = "";
-  const dirLabel = st.direction === "push" ? "Mandando pro VPS" : "Trazendo pro local";
-  const total = Number(st.total || 0);
-  // processed = leads que JÁ passaram (stream real dos dois lados); fallback pros contadores de detalhe.
-  const processed = Number(st.processed != null ? st.processed : (st.direction === "push" ? st.sent : st.pulled) || 0);
-  // % honesta: processed ÷ total real do banco. Sem total ainda, mostra um fiapo só pra indicar "iniciou".
-  let pct = total ? Math.min(100, Math.round((processed / total) * 100)) : (st.running ? 3 : 0);
-  let line = total
-    ? `${dirLabel}: ${processed.toLocaleString("pt-BR")} / ${total.toLocaleString("pt-BR")}`
-    : `${dirLabel}…`;
-  if (st.phase && !st.done) line += ` · ${st.phase}`;
-  const failed = Number(st.failed || 0);
-  const nf = (n) => Number(n || 0).toLocaleString("pt-BR");
-  if (st.done) {
-    if (st.ok && failed === 0) {
-      pct = 100;
-      const novos = Number(st.imported || 0);
-      if (st.direction === "push") {
-        // TRANSFERÊNCIA: mandou pro VPS e LIMPOU o local — "Sua máquina" zera.
-        const moved = Number(st.sent || 0);
-        const cleared = Number(st.cleared || 0);
-        const vpsT = Number(st.otherTotal || 0);
-        line = `✓ Transferi tudo: ${nf(moved)} enviados pro VPS · ${nf(cleared)} apagados do local.`;
-        line += vpsT ? ` VPS agora ${nf(vpsT)}. Local zerado ✓` : " Local zerado ✓";
-      } else {
-        // Reconciliação HONESTA do pull: total=VPS, otherTotal=local.
-        const localT = Number(st.otherTotal) || 0;
-        const vpsT = Number(st.total) || 0;
-        const moved = Number(st.pulled || 0);
-        line = `✓ Trouxe tudo: ${nf(moved)} processados, ${nf(novos)} novos no destino.`;
-        const ja = Number(st.duplicates || 0), rej = Number(st.rejected || 0);
-        if (ja || rej) line += ` (${nf(ja)} já estavam no local${rej ? `, ${nf(rej)} sem site/não importáveis` : ""})`;
-        if (localT && vpsT) {
-          line += ` Local ${nf(localT)} · VPS ${nf(vpsT)}`;
-          const d = Math.abs(vpsT - localT);
-          if (d === 0) line += " — iguais ✓";
-        }
-      }
-    } else if (st.ok && failed > 0) {
-      // Concluiu mas alguns lotes piscaram — honesto: mostra quanto faltou e que reclicar completa.
-      line = st.direction === "push"
-        ? `⚠ ${nf(st.sent)} enviados · ${nf(failed)} piscaram — reclica pra completar`
-        : `⚠ ${nf(st.imported)} no local · ${nf(failed)} piscaram — reclica pra completar`;
-    } else {
-      // Erro fatal: mantém a barra onde parou — não mente 100%.
-      line = `✕ ${st.error || "falhou"}${processed ? ` (parou em ${nf(processed)})` : ""}`;
-    }
-  }
-  const warnPartial = st.done && st.ok && failed > 0;
-  if (statusEl) { statusEl.textContent = line; statusEl.className = "delta" + (st.done && !st.ok ? "" : " up"); }
-  if (bar) { bar.style.width = pct + "%"; bar.style.background = (st.done && !st.ok) ? "#e5534b" : warnPartial ? "#f0a93b" : "#39d98a"; }
-  if (pctEl) pctEl.textContent = (st.done && !st.ok) ? "—" : pct + "%";
-}
-
-async function pollTransferOnce() {
-  let st;
-  try { st = await api("GET", "/owner/transfer/status"); }
-  catch { return; }
-  paintTransfer(st);
-  if (st.done || !st.running) {
-    if (transferPollTimer) { clearInterval(transferPollTimer); transferPollTimer = null; }
-    setBankButtonsDisabled(false);
-    if (st.ok) {
-      pushFeed(st.direction === "push" ? `Transferidos ${st.sent} leads pro VPS · ${st.cleared || 0} apagados do local.` : `Trazidos ${st.pulled} do VPS (${st.imported} importados).`, "ok");
-    } else if (st.error) {
-      pushFeed(`Transferência: ${st.error}`, "warn");
-    }
-    renderLocalBank();
-    refreshVpsBank(true);
-  }
-}
-
-async function startTransfer(route) {
-  setBankButtonsDisabled(true);
-  const box = $("#transfer-box"); if (box) box.style.display = "";
-  const statusEl = $("#transfer-status"); if (statusEl) { statusEl.textContent = "iniciando…"; statusEl.className = "delta up"; }
-  const bar = $("#transfer-bar"); if (bar) { bar.style.width = "0%"; bar.style.background = "#39d98a"; }
-  try {
-    const r = await api("POST", route, {});
-    if (!r.ok && !r.started) {
-      if (statusEl) { statusEl.textContent = r.reason || r.message || "não iniciou"; statusEl.className = "delta"; }
-      setBankButtonsDisabled(false);
-      return;
-    }
-  } catch (err) {
-    if (statusEl) { statusEl.textContent = err.message; statusEl.className = "delta"; }
-    setBankButtonsDisabled(false);
-    return;
-  }
-  if (transferPollTimer) clearInterval(transferPollTimer);
-  pollTransferOnce();
-  transferPollTimer = setInterval(pollTransferOnce, 1200);
-}
-
-function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
-
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
   const reloadBtn      = $("#btn-cockpit-reload");
@@ -1354,7 +1212,6 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const exportUnclaimedBtn = $("#btn-export-unclaimed");
   const exportAllVpsBtn   = $("#btn-export-all");
   const exportLocalBtn    = $("#btn-export-local");
-  const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
   const nextBtn        = $("#btn-ck-next");
   const clearBtn       = $("#btn-cockpit-clear");
@@ -1366,7 +1223,6 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (exportUnclaimedBtn) exportUnclaimedBtn.addEventListener("click", ckExportUnclaimedContacts);
   if (exportAllVpsBtn) exportAllVpsBtn.addEventListener("click", ckExportAllVps);
   if (exportLocalBtn) exportLocalBtn.addEventListener("click", ckExportAllLocal);
-  if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 
   if (clearBtn)  clearBtn.addEventListener("click", () => {
@@ -1720,11 +1576,10 @@ async function confirmVpsKey(key) {
 
 /* ══════════ OWNERV2 (02/07) — painel único: cartões novos ══════════ */
 
-/* ---------- Fábrica de enriquecimento (coluna LOCAL) ----------
-   Contrato F2 (outro worker implementa o backend): GET /owner/fabrica/status ·
-   POST /owner/fabrica/start {budget} · POST /owner/fabrica/stop. Até o F2 aterrissar,
-   o proxy devolve { ok:false, offline:true } e o card mostra "fábrica offline" — degrade
-   honesto, sem quebrar. O PARAR daqui é o ÚNICO parar do painel (scraping local = seu IP). */
+/* ---------- Night Factory (coluna LOCAL) ----------
+   GET /owner/fabrica/status · POST /owner/fabrica/start {budget} · POST /owner/fabrica/stop
+   são rotas deste processo em 127.0.0.1:3107; não existe executor ou proxy no VPS.
+   O PARAR daqui é o único parar do painel (scraping local = seu IP). */
 async function fabRender() {
   let r;
   try { r = await api("GET", "/owner/fabrica/status"); }
@@ -1735,7 +1590,7 @@ async function fabRender() {
   if (!r || !r.ok) {
     if (pill) { pill.textContent = r && r.offline ? "fábrica offline" : "sem leitura"; pill.className = "pill pill-muted"; }
     if (fb) fb.textContent = r && r.offline
-      ? "Backend da fábrica ainda não publicado (F2) — o card liga sozinho quando a rota existir."
+      ? "HBX Owner local indisponível — abra o aplicativo neste PC para usar a Night Factory."
       : `sem leitura: ${(r && (r.reason || r.error)) || "?"}`;
     set("#fab-processed"); set("#fab-budget-left"); set("#fab-current"); set("#fab-errors");
     return;
@@ -2096,10 +1951,7 @@ async function treeCardsRender() {
 
 /* ---------- Raio-X de CNPJ em lote (HOT-04) ---------- */
 function xraySelectedLayers() {
-  const layers = ["cadastral"]; // sempre ligada (grátis, instantânea) — checkbox fica disabled
-  if ($("#xray-layer-vivo")?.checked) layers.push("vivo");
-  if ($("#xray-layer-ia")?.checked) layers.push("ia");
-  return layers;
+  return ["cadastral"];
 }
 function xrayParsedLines() {
   const raw = String($("#xray-input")?.value || "");
@@ -2151,8 +2003,7 @@ async function xrayStart() {
 }
 
 const XRAY_STATUS_LABEL = {
-  queued: "na fila", running_cadastral: "cadastral…", running_vivo: "vivo…",
-  running_ia: "IA…", done: "concluído", error: "erro",
+  queued: "na fila", running_cadastral: "cadastral…", done: "concluído", error: "erro",
 };
 function xrayStatusPillClass(status) {
   if (status === "done") return "pill-ok";
@@ -2166,11 +2017,11 @@ async function xrayJobsRender() {
   try { r = await api("GET", "/owner/cnpj-xray/jobs"); }
   catch (err) { r = { ok: false, reason: err.message }; }
   if (!r || !r.ok || !Array.isArray(r.jobs)) {
-    tbody.innerHTML = `<tr><td colspan="10" class="delta">${r && r.offline ? "Raio-X offline (backend ainda não publicado)." : "sem leitura do histórico."}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="delta">${r && r.offline ? "Raio-X offline (backend ainda não publicado)." : "sem leitura do histórico."}</td></tr>`;
     return;
   }
   if (!r.jobs.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="delta">nenhum job ainda.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="delta">nenhum job ainda.</td></tr>';
     return;
   }
   tbody.innerHTML = r.jobs.map((j) => {
@@ -2186,8 +2037,6 @@ async function xrayJobsRender() {
       <td>${esc(j.validCount)}</td>
       <td>${esc(j.invalidCount)}</td>
       <td>${esc(j.processedCount)}</td>
-      <td>${esc(j.missionsDone)}/${esc(j.missionsQueued)}</td>
-      <td>${esc(j.aiDone)}</td>
       <td>${esc(created)}</td>
       <td>${action}</td>
     </tr>`;
@@ -2606,7 +2455,7 @@ setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tre
 
 // ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────
 // EventSource escuta /owner/events?token=<TOKEN> (o header Authorization não passa por EventSource;
-// o agent valida o ?token= só nessa rota). Eventos: `snapshot` (árvore composta), `transfer`, `enricher`.
+// o agent valida o ?token= só nessa rota). Eventos: `snapshot` (árvore composta) e `enricher`.
 //
 // FALLBACK À PROVA DE BALA (requisito nº1): o polling NUNCA é removido.
 //  • Sem EventSource no browser → connectSSE() nem tenta; os timers rodam no ritmo ORIGINAL.
@@ -2633,8 +2482,6 @@ function paintSnapshot(snap) {
     renderSistema(local.system, local.bank);
     // VPS: pressão/veredito + banco VPS + motores, tudo com o MESMO generatedAt do snapshot.
     renderVps(vps.system, vps.leads, vps.engines);
-    // Transferência (se houver estado).
-    if (snap.transfer) paintTransferFromEvent(snap.transfer);
     // Integrações (D5): pinta local + VPS pelo snapshot — o badge "VPS …" morre sozinho, sem clique/fetch.
     // Só quando o grid já foi montado (renderIntegrations) e fora de uma injeção/religar em curso (esses
     // fluxos controlam os mesmos badges e não podem ser resetados no meio).
@@ -2645,18 +2492,6 @@ function paintSnapshot(snap) {
     }
   } catch (err) {
     console.warn("[sse] paintSnapshot falhou:", err && err.message);
-  }
-}
-
-// Reusa a lógica de done do polling (feed + recarrega bancos) quando o evento diz done.
-function paintTransferFromEvent(st) {
-  if (!st) return;
-  paintTransfer(st);
-  if (st.done || !st.running) {
-    setBankButtonsDisabled(false);
-    // Ao concluir, refresca os bancos (o snapshot seguinte também traz, mas isto é imediato).
-    renderLocalBank();
-    refreshVpsBank(true);
   }
 }
 
@@ -2683,10 +2518,6 @@ function connectSSE() {
   es.addEventListener("snapshot", (ev) => {
     sseState.errorStreak = 0; sseState.healthy = true;
     try { paintSnapshot(JSON.parse(ev.data)); } catch {}
-  });
-  es.addEventListener("transfer", (ev) => {
-    sseState.errorStreak = 0; sseState.healthy = true;
-    try { paintTransferFromEvent(JSON.parse(ev.data)); } catch {}
   });
   es.addEventListener("error", () => {
     // EventSource re-tenta sozinho (retry nativo). Após 2 erros seguidos, garante o fallback de polling

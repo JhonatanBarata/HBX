@@ -1,14 +1,18 @@
 (function () {
   "use strict";
   const H = window.HBX;
+  const isMobileModule = H.info().mode === "logistica";
   const cached = H.cache.get("vendas-board", null);
   const state = {
     screen: "funnel",
+    funnelView: "list",
     block: "today",
     query: "",
     board: cached,
     report: H.cache.get("vendas-report", null),
     pending: null,
+    products: [],
+    radar: { items: [], total: 0, loading: false, error: null, segment: "", city: "", state: "" },
     selected: null,
     modal: null,
     loading: !cached,
@@ -16,6 +20,13 @@
     error: null,
     toast: null,
   };
+  const stages = [
+    ["novo", "Prospecção", "Faça o 1º contato"],
+    ["contato", "Qualificação", "Classifique o interesse"],
+    ["retorno", "Proposta", "Envie a oferta"],
+    ["qualificado", "Negociação", "Acompanhe até o sim"],
+    ["encerrado", "Fechamento", "Contrato e compromissos"],
+  ];
   const app = document.getElementById("app");
 
   const paths = {
@@ -33,12 +44,15 @@
     user: "<circle cx='12' cy='8' r='4'/><path d='M4 21a8 8 0 0 1 16 0'/>",
     chart: "<path d='M4 20V10M10 20V4M16 20v-7M22 20V7'/>",
     logout: "<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'/>",
+    back: "<path d='m15 18-6-6 6-6'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.more}</svg>`; }
   function initials(name) { return String(name || "Lead").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
   function allLeads() {
     const blocks = state.board && state.board.blocks || {};
-    return ["today", "overdue", "scheduled", "closed"].flatMap(key => Array.isArray(blocks[key]) ? blocks[key] : []);
+    const unique = new Map();
+    ["today", "overdue", "scheduled", "closed"].flatMap(key => Array.isArray(blocks[key]) ? blocks[key] : []).forEach(lead => { if (lead && lead.id) unique.set(String(lead.id), lead); });
+    return [...unique.values()];
   }
   function titleFor(block) { return ({ today: "Hoje", overdue: "Atrasados", scheduled: "Agendados", closed: "Concluídos" })[block] || block; }
   function toast(message, error) {
@@ -52,9 +66,9 @@
   function shell(content) {
     const subtitle = ({ funnel: "Carteira comercial", search: "Clientes e empresas", chat: "Contatos pessoais", agenda: "Próximas ações", more: "Relatórios e ajustes" })[state.screen];
     return `<header class="topbar">
-      <div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>HBX Vendas</strong><span>${subtitle}${state.error ? " · modo offline" : " · sincronizado com o VPS"}</span></div></div>
-      <div class="toolbar"><span class="sync-dot ${state.error ? "offline" : ""}" title="${state.error ? "Sem sinal" : "Online"}"></span><button class="icon-btn" data-action="theme" aria-label="Alternar tema">${icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${state.refreshing ? "disabled" : ""}>${icon("refresh", 18)}</button></div>
-    </header><main class="content">${content}</main>${nav()}${state.modal ? modal() : ""}${state.selected ? leadSheet(state.selected) : ""}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+      <div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>${isMobileModule ? "HBX Mobile · Vendas" : "HBX Vendas"}</strong><span>${subtitle}${state.error ? " · modo offline" : " · sincronizado com o VPS"}</span></div></div>
+      <div class="toolbar">${isMobileModule ? `<button class="icon-btn" data-action="mobile-home" aria-label="Voltar ao HBX Mobile" title="Voltar ao HBX Mobile">${icon("back", 18)}</button>` : ""}<span class="sync-dot ${state.error ? "offline" : ""}" title="${state.error ? "Sem sinal" : "Online"}"></span><button class="icon-btn" data-action="theme" aria-label="Alternar tema">${icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${state.refreshing ? "disabled" : ""}>${icon("refresh", 18)}</button></div>
+    </header><main class="content">${content}</main>${nav()}${state.selected ? leadSheet(state.selected) : ""}${state.modal ? modal() : ""}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
   }
   function nav() {
     const items = [["funnel", "funnel", "Funil"], ["search", "search", "Buscar"], ["chat", "chat", "WhatsApp"], ["agenda", "calendar", "Agenda"], ["more", "more", "Mais"]];
@@ -71,18 +85,18 @@
     if (state.loading) return shell(`<div class="screen-head"><div><h1>Seu funil</h1><p class="subtitle">Carregando carteira…</p></div></div>${loading()}`);
     if (!state.board) return shell(empty("Carteira indisponível", state.error || "Toque em atualizar para tentar novamente."));
     const s = state.board.summary || {};
-    const supply = state.board.radarSupply || {};
     const list = state.board.blocks && state.board.blocks[state.block] || [];
+    const quadro = `<div class="sales-board">${stages.map(([stage, label, sub]) => { const cards = allLeads().filter(lead => String(lead.status || "novo").toLowerCase() === stage); return `<section class="sales-column"><div class="sales-column-head"><strong>${label}</strong><span>${cards.length}</span></div><small>${sub}</small><div class="sales-column-list">${cards.length ? cards.map(card).join("") : `<p>Nenhum lead</p>`}</div></section>`; }).join("")}</div>`;
     return shell(`<div class="screen-head"><div><h1>Seu funil</h1><p class="subtitle">${Number(s.total || 0)} cards na carteira</p></div>${state.board.team ? `<button class="link-btn" data-action="team">Equipe</button>` : ""}</div>
-      <section class="hero"><span class="hero-kicker">● Carteira ativa</span><h2>${supply.unlimited ? "Prospecção sem teto" : `${Number(supply.activeCards || 0)} de ${Number(supply.capacity || 0)} cards ativos`}</h2><p class="muted">${supply.paused ? "Distribuição pausada" : supply.full ? "Carteira cheia — trabalhe os retornos" : `${Number(supply.availableSlots || 0)} espaço(s) disponível(is)`}</p><div class="progress"><i style="width:${supply.unlimited ? 35 : Math.min(100, Math.round((Number(supply.activeCards || 0) / Math.max(1, Number(supply.capacity || 1))) * 100))}%"></i></div></section>
+      <section class="hero"><span class="hero-kicker">● Carteira ativa</span><h2>Sua operação comercial</h2><p class="muted">Todos os leads adquiridos entram na mesma esteira para contato e acompanhamento.</p></section>
       <div class="kpis"><div class="kpi"><span>Hoje</span><strong>${Number(s.today || 0)}</strong><small>ações</small></div><div class="kpi"><span>Atrasados</span><strong>${Number(s.overdue || 0)}</strong><small>prioridade</small></div><div class="kpi"><span>Fechados</span><strong>${Number(s.closed || 0)}</strong><small>histórico</small></div></div>
-      <div class="chips">${["today", "overdue", "scheduled", "closed"].map(key => `<button class="chip ${state.block === key ? "active" : ""}" data-block="${key}">${titleFor(key)} · ${Number(s[key] || 0)}</button>`).join("")}</div>
-      <div class="section-title"><strong>${titleFor(state.block)}</strong><span>${list.length} card(s)</span></div><div class="list">${list.length ? list.map(card).join("") : empty("Tudo limpo por aqui", "Nenhum card nesta faixa.")}</div>`);
+      <div class="sales-view"><button class="${state.funnelView === "list" ? "active" : ""}" data-action="funnel-view" data-view="list">Lista</button><button class="${state.funnelView === "board" ? "active" : ""}" data-action="funnel-view" data-view="board">Quadro</button></div>
+      ${state.funnelView === "board" ? quadro : `<div class="chips">${["today", "overdue", "scheduled", "closed"].map(key => `<button class="chip ${state.block === key ? "active" : ""}" data-block="${key}">${titleFor(key)} · ${Number(s[key] || 0)}</button>`).join("")}</div><div class="section-title"><strong>${titleFor(state.block)}</strong><span>${list.length} card(s)</span></div><div class="list">${list.length ? list.map(card).join("") : empty("Tudo limpo por aqui", "Nenhum card nesta faixa.")}</div>`}`);
   }
   function searchScreen() {
-    const q = state.query.trim().toLowerCase();
-    const leads = allLeads().filter(lead => !q || [lead.name, lead.phone, lead.email, lead.city, lead.segment, lead.address].join(" ").toLowerCase().includes(q));
-    return shell(`<div class="screen-head"><div><h1>Buscar</h1><p class="subtitle">Toda a sua carteira, sem dados inventados</p></div><button class="link-btn" data-action="new-lead">Novo lead</button></div><label class="search">${icon("search", 18)}<input id="lead-search" autocomplete="off" placeholder="Nome, telefone, cidade ou segmento" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Resultados</strong><span>${leads.length}</span></div><div class="list">${leads.length ? leads.map(card).join("") : empty("Nada encontrado", "Tente outro termo ou cadastre manualmente.")}</div><button class="fab" data-action="new-lead" aria-label="Novo lead">+</button>`);
+    const radar = state.radar;
+    const results = radar.items || [];
+    return shell(`<div class="screen-head"><div><h1>Buscar empresas</h1><p class="subtitle">Radar HBX · empresas reais disponíveis</p></div><button class="link-btn" data-action="new-lead">Novo lead</button></div><section class="card card-pad"><form id="radar-search-form"><div class="field"><label>Segmento</label><input name="segment" maxlength="90" value="${H.escape(radar.segment)}" placeholder="Ex.: Distribuidora de água"></div><div class="form-grid"><div class="field"><label>Cidade</label><input name="city" maxlength="90" value="${H.escape(radar.city)}" placeholder="Cidade"></div><div class="field"><label>UF</label><input name="state" maxlength="2" value="${H.escape(radar.state)}" placeholder="SP" style="text-transform:uppercase"></div></div><button class="btn btn-primary btn-block" type="submit" ${radar.loading ? "disabled" : ""}>${radar.loading ? "Buscando…" : "Buscar no Radar"}</button></form></section><div class="section-title"><strong>Disponíveis</strong><span>${Number(radar.total || results.length)}</span></div><div class="list">${radar.loading ? loading() : results.length ? results.map(lead => `<article class="lead-card radar-card"><div class="avatar">${H.escape(initials(lead.name))}</div><div class="card-main"><strong>${H.escape(lead.name || "Empresa")}</strong><span>${H.escape([lead.segment, lead.city, lead.state].filter(Boolean).join(" · ") || "Empresa no Radar")}</span><small>${lead.opportunityScore != null ? `Oportunidade ${Number(lead.opportunityScore)}/100` : "Disponível no Radar"}</small></div><button class="btn btn-primary radar-pull" data-action="radar-pull" data-radar-id="${H.escape(lead.id)}">Puxar</button></article>`).join("") : empty(radar.error ? "Radar indisponível" : "Escolha o recorte", radar.error || "Informe segmento, cidade ou UF e toque em buscar.")}</div><button class="fab" data-action="new-lead" aria-label="Novo lead">+</button>`);
   }
   function chatScreen() {
     const leads = allLeads().filter(lead => H.digits(lead.phone || lead.phoneNormalized));
@@ -106,6 +120,8 @@
     return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${H.escape(initials(lead.name))}</div><div><h2>${H.escape(lead.name || "Lead sem nome")}</h2><p class="subtitle">${H.escape([lead.city, lead.state, lead.segment].filter(Boolean).join(" · ") || phone || "Ficha comercial")}</p></div><button class="close" data-action="close-sheet" aria-label="Fechar">${icon("close", 18)}</button></div>
       <div class="detail-grid"><div class="detail"><span>Status</span><strong>${H.escape(lead.statusLabel || lead.status)}</strong></div><div class="detail"><span>Próxima ação</span><strong>${H.escape(lead.nextAction || "Não definida")}</strong></div><div class="detail"><span>Telefone</span><strong>${H.escape(phone || "Não informado")}</strong></div><div class="detail"><span>Tentativas</span><strong>${Number(lead.attemptCount || 0)}</strong></div></div>
       <div class="actions"><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-primary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div>
+      <div class="sales-quick"><button class="btn btn-primary" data-action="open-sale">Fechar venda</button><button class="btn btn-secondary" data-action="open-negative">Sem interesse</button></div>
+      <div class="section-title"><strong>Etapa no funil</strong></div><div class="sales-stages">${stages.map(([id, label]) => `<button class="${lead.status === id ? "active" : ""}" data-action="lead-stage" data-stage="${id}">${label}</button>`).join("")}</div>
       <div class="section-title"><strong>Atualizar negociação</strong></div><form id="lead-update"><div class="form-grid"><div class="field"><label>Status</label><select name="status">${[["novo", "Novo"], ["contato", "Em contato"], ["retorno", "Retorno"], ["qualificado", "Qualificado"], ["encerrado", "Encerrado"]].map(([v, l]) => `<option value="${v}" ${lead.status === v ? "selected" : ""}>${l}</option>`).join("")}</select></div><div class="field"><label>Data do retorno</label><input name="returnAt" type="datetime-local" value="${lead.returnAt ? new Date(lead.returnAt).toISOString().slice(0, 16) : ""}"></div></div><div class="field"><label>Próxima ação</label><input name="nextAction" maxlength="140" value="${H.escape(lead.nextAction || "")}" placeholder="Ex.: enviar proposta"></div><div class="field"><label>Observação curta</label><textarea name="shortNote" maxlength="280" placeholder="Resumo do que ficou combinado">${H.escape(lead.shortNote || "")}</textarea></div><button class="btn btn-primary btn-block" type="submit">Salvar negociação</button></form>
       ${timeline.length ? `<div class="section-title"><strong>Histórico</strong></div><div class="list">${timeline.map(event => `<div class="row-card"><div class="card-main"><strong>${H.escape(event.title || "Atualização")}</strong><span>${H.escape(event.description || event.resultLabel || "")}</span><small>${H.date(event.createdAt)}</small></div></div>`).join("")}</div>` : ""}</section></div>`;
   }
@@ -115,6 +131,8 @@
       const team = state.board && state.board.team;
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("user", 18)}</div><div><h2>Equipe de vendas</h2><p class="subtitle">Visibilidade definida pelo VPS</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${(team && team.sellers || []).map(s => `<div class="lead-card"><div class="avatar">${H.escape(initials(s.name))}</div><div class="card-main"><strong>${H.escape(s.name)}</strong><span>${s.isMe ? "Sua conta" : "Vendedor"}</span></div><span class="badge ${s.active ? "success" : ""}">${s.active ? "Ativo" : "Inativo"}</span></div>`).join("")}</div></section></div>`;
     }
+    if (state.modal === "negative" && state.selected) return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">−</div><div><h2>Sem interesse</h2><p class="subtitle">${H.escape(state.selected.name || "Lead")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><p class="subtitle">Registre o motivo para não repetir esta abordagem.</p><div class="sales-negative-options">${[["no_answer", "Não atendeu"], ["voicemail", "Caixa postal"], ["not_interested_product", "Não quer produto"]].map(([id, label]) => `<button data-action="negative-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-secondary btn-block" data-action="close-modal">Cancelar</button></section></div>`;
+    if (state.modal === "sale" && state.selected) return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("chart", 18)}</div><div><h2>Fechar venda</h2><p class="subtitle">${H.escape(state.selected.name || "Lead")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="sale-form"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto definido</option>${(state.products || []).map(product => `<option value="${H.escape(product.id)}">${H.escape(product.nome || product.name || "Produto")}</option>`).join("")}</select></div><div class="field"><label>Valor combinado</label><input name="saleValue" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(state.selected.saleValue || "")}" required></div><p class="subtitle">A confirmação fecha o card no funil. Cobranças e contratação seguem as permissões do VPS.</p><button class="btn btn-primary btn-block" type="submit">Confirmar venda</button></form></section></div>`;
     return "";
   }
   function render() {
@@ -126,7 +144,7 @@
     state.refreshing = true;
     if (!silent && !state.board) state.loading = true;
     render();
-    const results = await Promise.allSettled([H.api("/vendas/board"), H.api("/vendas/report?period=30d"), H.api("/vendas/pending-summary")]);
+    const results = await Promise.allSettled([H.api("/vendas/board"), H.api("/vendas/report?period=30d"), H.api("/vendas/pending-summary"), H.api("/products?status=active")]);
     if (results[0].status === "fulfilled") {
       state.board = results[0].value;
       H.cache.set("vendas-board", state.board);
@@ -136,9 +154,36 @@
     }
     if (results[1].status === "fulfilled") { state.report = results[1].value; H.cache.set("vendas-report", state.report); }
     if (results[2].status === "fulfilled") state.pending = results[2].value;
+    if (results[3].status === "fulfilled") { const products = results[3].value; state.products = Array.isArray(products) ? products : products && products.items || []; }
     state.loading = false;
     state.refreshing = false;
     render();
+  }
+  async function loadRadar(filters) {
+    const radar = state.radar; const next = { ...radar, ...filters, loading: true, error: null }; state.radar = next; render();
+    try {
+      const params = new URLSearchParams({ page: "1", limit: "24", scope: "vitrine" });
+      if (next.segment.trim()) params.set("segment", next.segment.trim());
+      if (next.city.trim()) params.set("city", next.city.trim());
+      if (next.state.trim()) params.set("state", next.state.trim().toUpperCase());
+      const response = await H.api(`/webscraping/radar/leads?${params.toString()}`);
+      state.radar = { ...next, items: Array.isArray(response && response.items) ? response.items : [], total: Number(response && (response.meta && response.meta.totalAvailable || response.total) || 0), loading: false };
+    } catch (error) { state.radar = { ...next, loading: false, error: errorText(error) }; }
+    render();
+  }
+  async function pullRadarLead(id) {
+    const lead = (state.radar.items || []).find(item => String(item.id) === String(id)); if (!lead) return;
+    try {
+      toast("Puxando para o funil…");
+      const response = await H.api(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, { method: "POST", body: {} });
+      const operationId = response && (response.operationId || response.operation && response.operation.operationId);
+      if (operationId) {
+        let completed = false;
+        for (let attempt = 0; attempt < 20; attempt += 1) { await new Promise(resolve => setTimeout(resolve, 700)); const operation = await H.api(`/webscraping/radar/claim-runs/${encodeURIComponent(operationId)}`); const status = String(operation && (operation.status || operation.operation && operation.operation.status) || "").toLowerCase(); if (["completed", "completed_with_warnings", "completed_insufficient_results", "done", "success"].includes(status)) { completed = true; break; } if (["failed", "error", "refunded", "canceled"].includes(status)) throw new Error(operation.message || "O VPS não concluiu o envio do lead."); }
+        if (!completed) throw new Error("O VPS ainda está preparando o lead. Atualize o funil em alguns segundos.");
+      }
+      await loadRadar({}); await refresh(true); toast("Lead puxado para o funil.");
+    } catch (error) { toast(errorText(error), true); }
   }
   async function registerAttempt(lead, channel) {
     try { await H.api(`/vendas/lead/${encodeURIComponent(lead.id)}/attempt`, { method: "POST", body: { channel } }); }
@@ -151,7 +196,7 @@
     H.whatsapp(phone, `Olá, ${lead.name || "tudo bem"}? Estou entrando em contato pela equipe comercial. ${lead.nextAction || "Como posso ajudar?"}`);
   }
 
-  app.addEventListener("click", event => {
+  app.addEventListener("click", async event => {
     if (event.target.closest(".sheet,.modal") && !event.target.closest("[data-screen],[data-action],[data-block],[data-lead],[data-wa]")) return;
     const target = event.target.closest("[data-screen],[data-action],[data-block],[data-lead],[data-wa]");
     if (!target) return;
@@ -160,15 +205,22 @@
     if (target.dataset.lead) { state.selected = allLeads().find(item => item.id === target.dataset.lead) || null; render(); return; }
     if (target.dataset.wa) { const lead = allLeads().find(item => item.id === target.dataset.wa); if (lead) openWhatsapp(lead); return; }
     const action = target.dataset.action;
+    if (action === "mobile-home" && isMobileModule) { window.location.replace("../app/index.html"); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
     if (action === "new-lead") { state.modal = "new-lead"; render(); }
     if (action === "team") { state.modal = "team"; render(); }
+    if (action === "funnel-view") { state.funnelView = target.dataset.view === "board" ? "board" : "list"; render(); }
+    if (action === "open-sale" && state.selected) { state.modal = "sale"; render(); }
+    if (action === "open-negative" && state.selected) { state.modal = "negative"; render(); }
+    if (action === "lead-stage" && state.selected) { const stage = target.dataset.stage; if (!stages.some(([id]) => id === stage) || stage === state.selected.status) return; try { await H.api(`/vendas/lead/${encodeURIComponent(state.selected.id)}`, { method: "PATCH", body: { status: stage } }); state.selected = null; await refresh(true); toast("Etapa atualizada."); } catch (error) { toast(errorText(error), true); } }
+    if (action === "negative-reason" && state.selected) { try { await H.api(`/vendas/lead/${encodeURIComponent(state.selected.id)}/negativar`, { method: "POST", body: { status: target.dataset.reason } }); state.modal = null; state.selected = null; await refresh(true); toast("Lead marcado como sem interesse."); } catch (error) { toast(errorText(error), true); } }
+    if (action === "radar-pull") { await pullRadarLead(target.dataset.radarId); }
     if (action === "close-modal") { state.modal = null; render(); }
     if (action === "close-sheet") { state.selected = null; render(); }
     if (action === "call" && state.selected) { registerAttempt(state.selected, "ligacao"); H.call(state.selected.phone || state.selected.phoneNormalized); }
     if (action === "whatsapp" && state.selected) openWhatsapp(state.selected);
-    if (action === "logout") { if (confirm("Desvincular este aparelho do HBX Vendas?")) H.logout(); }
+    if (action === "logout") { if (confirm(`Desvincular este aparelho do ${isMobileModule ? "HBX Mobile" : "HBX Vendas"}?`)) H.logout(); }
   });
   app.addEventListener("input", event => {
     if (event.target.id !== "lead-search") return;
@@ -202,6 +254,17 @@
         state.selected = null;
         await refresh(true);
         toast("Negociação atualizada.");
+      }
+      if (form.id === "sale-form" && state.selected) {
+        const data = Object.fromEntries(new FormData(form).entries());
+        const saleValue = Number(data.saleValue || 0); if (!(saleValue > 0)) throw new Error("Informe o valor combinado.");
+        const body = { saleValue, status: "encerrado" }; if (data.productId) body.productId = Number(data.productId);
+        await H.api(`/vendas/lead/${encodeURIComponent(state.selected.id)}`, { method: "PATCH", body });
+        state.modal = null; state.selected = null; await refresh(true); toast("Venda registrada no funil.");
+      }
+      if (form.id === "radar-search-form") {
+        const data = Object.fromEntries(new FormData(form).entries());
+        await loadRadar({ segment: String(data.segment || ""), city: String(data.city || ""), state: String(data.state || "").toUpperCase() });
       }
     } catch (error) {
       button.disabled = false;

@@ -1,20 +1,20 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  inspectRadarPaidAcquisitionProof,
+  type RadarPaidAcquisitionProof,
+} from './radar-paid-acquisition-proof';
 
-// ─── SPRINT 4 MOTOR-RFB-FILA (02/07) — fila de missões real ─────────────────────────────────────
-// Substitui o controle por loops (factoryPump/cursor/lock) por fila com: retry+backoff, lease com
-// TTL/heartbeat, dead-letter e pausa que pausa. Formato da PONTE: a fila mora na VPS e o nó LOCAL
-// PUXA missão por HTTP (pull, nunca push) — ver RadarMissionsController (/modules/owner/missions).
-// A família de bugs caros (pump moendo cidade esgotada, lease órfão → deadlock todos-busy, Parar que
-// não para, demanda falsa religando motor) era toda sintoma da fila improvisada.
+// Fila durável das duas tarefas que a PONTE local do HBX Owner pode executar. A VPS apenas
+// persiste leases/retries; o nó local PUXA por HTTP (nunca recebe execução por push).
 
 // `enrich_lead`: missão de um lead já existente, consumida exclusivamente pela ponte do HBX Owner
 // local e aplicada via LeadContactWriteService. Não existe executor da Night Factory no VPS.
 // `xray_note` (CHIP E1, 05/07): missão de NOTA ICP + resumo do raio-x, processada pela PONTE no 30B
 // local (o T1 provou que o 30B RANQUEIA a nota — sai do interino 4b/7b da VPS). A nota grava no lead
 // via o caminho de aplicação de resultado (MissionResultApplyService), nunca direto pelo worker.
-export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead', 'xray_note'] as const;
+export const RADAR_MISSION_STAGES = ['enrich_lead', 'xray_note'] as const;
 export type RadarMissionStage = (typeof RADAR_MISSION_STAGES)[number];
 
 /** Estágios que a PONTE (worker local do 30B) processa por lease/HTTP. */
@@ -118,6 +118,13 @@ type EnqueueInput = {
   priority?: number | null;
 };
 
+export type EnqueuePaidAcquisitionMissionInput = RadarPaidAcquisitionProof & {
+  stage: RadarMissionStage;
+  payload?: Record<string, unknown> | null;
+  maxAttempts?: number | null;
+  priority?: number | null;
+};
+
 @Injectable()
 export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RadarMissionQueueService.name);
@@ -154,23 +161,47 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pausa REAL: fonte única = RadarFactoryCursor.enabled (o mesmo interruptor do PARAR TUDO / PAINEL
-   * ABSOLUTO). Ausência de cursor/tabela ou enabled !== true = PAUSADO — nunca assume "ligado" na dúvida.
-   * Fila pausada → lease devolve vazio → NADA drena e contadores de fonte ficam congelados.
+   * A VPS apenas guarda a fila. O consumo ocorre por pull autenticado do HBX Owner local.
+   * Ausência do opt-in explícito pausa o lease (fail-closed); não existe mais cursor/fábrica
+   * residente no backend capaz de iniciar processamento sozinho.
    */
   async isQueuePaused(): Promise<boolean> {
-    const hasCursor = await this.prisma.hasTable('RadarFactoryCursor').catch(() => false);
-    if (!hasCursor) return true;
-    const cursor = await (this.prisma as any).radarFactoryCursor
-      .findUnique({ where: { key: 'main' }, select: { enabled: true } })
-      .catch(() => null);
-    return !cursor || cursor.enabled !== true;
+    return !isMissionQueueEnabled();
   }
 
-  /** Emissão idempotente: dedupeKey vivo (queued/leased) não duplica; terminal (completed/dead/canceled) re-arma. */
-  async enqueue(input: EnqueueInput): Promise<{ created: boolean; missionId: string | null }> {
+  /**
+   * Unica porta de producao. A missao e criada dentro da mesma transacao que
+   * revalida state adquirido + ledger ativo + card da saga. Repetir a mesma
+   * operacao nunca rearma terminal; redrive continua sendo uma acao explicita.
+   */
+  async enqueuePaidAcquisitionMission(input: EnqueuePaidAcquisitionMissionInput): Promise<{ created: boolean; missionId: string | null }> {
+    if (!(RADAR_MISSION_STAGES as readonly string[]).includes(String(input.stage || ''))) {
+      throw new Error(`RADAR_MISSION_STAGE_BLOCKED:${String(input.stage || '')}`);
+    }
     if (!(await this.supportsMissionPersistence())) return { created: false, missionId: null };
-    const db = this.prisma as any;
+    const proofPayload = {
+      companyId: Math.trunc(Number(input.companyId || 0)),
+      radarLeadId: String(input.radarLeadId || '').trim(),
+      claimOperationId: String(input.claimOperationId || '').trim(),
+      claimUsageKey: String(input.claimUsageKey || '').trim(),
+    };
+    const prisma = this.prisma as any;
+    return prisma.$transaction(async (tx: any) => {
+      const proof = await inspectRadarPaidAcquisitionProof(tx, proofPayload);
+      if ('reason' in proof) throw new Error(`RADAR_MISSION_PAID_PROOF_REQUIRED:${proof.reason}`);
+      return this.enqueueVerified(tx, {
+        stage: input.stage,
+        payload: { ...(input.payload || {}), ...proofPayload },
+        dedupeKey: `claim:${proofPayload.claimOperationId}`,
+        correlationId: proofPayload.claimOperationId,
+        maxAttempts: input.maxAttempts,
+        priority: input.priority,
+      });
+    });
+  }
+
+  /** Persistencia interna; somente a porta paga acima e testes unitarios da fila a exercitam. */
+  private async enqueueVerified(db: any, input: EnqueueInput): Promise<{ created: boolean; missionId: string | null }> {
     const now = new Date();
     const data = {
       stage: input.stage,
@@ -197,9 +228,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, status: true },
       }).catch(() => null);
       if (existing) {
-        if (['queued', 'leased'].includes(String(existing.status))) return { created: false, missionId: existing.id };
-        await db.radarMission.update({ where: { id: existing.id }, data }).catch(() => null);
-        return { created: true, missionId: existing.id };
+        return { created: false, missionId: existing.id };
       }
     }
     try {
@@ -240,9 +269,12 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const batchSize = Math.min(Math.max(1, Math.trunc(Number(input.batchSize) || 1)), 20);
     const ttlMs = Math.min(Math.max(Number(input.leaseTtlMs) || resolveMissionLeaseTtlMs(), 30_000), 900_000);
-    const stages = (input.stages || []).filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage));
-    const where: any = { status: 'queued', nextAttemptAt: { lte: now } };
-    if (stages.length) where.stage = { in: stages };
+    const requestedStages = input.stages || [];
+    if (requestedStages.some((stage) => !(RADAR_MISSION_STAGES as readonly string[]).includes(String(stage)))) {
+      throw new Error('RADAR_MISSION_STAGE_BLOCKED');
+    }
+    const stages = requestedStages.length ? requestedStages : [...RADAR_MISSION_STAGES];
+    const where: any = { stage: { in: stages }, status: 'queued', nextAttemptAt: { lte: now } };
     if (input.correlationId) where.correlationId = input.correlationId;
 
     const candidates = await db.radarMission.findMany({
@@ -254,6 +286,20 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const missions: RadarMissionLeaseDto[] = [];
     for (const candidate of candidates) {
       if (missions.length >= batchSize) break;
+      let proofValid = false;
+      try {
+        proofValid = (await inspectRadarPaidAcquisitionProof(db, candidate.payloadJson || {})).valid;
+      } catch {
+        // Banco ambiguo: nao entrega nem cancela; a proxima rodada tenta de novo.
+        continue;
+      }
+      if (!proofValid) {
+        await db.radarMission.updateMany({
+          where: { id: candidate.id, status: 'queued' },
+          data: { status: 'canceled', lastError: 'prova paga ausente ou revogada', leaseExpiresAt: null },
+        }).catch(() => ({ count: 0 }));
+        continue;
+      }
       const leaseId = randomUUID();
       const leaseExpiresAt = new Date(Date.now() + ttlMs);
       const claimed = await db.radarMission.updateMany({
@@ -287,7 +333,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   async heartbeat(missionId: string, leaseId: string): Promise<{ ok: boolean; reason?: string }> {
     if (!(await this.supportsMissionPersistence())) return { ok: false, reason: 'unsupported' };
     const updated = await (this.prisma as any).radarMission.updateMany({
-      where: { id: String(missionId || ''), leaseId: String(leaseId || ''), status: 'leased' },
+      where: { id: String(missionId || ''), stage: { in: [...RADAR_MISSION_STAGES] }, leaseId: String(leaseId || ''), status: 'leased' },
       data: { heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + resolveMissionLeaseTtlMs()) },
     }).catch(() => ({ count: 0 }));
     return updated.count > 0 ? { ok: true } : { ok: false, reason: 'stale_lease' };
@@ -306,8 +352,8 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const db = this.prisma as any;
     const id = String(missionId || '');
     const lease = String(leaseId || '');
-    const row = await db.radarMission.findUnique({
-      where: { id },
+    const row = await db.radarMission.findFirst({
+      where: { id, stage: { in: [...RADAR_MISSION_STAGES] } },
       select: { stage: true, payloadJson: true, status: true, leaseId: true },
     }).catch(() => null);
     if (!row) return { ok: false, reason: 'not_found' };
@@ -326,7 +372,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const id = String(missionId || '');
     const lease = String(leaseId || '');
     const updated = await db.radarMission.updateMany({
-      where: { id, leaseId: lease, status: 'leased' },
+      where: { id, stage: { in: [...RADAR_MISSION_STAGES] }, leaseId: lease, status: 'leased' },
       data: {
         status: 'completed',
         resultJson: (result || null) as any,
@@ -336,7 +382,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       },
     }).catch(() => ({ count: 0 }));
     if (updated.count > 0) return { ok: true };
-    const row = await db.radarMission.findUnique({ where: { id }, select: { status: true, leaseId: true } }).catch(() => null);
+    const row = await db.radarMission.findFirst({ where: { id, stage: { in: [...RADAR_MISSION_STAGES] } }, select: { status: true, leaseId: true } }).catch(() => null);
     if (!row) return { ok: false, reason: 'not_found' };
     if (row.status === 'completed' && row.leaseId === lease) return { ok: true, idempotent: true };
     return { ok: false, reason: 'stale_lease' };
@@ -349,11 +395,11 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const id = String(missionId || '');
     const lease = String(leaseId || '');
     const row = await db.radarMission.findFirst({
-      where: { id, leaseId: lease, status: 'leased' },
+      where: { id, stage: { in: [...RADAR_MISSION_STAGES] }, leaseId: lease, status: 'leased' },
       select: { attempts: true, maxAttempts: true },
     }).catch(() => null);
     if (!row) {
-      const current = await db.radarMission.findUnique({ where: { id }, select: { status: true, leaseId: true } }).catch(() => null);
+      const current = await db.radarMission.findFirst({ where: { id, stage: { in: [...RADAR_MISSION_STAGES] } }, select: { status: true, leaseId: true } }).catch(() => null);
       if (!current) return { ok: false, reason: 'not_found' };
       if (current.leaseId === lease && ['queued', 'dead'].includes(String(current.status))) {
         return { ok: true, status: current.status, idempotent: true };
@@ -389,7 +435,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const db = this.prisma as any;
     const now = new Date();
     const expired = await db.radarMission.findMany({
-      where: { status: 'leased', leaseExpiresAt: { lt: now } },
+      where: { stage: { in: [...RADAR_MISSION_STAGES] }, status: 'leased', leaseExpiresAt: { lt: now } },
       select: { id: true, attempts: true, maxAttempts: true, leaseExpiresAt: true },
       take: 200,
     }).catch(() => []);
@@ -418,8 +464,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   /** Redrive do dead-letter: volta missões 'dead' pra fila com tentativas zeradas. */
   async redriveDead(input: { stage?: RadarMissionStage | null; ids?: string[] | null } = {}): Promise<{ redriven: number }> {
     if (!(await this.supportsMissionPersistence())) return { redriven: 0 };
-    const where: any = { status: 'dead' };
-    if (input.stage) where.stage = input.stage;
+    const where: any = { stage: input.stage || { in: [...RADAR_MISSION_STAGES] }, status: 'dead' };
     if (input.ids?.length) where.id = { in: input.ids.slice(0, 200) };
     const updated = await (this.prisma as any).radarMission.updateMany({
       where,
@@ -432,7 +477,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     if (!(await this.supportsMissionPersistence())) return { supported: false, paused: true, byStageStatus: [], lag: { queuedDue: 0, oldestQueuedAgeMs: 0 } };
     const db = this.prisma as any;
     const [grouped, paused, lag, activity] = await Promise.all([
-      db.radarMission.groupBy({ by: ['stage', 'status'], _count: { _all: true } }).catch(() => []),
+      db.radarMission.groupBy({ by: ['stage', 'status'], where: { stage: { in: [...RADAR_MISSION_STAGES] } }, _count: { _all: true } }).catch(() => []),
       this.isQueuePaused(),
       this.getQueueLagSnapshot(),
       this.getActivitySnapshot(),
@@ -456,9 +501,9 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const db = this.prisma as any;
     const now = new Date();
     const [queuedDue, oldest] = await Promise.all([
-      db.radarMission.count({ where: { status: 'queued', nextAttemptAt: { lte: now } } }).catch(() => 0),
+      db.radarMission.count({ where: { stage: { in: [...RADAR_MISSION_STAGES] }, status: 'queued', nextAttemptAt: { lte: now } } }).catch(() => 0),
       db.radarMission.findFirst({
-        where: { status: 'queued', nextAttemptAt: { lte: now } },
+        where: { stage: { in: [...RADAR_MISSION_STAGES] }, status: 'queued', nextAttemptAt: { lte: now } },
         orderBy: { nextAttemptAt: 'asc' },
         select: { nextAttemptAt: true, createdAt: true },
       }).catch(() => null),

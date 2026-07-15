@@ -7,9 +7,8 @@
 // - sourceChain  = quem DESCOBRIU o lead ("rfb", "web" ou "rfb+web" — fusão REAL de descoberta).
 // - enrichedBy   = quem só ENRIQUECEU (informação separada, opcional — enriquecimento NUNCA
 //                  vira fusão de descoberta no medidor).
-// Rótulos de corrida/processo (hbx_mass_data, hbx_campaign, fabrica_enriquecimento, current,
-// radar_database, company_history, vendas_automation...) NÃO têm lane de propósito: corrida
-// processa e banco relembra — nenhum dos dois descobre.
+// Rótulos internos de processo/banco (current, radar_database, company_history,
+// vendas_automation...) NÃO têm lane: processar ou relembrar não equivale a descobrir.
 
 export type RadarSourceLane = 'rfb' | 'web';
 
@@ -34,7 +33,7 @@ export function radarSourceLaneOf(value: unknown): RadarSourceLane | null {
   // Variantes reais do motor Python (schemas.py/search_service.py/agenda_sources.py):
   // hbx_scraping, hbx_scraping:web, hbx_scraping:free_pj, hbx_scraping:social_*,
   // hbx_scraping_social, hbx_agenda:web, hbx_agenda:abctelefonos. Prefixo cobre todas —
-  // e NÃO captura hbx_mass_data/hbx_campaign (engines de corrida, sem lane).
+  // O prefixo cobre somente fontes reais do motor; rótulos internos continuam sem lane.
   if (key.startsWith('hbx_scraping') || key.startsWith('hbx_agenda')) return 'web';
   return null;
 }

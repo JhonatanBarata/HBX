@@ -7,6 +7,7 @@
   const state = {
     screen: "route",
     route: H.cache.get("logistica-route", null),
+    routeSelection: H.cache.get("logistica-route-selection", null),
     products: H.cache.get("logistica-products", []),
     clients: [],
     clientsPage: 0,
@@ -25,6 +26,7 @@
     error: null,
     toast: null,
     screenMotion: "",
+    navMotionFrom: null,
     closingOverlay: null,
     openingOverlay: null,
     daySelection: [],
@@ -35,6 +37,8 @@
     dayPreviewError: null,
     dayMode: "start",
     dayStarting: false,
+    dayReview: false,
+    dayReviewCountdown: 10,
     clientProductDays: [],
     clientProductMode: "",
     clientProductDraft: { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "" },
@@ -43,10 +47,21 @@
     clientProductsError: null,
     clientProductEditingId: null,
     clientDetail: null,
-    clientPaymentDraft: { limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "" },
+    clientPaymentDraft: { phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "" },
     newClientDraft: { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null },
     newClientCepStatus: "",
     newClientGpsLoading: false,
+    deliveryDraft: null,
+    deliveryReason: "",
+    deliveryNotDelivered: false,
+    deliveryArrived: false,
+    deliveryProductPicker: false,
+    nextStop: null,
+    nextCountdown: 5,
+    routePaused: H.cache.get("logistica-route-paused", false) === true,
+    distanceWarning: null,
+    distanceOverrideDeliveryId: null,
+    confirmation: null,
   };
   const app = document.getElementById("app");
   let clientsRequestId = 0;
@@ -54,10 +69,16 @@
   let touchStart = null;
   let clientProductHold = null;
   let ignoredClientProductClickId = null;
+  let routeStopHold = null;
+  let ignoredRouteStopClickId = null;
   let dayPreviewRequestId = 0;
+  let dayReviewTimer = null;
+  let navMotionTimer = null;
+  let nextStopTimer = null;
   let routeMap = null;
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
+  const roadGeometryCache = new Map();
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
     users: "<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'/>",
@@ -75,19 +96,29 @@
     logout: "<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'/>",
     gps: "<circle cx='12' cy='12' r='3'/><circle cx='12' cy='12' r='8'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3'/>",
     search: "<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>",
+    sales: "<path d='M4 20V10M10 20V4M16 20v-7M22 20V7'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
   function err(error) { return error instanceof Error ? error.message : "Não foi possível concluir."; }
-  function items() { return state.route && Array.isArray(state.route.items) ? state.route.items : []; }
-  function openItems() { return items().filter(item => item.status === "agendada" || item.status === "em_rota").sort((a, b) => Number(a.rotaOrdem ?? 9999) - Number(b.rotaOrdem ?? 9999)); }
+  function allRouteItems() { return state.route && Array.isArray(state.route.items) ? state.route.items : []; }
+  function activeRouteSelectionIds() {
+    const selection = state.routeSelection;
+    if (!selection || !state.route || selection.date !== state.route.date || !Array.isArray(selection.ids) || !selection.ids.length) return null;
+    return new Set(selection.ids.map(String));
+  }
+  function items() { const selected = activeRouteSelectionIds(); return selected ? allRouteItems().filter(item => selected.has(String(item.id))) : allRouteItems(); }
+  function storedRouteOrder(item) { const raw = item && item.rotaOrdem; return raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : null; }
+  function orderedItems() { return items().map((item, index) => ({ item, index, order: storedRouteOrder(item) })).sort((a, b) => a.order === null && b.order === null ? a.index - b.index : a.order === null ? 1 : b.order === null ? -1 : a.order - b.order).map(row => row.item); }
+  function openItems() { return orderedItems().filter(item => item.status === "agendada" || item.status === "em_rota"); }
   function deliveredItems() { return items().filter(item => item.status === "entregue"); }
   function isAdmin() { return !!state.config && Object.prototype.hasOwnProperty.call(state.config, "modoRotaPadrao"); }
-  function routeActive() { return state.route && state.route.routeStatus === "ACTIVE"; }
+  function serverRouteActive() { return !!(state.route && state.route.routeStatus === "ACTIVE"); }
+  function routeActive() { return serverRouteActive() && !state.routePaused; }
   function routeTracked() { return !!(state.route && state.route.trackingRequired); }
   function address(client) { return [client && client.endereco, [client && client.cidade, client && client.uf].filter(Boolean).join(" - ")].filter(Boolean).join(", ") || "Sem endereço cadastrado"; }
   function toast(message, error) { state.toast = { message, error: !!error }; render(); clearTimeout(toast.timer); toast.timer = setTimeout(() => { state.toast = null; render(); }, 2600); }
-  function routeMapPoints() { return [...items()].sort((a, b) => Number(a.rotaOrdem ?? 9999) - Number(b.rotaOrdem ?? 9999)).map((item, index) => { const client = item.cliente || {}; const lat = Number(client.lat); const lng = Number(client.lng); return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 ? { item, lat, lng, number: Number.isFinite(Number(item.rotaOrdem)) ? Number(item.rotaOrdem) + 1 : index + 1 } : null; }).filter(Boolean); }
+  function routeMapPoints() { return orderedItems().map((item, index) => { const client = item.cliente || {}; const lat = Number(client.lat); const lng = Number(client.lng); return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 ? { item, lat, lng, number: index + 1 } : null; }).filter(Boolean); }
   function disposeRouteMap() { if (routeMap) { routeMap.remove(); routeMap = null; } routeMapHost = null; }
   function loadRouteMapLibrary() {
     if (window.maplibregl) return Promise.resolve(window.maplibregl);
@@ -99,40 +130,95 @@
     });
     return routeMapLibraryPromise;
   }
-  async function mountRouteMap() {
-    const host = document.getElementById("route-live-map"); const points = routeMapPoints();
+  async function roadGeometry(points) {
+    const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
+    if (coordinates.length < 2) return [];
+    const key = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
+    if (roadGeometryCache.has(key)) return roadGeometryCache.get(key);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+    try {
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${key}?overview=full&geometries=geojson&steps=false`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Roteamento indisponível.");
+      const payload = await response.json();
+      const routed = payload && payload.code === "Ok" && payload.routes && payload.routes[0] && payload.routes[0].geometry && payload.routes[0].geometry.coordinates;
+      if (!Array.isArray(routed) || routed.length < 2) throw new Error("Rota viária não encontrada.");
+      roadGeometryCache.set(key, routed);
+      if (roadGeometryCache.size > 12) roadGeometryCache.delete(roadGeometryCache.keys().next().value);
+      return routed;
+    } finally { clearTimeout(timeout); }
+  }
+  function dayPreviewMapPoints() {
+    const routeItems = allRouteItems();
+    return (state.dayPreview || []).map((client, index) => {
+      const profileId = client && client.customerProfileId;
+      const localId = client && client.localId;
+      const routeItem = routeItems.find(item => {
+        const sameProfile = profileId && [item.customerProfileId, item.cliente && item.cliente.id, item.clienteId].some(id => String(id) === String(profileId));
+        const sameLocal = localId && [item.localId, item.cliente && item.cliente.localId].some(id => String(id) === String(localId));
+        return sameProfile && (!localId || sameLocal || !item.localId);
+      });
+      const located = routeItem && routeItem.cliente || client || {};
+      const previewLat = client ? (client.lat ?? client.latitude) : null; const previewLng = client ? (client.lng ?? client.longitude) : null;
+      const lat = Number(previewLat ?? located.lat); const lng = Number(previewLng ?? located.lng);
+      return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 ? { item: routeItem || client, lat, lng, number: index + 1 } : null;
+    }).filter(Boolean);
+  }
+  async function mountMap(hostId, points, interactive) {
+    const host = document.getElementById(hostId);
     if (!host || !points.length) return;
     try {
       const maplibregl = await loadRouteMapLibrary();
-      if (!host.isConnected || host !== document.getElementById("route-live-map")) return;
+      if (!host.isConnected || host !== document.getElementById(hostId)) return;
       disposeRouteMap(); routeMapHost = host;
       const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [points[0].lng, points[0].lat], zoom: 12, attributionControl: { compact: true }, cooperativeGestures: false });
       routeMap = map;
-      map.on("load", () => {
+      map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
-        const coordinates = points.map(point => [point.lng, point.lat]);
-        map.addSource("hbx-route-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } });
-        map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .9 } });
-        points.forEach(point => { const pin = document.createElement("button"); pin.type = "button"; pin.className = "route-map-pin"; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`); pin.addEventListener("click", () => showSheet(point.item)); new maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map); });
+        points.forEach(point => { const pin = document.createElement(interactive ? "button" : "span"); if (interactive) pin.type = "button"; pin.className = "route-map-pin"; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`); if (interactive) pin.addEventListener("click", () => showSheet(point.item)); new maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map); });
         const bounds = new maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat])); if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: 0 });
         host.classList.add("is-ready");
+        try {
+          const coordinates = await roadGeometry(points);
+          if (routeMap !== map || routeMapHost !== host || coordinates.length < 2) return;
+          map.addSource("hbx-route-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } });
+          map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .9 } });
+        } catch (_) {
+          // Sem resposta viária, mantenha somente os pinos. Uma linha reta entre
+          // casas seria visualmente falsa e não pode ser apresentada como rota.
+        }
       });
       map.on("error", () => {});
     } catch (_) { if (host.isConnected) host.innerHTML = `<span class="route-map-unavailable">Não foi possível carregar o mapa agora.</span>`; }
   }
+  function mountRouteMap() { return mountMap("route-live-map", routeMapPoints(), true); }
+  function mountDayReviewMap() { return mountMap("route-plan-preview-map", dayPreviewMapPoints(), false); }
 
   function shell(content) {
     const subtitle = ({ route: "Rota de hoje", clients: "Clientes", products: "Produtos", settings: "Ajustes" })[state.screen];
-    return `<header class="topbar"><div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>HBX Logística</strong><span>${subtitle}${state.error ? " · sem sinal" : " · conectado ao VPS"}</span></div></div><div class="toolbar"><span class="sync-dot ${state.error ? "offline" : ""}"></span><button class="icon-btn" data-action="theme" aria-label="Tema">${icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${state.refreshing ? "disabled" : ""}>${icon("refresh", 18)}</button></div></header><main class="content ${state.screenMotion ? `screen-enter-${state.screenMotion}` : ""}">${content}</main>${nav()}${state.modal ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : ""}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
+    const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
+    return `<header class="topbar"><div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>HBX Mobile</strong><span>${subtitle}${state.error ? " · sem sinal" : " · conectado ao VPS"}</span></div></div><div class="toolbar"><span class="sync-dot ${state.error ? "offline" : ""}"></span><button class="icon-btn" data-action="theme" aria-label="Tema">${icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${state.refreshing ? "disabled" : ""}>${icon("refresh", 18)}</button></div></header><main class="content ${state.screenMotion ? `screen-enter-${state.screenMotion}` : ""}">${content}</main>${nav()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
   }
-  function nav() { const rows = [["route", "route", "Rota"], ["clients", "users", "Clientes"], ["products", "box", "Produtos"], ["settings", "gear", "Ajustes"]]; return `<nav class="bottom-nav" style="--nav-count:4">${rows.map(([id, ic, label]) => `<button class="nav-btn ${state.screen === id ? "active" : ""}" data-screen="${id}">${icon(ic)}<span>${label}</span></button>`).join("")}</nav>`; }
+  function nav() { const rows = [["route", "route", "Rota"], ["clients", "users", "Clientes"], ["products", "box", "Produtos"], ["settings", "gear", "Ajustes"], ["sales", "sales", "Vendas"]]; const activeIndex = Math.max(0, rows.findIndex(([id]) => id === state.screen)); const moving = Number.isInteger(state.navMotionFrom) && state.navMotionFrom !== activeIndex; return `<nav class="bottom-nav" style="--nav-count:5;--nav-from:${moving ? state.navMotionFrom : activeIndex};--nav-to:${activeIndex}"><i class="nav-water ${moving ? "is-moving" : ""}" aria-hidden="true"></i>${rows.map(([id, ic, label]) => `<button class="nav-btn ${state.screen === id ? "active" : ""}" data-screen="${id}">${icon(ic)}<span>${label}</span></button>`).join("")}</nav>`; }
+  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próximo cliente</p><h2>${H.escape(client.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(client))}</p><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small><button class="btn btn-primary btn-block next-stop-button" data-action="next-stop">Próximo cliente</button></section></div>`; }
+  function confirmationOverlay() {
+    const confirmation = state.confirmation;
+    if (!confirmation) return "";
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title"><div class="app-confirm-icon">${icon(confirmation.icon || "box", 24)}</div><h2 id="app-confirm-title">${H.escape(confirmation.title || "Confirmar")}</h2><p>${H.escape(confirmation.message || "Deseja continuar?")}</p><div class="actions"><button class="btn btn-secondary" data-action="cancel-confirmation">Cancelar</button><button class="btn ${confirmation.danger ? "btn-danger" : "btn-primary"}" data-action="accept-confirmation">${H.escape(confirmation.confirmLabel || "Confirmar")}</button></div></section></div>`;
+  }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
   function statusLabel(status) { return ({ agendada: "Agendada", em_rota: "Em rota", entregue: "Entregue", cancelada: "Cancelada" })[status] || status; }
   const weekDays = [{ n: 1, label: "SEG" }, { n: 2, label: "TER" }, { n: 3, label: "QUA" }, { n: 4, label: "QUI" }, { n: 5, label: "SEX" }, { n: 6, label: "SÁB" }, { n: 7, label: "DOM" }];
-  function todayIso() { return new Date().getDay() || 7; }
+  function operationalDate() {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+    const value = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+    return `${value.year}-${value.month}-${value.day}`;
+  }
+  function todayIso() { return new Date(`${operationalDate()}T12:00:00`).getDay() || 7; }
   function workDays() { const raw = String(state.config && state.config.diasTrabalho || ""); const chosen = raw.split(",").map(Number).filter(n => n >= 1 && n <= 7); return chosen.length ? [...new Set(chosen)] : weekDays.map(day => day.n); }
-  function dateForIsoDay(isoDay) { const date = new Date(); const delta = isoDay - todayIso(); date.setDate(date.getDate() + delta); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+  function dateForIsoDay(isoDay) { const date = new Date(`${operationalDate()}T12:00:00`); date.setDate(date.getDate() + isoDay - todayIso()); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
   function mergeDayPreview(previews) {
     const merged = new Map();
     previews.forEach(preview => (preview && preview.clientes || []).forEach(client => {
@@ -145,6 +231,20 @@
     return [...merged.values()];
   }
   function dayPreviewKey(client) { return String(client && (client.customerProfileId || client.localId || client.id || client.nome) || ""); }
+  function previewMatchesDelivery(preview, item) {
+    const profileId = preview && preview.customerProfileId;
+    const localId = preview && preview.localId;
+    const sameProfile = profileId && [item && item.customerProfileId, item && item.cliente && item.cliente.id, item && item.clienteId].some(id => String(id) === String(profileId));
+    const sameLocal = localId && [item && item.localId, item && item.cliente && item.cliente.localId].some(id => String(id) === String(localId));
+    return !!sameProfile && (!localId || sameLocal || !(item && item.localId));
+  }
+  function selectedPreviewDeliveryIds() { return allRouteItems().filter(item => (state.dayPreview || []).some(preview => previewMatchesDelivery(preview, item))).map(item => String(item.id)); }
+  function setRouteSelection(ids) {
+    const unique = [...new Set((ids || []).map(String).filter(Boolean))];
+    if (!unique.length) return;
+    state.routeSelection = { date: state.route && state.route.date || operationalDate(), ids: unique };
+    H.cache.set("logistica-route-selection", state.routeSelection);
+  }
   async function refreshDayPreview() {
     const requestId = ++dayPreviewRequestId;
     const dates = state.daySelection.map(dateForIsoDay);
@@ -178,10 +278,15 @@
     }
   }
   function openDayManager(mode) {
+    clearInterval(dayReviewTimer);
     state.dayMode = mode || "start";
+    // Uma geração anterior pode ter terminado com o painel fechado. O estado
+    // de processamento não pode sobreviver à abertura seguinte, senão o
+    // botão "Próximo" permanece desabilitado até o aplicativo reiniciar.
+    state.dayStarting = false;
     const today = todayIso(); const permitted = workDays();
     state.daySelection = permitted.includes(today) ? [today] : [];
-    state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.dayPreviewError = null; state.openingOverlay = "modal"; state.modal = "manage-day";
+    state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
     refreshDayPreview();
   }
   function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "" }; }
@@ -210,7 +315,27 @@
   async function loadClientDetail() {
     const client = state.modalClient;
     if (!client || !client.id) return;
-    try { state.clientDetail = await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}`); state.clientPaymentDraft = { formaPagamento: state.clientDetail.formaPagamento || "aberto", metodoPadrao: state.clientDetail.metodoPadrao || "", diaFechamento: state.clientDetail.diaFechamento ? String(state.clientDetail.diaFechamento) : "", limite: state.clientDetail.limiteFiado != null ? String(state.clientDetail.limiteFiado) : "" }; render(); }
+    try {
+      state.clientDetail = await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}`);
+      const locais = Array.isArray(state.clientDetail.locais) ? state.clientDetail.locais : [];
+      const local = locais.find(item => item && item.isPrincipal) || locais[0] || null;
+      const parts = separateAddress(local && local.endereco || state.clientDetail.endereco || client.endereco, local && local.numero || state.clientDetail.numero || client.numero, local && local.bairro || state.clientDetail.bairro || client.bairro);
+      state.clientPaymentDraft = {
+        phone: formatPhone(state.clientDetail.whatsapp || client.phone || client.phoneNormalized || client.whatsapp || ""),
+        cep: formatCep(local && local.cep || state.clientDetail.cep || client.cep || ""),
+        endereco: parts.endereco,
+        numero: parts.numero,
+        bairro: parts.bairro,
+        cidade: local && local.cidade || state.clientDetail.cidade || client.cidade || "",
+        uf: local && local.uf || state.clientDetail.uf || client.uf || "",
+        localId: local && local.id || "",
+        formaPagamento: state.clientDetail.formaPagamento || "aberto",
+        metodoPadrao: state.clientDetail.metodoPadrao || "",
+        diaFechamento: state.clientDetail.diaFechamento ? String(state.clientDetail.diaFechamento) : "",
+        limite: state.clientDetail.limiteFiado != null ? String(state.clientDetail.limiteFiado) : ""
+      };
+      render();
+    }
     catch (error) { state.clientDetail = null; render(); }
   }
   function editClientProduct(item) {
@@ -228,7 +353,11 @@
   async function deleteClientProduct(item) {
     if (!item || !item.id) return;
     const name = item.produto && item.produto.nome || "este produto";
-    if (!confirm(`Excluir ${name} das entregas recorrentes deste cliente?`)) return;
+    state.confirmation = { type: "delete-client-product", itemId: item.id, title: "Excluir produto?", message: `${name} será removido das entregas recorrentes deste cliente.`, confirmLabel: "Excluir", danger: true, icon: "box" };
+    render();
+  }
+  async function performDeleteClientProduct(item) {
+    if (!item || !item.id) return;
     try {
       await H.api(`/logistica/cliente-produtos/${encodeURIComponent(item.id)}`, { method: "DELETE" });
       if (state.clientProductEditingId === item.id) resetClientProductEditor();
@@ -245,6 +374,13 @@
   function formatPhone(value) { const digits = onlyDigits(value).slice(0, 11); if (digits.length <= 2) return digits ? `(${digits}` : ""; if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`; const split = digits.length <= 10 ? 6 : 7; return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`; }
   function formatCpf(value) { const digits = onlyDigits(value).slice(0, 11); return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2"); }
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
+  function separateAddress(value, numberValue, districtValue) {
+    let endereco = String(value || "").trim(); const numero = String(numberValue || "").trim(); const bairro = String(districtValue || "").trim();
+    if (bairro && endereco.endsWith(` - ${bairro}`)) endereco = endereco.slice(0, -(` - ${bairro}`).length);
+    if (numero && endereco.endsWith(`, ${numero}`)) endereco = endereco.slice(0, -(`, ${numero}`).length);
+    return { endereco: endereco.trim(), numero, bairro };
+  }
+  function composeAddress(draft) { return [[String(draft.endereco || "").trim(), String(draft.numero || "").trim()].filter(Boolean).join(", "), String(draft.bairro || "").trim()].filter(Boolean).join(" - "); }
   async function geocodeNewClient(query) {
     try {
       const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=br&limit=1&q=${encodeURIComponent(query)}`, { headers: { Accept: "application/json" } });
@@ -293,15 +429,16 @@
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const mode = routeTracked() ? "Rastreada" : "Essencial";
     const hasMapPoints = routeMapPoints().length > 0;
+    const paused = serverRouteActive() && state.routePaused;
     return shell(`<div class="screen-head"><div><h1>Rota de hoje</h1><p class="subtitle">${new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}</p></div>${isAdmin() && !routeActive() ? `<button class="link-btn" data-action="route-mode">Modo</button>` : ""}</div>
-      <section class="hero"><div style="display:flex;justify-content:space-between;gap:12px"><div><span class="hero-kicker">● ${routeActive() ? "Rota ativa" : "Rota pronta"}</span><h2>${total} parada(s) · ${mode}</h2><p class="muted">${routeTracked() ? "Localização ao vivo durante a sessão" : "Sem rastreamento ao vivo"}</p></div><span class="badge success">${mode}</span></div>${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : `<div class="route-map-empty">Cadastre a localização dos clientes para ver o mapa da rota.</div>`}<div class="progress"><i style="width:${progress}%"></i></div><div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Encerrar</button>` : `<button class="btn btn-primary" data-action="start-route" ${open.length ? "" : "disabled"}>${icon("route", 17)} Iniciar rota</button><button class="btn btn-dark" data-action="plan-route" ${open.length ? "" : "disabled"}>Planejar</button>`}</div></section>
+      <section class="hero"><div style="display:flex;justify-content:space-between;gap:12px"><div><span class="hero-kicker">● ${routeActive() ? "Rota ativa" : paused ? "Rota pausada neste aparelho" : "Rota pronta"}</span><h2>${total} parada(s) · ${mode}</h2><p class="muted">${paused ? "GPS parado. As entregas permanecem salvas." : routeTracked() ? "Localização ao vivo durante a sessão" : "Sem rastreamento ao vivo"}</p></div><span class="badge success">${mode}</span></div>${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : `<div class="route-map-empty">${total ? "As paradas desta rota ainda não possuem localização para desenhar o mapa." : "Toque em Planejar para carregar os clientes e montar a rota de hoje."}</div>`}<div class="progress"><i style="width:${progress}%"></i></div><div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Encerrar</button>` : paused ? `<button class="btn btn-primary" data-action="resume-route">${icon("route", 17)} Retomar rota</button>` : `<button class="btn btn-primary" data-action="start-route" ${open.length ? "" : "disabled"}>${icon("route", 17)} Iniciar rota</button><button class="btn btn-dark" data-action="plan-route">Planejar</button>`}</div></section>
       <div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong><small>hoje</small></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong><small>na rota</small></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong><small>fila GPS segura</small></div></div>
-      <div class="section-title"><strong>${next ? "Próxima parada" : "Situação"}</strong><span>${next && next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${next ? stopCard(next, true) : empty(total ? "Rota concluída" : "Nenhuma entrega hoje", total ? "Todas as paradas foram finalizadas." : "Gere ou cadastre entregas para iniciar.")}
-      <div class="section-title"><strong>Sequência da rota</strong><span>${total} parada(s)</span></div><div class="list">${items().length ? items().sort((a,b) => Number(a.rotaOrdem ?? 9999) - Number(b.rotaOrdem ?? 9999)).map(item => stopCard(item, false)).join("") : ""}</div><button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+      <div class="section-title"><strong>${next ? "Próxima parada" : "Situação"}</strong><span>${next && next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${next ? `${stopCard(next, true)}<p class="route-gesture-hint">Arraste para a esquerda se não estiver no local · segure uma parada para retirar só de hoje.</p>` : empty(total ? "Rota concluída" : "Nenhuma entrega hoje", total ? "Todas as paradas foram finalizadas." : "Gere ou cadastre entregas para iniciar.")}
+      <div class="section-title"><strong>Sequência da rota</strong><span>${total} parada(s)</span></div><div class="list">${items().length ? orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("") : ""}</div><button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
   }
-  function stopCard(item, featured) {
-    const c = item.cliente || {}; const done = item.status === "entregue"; const order = Number(item.rotaOrdem ?? 0) + 1;
-    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small></div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
+  function stopCard(item, featured, sequenceNumber) {
+    const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
+    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small></div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
   }
 
   function clientsScreen() {
@@ -319,7 +456,7 @@
     const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED";
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1><p class="subtitle">Aplicativo, rota e permissões</p></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ao vivo ativo" : "Modo essencial"}</h2><p class="muted">O GPS só funciona durante uma rota ativa e para ao encerrar.</p></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong><span>${trackedAvailable ? defaultTracked ? "Preferência: Rota Rastreada" : "Preferência: Rota Essencial" : "Indisponível pela configuração global"}</span></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo congelado</strong><span>${routeActive() ? `Esta rota permanece ${routeTracked() ? "Rastreada" : "Essencial"} até o fim` : "Pode ser escolhido antes de iniciar"}</span></div></div></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão da rota</strong><span>${defaultTracked ? "Rastreada" : "Essencial"}${routeActive() ? " · bloqueado durante a rota" : ""}</span></div><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong><span>Saldo, débitos e bônus elegível</span></div><span>›</span></button></section>` : ""}
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong><span>Abre a entrega ao entrar no raio definido</span></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão da rota</strong><span>${defaultTracked ? "Rastreada" : "Essencial"}${routeActive() ? " · bloqueado durante a rota" : ""}</span></div><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong><span>Saldo, débitos e bônus elegível</span></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema claro/escuro</strong><span>Interface de alta definição</span></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong><span>Rota, produtos e configurações</span></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair deste aparelho</strong><span>Remove o vínculo e os dados locais</span></div><span>›</span></button></section><p class="subtitle" style="text-align:center;margin-top:14px">Versão ${H.escape(H.info().versionName || "local")} · GPS sem API paga</p>`);
   }
 
@@ -327,17 +464,23 @@
     const c = item.cliente || {}; const phone = c.phone || item.contato && (item.contato.whatsapp || item.contato.phone) || "";
     const finished = item.status === "entregue" || item.status === "cancelada";
     const proof = item.comprovante || {};
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div><div class="detail-grid"><div class="detail"><span>Status</span><strong>${H.escape(statusLabel(item.status))}</strong></div><div class="detail"><span>Previsão</span><strong>${item.etaAt ? H.date(item.etaAt, { hour: "2-digit", minute: "2-digit" }) : "Sem ETA"}</strong></div><div class="detail"><span>Itens</span><strong>${Number(item.quantidade || 0)}</strong></div><div class="detail"><span>Comprovantes</span><strong>${proof.fotoEnviada || proof.assinaturaEnviada ? "Anexados" : "Pendentes"}</strong></div></div><div class="actions"><button class="btn btn-secondary" data-action="maps">${icon("map", 17)} Navegar</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button><button class="btn btn-primary" data-action="confirm" ${finished ? "disabled" : ""}>${icon("check", 17)} Confirmar</button></div>${!finished ? `<div class="section-title"><strong>Comprovantes</strong><span>até 5 MB</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><input class="sr-only" id="proof-signature" type="file" accept="image/png"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button><button class="btn btn-secondary" data-action="signature">${proof.assinaturaEnviada ? icon("check",17) : icon("plus",17)} Assinatura PNG</button></div>` : ""}${item.notes ? `<div class="section-title"><strong>Observação</strong></div><div class="row-card">${H.escape(item.notes)}</div>` : ""}<div class="section-title"><strong>Produtos</strong></div><div class="list">${(item.itens || []).map(x => `<div class="row-card"><div class="card-main"><strong>${H.escape(x.produto && x.produto.nome || "Produto")}</strong><span>${Number(x.qtdPrevista || 0)} ${H.escape(x.produto && x.produto.unidade || "unidade(s)")}</span></div></div>`).join("") || empty("Sem itens", "Esta entrega não possui produtos detalhados.")}</div></section></div>`;
+    const draft = deliveryDraftFor(item); const reason = state.deliveryReason; const notDelivered = state.deliveryNotDelivered;
+    const productIds = new Set(draft.items.map(x => String(x.productId)).filter(Boolean));
+    const availableProducts = (state.products || []).filter(p => p && p.id != null && !productIds.has(String(p.id)));
+    const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong>${row.novo ? `<small>Novo na entrega</small>` : ""}</div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
+    const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
+    const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong><span>edite na hora</span></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">+ Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${notDelivered ? reasonPanel : editor}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovantes</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><input class="sr-only" id="proof-signature" type="file" accept="image/png"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button><button class="btn btn-secondary" data-action="signature">${proof.assinaturaEnviada ? icon("check",17) : icon("plus",17)} Assinatura PNG</button></div><button class="btn btn-primary delivery-confirm" data-action="confirm">${icon("check", 18)} Confirmar entrega</button><button class="delivery-not-delivered" data-action="delivery-not-delivered">Não entregue</button>` : ""}</section></div>`;
   }
   function modal() {
     if (state.modal === "client-product") {
-      const client = state.modalClient || {}; const detail = state.clientDetail || {}; const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const phone = detail.whatsapp || client.phone || client.phoneNormalized || client.whatsapp || "";
+      const client = state.modalClient || {}; const detail = state.clientDetail || {}; const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const fields = state.clientPaymentDraft; const phone = state.clientDetail ? fields.phone : formatPhone(client.phone || client.phoneNormalized || client.whatsapp || "");
       const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
       const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
       const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
       const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
       const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}" aria-pressed="${state.clientProductEditingId === item.id}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
-      return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Editar cliente</h2><p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="client-phone-form"><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="30" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div><button class="btn btn-secondary btn-block" type="submit">Salvar telefone</button></form>${phone ? `<div class="actions client-contact-actions"><button class="btn btn-secondary" data-action="call-client">${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 17)} WhatsApp</button></div>` : ""}<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto${state.clientProductEditingId ? " (crie outro vínculo para trocar)" : ""}</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form></section></div>`;
+      return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Editar cliente</h2><p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="client-phone-form"><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div><div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-primary-actions ${phone ? "has-contact" : ""}"><button class="btn btn-primary" type="submit">Salvar cliente</button>${phone ? `<button type="button" class="btn btn-secondary" data-action="call-client">${icon("phone", 16)} Ligar</button><button type="button" class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 16)} WhatsApp</button>` : ""}</div></form><div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto${state.clientProductEditingId ? " (crie outro vínculo para trocar)" : ""}</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form></section></div>`;
     }
     if (state.modal === "new-client") { const d = state.newClientDraft; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Novo cliente</h2><p class="subtitle">CEP ou localização atual preenchem o endereço</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-client-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(d.name)}"></div><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(d.phone)}" placeholder="(00) 00000-0000"></div></div><div class="field"><label>CPF</label><input name="cpf" inputmode="numeric" maxlength="14" value="${H.escape(d.cpf)}" placeholder="000.000.000-00"></div><div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(d.limite)}" placeholder="R$ 0,00"></div><div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(d.cep)}" placeholder="00.000-000"></div><div class="field"><label>&nbsp;</label><button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps" ${state.newClientGpsLoading ? "disabled" : ""}>${icon("gps", 17)} ${state.newClientGpsLoading ? "Lendo GPS…" : "Puxar Local Atual"}</button></div></div>${state.newClientCepStatus ? `<p class="subtitle">${H.escape(state.newClientCepStatus)}</p>` : ""}<div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(d.endereco)}" placeholder="Preenchido pelo CEP ou GPS"></div><div class="form-grid"><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(d.numero)}" placeholder="Só confirme aqui"></div><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(d.bairro)}"></div><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(d.cidade)}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(d.uf)}"></div></div><button class="btn btn-primary btn-block" type="submit">Salvar cliente</button></form></section></div>`; }
     if (state.modal === "new-product") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Novo produto</h2><p class="subtitle">Visível somente ao administrador</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="number" min="0" step="0.01"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block" type="submit">Cadastrar produto</button></form></section></div>`;
@@ -347,16 +490,26 @@
     if (state.modal === "new-oneoff") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2><p class="subtitle">Entra somente na rota de hoje</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente já cadastrado</label><select name="customerProfileId"><option value="">Cadastrar cliente avulso abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}">${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome do cliente avulso</label><input name="clientName" maxlength="160" placeholder="Só se não escolher acima"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1" required></div></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota de hoje</button></form></section></div>`;
     if (state.modal === "manage-day") {
       const allowed = workDays(); const selected = state.daySelection; const preview = state.dayPreview || [];
+      if (state.dayReview) {
+        const located = dayPreviewMapPoints().length;
+        const count = Math.max(0, Number(state.dayReviewCountdown || 0));
+        const mapContent = located ? `<div id="route-plan-preview-map" class="route-plan-preview-map"><span class="route-map-loading">Desenhando rota…</span></div>` : `<div class="route-plan-preview-map route-plan-map-empty"><span>Os endereços desta rota ainda não têm GPS para desenhar o mapa.</span></div>`;
+        return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet route-plan-review"><div class="route-plan-review-copy"><span class="hero-kicker">Prévia da rota</span><h2>${preview.length || selected.length} ${preview.length === 1 ? "parada" : "paradas"}</h2><p class="subtitle">Confira o traçado antes de gerar a rota.</p></div>${mapContent}<div class="route-plan-confirm"><div class="route-plan-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="route-plan-count-track" cx="35" cy="35" r="30"/><circle class="route-plan-count-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p>Confirma? A rota será gerada em ${count || "agora"}.</p></div><button class="btn btn-primary btn-block route-plan-confirm-button" data-action="confirm-managed-route">Confirmar rota</button></section></div>`;
+      }
       const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
-      const actionLabel = state.dayMode === "plan" ? "Gerar e planejar rota" : "Gerar e começar rota";
       const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => { const key = dayPreviewKey(client); return `<div class="row-card${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div></div>`; }).join("")}</div>` : "";
       const previewStatus = state.dayPreviewError ? `<div class="empty"><strong>Não foi possível carregar</strong>${H.escape(state.dayPreviewError)}</div>` : selected.length === 0 ? `<div class="empty">Escolha ao menos um dia.</div>` : previewList || (state.dayPreviewLoading ? `<div class="empty">Carregando clientes…</div>` : `<div class="empty">Nenhum cliente nos dias escolhidos.</div>`);
-      return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2><p class="subtitle">Escolha os dias que entram hoje</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="day-chips">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia">${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando clientes…</p>` : ""}<button class="btn btn-primary btn-block" data-action="begin-managed-route" ${selected.length && !state.dayPreviewLoading && !state.dayStarting ? "" : "disabled"}>${state.dayStarting ? "Gerando…" : actionLabel}</button></section></div>`;
+      // Se a lista já está visível, ela é uma prévia válida mesmo que uma
+      // atualização visual ainda esteja encerrando em segundo plano.
+      const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
+      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2><p class="subtitle">Escolha os dias que entram hoje</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="day-chips">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia">${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando clientes…</p>` : ""}<button class="btn btn-primary btn-block" data-action="review-managed-route" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo</button></section></div>`;
     }
     if (state.modal === "route-mode") {
       const locked = routeActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Modo das próximas rotas</h2><p class="subtitle">A escolha é congelada quando a rota inicia</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${locked ? empty("Rota em andamento", "O modo atual não pode ser alterado no meio da rota.") : `<div class="list"><button class="row-card" data-mode="ESSENTIAL"><div class="card-main"><strong>Rota Essencial</strong><span>Sem localização ao vivo · cobrança por blocos de 5</span></div>${current === "ESSENTIAL" ? `<span class="badge success">Atual</span>` : ""}</button><button class="row-card" data-mode="TRACKED" ${state.config && state.config.trackingDisponivel ? "" : "disabled"}><div class="card-main"><strong>Rota Rastreada</strong><span>Localização ao vivo · cobrança por entrega concluída</span></div>${current === "TRACKED" ? `<span class="badge success">Atual</span>` : ""}</button></div>`}</section></div>`;
     }
+    if (state.modal === "arrival-radius") { const radius = Math.max(20, Number(state.config && state.config.raioChegadaM || 60)); return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Avisar chegada</h2><p class="subtitle">A entrega abre quando você entra nesse raio</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="arrival-radius-form"><div class="field"><label>Distância em metros</label><input name="raioChegadaM" type="number" min="20" max="1000" step="10" inputmode="numeric" value="${radius}" required></div><p class="subtitle">Use 60 m para endereços normais. Em ruas muito próximas, reduza para 30 m.</p><button class="btn btn-primary btn-block" type="submit">Salvar raio</button></form></section></div>`; }
+    if (state.modal === "distance-warning") { const warning = state.distanceWarning || {}; return `<div class="sheet-wrap"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Você está longe do endereço</h2><p class="subtitle">Confira a entrega antes de continuar</p></div></div><div class="card flat" style="padding:16px"><strong style="font-size:1.7rem;color:var(--danger)">${Math.round(Number(warning.distance || 0))} m</strong><p class="subtitle" style="margin:7px 0 0">do endereço de ${H.escape(warning.clientName || "este cliente")}</p></div><p class="subtitle">A entrega só deve ser confirmada de longe se você tiver certeza de que está no local correto.</p><div class="actions"><button class="btn btn-secondary" data-action="cancel-distance-confirm">Voltar</button><button class="btn btn-primary" data-action="confirm-distance-delivery">Confirmar mesmo assim</button></div></section></div>`; }
     if (state.modal === "statement") {
       const s = state.statement || {}; const entries = s.entries || s.items || [];
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2><p class="subtitle">Informação exclusiva do administrador</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Consumido</span><strong>${Number(s.trackedPaidCreditsConsumed || s.consumed || 0)}</strong><small>créditos pagos</small></div><div class="kpi"><span>Bônus</span><strong>${Number(s.bonusGranted || s.bonus || 0)}</strong><small>30 dias</small></div><div class="kpi"><span>Entregas</span><strong>${Number(s.trackedDeliveries || s.deliveries || 0)}</strong><small>rastreadas</small></div></div><div class="list">${entries.length ? entries.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>${H.escape(e.description || e.type || "Movimento")}</strong><span>${H.date(e.createdAt || e.date)}</span></div><strong>${Number(e.amount || e.credits || 0)}</strong></div>`).join("") : empty("Sem movimentos", "Nenhum lançamento no período.")}</div></section></div>`;
@@ -385,15 +538,30 @@
     const clientForm = app.querySelector("#client-phone-form");
     if (clientForm) {
       clientForm.id = "client-details-form";
-      clientForm.querySelector("button[type=submit]").insertAdjacentHTML("beforebegin", paymentFields(state.clientPaymentDraft, "client"));
-      clientForm.querySelector("button[type=submit]").textContent = "Salvar cliente";
+      const primaryActions = clientForm.querySelector(".client-primary-actions");
+      primaryActions.insertAdjacentHTML("beforebegin", paymentFields(state.clientPaymentDraft, "client"));
+      primaryActions.querySelector("button[type=submit]").textContent = "Salvar cliente";
     }
     app.querySelectorAll(".lead-card[data-client]").forEach(card => {
       const client = clientById(card.dataset.client); const line = client && clientScheduleLine(client);
       if (line) card.querySelector(".client-balance")?.insertAdjacentHTML("afterend", `<small>${H.escape(line)}</small>`);
     });
   }
-  function render() { disposeRouteMap(); const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen }; app.innerHTML = (screens[state.screen] || routeScreen)(); enhancePaymentForms(); if (state.screen === "route") void mountRouteMap(); state.screenMotion = ""; state.openingOverlay = null; }
+  function render() {
+    const modalScroll = app.querySelector(".modal")?.scrollTop || 0;
+    const sheetScroll = app.querySelector(".sheet")?.scrollTop || 0;
+    disposeRouteMap();
+    const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
+    app.innerHTML = (screens[state.screen] || routeScreen)();
+    enhancePaymentForms();
+    const modal = app.querySelector(".modal");
+    const sheet = app.querySelector(".sheet");
+    if (modal && modalScroll) modal.scrollTop = modalScroll;
+    if (sheet && sheetScroll) sheet.scrollTop = sheetScroll;
+    if (state.screen === "route" && !state.dayReview) void mountRouteMap();
+    if (state.modal === "manage-day" && state.dayReview) void mountDayReviewMap();
+    state.screenMotion = ""; state.openingOverlay = null;
+  }
 
   async function loadClients(reset, silent) {
     if (!reset && (state.clientsLoading || state.clientsPage >= state.clientsTotalPages)) return;
@@ -435,7 +603,7 @@
 
   async function refresh(silent) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
-    const results = await Promise.allSettled([H.api("/logistica/rota"), H.api("/logistica/produtos"), H.api("/logistica/config")]);
+    const results = await Promise.allSettled([H.api(`/logistica/rota?date=${encodeURIComponent(operationalDate())}`), H.api("/logistica/produtos"), H.api("/logistica/config")]);
     if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; }
     else state.error = err(results[0].reason);
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
@@ -446,28 +614,70 @@
   }
   function activateNativeRoute(startResult) {
     const route = startResult || state.route || {}; const open = openItems();
-    const stops = open.filter(item => Number.isFinite(Number(item.cliente && item.cliente.lat)) && Number.isFinite(Number(item.cliente && item.cliente.lng))).map(item => ({ id: item.id, nome: item.cliente.nome || "Cliente", lat: Number(item.cliente.lat), lng: Number(item.cliente.lng) }));
+    // GPS não pode anunciar 25 clientes simultaneamente quando vários endereços
+    // estão no mesmo raio. Ele acompanha somente a próxima parada geolocalizada;
+    // após confirmar/pular, o refresh arma a seguinte.
+    const next = open.find(item => Number.isFinite(Number(item.cliente && item.cliente.lat)) && Number.isFinite(Number(item.cliente && item.cliente.lng)));
+    const stops = next ? [{ id: next.id, nome: next.cliente.nome || "Cliente", lat: Number(next.cliente.lat), lng: Number(next.cliente.lng) }] : [];
     if (!stops.length) return;
     H.activateRoute({ raioM: Number(state.config && state.config.raioChegadaM || 60), paradas: stops, routeId: route.routeId || state.route.routeId || null, mode: route.trackingRequired || state.route.trackingRequired ? "TRACKED" : "ESSENTIAL", trackingSessionId: route.trackingSessionId || state.route.trackingSessionId || null });
   }
   function currentPosition() { return new Promise(resolve => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition(p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }), () => resolve(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }); }); }
-  async function startRoute(planOnly, generateToday) {
+  function distanceMeters(a, b) { const r = 6371000; const lat = Math.PI / 180; const dLat = (b.lat - a.lat) * lat; const dLng = (b.lng - a.lng) * lat; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * lat) * Math.cos(b.lat * lat) * Math.sin(dLng / 2) ** 2; return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)); }
+  async function startRoute(planOnly, generateToday, deliveryIds) {
     try {
-      if (generateToday !== false) await H.api("/logistica/gerar-dia", { method: "POST", body: {} });
-      const position = await currentPosition(); const body = position ? { origemLat: position.lat, origemLng: position.lng } : {};
+      state.routePaused = false; H.cache.remove("logistica-route-paused");
+      if (generateToday !== false) await H.api("/logistica/gerar-dia", { method: "POST", body: { date: operationalDate() } });
+      const selectedIds = Array.isArray(deliveryIds) ? deliveryIds : activeRouteSelectionIds() ? [...activeRouteSelectionIds()] : [];
+      const position = await currentPosition(); const body = position ? { date: operationalDate(), origemLat: position.lat, origemLng: position.lng } : { date: operationalDate() };
+      if (selectedIds.length) body.deliveryIds = selectedIds;
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
       if (!planOnly) activateNativeRoute(result);
       await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
     } catch (error) { toast(err(error), true); }
   }
+  function pauseRouteOnDevice() {
+    clearInterval(nextStopTimer);
+    state.nextStop = null;
+    state.selected = null;
+    state.deliveryDraft = null;
+    state.deliveryArrived = false;
+    state.routePaused = true;
+    H.cache.set("logistica-route-paused", true);
+    H.stopRoute();
+  }
+  async function resumeRouteOnDevice() { await startRoute(false, false); }
+  function startDayReview() {
+    if (!state.daySelection.length || state.dayStarting || (state.dayPreviewLoading && !state.dayPreview.length)) return;
+    clearInterval(dayReviewTimer);
+    state.dayReview = true; state.dayReviewCountdown = 10;
+    render();
+    dayReviewTimer = setInterval(() => {
+      if (!state.dayReview || state.modal !== "manage-day" || state.dayStarting) { clearInterval(dayReviewTimer); return; }
+      state.dayReviewCountdown = Math.max(0, state.dayReviewCountdown - 1);
+      const count = document.querySelector(".route-plan-count i");
+      const message = document.querySelector(".route-plan-confirm p");
+      if (count) count.textContent = state.dayReviewCountdown ? String(state.dayReviewCountdown) : "✓";
+      if (message) message.textContent = state.dayReviewCountdown ? `Confirma? A rota será gerada em ${state.dayReviewCountdown}.` : "Gerando rota…";
+      if (state.dayReviewCountdown === 0) { clearInterval(dayReviewTimer); void beginManagedRoute(); }
+    }, 1000);
+  }
   async function beginManagedRoute() {
     if (!state.daySelection.length || state.dayStarting) return;
+    clearInterval(dayReviewTimer);
+    state.dayReview = false;
     state.dayStarting = true; render();
     try {
-      await Promise.all(state.daySelection.map(day => H.api("/logistica/gerar-dia", { method: "POST", body: { date: dateForIsoDay(day) } })));
+      const generatedDays = await Promise.all(state.daySelection.map(day => H.api("/logistica/gerar-dia", { method: "POST", body: { date: dateForIsoDay(day) } })));
+      await refresh(true);
+      const deliveryIds = [...new Set(generatedDays.flatMap(day => Array.isArray(day && day.deliveryIds) ? day.deliveryIds.map(String) : []))];
+      if (!deliveryIds.length) deliveryIds.push(...selectedPreviewDeliveryIds());
+      if (!deliveryIds.length) throw new Error("Não encontrei as entregas dos dias selecionados. Atualize e tente novamente.");
+      setRouteSelection(deliveryIds);
       await closeOverlay("modal");
-      await startRoute(state.dayMode === "plan", false);
-    } catch (error) { state.dayStarting = false; render(); toast(err(error), true); }
+      await startRoute(state.dayMode === "plan", false, deliveryIds);
+    } catch (error) { render(); toast(err(error), true); }
+    finally { state.dayStarting = false; }
   }
   async function confirmDelivery(item) {
     try {
@@ -476,8 +686,16 @@
       if (requirements.fotoObrigatoria && !proof.fotoId) throw new Error("Anexe a foto obrigatória antes de confirmar.");
       if (requirements.assinaturaObrigatoria && !proof.assinaturaId) throw new Error("Anexe a assinatura obrigatória em PNG antes de confirmar.");
       const position = await currentPosition();
+      const client = item.cliente || {}; const limit = Math.max(Number(state.config && state.config.raioChegadaM || 60) * 2, 120);
+      if (position && Number(position.accuracy || 0) <= limit && Number.isFinite(Number(client.lat)) && Number.isFinite(Number(client.lng))) {
+        const distance = distanceMeters(position, { lat: Number(client.lat), lng: Number(client.lng) });
+        if (distance > limit && state.distanceOverrideDeliveryId !== item.id) { state.distanceWarning = { itemId: item.id, distance, clientName: client.nome || "este cliente" }; showModal("distance-warning"); return; }
+      }
       const keyName = `delivery-confirm:${item.id}`; let key = H.cache.get(keyName, null); if (!key) { key = H.uuid(); H.cache.set(keyName, key); }
-      const body = { idempotencyKey: key, itens: (item.itens || []).map(x => ({ id: x.id, qtdEntregue: Number(x.qtdPrevista || 0) })) };
+      const draft = deliveryDraftFor(item);
+      const body = { idempotencyKey: key, itens: draft.items.filter(x => !x.novo).map(x => ({ id: x.id, qtdEntregue: Number(x.qtd || 0) })) };
+      const novosItens = draft.items.filter(x => x.novo && x.qtd > 0 && x.productId != null).map(x => ({ productId: Number(x.productId), qtdEntregue: Number(x.qtd) }));
+      if (novosItens.length) body.novosItens = novosItens;
       if (proof.fotoId) body.comprovanteFotoId = proof.fotoId;
       if (proof.assinaturaId) body.comprovanteAssinaturaId = proof.assinaturaId;
       if (requirements.codigoObrigatorio) {
@@ -487,8 +705,33 @@
       }
       if (position) Object.assign(body, position);
       await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/confirmar`, { method: "POST", body });
-      H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true); toast("Entrega confirmada com segurança.");
-      if (!openItems().length) H.stopRoute();
+      H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true); toast("Entrega confirmada.");
+      const next = openItems()[0];
+      if (next) showNextStop(next); else pauseRouteOnDevice();
+    } catch (error) { toast(err(error), true); }
+  }
+  async function removeStopForToday(item, reason, message) {
+    if (!item || !item.id || item.status === "entregue" || item.status === "cancelada") return;
+    const name = item.cliente && item.cliente.nome || "este cliente";
+    state.confirmation = { type: "remove-route-stop", itemId: item.id, reason: reason || "Retirado da rota pelo operador.", title: "Retirar da rota de hoje?", message: message || `${name} sai somente da rota de hoje. O cliente e a recorrência continuam cadastrados.`, confirmLabel: "Retirar", danger: true, icon: "route" };
+    render();
+  }
+  async function performRemoveStopForToday(item, reason) {
+    if (!item || !item.id || item.status === "entregue" || item.status === "cancelada") return;
+    try {
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason || "Retirado da rota pelo operador." } });
+      state.selected = null;
+      await refresh(true);
+      toast("Entrega retirada somente da rota de hoje.");
+    } catch (error) { toast(err(error), true); }
+  }
+  async function markNotDelivered(item) {
+    const reason = state.deliveryReason;
+    if (!item || !reason) return;
+    try {
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason } });
+      await closeOverlay("sheet"); await refresh(true); toast("Entrega marcada como ${reason}.");
+      const next = openItems()[0]; if (next) showNextStop(next);
     } catch (error) { toast(err(error), true); }
   }
   async function uploadProof(item, type, file) {
@@ -506,18 +749,26 @@
   }
   function clientById(id) { return (state.clients || []).find(c => String(c.id) === String(id)); }
   function navigateTo(nextScreen, motion) {
-    const screens = ["route", "clients", "products", "settings"];
+    if (nextScreen === "sales") {
+      window.location.href = "../vendas/index.html?from=mobile";
+      return;
+    }
+    const screens = ["route", "clients", "products", "settings", "sales"];
     const currentIndex = screens.indexOf(state.screen);
     const nextIndex = screens.indexOf(nextScreen);
+    state.navMotionFrom = currentIndex === -1 || nextIndex === -1 || currentIndex === nextIndex ? null : currentIndex;
     state.screenMotion = motion || (currentIndex === -1 || nextIndex === -1 || currentIndex === nextIndex ? "" : nextIndex > currentIndex ? "forward" : "back");
     state.screen = nextScreen;
     state.selected = null;
     state.modal = null;
     render();
+    clearTimeout(navMotionTimer);
+    navMotionTimer = setTimeout(() => { state.navMotionFrom = null; }, 360);
     if (nextScreen === "clients" && state.clientsPage === 0) loadClients(true);
   }
   function closeOverlay(kind) {
     if (state.closingOverlay) return Promise.resolve();
+    if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; }
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
@@ -529,7 +780,10 @@
     }, 180));
   }
   function showModal(name) { state.openingOverlay = "modal"; state.modal = name; render(); }
-  function showSheet(item) { state.openingOverlay = "sheet"; state.selected = item; render(); }
+  function makeDeliveryDraft(item) { const existing = (item.itens || []).map(x => ({ key: `item-${x.id}`, id: x.id, productId: x.produto && x.produto.id || x.produtoId || null, nome: x.produto && x.produto.nome || "Produto", qtd: Math.max(0, Number(x.qtdEntregue ?? x.qtdPrevista ?? 1)), novo: false })); if (existing.length) return { deliveryId: item.id, items: existing }; return { deliveryId: item.id, items: [{ key: `legacy-${item.id}`, id: item.id, productId: item.produto && item.produto.id || item.produtoId || null, nome: item.produto && item.produto.nome || "Entrega", qtd: Math.max(1, Number(item.quantidade || 1)), novo: false }] }; }
+  function deliveryDraftFor(item) { if (!state.deliveryDraft || state.deliveryDraft.deliveryId !== item.id) state.deliveryDraft = makeDeliveryDraft(item); return state.deliveryDraft; }
+  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); const next = state.nextStop; showSheet(next); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); }, 1000); }
+  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; render(); }
 
   app.addEventListener("click", async event => {
     const target = event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
@@ -537,7 +791,7 @@
     // podem herdar o data-action="close-modal" do wrapper.
     if (target.matches(".modal-wrap,.sheet-wrap") && event.target !== target) return;
     if (target.dataset.screen) { navigateTo(target.dataset.screen); return; }
-    if (target.dataset.delivery) { const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
+    if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
     if (target.dataset.client) { const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.clientDetail = null; state.clientProducts = []; state.clientProductsError = null; resetClientProductEditor(); showModal("client-product"); loadClientProducts(); loadClientDetail(); } return; }
     if (target.dataset.day) { const day = Number(target.dataset.day); state.daySelection = state.daySelection.includes(day) ? state.daySelection.filter(value => value !== day) : [...state.daySelection, day].sort((a, b) => a - b); refreshDayPreview(); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
@@ -551,11 +805,31 @@
       return;
     }
     const action = target.dataset.action;
+    if (action === "delivery-qty" && state.selected) { const draft = deliveryDraftFor(state.selected); const row = draft.items.find(x => x.key === target.dataset.draftItem); if (row) { row.qtd = Math.max(0, Number(row.qtd || 0) + Number(target.dataset.delta || 0)); if (navigator.vibrate) navigator.vibrate(8); render(); } return; }
+    if (action === "delivery-add-product") { state.deliveryProductPicker = true; render(); return; }
+    if (action === "delivery-close-picker") { state.deliveryProductPicker = false; render(); return; }
+    if (action === "delivery-product" && state.selected) { const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId)); const draft = deliveryDraftFor(state.selected); if (product) { draft.items.push({ key: `novo-${product.id}`, id: null, productId: product.id, nome: product.nome || product.name || "Produto", qtd: 1, novo: true }); state.deliveryProductPicker = false; if (navigator.vibrate) navigator.vibrate(10); render(); } return; }
+    if (action === "delivery-not-delivered") { state.deliveryNotDelivered = true; state.deliveryReason = ""; render(); return; }
+    if (action === "delivery-reason") { state.deliveryReason = target.dataset.reason || ""; render(); return; }
+    if (action === "delivery-back") { state.deliveryNotDelivered = false; state.deliveryReason = ""; render(); return; }
+    if (action === "confirm-not-delivered" && state.selected) { markNotDelivered(state.selected); return; }
+    if (action === "next-stop" && state.nextStop) { const next = state.nextStop; clearInterval(nextStopTimer); state.nextStop = null; showSheet(next); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
     if (action === "load-more-clients") loadClients(false);
     if (action === "close-modal") { await closeOverlay("modal"); return; }
     if (action === "close-sheet") { await closeOverlay("sheet"); return; }
+    if (action === "cancel-confirmation") { state.confirmation = null; render(); return; }
+    if (action === "accept-confirmation") {
+      const confirmation = state.confirmation;
+      state.confirmation = null;
+      render();
+      if (!confirmation) return;
+      if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
+      if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
+      if (confirmation.type === "logout") H.logout();
+      return;
+    }
     if (action === "new-client") { state.newClientDraft = blankNewClientDraft(); state.newClientCepStatus = ""; showModal("new-client"); }
     if (action === "new-client-gps") await useCurrentLocationForNewClient();
     if (action === "new-product") showModal("new-product");
@@ -563,11 +837,17 @@
     if (action === "call-client" && state.modalClient) H.call(state.clientDetail && state.clientDetail.whatsapp || state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp);
     if (action === "whatsapp-client" && state.modalClient) { const client = state.modalClient; H.whatsapp(state.clientDetail && state.clientDetail.whatsapp || client.whatsapp || client.phone || client.phoneNormalized, `Olá, ${client.nome || client.name || "tudo bem"}?`); }
     if (action === "new-oneoff") { if (state.clientsPage === 0) await loadClients(true, true); showModal("new-oneoff"); }
+    if (action === "cancel-distance-confirm") { state.distanceWarning = null; state.distanceOverrideDeliveryId = null; await closeOverlay("modal"); return; }
+    if (action === "confirm-distance-delivery") { const warning = state.distanceWarning; const item = warning && items().find(row => row.id === warning.itemId); state.distanceWarning = null; state.distanceOverrideDeliveryId = item && item.id || null; await closeOverlay("modal"); if (item) await confirmDelivery(item); return; }
+    if (action === "arrival-radius") { if (!isAdmin()) return; showModal("arrival-radius"); }
     if (action === "route-mode") { if (!isAdmin()) return; showModal("route-mode"); }
     if (action === "start-route") openDayManager("start");
     if (action === "plan-route") openDayManager("plan");
+    if (action === "review-managed-route") startDayReview();
+    if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
-    if (action === "finish-route") { if (confirm("Encerrar o acompanhamento desta rota no aparelho?")) { H.stopRoute(); toast("Acompanhamento encerrado. As entregas continuam no VPS."); refresh(true); } }
+    if (action === "finish-route") { pauseRouteOnDevice(); render(); toast("Rota encerrada neste aparelho."); }
+    if (action === "resume-route") { await resumeRouteOnDevice(); }
     if (action === "show-map") { const next = openItems()[0]; next && H.maps(next.cliente.lat, next.cliente.lng, address(next.cliente)); }
     if (action === "maps" && state.selected) H.maps(state.selected.cliente.lat, state.selected.cliente.lng, address(state.selected.cliente));
     if (action === "call" && state.selected) H.call(state.selected.cliente.phone || state.selected.contato && state.selected.contato.phone);
@@ -577,42 +857,76 @@
     if (action === "call-stop" || action === "wa-stop" || action === "confirm-stop") { event.preventDefault(); event.stopPropagation(); const next = openItems()[0]; if (!next) return; if (action === "call-stop") H.call(next.cliente.phone); if (action === "wa-stop") H.whatsapp(next.cliente.phone, `Olá, ${next.cliente.nome || "tudo bem"}? Sua entrega está a caminho.`); if (action === "confirm-stop") confirmDelivery(next); }
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(err(error), true); } }
-    if (action === "logout") { if (confirm("Desvincular este aparelho do HBX Logística?")) H.logout(); }
+    if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
   });
   app.addEventListener("touchstart", event => {
     const productCard = event.target.closest("[data-client-product-id]");
     if (productCard && event.touches.length === 1) {
-      const touch = event.touches[0]; const hold = { id: productCard.dataset.clientProductId, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      hold.timer = setTimeout(() => { hold.triggered = true; ignoredClientProductClickId = hold.id; if (navigator.vibrate) navigator.vibrate(14); deleteClientProduct(state.clientProducts.find(item => item.id === hold.id)); }, 620);
+      const touch = event.touches[0]; const hold = { id: productCard.dataset.clientProductId, el: productCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      // Primeiro arma visualmente (vermelho + vibração); só ao soltar abre a
+      // confirmação. Assim o toque longo nunca parece um clique que não fez nada.
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); if (navigator.vibrate) navigator.vibrate(14); }, 480);
       clientProductHold = hold;
     }
     const target = event.target;
+    const routeStop = target.closest("[data-route-stop]");
+    if (routeStop && event.touches.length === 1 && !state.modal && !state.selected) {
+      const touch = event.touches[0]; const hold = { id: routeStop.dataset.routeStop, el: routeStop, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); if (navigator.vibrate) navigator.vibrate(14); }, 520);
+      routeStopHold = hold;
+    }
     if (event.touches.length !== 1 || state.modal || state.selected || target.closest("input, textarea, select, [contenteditable]")) { touchStart = null; return; }
     const touch = event.touches[0];
-    touchStart = { x: touch.clientX, y: touch.clientY };
+    touchStart = { x: touch.clientX, y: touch.clientY, currentStopId: target.closest("[data-route-current]")?.dataset.routeCurrent || null };
   }, { passive: true });
   app.addEventListener("touchmove", event => {
-    if (!clientProductHold || event.touches.length !== 1) return;
+    if (event.touches.length !== 1) return;
     const touch = event.touches[0];
-    if (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12) { clearTimeout(clientProductHold.timer); clientProductHold = null; }
+    if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); clientProductHold = null; }
+    if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); routeStopHold = null; }
+    if (touchStart && touchStart.currentStopId) {
+      const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
+      current?.classList.toggle("is-swiping-skip", touch.clientX - touchStart.x < -24 && Math.abs(touch.clientX - touchStart.x) > Math.abs(touch.clientY - touchStart.y));
+    }
   }, { passive: true });
   app.addEventListener("touchend", event => {
-    if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold = null; }
+    if (clientProductHold) {
+      clearTimeout(clientProductHold.timer);
+      const hold = clientProductHold; clientProductHold = null; hold.el.classList.remove("is-holding");
+      if (hold.triggered) { ignoredClientProductClickId = hold.id; void deleteClientProduct(state.clientProducts.find(item => item.id === hold.id)); return; }
+    }
+    if (routeStopHold) {
+      clearTimeout(routeStopHold.timer);
+      const hold = routeStopHold; routeStopHold = null; hold.el.classList.remove("is-holding");
+      if (hold.triggered) {
+        ignoredRouteStopClickId = hold.id;
+        touchStart = null;
+        void removeStopForToday(items().find(item => item.id === hold.id), "Retirado da rota pelo operador.");
+        return;
+      }
+    }
     if (!touchStart || state.modal || state.selected || event.changedTouches.length !== 1) { touchStart = null; return; }
     const touch = event.changedTouches[0];
     const dx = touch.clientX - touchStart.x;
     const dy = touch.clientY - touchStart.y;
+    const currentStopId = touchStart.currentStopId;
     touchStart = null;
+    document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip");
+    if (currentStopId && dx < -64 && Math.abs(dx) > Math.abs(dy)) {
+      ignoredRouteStopClickId = currentStopId;
+      void removeStopForToday(items().find(item => item.id === currentStopId), "Cliente ausente; pulado hoje.", "Cliente não está no local? Vamos pular somente a entrega de hoje e abrir a próxima parada. O cliente e a recorrência continuam cadastrados.");
+      return;
+    }
     if (Math.abs(dx) < 64 || Math.abs(dx) <= Math.abs(dy)) return;
     const screens = ["route", "clients", "products", "settings"];
     const index = screens.indexOf(state.screen);
     navigateTo(screens[(index + (dx < 0 ? 1 : -1) + screens.length) % screens.length], dx < 0 ? "forward" : "back");
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (clientProductHold) clearTimeout(clientProductHold.timer); clientProductHold = null; }, { passive: true });
-  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client-product-id]")) event.preventDefault(); });
+  app.addEventListener("touchcancel", () => { if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); } routeStopHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client-product-id],[data-route-stop]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
-    if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { if (event.target.name === "phone") event.target.value = formatPhone(event.target.value); state.clientPaymentDraft[event.target.name] = event.target.value; return; }
+    if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { if (event.target.name === "phone") event.target.value = formatPhone(event.target.value); if (event.target.name === "cep") event.target.value = formatCep(event.target.value); if (event.target.name === "uf") event.target.value = event.target.value.toUpperCase(); state.clientPaymentDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "new-client-form" && event.target.name) {
       const name = event.target.name; const value = name === "cep" ? formatCep(event.target.value) : name === "phone" ? formatPhone(event.target.value) : name === "cpf" ? formatCpf(event.target.value) : event.target.value;
       event.target.value = value; state.newClientDraft[name] = value;
@@ -641,17 +955,26 @@
     event.preventDefault(); const form = event.target; const button = form.querySelector("button[type=submit]"); button.disabled = true;
     try {
       const data = Object.fromEntries(new FormData(form).entries()); Object.keys(data).forEach(k => { if (!String(data[k]).trim()) delete data[k]; });
+      if (form.id === "arrival-radius-form") { const radius = Math.max(20, Math.min(1000, Number(data.raioChegadaM))); if (!Number.isFinite(radius)) throw new Error("Informe um raio entre 20 e 1000 metros."); await H.api("/logistica/config", { method: "PATCH", body: { raioChegadaM: radius } }); await closeOverlay("modal"); await refresh(true); toast(`Aviso de chegada ajustado para ${radius} m.`); }
       if (form.id === "new-client-form") { const d = state.newClientDraft; const body = { nome: data.name, tipo: "pf", whatsapp: data.phone, document: data.cpf, endereco: data.endereco, numero: data.numero, bairro: data.bairro, cidade: data.cidade, uf: data.uf && String(data.uf).toUpperCase(), cep: data.cep, lat: d.lat, lng: d.lng, geoFonte: d.geoFonte, isCliente: true, isLead: false }; Object.keys(body).forEach(k => { if (body[k] === undefined || body[k] === null || body[k] === "") delete body[k]; }); const created = await H.api("/nucleo/contas", { method: "POST", body }); const customerProfileId = created && (created.contaId || created.customerProfileId || created.id); const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); if (customerProfileId) await H.api(`/logistica/clientes/${encodeURIComponent(customerProfileId)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } }); await closeOverlay("modal"); await loadClients(true, true); toast("Cliente cadastrado."); }
       if (form.id === "client-details-form") {
         const client = state.modalClient; const phone = String(data.phone || "").trim();
         if (!client || !client.id) throw new Error("Cliente não encontrado.");
         if (!phone) throw new Error("Informe o telefone.");
+        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const addressBody = { endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || "") };
+        await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: addressBody });
+        try {
+          const localBody = { ...addressBody, endereco };
+          if (d.localId) await H.api(`/nucleo/locais/${encodeURIComponent(d.localId)}`, { method: "PATCH", body: localBody });
+          else if (endereco || addressBody.cep) await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/locais`, { method: "POST", body: { ...localBody, isPrincipal: true } });
+        } catch (_) { /* A conta já foi atualizada; o local principal é best-effort. */ }
         const principalId = state.clientDetail && state.clientDetail.contatoPrincipalId;
         if (principalId) await H.api(`/nucleo/telefones/${encodeURIComponent(principalId)}`, { method: "PATCH", body: { whatsapp: phone, phone, isPrincipal: true } });
         else await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/telefones`, { method: "POST", body: { nome: client.nome || client.name || phone, whatsapp: phone, phone, isPrincipal: true } });
-        const d = state.clientPaymentDraft; const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); await H.api(`/logistica/clientes/${encodeURIComponent(client.id)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } }); await closeOverlay("modal"); await loadClients(true, true); toast("Cliente salvo.");
+        const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); await H.api(`/logistica/clientes/${encodeURIComponent(client.id)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } }); await closeOverlay("modal"); await loadClients(true, true); toast("Cliente salvo.");
       }
       if (form.id === "client-product-form") {
+        const wasEditing = !!state.clientProductEditingId;
         const productId = Number(data.productId || state.clientProductDraft.productId); const quantity = Number(data.qtdPadrao || 1);
         if (state.clientProductMode === "weekly") {
           if (!state.clientProductDays.length) throw new Error("Escolha ao menos um dia da semana.");
@@ -665,15 +988,16 @@
         } else if (state.clientProductMode === "oneoff") {
           await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId: data.customerProfileId, productId, quantidade: quantity, scheduledAt: new Date(data.scheduledAt).toISOString() } });
         } else { throw new Error("Escolha o tipo de entrega."); }
-        if (state.clientProductMode === "oneoff") { await closeOverlay("modal"); toast("Entrega avulsa adicionada."); }
-        else { await loadClientProducts(); toast(state.clientProductEditingId ? "Alterações salvas." : "Recorrência salva."); }
+        await closeOverlay("modal");
+        await loadClients(true, true);
+        toast(state.clientProductMode === "oneoff" ? "Entrega avulsa adicionada." : wasEditing ? "Alterações salvas." : "Recorrência salva.");
       }
       if (form.id === "new-product-form") { data.price = Number(data.price || 0); data.stock = Number(data.stock || 0); data.kind = "tenant_product"; data.status = "active"; data.usaLogistica = true; await H.api("/products", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Produto cadastrado."); }
       if (form.id === "new-delivery-form") { data.productId = data.productId ? Number(data.productId) : undefined; data.quantidade = Number(data.quantidade || 1); data.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt).toISOString() : undefined; await H.api("/logistica/entregas", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Entrega adicionada à rota."); }
       if (form.id === "new-oneoff-form") { let customerProfileId = data.customerProfileId; if (!customerProfileId) { if (!data.clientName) throw new Error("Escolha ou informe o cliente avulso."); const client = await H.api("/nucleo/contas", { method: "POST", body: { nome: data.clientName, tipo: "pf", whatsapp: data.clientPhone, isCliente: true, isLead: false } }); customerProfileId = client && client.id; } if (!customerProfileId) throw new Error("Não foi possível preparar o cliente avulso."); await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId: Number(data.productId), quantidade: Number(data.quantidade || 1), notes: data.notes || undefined } }); await closeOverlay("modal"); await refresh(true); toast("Entrega avulsa adicionada à rota de hoje."); }
     } catch (error) { button.disabled = false; toast(err(error), true); }
   });
-  document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
+  document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
   document.addEventListener("hbx:theme", render);
   window.addEventListener("online", () => refresh(true));
   window.HBXApp = {

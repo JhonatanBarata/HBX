@@ -51,8 +51,6 @@ export type MasterProvisioningInput = {
   taxDocument?: string | null;
   modules?: MasterProvisioningModuleInput[] | null;
   limits?: {
-    commercialCardsMonthlyLimitOverride?: number | null;
-    commercialCardsDailyLimitOverride?: number | null;
     commissionDueBusinessDays?: number | null;
   } | null;
   admin?: {
@@ -90,8 +88,6 @@ export type MasterProvisioningPlan = {
   };
   modules: Array<{ key: string; enabled: boolean; source: 'input' }>;
   limits: {
-    commercialCardsMonthlyLimitOverride: number | null;
-    commercialCardsDailyLimitOverride: number | null;
     commissionDueBusinessDays: number;
   };
   admin: {
@@ -258,18 +254,6 @@ export class MasterProvisioningService {
       },
       modules,
       limits: {
-        commercialCardsMonthlyLimitOverride: normalizePositiveInteger(
-          input.limits?.commercialCardsMonthlyLimitOverride,
-          1,
-          999999,
-          null,
-        ),
-        commercialCardsDailyLimitOverride: normalizePositiveInteger(
-          input.limits?.commercialCardsDailyLimitOverride,
-          1,
-          999999,
-          null,
-        ),
         commissionDueBusinessDays: normalizePositiveInteger(input.limits?.commissionDueBusinessDays, 0, 30, 3) ?? 3,
       },
       admin: input.admin
@@ -290,7 +274,7 @@ export class MasterProvisioningService {
       },
       steps: [
         { key: 'create_tenant', label: 'Criar tenant', status: 'ready' },
-        { key: 'configure_plan_manual', label: 'Configurar plano/manual', status: 'ready' },
+        { key: 'configure_billing_manual', label: 'Configurar cobrança/manual', status: 'ready' },
         { key: 'release_modules', label: 'Liberar modulos', status: modules.length ? 'ready' : 'deferred' },
         { key: 'configure_limits', label: 'Configurar limites', status: 'ready' },
         { key: 'create_initial_admin', label: 'Criar admin inicial', status: input.admin ? 'ready' : 'deferred' },
@@ -355,8 +339,6 @@ export class MasterProvisioningService {
           supportEmail: plan.supportChannels.supportEmail,
           replyToEmail: plan.supportChannels.replyToEmail || plan.supportChannels.supportEmail || plan.admin?.email || null,
           supportWhatsapp: plan.supportChannels.supportWhatsapp,
-          commercialCardsMonthlyLimitOverride: plan.limits.commercialCardsMonthlyLimitOverride,
-          commercialCardsDailyLimitOverride: plan.limits.commercialCardsDailyLimitOverride,
           commissionDueBusinessDays: plan.limits.commissionDueBusinessDays,
           assistedSetupRequired: plan.assistedImplementation.required,
           assistedSetupStatus: plan.assistedImplementation.status,
@@ -369,15 +351,14 @@ export class MasterProvisioningService {
 
       ledgerSteps.push({ key: 'create_tenant', status: 'done' });
 
-      // POST-IT (fix S4): CompanyModule só é gravado quando o master mandou
-      // módulos EXPLÍCITOS. Default (módulos do plano) NÃO grava nada — a caixa
-      // do plano resolve ao vivo. O pipeline centraliza esse gate.
+      // CompanyModule só é gravado quando o master mandou módulos EXPLÍCITOS.
+      // Sem input, o kill-switch global da empresa segue como fonte única.
       const explicitModules = plan.modules.some((moduleItem) => moduleItem.source === 'input');
       const { resolvedModuleKeys } = await seedTenantModulesTx(tx, company.id, plan.modules);
       ledgerSteps.push({
         key: 'release_modules',
         status: explicitModules ? 'done' : 'skipped',
-        detail: explicitModules ? null : 'post-it vazio (módulos do plano ao vivo)',
+        detail: explicitModules ? null : 'post-it vazio (kill-switch global)',
       });
 
       ledgerSteps.push({ key: 'grant_manual_entitlements', status: 'skipped', detail: 'aposentado: produto não varia por plano' });

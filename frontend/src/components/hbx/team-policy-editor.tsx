@@ -5,7 +5,7 @@
 // reconstruída contra o kit/tokens do ESQUELETO. Backend intacto:
 //   GET   /team/policy/:userId   → política efetiva + catálogo + presets
 //   PATCH /team/policy/:userId   → grava acessos, módulos, comissão, herança,
-//        limites, radar e visibilidade (Admin + módulo gerencial; auditado).
+//        radar e visibilidade (Admin + módulo gerencial; auditado).
 // Nada de cor/borda/sombra inline (Lei 4): visual mora em screens.css (.tp-*).
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,10 +14,6 @@ import { apiFetch } from "@/lib/api";
 import { stampOnboardingEvent, type OnboardingEvent } from "@/lib/onboarding";
 
 type Seller = { id: number; name?: string | null; username?: string | null; email?: string | null; role?: string | null; isActive?: boolean };
-
-type LimitMode = "inherit" | "limited" | "unlimited" | "blocked";
-type TeamPolicyLimit = { mode: LimitMode; value: number | null; used?: number | null; remaining?: number | null; source: string };
-type LimitKey = "cardDeliveryDaily" | "activeCards" | "monthlyCards" | "vendasPullQuantity";
 
 type PolicyModule = { key: string; name?: string | null; allowed: boolean; accessible?: boolean };
 type AccessGroup = { key: string; label: string; description: string };
@@ -33,7 +29,7 @@ type AccessItem = {
   defaultForAdmin?: boolean;
   defaultForSeller?: boolean;
 };
-type AccessPreset = { key: string; label: string; description: string; access: Record<string, boolean>; limits?: Partial<Record<LimitKey, { mode: LimitMode; value: number | null }>> };
+type AccessPreset = { key: string; label: string; description: string; access: Record<string, boolean> };
 
 type TeamPolicy = {
   subject: { id: number; role: string; isSystemMaster: boolean; name: string | null; email: string | null; username: string | null };
@@ -52,7 +48,6 @@ type TeamPolicy = {
     referredByUserId: number | null;
     referredByCommissionPercentSnapshot: number;
   };
-  limits: Record<LimitKey, TeamPolicyLimit>;
   radar: {
     allowedSegments: string[];
     blockedSegments: string[];
@@ -65,21 +60,11 @@ type TeamPolicy = {
     sellerCanViewOwnPolicy: boolean;
     sellerCanViewCommission: boolean;
     sellerCanViewSellerNetwork: boolean;
-    sellerCanViewLimits: boolean;
-    masterCanUseUnlimited: boolean;
   };
 };
 
-type LimitDraft = Record<LimitKey, { mode: LimitMode; value: string }>;
 type ChannelKey = keyof TeamPolicy["radar"]["requiredChannels"];
-type SellerVisKey = "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewSellerNetwork" | "sellerCanViewLimits";
-
-const LIMIT_LABELS: Array<[LimitKey, string]> = [
-  ["cardDeliveryDaily", "Cards/Vendas por dia"],
-  ["activeCards", "Cards ativos"],
-  ["monthlyCards", "Cards por mês"],
-  ["vendasPullQuantity", "Puxar para Vendas"],
-];
+type SellerVisKey = "sellerCanViewOwnPolicy" | "sellerCanViewCommission" | "sellerCanViewSellerNetwork";
 
 const CHANNEL_LABELS: Array<[ChannelKey, string]> = [
   ["whatsapp", "WhatsApp"],
@@ -100,15 +85,7 @@ const SELLER_VIS_LABELS: Array<[SellerVisKey, string]> = [
   ["sellerCanViewOwnPolicy", "Ver a própria política"],
   ["sellerCanViewCommission", "Ver a própria comissão"],
   ["sellerCanViewSellerNetwork", "Ver indicações/rede"],
-  ["sellerCanViewLimits", "Ver os próprios limites"],
 ];
-
-const EMPTY_LIMIT_DRAFT: LimitDraft = {
-  cardDeliveryDaily: { mode: "inherit", value: "" },
-  activeCards: { mode: "inherit", value: "" },
-  monthlyCards: { mode: "inherit", value: "" },
-  vendasPullQuantity: { mode: "inherit", value: "" },
-};
 
 function lbl(s?: Seller | null) {
   if (!s) return "Vendedor";
@@ -164,22 +141,6 @@ function numberDraft(value?: number | null) {
   return Number(value || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 }
 
-function formatLimit(limit?: TeamPolicyLimit | null) {
-  if (!limit) return "—";
-  if (limit.mode === "unlimited") return "Ilimitado";
-  if (limit.mode === "blocked") return "Bloqueado";
-  if (limit.mode === "inherit") return `Herda${limit.value != null ? ` (${limit.value})` : ""}`;
-  return String(limit.value ?? 0);
-}
-
-function buildLimitDraft(policy: TeamPolicy): LimitDraft {
-  return (Object.keys(EMPTY_LIMIT_DRAFT) as LimitKey[]).reduce<LimitDraft>((acc, key) => {
-    const l = policy.limits[key];
-    acc[key] = { mode: l.mode, value: l.value == null ? "" : String(l.value) };
-    return acc;
-  }, { ...EMPTY_LIMIT_DRAFT });
-}
-
 export function TeamPolicyEditor({ userId, sellers, isSelf }: {
   userId: number;
   sellers: Seller[];
@@ -204,14 +165,13 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
   const [sellerReferralCommissionPercent, setSellerReferralCommissionPercent] = useState("0");
   const [referredByUserId, setReferredByUserId] = useState("");
   const [referredByCommissionPercentSnapshot, setReferredByCommissionPercentSnapshot] = useState("0");
-  const [limits, setLimits] = useState<LimitDraft>(EMPTY_LIMIT_DRAFT);
   const [allowedSegments, setAllowedSegments] = useState("");
   const [blockedSegments, setBlockedSegments] = useState("");
   const [allowedCities, setAllowedCities] = useState("");
   const [allowedStates, setAllowedStates] = useState("");
   const [requiresLocation, setRequiresLocation] = useState(false);
   const [requiredChannels, setRequiredChannels] = useState<TeamPolicy["radar"]["requiredChannels"]>({ whatsapp: false, instagram: false, facebook: false, email: false, website: false });
-  const [visibility, setVisibility] = useState<Record<SellerVisKey, boolean>>({ sellerCanViewOwnPolicy: true, sellerCanViewCommission: true, sellerCanViewSellerNetwork: true, sellerCanViewLimits: true });
+  const [visibility, setVisibility] = useState<Record<SellerVisKey, boolean>>({ sellerCanViewOwnPolicy: true, sellerCanViewCommission: true, sellerCanViewSellerNetwork: true });
 
   const hydrate = useCallback((p: TeamPolicy) => {
     const moduleMap: Record<string, boolean> = {};
@@ -225,7 +185,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
     setSellerReferralCommissionPercent(numberDraft(p.sellerNetwork.sellerReferralCommissionPercent));
     setReferredByUserId(p.sellerNetwork.referredByUserId ? String(p.sellerNetwork.referredByUserId) : "");
     setReferredByCommissionPercentSnapshot(numberDraft(p.sellerNetwork.referredByCommissionPercentSnapshot));
-    setLimits(buildLimitDraft(p));
     setAllowedSegments(p.radar.allowedSegments.join("\n"));
     setBlockedSegments(p.radar.blockedSegments.join("\n"));
     setAllowedCities(citiesToText(p.radar.allowedCities));
@@ -236,7 +195,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
       sellerCanViewOwnPolicy: Boolean(p.visibility.sellerCanViewOwnPolicy),
       sellerCanViewCommission: Boolean(p.visibility.sellerCanViewCommission),
       sellerCanViewSellerNetwork: Boolean(p.visibility.sellerCanViewSellerNetwork),
-      sellerCanViewLimits: Boolean(p.visibility.sellerCanViewLimits),
     });
   }, []);
 
@@ -251,8 +209,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
 
   const readOnly = Boolean(policy?.subject.isSystemMaster);
   const targetIsSeller = String(policy?.subject.role || "").toUpperCase() === "USER";
-  const canUseUnlimited = Boolean(policy?.visibility.masterCanUseUnlimited);
-
   // Valor "padrão" do cargo do alvo (Admin/Gerente herdam tudo → defaultForAdmin;
   // Vendedor → defaultForSeller). Serve para mostrar override e o botão "padrão".
   const defaultForItem = useCallback(
@@ -266,20 +222,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
 
   const patch = useMemo(() => {
     if (!policy) return null;
-    const limitPatch: Record<string, { mode: LimitMode; value: number | null | "unlimited" }> = {};
-    for (const key of Object.keys(limits) as LimitKey[]) {
-      const l = limits[key];
-      if (l.mode === "limited") {
-        const v = parseInteger(l.value, 0, 500);
-        limitPatch[key] = v === null ? { mode: "inherit", value: null } : { mode: "limited", value: v };
-      } else if (l.mode === "unlimited") {
-        limitPatch[key] = { mode: "unlimited", value: "unlimited" };
-      } else if (l.mode === "blocked") {
-        limitPatch[key] = { mode: "blocked", value: 0 };
-      } else {
-        limitPatch[key] = { mode: "inherit", value: null };
-      }
-    }
     return {
       modules: Object.entries(moduleDraft).map(([key, allowed]) => ({ key, allowed })),
       access: accessDraft,
@@ -294,7 +236,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
         referredByUserId: referredByUserId ? Number(referredByUserId) : null,
         referredByCommissionPercentSnapshot: parsePercent(referredByCommissionPercentSnapshot),
       },
-      limits: limitPatch,
       radar: {
         allowedSegments: splitTextList(allowedSegments),
         blockedSegments: splitTextList(blockedSegments),
@@ -305,7 +246,7 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
       },
       visibility,
     };
-  }, [policy, limits, moduleDraft, accessDraft, presetKey, commissionPercent, commissionDueBusinessDays, canRecruitSellers, sellerReferralCommissionPercent, referredByUserId, referredByCommissionPercentSnapshot, allowedSegments, blockedSegments, allowedCities, allowedStates, requiresLocation, requiredChannels, visibility]);
+  }, [policy, moduleDraft, accessDraft, presetKey, commissionPercent, commissionDueBusinessDays, canRecruitSellers, sellerReferralCommissionPercent, referredByUserId, referredByCommissionPercentSnapshot, allowedSegments, blockedSegments, allowedCities, allowedStates, requiresLocation, requiredChannels, visibility]);
 
   // Nível 2 — liga/desliga um GRUPO inteiro de uma vez. Se nem tudo está ON,
   // liga tudo; se tudo está ON, desliga tudo. (A matriz fina mora no Avançado.)
@@ -324,16 +265,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
     if (!preset) { setPresetKey(""); return; }
     setPresetKey(preset.key);
     setAccessDraft({ ...preset.access });
-    if (preset.limits) {
-      setLimits((cur) => {
-        const next = { ...cur };
-        for (const [k, l] of Object.entries(preset.limits || {})) {
-          if (!l || !(k in next)) continue;
-          next[k as LimitKey] = { mode: l.mode, value: l.value == null ? "" : String(l.value) };
-        }
-        return next;
-      });
-    }
   }
 
   async function salvar() {
@@ -586,30 +517,6 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
         )}
       </section>
 
-      {/* Limites */}
-      <section className="tp-sec">
-        <h4>Limites operacionais</h4>
-        <p className="tp-desc">“Usar padrão” mantém a política operacional da empresa. {canUseUnlimited ? "Ilimitado disponível (Master)." : "Ilimitado é exclusivo do Master."}</p>
-        {LIMIT_LABELS.map(([key, label]) => {
-          const draft = limits[key];
-          return (
-            <div key={key} className="tp-lim">
-              <div className="nm"><b>{label}</b><small>Atual: {formatLimit(policy.limits[key])}</small></div>
-              <select className="field-dark" value={draft.mode} disabled={dis}
-                onChange={(e) => setLimits((c) => ({ ...c, [key]: { ...c[key], mode: e.target.value as LimitMode } }))}>
-                <option value="inherit">Usar padrão</option>
-                <option value="limited">Limitar</option>
-                <option value="blocked">Bloquear</option>
-                {canUseUnlimited && <option value="unlimited">Ilimitado</option>}
-              </select>
-              <input className="field-dark" type="number" min={0} max={500} placeholder="—"
-                value={draft.mode === "limited" ? draft.value : ""} disabled={dis || draft.mode !== "limited"}
-                onChange={(e) => setLimits((c) => ({ ...c, [key]: { ...c[key], value: e.target.value } }))} />
-            </div>
-          );
-        })}
-      </section>
-
       {/* Radar */}
       <section className="tp-sec">
         <h4>Radar — território</h4>
@@ -674,7 +581,7 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
       )}
 
       <div className="tp-foot">
-        <span className="tp-desc grow">Salvar grava acessos, módulos, comissão, limites, radar e visibilidade — com auditoria.</span>
+        <span className="tp-desc grow">Salvar grava acessos, módulos, comissão, radar e visibilidade — com auditoria.</span>
         <button className="btn-teal" onClick={salvar} disabled={dis || !patch} style={{ minHeight: 40 }}>
           {saving ? "Salvando…" : "Salvar política"}
         </button>

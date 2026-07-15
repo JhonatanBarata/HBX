@@ -151,18 +151,6 @@ const RUNTIME_SCHEMA_ENSURES: RuntimeSchemaEnsureDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
-    key: 'radar-auto-distribution-rule-tables',
-    method: 'ensureRadarAutoDistributionRuleTables',
-    target: 'RadarAutoDistributionRule table, constraints and indexes',
-    shouldBecomeMigration: true,
-  },
-  {
-    key: 'radar-distribution-daily-usage-tables',
-    method: 'ensureRadarDistributionDailyUsageTables',
-    target: 'RadarAutoDistributionRule daily limits and RadarDistributionDailyUsage table',
-    shouldBecomeMigration: true,
-  },
-  {
     key: 'master-notice-tables',
     method: 'ensureMasterNoticeTables',
     target: 'MasterNotice and MasterNoticeAck tables, constraints and indexes',
@@ -256,14 +244,6 @@ const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
     shouldBecomeMigration: true,
   },
   {
-    key: 'user.sellerDistributionMode',
-    ensureKey: 'user-sales-profile-columns',
-    type: 'column',
-    table: 'User',
-    column: 'sellerDistributionMode',
-    shouldBecomeMigration: true,
-  },
-  {
     key: 'hbxPartnerReferralCandidate.table',
     ensureKey: 'hbx-partner-referral-candidate-tables',
     type: 'table',
@@ -338,36 +318,6 @@ const RUNTIME_SCHEMA_HEALTH_CHECKS: RuntimeSchemaHealthCheckDefinition[] = [
     type: 'column',
     table: 'VendasCommissionReceivable',
     column: 'cycleKey',
-    shouldBecomeMigration: true,
-  },
-  {
-    key: 'radarAutoDistributionRule.table',
-    ensureKey: 'radar-auto-distribution-rule-tables',
-    type: 'table',
-    table: 'RadarAutoDistributionRule',
-    shouldBecomeMigration: true,
-  },
-  {
-    key: 'radarAutoDistributionRule.adminDailyLimit',
-    ensureKey: 'radar-distribution-daily-usage-tables',
-    type: 'column',
-    table: 'RadarAutoDistributionRule',
-    column: 'adminDailyLimit',
-    shouldBecomeMigration: true,
-  },
-  {
-    key: 'radarAutoDistributionRule.dailyLimitPerSeller',
-    ensureKey: 'radar-distribution-daily-usage-tables',
-    type: 'column',
-    table: 'RadarAutoDistributionRule',
-    column: 'dailyLimitPerSeller',
-    shouldBecomeMigration: true,
-  },
-  {
-    key: 'radarDistributionDailyUsage.table',
-    ensureKey: 'radar-distribution-daily-usage-tables',
-    type: 'table',
-    table: 'RadarDistributionDailyUsage',
     shouldBecomeMigration: true,
   },
   {
@@ -650,8 +600,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     await this.runRuntimeSchemaEnsure('vendas-lead-opportunity-score-column', () => this.ensureVendasLeadOpportunityScoreColumn());
     await this.runRuntimeSchemaEnsure('vendas-commission-payout-tables', () => this.ensureVendasCommissionPayoutTables());
     await this.runRuntimeSchemaEnsure('vendas-commission-receivable-tables', () => this.ensureVendasCommissionReceivableTables());
-    await this.runRuntimeSchemaEnsure('radar-auto-distribution-rule-tables', () => this.ensureRadarAutoDistributionRuleTables());
-    await this.runRuntimeSchemaEnsure('radar-distribution-daily-usage-tables', () => this.ensureRadarDistributionDailyUsageTables());
     await this.runRuntimeSchemaEnsure('master-notice-tables', () => this.ensureMasterNoticeTables());
     await this.runRuntimeSchemaEnsure('hbx-support-ticket-tables', () => this.ensureHbxSupportTicketTables());
     await this.runRuntimeSchemaEnsure('vendas-cancellation-case-columns', () => this.ensureVendasCancellationCaseColumns());
@@ -987,31 +935,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ADD COLUMN IF NOT EXISTS "referredByCommissionPercentSnapshot" DOUBLE PRECISION NOT NULL DEFAULT 0
     `);
 
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "User"
-      ADD COLUMN IF NOT EXISTS "sellerDistributionMode" TEXT NOT NULL DEFAULT 'learning'
-    `);
-
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "User"
-      ADD COLUMN IF NOT EXISTS "sellerDistributionPausedUntil" TIMESTAMP(3)
-    `);
-
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "User"
-      ADD COLUMN IF NOT EXISTS "sellerDistributionDailyLimitOverride" INTEGER
-    `);
-
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "User"
-      ADD COLUMN IF NOT EXISTS "sellerDistributionNote" TEXT
-    `);
-
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "User"
-      ADD COLUMN IF NOT EXISTS "sellerDistributionUpdatedAt" TIMESTAMP(3)
-    `);
-
     // Preferência de segmento/região do vendedor (self-service 14/06). Nullable;
     // existentes ficam NULL → default cai no ramo da empresa. Idempotente.
     await this.$executeRawUnsafe(`
@@ -1027,9 +950,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       'CREATE INDEX IF NOT EXISTS "User_canRegisterHbxSellers_idx" ON "User"("canRegisterHbxSellers")',
     );
 
-    await this.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS "User_sellerDistributionMode_idx" ON "User"("sellerDistributionMode")',
-    );
   }
 
   private async ensureHbxPartnerReferralCandidateTables() {
@@ -1373,126 +1293,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
     await this.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "VendasCommissionReceivable_cycleKey_idx" ON "VendasCommissionReceivable"("cycleKey")
-    `);
-  }
-
-  private async ensureRadarAutoDistributionRuleTables() {
-    await this.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "RadarAutoDistributionRule" (
-        "id" TEXT NOT NULL,
-        "companyId" INTEGER NOT NULL,
-        "scope" TEXT NOT NULL DEFAULT 'company',
-        "status" TEXT NOT NULL DEFAULT 'draft',
-        "includeAdmin" BOOLEAN NOT NULL DEFAULT false,
-        "adminUserId" INTEGER,
-        "adminTargetStock" INTEGER NOT NULL DEFAULT 0,
-        "targetStockPerSeller" INTEGER NOT NULL DEFAULT 30,
-        "preferredState" TEXT,
-        "preferredCity" TEXT,
-        "segment" TEXT,
-        "categoryKey" TEXT,
-        "radiusKm" INTEGER,
-        "targetUserIdsJson" TEXT,
-        "filtersJson" TEXT,
-        "createdByUserId" INTEGER,
-        "updatedByUserId" INTEGER,
-        "lastActivatedAt" TIMESTAMP(3),
-        "lastRunAt" TIMESTAMP(3),
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT "RadarAutoDistributionRule_pkey" PRIMARY KEY ("id")
-      )
-    `);
-
-    await this.$executeRawUnsafe(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conname = 'RadarAutoDistributionRule_companyId_fkey'
-        ) THEN
-          ALTER TABLE "RadarAutoDistributionRule"
-          ADD CONSTRAINT "RadarAutoDistributionRule_companyId_fkey"
-          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-        END IF;
-      END $$;
-    `);
-
-    await this.$executeRawUnsafe(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_scope_key" ON "RadarAutoDistributionRule"("companyId", "scope")
-    `);
-    await this.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_status_idx" ON "RadarAutoDistributionRule"("companyId", "status")
-    `);
-    await this.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "RadarAutoDistributionRule_companyId_updatedAt_idx" ON "RadarAutoDistributionRule"("companyId", "updatedAt")
-    `);
-  }
-
-  private async ensureRadarDistributionDailyUsageTables() {
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "RadarAutoDistributionRule"
-      ADD COLUMN IF NOT EXISTS "adminDailyLimit" INTEGER NOT NULL DEFAULT 0
-    `);
-
-    await this.$executeRawUnsafe(`
-      ALTER TABLE "RadarAutoDistributionRule"
-      ADD COLUMN IF NOT EXISTS "dailyLimitPerSeller" INTEGER NOT NULL DEFAULT 20
-    `);
-
-    await this.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "RadarDistributionDailyUsage" (
-        "id" TEXT NOT NULL,
-        "companyId" INTEGER NOT NULL,
-        "userId" INTEGER,
-        "dayKey" TEXT NOT NULL,
-        "dailyLimit" INTEGER NOT NULL DEFAULT 20,
-        "deliveredCount" INTEGER NOT NULL DEFAULT 0,
-        "skippedCount" INTEGER NOT NULL DEFAULT 0,
-        "lastDeliveryAt" TIMESTAMP(3),
-        "lastSkipReason" TEXT,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT "RadarDistributionDailyUsage_pkey" PRIMARY KEY ("id")
-      )
-    `);
-
-    await this.$executeRawUnsafe(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conname = 'RadarDistributionDailyUsage_companyId_fkey'
-        ) THEN
-          ALTER TABLE "RadarDistributionDailyUsage"
-          ADD CONSTRAINT "RadarDistributionDailyUsage_companyId_fkey"
-          FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-        END IF;
-
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint
-          WHERE conname = 'RadarDistributionDailyUsage_userId_fkey'
-        ) THEN
-          ALTER TABLE "RadarDistributionDailyUsage"
-          ADD CONSTRAINT "RadarDistributionDailyUsage_userId_fkey"
-          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-        END IF;
-      END $$;
-    `);
-
-    await this.$executeRawUnsafe(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "RadarDistributionDailyUsage_companyId_userId_dayKey_key"
-      ON "RadarDistributionDailyUsage"("companyId", "userId", "dayKey")
-    `);
-
-    await this.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "RadarDistributionDailyUsage_companyId_dayKey_idx"
-      ON "RadarDistributionDailyUsage"("companyId", "dayKey")
-    `);
-
-    await this.$executeRawUnsafe(`
-      CREATE INDEX IF NOT EXISTS "RadarDistributionDailyUsage_userId_dayKey_idx"
-      ON "RadarDistributionDailyUsage"("userId", "dayKey")
     `);
   }
 

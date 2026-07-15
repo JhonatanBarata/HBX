@@ -329,7 +329,7 @@ export function JanelaCockpit() {
 
   return (
     <React.Fragment>
-      {/* Faixa de saúde v1 (Sprint 2): zap · cobrança · fábrica */}
+      {/* Faixa de saúde: zap · cobrança · estoque Radar. Não representa executor no VPS. */}
       <div className="ckm-health">
         <span className={"ckm-pill " + waPill.tone} title="Estado dos chips lido do motor ao vivo (cache de 60 s)">
           <span className={pillDot(waPill.tone)} />
@@ -339,9 +339,9 @@ export function JanelaCockpit() {
           <span className={pillDot(billingTone)} />
           Cobrança <em>{health?.billing ? (billingAt ? `webhook ${agoShort(billingAt)}` : "sem webhook ainda") : "sem leitura"}</em>
         </span>
-        <span className={"ckm-pill " + factoryTone} title="Último lead visto pela fábrica (Radar)">
+        <span className={"ckm-pill " + factoryTone} title="Último lead registrado no estoque Radar">
           <span className={pillDot(factoryTone)} />
-          Fábrica <em>{health?.factory ? (factoryAt ? `lead ${agoShort(factoryAt)}` : "sem lead ainda") : "sem leitura"}</em>
+          Radar <em>{health?.factory ? (factoryAt ? `lead ${agoShort(factoryAt)}` : "sem lead ainda") : "sem leitura"}</em>
         </span>
       </div>
 

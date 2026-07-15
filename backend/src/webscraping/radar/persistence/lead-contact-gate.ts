@@ -151,7 +151,7 @@ export type LeadContactKind = 'email' | 'phone' | 'whatsapp' | 'instagram' | 'fa
 export type LeadContactCandidate = {
   kind: LeadContactKind;
   value: string;
-  /** obrigatório — de onde veio ('website_crawl' | 'cnpj_l4' | 'owner_social' | 'lead_harvest_import' | 'ai_extraction' | engine de busca) */
+  /** obrigatório — origem canônica (`rfb_*`, `website_crawl`, `hbx_engine` ou fonte social explícita) */
   source: string;
   /** obrigatório — 0..100 */
   confidence: number;

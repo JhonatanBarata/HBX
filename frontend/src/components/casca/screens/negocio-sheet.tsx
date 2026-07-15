@@ -122,7 +122,7 @@ export function NegocioSheet({
     setBusy(true);
     setMsg(null);
     try {
-      await claimLead(String(shown.id), { lead: { id: String(shown.id), name: shown.name, city: shown.city, state: shown.state, segment: shown.segment } });
+      await claimLead(String(shown.id));
       setMsg("Puxado pro funil.");
       onPulled?.();
     } catch (err) {

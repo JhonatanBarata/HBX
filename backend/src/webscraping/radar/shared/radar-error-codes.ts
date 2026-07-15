@@ -33,9 +33,6 @@ export const RADAR_NON_BLOCKING_ERROR_CODES = [
   'vertical_source_failed',
   'cache_failed',
   'history_failed',
-  'campaign_failed',
-  'factory_failed',
-  'campaign_factory_failed',
 ] as const;
 
 export type RadarDeliveryBlockingErrorCode = typeof RADAR_DELIVERY_BLOCKING_ERROR_CODES[number];

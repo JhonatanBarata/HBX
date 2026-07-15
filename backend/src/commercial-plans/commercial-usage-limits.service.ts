@@ -1,79 +1,8 @@
 import { ConflictException, Injectable, Optional } from '@nestjs/common';
 import { isPlatformInfraCompany } from '../common/company-kind';
-import { pushMasterNotice } from '../common/push-master-notice';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
 import { resolveCommercialPlanKeyForCapabilities } from './commercial-plan-catalog';
-import { resolveRadarSearchAllowance, resolveSellerCardQuota } from './seller-card-quota.util';
-import {
-  TEAM_POLICY_UNLIMITED_LIMIT,
-  loadUserTeamPolicyRuntime,
-  resolveTeamPolicyStoredLimit,
-  type RuntimeTeamPolicy,
-} from '../team/team-policy-persistence';
-
-const FALLBACK_TIMEZONE = 'America/Sao_Paulo';
-const CARD_SUCCESS_EVENTS = ['card_import_success', 'vendas_card_imported', 'radar_card_claimed', 'card_commercial_used'];
-const CARD_REFUND_EVENTS = ['vendas_card_refunded'];
-const SELLER_ACTIVE_CARD_LIMIT_MIN = 5;
-const SELLER_ACTIVE_CARD_LIMIT_MAX = 100;
-// Sentinela "sem teto" para a política operacional do vendedor.
-const SELLER_ACTIVE_CARD_LIMIT_UNLIMITED = 999999;
-// VENDAS-REFAB S1: penalidade automática de inatividade (corta effectiveLimit sozinha
-// com o vendedor sumido) só roda se o admin ligar explicitamente. Default OFF — mesmo
-// vendedor COM teto configurado (targetStockPerSeller) não perde slot por inatividade
-// até o admin optar. Isso é adicional à regra-mãe: sem teto nenhum, já é ilimitado.
-function isSellerInactivityPenaltyEnabled(): boolean {
-  return String(process.env.HBX_SELLER_INACTIVITY_PENALTY_ENABLED || '').trim().toLowerCase() === 'true';
-}
-const ACTIVE_VENDAS_CARD_STATUSES = [
-  'novo',
-  'contato',
-  'retorno',
-  'qualificado',
-  'new',
-  'assigned',
-  'contacted',
-  'follow_up',
-  'waiting_reply',
-  'pending_activation',
-  'trial',
-  'negotiation',
-];
-const ACTIVE_RADAR_CARD_STATUSES = [
-  'new',
-  'clean',
-  'reserved',
-  'delivered',
-  'assigned',
-  'contacted',
-  'follow_up',
-  'waiting_reply',
-  'pending_activation',
-  'trial',
-  'negotiation',
-];
-
-type UsageKind = 'cards' | 'emails';
-type SellerActiveCardQuotaSnapshot = {
-  companyId: number;
-  userId: number;
-  seller: boolean;
-  paused: boolean;
-  // unlimited = vendedor SEM teto de cards ativos (lei do dono 27/06: nasce no
-  // máximo, até o teto do plano). Só vira limitado quando o admin OPTA por um
-  // teto — targetStockPerSeller (regra de distribuição) ou activeCards (team policy).
-  unlimited: boolean;
-  activeCount: number;
-  baseLimit: number;
-  bonus: number;
-  inactivityPenalty: number;
-  effectiveLimit: number;
-  availableSlots: number;
-  salesWonLast30: number;
-  lastSeenAt: string | null;
-  code: string | null;
-};
 
 @Injectable()
 export class CommercialUsageLimitsService {
@@ -83,743 +12,16 @@ export class CommercialUsageLimitsService {
     @Optional() private readonly creditsService?: CreditsService,
   ) {}
 
-  private normalizeTimezone(value: unknown) {
-    const timezone = String(value || '').trim() || FALLBACK_TIMEZONE;
-    try {
-      new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
-      return timezone;
-    } catch {
-      return FALLBACK_TIMEZONE;
-    }
-  }
-
-  private getDateParts(date: Date, timezone: string) {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).formatToParts(date);
-    const pick = (type: string) => Number(parts.find((part) => part.type === type)?.value || 0);
-    return {
-      year: pick('year'),
-      month: pick('month'),
-      day: pick('day'),
-      hour: pick('hour'),
-      minute: pick('minute'),
-      second: pick('second'),
-    };
-  }
-
-  private toLocalDateKey(date: Date, timezone: string) {
-    const parts = this.getDateParts(date, timezone);
-    return `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
-  }
-
-  private buildDateInTimezone(dateKey: string, time: string, timezone: string) {
-    const [year, month, day] = dateKey.split('-').map((part) => Number(part));
-    const [hour, minute, second] = time.split(':').map((part) => Number(part || 0));
-    const guessedUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, second || 0));
-    const rendered = this.getDateParts(guessedUtc, timezone);
-    const diffMs = Date.UTC(year, month - 1, day, hour, minute, second || 0) -
-      Date.UTC(rendered.year, rendered.month - 1, rendered.day, rendered.hour, rendered.minute, rendered.second);
-    return new Date(guessedUtc.getTime() + diffMs);
-  }
-
-  private getDayBounds(timezone: string) {
-    const now = new Date();
-    const dateKey = this.toLocalDateKey(now, timezone);
-    const dayStart = this.buildDateInTimezone(dateKey, '00:00:00', timezone);
-    const nextDate = new Date(dayStart.getTime() + 36 * 60 * 60 * 1000);
-    const nextKey = this.toLocalDateKey(nextDate, timezone);
-    const dayEnd = this.buildDateInTimezone(nextKey, '00:00:00', timezone);
-    return { dayStart, dayEnd };
-  }
-
-  private getMonthBounds(timezone: string) {
-    const now = new Date();
-    const parts = this.getDateParts(now, timezone);
-    const monthStartKey = `${parts.year}-${String(parts.month).padStart(2, '0')}-01`;
-    const nextMonth = parts.month === 12 ? 1 : parts.month + 1;
-    const nextYear = parts.month === 12 ? parts.year + 1 : parts.year;
-    const nextMonthStartKey = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
-    return {
-      monthStart: this.buildDateInTimezone(monthStartKey, '00:00:00', timezone),
-      monthEnd: this.buildDateInTimezone(nextMonthStartKey, '00:00:00', timezone),
-    };
-  }
-
-  // P0.2 (PR10072026 W1): signup público nasce SEM plano (selectedPlanKey null).
-  // Fallback ÚNICO e deliberado: resolveCommercialPlanKeyForCapabilities projeta
-  // plano-null em hbx_padrao — perfil de quotas único da conta crédito (caps
-  // diários anti-abuso continuam; count-based é telemetria desde R5, o gate real
-  // de consumo é o saldo de crédito). Override por empresa (colunas *Override)
-  // segue ganhando de qualquer perfil.
+  // selectedPlanKey é somente metadado do ledger comercial; nunca define quantos
+  // leads alguém pode adquirir.
   private async getCompanyPlan(companyId: number) {
     const company = await this.prisma.company.findUnique({
       where: { id: Number(companyId) },
-      select: { selectedPlanKey: true, timezone: true, companyKind: true },
+      select: { selectedPlanKey: true, companyKind: true },
     });
-    const quotaOverrideRows = await this.prisma.$queryRawUnsafe<Array<{
-      commercialCardsMonthlyLimitOverride: number | null;
-      commercialCardsDailyLimitOverride: number | null;
-    }>>(
-      'SELECT "commercialCardsMonthlyLimitOverride", "commercialCardsDailyLimitOverride" FROM "Company" WHERE "id" = $1 LIMIT 1',
-      Number(companyId),
-    ).catch(() => []);
-    const quotaOverride = quotaOverrideRows[0] || null;
     const platformInfra = isPlatformInfraCompany(company);
     const planKey = platformInfra ? 'platform_infra' : resolveCommercialPlanKeyForCapabilities(company || {});
-    return {
-      planKey,
-      timezone: this.normalizeTimezone(company?.timezone),
-      isPlatformInfra: platformInfra,
-      quotaOverride: {
-        cardsPerMonth: this.normalizePositiveOverride(quotaOverride?.commercialCardsMonthlyLimitOverride),
-        dailyCardSafetyLimit: this.normalizePositiveOverride(quotaOverride?.commercialCardsDailyLimitOverride),
-      },
-    };
-  }
-
-  private normalizePositiveOverride(value: unknown) {
-    const parsed = Math.trunc(Number(value || 0));
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-
-  private clampInteger(value: unknown, min: number, max: number) {
-    const parsed = Math.trunc(Number(value || 0));
-    if (!Number.isFinite(parsed)) return min;
-    return Math.max(min, Math.min(max, parsed));
-  }
-
-  private parseDate(value: unknown) {
-    if (!value) return null;
-    const date = value instanceof Date ? value : new Date(String(value));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  private daysSince(date: Date | null, now = new Date()) {
-    if (!date) return 0;
-    return Math.max(0, Math.floor((now.getTime() - date.getTime()) / (24 * 60 * 60 * 1000)));
-  }
-
-  private normalizeSellerMode(value: unknown) {
-    const normalized = String(value || 'learning').trim().toLowerCase();
-    return ['learning', 'normal', 'priority', 'paused'].includes(normalized) ? normalized : 'learning';
-  }
-
-  private isSellerPaused(user: any, now = new Date()) {
-    const mode = this.normalizeSellerMode(user?.sellerDistributionMode);
-    if (mode !== 'paused') return false;
-    const pausedUntil = this.parseDate(user?.sellerDistributionPausedUntil);
-    return !pausedUntil || pausedUntil.getTime() > now.getTime();
-  }
-
-  // Teto de cards ativos por vendedor configurado PELO ADMIN (regra de
-  // distribuição da empresa). null = admin NÃO setou teto → vendedor nasce
-  // ILIMITADO (lei do dono 27/06): o teto é o do plano, não um número de fábrica.
-  // O 20 antigo era default escondido — agora só existe quando o admin opta.
-  private async getSellerActiveCardBaseLimit(companyId: number): Promise<number | null> {
-    const rule = await this.prisma.radarAutoDistributionRule.findFirst({
-      where: {
-        companyId,
-        scope: 'company',
-      },
-      orderBy: [{ status: 'desc' }, { updatedAt: 'desc' }],
-      select: { targetStockPerSeller: true },
-    }).catch(() => null);
-    const target = Math.trunc(Number(rule?.targetStockPerSeller || 0) || 0);
-    if (!Number.isFinite(target) || target <= 0) return null;
-    return this.clampInteger(target, SELLER_ACTIVE_CARD_LIMIT_MIN, SELLER_ACTIVE_CARD_LIMIT_MAX);
-  }
-
-  private async countSellerActiveVendasCards(companyId: number, userId: number) {
-    const now = new Date();
-    return this.prisma.vendasLead.count({
-      where: {
-        companyId,
-        assignedUserId: userId,
-        status: { in: ACTIVE_VENDAS_CARD_STATUSES },
-        closedAt: null,
-        // cards com retorno agendado pro futuro NÃO ocupam vaga (voltam quando returnAt passar)
-        OR: [{ returnAt: null }, { returnAt: { lte: now } }],
-      },
-    }).catch(() => 0);
-  }
-
-  private async countSellerActiveRadarCards(companyId: number, userId: number) {
-    return this.prisma.radarLeadCompanyState.count({
-      where: {
-        companyId,
-        assignedUserId: userId,
-        vendasLeadId: null,
-        status: { in: ACTIVE_RADAR_CARD_STATUSES },
-      },
-    }).catch(() => 0);
-  }
-
-  private async countSellerWonCardsLast30Days(companyId: number, userId: number, now = new Date()) {
-    const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return this.prisma.vendasLead.count({
-      where: {
-        companyId,
-        assignedUserId: userId,
-        OR: [
-          { saleStatus: { in: ['trial_started', 'sale_confirmed'] }, updatedAt: { gte: since } },
-          { saleConfirmedAt: { gte: since } },
-        ],
-      },
-    }).catch(() => 0);
-  }
-
-  private async getSellerLastSeenAt(userId: number, fallback?: Date | null) {
-    const session = await this.prisma.authSession.findFirst({
-      where: { userId },
-      orderBy: { lastSeenAt: 'desc' },
-      select: { lastSeenAt: true },
-    }).catch(() => null);
-    return this.parseDate(session?.lastSeenAt) || fallback || null;
-  }
-
-  async getSellerActiveCardQuotaSnapshot(companyIdRaw: number, userIdRaw: number): Promise<SellerActiveCardQuotaSnapshot> {
-    const companyId = Math.trunc(Number(companyIdRaw || 0));
-    const userId = Math.trunc(Number(userIdRaw || 0));
-    const unlimited = SELLER_ACTIVE_CARD_LIMIT_UNLIMITED;
-    if (!companyId || !userId) {
-      return {
-        companyId,
-        userId,
-        seller: false,
-        paused: false,
-        unlimited: true,
-        activeCount: 0,
-        baseLimit: unlimited,
-        bonus: 0,
-        inactivityPenalty: 0,
-        effectiveLimit: unlimited,
-        availableSlots: unlimited,
-        salesWonLast30: 0,
-        lastSeenAt: null,
-        code: null,
-      };
-    }
-
-    const [company, user] = await Promise.all([
-      this.prisma.company.findUnique({
-        where: { id: companyId },
-        select: { companyKind: true },
-      }).catch(() => null),
-      this.prisma.user.findFirst({
-        where: { id: userId, companyId },
-        select: {
-          id: true,
-          role: true,
-          isSystemMaster: true,
-          isActive: true,
-          deactivatedAt: true,
-          createdAt: true,
-          sellerDistributionMode: true,
-          sellerDistributionPausedUntil: true,
-        },
-      }).catch(() => null),
-    ]);
-
-    const role = String(user?.role || '').trim().toUpperCase();
-    const seller = Boolean(user && role === 'USER' && !user.isSystemMaster);
-    if (!seller) {
-      return {
-        companyId,
-        userId,
-        seller: false,
-        paused: false,
-        unlimited: true,
-        activeCount: 0,
-        baseLimit: unlimited,
-        bonus: 0,
-        inactivityPenalty: 0,
-        effectiveLimit: unlimited,
-        availableSlots: unlimited,
-        salesWonLast30: 0,
-        lastSeenAt: null,
-        code: null,
-      };
-    }
-
-    const now = new Date();
-    const active = Boolean(user?.isActive && !user?.deactivatedAt);
-    const paused = !active || this.isSellerPaused(user, now);
-    const [baseLimit, teamPolicy, vendasActive, radarActive, salesWonLast30, lastSeenAt] = await Promise.all([
-      this.getSellerActiveCardBaseLimit(companyId),
-      loadUserTeamPolicyRuntime(this.prisma, userId),
-      this.countSellerActiveVendasCards(companyId, userId),
-      this.countSellerActiveRadarCards(companyId, userId),
-      this.countSellerWonCardsLast30Days(companyId, userId, now),
-      this.getSellerLastSeenAt(userId, this.parseDate(user?.createdAt)),
-    ]);
-    const activeCount = Math.max(0, Math.trunc(Number(vendasActive || 0) + Number(radarActive || 0)));
-    const activeCardsPolicy = resolveTeamPolicyStoredLimit(teamPolicy, 'activeCards');
-    const policyActiveLimit = activeCardsPolicy.applies
-      ? Math.max(0, Math.trunc(Number(activeCardsPolicy.limit || 0) || 0))
-      : null;
-
-    // Precedência do teto (lei do dono 27/06): (1) teto da PESSOA na team policy,
-    // (2) teto da EMPRESA (regra de distribuição), senão ILIMITADO até o plano.
-    // A cota dinâmica (base/bônus/penalidade) só roda quando há teto configurado.
-    let isUnlimited = false;
-    let bonus = 0;
-    let inactivityPenalty = 0;
-    let resolvedBase: number;
-    let effectiveLimit: number;
-    if (policyActiveLimit !== null) {
-      resolvedBase = policyActiveLimit;
-      effectiveLimit = paused ? 0 : policyActiveLimit;
-    } else if (baseLimit !== null) {
-      const quota = resolveSellerCardQuota({
-        config: {
-          baseActiveCardLimit: baseLimit,
-          minActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MIN,
-          maxActiveCardLimit: SELLER_ACTIVE_CARD_LIMIT_MAX,
-          paused,
-          allowInactivityPenalty: isSellerInactivityPenaltyEnabled(),
-        },
-        salesWonLast30,
-        inactivityDays: this.daysSince(lastSeenAt, now),
-      });
-      resolvedBase = baseLimit;
-      bonus = quota.bonus;
-      inactivityPenalty = quota.inactivityPenalty;
-      effectiveLimit = quota.effectiveLimit;
-    } else {
-      isUnlimited = true;
-      resolvedBase = SELLER_ACTIVE_CARD_LIMIT_UNLIMITED;
-      effectiveLimit = paused ? 0 : SELLER_ACTIVE_CARD_LIMIT_UNLIMITED;
-    }
-    const availableSlots = isUnlimited && !paused
-      ? SELLER_ACTIVE_CARD_LIMIT_UNLIMITED
-      : Math.max(0, effectiveLimit - activeCount);
-    return {
-      companyId,
-      userId,
-      seller: true,
-      paused,
-      unlimited: isUnlimited,
-      activeCount,
-      baseLimit: resolvedBase,
-      bonus,
-      inactivityPenalty,
-      effectiveLimit,
-      availableSlots,
-      salesWonLast30,
-      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : null,
-      code: paused
-        ? 'SELLER_QUOTA_PAUSED'
-        : !isUnlimited && availableSlots <= 0
-          ? 'SELLER_CARD_QUOTA_REACHED'
-          : null,
-    };
-  }
-
-  // Capacidade da carteira para a UI de Vendas (faixa "por que o Radar parou de
-  // buscar"): traduz o snapshot de cota em números prontos pro medidor. Para quem
-  // NÃO é vendedor (gestor/admin), devolve o teto-alvo da empresa por vendedor como
-  // capacidade de referência — o gestor enxerga exatamente o limite que trava os
-  // vendedores dele, sem inventar número. READ-ONLY: não cobra, não move dinheiro.
-  async getSellerCardCapacitySnapshot(companyIdRaw: number, userIdRaw?: number | null) {
-    const companyId = Math.trunc(Number(companyIdRaw || 0));
-    const userId = Math.trunc(Number(userIdRaw || 0)) || 0;
-    const [snapshot, companyTarget] = await Promise.all([
-      this.getSellerActiveCardQuotaSnapshot(companyId, userId),
-      this.getSellerActiveCardBaseLimit(companyId).catch(() => null),
-    ]);
-    if (snapshot.seller) {
-      return {
-        isSeller: true,
-        unlimited: snapshot.unlimited,
-        activeCards: snapshot.activeCount,
-        capacity: snapshot.effectiveLimit,
-        availableSlots: snapshot.availableSlots,
-        paused: snapshot.paused,
-        full: snapshot.paused || (!snapshot.unlimited && snapshot.availableSlots <= 0),
-        code: snapshot.code,
-        companyTarget,
-      };
-    }
-    // Gestor/admin: numerador (cards ativos) é resolvido por quem chama (board),
-    // aqui só entregamos o teto de referência da empresa. Sem teto configurado
-    // (companyTarget null) = sem teto de referência (ilimitado).
-    return {
-      isSeller: false,
-      unlimited: companyTarget == null,
-      activeCards: null as number | null,
-      capacity: companyTarget ?? SELLER_ACTIVE_CARD_LIMIT_UNLIMITED,
-      availableSlots: null as number | null,
-      paused: false,
-      full: false,
-      code: null as string | null,
-      companyTarget,
-    };
-  }
-
-  async assertSellerActiveCardSlots(companyId: number, userId: number, requestedCount = 1) {
-    const snapshot = await this.getSellerActiveCardQuotaSnapshot(companyId, userId);
-    if (!snapshot.seller) return snapshot;
-    const requested = Math.max(1, Math.trunc(Number(requestedCount || 1) || 1));
-    if (snapshot.paused || snapshot.availableSlots < requested) {
-      await this.log(companyId, userId, 'seller_card_quota_blocked', 'seller_active_card_quota', {
-        reason: snapshot.paused ? 'paused' : 'active_card_limit_reached',
-        activeCount: snapshot.activeCount,
-        effectiveLimit: snapshot.effectiveLimit,
-        availableSlots: snapshot.availableSlots,
-        requestedCount: requested,
-      }).catch(() => null);
-      throw new ConflictException({
-        ok: false,
-        code: snapshot.paused ? 'SELLER_QUOTA_PAUSED' : 'SELLER_CARD_QUOTA_REACHED',
-        message: 'Seu limite de cards ativos foi atingido. Finalize, transfira ou peça mais cards ao responsável.',
-        activeCount: snapshot.activeCount,
-        effectiveLimit: snapshot.effectiveLimit,
-        availableSlots: snapshot.availableSlots,
-        quota: snapshot,
-      });
-    }
-    return snapshot;
-  }
-
-  async limitRequestedCardsBySellerActiveQuota(companyId: number, userId: number, requestedLimit: number) {
-    const requested = Math.max(0, Math.trunc(Number(requestedLimit || 0) || 0));
-    const [snapshot, teamPolicy] = await Promise.all([
-      this.getSellerActiveCardQuotaSnapshot(companyId, userId),
-      loadUserTeamPolicyRuntime(this.prisma, userId),
-    ]);
-    if (!snapshot.seller) return { limit: requested, quota: snapshot };
-    const allowance = resolveRadarSearchAllowance({
-      sellerId: userId,
-      companyId,
-      requestedLimit: requested,
-      activeCount: snapshot.activeCount,
-      effectiveLimit: snapshot.effectiveLimit,
-    });
-    const vendasPullPolicy = resolveTeamPolicyStoredLimit(teamPolicy, 'vendasPullQuantity');
-    const policyLimitedAllowance = vendasPullPolicy.applies
-      ? Math.min(allowance.allowedLimit, Math.max(0, Math.trunc(Number(vendasPullPolicy.limit || 0) || 0)))
-      : allowance.allowedLimit;
-    return {
-      limit: policyLimitedAllowance,
-      quota: snapshot,
-    };
-  }
-
-  private async isSystemMasterUser(userId?: number | null) {
-    const context = await this.getUsageUserContext(userId);
-    return context.isSystemMaster;
-  }
-
-  private async getUsageUserContext(userId?: number | null) {
-    const normalizedUserId = Number(userId || 0) || null;
-    if (!normalizedUserId) {
-      return {
-        isSystemMaster: false,
-        role: null as string | null,
-        teamPolicy: null as RuntimeTeamPolicy | null,
-      };
-    }
-    const [user, teamPolicy] = await Promise.all([
-      this.prisma.user.findUnique({
-        where: { id: normalizedUserId },
-        select: { isSystemMaster: true, role: true },
-      }).catch(() => null),
-      loadUserTeamPolicyRuntime(this.prisma, normalizedUserId),
-    ]);
-    return {
-      isSystemMaster: Boolean(user?.isSystemMaster),
-      role: String(user?.role || '').trim().toUpperCase() || null,
-      teamPolicy,
-    };
-  }
-
-  private buildUnlimitedSnapshot(input: {
-    planKey: string;
-    timezone: string;
-    dayStart: Date;
-    dayEnd: Date;
-    monthStart: Date;
-    monthEnd: Date;
-  }) {
-    const unlimited = 999999;
-    return {
-      planKey: input.planKey,
-      timezone: input.timezone,
-      dayStart: input.dayStart.toISOString(),
-      dayEnd: input.dayEnd.toISOString(),
-      monthStart: input.monthStart.toISOString(),
-      monthEnd: input.monthEnd.toISOString(),
-      cards: {
-        used: 0,
-        limit: unlimited,
-        remaining: unlimited,
-        perUserLimit: null as number | null,
-        companyCap: unlimited,
-        userUsed: 0,
-        userLimit: unlimited,
-        period: 'monthly',
-        monthlyUsed: 0,
-        monthlyLimit: unlimited,
-        monthlyRemaining: unlimited,
-        dailyUsed: 0,
-        dailySafetyLimit: unlimited,
-        dailyRemaining: unlimited,
-      },
-      emails: {
-        attempted: 0,
-        sent: 0,
-        failed: 0,
-        blocked: 0,
-        limit: unlimited,
-        remaining: unlimited,
-        perUserLimit: null as number | null,
-        companyCap: unlimited,
-        userSent: 0,
-        userLimit: unlimited,
-      },
-      billableUsers: 0,
-      resetAt: input.monthEnd.toISOString(),
-      dailyResetAt: input.dayEnd.toISOString(),
-    };
-  }
-
-  private buildZeroSnapshot(input: {
-    planKey: string;
-    timezone: string;
-    dayStart: Date;
-    dayEnd: Date;
-    monthStart: Date;
-    monthEnd: Date;
-  }) {
-    return {
-      planKey: input.planKey,
-      timezone: input.timezone,
-      dayStart: input.dayStart.toISOString(),
-      dayEnd: input.dayEnd.toISOString(),
-      monthStart: input.monthStart.toISOString(),
-      monthEnd: input.monthEnd.toISOString(),
-      cards: {
-        used: 0,
-        limit: 0,
-        remaining: 0,
-        perUserLimit: 0,
-        companyCap: 0,
-        userUsed: 0,
-        userLimit: 0,
-        period: 'monthly',
-        monthlyUsed: 0,
-        monthlyLimit: 0,
-        monthlyRemaining: 0,
-        dailyUsed: 0,
-        dailySafetyLimit: 0,
-        dailyRemaining: 0,
-      },
-      emails: {
-        attempted: 0,
-        sent: 0,
-        failed: 0,
-        blocked: 0,
-        limit: 0,
-        remaining: 0,
-        perUserLimit: 0,
-        companyCap: 0,
-        userSent: 0,
-        userLimit: 0,
-      },
-      billableUsers: 0,
-      resetAt: input.monthEnd.toISOString(),
-      dailyResetAt: input.dayEnd.toISOString(),
-    };
-  }
-
-  private async getBillableUserCount(companyId: number) {
-    return this.prisma.user.count({
-      where: {
-        companyId: Number(companyId),
-        isActive: true,
-        deactivatedAt: null,
-        isSystemMaster: false,
-      },
-    });
-  }
-
-  private computeLimits(
-    _planKey: string,
-    _billableUsers: number,
-    _override?: { cardsPerMonth?: number | null; dailyCardSafetyLimit?: number | null },
-  ) {
-    // Não existe teto de capacidade por plano nem por override comercial.
-    // O único limite de cards preservado é a política operacional explícita
-    // do vendedor, aplicada abaixo por applyTeamPolicyUsageLimits. Crédito é
-    // debitado no choke próprio e não é representado por estes contadores.
-    const unlimited = TEAM_POLICY_UNLIMITED_LIMIT;
-    return {
-      cards: {
-        perUserLimit: null as number | null,
-        companyCap: unlimited,
-        limit: unlimited,
-        monthlyLimit: unlimited,
-        dailySafetyLimit: unlimited,
-      },
-      emails: { perUserLimit: null as number | null, companyCap: unlimited, limit: unlimited },
-    };
-  }
-
-  private applyTeamPolicyUsageLimits(limits: any, policy: RuntimeTeamPolicy | null) {
-    if (!policy) {
-      return {
-        dailyCardsUseUserScope: false,
-      };
-    }
-    const bounded = (value: number, planLimit: number) => {
-      const normalized = Math.max(0, Math.trunc(Number(value || 0) || 0));
-      const plan = Math.max(0, Math.trunc(Number(planLimit || 0) || 0));
-      return Math.min(normalized, plan);
-    };
-
-    let dailyCardsUseUserScope = false;
-
-    const cardDeliveryDaily = resolveTeamPolicyStoredLimit(policy, 'cardDeliveryDaily');
-    if (cardDeliveryDaily.applies) {
-      const currentDailyLimit = Math.max(0, Math.trunc(Number(limits.cards.dailySafetyLimit || 0) || 0));
-      const dailyLimit = cardDeliveryDaily.mode === 'unlimited'
-        ? currentDailyLimit
-        : bounded(Number(cardDeliveryDaily.limit || 0), currentDailyLimit || TEAM_POLICY_UNLIMITED_LIMIT);
-      limits.cards.dailySafetyLimit = dailyLimit;
-      limits.cards.dailyLimitSource = 'team_policy';
-      dailyCardsUseUserScope = true;
-    }
-
-    const monthlyCards = resolveTeamPolicyStoredLimit(policy, 'monthlyCards');
-    if (monthlyCards.applies) {
-      if (monthlyCards.mode === 'unlimited') {
-        limits.cards.perUserLimit = null;
-      } else {
-        limits.cards.perUserLimit = bounded(Number(monthlyCards.limit || 0), Number(limits.cards.limit || 0));
-      }
-      limits.cards.userLimitSource = 'team_policy';
-    }
-
-    return {
-      dailyCardsUseUserScope,
-    };
-  }
-
-  private async countLogs(companyId: number, eventTypes: string[], dayStart: Date, dayEnd: Date, userId?: number | null) {
-    return this.prisma.companyCommercialUsageLog.count({
-      where: {
-        companyId,
-        eventType: { in: eventTypes },
-        createdAt: { gte: dayStart, lt: dayEnd },
-        ...(userId ? { userId } : {}),
-      },
-    });
-  }
-
-  async getUsageSnapshot(companyId: number, userId?: number | null) {
-    const company = await this.getCompanyPlan(companyId);
-    const { dayStart, dayEnd } = this.getDayBounds(company.timezone);
-    const { monthStart, monthEnd } = this.getMonthBounds(company.timezone);
-    if (company.isPlatformInfra) {
-      return this.buildZeroSnapshot({
-        planKey: company.planKey,
-        timezone: company.timezone,
-        dayStart,
-        dayEnd,
-        monthStart,
-        monthEnd,
-      });
-    }
-    const userContext = await this.getUsageUserContext(userId);
-    if (userContext.isSystemMaster) {
-      return this.buildUnlimitedSnapshot({
-        planKey: company.planKey,
-        timezone: company.timezone,
-        dayStart,
-        dayEnd,
-        monthStart,
-        monthEnd,
-      });
-    }
-    const billableUsers = await this.getBillableUserCount(companyId);
-    const normalizedUserId = Number(userId || 0) || null;
-    const planKey = company.planKey;
-    const limits = this.computeLimits(company.planKey, billableUsers, company.quotaOverride);
-    const policyScope = this.applyTeamPolicyUsageLimits(limits, userContext.teamPolicy);
-
-    const [cardsGrossUsed, cardsUserGrossUsed, cardsDailyGrossUsed, cardsDailyUserGrossUsed, cardsRefunded, cardsUserRefunded, cardsDailyRefunded, cardsDailyUserRefunded, emailAttempted, emailSent, emailFailed, emailBlocked, emailUserSent] = await Promise.all([
-      this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd),
-      normalizedUserId ? this.countLogs(companyId, CARD_SUCCESS_EVENTS, monthStart, monthEnd, normalizedUserId) : Promise.resolve(0),
-      this.countLogs(companyId, CARD_SUCCESS_EVENTS, dayStart, dayEnd),
-      normalizedUserId ? this.countLogs(companyId, CARD_SUCCESS_EVENTS, dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
-      this.countLogs(companyId, CARD_REFUND_EVENTS, monthStart, monthEnd),
-      normalizedUserId ? this.countLogs(companyId, CARD_REFUND_EVENTS, monthStart, monthEnd, normalizedUserId) : Promise.resolve(0),
-      this.countLogs(companyId, CARD_REFUND_EVENTS, dayStart, dayEnd),
-      normalizedUserId ? this.countLogs(companyId, CARD_REFUND_EVENTS, dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
-      this.countLogs(companyId, ['presentation_email_attempt'], dayStart, dayEnd),
-      this.countLogs(companyId, ['presentation_email_sent'], dayStart, dayEnd),
-      this.countLogs(companyId, ['presentation_email_failed'], dayStart, dayEnd),
-      this.countLogs(companyId, ['presentation_email_blocked_limit', 'presentation_email_blocked_policy'], dayStart, dayEnd),
-      normalizedUserId ? this.countLogs(companyId, ['presentation_email_sent'], dayStart, dayEnd, normalizedUserId) : Promise.resolve(0),
-    ]);
-    const cardsUsed = Math.max(0, cardsGrossUsed - cardsRefunded);
-    const cardsUserUsed = Math.max(0, cardsUserGrossUsed - cardsUserRefunded);
-    const cardsDailyUsed = Math.max(0, cardsDailyGrossUsed - cardsDailyRefunded);
-    const cardsDailyUserUsed = Math.max(0, cardsDailyUserGrossUsed - cardsDailyUserRefunded);
-    const cardsDailyUsedForLimit = policyScope.dailyCardsUseUserScope ? cardsDailyUserUsed : cardsDailyUsed;
-
-    return {
-      planKey,
-      timezone: company.timezone,
-      dayStart: dayStart.toISOString(),
-      dayEnd: dayEnd.toISOString(),
-      monthStart: monthStart.toISOString(),
-      monthEnd: monthEnd.toISOString(),
-      cards: {
-        used: cardsUsed,
-        limit: limits.cards.limit,
-        remaining: Math.max(0, limits.cards.limit - cardsUsed),
-        perUserLimit: limits.cards.perUserLimit,
-        companyCap: limits.cards.companyCap,
-        userUsed: cardsUserUsed,
-        userLimit: limits.cards.perUserLimit != null ? limits.cards.perUserLimit : limits.cards.limit,
-        period: 'monthly',
-        monthlyUsed: cardsUsed,
-        monthlyLimit: limits.cards.monthlyLimit,
-        monthlyRemaining: Math.max(0, limits.cards.monthlyLimit - cardsUsed),
-        dailyUsed: cardsDailyUsedForLimit,
-        dailyUserUsed: cardsDailyUserUsed,
-        dailySafetyLimit: limits.cards.dailySafetyLimit,
-        dailyRemaining: Math.max(0, limits.cards.dailySafetyLimit - cardsDailyUsedForLimit),
-        refunded: cardsRefunded,
-        grossUsed: cardsGrossUsed,
-        dailyRefunded: cardsDailyRefunded,
-        dailyGrossUsed: cardsDailyGrossUsed,
-      },
-      emails: {
-        attempted: emailAttempted,
-        sent: emailSent,
-        failed: emailFailed,
-        blocked: emailBlocked,
-        limit: limits.emails.limit,
-        remaining: Math.max(0, limits.emails.limit - emailSent),
-        perUserLimit: limits.emails.perUserLimit,
-        companyCap: limits.emails.companyCap,
-        userSent: emailUserSent,
-        userLimit: limits.emails.perUserLimit != null ? limits.emails.perUserLimit : limits.emails.limit,
-      },
-      billableUsers,
-      resetAt: monthEnd.toISOString(),
-      dailyResetAt: dayEnd.toISOString(),
-    };
+    return { planKey };
   }
 
   private async log(companyId: number, userId: number | null, eventType: string, source: string, metadata: Record<string, any> = {}) {
@@ -836,66 +38,11 @@ export class CommercialUsageLimitsService {
     });
   }
 
-  // R5 (FASE 2 — REMOÇÃO, definitivo): cota count-based (mensal/diária por
-  // plano) DEIXA DE BLOQUEAR — vira só leitura/telemetria. O teto real agora é
-  // o saldo de crédito (CreditWalletService, gate em enforceLeadDeliveryDebit
-  // logo abaixo, que continua rodando normalmente). Mantém o LOG de "teria
-  // bloqueado" (mesmo evento de antes) para não perder o dado histórico/
-  // comparativo, mas nunca mais lança ConflictException por conta disso.
-  async assertCanImportCard(companyId: number, userId?: number | null) {
-    const snapshot = await this.getUsageSnapshot(companyId, userId);
-    const userBlocked = snapshot.cards.perUserLimit != null && snapshot.cards.userUsed >= snapshot.cards.userLimit;
-    const monthlyBlocked = snapshot.cards.remaining <= 0 || userBlocked;
-    const dailyBlocked = Number(snapshot.cards.dailyRemaining || 0) <= 0;
-    if (monthlyBlocked || dailyBlocked) {
-      // FRONTEIRA cota-de-plano × crédito (decisão do dono 07/07): conta de CRÉDITO (cortesia,
-      // modelo grátis) NÃO tem cota de plano — o teto real é o saldo, checado no débito por-lead
-      // (enforceLeadDeliveryDebit logo abaixo no fluxo). Registrar `card_import_limit_shadow`
-      // ("limite de plano atingido") pra ela seria RUÍDO/mentira. Só consultamos o CreditsService
-      // AQUI (caminho frio: a cota de plano já teria "estourado") — custo zero no caminho normal.
-      // Reusa o método público isCreditsAccountCompany (sem duplicar o critério exempt/manual).
-      const isCreditAccount = this.creditsService && typeof this.creditsService.isCreditsAccountCompany === 'function'
-        ? await this.creditsService.isCreditsAccountCompany(companyId).catch(() => false)
-        : false;
-      if (!isCreditAccount) {
-        await this.log(companyId, Number(userId || 0) || null, 'card_import_limit_shadow', 'usage_limit', {
-          reason: userBlocked
-            ? 'monthly_user_card_limit_reached'
-            : monthlyBlocked
-              ? 'monthly_card_limit_reached'
-              : 'daily_card_safety_limit_reached',
-        });
-      }
-    }
-    await this.log(companyId, Number(userId || 0) || null, 'card_import_attempt', 'usage_limit');
-    return snapshot;
-  }
-
-  async recordCardImport(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
-    const source = String(metadata.source || 'vendas');
-    const eventType = metadata.eventType || (source === 'radar_claim' ? 'radar_card_claimed' : 'vendas_card_imported');
-    // CRÉDITOS R1 — gate REAL ANTES do log de sucesso: sem saldo (fail-closed), a entrega
-    // PARA e nada é gravado como sucesso. Com o gate OFF (2 chaves), é no-op transparente.
-    await this.enforceLeadDeliveryDebit(companyId, userId, metadata);
-    const result = await this.log(companyId, userId, eventType, source, { status: 'success', ...metadata });
-    return result;
-  }
-
   private normalizeUsageKey(value: unknown) {
     return String(value || '').trim().replace(/[^a-zA-Z0-9:_-]+/g, '-').slice(0, 160);
   }
 
-  /**
-   * CRÉDITOS S2 — chave CANÔNICA de lead para o shadow-debit. Precisa ser IDÊNTICA quando
-   * recordCardImport e recordCardCommercialUseOnce falam do mesmo lead, senão a idempotência 1:1
-   * fura (2 shadows p/ 1 baixa). Os callers passam a mesma origem por caminhos diferentes:
-   *   - vendas: usageKey já vem `vendas:<id>` OU `radar:<id>`
-   *   - radar recordCardCommercialUseOnce: usageKey `radar:<id>`
-   *   - radar recordCardImport: SÓ `radarLeadId: <id>` cru (sem usageKey)
-   * Então: se veio usageKey explícita, usa; senão reconstrói `radar:<radarLeadId>` /
-   * `vendas:<vendasLeadId>` — o MESMO shape que os outros caminhos produzem. Assim
-   * `radar_claim` (import) e `radar_contact_click` (commercial-use) do mesmo lead colidem em 1.
-   */
+  /** Chave canônica da aquisição; contato posterior não participa do débito. */
   private resolveLeadDeliveryKey(metadata: Record<string, any>): string {
     const explicit = this.normalizeUsageKey(metadata?.usageKey || '');
     if (explicit) return explicit;
@@ -904,164 +51,6 @@ export class CommercialUsageLimitsService {
     const vendasLeadId = String(metadata?.vendasLeadId ?? '').trim();
     if (vendasLeadId) return this.normalizeUsageKey(`vendas:${vendasLeadId}`);
     return '';
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────────────────
-  // GUARDRAILS S3 (10/07, docs/PLANEJAMENTOS/MASTER-REFAB/PLANO.md) — teto DIÁRIO de entregas
-  // de lead POR EMPRESA, mesmo com saldo de crédito sobrando ("não posso deixar uma empresa
-  // scraper, puxando os 28 milhões de leads atuais"). Roda nos MESMOS 2 chokes do gate R1
-  // (enforceLeadDeliveryDebit / reserveLeadDeliveryCredit), ANTES do débito. Config aditiva
-  // (Company.dailyDeliveryCapOverride / CreditGlobalConfig.dailyDeliveryCapDefault) — lida por
-  // SQL cru e isolada num try/catch próprio: qualquer erro (coluna ainda não migrada, banco
-  // fora do ar, etc.) é FAIL-OPEN — o guardrail nunca derruba uma venda por bug dele mesmo.
-  // ─────────────────────────────────────────────────────────────────────────────────────────
-
-  private isDailyDeliveryCapGuardrailEnabled(): boolean {
-    const raw = String(process.env.HBX_DELIVERY_DAILY_CAP_ENABLED ?? '').trim().toLowerCase();
-    if (!raw) return true; // default ON — é proteção, não cobrança.
-    return !['false', '0', 'off'].includes(raw);
-  }
-
-  /** Janela do dia em UTC puro (NÃO é o timezone da empresa — pedido explícito do spec). */
-  private getUtcDayBounds(now: Date = new Date()) {
-    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    return { dayStart, dayEnd };
-  }
-
-  /**
-   * Lê override da empresa + default global numa única query crua (2 colunas novas, aditivas —
-   * ver migration 20260710000000_delivery_daily_cap). `effectiveCap: null` = guardrail
-   * indisponível (erro/ambiente sem a coluna ainda) → o CALLER trata como fail-open, nunca como
-   * "cap=0". Semântica override ?? global ?? 500 (fallback de código, mesmo default da coluna).
-   */
-  private async getDailyDeliveryCapConfig(companyId: number): Promise<{
-    companyKind: string | null;
-    companyName: string | null;
-    effectiveCap: number | null;
-  }> {
-    let rows: Array<{
-      companyKind: string | null;
-      companyName: string | null;
-      override: number | null;
-      globalDefault: number | null;
-    }>;
-    try {
-      rows = await this.prisma.$queryRawUnsafe(
-        `SELECT
-           c."companyKind" AS "companyKind",
-           c."name" AS "companyName",
-           c."dailyDeliveryCapOverride" AS "override",
-           (SELECT g."dailyDeliveryCapDefault" FROM "CreditGlobalConfig" g WHERE g."key" = 'default') AS "globalDefault"
-         FROM "Company" c
-         WHERE c."id" = $1
-         LIMIT 1`,
-        Number(companyId),
-      );
-    } catch (error: any) {
-      console.warn(`daily_delivery_cap_config_read_failed company=${companyId} error=${String(error?.message || error)}`);
-      return { companyKind: null, companyName: null, effectiveCap: null };
-    }
-    const row = rows?.[0] || null;
-    if (!row) return { companyKind: null, companyName: null, effectiveCap: null };
-    const override = row.override != null && Number.isFinite(Number(row.override)) ? Math.trunc(Number(row.override)) : null;
-    const globalDefault = row.globalDefault != null && Number.isFinite(Number(row.globalDefault)) ? Math.trunc(Number(row.globalDefault)) : null;
-    const effectiveCap = override != null ? override : (globalDefault != null ? globalDefault : 500);
-    return { companyKind: row.companyKind ?? null, companyName: row.companyName ?? null, effectiveCap };
-  }
-
-  private todayUtcDateKey(now: Date = new Date()): string {
-    return now.toISOString().slice(0, 10);
-  }
-
-  /** Best-effort — nunca lança (pushMasterNotice já engole tudo; aqui só documentamos o contrato). */
-  private async notifyDailyDeliveryCapHit(companyId: number, companyName: string | null, count: number, cap: number) {
-    await pushMasterNotice(this.prisma, {
-      companyId,
-      audience: 'seller',
-      tone: 'warning',
-      source: 'guardrail_daily_cap',
-      title: 'Teto diário de leads atingido',
-      body: `Empresa ${companyName || `#${companyId}`} bateu o teto diário de leads (${count}).`,
-      nudgeKey: `caphit:${companyId}:${this.todayUtcDateKey()}`,
-    });
-  }
-
-  private async notifyDailyDeliveryCapWarn(companyId: number, companyName: string | null, count: number, cap: number) {
-    await pushMasterNotice(this.prisma, {
-      companyId,
-      audience: 'seller',
-      tone: 'info',
-      source: 'guardrail_daily_cap',
-      title: 'Consumo alto de leads',
-      body: `Empresa ${companyName || `#${companyId}`} consumiu ${count} créditos em 24h.`,
-      nudgeKey: `capwarn:${companyId}:${this.todayUtcDateKey()}`,
-    });
-  }
-
-  /**
-   * Choke do teto diário — chamado do INÍCIO de enforceLeadDeliveryDebit/reserveLeadDeliveryCredit,
-   * ANTES do débito de crédito. Ordem interna: (1) flag/bypass master·platform_infra, (2) cap
-   * resolvido (override ?? global ?? 500; <=0 = sem teto), (3) IDEMPOTÊNCIA — lead já entregue
-   * HOJE com esta MESMA usageKey não conta como nova entrega nem pode ser bloqueado por retry,
-   * (4) conta sucessos de hoje (UTC) e compara com o cap. Lança ConflictException
-   * DAILY_DELIVERY_CAP_REACHED (mesmo code nas 2 audiências — só a MENSAGEM bifurca, LEI DO
-   * VENDEDOR). Qualquer erro que não seja esse bloqueio real é engolido (fail-open, log warn).
-   */
-  private async assertDailyDeliveryCapNotReached(
-    companyId: number,
-    userId: number | null,
-    input: { usageKey: string; isBillingAudienceUser: boolean },
-  ): Promise<void> {
-    if (!this.isDailyDeliveryCapGuardrailEnabled()) return;
-    const companyIdNum = Math.trunc(Number(companyId) || 0);
-    if (!companyIdNum) return;
-    try {
-      if (await this.isSystemMasterUser(userId)) return;
-
-      const config = await this.getDailyDeliveryCapConfig(companyIdNum);
-      if (isPlatformInfraCompany({ companyKind: config.companyKind })) return;
-      const cap = config.effectiveCap;
-      if (cap == null || cap <= 0) return; // null = guardrail indisponível (fail-open); <=0 = sem teto.
-
-      const usageKey = this.normalizeUsageKey(input?.usageKey || '');
-      if (usageKey) {
-        // Idempotência PRIMEIRO: lead já entregue hoje com esta usageKey re-tentado (retry de
-        // rede, duplo clique) não é uma entrega NOVA — não deve ser bloqueado pelo cap, mesmo
-        // que o cap já tenha sido atingido pelas outras entregas do dia.
-        const alreadyDeliveredToday = await this.prisma.companyCommercialUsageLog.findFirst({
-          where: {
-            companyId: companyIdNum,
-            eventType: { in: CARD_SUCCESS_EVENTS },
-            metadataJson: { contains: `"usageKey":"${usageKey}"` },
-          },
-          select: { id: true },
-        });
-        if (alreadyDeliveredToday) return;
-      }
-
-      const { dayStart, dayEnd } = this.getUtcDayBounds();
-      const deliveredToday = await this.countLogs(companyIdNum, CARD_SUCCESS_EVENTS, dayStart, dayEnd);
-
-      if (deliveredToday >= cap) {
-        void this.notifyDailyDeliveryCapHit(companyIdNum, config.companyName, deliveredToday, cap).catch(() => undefined);
-        throw new ConflictException({
-          ok: false,
-          code: 'DAILY_DELIVERY_CAP_REACHED',
-          message: input?.isBillingAudienceUser
-            ? 'Teto diário de leads da conta atingido. Libera amanhã ou ajuste com o suporte.'
-            : 'Acesso pausado pela administracao da conta.',
-        });
-      }
-
-      // Consumo anômalo (best-effort, não bloqueia): >=80% do cap já hoje.
-      if (deliveredToday >= Math.floor(cap * 0.8)) {
-        void this.notifyDailyDeliveryCapWarn(companyIdNum, config.companyName, deliveredToday, cap).catch(() => undefined);
-      }
-    } catch (error: any) {
-      if (error instanceof ConflictException) throw error; // bloqueio real do guardrail, não bug.
-      console.warn(`daily_delivery_cap_guardrail_failed company=${companyId} error=${String(error?.message || error)}`);
-    }
   }
 
   private throwCreditDebitUnavailable(reason: string): never {
@@ -1073,33 +62,10 @@ export class CommercialUsageLimitsService {
     });
   }
 
-  /** Débito obrigatório antes de qualquer log de sucesso ou revelação do lead. */
-  private async enforceLeadDeliveryDebit(companyId: number, userId: number | null, metadata: Record<string, any>) {
-    if (!this.creditsService || typeof this.creditsService.assertAndDebitLeadDelivery !== 'function') {
-      this.throwCreditDebitUnavailable('credits_service_unavailable');
-    }
-    const leadId = this.resolveLeadDeliveryKey(metadata);
-    if (!leadId) this.throwCreditDebitUnavailable('missing_lead_key');
-    const isBillingAudienceUser = Boolean(metadata?.isBillingAudienceUser);
-    // GUARDRAILS S3 — teto diário por empresa, no MESMO choke do débito real, ANTES do débito
-    // (mesmo com saldo sobrando, o teto batido PARA a entrega).
-    await this.assertDailyDeliveryCapNotReached(companyId, userId, { usageKey: leadId, isBillingAudienceUser });
-    const result = await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
-      leadId,
-      actionKey: 'lead_delivery',
-      isBillingAudienceUser,
-    });
-    if (!result?.applied || Number(result?.debited || 0) < 1) {
-      this.throwCreditDebitUnavailable('debit_not_applied');
-    }
-  }
-
   /**
-   * CRÉDITOS — reserva ATÔMICA: debita o crédito ANTES de qualquer gravação de card. É o MESMO
-   * choke real de `enforceLeadDeliveryDebit` (mesma usageKey canônica `enforce:lead_delivery:<key>`,
-   * idempotente pelo CreditWalletService), só que exposto pro caller debitar PRIMEIRO e gravar
-   * DEPOIS — assim o bloqueio por saldo esgotado sobe (ConflictException) sem deixar card órfão no
-   * Vendas (fix "entrega parcial + 409"). Fail-closed: sem saldo ou sem serviço de crédito lança.
+   * Choke canônico da aquisição: debita o crédito antes de qualquer gravação ou
+   * revelação do lead. A usageKey torna retries idempotentes no CreditWalletService;
+   * sem saldo ou sem serviço de crédito, falha fechado e não deixa card órfão.
    * `isBillingAudienceUser` decide a mensagem (dono → "Saldo de
    * créditos esgotado"; vendedor/gerente → bloqueio neutro, LEI DO VENDEDOR).
    */
@@ -1113,12 +79,6 @@ export class CommercialUsageLimitsService {
     }
     const usageKey = this.normalizeUsageKey(input?.usageKey || '');
     if (!usageKey) this.throwCreditDebitUnavailable('missing_lead_key');
-    // GUARDRAILS S3 — mesmo teto diário de enforceLeadDeliveryDebit, aqui no OUTRO choke (reserva
-    // atômica ANTES da gravação do card no Vendas).
-    await this.assertDailyDeliveryCapNotReached(companyId, userId, {
-      usageKey,
-      isBillingAudienceUser: Boolean(input?.isBillingAudienceUser),
-    });
     const result = await this.creditsService.assertAndDebitLeadDelivery(companyId, userId, {
       leadId: usageKey,
       actionKey: 'lead_delivery',
@@ -1131,93 +91,141 @@ export class CommercialUsageLimitsService {
   }
 
   /**
-   * CRÉDITOS — estorno da reserva acima quando a gravação do card falha DEPOIS do débito (mesma
-   * usageKey canônica). Best-effort e idempotente (o `CreditWalletService.refund` trava por
-   * `refund:<usageKey>`); no-op silencioso se o gate estiver OFF ou nada houver a reverter.
+   * Estorno confirmado da reserva quando a entrega falha depois do débito. A
+   * operação nunca informa sucesso sem confirmação financeira do crédito devolvido.
    */
   async releaseLeadDeliveryCredit(
     companyId: number,
     userId: number | null,
     input: { usageKey: string },
-  ): Promise<void> {
-    if (!this.creditsService || typeof this.creditsService.refundLeadDelivery !== 'function') return;
+  ): Promise<{ refunded: number; alreadyRefunded: boolean }> {
+    if (!this.creditsService || typeof this.creditsService.refundLeadDelivery !== 'function') {
+      throw new ConflictException({
+        ok: false,
+        code: 'CREDIT_REFUND_UNAVAILABLE',
+        message: 'O estorno do crédito ficou pendente de confirmação.',
+        reason: 'credits_service_unavailable',
+      });
+    }
     const usageKey = this.normalizeUsageKey(input?.usageKey || '');
-    if (!usageKey) return;
-    await this.creditsService
-      .refundLeadDelivery(companyId, userId, { leadId: usageKey, actionKey: 'lead_delivery' })
-      .catch(() => undefined);
+    if (!usageKey) {
+      throw new ConflictException({
+        ok: false,
+        code: 'CREDIT_REFUND_UNAVAILABLE',
+        message: 'O estorno do crédito ficou pendente de confirmação.',
+        reason: 'missing_usage_key',
+      });
+    }
+    const result = await this.creditsService.refundLeadDelivery(
+      companyId,
+      userId,
+      { leadId: usageKey, actionKey: 'lead_delivery' },
+    );
+    const refunded = Number(result?.refunded || 0);
+    const alreadyRefunded = result?.alreadyRefunded === true;
+    if (refunded < 1) {
+      throw new ConflictException({
+        ok: false,
+        code: 'CREDIT_REFUND_UNCONFIRMED',
+        message: 'O estorno do crédito ficou pendente de confirmação.',
+        reason: 'refund_not_applied',
+      });
+    }
+    // Em retry, `alreadyRefunded` prova que a linha idempotente já existia; o
+    // valor continua sendo exatamente o total histórico registrado no ledger.
+    return { refunded, alreadyRefunded };
   }
 
+  /** Prova append-only de que a aquisição debitou e ainda não foi estornada. */
+  async hasActiveLeadDeliveryCredit(companyId: number, input: { usageKey: string }) {
+    const usageKey = this.normalizeUsageKey(input?.usageKey || '');
+    if (!usageKey) return false;
+    const debitKey = `enforce:lead_delivery:${usageKey}`;
+    const [debit, refund] = await Promise.all([
+      (this.prisma as any).creditLedgerEntry.findFirst({
+        where: { companyId, kind: 'debit', usageKey: debitKey },
+        select: { id: true },
+      }),
+      (this.prisma as any).creditLedgerEntry.findFirst({
+        where: { companyId, kind: 'refund', usageKey: `refund:${debitKey}` },
+        select: { id: true },
+      }),
+    ]);
+    return Boolean(debit?.id && !refund?.id);
+  }
+
+  /** Primeiro uso é apenas telemetria. O único débito ocorre na aquisição canônica. */
   async recordCardCommercialUseOnce(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
     const usageKey = this.normalizeUsageKey(metadata.usageKey || metadata.vendasLeadId || metadata.radarLeadId);
-    if (!usageKey) {
-      await this.assertCanImportCard(companyId, userId);
-      // CRÉDITOS R1 — gate REAL ANTES do log de sucesso (ver enforceLeadDeliveryDebit).
-      await this.enforceLeadDeliveryDebit(companyId, userId, metadata);
-      await this.log(companyId, userId, 'card_commercial_used', String(metadata.source || 'commercial_use'), {
-        status: 'success',
-        ...metadata,
-      });
-      return { debited: true, alreadyDebited: false };
-    }
-    const existing = await this.prisma.companyCommercialUsageLog.findFirst({
-      where: {
-        companyId,
-        eventType: { in: CARD_SUCCESS_EVENTS },
-        metadataJson: { contains: `"usageKey":"${usageKey}"` },
-      },
-      select: { id: true },
-    });
+    const existing = usageKey
+      ? await this.prisma.companyCommercialUsageLog.findFirst({
+          where: {
+            companyId,
+            eventType: 'card_commercial_used',
+            metadataJson: { contains: `"usageKey":"${usageKey}"` },
+          },
+          select: { id: true },
+        })
+      : null;
     if (existing) return { debited: false, alreadyDebited: true };
-    await this.assertCanImportCard(companyId, userId);
-    // CRÉDITOS R1 — gate REAL ANTES do log de sucesso. Passa a usageKey já normalizada para
-    // bater EXATAMENTE com a mesma chave do shadow/recordCardImport do mesmo lead.
-    await this.enforceLeadDeliveryDebit(companyId, userId, { ...metadata, usageKey });
     await this.log(companyId, userId, 'card_commercial_used', String(metadata.source || 'commercial_use'), {
-      status: 'success',
+      status: 'observed',
       ...metadata,
-      usageKey,
+      ...(usageKey ? { usageKey } : {}),
     });
-    return { debited: true, alreadyDebited: false };
+    return { debited: false, alreadyDebited: false };
+  }
+
+  private async resolveRefundDeliveryKey(companyId: number, metadata: Record<string, any>) {
+    const explicit = this.normalizeUsageKey(metadata?.claimUsageKey || metadata?.usageKey || '');
+    if (explicit) return explicit;
+
+    const radarLeadId = String(metadata?.radarLeadId ?? '').trim();
+    const processDelegate = (this.prisma as any)?.radarLeadProcessRun;
+    if (radarLeadId && processDelegate && typeof processDelegate.findFirst === 'function') {
+      const claim = await processDelegate.findFirst({
+        where: {
+          companyId,
+          radarLeadId,
+          mode: 'claim',
+          status: { in: ['completed', 'partial'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (claim?.id) return this.normalizeUsageKey(`radar:${radarLeadId}:claim:${claim.id}`);
+    }
+
+    return this.resolveLeadDeliveryKey(metadata);
   }
 
   async recordCardRefund(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {
-    const count = Math.max(1, Math.min(100, Math.trunc(Number(metadata.count || 1) || 1)));
-    const writes = Array.from({ length: count }, (_, index) =>
-      this.log(companyId, userId, 'vendas_card_refunded', 'vendas_complaint_refund', {
+    const usageKey = await this.resolveRefundDeliveryKey(companyId, metadata);
+    try {
+      const financial = await this.releaseLeadDeliveryCredit(companyId, userId, { usageKey });
+      const result = await this.log(companyId, userId, 'vendas_card_refunded', 'vendas_complaint_refund', {
         status: 'refunded',
-        refundIndex: index + 1,
         ...metadata,
-        count,
-      }),
-    );
-    const result = await Promise.all(writes);
-    // CRÉDITOS R1 — refund atômico on-failure no MESMO ponto do evento `vendas_card_refunded`
-    // já existente (spec R1). Best-effort: reusa a chave canônica do lead (mesma resolvida no
-    // enforcement/shadow); se o gate estiver OFF ou não houver débito pra essa usageKey, o
-    // CreditsService.refundLeadDelivery é no-op silencioso (nada a reverter).
-    if (this.creditsService && typeof this.creditsService.refundLeadDelivery === 'function') {
-      const leadId = this.resolveLeadDeliveryKey(metadata);
-      if (leadId) {
-        void this.creditsService
-          .refundLeadDelivery(companyId, userId, { leadId, actionKey: 'lead_delivery' })
-          .catch(() => undefined);
-      }
+        count: 1,
+        usageKey,
+        refundedCredits: financial.refunded,
+      });
+      return [result];
+    } catch (error: any) {
+      await this.log(companyId, userId, 'vendas_card_refund_pending', 'vendas_complaint_refund', {
+        status: 'refund_pending',
+        ...metadata,
+        count: 1,
+        usageKey: usageKey || null,
+        error: String(error?.message || error || 'Falha ao confirmar estorno.').slice(0, 500),
+      });
+      throw error;
     }
-    return result;
   }
 
-  // R5 (FASE 2 — REMOÇÃO, definitivo): cota diária de e-mail por plano deixa
-  // de bloquear (mesma régua do resto da cota count-based). Mantém telemetria.
-  async assertCanSendPresentationEmail(companyId: number, userId?: number | null) {
-    const snapshot = await this.getUsageSnapshot(companyId, userId);
-    const userBlocked = snapshot.emails.perUserLimit != null && snapshot.emails.userSent >= snapshot.emails.userLimit;
-    if (snapshot.emails.remaining <= 0 || userBlocked) {
-      await this.log(companyId, Number(userId || 0) || null, 'presentation_email_limit_shadow', 'email_presentation', {
-        reason: userBlocked ? 'daily_user_email_limit_reached' : 'daily_email_limit_reached',
-      });
-    }
-    return snapshot;
+  // E-mail de apresentação não possui cota comercial por plano.
+  async assertCanSendPresentationEmail(_companyId: number, _userId?: number | null) {
+    return { allowed: true };
   }
 
   async recordPresentationEmailAttempt(companyId: number, userId: number | null, metadata: Record<string, any> = {}) {

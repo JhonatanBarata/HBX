@@ -23,7 +23,7 @@ import {
 
 // Cron de limpeza (Sprint 2 / T3, 02/07): WebsiteAdminEntryToken só recebia
 // INSERT/UPDATE e nunca era limpo (1 linha por launch, cresce pra sempre).
-// Padrão igual ao FinanceiroService/NightFactoryWorker (setInterval interno,
+// Padrão igual ao FinanceiroService (setInterval interno,
 // sem @nestjs/schedule no projeto): sweep diário + 1 passada no boot.
 const WEBSITE_ENTRY_TOKEN_SWEEP_MS = 24 * 60 * 60 * 1000;
 const WEBSITE_ENTRY_TOKEN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;

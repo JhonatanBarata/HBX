@@ -12,12 +12,11 @@
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
 //   PUT  /modules/master/company/:id/account-type        → toggle Crédito|Empresarial (S6)
-//   POST /modules/master/company/:id/enterprise-contract → chavinha: tipo+módulos full+valor+teto num gesto (S8)
+//   POST /modules/master/company/:id/enterprise-contract → tipo + valor comercial
 //   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (TETO/masterEnabled — W1 PR10072026)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
 //   PUT  /modules/master/company/:id/suspension          → {suspended, reason}
-//   PUT  /modules/master/company/:id/card-quota          → {seatCap} (assentos; cards/mês·dia morreram da UI)
-//   PUT  /modules/master/company/:id/delivery-cap        → {dailyDeliveryCapOverride} (GUARDRAILS S3, anti-scraper)
+//   PUT  /modules/master/company/:id/seat-cap            → {seatCap}
 //   PUT  /modules/master/company/:id/finance-settings    → {setupValue, monthlyValueOverride} (Implantação)
 //   PUT  /modules/master/company/:id/global-token-usage  → toggles credencial master
 //   PUT  /modules/master/company/:id/bot-activation      → {armed, channel, reason}
@@ -100,10 +99,7 @@ type Detail = {
     billingProvider?: string | null;
     courtesyReason?: string | null;
     courtesyEndsAt?: string | null;
-    commercialCardsMonthlyLimitOverride?: number | null;
-    commercialCardsDailyLimitOverride?: number | null;
     seatCap?: number | null;
-    dailyDeliveryCapOverride?: number | null;
     setupValue?: number | null;
     monthlyValueOverride?: number | null;
     users?: DetailUser[];
@@ -242,12 +238,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const [accountTypeMsg, setAccountTypeMsg] = useState<string | null>(null);
 
-  // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto (tipo + módulos full +
-  // valor fixo + teto num só POST). Só aparece quando a empresa ainda é conta Crédito.
+  // Contrato empresarial muda somente o arranjo comercial e o valor mensal.
   const [entContractBusy, setEntContractBusy] = useState(false);
   const [entContractMsg, setEntContractMsg] = useState<string | null>(null);
   const [entContractArm, setEntContractArm] = useState(false);
-  const [entContractForm, setEntContractForm] = useState({ monthlyValue: "", dailyDeliveryCap: "" });
+  const [entContractForm, setEntContractForm] = useState({ monthlyValue: "" });
 
   // bot chave-mestra
   const [botBusy, setBotBusy] = useState(false);
@@ -276,14 +271,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [comBusy, setComBusy] = useState<string | null>(null); // qual ação está rodando
   const [comMsg, setComMsg] = useState<string | null>(null);
   const [suspReason, setSuspReason] = useState("");
-  // monthly/daily seguem no estado só pra round-trip transparente do /card-quota (o backend
-  // SEMPRE reescreve os 3 campos juntos — omitir monthly/daily zeraria overrides existentes
-  // que esta tela não edita mais). A UI mostra só "Assentos".
-  const [quotaForm, setQuotaForm] = useState({ monthly: "", daily: "", seatCap: "" });
+  const [quotaForm, setQuotaForm] = useState({ seatCap: "" });
   const [finForm, setFinForm] = useState({ setupValue: "", parcela: "" });
-  // GUARDRAILS S3 (10/07) — teto diário de leads por empresa (anti-scraper), PUT dedicado
-  // (não é assento nem cota de plano). "" = herda o default global.
-  const [dailyCapForm, setDailyCapForm] = useState("");
 
   // carteira (MASTER-REFAB S1)
   const [wallet, setWallet] = useState<WalletOverview>(null);
@@ -320,7 +309,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setAccountTypeMsg(null);
     setEntContractMsg(null);
     setEntContractArm(false);
-    setEntContractForm({ monthlyValue: "", dailyDeliveryCap: "" });
+    setEntContractForm({ monthlyValue: "" });
     setUserMsg(null);
     setModuloMsg(null);
     setComMsg(null);
@@ -365,11 +354,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
         setDetail(res);
         const c = res?.company;
         setQuotaForm({
-          monthly: c?.commercialCardsMonthlyLimitOverride != null ? String(c.commercialCardsMonthlyLimitOverride) : "",
-          daily: c?.commercialCardsDailyLimitOverride != null ? String(c.commercialCardsDailyLimitOverride) : "",
           seatCap: c?.seatCap != null ? String(c.seatCap) : "",
         });
-        setDailyCapForm(c?.dailyDeliveryCapOverride != null ? String(c.dailyDeliveryCapOverride) : "");
         setFinForm({
           setupValue: c?.setupValue != null ? String(c.setupValue) : "",
           parcela: c?.monthlyValueOverride != null ? String(c.monthlyValueOverride) : "",
@@ -508,9 +494,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 POST que liga tipo de conta +
-  // TODOS os módulos + (opcional) valor fixo mensal + teto diário. Limites anti-abuso (S3)
-  // continuam valendo — este botão não afrouxa nada, só junta 4 ações num gesto.
+  // Contrato empresarial altera somente a modalidade de cobrança e o valor combinado.
   async function ativarContratoEmpresarial() {
     if (entContractBusy || selId == null) return;
     setEntContractBusy(true);
@@ -520,16 +504,13 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       if (entContractForm.monthlyValue.trim() !== "") {
         body.monthlyValue = Math.max(0, Number(String(entContractForm.monthlyValue).replace(",", ".")) || 0);
       }
-      if (entContractForm.dailyDeliveryCap.trim() !== "") {
-        body.dailyDeliveryCap = Math.max(0, Number(entContractForm.dailyDeliveryCap) || 0);
-      }
-      const res = await apiFetch<{ modulesOn?: number }>(`/modules/master/company/${selId}/enterprise-contract`, {
+      await apiFetch(`/modules/master/company/${selId}/enterprise-contract`, {
         method: "POST",
         body: JSON.stringify(body),
       });
-      setEntContractMsg(`✓ Contrato empresarial ativado — ${res?.modulesOn ?? 0} módulo(s) liberado(s) full.`);
+      setEntContractMsg("✓ Contrato empresarial ativado. O produto permanece igual para todos.");
       setEntContractArm(false);
-      setEntContractForm({ monthlyValue: "", dailyDeliveryCap: "" });
+      setEntContractForm({ monthlyValue: "" });
       await recarregarTudo();
     } catch (err) {
       setEntContractMsg(err instanceof Error ? err.message : "Falha ao ativar o contrato empresarial.");
@@ -596,43 +577,19 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  // Assentos (teto de acessos) é o único campo editável aqui agora. monthly/daily viajam
-  // JUNTO no corpo (round-trip do que já veio do backend) porque o endpoint reescreve os 3
-  // campos sempre — nunca reseta um override que esta tela não edita mais.
+  // Teto operacional de acessos. Não existe cota mensal/diária de cards por empresa.
   async function salvarQuota() {
     if (comBusy || selId == null) return;
     setComBusy("quota");
     setComMsg(null);
     try {
       const body: Record<string, number> = {};
-      if (quotaForm.monthly !== "") body.monthlyCardLimit = Math.max(0, Number(quotaForm.monthly) || 0);
-      if (quotaForm.daily !== "") body.dailyCardLimit = Math.max(0, Number(quotaForm.daily) || 0);
       body.seatCap = quotaForm.seatCap === "" ? 0 : Math.max(0, Number(quotaForm.seatCap) || 0);
-      await apiFetch(`/modules/master/company/${selId}/card-quota`, { method: "PUT", body: JSON.stringify(body) });
+      await apiFetch(`/modules/master/company/${selId}/seat-cap`, { method: "PUT", body: JSON.stringify(body) });
       setComMsg("✓ Teto de acessos atualizado.");
       await recarregarTudo();
     } catch (err) {
       setComMsg(err instanceof Error ? err.message : "Falha ao salvar o teto de acessos.");
-    } finally {
-      setComBusy(null);
-    }
-  }
-
-  // GUARDRAILS S3 (10/07) — teto diário de leads (anti-scraper). "" = limpa o override (herda o
-  // default global); "0" = sem teto SÓ nesta empresa; N>0 = teto próprio.
-  async function salvarDailyCap() {
-    if (comBusy || selId == null) return;
-    setComBusy("dailyCap");
-    setComMsg(null);
-    try {
-      const body: Record<string, number | null> = {
-        dailyDeliveryCapOverride: dailyCapForm.trim() === "" ? null : Math.max(0, Number(dailyCapForm) || 0),
-      };
-      await apiFetch(`/modules/master/company/${selId}/delivery-cap`, { method: "PUT", body: JSON.stringify(body) });
-      setComMsg("✓ Teto diário de leads atualizado.");
-      await recarregarTudo();
-    } catch (err) {
-      setComMsg(err instanceof Error ? err.message : "Falha ao salvar o teto diário de leads.");
     } finally {
       setComBusy(null);
     }
@@ -1298,7 +1255,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
                       <strong style={{ fontSize: "0.76rem" }}>Tipo de conta</strong>
                       <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
-                        Crédito = self-service, ativa por default (teto real é o saldo). Empresarial = exceção montada aqui (módulos/crédito/preço manuais).
+                        Crédito = self-service. Empresarial = cobrança negociada. O produto e o custo por lead são iguais.
                       </span>
                       {accountTypeMsg && (
                         <div style={{ fontSize: "0.72rem", fontWeight: 700, color: accountTypeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{accountTypeMsg}</div>
@@ -1314,18 +1271,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       </div>
                     </div>
 
-                    {/* MASTER-REFAB S8 (10/07) — chavinha: 1 gesto liga tipo + módulos full +
-                        valor fixo + teto diário. Some quando já é Empresarial (os campos de
-                        edição contínua são os que já existem: Implantação > Parcela e Teto de
-                        acessos > Teto diário de leads, mais acima/abaixo nesta mesma aba).
-                        className="ctx-section"/"hint"/"ctx-msg" (kit.css) — zero style visual
-                        inline novo (5 Leis, catraca do check-pele). */}
                     <div className="ctx-section">
                       <strong style={{ fontSize: "0.76rem" }}>Contrato empresarial</strong>
                       {accountType === "credit" ? (
                         <>
                           <span className="hint">
-                            1 gesto: vira conta Empresarial, libera TODOS os módulos e (opcional) grava o valor fixo mensal e o teto diário combinados com o cliente.
+                            Muda a modalidade de cobrança e, opcionalmente, grava o valor mensal negociado. Não altera recursos nem o débito por lead.
                           </span>
                           {entContractMsg && (
                             <div className={`ctx-msg ${entContractMsg.startsWith("✓") ? "ok" : "err"}`}>{entContractMsg}</div>
@@ -1337,14 +1288,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                 disabled={entContractBusy}
                                 value={entContractForm.monthlyValue} onChange={e => setEntContractForm(f => ({ ...f, monthlyValue: e.target.value }))} />
                             </div>
-                            <div style={{ display: "grid", gap: 4 }}>
-                              <label className="field-label">Teto diário de leads</label>
-                              <input className="field-dark" type="number" min={0} style={{ width: 130 }} placeholder="500 (padrão)"
-                                disabled={entContractBusy}
-                                value={entContractForm.dailyDeliveryCap} onChange={e => setEntContractForm(f => ({ ...f, dailyDeliveryCap: e.target.value }))} />
-                            </div>
                           </div>
-                          <span className="hint">Limites anti-abuso continuam valendo.</span>
                           {entContractArm ? (
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                               <span style={{ fontSize: "0.68rem", fontWeight: 700 }}>Confirma ativar contrato empresarial?</span>
@@ -1361,7 +1305,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </>
                       ) : (
                         <span className="hint">
-                          Ativo — módulos liberados full. Valor fixo mensal e teto diário ficam editáveis em Implantação e em Teto de acessos, mais abaixo. Limites anti-abuso continuam valendo.
+                          Ativo — cobrança empresarial. O produto permanece igual ao das contas de crédito.
                         </span>
                       )}
                     </div>
@@ -1396,18 +1340,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         </div>
                         <button className="btn-ghost" disabled={comBusy != null} onClick={salvarQuota}>
                           {comBusy === "quota" ? "Salvando…" : "Salvar assentos"}
-                        </button>
-                      </div>
-                      {/* GUARDRAILS S3 (10/07) — teto diário de leads (anti-scraper); mesmo bloco de
-                          limites, PUT dedicado (não é assento). */}
-                      <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                        <div style={{ display: "grid", gap: 4 }}>
-                          <label className="field-label">Teto diário de leads</label>
-                          <input className="field-dark" type="number" min={0} style={{ width: 110 }} placeholder="padrão global (500)"
-                            value={dailyCapForm} onChange={e => setDailyCapForm(e.target.value)} />
-                        </div>
-                        <button className="btn-ghost" disabled={comBusy != null} onClick={salvarDailyCap}>
-                          {comBusy === "dailyCap" ? "Salvando…" : "Salvar teto diário"}
                         </button>
                       </div>
                     </div>

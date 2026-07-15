@@ -4,12 +4,10 @@ import type { RadarSearchStrategy } from './radar-search-strategy.service';
 
 export type RadarSourceExpansionPlan = {
   googleTextualQueries: string[];
-  siteCrawlPaths: string[];
   cnpjSeeds: Array<Record<string, any>>;
   directorySeeds: string[];
   verticalStrategies: Array<Record<string, any>>;
   opportunitySignals: Array<Record<string, any>>;
-  reprocessRules: Array<Record<string, any>>;
 };
 
 function normalizeLookupValue(value: unknown) {
@@ -31,12 +29,10 @@ export class RadarSourceExpansionService {
   buildExpansionPlan(input: NormalizedSearchInput, strategy: RadarSearchStrategy): RadarSourceExpansionPlan {
     return {
       googleTextualQueries: this.buildGoogleTextualQueries(input, strategy),
-      siteCrawlPaths: this.buildSiteCrawlPaths(strategy),
       cnpjSeeds: this.buildCnpjSeeds(input, strategy),
       directorySeeds: this.buildDirectorySeeds(input, strategy),
       verticalStrategies: this.buildVerticalStrategies(input),
       opportunitySignals: this.buildOpportunitySignals(input),
-      reprocessRules: this.buildReprocessRules(input, strategy),
     };
   }
 
@@ -60,13 +56,8 @@ export class RadarSourceExpansionService {
     ].map((query) => query.replace(/\s+/g, ' ').trim()).filter(Boolean)));
   }
 
-  buildSiteCrawlPaths(strategy: RadarSearchStrategy) {
-    if (!strategy.allowLightCrawl) return [];
-    return ['/', '/contato', '/sobre', '/atendimento', '/unidades', '/links'];
-  }
-
   buildCnpjSeeds(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {
-    if (strategy.mode !== 'night_factory' && strategy.mode !== 'deep') return [];
+    if (strategy.mode !== 'deep') return [];
     return [{
       city: input.city,
       state: input.state || null,
@@ -74,12 +65,12 @@ export class RadarSourceExpansionService {
       normalizedSegment: input.normalizedSegment,
       status: 'ativa',
       fields: ['nome_fantasia', 'razao_social', 'cnpj', 'cnae', 'porte', 'matriz_filial'],
-      enrichment: ['google', 'social_async', 'site_crawl_light'],
+      enrichment: [],
     }];
   }
 
   buildDirectorySeeds(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {
-    if (strategy.mode !== 'deep' && strategy.mode !== 'night_factory') return [];
+    if (strategy.mode !== 'deep') return [];
     const segment = quote(input.segment);
     const city = quote(input.city);
     return [
@@ -129,17 +120,5 @@ export class RadarSourceExpansionService {
       { signal: 'sem_automacao_aparente', pitch: 'empresa vende mas nao demonstra esteira de atendimento' },
     ];
     return base;
-  }
-
-  buildReprocessRules(input: NormalizedSearchInput, strategy: RadarSearchStrategy) {
-    if (strategy.mode === 'fast') return [];
-    return [
-      { rule: 'cards_sem_social', action: 'social_async' },
-      { rule: 'cards_com_telefone_sem_whatsapp', action: 'whatsapp_check' },
-      { rule: 'cards_com_site_sem_email', action: 'site_crawl_light' },
-      { rule: 'rejeitados_por_falta_de_canal', action: 'reprocessar_com_fontes_textuais' },
-      { rule: 'cards_antigos_mesma_cidade_segmento', action: 'refresh_enrichment' },
-      { rule: 'duplicados_com_dados_complementares', action: 'merge_evidencias' },
-    ];
   }
 }

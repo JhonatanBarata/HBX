@@ -18,8 +18,6 @@ test('buildProvisioningPlan creates tenant contract without platform infra privi
     billingCycle: 'ANNUAL',
     modules: ['vendas', 'webscraping'],
     limits: {
-      commercialCardsMonthlyLimitOverride: 5000,
-      commercialCardsDailyLimitOverride: 250,
       commissionDueBusinessDays: 5,
     },
     admin: {

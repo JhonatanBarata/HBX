@@ -11,7 +11,6 @@ import {
 } from './credit-pack-catalog';
 import { isCreditsFeatureEnabled } from './credits.flags';
 import { isBillingOwnerActor } from '../access/actor-kind';
-import { loadUserTeamPolicyRuntime, resolveTeamPolicyStoredLimit } from '../team/team-policy-persistence';
 import { COMPANY_KIND_TENANT } from '../common/company-kind';
 import { CreditActionConfigService } from './credit-action-config.service';
 
@@ -286,7 +285,7 @@ export class CreditsService {
         by: ['companyId'],
         // "Último consumo" = só entrega de lead. Sem o filtro de actionKey, a quitação de dívida de
         // chargeback (débito actionKey 'chargeback_settlement') apareceria como se a empresa tivesse
-        // consumido um lead (revisão adversarial go-live 11/07). Mesmo filtro do checkSellerCreditCap.
+        // consumido um lead (revisão adversarial go-live 11/07).
         where: { kind: 'debit', actionKey: 'lead_delivery' },
         _max: { createdAt: true },
       }),
@@ -326,38 +325,6 @@ export class CreditsService {
       welcomeCredits: this.packConfig.getWelcomeCreditsDefault(),
       welcomeExpiryDays: this.packConfig.getWelcomeExpiryDaysDefault(),
     };
-  }
-
-  // ── GUARDRAILS S3 (10/07) — teto diário GLOBAL default de entregas por empresa (anti-
-  // scraper). Coluna nova aditiva (CreditGlobalConfig.dailyDeliveryCapDefault); ao contrário
-  // dos 3 campos acima, lida DIRETO do banco (sem overlay em memória — quem de fato ENFORCE o
-  // teto, commercial-usage-limits.service.ts, lê por SQL cru direto e não depende deste
-  // getter; este método só serve o prefill/edição do master). Fail-open: erro de leitura (ex.:
-  // ambiente sem a coluna ainda) devolve o fallback 500, nunca lança. ────────────────────────
-  async getDailyDeliveryCapDefaultAsMaster(): Promise<number> {
-    this.assertFeatureEnabled();
-    try {
-      const cfg = await (this.prisma as any).creditGlobalConfig.findUnique({ where: { key: 'default' } });
-      const value = cfg?.dailyDeliveryCapDefault;
-      return value != null && Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 500;
-    } catch {
-      return 500;
-    }
-  }
-
-  /** 0 = sem teto global (empresas sem override próprio ficam sem teto). */
-  async updateDailyDeliveryCapDefaultAsMaster(value: number): Promise<{ dailyDeliveryCapDefault: number }> {
-    this.assertFeatureEnabled();
-    const n = Math.trunc(Number(value));
-    if (!Number.isFinite(n) || n < 0) {
-      throw new BadRequestException('dailyDeliveryCapDefault deve ser um numero >= 0 (0 = sem teto)');
-    }
-    await (this.prisma as any).creditGlobalConfig.upsert({
-      where: { key: 'default' },
-      update: { dailyDeliveryCapDefault: n },
-      create: { key: 'default', dailyDeliveryCapDefault: n },
-    });
-    return { dailyDeliveryCapDefault: n };
   }
 
   // ── /credits/me — leitura role-gated ─────────────────────────────────────────
@@ -508,66 +475,6 @@ export class CreditsService {
   }
 
   /**
-   * S4 — teto individual OPCIONAL por vendedor. Reusa os campos que JÁ existem no
-   * `UserTeamPolicy` (D4 do PLANO.md): `monthlyCardsLimit` vira teto MENSAL de crédito,
-   * `cardDeliveryDailyLimit` vira teto DIÁRIO — o mesmo padrão `inherit` = sem teto que o
-   * `CommercialUsageLimitsService` já usa pra cota count-based. Contagem do consumo
-   * individual = linhas `debit` do ledger com `createdByUserId` = este vendedor no período
-   * (mesma fonte única do saldo — não um contador paralelo). A EMPRESA nunca é capada por
-   * este teto (invariante da ÁRVORE: admin NUNCA capado por vendedor) — só o PRÓPRIO
-   * vendedor é bloqueado quando estoura o teto dele.
-   */
-  private async checkSellerCreditCap(
-    companyId: number,
-    userId: number | null,
-    now: Date,
-  ): Promise<{ blocked: boolean; scope: 'monthly' | 'daily' | null }> {
-    const userIdNum = Number(userId || 0);
-    if (!userIdNum) return { blocked: false, scope: null };
-
-    const policy = await loadUserTeamPolicyRuntime(this.prisma, userIdNum).catch(() => null);
-    if (!policy) return { blocked: false, scope: null };
-
-    const monthly = resolveTeamPolicyStoredLimit(policy, 'monthlyCards');
-    const daily = resolveTeamPolicyStoredLimit(policy, 'cardDeliveryDaily');
-    if (!monthly.applies && !daily.applies) return { blocked: false, scope: null };
-
-    // CRÉDITO UNIVERSAL (PR10072026): o teto do vendedor é de LEAD (monthlyCardsLimit /
-    // cardDeliveryDailyLimit — semântica de cards). Com actionKeys novos no ledger
-    // (whatsapp/IA/logística), contar todo `kind:debit` inflaria o teto com uso que não é
-    // lead — filtro explícito pela ação.
-    if (monthly.applies) {
-      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-      const monthlyUsed = await this.prisma.creditLedgerEntry.count({
-        where: {
-          companyId,
-          createdByUserId: userIdNum,
-          kind: 'debit',
-          actionKey: 'lead_delivery',
-          createdAt: { gte: monthStart },
-        },
-      }).catch(() => 0);
-      if (monthlyUsed >= monthly.limit!) return { blocked: true, scope: 'monthly' };
-    }
-
-    if (daily.applies) {
-      const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-      const dailyUsed = await this.prisma.creditLedgerEntry.count({
-        where: {
-          companyId,
-          createdByUserId: userIdNum,
-          kind: 'debit',
-          actionKey: 'lead_delivery',
-          createdAt: { gte: dayStart },
-        },
-      }).catch(() => 0);
-      if (dailyUsed >= daily.limit!) return { blocked: true, scope: 'daily' };
-    }
-
-    return { blocked: false, scope: null };
-  }
-
-  /**
    * Bloqueio NEUTRO (LEI DO VENDEDOR): vendedor/gerente recebem código sem citar
    * crédito/saldo/R$. Dono/master recebem código claro pra oferecer recarga no front.
    * `isBillingAudienceUser` decide qual mensagem sai — o CALLER (choke em
@@ -575,16 +482,14 @@ export class CreditsService {
    * assume o pior caso (vendedor) e nunca vaza financeiro por omissão.
    */
   private throwBlocked(
-    reason: 'no_balance' | 'seller_cap_monthly' | 'seller_cap_daily' | 'chargeback_debt',
+    reason: 'no_balance' | 'chargeback_debt',
     isBillingAudienceUser: boolean,
   ) {
     if (isBillingAudienceUser) {
       const message =
         reason === 'no_balance'
           ? 'Saldo de créditos esgotado. Recarregue para continuar recebendo leads.'
-          : reason === 'chargeback_debt'
-            ? 'Há uma recarga estornada com créditos já consumidos. Regularize a pendência com uma nova recarga para voltar a receber leads.'
-            : 'Teto de créditos do vendedor atingido no período.';
+          : 'Há uma recarga estornada com créditos já consumidos. Regularize a pendência com uma nova recarga para voltar a receber leads.';
       throw new ConflictException({
         ok: false,
         code: reason === 'chargeback_debt' ? 'CREDIT_CHARGEBACK_DEBT' : 'CREDIT_BALANCE_EXHAUSTED',
@@ -601,8 +506,7 @@ export class CreditsService {
 
   /**
    * Choke único do lead entregue. Todo tenant precisa confirmar o débito antes da revelação.
-   * (1) checa teto individual do vendedor (S4) ANTES do débito da empresa —
-   * estourou, bloqueia SÓ ele; (2) debita 1 crédito da carteira via `CreditWalletService.debit`
+   * Debita 1 crédito da carteira via `CreditWalletService.debit`
    * (fail-closed, nunca negativo e idempotente por
    * `enforce:<actionKey>:<leadId>`); sem saldo, a entrega para.
    */
@@ -638,20 +542,12 @@ export class CreditsService {
     const cost = definition.cost;
 
     const isBillingAudienceUser = Boolean(input?.isBillingAudienceUser);
-    const now = new Date();
-
     // P0.3 HOLD — recarga estornada/chargeback cujos créditos já foram consumidos vira DÍVIDA que
     // BLOQUEIA novas entregas até ser quitada por crédito novo (decisão do dono 10/07). Fail-closed
-    // a favor do caixa: nunca entrega de graça depois de um estorno. Bloqueio de EMPRESA — vem
-    // antes do teto individual do vendedor. Quitação: settleChargebackDebtFromBalance (via grant).
+    // a favor do caixa: nunca entrega de graça depois de um estorno. Quitação:
+    // settleChargebackDebtFromBalance (via grant).
     if ((await this.wallet.getChargebackDebt(companyIdNum)) > 0) {
       this.throwBlocked('chargeback_debt', isBillingAudienceUser);
-    }
-
-    // S4 — teto individual do vendedor ANTES do débito da empresa.
-    const cap = await this.checkSellerCreditCap(companyIdNum, userId, now);
-    if (cap.blocked) {
-      this.throwBlocked(cap.scope === 'daily' ? 'seller_cap_daily' : 'seller_cap_monthly', isBillingAudienceUser);
     }
 
     const usageKey = `enforce:${actionKey}:${leadId}`;
@@ -669,31 +565,29 @@ export class CreditsService {
     return { applied: true, debited: result.debited, balanceAfter: result.balanceAfter };
   }
 
-  /**
-   * Refund atômico on-failure (mesma usageKey do débito original) — reusa o evento
-   * `vendas_card_refunded` já existente no `CommercialUsageLimitsService.recordCardRefund`.
-   * Idempotente (o `CreditWalletService.refund` já garante isso por `refund:<usageKey>`).
-   * Best-effort: se o gate estiver OFF ou não houver débito registrado pra essa usageKey,
-   * é no-op silencioso (nada a reverter).
-   */
+  /** Estorno atômico e verificável; nunca converte falha financeira em sucesso silencioso. */
   async refundLeadDelivery(
     companyId: number,
     userId: number | null,
     input: { leadId: string | number; actionKey: string },
-  ): Promise<{ refunded: number }> {
+  ): Promise<{ refunded: number; alreadyRefunded: boolean }> {
     const companyIdNum = Number(companyId);
-    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) return { refunded: 0 };
+    if (!Number.isInteger(companyIdNum) || companyIdNum <= 0) {
+      throw new Error('refundLeadDelivery: empresa inválida');
+    }
     const actionKey = String(input?.actionKey || '').trim() || 'lead_delivery';
     const leadId = String(input?.leadId ?? '').trim();
-    if (!leadId) return { refunded: 0 };
+    if (actionKey !== 'lead_delivery') throw new Error('refundLeadDelivery: ação inválida');
+    if (!leadId) throw new Error('refundLeadDelivery: lead obrigatório');
 
     const usageKey = `enforce:${actionKey}:${leadId}`;
-    try {
-      const result = await this.wallet.refund(companyIdNum, { usageKey, userId });
-      return { refunded: result.refunded };
-    } catch (error: any) {
-      this.logger.warn(`enforce_refund_failed company=${companyId} error=${String(error?.message || error)}`);
-      return { refunded: 0 };
-    }
+    const result = await this.wallet.refund(companyIdNum, { usageKey, userId });
+    return {
+      refunded: result.refunded,
+      // `alreadyProcessed` só é verdadeiro quando o ledger contém a linha
+      // idempotente `refund:<usageKey>`. Isso confirma o estorno em retries sem
+      // executar um segundo crédito na carteira.
+      alreadyRefunded: Boolean(result.alreadyProcessed),
+    };
   }
 }

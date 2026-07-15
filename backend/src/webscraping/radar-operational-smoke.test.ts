@@ -6,7 +6,6 @@ import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-publi
 import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
 import { RadarResultMergerService } from './radar/01-search/radar-result-merger.service';
 import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
-import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
@@ -176,31 +175,6 @@ test('smoke social pending ou error nao bloqueia delivery', () => {
   assert.equal(failed.metadata.socialStatus, 'error');
   assert.equal(failed.metadata.radarStageIssues.at(-1).blocksDelivery, false);
 });
-
-test('smoke website crawl falha sem bloquear delivery', async () => withEnv({
-  HBX_RADAR_WEBSITE_CRAWL_LIGHT_ENABLED: 'true',
-}, async () => {
-  const service = new RadarWebsiteCrawlSourceService({
-    crawl: async () => {
-      throw new Error('crawl timeout');
-    },
-  } as any);
-  const result = await service.run({
-    currentResults: [{
-      placeId: 'hbx:1',
-      name: 'Clinica Real',
-      phone: '41999999999',
-      phoneDigits: '41999999999',
-      website: 'https://clinica-real.com.br',
-    } as any],
-    remainingQuantity: 1,
-  });
-
-  assert.equal(result.source, 'website_crawl_light');
-  assert.equal(result.status, 'partial_error');
-  assert.equal(result.retryable, true);
-  assert.equal(result.issue?.blocksDelivery, false);
-}));
 
 test('smoke CNPJ local e vertical falham como fontes opcionais', async () => withEnv({
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',

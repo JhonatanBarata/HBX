@@ -11,7 +11,7 @@ Estas regras foram aprovadas pelo dono em 14/07/2026 e prevalecem sobre document
 
 ## Radar, contatos e cobrança
 
-1. Um cliente novo pode localizar e visualizar a existência do lead, mas os dados de contato permanecem embaçados e ausentes do payload público até o débito confirmado de 1 crédito.
+1. Um cliente novo pode localizar e visualizar somente a existência do lead. Até o débito confirmado de 1 crédito, nenhum dado real que identifique a empresa ou uma pessoa pode sair no payload público ou no DOM: nome/razão social, CNPJ, endereço, localização do card, contatos, pessoas, URLs e blobs internos ficam omitidos; a interface usa placeholders visualmente embaçados. O contexto agregado da busca (filtros, cidade pesquisada, segmento e contadores) pode aparecer sem ser atribuído a um lead individual.
 2. O enriquecimento adicional acontece na ação de puxar o lead: após o débito, o contato é revelado e o sistema continua acumulando tudo que conseguir localizar pelas fontes permitidas.
 3. Não existe diferença de capacidade por plano/tier. Todos recebem o mesmo produto por lead. Permanecem apenas estado comercial da empresa, kill-switch de módulo, RBAC do cargo e saldo de crédito.
 4. Provedores pagos de busca/enriquecimento permitidos: Google e Brave. Enriquecedores pagos legados fora dessas duas fontes devem ser removidos sem fallback ou compatibilidade. Fontes locais, internas ou gratuitas continuam permitidas sob o governor.
@@ -20,7 +20,7 @@ Estas regras foram aprovadas pelo dono em 14/07/2026 e prevalecem sobre document
 7. “Disponíveis” e “Total no Brasil” representam a mesma união deduplicada do universo RFB com leads exclusivos do motor. A chave preferencial é CNPJ normalizado; um lead novo só soma 1 se ainda não existir na união.
 8. Contatos da RFB: telefone cadastral 1, telefone cadastral 2 e um e-mail. Telefone 3 e e-mails 2/3 só podem ser apresentados como enriquecimento. Fax é preservado separadamente e não aparece como telefone 3.
 9. Todos os contatos válidos são preservados; a interface e exportação podem projetar até três telefones e três e-mails. Telefone sem WhatsApp continua visível após a compra.
-10. O backend mascara ou omite todos os valores de contato antes da compra, inclusive arrays e estruturas novas. O frontend nunca é a fronteira de segurança.
+10. O backend mascara ou omite todos os valores identificáveis antes da compra, inclusive arrays, eventos, snapshots, evidências e estruturas novas. O frontend nunca é a fronteira de segurança.
 11. A Night Factory é exclusivamente local e manual: executa somente dentro do HBX Owner ligado em `127.0.0.1:3107`, nunca no backend/VPS, nunca no boot e nunca por cron. O VPS pode receber resultados, mas não pode originar o crawl. Desligar o Owner ou o PC encerra a execução.
 
 ## Interface e temas

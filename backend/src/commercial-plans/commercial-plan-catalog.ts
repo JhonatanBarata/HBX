@@ -10,8 +10,6 @@ export const COMMERCIAL_ENTITLEMENT_KEYS = {
   ATENDIMENTO_CHAT: 'atendimento_chat',
   WEBSCRAPING: 'webscraping',
   RECOVERY: 'recovery',
-  NIGHT_FACTORY: 'night_factory',
-  RADAR_PREMIUM: 'radar_premium',
   RECOVERY_INTELLIGENCE: 'recovery_intelligence',
   DIGITAL_AUDIT: 'digital_audit',
   OPPORTUNITY_SCORE: 'opportunity_score',
@@ -26,7 +24,6 @@ export type ActiveCommercialPlanKey =
   | typeof COMMERCIAL_PLAN_KEYS.MELHOR;
 export type CommercialEntitlementKey =
   (typeof COMMERCIAL_ENTITLEMENT_KEYS)[keyof typeof COMMERCIAL_ENTITLEMENT_KEYS];
-export type CommercialPlanTier = 'list' | 'lead' | 'full';
 export type CommercialPlanCapabilities = {
   canSeeLeadIntelligence: boolean;
   canSeeOpportunityReason: boolean;
@@ -34,8 +31,7 @@ export type CommercialPlanCapabilities = {
   canSeeMessageTemplates: boolean;
   canAutoEnrichLeads: boolean;
   canUseAdvancedFilters: boolean;
-  canUseVerifiedWhatsapp: boolean | 'limited';
-  canUseFilteredQuota: boolean;
+  canUseVerifiedWhatsapp: boolean;
   canUseSalesProfileAdvanced: boolean;
   canSeeConversionReport: boolean;
   canExportConversionPdf: boolean;
@@ -52,7 +48,6 @@ export const UNIVERSAL_PRODUCT_CAPABILITIES: CommercialPlanCapabilities = Object
   canAutoEnrichLeads: false,
   canUseAdvancedFilters: true,
   canUseVerifiedWhatsapp: true,
-  canUseFilteredQuota: true,
   canUseSalesProfileAdvanced: true,
   canSeeConversionReport: true,
   canExportConversionPdf: true,
@@ -160,41 +155,6 @@ export function isCommercialPlanPaused(planKey: unknown): boolean {
   return defaultCommercialPlanStatus(key) === 'paused';
 }
 
-export const COMMERCIAL_CAPACITY_UNLIMITED = 999_999;
-
-export type CommercialOperationalEnvelope = {
-  googleSearchesPerDay: number;
-  cardsPerMonth: number;
-  dailyCardSafetyLimit: number;
-  enrichmentsPerDay: number;
-  cardsPerSearch?: number;
-  searchesPerCycle?: number;
-  totalCards?: number;
-};
-
-// Envelope operacional único. Crédito por lead é o choke comercial; este
-// objeto só preserva o contrato técnico legado enquanto o Radar migra para o
-// orçamento global de fonte. Nenhum valor varia por plano/tier.
-export const UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE: Readonly<CommercialOperationalEnvelope> = Object.freeze({
-  googleSearchesPerDay: 6,
-  cardsPerMonth: COMMERCIAL_CAPACITY_UNLIMITED,
-  dailyCardSafetyLimit: COMMERCIAL_CAPACITY_UNLIMITED,
-  enrichmentsPerDay: COMMERCIAL_CAPACITY_UNLIMITED,
-  cardsPerSearch: COMMERCIAL_CAPACITY_UNLIMITED,
-  searchesPerCycle: COMMERCIAL_CAPACITY_UNLIMITED,
-  totalCards: COMMERCIAL_CAPACITY_UNLIMITED,
-});
-
-export const COMMERCIAL_PLAN_QUOTAS: Record<ActiveCommercialPlanKey, CommercialOperationalEnvelope> = {
-  [COMMERCIAL_PLAN_KEYS.LITE]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-  [COMMERCIAL_PLAN_KEYS.PADRAO]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-  [COMMERCIAL_PLAN_KEYS.PRO]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-  [COMMERCIAL_PLAN_KEYS.MELHOR]: { ...UNIVERSAL_COMMERCIAL_OPERATIONAL_ENVELOPE },
-};
-
-export const GOOGLE_DAILY_LIMIT_REACHED_MESSAGE =
-  'O orçamento operacional diário do Google foi atingido. O Brave e as fontes públicas continuam disponíveis.';
-
 export const ACTIVE_COMMERCIAL_ENTITLEMENT_STATUSES = new Set([
   'active',
   'trialing',
@@ -290,9 +250,7 @@ export function normalizeCommercialPlanKey(value: unknown): ActiveCommercialPlan
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === COMMERCIAL_PLAN_KEYS.LITE) return COMMERCIAL_PLAN_KEYS.LITE;
   if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return COMMERCIAL_PLAN_KEYS.PRO;
-  // 'hbx_vendas_ia' é chave legada (removida do catálogo): normaliza p/ MELHOR para
-  // não quebrar registros históricos que migration não alcançou.
-  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR || normalized === 'hbx_vendas_ia') {
+  if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) {
     return COMMERCIAL_PLAN_KEYS.MELHOR;
   }
   return COMMERCIAL_PLAN_KEYS.PADRAO;
@@ -331,20 +289,9 @@ export function getCommercialPlanTitle(planKey: unknown) {
   return 'HBX Lead Plus';
 }
 
-// R3 (FASE 2 — REMOÇÃO, definitivo): tier deixou de decidir capacidade. Toda
-// empresa comercial (não-platform_infra) projeta 'full' — a distinção
-// list/lead/full nascida do catálogo de planos morreu como driver de acesso.
-// Assinatura mantida (planKey ainda aceito) só por compatibilidade dos call
-// sites; nenhum deles deve mais esperar 'list'/'lead' de volta. Camada que
-// decide "quem pode o quê" agora é RBAC (UserTeamPolicy), não plano.
-export function getCommercialPlanTier(_planKey: unknown): CommercialPlanTier {
-  return 'full';
-}
-
-// R3: capacidades booleanas nascem TODAS ligadas por default (não dependem
-// mais de planKey/tier). RBAC (camada 2, UserTeamPolicy) é quem corta agora,
-// não o plano comercial. Parâmetro mantido só por compatibilidade de chamada.
-export function getCommercialPlanCapabilities(_planKey: unknown): CommercialPlanCapabilities {
+// Capacidades do produto de leads são universais. RBAC (UserTeamPolicy) pode
+// autorizar ações operacionais, mas o plano comercial nunca muda o lead.
+export function getCommercialPlanCapabilities(): CommercialPlanCapabilities {
   return { ...UNIVERSAL_PRODUCT_CAPABILITIES };
 }
 
@@ -414,7 +361,6 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       badge: 'Entrada',
       recommended: false,
       requiresCheckout: false,
-      quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.LITE],
       features: [...universalFeatures],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
@@ -436,7 +382,6 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       badge: 'Mais vendido',
       recommended: true,
       requiresCheckout: false,
-      quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PADRAO],
       features: [...universalFeatures],
       legalCopy: 'Teste de 14 dias. Após o trial, contratação segue pelo checkout.',
     },
@@ -458,7 +403,6 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       badge: 'Mais forte',
       recommended: false,
       requiresCheckout: false,
-      quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.PRO],
       features: [...universalFeatures],
       legalCopy: 'Liberação após pagamento confirmado.',
     },
@@ -483,7 +427,6 @@ export function buildCommercialPlansCatalog(options: { includeHidden?: boolean }
       badge: 'Empresas',
       recommended: true,
       requiresCheckout: false,
-      quotas: COMMERCIAL_PLAN_QUOTAS[COMMERCIAL_PLAN_KEYS.MELHOR],
       features: [...universalFeatures],
       legalCopy: 'Mensalidade e implantação negociadas na conversa com a HBX.',
     },

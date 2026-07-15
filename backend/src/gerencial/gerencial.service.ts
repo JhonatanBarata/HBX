@@ -630,7 +630,6 @@ export class GerencialService {
           sellerReferralCommissionPercent: true,
           referredByUserId: true,
           referredByCommissionPercentSnapshot: true,
-          sellerDistributionDailyLimitOverride: true,
           referredByUser: {
             select: {
               id: true,

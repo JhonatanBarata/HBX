@@ -6,11 +6,6 @@ import {
   ServiceUnavailableException,
   forwardRef,
 } from '@nestjs/common';
-import { RadarCnpjL4EnrichmentService } from './radar/03-enrichment/radar-cnpj-l4-enrichment.service';
-import { RadarPublicDataService } from './radar/03-enrichment/radar-public-data.service';
-import { AiSaneamentoService } from './radar/03-enrichment/ai-saneamento.service';
-import { AiContactExtractionService } from './radar/03-enrichment/ai-contact-extraction.service';
-import { RadarWebEnrichmentService } from './radar/03-enrichment/radar-web-enrichment.service';
 import { LeadContactWriteService } from './radar/persistence/lead-contact-write.service';
 import type { LeadContactCandidate } from './radar/persistence/lead-contact-gate';
 import { CommercialUsageLimitsService } from '../commercial-plans/commercial-usage-limits.service';
@@ -25,11 +20,9 @@ import { RadarSearchGeoService } from './radar/01-search/radar-search-geo.servic
 import { RadarSearchInputService } from './radar/01-search/radar-search-input.service';
 import { RadarSearchOrchestratorService } from './radar/01-search/radar-search-orchestrator.service';
 import { RadarSearchRunConfigService } from './radar/01-search/radar-search-run-config.service';
-import { RadarInternalReprocessSourceService } from './radar/01-search/radar-internal-reprocess-source.service';
 import { RadarCnpjPublicSourceService } from './radar/01-search/radar-cnpj-public-source.service';
 import { RadarLocalDirectorySourceService } from './radar/01-search/radar-local-directory-source.service';
 import { RadarVerticalSourceService } from './radar/01-search/radar-vertical-source.service';
-import { RadarWebsiteCrawlSourceService } from './radar/01-search/radar-website-crawl-source.service';
 import { RadarSourceExpansionService } from './radar/01-search/radar-source-expansion.service';
 import { RadarSearchStrategyService } from './radar/01-search/radar-search-strategy.service';
 import { RadarSourcePlannerService } from './radar/01-search/radar-source-planner.service';
@@ -38,12 +31,9 @@ import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.se
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
 import { RadarWebSourceGateService } from './radar/02-filter/radar-web-source-gate.service';
 import { RadarScoreEnrichmentService } from './radar/03-enrichment/radar-score-enrichment.service';
-import { RadarWebEnrichmentJobService } from './radar/03-enrichment/radar-web-enrichment-job.service';
-import { RadarSocialLookupService } from './radar/04-socials/radar-social-lookup.service';
 import { RadarDeliveryOrchestratorService } from './radar/05-delivery/radar-delivery-orchestrator.service';
 import { RadarPostDeliveryUpdateService } from './radar/05-delivery/radar-post-delivery-update.service';
 import { RadarPostDeliveryVendasUpdateService } from './radar/05-delivery/radar-post-delivery-vendas-update.service';
-import { RadarPostDeliveryAiSaneamentoService } from './radar/05-delivery/radar-post-delivery-ai-saneamento.service';
 import { RadarVendasSyncService } from './radar/05-delivery/radar-vendas-sync.service';
 import { RadarLeadPresenterService } from './radar/06-presentation/radar-lead-presenter.service';
 import { RadarRunPresenterService } from './radar/06-presentation/radar-run-presenter.service';
@@ -57,6 +47,16 @@ import { RadarWebscrapingCoreService } from './radar/radar-webscraping-core.serv
 
 export * from './radar/radar-webscraping-core.service';
 
+const RADAR_PAID_RUN_STATUSES = new Set([
+  'ownership_claimed',
+  'rfb_hydrating',
+  'base_revealed',
+  'motor_enriching',
+  'vendas_creating',
+  'completed',
+  'partial',
+]);
+
 @Injectable()
 export class WebscrapingService extends RadarWebscrapingCoreService {
   constructor(
@@ -69,13 +69,11 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() commercialUsageLimits?: CommercialUsageLimitsService,
     @Optional() masterContextService?: MasterContextService,
     @Optional() radarRunRepository?: RadarRunRepositoryService,
-    @Optional() radarSocialLookup?: RadarSocialLookupService,
     @Optional() radarLeadPresenter?: RadarLeadPresenterService,
     @Optional() radarRunPresenter?: RadarRunPresenterService,
     @Optional() radarPostDeliveryUpdate?: RadarPostDeliveryUpdateService,
     @Optional() radarPostDeliveryVendasUpdate?: RadarPostDeliveryVendasUpdateService,
     @Optional() radarDeliveryOrchestrator?: RadarDeliveryOrchestratorService,
-    @Optional() radarPostDeliveryAiSaneamento?: RadarPostDeliveryAiSaneamentoService,
     @Optional() radarVendasSync?: RadarVendasSyncService,
     @Optional() radarSharedNormalizer?: RadarSharedNormalizerService,
     @Optional() radarSearchGeo?: RadarSearchGeoService,
@@ -86,17 +84,14 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     @Optional() radarResultMerger?: RadarResultMergerService,
     @Optional() radarSearchOrchestrator?: RadarSearchOrchestratorService,
     @Optional() radarSearchRunConfig?: RadarSearchRunConfigService,
-    @Optional() radarInternalReprocessSource?: RadarInternalReprocessSourceService,
     @Optional() radarCnpjPublicSource?: RadarCnpjPublicSourceService,
     @Optional() radarLocalDirectorySource?: RadarLocalDirectorySourceService,
     @Optional() radarVerticalSource?: RadarVerticalSourceService,
-    @Optional() radarWebsiteCrawlSource?: RadarWebsiteCrawlSourceService,
     @Optional() radarDuplicateFilter?: RadarDuplicateFilterService,
     @Optional() radarQualityGate?: RadarQualityGateService,
     @Optional() radarWebSourceGate?: RadarWebSourceGateService,
     @Optional() radarRunItemFilter?: RadarRunItemFilterService,
     @Optional() radarScoreEnrichment?: RadarScoreEnrichmentService,
-    @Optional() radarWebEnrichmentJob?: RadarWebEnrichmentJobService,
     @Optional() googleSearchProvider?: GoogleSearchProviderService,
     @Optional() radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() radarHbxEngineErrors?: RadarHbxEngineErrorsService,
@@ -110,13 +105,11 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       commercialUsageLimits,
       masterContextService,
       radarRunRepository,
-      radarSocialLookup,
       radarLeadPresenter,
       radarRunPresenter,
       radarPostDeliveryUpdate,
       radarPostDeliveryVendasUpdate,
       radarDeliveryOrchestrator,
-      radarPostDeliveryAiSaneamento,
       radarVendasSync,
       radarSharedNormalizer,
       radarSearchGeo,
@@ -127,17 +120,14 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       radarResultMerger,
       radarSearchOrchestrator,
       radarSearchRunConfig,
-      radarInternalReprocessSource,
       radarCnpjPublicSource,
       radarLocalDirectorySource,
       radarVerticalSource,
-      radarWebsiteCrawlSource,
       radarDuplicateFilter,
       radarQualityGate,
       radarWebSourceGate,
       radarRunItemFilter,
       radarScoreEnrichment,
-      radarWebEnrichmentJob,
       googleSearchProvider,
       radarGoogleResponse,
       radarHbxEngineErrors,
@@ -428,170 +418,96 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
   }
 
   /**
-   * Full free-chain backfill para o master:
-   *   (a) web-enrichment discovery (site/social/email + CNPJ-by-name via Brave) para leads sem site e sem CNPJ
-   *   (b) L4 `enrichRow` (CNPJ → razão/CNAE/sócio/situação via dataset local + BrasilAPI)
-   *   (c) L1 `enrichSignals` (DDD/região/sinais via metadataJson atualizado)
-   * NÃO inclui L5/whatsapp-check (risco de ban).
-   * Parâmetros: limit (default 200). Devolve { scanned, enriched, errors, sitesFound, cnpjsFound }.
-   */
-  async cnpjBackfillForMaster(opts: { limit?: number; socials?: boolean } = {}): Promise<{ scanned: number; enriched: number; errors: number; sitesFound: number; cnpjsFound: number; phonesFound: number; socialsFound: number }> {
-    const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 200, 2000));
-    // Worker 1 "CNPJ → dono": por padrão também caça as redes sociais DO DONO.
-    const withSocials = opts.socials !== false;
-    let socialBudget = withSocials ? 40 : 0;
-    // ORÇAMENTO BRAVE por execução. Brave free = 2.000 buscas/mês; 1 busca "CNPJ por nome" por
-    // lead sem site queimaria o mês numa única passada (5.900+ leads). Teto por execução +
-    // marcador `cnpjTriedAt` (faz o cursor AVANÇAR pela base, não re-moer os mesmos leads novos).
-    const braveBudgetMax = Math.max(0, Number(process.env.HBX_CNPJ_BACKFILL_BRAVE_BUDGET ?? 40) || 0);
-    let braveBudget = braveBudgetMax;
-    const retryAfterMs = Math.max(1, Number(process.env.HBX_CNPJ_BACKFILL_RETRY_DAYS ?? 14) || 14) * 24 * 60 * 60 * 1000;
-    const nowMs = Date.now();
-    const prisma = this.internalPrisma as any;
-
-    // Pega um lote grande e filtra em memória (campos JSON não são filtráveis no DB de forma segura).
-    const candidates = await prisma.radarLeadPool.findMany({
-      select: { id: true, name: true, city: true, state: true, segment: true, website: true, email: true, instagramUrl: true, facebookUrl: true, metadataJson: true, evidenceJson: true, signalsJson: true },
-      orderBy: { createdAt: 'desc' },
-      take: Math.min(limit * 20, 3000),
-    });
-
-    const parseMeta = (row: any): Record<string, any> => {
-      try {
-        const v = row.metadataJson;
-        if (!v) return {};
-        return typeof v === 'object' ? v : JSON.parse(v);
-      } catch { return {}; }
-    };
-
-    // Dois grupos de pendência, em ordem de PRIORIDADE:
-    //   (1) tem CNPJ mas L4 incompleto → barato (só BrasilAPI), zero Brave.
-    //   (2) sem site, sem CNPJ, não tentado há `retryAfterMs` → Brave CNPJ-por-nome (com teto).
-    // Lead COM site fica de fora aqui — quem cobre é o crawl local (Tipo 2, ilimitado/grátis).
-    const l4Pending: any[] = [];
-    const bravePending: any[] = [];
-    for (const row of candidates) {
-      const meta = parseMeta(row);
-      const cnpjDigits = String(meta?.cnpj || row?.cnpj || '').replace(/\D/g, '');
-      const hasCnpj = cnpjDigits.length >= 14;
-      const l4Complete = Boolean(meta?.razaoSocial)
-        && (Boolean(meta?.ownerName) || (Array.isArray(meta?.ownerNames) && meta.ownerNames.length > 0));
-      const hasSite = Boolean(String(row?.website || '').trim());
-      const triedAt = Number(meta?.cnpjTriedAt || 0);
-      const triedRecently = triedAt > 0 && (nowMs - triedAt) < retryAfterMs;
-      if (hasCnpj && !l4Complete) { l4Pending.push(row); continue; }
-      if (!hasSite && !hasCnpj && !triedRecently) { bravePending.push(row); }
-    }
-    const pending = [...l4Pending, ...bravePending].slice(0, limit);
-
-    const l4Enricher = new RadarCnpjL4EnrichmentService();
-    const l1Enricher = new RadarPublicDataService();
-    const webEnrichService = new RadarWebEnrichmentService();
-
-    let enriched = 0;
-    let errors = 0;
-    let sitesFound = 0;
-    let cnpjsFound = 0;
-    let phonesFound = 0;
-    let socialsFound = 0;
-
-    for (const row of pending) {
-      try {
-        const metaBefore = parseMeta(row);
-        const hasSiteBefore = Boolean(String(row?.website || '').trim());
-        const hasCnpjBefore = String(metaBefore?.cnpj || row?.cnpj || '').replace(/\D/g, '').length >= 14;
-
-        // (a) CNPJ por NOME p/ lead SEM site e SEM CNPJ: base LOCAL da RFB primeiro (SELECT,
-        // zero API — Sprint 2 MOTOR-RFB-FILA), Brave só no que o local não resolve. Marca SEMPRE
-        // `cnpjTriedAt` (achando ou não) pra o backfill AVANÇAR e não re-moer o mesmo lead novo.
-        // Teto de Brave por execução (orçamento free). O run() completo (16s/lead,
-        // busca de site/social) foi removido daqui de propósito: estourava o timeout e a
-        // descoberta de site rende pouco — quem acha e-mail/telefone é o crawl local (Tipo 2,
-        // ilimitado). Com CNPJ em mãos, o passo (b) L4 dispara → razão/dono/telefone do dono.
-        if (!hasSiteBefore && !hasCnpjBefore && braveBudget > 0) {
-          braveBudget -= 1;
-          const found = await webEnrichService.discoverCnpjByName(globalThis.fetch, {
-            name: String(row.name || ''),
-            city: String(row.city || ''),
-            state: String(row.state || '') || null,
-          }, prisma).catch(() => null);
-          const patchedMeta = { ...metaBefore, cnpjTriedAt: nowMs, ...(found ? { cnpj: found } : {}) };
-          await prisma.radarLeadPool.update({
-            where: { id: row.id },
-            data: { metadataJson: JSON.stringify(patchedMeta) },
-          }).catch(() => null);
-          row.metadataJson = patchedMeta;
-          if (found) { cnpjsFound += 1; enriched += 1; }
-        }
-
-        // (b) L4 enrichment: CNPJ → razão/CNAE/sócio/situação/telefone do dono
-        const hadPhoneBefore = Boolean(metaBefore?.ownerPhone);
-        const l4Result = await l4Enricher.enrichRow(prisma, row);
-        if (l4Result !== null) {
-          enriched += 1;
-          const metaAfterL4 = parseMeta({ metadataJson: l4Result });
-          // cnpjsFound é contabilizado no passo (a); aqui só telefone do dono (novo).
-          if (metaAfterL4?.ownerPhone && !hadPhoneBefore) phonesFound += 1;
-          // Update in-memory metadataJson so L1 sees the fresh data
-          row.metadataJson = l4Result;
-        }
-
-        // (b2) Sociais DO DONO: com o nome do sócio em mãos, caça o perfil pessoal dele.
-        // Best-effort, gasta orçamento por execução; não bloqueia a cadeia se falhar.
-        const metaForSocial = parseMeta(row);
-        const ownerForSocial = String(metaForSocial?.ownerName || (Array.isArray(metaForSocial?.ownerNames) ? metaForSocial.ownerNames[0] : '') || '').trim();
-        const alreadyHasOwnerSocial = Boolean(metaForSocial?.ownerInstagram || metaForSocial?.ownerFacebook);
-        if (socialBudget > 0 && ownerForSocial.length >= 4 && !alreadyHasOwnerSocial) {
-          socialBudget -= 1;
-          const social = await webEnrichService.findOwnerSocials(globalThis.fetch, ownerForSocial, {
-            city: String(row.city || '').trim() || null,
-            state: String(row.state || '').trim() || null,
-            segment: String(row.segment || '').trim() || null,
-            companyName: String(metaForSocial?.razaoSocial || row.name || '').trim() || null,
-          }).catch(() => null);
-          if (social && (social.instagramUrl || social.facebookUrl)) {
-            const patchedMeta = {
-              ...metaForSocial,
-              ...(social.instagramUrl ? { ownerInstagram: social.instagramUrl } : {}),
-              ...(social.facebookUrl ? { ownerFacebook: social.facebookUrl } : {}),
-              ...(social.candidates.length ? { ownerSocialCandidates: social.candidates } : {}),
-            };
-            await prisma.radarLeadPool.update({
-              where: { id: row.id },
-              data: { metadataJson: JSON.stringify(patchedMeta) },
-            }).catch(() => null);
-            row.metadataJson = patchedMeta;
-            socialsFound += 1;
-            // Escrita dupla ADITIVA em LeadContact (Sprint 5): social do DONO é candidato
-            // (matching por nome), não confirmação — confiança baixa e origem própria.
-            const ownerSocialContacts: LeadContactCandidate[] = [
-              ...(social.instagramUrl ? [{ kind: 'instagram' as const, value: social.instagramUrl, source: 'owner_social', confidence: 55 }] : []),
-              ...(social.facebookUrl ? [{ kind: 'facebook' as const, value: social.facebookUrl, source: 'owner_social', confidence: 55 }] : []),
-            ];
-            await this.getLeadContactWrite().writeContacts(prisma, row.id, ownerSocialContacts).catch(() => null);
-          }
-        }
-
-        // (c) L1 signals: DDD/região/sinais derivados do metadataJson atualizado
-        await l1Enricher.enrichSignals(prisma, row).catch(() => null);
-      } catch {
-        errors += 1;
-      }
-    }
-
-    return { scanned: pending.length, enriched, errors, sitesFound, cnpjsFound, phonesFound, socialsFound };
-  }
-
-  /**
    * Worker 2 "Email finder" — aplica nos cards EXISTENTES o que o Local Lab achou (e-mail/CNPJ/
    * redes), casando por `id`. ADITIVO: só preenche campo vazio, nunca sobrescreve dado já bom.
    * E-mail → coluna email; CNPJ/razão → metadataJson; instagram/facebook → colunas próprias.
    */
   async applyDiscoveredContactsForMaster(
     items: Array<{ id?: string; email?: string; emails?: string[]; phones?: string[]; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> = [],
-  ): Promise<{ requested: number; updated: number; emails: number; cnpjs: number; socials: number; errors: number }> {
+  ): Promise<{ requested: number; eligible: number; rejectedUnowned: number; updated: number; emails: number; cnpjs: number; socials: number; errors: number }> {
     const prisma = this.internalPrisma as any;
     const list = Array.isArray(items) ? items.slice(0, 5000) : [];
+    const requestedIds = Array.from(new Set(list.map((item) => String(item?.id || '').trim()).filter(Boolean)));
+    const ownedRows = requestedIds.length && typeof prisma.radarLeadPool?.findMany === 'function'
+      ? await prisma.radarLeadPool.findMany({
+          where: { id: { in: requestedIds }, ownerCompanyId: { not: null } },
+          select: { id: true, ownerCompanyId: true },
+        }).catch(() => [])
+      : [];
+    const ownerCompanyIds = Array.from(new Set((ownedRows || [])
+      .map((row: any) => Math.trunc(Number(row.ownerCompanyId || 0)))
+      .filter((value: number) => value > 0)));
+    const states = ownedRows.length && ownerCompanyIds.length
+      ? await prisma.radarLeadCompanyState.findMany({
+          where: {
+            radarLeadId: { in: requestedIds },
+            companyId: { in: ownerCompanyIds },
+            paidClaimOperationId: { not: null },
+            claimUsageKey: { not: null },
+            acquiredAt: { not: null },
+          },
+          select: {
+            radarLeadId: true,
+            companyId: true,
+            paidClaimOperationId: true,
+            claimUsageKey: true,
+            acquiredAt: true,
+          },
+        }).catch(() => [])
+      : [];
+    const stateByPair = new Map((states || []).map((state: any) => [
+      `${Number(state.companyId)}:${String(state.radarLeadId)}`,
+      state,
+    ]));
+    const proofCandidates = (ownedRows || []).flatMap((row: any) => {
+      const companyId = Math.trunc(Number(row.ownerCompanyId || 0));
+      const state = stateByPair.get(`${companyId}:${String(row.id)}`) as any;
+      const usageKey = String(state?.claimUsageKey || '').trim();
+      const operationId = String(state?.paidClaimOperationId || '').trim();
+      return usageKey && operationId ? [{ id: String(row.id), companyId, usageKey, operationId }] : [];
+    });
+    const debitKeys = proofCandidates.map((item: any) => `enforce:lead_delivery:${item.usageKey}`);
+    const ledger = debitKeys.length
+      ? await prisma.creditLedgerEntry.findMany({
+          where: {
+            companyId: { in: ownerCompanyIds },
+            OR: [
+              { kind: 'debit', usageKey: { in: debitKeys } },
+              { kind: 'refund', usageKey: { in: debitKeys.map((key: string) => `refund:${key}`) } },
+            ],
+          },
+          select: { companyId: true, kind: true, usageKey: true },
+        }).catch(() => [])
+      : [];
+    const ledgerSet = new Set((ledger || []).map((entry: any) => (
+      `${Number(entry.companyId)}:${String(entry.kind)}:${String(entry.usageKey)}`
+    )));
+    const paidRuns = proofCandidates.length
+      ? await prisma.radarLeadProcessRun.findMany({
+          where: {
+            id: { in: proofCandidates.map((item: any) => item.operationId) },
+            companyId: { in: ownerCompanyIds },
+            mode: 'claim',
+          },
+          select: { id: true, radarLeadId: true, companyId: true, mode: true, status: true },
+        }).catch(() => [])
+      : [];
+    const paidRunById = new Map((paidRuns || []).map((run: any) => [String(run.id), run]));
+    const paidIds = new Set(proofCandidates.filter((candidate: any) => {
+      const debitKey = `enforce:lead_delivery:${candidate.usageKey}`;
+      const run = paidRunById.get(candidate.operationId) as any;
+      return ledgerSet.has(`${candidate.companyId}:debit:${debitKey}`)
+        && !ledgerSet.has(`${candidate.companyId}:refund:refund:${debitKey}`)
+        && Number(run?.companyId) === candidate.companyId
+        && String(run?.radarLeadId || '') === candidate.id
+        && String(run?.mode || '') === 'claim'
+        && RADAR_PAID_RUN_STATUSES.has(String(run?.status || '').toLowerCase());
+    }).map((candidate: any) => candidate.id));
+    // Filtra antes da verificação de WhatsApp: owner isolado não é autorização.
+    // É obrigatória a tríade state carimbado + débito append-only + ausência de
+    // refund/refund_pending.
+    const eligibleList = list.filter((item) => paidIds.has(String(item?.id || '').trim()));
+    const rejectedUnowned = Math.max(0, list.length - eligibleList.length);
     let updated = 0;
     let emails = 0;
     let cnpjs = 0;
@@ -621,10 +537,10 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
 
     // Verificação WhatsApp em LOTE de TODOS os telefones capturados (1 request no motor dedicado,
     // sessão já conectada — NUNCA reconecta; degrada p/ vazio se o motor estiver fora). O resultado
-    // (digits→tem WhatsApp?) é gravado por lead em metadataJson.phonesWhatsapp; o DISPLAY só exibe
-    // telefone confirmado. Regra do dono: todo telefone passa pelo motor antes de aparecer.
+    // (digits→tem WhatsApp?) é gravado por lead em metadataJson.phonesWhatsapp. Todo telefone
+    // adquirido permanece visível; a confirmação controla apenas a ação de WhatsApp.
     const allIncomingPhones = Array.from(new Set(
-      list.flatMap((it) => (Array.isArray(it?.phones) ? it!.phones! : []).map(cleanPhone).filter(Boolean)),
+      eligibleList.flatMap((it) => (Array.isArray(it?.phones) ? it!.phones! : []).map(cleanPhone).filter(Boolean)),
     ));
     const waMap: Record<string, boolean> = {};
     if (allIncomingPhones.length) {
@@ -637,15 +553,59 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
       } catch { /* motor fora do ar → sem verificação; nada é exibido como verificado */ }
     }
 
-    for (const item of list) {
+    for (const item of eligibleList) {
       const id = String(item?.id || '').trim();
       if (!id) { errors += 1; continue; }
       try {
-        const row = await prisma.radarLeadPool.findUnique({
+        await prisma.$transaction(async (tx: any) => {
+        const row = await tx.radarLeadPool.findUnique({
           where: { id },
-          select: { id: true, email: true, phone: true, instagramUrl: true, facebookUrl: true, metadataJson: true },
+          select: { id: true, ownerCompanyId: true, email: true, phone: true, instagramUrl: true, facebookUrl: true, metadataJson: true },
         });
-        if (!row) { errors += 1; continue; }
+        const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0));
+        if (!row || ownerCompanyId <= 0) throw new Error('paid_owner_missing');
+        const state = await tx.radarLeadCompanyState.findUnique({
+          where: {
+            companyId_radarLeadId: {
+              companyId: ownerCompanyId,
+              radarLeadId: id,
+            },
+          },
+          select: {
+            paidClaimOperationId: true,
+            claimUsageKey: true,
+            acquiredAt: true,
+          },
+        });
+        const usageKey = String(state?.claimUsageKey || '').trim();
+        if (!state?.paidClaimOperationId || !state?.acquiredAt || !usageKey) {
+          throw new Error('paid_state_missing');
+        }
+        const debitKey = `enforce:lead_delivery:${usageKey}`;
+        const [debit, refund, paidRun] = await Promise.all([
+          tx.creditLedgerEntry.findFirst({
+            where: { companyId: ownerCompanyId, kind: 'debit', usageKey: debitKey },
+            select: { id: true },
+          }),
+          tx.creditLedgerEntry.findFirst({
+            where: { companyId: ownerCompanyId, kind: 'refund', usageKey: `refund:${debitKey}` },
+            select: { id: true },
+          }),
+          tx.radarLeadProcessRun.findUnique({
+            where: { id: String(state.paidClaimOperationId) },
+            select: { id: true, companyId: true, radarLeadId: true, mode: true, status: true },
+          }),
+        ]);
+        if (
+          !debit?.id
+          || refund?.id
+          || Number(paidRun?.companyId) !== ownerCompanyId
+          || String(paidRun?.radarLeadId || '') !== id
+          || String(paidRun?.mode || '') !== 'claim'
+          || !RADAR_PAID_RUN_STATUSES.has(String(paidRun?.status || '').toLowerCase())
+        ) {
+          throw new Error('paid_ledger_revoked');
+        }
         const meta = parseMeta(row);
         const data: Record<string, any> = {};
         let metaChanged = false;
@@ -679,10 +639,10 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
           }
           meta.phonesWhatsapp = waStore;
           metaChanged = true;
-          // O telefone PRINCIPAL do card só é preenchido com um número COM WhatsApp confirmado.
+          // WhatsApp não decide visibilidade nem existência do telefone.
           if (!String(row.phone || '').trim()) {
-            const firstWithWa = (meta.phones as string[]).find((p) => waStore[String(p).replace(/\D/g, '')] === true);
-            if (firstWithWa) data.phone = firstWithWa;
+            const firstPhone = (meta.phones as string[])[0];
+            if (firstPhone) data.phone = firstPhone;
           }
         }
 
@@ -700,7 +660,7 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
 
         if (metaChanged) data.metadataJson = JSON.stringify(meta);
         if (Object.keys(data).length) {
-          await prisma.radarLeadPool.update({ where: { id }, data }).catch(() => { errors += 1; });
+          await tx.radarLeadPool.update({ where: { id }, data });
           updated += 1;
         }
 
@@ -724,170 +684,116 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
             ...(fb ? [{ kind: 'facebook' as const, value: fb, source: 'website_crawl', confidence: 60 }] : []),
           ];
           if (contactCandidates.length) {
-            await this.getLeadContactWrite().writeContacts(prisma, id, contactCandidates);
+            await this.getLeadContactWrite().writeContacts(tx, id, contactCandidates);
           }
         } catch { /* best-effort — LeadContact é índice de consulta, não fonte de verdade */ }
-      } catch {
-        errors += 1;
-      }
-    }
 
-    return { requested: list.length, updated, emails, cnpjs, socials, errors };
-  }
-
-  /**
-   * PR4a "worker de saneamento IA" (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md).
-   * LIMPA nome + deduz SEGMENTO de leads crus via Ollama LOCAL (`AiSaneamentoService`). NÃO é
-   * enriquecimento de contato (CNPJ/e-mail/telefone) nem nota ICP — só nome cru → nome limpo + segmento.
-   * Gate: default OFF (`HBX_AI_SANEAMENTO_ENABLED` ausente/falsy → no-op). ADITIVO: grava só em
-   * `metadataJson.aiCleanName/aiSegment/aiSaneadoAt`, NUNCA sobrescreve as colunas `name`/`segment`
-   * (o dono revisa antes de decidir promover). Pacing leve entre chamadas — modelo local é lento.
-   */
-  async aiSaneamentoForMaster(opts: { limit?: number } = {}): Promise<
-    | { enabled: false; reason: 'disabled' }
-    | { enabled: true; scanned: number; saneados: number; errors: number }
-  > {
-    const enabled = ['true', '1', 'yes', 'on'].includes(
-      String(process.env.HBX_AI_SANEAMENTO_ENABLED || '').trim().toLowerCase(),
-    );
-    if (!enabled) return { enabled: false, reason: 'disabled' };
-
-    const limit = Math.max(1, Math.min(Number.isFinite(Number(opts.limit)) ? Number(opts.limit) : 50, 500));
-    const prisma = this.internalPrisma as any;
-
-    const parseMeta = (row: any): Record<string, any> => {
-      try {
-        const v = row?.metadataJson;
-        if (!v) return {};
-        return typeof v === 'object' ? v : JSON.parse(v);
-      } catch { return {}; }
-    };
-
-    // Pega um lote maior e filtra em memória (metadataJson.aiSaneadoAt não é filtrável no DB).
-    const candidates = await prisma.radarLeadPool.findMany({
-      select: { id: true, name: true, city: true, state: true, segment: true, metadataJson: true },
-      orderBy: { createdAt: 'desc' },
-      take: Math.min(limit * 10, 3000),
-    });
-
-    const pending = candidates
-      .filter((row: any) => !parseMeta(row)?.aiSaneadoAt)
-      .slice(0, limit);
-
-    const saneador = new AiSaneamentoService();
-    const pacingMs = Math.max(0, Number(process.env.HBX_AI_SANEAMENTO_PACING_MS ?? 300) || 0);
-
-    let saneados = 0;
-    let errors = 0;
-
-    for (const row of pending) {
-      try {
-        const meta = parseMeta(row);
-        const result = await saneador.saneia({
-          name: String(row.name || ''),
-          city: row.city || null,
-          state: row.state || null,
-          segmentHint: row.segment || null,
+        const paidOperationId = String(state.paidClaimOperationId);
+        const paidCard = await tx.vendasLead.findUnique({
+          where: { claimOperationId: paidOperationId },
+          select: { id: true, companyId: true },
         });
-
-        // Só marca `aiSaneadoAt` (e persiste) em caso de SUCESSO. Falha (Ollama offline/timeout/
-        // JSON inválido) NÃO marca — o lead volta a ser candidato no próximo scan (retry natural,
-        // sem precisar de cursor/backoff dedicado pra esse worker).
-        if (result.ok) {
-          const patchedMeta = {
-            ...meta,
-            aiSaneadoAt: Date.now(),
-            ...(result.nomeLimpo ? { aiCleanName: result.nomeLimpo } : {}),
-            ...(result.segmento ? { aiSegment: result.segmento } : {}),
-          };
-          await prisma.radarLeadPool.update({
-            where: { id: row.id },
-            data: { metadataJson: JSON.stringify(patchedMeta) },
-          }).catch(() => null);
-          saneados += 1;
-        } else {
-          errors += 1;
+        if (!paidCard || Number(paidCard.companyId) !== ownerCompanyId) {
+          throw new Error('paid_vendas_card_missing');
         }
-      } catch {
-        errors += 1;
-      }
-      if (pacingMs > 0) await new Promise((resolve) => setTimeout(resolve, pacingMs));
-    }
-
-    return { enabled: true, scanned: pending.length, saneados, errors };
-  }
-
-  /**
-   * POST /modules/owner/radar/ai-extract-contacts — extração de contato por IA local
-   * (Sprint 5 MOTOR-RFB-FILA, 02/07). Roteamento fixo do benchmark 01/07: extração →
-   * modelo 30B MoE local. Recebe itens com a FONTE crawleada explícita; o
-   * AiContactExtractionService aplica o gate anti-alucinação (formato + literal-na-fonte)
-   * e SÓ o aprovado grava em LeadContact (source='ai_extraction'). Nome do dono aprovado
-   * vai pra metadataJson.aiOwnerName (separado do ownerName do L4, que é registro oficial).
-   * Gate de env: default OFF (`HBX_AI_EXTRACTION_ENABLED`). A "extração como missão da
-   * fila" chega com o sprint 4 — este é o acionador manual/lote do owner.
-   */
-  async aiExtractContactsForMaster(
-    items: Array<{ radarLeadId?: string; sourceText?: string }> = [],
-  ): Promise<
-    | { enabled: false; reason: 'disabled' }
-    | { enabled: true; scanned: number; contactsWritten: number; rejectedByGate: number; ownersFound: number; errors: number }
-  > {
-    const enabled = ['true', '1', 'yes', 'on'].includes(
-      String(process.env.HBX_AI_EXTRACTION_ENABLED || '').trim().toLowerCase(),
-    );
-    if (!enabled) return { enabled: false, reason: 'disabled' };
-
-    const prisma = this.internalPrisma as any;
-    const list = (Array.isArray(items) ? items : []).slice(0, 50); // lote capado — IA local é lenta
-    const extractor = new AiContactExtractionService();
-
-    let scanned = 0;
-    let contactsWritten = 0;
-    let rejectedByGate = 0;
-    let ownersFound = 0;
-    let errors = 0;
-
-    for (const item of list) {
-      const radarLeadId = String(item?.radarLeadId || '').trim();
-      const sourceText = String(item?.sourceText || '').trim();
-      if (!radarLeadId || !sourceText) { errors += 1; continue; }
-      try {
-        const row = await prisma.radarLeadPool.findUnique({
-          where: { id: radarLeadId },
-          select: { id: true, name: true, metadataJson: true },
-        });
-        if (!row) { errors += 1; continue; }
-        scanned += 1;
-
-        const result = await extractor.extract({ leadName: row.name, sourceText });
-        if (!result.ok) { errors += 1; continue; }
-        rejectedByGate += result.rejected.length;
-
-        if (result.contacts.length) {
-          // passa a MESMA fonte pro serviço de escrita — proveniência revalidada no gravador
-          const written = await this.getLeadContactWrite().writeContacts(prisma, radarLeadId, result.contacts, { sourceText });
-          contactsWritten += written.written;
-        }
-
-        // evidência ADITIVA no blob (nunca sobrescreve ownerName oficial do L4)
-        const meta = this.parseInternalJsonObject(row.metadataJson);
-        const patchedMeta = {
-          ...meta,
-          aiExtractionAt: Date.now(),
-          ...(result.ownerName ? { aiOwnerName: result.ownerName } : {}),
+        const persistedContacts = typeof tx.leadContact?.findMany === 'function'
+          ? await tx.leadContact.findMany({
+              where: { radarLeadId: id, kind: { in: ['phone', 'whatsapp', 'email'] } },
+              select: {
+                kind: true,
+                value: true,
+                valueNormalized: true,
+                source: true,
+                rank: true,
+                confidence: true,
+              },
+            })
+          : [];
+        const sourcePriority = (source: unknown, kind: 'phone' | 'email') => {
+          const normalized = String(source || '').toLowerCase();
+          if (normalized === 'rfb_primary' || normalized === 'rfb_email') return 1;
+          if (normalized === 'rfb_secondary') return 2;
+          if (/hbx_engine|website|google|brave|motor/.test(normalized)) return 3;
+          return kind === 'phone' ? 10 : 9;
         };
-        if (result.ownerName) ownersFound += 1;
-        await prisma.radarLeadPool.update({
-          where: { id: radarLeadId },
-          data: { metadataJson: JSON.stringify(patchedMeta) },
-        }).catch(() => null);
+        const phoneMap = new Map<string, any>();
+        const emailMap = new Map<string, any>();
+        const addPhone = (value: unknown, source: unknown, rank: unknown, confidence: unknown) => {
+          const normalized = cleanPhone(value);
+          if (!normalized || phoneMap.has(normalized)) return;
+          phoneMap.set(normalized, {
+            kind: 'phone',
+            value: String(value || normalized),
+            normalized,
+            source: String(source || 'hbx_engine'),
+            rank: Math.max(1, Math.trunc(Number(rank) || sourcePriority(source, 'phone'))),
+            confidence: Math.max(0, Math.min(100, Math.trunc(Number(confidence) || 0))),
+            whatsappStatus: waMap[normalized] === true || meta?.phonesWhatsapp?.[normalized] === true
+              ? 'confirmed'
+              : Object.prototype.hasOwnProperty.call(waMap, normalized) || Object.prototype.hasOwnProperty.call(meta?.phonesWhatsapp || {}, normalized)
+                ? 'not_confirmed'
+                : 'unchecked',
+          });
+        };
+        const addEmail = (value: unknown, source: unknown, rank: unknown, confidence: unknown) => {
+          const normalized = cleanEmail(value);
+          if (!normalized || emailMap.has(normalized)) return;
+          emailMap.set(normalized, {
+            kind: 'email',
+            value: normalized,
+            normalized,
+            source: String(source || 'hbx_engine'),
+            rank: Math.max(1, Math.trunc(Number(rank) || sourcePriority(source, 'email'))),
+            confidence: Math.max(0, Math.min(100, Math.trunc(Number(confidence) || 0))),
+          });
+        };
+        for (const contact of persistedContacts || []) {
+          if (String(contact?.kind).toLowerCase() === 'email') {
+            addEmail(contact.valueNormalized || contact.value, contact.source, contact.rank, contact.confidence);
+          } else {
+            addPhone(contact.valueNormalized || contact.value, contact.source, contact.rank, contact.confidence);
+          }
+        }
+        addPhone(data.phone || row.phone, 'radar_primary', 10, 0);
+        for (const phone of Array.isArray(meta.phones) ? meta.phones : []) addPhone(phone, 'hbx_engine', 3, 50);
+        addEmail(data.email || row.email, 'radar_primary', 10, 0);
+        for (const emailValue of Array.isArray(meta.emails) ? meta.emails : []) addEmail(emailValue, 'hbx_engine', 3, 70);
+        const orderContacts = (values: any[], kind: 'phone' | 'email') => values.sort((a, b) => (
+          sourcePriority(a.source, kind) - sourcePriority(b.source, kind)
+          || Number(a.rank || 99) - Number(b.rank || 99)
+          || Number(b.confidence || 0) - Number(a.confidence || 0)
+        )).slice(0, 3);
+        const contactSnapshotJson = JSON.stringify({
+          version: 1,
+          radarLeadId: id,
+          phones: orderContacts(Array.from(phoneMap.values()), 'phone'),
+          emails: orderContacts(Array.from(emailMap.values()), 'email'),
+        });
+        const cardUpdated = await tx.vendasLead.updateMany({
+          where: {
+            id: paidCard.id,
+            companyId: ownerCompanyId,
+            claimOperationId: paidOperationId,
+          },
+          data: { contactSnapshotJson },
+        });
+        if (Number(cardUpdated?.count || 0) !== 1) throw new Error('paid_vendas_snapshot_fenced');
+        });
       } catch {
         errors += 1;
       }
     }
 
-    return { enabled: true, scanned, contactsWritten, rejectedByGate, ownersFound, errors };
+    return {
+      requested: list.length,
+      eligible: eligibleList.length,
+      rejectedUnowned,
+      updated,
+      emails,
+      cnpjs,
+      socials,
+      errors,
+    };
   }
 
   /**
@@ -937,37 +843,6 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         uncoveredLeadIds,
       },
     };
-  }
-
-  /**
-   * GET /modules/owner/radar/contacts/export — PR1 (30/06), resolve #15: consulta RÁPIDA e
-   * indexada em LeadContact (não varre metadataJson em todos os leads). Default: só contatos
-   * ainda não reivindicados por nenhuma empresa (claimedByCompanyId IS NULL).
-   */
-  async exportLeadContactsForMaster(
-    params: { kind?: string; unclaimedOnly?: boolean; limit?: number } = {},
-  ): Promise<{ items: Array<{ radarLeadId: string; kind: string; value: string; rank: number; source: string | null; createdAt: Date }>; total: number }> {
-    const prisma = this.internalPrisma as any;
-    const allowedKinds = new Set(['email', 'phone', 'whatsapp', 'instagram', 'facebook']);
-    const kind = params.kind && allowedKinds.has(params.kind) ? params.kind : undefined;
-    const unclaimedOnly = params.unclaimedOnly !== false;
-    const limit = Math.min(Math.max(Number(params.limit) || 50, 1), 2000);
-
-    const where: Record<string, any> = {};
-    if (kind) where.kind = kind;
-    if (unclaimedOnly) where.claimedByCompanyId = null;
-
-    const [items, total] = await Promise.all([
-      prisma.leadContact.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        select: { radarLeadId: true, kind: true, value: true, rank: true, source: true, createdAt: true },
-      }),
-      prisma.leadContact.count({ where }),
-    ]);
-
-    return { items, total };
   }
 
   /**

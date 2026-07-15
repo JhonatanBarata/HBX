@@ -8,7 +8,7 @@ import { normalizePhoneDigits } from '../../shared/radar-core-shared';
  * (`CnpjPublicCompany`, colunas do HOT-01) + anti-contador (phoneShareCount/emailShareCount).
  *
  * Escopo estrito: LEITURA de dado já carregado localmente (nunca dispara fonte paga — não há
- * fetch de rede aqui, só SQL na base local). `materialize` reusa o caminho PÚBLICO existente
+ * fetch de rede aqui, só SQL na base local). `materialize` reusa internamente o
  * `LeadHarvestImportService.importBatchForUser` (dedup/gate já vivos) em vez de escrever direto
  * em RadarLeadPool/LeadContact — superfície mínima no caminho de escrita que o dono está
  * refatorando em paralelo.
@@ -414,8 +414,8 @@ export class CnpjBaseQueryService {
   }
 
   /**
-   * POST /modules/owner/cnpj-base/materialize — vira RadarLeads via caminho PÚBLICO existente
-   * (LeadHarvestImportService), sem tocar fundo nos serviços de escrita de lead/contato. Respeita
+   * POST /modules/owner/cnpj-base/materialize — vira RadarLeads pelo serviço interno
+   * LeadHarvestImportService, sem tocar fundo nos serviços de escrita de lead/contato. Respeita
    * dedup existente do harvest import (email/phone/domain/company+city). Teto de segurança: 500
    * por chamada (materialização em massa é ação do dono, não precisa ser 1 clique = 1 milhão).
    */

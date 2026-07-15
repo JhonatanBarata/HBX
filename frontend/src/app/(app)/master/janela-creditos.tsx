@@ -9,9 +9,7 @@
 //                         empresas sem saldo). Nada clicável além de atalho pras outras guias.
 //   Empresas            — saldo/lotes ativos/último consumo por empresa + "Conceder" inline.
 //   Packs                — CRUD do catálogo de recarga (era a guia única "Pacotes" antes do S2).
-//   Config                — CreditGlobalConfig (welcomeCredits/welcomeExpiryDays/defaultExpiryDays
-//                         + GUARDRAILS S3: dailyDeliveryCapDefault). Renomeada de "Bônus de
-//                         cadastro" (10/07) — já não é só bônus, é config global mesmo.
+//   Config                — CreditGlobalConfig (welcomeCredits/welcomeExpiryDays/defaultExpiryDays).
 //                         + S4 (10/07): Política de indicação migrada da Self-Checkout morta
 //                         (guia Política) — é a única parte dela viva no runtime (financeiro
 //                         calcula desconto de indicação na cobrança). Desconto anual/trial/
@@ -21,11 +19,10 @@
 //
 // Endpoints:
 //   GET  /credits/master/overview                 → agregados (S2, novo)
-//   GET  /credits/master/config                    → welcome*/defaultExpiryDays/dailyDeliveryCapDefault
+//   GET  /credits/master/config                    → welcome*/defaultExpiryDays
 //   GET/PUT  /credits/master/packs*                 → catálogo de pacotes (S3-PARTE1)
 //   PUT  /credits/master/config/expiry-default      → prazo default global (S3-PARTE1)
 //   PUT  /credits/master/config/welcome-batch       → bônus de cadastro (A3)
-//   PUT  /credits/master/config/delivery-cap        → teto diário default anti-scraper (GUARDRAILS S3)
 //   POST /credits/master/company/:id/grant          → concessão manual (S3-PARTE1)
 //   GET  /master/payment-notifications/history       → guia Recargas (ex-janela-pagamentos.tsx)
 //   GET  /modules/master/global-integrations         → lê referralDiscount* (ex-Self-Checkout)
@@ -100,7 +97,6 @@ type GlobalConfig = {
   defaultExpiryDays?: number;
   welcomeCredits?: number;
   welcomeExpiryDays?: number;
-  dailyDeliveryCapDefault?: number;
 };
 
 // A entrega de lead é fixa em 1 crédito; as demais ações podem usar Grátis/Débito.
@@ -378,21 +374,13 @@ export function JanelaCreditos({ companies, reload }: {
   const [configBusy, setConfigBusy] = useState(false);
   const [configMsg, setConfigMsg] = useState<string | null>(null);
   const [configLoadError, setConfigLoadError] = useState<string | null>(null);
-  // GUARDRAILS S3 (10/07) — teto diário default de leads (anti-scraper), aplicado a toda
-  // empresa sem override próprio (ficha, janela-empresas.tsx). Validação PRÓPRIA (0 = sem teto
-  // é um valor válido aqui, diferente dos 3 campos acima que exigem positivo) -> botão separado.
-  const [dailyCapDefaultForm, setDailyCapDefaultForm] = useState("");
-  const [dailyCapBusy, setDailyCapBusy] = useState(false);
-  const [dailyCapMsg, setDailyCapMsg] = useState<string | null>(null);
-
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- os 4 setters usados são de useState (identidade estável); deps `[]` já corretas
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setters de useState têm identidade estável
   const carregarConfig = useCallback(() => {
     apiFetch<GlobalConfig>("/credits/master/config")
       .then(res => {
         setWelcomeCredits(res?.welcomeCredits != null ? String(res.welcomeCredits) : "");
         setWelcomeExpiryDays(res?.welcomeExpiryDays != null ? String(res.welcomeExpiryDays) : "");
         setDefaultExpiryDays(res?.defaultExpiryDays != null ? String(res.defaultExpiryDays) : "");
-        setDailyCapDefaultForm(res?.dailyDeliveryCapDefault != null ? String(res.dailyDeliveryCapDefault) : "");
         setConfigLoadError(null);
       })
       .catch((err: unknown) => {
@@ -432,32 +420,6 @@ export function JanelaCreditos({ companies, reload }: {
       setConfigMsg(e instanceof Error ? e.message : "Falha ao salvar a configuração.");
     } finally {
       setConfigBusy(false);
-    }
-  }
-
-  // GUARDRAILS S3 (10/07) — teto diário default (0 = sem teto global; empresas sem override
-  // próprio ficam sem teto). "" no campo = mantém o valor atual (não força um número).
-  async function salvarDailyCapDefault() {
-    if (dailyCapBusy) return;
-    const value = dailyCapDefaultForm.trim() === "" ? NaN : Number(dailyCapDefaultForm);
-    if (!Number.isFinite(value) || value < 0) {
-      setDailyCapMsg("Informe um número >= 0 (0 = sem teto).");
-      return;
-    }
-    setDailyCapBusy(true);
-    setDailyCapMsg(null);
-    try {
-      await apiFetch("/credits/master/config/delivery-cap", {
-        method: "PUT",
-        body: JSON.stringify({ dailyDeliveryCapDefault: value }),
-      });
-      setDailyCapMsg("✓ Teto diário default salvo.");
-      carregarConfig();
-    } catch (e) {
-      reportError(e);
-      setDailyCapMsg(e instanceof Error ? e.message : "Falha ao salvar o teto diário default.");
-    } finally {
-      setDailyCapBusy(false);
     }
   }
 
@@ -827,20 +789,6 @@ export function JanelaCreditos({ companies, reload }: {
             </div>
             <button className="btn-teal" disabled={configBusy} onClick={salvarConfig}>
               {configBusy ? "Salvando…" : "Salvar configuração"}
-            </button>
-          </div>
-          {/* GUARDRAILS S3 (10/07) — teto diário default anti-scraper; botão próprio (validação
-              diferente: 0 é valor válido aqui). */}
-          <div className="sc-body">
-            {dailyCapMsg && <div className={"sc-msg " + (dailyCapMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{dailyCapMsg}</div>}
-            <div className="sc-field sc-field--sep">
-              <label className="field-label">Teto diário de leads (default)</label>
-              <input className="field-dark" inputMode="numeric" value={dailyCapDefaultForm}
-                onChange={e => setDailyCapDefaultForm(e.target.value)} placeholder="500" />
-              <span className="sc-hint">Anti-scraper: teto de entregas de lead por dia, mesmo com saldo. Vale pra empresa que não tem teto próprio (ficha, guia Empresas). 0 = sem teto global.</span>
-            </div>
-            <button className="btn-teal" disabled={dailyCapBusy} onClick={salvarDailyCapDefault}>
-              {dailyCapBusy ? "Salvando…" : "Salvar teto diário default"}
             </button>
           </div>
           {/* S4 (10/07) — Política de indicação, migrada da Self-Checkout morta. Desconto anual

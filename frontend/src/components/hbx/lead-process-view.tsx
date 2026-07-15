@@ -3,91 +3,34 @@
 import { useEffect, useMemo, useRef } from "react";
 
 import { RadarDisc } from "@/components/hbx/radar-disc";
+import {
+  canRevealLeadContacts,
+  leadContactAccessIsRevoked,
+  leadCreditWasDebited,
+  sanitizeLeadProcessSnapshot,
+  type LeadProcessContact,
+  type LeadProcessEvent,
+  type LeadProcessLead,
+  type LeadProcessMode,
+  type LeadProcessSnapshot,
+  type LeadProcessSourceState,
+  type LeadProcessStatus,
+} from "@/components/hbx/lead-process-contract";
 
 import styles from "./lead-process-view.module.css";
 
-export type LeadProcessMode = "search" | "claim";
-export type LeadProcessStatus = "starting" | "running" | "completed" | "partial" | "failed";
-
-export type LeadProcessStage = {
-  key: string;
-  label: string;
-  detail?: string | null;
-  status?: string | null;
-  current?: number | null;
-  total?: number | null;
-};
-
-export type LeadProcessCounters = Record<string, number | null | undefined>;
-
-export type LeadProcessContact = {
-  value?: string | null;
-  label?: string | null;
-  source?: string | null;
-  sourceLabel?: string | null;
-  whatsappStatus?: string | null;
-  kind?: string | null;
-};
-
-export type LeadProcessLead = {
-  id?: string | null;
-  name?: string | null;
-  city?: string | null;
-  state?: string | null;
-  segment?: string | null;
-  status?: string | null;
-  detail?: string | null;
-  source?: string | null;
-  sourceChain?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  phones?: Array<string | LeadProcessContact> | null;
-  emails?: Array<string | LeadProcessContact> | null;
-  phoneContacts?: LeadProcessContact[] | null;
-  emailContacts?: LeadProcessContact[] | null;
-};
-
-export type LeadProcessEvent = {
-  id?: string | null;
-  key?: string | null;
-  type?: string | null;
-  label?: string | null;
-  status?: string | null;
-  detail?: unknown;
-  leadId?: string | null;
-  at?: string | null;
-  createdAt?: string | null;
-};
-
-export type LeadProcessSourceState = {
-  status?: string | null;
-  attempted?: boolean | null;
-  found?: number | null;
-  error?: string | null;
-};
-
-export type LeadProcessDiscardReason = {
-  label: string;
-  count: number;
-};
-
-export type LeadProcessSnapshot = {
-  operationId: string;
-  mode: LeadProcessMode;
-  status: LeadProcessStatus;
-  internalStatus?: string | null;
-  progress: number;
-  stages: LeadProcessStage[];
-  counters: LeadProcessCounters;
-  currentLead?: LeadProcessLead | null;
-  recentLeads: LeadProcessLead[];
-  events: LeadProcessEvent[];
-  sourceCoverage?: Record<string, LeadProcessSourceState | unknown> | null;
-  filters?: string[];
-  discardReasons?: LeadProcessDiscardReason[];
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
+export type {
+  LeadProcessContact,
+  LeadProcessCounters,
+  LeadProcessDiscardReason,
+  LeadProcessEvent,
+  LeadProcessLead,
+  LeadProcessMode,
+  LeadProcessSnapshot,
+  LeadProcessSourceState,
+  LeadProcessStage,
+  LeadProcessStatus,
+} from "@/components/hbx/lead-process-contract";
 
 type LeadProcessViewProps = {
   snapshot: LeadProcessSnapshot | null;
@@ -103,23 +46,6 @@ type LeadProcessViewProps = {
 type SourceVisualState = "done" | "running" | "failed" | "pending";
 
 const TERMINAL = new Set<LeadProcessStatus>(["completed", "partial", "failed"]);
-const POST_DEBIT_STATUSES = new Set([
-  "credit_debited",
-  "ownership_claimed",
-  "rfb_hydrating",
-  "base_revealed",
-  "motor_enriching",
-  "vendas_creating",
-  "completed",
-  "partial",
-]);
-const REVEALED_STATUSES = new Set([
-  "base_revealed",
-  "motor_enriching",
-  "vendas_creating",
-  "completed",
-  "partial",
-]);
 
 const NUMBER_FORMATTER = new Intl.NumberFormat("pt-BR");
 
@@ -164,10 +90,18 @@ function detailText(value: unknown): string | null {
 }
 
 function statusCopy(snapshot: LeadProcessSnapshot | null, loading: boolean, error: string | null | undefined) {
+  if (snapshot?.creditRefundConfirmed || snapshot?.contactAccessRevoked || ["refunded", "refund_confirmed"].includes(String(snapshot?.internalStatus || "").toLowerCase())) {
+    return "Crédito estornado. A liberação foi revogada e os dados voltaram a ficar protegidos.";
+  }
+  if (String(snapshot?.internalStatus || "").toLowerCase() === "refund_pending") {
+    return "Liberação suspensa enquanto o estorno é reconciliado. Nenhum contato é exibido.";
+  }
   if (error || snapshot?.status === "failed") return "O processamento foi interrompido. Nada é revelado sem uma liberação válida.";
   if (snapshot?.status === "partial") return "A operação terminou parcialmente; o que foi confirmado permanece preservado.";
   if (snapshot?.status === "completed") return snapshot.mode === "claim"
-    ? "Crédito debitado, dados liberados e lead transferido para Vendas."
+    ? canRevealContacts(snapshot)
+      ? "Crédito debitado, dados liberados e lead transferido para Vendas."
+      : "A operação terminou, mas os dados permanecem protegidos sem autorização explícita de acesso."
     : "Pesquisa concluída. Os contatos continuam protegidos até o lead ser puxado.";
   if (loading || snapshot?.status === "starting") return "Preparando a operação e conectando às fontes.";
   return snapshot?.mode === "claim"
@@ -177,7 +111,8 @@ function statusCopy(snapshot: LeadProcessSnapshot | null, loading: boolean, erro
 
 function pageTitle(snapshot: LeadProcessSnapshot | null) {
   if (snapshot?.mode !== "claim") return "Empresas chegando ao vivo";
-  if (snapshot.status === "completed") return "Lead pronto para Vendas";
+  if (leadContactAccessIsRevoked(snapshot)) return "Dados protegidos";
+  if (snapshot.status === "completed") return canRevealContacts(snapshot) ? "Lead pronto para Vendas" : "Dados protegidos";
   if (canRevealContacts(snapshot)) return "Lead sendo liberado ao vivo";
   return "Liberando lead com segurança";
 }
@@ -207,20 +142,12 @@ function latestUpdate(snapshot: LeadProcessSnapshot | null) {
   return `Atualizado às ${candidate.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-function stageIsDone(snapshot: LeadProcessSnapshot, key: string) {
-  return snapshot.stages.some(stage => stage.key === key && normalizedState(stage.status) === "done");
-}
-
 function creditWasDebited(snapshot: LeadProcessSnapshot | null) {
-  if (!snapshot || snapshot.mode !== "claim") return false;
-  const internal = String(snapshot.internalStatus || "").toLowerCase();
-  return POST_DEBIT_STATUSES.has(internal) || stageIsDone(snapshot, "credit_debited");
+  return leadCreditWasDebited(snapshot);
 }
 
 function canRevealContacts(snapshot: LeadProcessSnapshot | null) {
-  if (!snapshot || snapshot.mode !== "claim" || !creditWasDebited(snapshot)) return false;
-  const internal = String(snapshot.internalStatus || "").toLowerCase();
-  return REVEALED_STATUSES.has(internal) || stageIsDone(snapshot, "base_revealed");
+  return canRevealLeadContacts(snapshot);
 }
 
 function sourceVisualState(snapshot: LeadProcessSnapshot | null, source: "rfb" | "motor"): SourceVisualState {
@@ -371,7 +298,7 @@ function failureReason(lead: LeadProcessLead) {
 }
 
 export function LeadProcessView({
-  snapshot,
+  snapshot: unsafeSnapshot,
   loading = false,
   error = null,
   variant = "page",
@@ -380,6 +307,7 @@ export function LeadProcessView({
   onPrimary,
   primaryLabel,
 }: LeadProcessViewProps) {
+  const snapshot = useMemo(() => sanitizeLeadProcessSnapshot(unsafeSnapshot), [unsafeSnapshot]);
   const rootRef = useRef<HTMLElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const modal = variant === "overlay";
@@ -569,11 +497,19 @@ export function LeadProcessView({
                     <div className={styles.eventRail}><span /></div>
                     <div className={styles.eventBody}>
                       <div className={styles.eventTop}>
-                        <span className={styles.companyAvatar} aria-hidden="true">{String(lead.name || "E").trim().charAt(0).toUpperCase()}</span>
-                        <div className={styles.companyCopy}>
-                          <strong>{lead.name || "Empresa identificada"}</strong>
-                          <span>{[leadLocation(lead), lead.segment].filter(Boolean).join(" · ") || "Contexto sendo confirmado"}</span>
-                        </div>
+                        <span className={styles.companyAvatar} aria-hidden="true">{revealContacts ? String(lead.name || "E").trim().charAt(0).toUpperCase() : "••"}</span>
+                        {revealContacts ? (
+                          <div className={styles.companyCopy}>
+                            <strong>{lead.name || "Empresa identificada"}</strong>
+                            <span>{[leadLocation(lead), lead.segment].filter(Boolean).join(" · ") || "Contexto sendo confirmado"}</span>
+                          </div>
+                        ) : (
+                          <div className={`${styles.companyCopy} ${styles.protectedCompanyCopy}`} aria-label="Identidade da empresa protegida">
+                            <strong>Empresa localizada</strong>
+                            <span>Identidade protegida até a confirmação da compra</span>
+                            <i aria-hidden="true"><b /><b /></i>
+                          </div>
+                        )}
                         <span className={`${styles.eventStatus} ${styles[`event_${tone}`]}`}>{snapshot ? leadStatusLabel(snapshot, lead) : "Processando"}</span>
                       </div>
 
@@ -632,10 +568,12 @@ export function LeadProcessView({
 
             {snapshot?.mode === "claim" ? (
               <section className={styles.telemetrySection}>
-                <div className={styles.sectionTitle}><strong>Proteção da liberação</strong><span>{creditWasDebited(snapshot) ? "autorizada" : "ativa"}</span></div>
-                <p className={styles.telemetryCopy}>{creditWasDebited(snapshot)
-                  ? "O débito foi confirmado. Os dados só aparecem após a etapa de liberação da base."
-                  : "Nenhum telefone ou e-mail real é inserido na tela antes da confirmação do débito."}</p>
+                <div className={styles.sectionTitle}><strong>Proteção da liberação</strong><span>{leadContactAccessIsRevoked(snapshot) ? "revogada" : creditWasDebited(snapshot) ? "autorizada" : "ativa"}</span></div>
+                <p className={styles.telemetryCopy}>{leadContactAccessIsRevoked(snapshot)
+                  ? "A liberação foi suspensa. Nenhuma identidade, telefone ou e-mail real permanece na tela."
+                  : creditWasDebited(snapshot)
+                    ? "O débito foi confirmado. Os dados só aparecem após a etapa de liberação da base."
+                    : "Nenhuma identidade, telefone ou e-mail real é inserido na tela antes da confirmação do débito."}</p>
               </section>
             ) : (
               <section className={styles.telemetrySection}>

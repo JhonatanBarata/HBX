@@ -37,7 +37,7 @@ import { OwnerModule } from './owner/owner.module';
 import { TeamModule } from './team/team.module';
 import { MasterProvisioningModule } from './master-provisioning/master-provisioning.module';
 import { TenantCommunicationModule } from './tenant-communication/tenant-communication.module';
-import { NightFactoryModule } from './night-factory/night-factory.module';
+import { LeadsBankModule } from './leads-bank/leads-bank.module';
 import { MetaLeadAdsModule } from './meta-lead-ads/meta-lead-ads.module';
 import { BotModule } from './bot/bot.module';
 import { AssistenteModule } from './assistente/assistente.module';
@@ -99,7 +99,7 @@ import { FinanceiroTenantModule } from './financeiro-tenant/financeiro-tenant.mo
     TeamModule,
     MasterProvisioningModule,
     TenantCommunicationModule,
-    NightFactoryModule,
+    LeadsBankModule,
     MetaLeadAdsModule,
     BotModule,
     AssistenteModule,

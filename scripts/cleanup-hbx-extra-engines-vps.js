@@ -65,7 +65,7 @@ const remote = [
   'fi',
   'if [ "${HBX_ENGINE_CLEANUP_REWRITE_ENV:-false}" = "true" ] && [ -f .env ]; then',
   '  tmp="$(mktemp)"',
-  '  awk -v keep="$KEEP_COUNT" \'BEGIN{c=0;mc=0;m=0} /^HBX_ENGINE_COUNT=/ {print "HBX_ENGINE_COUNT=" keep; c=1; next} /^HBX_ENGINE_MAX_COUNT=/ {print "HBX_ENGINE_MAX_COUNT=" keep; mc=1; next} /^HBX_FACTORY_MAX_ENGINES=/ {print "HBX_FACTORY_MAX_ENGINES=" keep; m=1; next} {print} END{if(!c) print "HBX_ENGINE_COUNT=" keep; if(!mc) print "HBX_ENGINE_MAX_COUNT=" keep; if(!m) print "HBX_FACTORY_MAX_ENGINES=" keep}\' .env > "$tmp"',
+  '  awk -v keep="$KEEP_COUNT" \'BEGIN{c=0;mc=0} /^HBX_ENGINE_COUNT=/ {print "HBX_ENGINE_COUNT=" keep; c=1; next} /^HBX_ENGINE_MAX_COUNT=/ {print "HBX_ENGINE_MAX_COUNT=" keep; mc=1; next} /^HBX_FACTORY_/ {next} {print} END{if(!c) print "HBX_ENGINE_COUNT=" keep; if(!mc) print "HBX_ENGINE_MAX_COUNT=" keep}\' .env > "$tmp"',
   '  cat "$tmp" > .env',
   '  rm -f "$tmp"',
   'fi',

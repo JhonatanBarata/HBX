@@ -44,16 +44,6 @@ test("fila cheia no teto: alive>=ceiling e queue>0 → razão 'Fila cheia e no t
   assert.match(out.reason, /Fila cheia e no teto/);
 });
 
-test("factoryStopped:true domina a razão (freio do dono)", () => {
-  const out = parseEngineCapacity(base({
-    engines: [{ status: "online" }],
-    capacityConfig: { governorEnabled: true, maxCount: 8, warmMin: 1, factoryStopped: true },
-    capacity: { queuedCount: 3 },
-  }));
-  assert.equal(out.factoryStopped, true);
-  assert.match(out.reason, /Fábrica PARADA/);
-});
-
 test("contrato elástico 25/06: elasticEnabled/running/physicalMax/memoryPressurePercent surfaçados", () => {
   const out = parseEngineCapacity(base({
     engines: [{ status: "online" }, { status: "standby" }],
@@ -73,25 +63,6 @@ test("contrato elástico 25/06: elasticEnabled/running/physicalMax/memoryPressur
   // governor on, ceiling 10 > max(warm 2, alive 2) → elastic true
   assert.equal(out.elastic, true);
   assert.match(out.reason, /Fila com trabalho/);
-});
-
-test("turbo on/active vem do mesmo payload", () => {
-  const on = parseEngineCapacity(base({
-    isTurboEnabled: true,
-    isTurboWindowActive: true,
-  }));
-  assert.equal(on.turboEnabled, true);
-  assert.equal(on.turboActive, true);
-
-  const forced = parseEngineCapacity(base({
-    isTurboEnabled: true,
-    isTurboForcedNow: true,
-  }));
-  assert.equal(forced.turboActive, true);
-
-  const off = parseEngineCapacity(base());
-  assert.equal(off.turboEnabled, false);
-  assert.equal(off.turboActive, false);
 });
 
 test("alive cai pro capacity.runningCount quando nenhum engine tem status vivo", () => {

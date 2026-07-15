@@ -604,7 +604,6 @@ html, body { height: 100%; }
 .sc-hint.is-warn { color: var(--hbx-warning); }
 .sc-check { display: flex; align-items: center; gap: 8px; font-size: 0.76rem; font-weight: 600; }
 .sc-loading { font-size: 0.74rem; color: var(--text-muted); }
-.sc-quotas { border-top: 1px solid var(--border-hairline); padding-top: 12px; display: grid; gap: 10px; }
 .sc-textarea { resize: vertical; font-family: var(--font-body); }
 .sc-mod-btn { min-height: 26px; font-size: 0.62rem; padding: 0 10px; }
 
@@ -738,7 +737,7 @@ html, body { height: 100%; }
 .radar-origin-badge--rfb { color: var(--hbx-info); background: color-mix(in srgb, var(--hbx-info) 14%, transparent); }
 .radar-origin-badge--fusion { color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--login-accent) 12%, transparent); }
 .radar-origin-enriched { display: inline-flex; align-items: center; font-size: 0.55rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--text-muted) 10%, transparent); color: var(--text-muted); white-space: nowrap; }
-.radar2-cap--danger { font-size: 0.66rem; color: var(--hbx-danger); margin: 0 16px 10px; }
+.radar2-start-error { margin: 8px 0 0; font-size: 0.7rem; color: var(--hbx-danger); }
 .cfg-nicho { margin-top: 18px; border-top: 1px solid var(--border-hairline); padding-top: 18px; }
 .cfg-nicho .ttl { font-size: 0.78rem; font-weight: 700; color: var(--text-strong); margin-bottom: 6px; }
 .cfg-nicho .dica { font-size: 0.68rem; color: var(--text-muted); margin-bottom: 10px; }
@@ -1511,9 +1510,9 @@ html, body { height: 100%; }
   display: flex; align-items: center; gap: 5px;
   padding: 4px 7px; border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--radar-sweep) 22%, transparent);
-  background: color-mix(in srgb, var(--radar-base) 70%, transparent);
-  color: var(--hbx-brand-contrast);
-  font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--radar-label-surface);
+  color: var(--radar-label);
+  font-size: 0.79rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
   white-space: nowrap;
   opacity: 0; transform: translateY(4px);
   animation: radarBlipLabelReveal 8s ease-in-out infinite;

@@ -191,7 +191,7 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
 // tela própria; /leads redireciona pra /vendas e o LeadsClient roda embutido).
 // Por isso os passos vivem na rota "/vendas" e o tour é disparado pelo "Como usar"
 // quando o modo está aberto (shell detecta .vnd-layer--buscar.is-on). Fluxo:
-// tamanho do lago → mirar filtro → ligar o motor → prateleira/carteira → puxar → cota.
+// tamanho do lago → mirar filtro → ligar o motor → prateleira/carteira → puxar.
 function leadsModuleSteps(): CoachStep[] {
   return [
     {
@@ -240,14 +240,6 @@ function leadsModuleSteps(): CoachStep[] {
       target: '[data-tut="leads-puxar"]',
       title: "Puxar pra você",
       body: "Marque as empresas e clique aqui: o contato aparece e elas entram na sua carteira, prontas pra abordar.",
-      gate: "next",
-    },
-    {
-      id: "leads-cota",
-      route: "/vendas",
-      target: '[data-tut="leads-cota"]',
-      title: "Seu limite",
-      body: "Mostra quantas empresas você pode ter em mãos. Encheu? Feche uma venda ou agende um retorno pra abrir vaga.",
       gate: "next",
     },
   ];

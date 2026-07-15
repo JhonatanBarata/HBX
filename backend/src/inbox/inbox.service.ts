@@ -2602,7 +2602,6 @@ export class InboxService {
       where: { id: companyId },
       select: {
         whatsappConnectionMode: true,
-        trialModuleSelection: true,
         // Guarda de suspensao: campos lidos por resolveCompanyAccessState.
         companyKind: true,
         slug: true,
@@ -2628,12 +2627,9 @@ export class InboxService {
     // Empresa suspensa/overdue/pending_checkout nao roda recovery no inbound.
     // W1 removeu o wipe que desligava os modulos; a guarda de acesso passa a ser aqui.
     const acesso = resolveCompanyAccessState(company as any);
-    const temPostIt =
-      Boolean(recoveryModule?.id) ||
-      String(company?.trialModuleSelection || '').trim().toLowerCase() === 'recovery';
     return {
       providerCapabilities: resolveProviderCapabilitiesFromCompany(company),
-      recoveryEnabled: temPostIt && acesso.canUse,
+      recoveryEnabled: Boolean(recoveryModule?.id) && acesso.canUse,
     };
   }
 
