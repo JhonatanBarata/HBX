@@ -12,13 +12,11 @@ import android.os.Bundle
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebStorage
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -353,7 +351,7 @@ class PairingActivity : AppCompatActivity() {
             letterSpacing = -.045f
         }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(24) })
 
-        googleButton = Button(this).apply {
+        val button = Button(this).apply {
             text = "Conectar com Google Play"
             isAllCaps = false
             stateListAnimator = null
@@ -368,7 +366,8 @@ class PairingActivity : AppCompatActivity() {
             background = roundedStrokeBackground("#FFFFFF", "#DADCE0", 4)
             setOnClickListener { startGoogleSignIn() }
         }
-        column.addView(googleButton, LinearLayout.LayoutParams(-1, dp(52)))
+        googleButton = button
+        column.addView(button, LinearLayout.LayoutParams(-1, dp(52)))
 
         val width = (resources.displayMetrics.widthPixels - dp(48)).coerceAtMost(dp(336))
         root.addView(column, FrameLayout.LayoutParams(width, -2).apply { gravity = Gravity.CENTER })
