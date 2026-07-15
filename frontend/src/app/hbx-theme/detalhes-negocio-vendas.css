@@ -1,0 +1,439 @@
+/* ============================================================
+   VENDAS — detalhe do lead aprovado em preview.
+   Escopo duro em .dn-root--vendas: Atendimento e Leads preservam
+   a estrutura original. As animações de escrita continuam no
+   componente (.dn-root/.dn-kv-row/.dn-skel + TypedText).
+   ============================================================ */
+
+.dn-root--vendas {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 72% at 100% 0%, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 58%),
+    var(--hbx-surface);
+}
+
+.dn-root--vendas > .dn-root__topbar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  min-height: 46px;
+  margin: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--hbx-surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.dn-root__top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dn-root__top-action {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--motion-fast),
+    background var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.dn-root__top-action:hover {
+  color: var(--hbx-brand-strong);
+  background: var(--hbx-brand-soft);
+  transform: translateY(-1px);
+}
+
+.dn-root__top-action--danger:hover,
+.dn-root__top-action--danger.is-armed {
+  color: var(--hbx-danger);
+  background: color-mix(in srgb, var(--hbx-danger) 10%, transparent);
+}
+
+.dn-root--vendas .dn-zone--1 {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 12px 0;
+  border: 0;
+}
+
+.dn-root--vendas .dn-header {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(115% 95% at 100% 0%, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 58%),
+    var(--hbx-surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.dn-root--vendas .ctx-hero {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.dn-root--vendas .ctx-hero .company {
+  font-size: 1rem;
+  line-height: 1.14;
+  letter-spacing: -0.02em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dn-root--vendas .ctx-hero .sub--seg {
+  margin-top: 2px;
+  color: var(--text-body);
+  font-weight: 700;
+}
+
+.dn-root--vendas .ctx-hero .sub--loc {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.dn-root--vendas .ctx-tags {
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.dn-root--vendas .dn-channels-row {
+  gap: 7px;
+  padding-top: 1px;
+  flex-wrap: wrap;
+}
+
+.dn-root--vendas .dn-channels-row > a,
+.dn-root--vendas .dn-channels-row > span,
+.dn-root--vendas .dn-channels-row > button {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.dn-root--vendas .dn-wa-verified {
+  width: fit-content;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 0.58rem;
+  letter-spacing: 0.01em;
+}
+
+.dn-root--vendas .dn-zone1-intel {
+  display: grid;
+  grid-template-columns: minmax(118px, 0.82fr) minmax(0, 1.18fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.dn-root--vendas .dn-zone1-intel > :only-child {
+  grid-column: 1 / -1;
+}
+
+.dn-root--vendas .dn-score-inline,
+.dn-root--vendas .dn-opportunity-teaser {
+  height: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 11px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.dn-root--vendas .dn-score-inline {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+}
+
+.dn-root--vendas .dn-score-inline-label {
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
+.dn-root--vendas .dn-opportunity-teaser {
+  align-content: center;
+  background:
+    radial-gradient(100% 120% at 0 0, color-mix(in srgb, var(--hbx-warning) 12%, transparent), transparent 58%),
+    var(--hbx-surface);
+}
+
+.dn-root--vendas .dn-opportunity-teaser__text {
+  line-height: 1.45;
+}
+
+.dn-root--vendas .dn-contact-block {
+  display: grid;
+  gap: 8px !important;
+  min-width: 0;
+}
+
+.dn-root--vendas .dn-contact-primary-card {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(95% 120% at 100% 0, color-mix(in srgb, var(--hbx-info) 10%, transparent), transparent 58%),
+    var(--hbx-surface-soft);
+  box-shadow: var(--shadow-xs);
+}
+
+.dn-root--vendas .dn-contact-eyebrow {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dn-root--vendas .dn-contact-primary {
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 11px;
+  border: 1px solid var(--hbx-brand);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--hbx-brand) 7%, var(--hbx-surface));
+  color: var(--hbx-brand-strong);
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+}
+
+.dn-root--vendas .dn-contact-primary > .dn-typed {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-root--vendas .dn-contact-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--hbx-success);
+  font-family: var(--font-body);
+  font-size: 0.56rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.dn-root--vendas .dn-contact-primary-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.dn-root--vendas .dn-contact-primary-actions .btn-ghost,
+.dn-root--vendas .dn-contact-primary-actions .btn-teal {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  text-decoration: none;
+}
+
+.dn-root--vendas .dn-contact-block > .ctx-phone--inline,
+.dn-root--vendas .dn-contact-block > .ctx-phone--site {
+  min-height: 38px;
+  min-width: 0;
+  padding: 0 11px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+  box-shadow: none;
+  font-size: 0.66rem;
+  overflow: hidden;
+}
+
+.dn-root--vendas .dn-contact-block > .ctx-phone--site > .dn-typed {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-root--vendas .dn-contact-block > .row.dn-kv-row {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+}
+
+.dn-root--vendas .dn-contact-block > .row.dn-kv-row .v {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dn-root--vendas .dn-zone--convo,
+.dn-root--vendas .dn-zone--agenda,
+.dn-root--vendas .dn-zone--2 {
+  margin-right: 12px;
+  margin-left: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.dn-root--vendas .dn-zone--convo {
+  margin-top: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dn-root--vendas .dn-vendas-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.dn-root--vendas .dn-vendas-section-head .dn-section-head {
+  margin: 0;
+}
+
+.dn-root--vendas .dn-convo {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.dn-root--vendas .dn-convo__tabs {
+  padding: 6px 10px;
+}
+
+.dn-root--vendas .dn-convo__hint {
+  line-height: 1.45;
+}
+
+.dn-root--vendas .dn-convo__body {
+  min-height: 118px;
+  max-height: 360px;
+  padding: 14px;
+  gap: 10px;
+  align-content: center;
+  text-align: center;
+}
+
+.dn-root--vendas .dn-convo__body:has(.msgs) {
+  align-content: stretch;
+  text-align: left;
+}
+
+.dn-root--vendas .dn-convo__body > .btn-teal {
+  margin: 0 auto !important;
+}
+
+.dn-root--vendas .dn-convo .msgs {
+  min-height: 118px;
+  max-height: 245px;
+}
+
+.dn-root--vendas .dn-zone--agenda {
+  margin-top: 0;
+  margin-bottom: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dn-root--vendas .dn-agenda {
+  gap: 0;
+}
+
+.dn-root--vendas .dn-agenda__head {
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.dn-root--vendas .dn-agenda > .muted-note,
+.dn-root--vendas .dn-agenda > .ctx-msg {
+  margin: 0;
+  padding: 12px;
+}
+
+.dn-root--vendas .dn-agenda__form,
+.dn-root--vendas .dn-agenda__list {
+  margin: 0;
+  padding: 12px;
+}
+
+.dn-root--vendas .dn-zone-sep {
+  margin: 0 12px;
+}
+
+.dn-root--vendas .dn-zone--2 {
+  margin-top: 0;
+  margin-bottom: 14px;
+  padding: 12px;
+}
+
+.dn-root--vendas .dn-zone--2 .kv {
+  gap: 0;
+}
+
+.dn-root--vendas .dn-expand-btn {
+  margin-right: 12px;
+  margin-left: 12px;
+}
+
+.dn-root--vendas > .sep {
+  margin-right: 12px;
+  margin-left: 12px;
+}
+
+@media (max-width: 380px) {
+  .dn-root--vendas .dn-zone1-intel {
+    grid-template-columns: 1fr;
+  }
+
+  .dn-root--vendas .dn-zone1-intel > * {
+    grid-column: 1;
+  }
+
+  .dn-root--vendas .dn-contact-primary {
+    font-size: 0.82rem;
+  }
+
+  .dn-root--vendas .dn-contact-verified {
+    font-size: 0;
+  }
+
+  .dn-root--vendas .dn-contact-verified::after {
+    content: "OK";
+    font-size: 0.56rem;
+  }
+}
