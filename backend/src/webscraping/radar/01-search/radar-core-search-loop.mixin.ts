@@ -395,7 +395,9 @@ export class RadarCoreSearchLoopMixin {
         },
         dedupeKey: `run:${runId}:item:${leadId}:${mode}`,
         correlationId: runId,
-        priority: mode === 'web' ? 20 : 10,
+        // Web e social pertencem ao mesmo pós-save: prioridade diferente fazia social
+        // ficar indefinidamente atrás de novos jobs web em períodos de fila contínua.
+        priority: 10,
       });
       if (!result.missionId) throw new Error('RadarMission indisponível para o job pós-save.');
       await this.getRadarRunRepository().markEnrichmentJobState(context, leadId, {
@@ -406,6 +408,8 @@ export class RadarCoreSearchLoopMixin {
     };
 
     let durableQueued = 0;
+    // Cria toda a fase web antes da social: o social pode usar site/domínio recém-descoberto.
+    // A justiça global fica no FIFO da fila, sem quebrar essa dependência entre as fases.
     for (const leadId of webIds) {
       try {
         await enqueueMode('web', leadId);
@@ -433,27 +437,46 @@ export class RadarCoreSearchLoopMixin {
     const queue = this.getMissionQueue();
     try {
       if (!queue.enabled()) return;
+      const concurrency = Math.max(
+        1,
+        Math.min(6, parsePositiveIntegerEnv('HBX_RADAR_POST_SAVE_ENRICHMENT_CONCURRENCY', 4)),
+      );
       for (let cycle = 0; cycle < 10; cycle += 1) {
         const leased = await queue.lease({
           workerId: `hbx-backend-post-save:${process.pid}`,
           stages: ['enrich_search_item'],
-          batchSize: 10,
+          batchSize: concurrency,
         });
         if (!leased.supported || !leased.missions.length) break;
-        for (const mission of leased.missions) {
+
+        // Todo lease recebe heartbeat antes de qualquer enriquecimento começar. Depois o lote
+        // executa com concorrência limitada, sem deixar missões paradas expirarem na fila local.
+        const runnable = (await Promise.all(leased.missions.map(async (mission) => ({
+          mission,
+          heartbeat: await queue.heartbeat(mission.id, mission.leaseId),
+        })))).filter(({ heartbeat }) => heartbeat.ok);
+
+        const runMission = async (
+          { mission }: (typeof runnable)[number],
+          waitForWebPhase?: Promise<unknown>,
+        ) => {
           let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
           let heartbeatInFlight: Promise<void> = Promise.resolve();
           let leaseLost = false;
           try {
-            const firstHeartbeat = await queue.heartbeat(mission.id, mission.leaseId);
-            if (!firstHeartbeat.ok) continue;
             const heartbeatMs = Math.max(5, Math.trunc(Number(mission.heartbeatSeconds) || 40)) * 1000;
             heartbeatTimer = setInterval(() => {
-              heartbeatInFlight = queue.heartbeat(mission.id, mission.leaseId)
+              heartbeatInFlight = heartbeatInFlight
+                .then(() => queue.heartbeat(mission.id, mission.leaseId))
                 .then((result) => { if (!result.ok) leaseLost = true; })
                 .catch(() => { leaseLost = true; });
             }, heartbeatMs);
             heartbeatTimer.unref?.();
+
+            // Em lote misto o social já fica com heartbeat ativo, mas só consulta depois que
+            // toda a fase web leased terminou e seus sites/domínios foram persistidos.
+            if (waitForWebPhase) await waitForWebPhase;
+            if (leaseLost) return;
 
             const payload = mission.payload || {};
             const mode = String(payload.mode || '');
@@ -464,7 +487,7 @@ export class RadarCoreSearchLoopMixin {
             const missionInput = rehydrateRadarPostSaveInput(payload.input);
             if (!leadId || !companyId || !userId || missionInput?.targetType !== 'pj') {
               await queue.fail(mission.id, mission.leaseId, 'payload_pos_save_invalido', false);
-              continue;
+              return;
             }
             if (mode === 'web') {
               await this.runRadarWebEnrichmentForSavedLead(missionContext, leadId, missionInput);
@@ -472,7 +495,7 @@ export class RadarCoreSearchLoopMixin {
               await this.runRadarSocialLookupForSavedLead(missionContext, leadId, missionInput);
             } else {
               await queue.fail(mission.id, mission.leaseId, 'modo_pos_save_invalido', false);
-              continue;
+              return;
             }
             await heartbeatInFlight;
             if (!leaseLost) await queue.complete(mission.id, mission.leaseId, { mode, leadId });
@@ -502,7 +525,13 @@ export class RadarCoreSearchLoopMixin {
           } finally {
             if (heartbeatTimer) clearInterval(heartbeatTimer);
           }
-        }
+        };
+
+        const webMissions = runnable.filter(({ mission }) => String(mission.payload?.mode || '') === 'web');
+        const remainingMissions = runnable.filter(({ mission }) => String(mission.payload?.mode || '') !== 'web');
+        const webPhase = Promise.all(webMissions.map((entry) => runMission(entry)));
+        const remainingPhase = Promise.all(remainingMissions.map((entry) => runMission(entry, webPhase)));
+        await Promise.all([webPhase, remainingPhase]);
       }
     } finally {
       (this as any).radarPostSaveEnrichmentDrainActive = false;

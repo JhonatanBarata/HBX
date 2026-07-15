@@ -251,19 +251,49 @@ export class RadarEnrichmentJobPipelineService {
 
   normalizeJobs(value: unknown): RadarAsyncEnrichmentJob[] {
     const jobs = Array.isArray(value) ? value : [];
-    return jobs.map((job) => {
+    const statusPriority: Record<RadarAsyncEnrichmentJobStatus, number> = {
+      queued: 0,
+      running: 1,
+      partial_error: 2,
+      failed: 2,
+      skipped: 3,
+      completed: 4,
+    };
+    const normalizedByType = new Map<RadarAsyncEnrichmentJobType, {
+      job: RadarAsyncEnrichmentJob;
+      updatedAt: number;
+    }>();
+    for (const job of jobs) {
       const raw = normalizeObject(job);
-      return this.buildJob({
+      const jobUpdatedAt = raw.updatedAt || raw.finishedAt || raw.startedAt || raw.queuedAt || null;
+      const normalized = this.buildJob({
         type: this.normalizeJobType(String(raw.type || raw.job || raw.stage || 'opportunity_signal')),
         status: this.normalizeStatus(raw.status),
         retryable: raw.retryable == null ? undefined : Boolean(raw.retryable),
         traceId: raw.traceId || null,
-        now: raw.updatedAt || raw.queuedAt || raw.startedAt || raw.finishedAt || null,
+        now: jobUpdatedAt,
         lastError: raw.lastError || null,
         reason: raw.reason || null,
         attempts: raw.attempts,
       });
-    });
+      const parsedUpdatedAt = Date.parse(String(jobUpdatedAt || ''));
+      const updatedAt = Number.isFinite(parsedUpdatedAt) ? parsedUpdatedAt : 0;
+      const current = normalizedByType.get(normalized.type);
+      const isNewer = !current || updatedAt > current.updatedAt;
+      const isMoreAdvancedAtSameTime = current
+        && updatedAt === current.updatedAt
+        && (
+          statusPriority[normalized.status] > statusPriority[current.job.status]
+          || (
+            normalized.status === current.job.status
+            && Number(normalized.attempts || 0) > Number(current.job.attempts || 0)
+          )
+        );
+      if (isNewer || isMoreAdvancedAtSameTime) {
+        normalizedByType.set(normalized.type, { job: normalized, updatedAt });
+      }
+    }
+    return [...normalizedByType.values()].map((entry) => entry.job);
   }
 
   private normalizeStatus(status: unknown): RadarAsyncEnrichmentJobStatus {

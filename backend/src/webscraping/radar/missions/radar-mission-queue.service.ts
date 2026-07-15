@@ -255,9 +255,15 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     if (stages.length) where.stage = { in: stages };
     if (input.correlationId) where.correlationId = input.correlationId;
 
+    const isPostSaveEnrichment = stages.length === 1 && stages[0] === 'enrich_search_item';
     const candidates = await db.radarMission.findMany({
       where,
-      orderBy: [{ priority: 'desc' }, { nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
+      // No pós-save, todos os jobs já estão vencidos pelo filtro acima; FIFO impede que uma
+      // chegada contínua de web volte a empurrar social para o fim. Outros estágios preservam
+      // a política geral de prioridade da fábrica.
+      orderBy: isPostSaveEnrichment
+        ? [{ nextAttemptAt: 'asc' }, { createdAt: 'asc' }]
+        : [{ priority: 'desc' }, { nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
       take: batchSize * 3,
     }).catch(() => []);
 

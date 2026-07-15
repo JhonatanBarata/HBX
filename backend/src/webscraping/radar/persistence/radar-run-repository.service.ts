@@ -162,10 +162,9 @@ export class RadarRunRepositoryService {
       const currentRaw = parseMaybeJsonObject(freshItem.rawJson);
       const mergedRaw = mergeNonDestructive(currentRaw, nextRaw);
       const currentJobs = this.enrichmentJobs.normalizeJobs(currentRaw.asyncEnrichmentJobs || currentRaw.postDeliveryJobs);
-      jobs = [
-        ...currentJobs.filter((entry) => entry.type !== type),
-        incomingJob,
-      ];
+      // Resolve também a corrida semântica: o CAS protege a estrutura, e a normalização
+      // escolhe o snapshot mais novo/avançado em vez de aceitar cegamente o writer atrasado.
+      jobs = this.enrichmentJobs.normalizeJobs([...currentJobs, incomingJob]);
       persistedRaw = {
         ...mergedRaw,
         asyncEnrichmentJobs: jobs,
@@ -240,7 +239,7 @@ export class RadarRunRepositoryService {
           || currentEnrichment.asyncEnrichmentJobs
           || currentEnrichment.postDeliveryJobs,
         );
-        const poolJobs = [...currentPoolJobs.filter((entry) => entry.type !== type), job];
+        const poolJobs = this.enrichmentJobs.normalizeJobs([...currentPoolJobs, job]);
         const poolJobSnapshot = {
           asyncEnrichmentJobs: poolJobs,
           postDeliveryJobs: poolJobs,
@@ -260,11 +259,17 @@ export class RadarRunRepositoryService {
           recommendedChannel: persistedRaw.recommendedChannel || null,
           opportunityReason: persistedRaw.opportunityReason || null,
         };
-        const metadata = mergeNonDestructive(currentMetadata, { ...usefulSnapshot, ...poolJobSnapshot });
-        const enrichment = mergeNonDestructive(
-          currentEnrichment,
-          { ...parseMaybeJsonObject(persistedRaw.enrichmentJson), ...usefulSnapshot, ...poolJobSnapshot },
-        );
+        const metadata = {
+          ...mergeNonDestructive(currentMetadata, { ...usefulSnapshot, ...poolJobSnapshot }),
+          ...poolJobSnapshot,
+        };
+        const enrichment = {
+          ...mergeNonDestructive(
+            currentEnrichment,
+            { ...parseMaybeJsonObject(persistedRaw.enrichmentJson), ...usefulSnapshot, ...poolJobSnapshot },
+          ),
+          ...poolJobSnapshot,
+        };
         const signals = mergeNonDestructive(
           currentSignals,
           parseMaybeJsonObject(persistedRaw.signalsJson || persistedRaw.signals),
@@ -363,9 +368,13 @@ export class RadarRunRepositoryService {
       enrichmentJobSummary: snapshot.enrichmentJobSummary,
       updatedAt: timelineAt.toISOString(),
     };
-    const description = JSON.stringify(
-      mergeNonDestructive(parseMaybeJsonObject(existing?.description), usefulTimelineSnapshot),
-    );
+    const description = JSON.stringify({
+      ...mergeNonDestructive(parseMaybeJsonObject(existing?.description), usefulTimelineSnapshot),
+      asyncEnrichmentJobs: jobs,
+      postDeliveryJobs: jobs,
+      enrichmentJobSummary: snapshot.enrichmentJobSummary,
+      job,
+    });
     const data = {
       eventType: `radar_enrichment_${type}`,
       title,
