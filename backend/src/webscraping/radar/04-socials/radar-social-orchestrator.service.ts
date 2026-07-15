@@ -85,10 +85,16 @@ export class RadarSocialOrchestratorService {
     const rawFacebookUrl = String(raw.facebookUrl || raw.signals?.facebookUrl || '').trim() || null;
     const existingInstagram = input.host.normalizeRadarSocialUrl(rawInstagramUrl, 'instagram');
     const existingFacebook = input.host.normalizeRadarSocialUrl(rawFacebookUrl, 'facebook');
-    if (existingInstagram && existingFacebook) return { status: 'skipped', reason: 'social_ja_presente' };
+    if (existingInstagram && existingFacebook) {
+      await input.writer.markSkipped(input.context, input.leadId, item, raw, 'social_ja_presente');
+      return { status: 'skipped', reason: 'social_ja_presente' };
+    }
 
     const queries = buildRadarSocialLookupQueries(baseLead);
-    if (!queries.length) return { status: 'skipped', reason: 'identidade_incompleta' };
+    if (!queries.length) {
+      await input.writer.markSkipped(input.context, input.leadId, item, raw, 'identidade_incompleta');
+      return { status: 'skipped', reason: 'identidade_incompleta' };
+    }
     const socialRequests = this.getGoogleSearchProvider().buildSocialRequests(baseLead, queries, {
       limit: 5,
       timeoutMs: input.timeoutMs,
@@ -96,7 +102,7 @@ export class RadarSocialOrchestratorService {
     const socialRequestsByKey = new Map(
       socialRequests.map((request) => [`${request.network || ''}:${request.queryText.toLowerCase()}`, request]),
     );
-    await input.writer.markSearching(input.leadId, item, raw, queries.map((entry) => entry.query));
+    await input.writer.markSearching(input.context, input.leadId, item, raw, queries.map((entry) => entry.query));
 
     const attemptedQueries: string[] = [];
     const rejectedReasons: string[] = [];

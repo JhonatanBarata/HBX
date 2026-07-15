@@ -189,11 +189,11 @@ export class RadarWebEnrichmentJobService {
     const raw = parseMaybeJsonObject(item.rawJson);
     const baseLead = this.buildRunItemLead(item, raw, input);
     if (!hasPoorRadarWebEnrichmentFields(baseLead as any)) {
-      await this.markSkipped(leadId, raw, 'card_ja_tem_sinais_suficientes');
+      await this.markSkipped(context, item, raw, 'card_ja_tem_sinais_suficientes');
       return { status: 'skipped', reason: 'card_ja_tem_sinais_suficientes' };
     }
 
-    await this.markRunning(leadId, raw);
+    await this.markRunning(context, item, raw);
     await this.notifyVendasStatus(host, context, item, 'processing', {
       radarLeadId: leadId,
       reason: 'completando_redes_site_email',
@@ -213,7 +213,7 @@ export class RadarWebEnrichmentJobService {
 
     if (result.results?.length) {
       const nextRaw = this.mergeResultRaw(raw, baseLead, result.results[0], result.reason || null);
-      await this.runs.updateRunItemRawJson(leadId, nextRaw);
+      await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'radar_web_enrichment');
       await this.syncVendasAfterEnrichment(host, context, item, nextRaw, result.reason || null);
       return result;
     }
@@ -246,7 +246,7 @@ export class RadarWebEnrichmentJobService {
         ],
       } : {}),
     };
-    await this.runs.updateRunItemRawJson(leadId, nextRaw);
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'radar_web_enrichment');
     await this.notifyVendasStatus(host, context, item, status === 'partial_error' ? 'failed' : 'completed', {
       radarLeadId: leadId,
       reason: result.reason || 'sem_dados_novos',
@@ -388,8 +388,8 @@ export class RadarWebEnrichmentJobService {
     };
   }
 
-  private async markRunning(leadId: string, raw: Record<string, any>) {
-    await this.runs.updateRunItemRawJson(leadId, {
+  private async markRunning(context: SearchExecutionContext, item: any, raw: Record<string, any>) {
+    const nextRaw = {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
         type: 'radar_web_enrichment',
@@ -406,11 +406,12 @@ export class RadarWebEnrichmentJobService {
         status: 'running',
         startedAt: new Date().toISOString(),
       },
-    });
+    };
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'radar_web_enrichment');
   }
 
-  private async markSkipped(leadId: string, raw: Record<string, any>, reason: string) {
-    await this.runs.updateRunItemRawJson(leadId, {
+  private async markSkipped(context: SearchExecutionContext, item: any, raw: Record<string, any>, reason: string) {
+    const nextRaw = {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
         type: 'radar_web_enrichment',
@@ -422,7 +423,8 @@ export class RadarWebEnrichmentJobService {
         reason,
         finishedAt: new Date().toISOString(),
       },
-    }).catch(() => null);
+    };
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'radar_web_enrichment').catch(() => null);
   }
 
   private async markError(context: SearchExecutionContext, leadId: string, error: unknown) {
@@ -441,7 +443,7 @@ export class RadarWebEnrichmentJobService {
       blocksDelivery: false,
       leadId,
     });
-    await this.runs.updateRunItemRawJson(leadId, {
+    const nextRaw = {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
         type: 'radar_web_enrichment',
@@ -467,6 +469,7 @@ export class RadarWebEnrichmentJobService {
         ...(Array.isArray(raw.radarStageIssues) ? raw.radarStageIssues : []),
         issue,
       ],
-    }).catch(() => null);
+    };
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'radar_web_enrichment').catch(() => null);
   }
 }

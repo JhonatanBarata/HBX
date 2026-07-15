@@ -159,7 +159,7 @@ export class RadarWebsiteCrawlSourceService {
       instagramUrl: candidate.instagramUrl || firstValue(crawl.fields.instagramUrls),
       facebookUrl: candidate.facebookUrl || firstValue(crawl.fields.facebookUrls),
       address: candidate.address || crawl.fields.address || null,
-      cnpj: (candidate as any).cnpj || firstValue(crawl.fields.cnpjs),
+      cnpj: (candidate as any).cnpj,
       whatsappStatus: (candidate as any).whatsappStatus || (crawl.fields.whatsappPhoneDigits.length || crawl.fields.whatsappUrls.length ? 'unverified' : undefined),
       whatsappUrl: (candidate as any).whatsappUrl || firstValue(crawl.fields.whatsappUrls),
       opportunitySignals,

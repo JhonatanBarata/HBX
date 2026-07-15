@@ -88,20 +88,6 @@ function normalizeLookupValue(value: unknown) {
     .trim();
 }
 
-/**
- * Mesma normaliza\u00e7\u00e3o do searchText/normalizedCity da base CnpjPublicCompany
- * (rfb_norm do import + normalizeText do dataset service): min\u00fasculo, sem acento,
- * espa\u00e7os colapsados \u2014 MANT\u00c9M pontua\u00e7\u00e3o, diferente de normalizeLookupValue.
- */
-function normalizeDatasetText(value: unknown) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function compactLookupValue(value: unknown) {
   return normalizeLookupValue(value).replace(/[^a-z0-9]+/g, '');
 }
@@ -436,37 +422,6 @@ function withWebEnrichmentPipeline(result: WebscrapingContactResult, attempts: W
   } as WebscrapingContactResult;
 }
 
-/**
- * Extracts the first valid 14-digit CNPJ from a free-text string.
- * Matches patterns like 12.345.678/0001-90 or 12345678000190.
- */
-function extractCnpjFromText(text: string): string | null {
-  // Preferir um CNPJ TOTALMENTE formatado (12.345.678/0001-90) — bem mais confiável que um
-  // run solto de 14 dígitos, que num snippet de buscador pode ser telefone/ID/protocolo.
-  const formatted = text.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g);
-  if (formatted && formatted.length) {
-    const digits = formatted[0].replace(/\D/g, '');
-    if (digits.length === 14) return digits;
-  }
-  const matches = text.match(/\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}/g);
-  if (!matches) return null;
-  for (const raw of matches) {
-    const digits = raw.replace(/\D/g, '');
-    if (digits.length === 14) return digits;
-  }
-  return null;
-}
-
-/**
- * Builds a Brave-optimised query to discover a CNPJ for a lead that has no website.
- * Format: "<name> <city> CNPJ"
- */
-function buildCnpjDiscoveryQuery(lead: WebscrapingContactResult, input: NormalizedSearchInput): string {
-  const name = compactText(lead.name).replace(/"/g, '');
-  const city = compactText(input.city || (lead as any).city).replace(/"/g, '');
-  return `"${name}" "${city}" CNPJ`.replace(/\s+/g, ' ').trim();
-}
-
 function buildSearchQuery(lead: WebscrapingContactResult, input: NormalizedSearchInput) {
   const name = compactText(lead.name).replace(/"/g, '');
   const city = compactText(input.city).replace(/"/g, '');
@@ -655,20 +610,6 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
 
   if (!website && !instagramUrl && !facebookUrl) return { result: null, accepted, rejected };
 
-  // Extract CNPJ from accepted candidate text if the lead doesn't already have one.
-  const existingCnpj = String((lead as any).cnpj || '').replace(/\D/g, '');
-  let discoveredCnpj: string | null = null;
-  if (!existingCnpj) {
-    for (const c of accepted) {
-      const found = extractCnpjFromText(`${c.title} ${c.snippet} ${c.url}`);
-      if (found) { discoveredCnpj = found; break; }
-    }
-  }
-
-  const existingMeta = (typeof (lead as any).metadataJson === 'object' && (lead as any).metadataJson)
-    ? (lead as any).metadataJson
-    : {};
-
   return {
     result: {
       ...lead,
@@ -678,8 +619,6 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
       socialStatus: instagramUrl || facebookUrl ? 'candidate_review' : (lead as any).socialStatus,
       source: 'radar_web_enrichment',
       sourceEngine: 'radar_web_enrichment',
-      ...(discoveredCnpj ? { cnpj: discoveredCnpj } : {}),
-      ...(discoveredCnpj ? { metadataJson: { ...existingMeta, cnpj: existingMeta.cnpj || discoveredCnpj } } : {}),
       evidenceJson: {
         ...((typeof (lead as any).evidenceJson === 'object' && (lead as any).evidenceJson) ? (lead as any).evidenceJson : {}),
         radarWebEnrichment: {
@@ -844,42 +783,6 @@ export class RadarWebEnrichmentService {
             continue;
           }
         }
-        // --- CNPJ discovery via Brave for site-less leads ---
-        // When the lead still has no site and no CNPJ, ask Brave for "<name> <city> CNPJ".
-        // The CNPJ found here will be written to the result so L4 can fire on the next pass.
-        if (fetcher && process.env.BRAVE_SEARCH_API_KEY) {
-          const leadForCnpj = merged.result || bestResult || fallbackLead;
-          const missingCnpj = !String((leadForCnpj as any)?.cnpj || '').replace(/\D/g, '');
-          const missingSite = !isOwnWebsite((leadForCnpj as any)?.website);
-          if (missingSite && missingCnpj) {
-            const cnpjQuery = buildCnpjDiscoveryQuery(lead, input.normalized);
-            const cnpjCandidates = await this.searchBrave(fetcher, cnpjQuery, timeoutMs).catch(() => [] as WebCandidate[]);
-            if (cnpjCandidates.length) {
-              const allText = cnpjCandidates.map((c) => `${c.title} ${c.snippet} ${c.url}`).join(' ');
-              const discoveredCnpj = extractCnpjFromText(allText);
-              if (discoveredCnpj) {
-                const baseLead = merged.result || bestResult || fallbackLead;
-                const existingMeta = typeof (baseLead as any).metadataJson === 'object'
-                  ? ((baseLead as any).metadataJson || {})
-                  : {};
-                (baseLead as any).cnpj = (baseLead as any).cnpj || discoveredCnpj;
-                (baseLead as any).metadataJson = {
-                  ...existingMeta,
-                  cnpj: existingMeta.cnpj || discoveredCnpj,
-                };
-                // BUG-FIX (30/06): num lead SEM site e SEM contato aceito, merged.result E
-                // bestResult são null → o CNPJ descoberto no Brave era setado em baseLead mas
-                // NUNCA empurrado pro results (linha ~821 `if (bestResult)` ficava falsa) → a base
-                // inteira terminava com 0 CNPJ apesar do Brave achar. Agora promovemos o lead
-                // portador do CNPJ a bestResult SEMPRE, pra ele ser persistido e o L4 disparar.
-                if (merged.result) merged = { ...merged, result: baseLead as WebscrapingContactResult };
-                else bestResult = baseLead as WebscrapingContactResult;
-              }
-              fallbackFoundCount += cnpjCandidates.length;
-            }
-          }
-        }
-
         foundCount += fallbackFoundCount;
         attempts.push({
           source: 'fallback_web',
@@ -905,87 +808,6 @@ export class RadarWebEnrichmentService {
       rejectedCount,
       retryable,
     });
-  }
-
-  /**
-   * Descoberta de CNPJ por NOME — caminho LEAN p/ o backfill.
-   * Ordem travada do Sprint 2 MOTOR-RFB-FILA: base LOCAL da RFB primeiro (SELECT em
-   * CnpjPublicCompany, zero API), Brave só quando o local não resolve. Sem o peso do run()
-   * completo (HBX engine + social probes + 4 fallback queries + crawl = ~16s/lead que
-   * estourava o timeout). No Brave é 1 query "<nome> <cidade> CNPJ" → ~1.1s (throttle),
-   * consumindo 1 do orçamento (teto free) → o chamador aplica teto por execução.
-   * Devolve só os 14 dígitos do CNPJ ou null.
-   */
-  async discoverCnpjByName(
-    fetcher: typeof fetch,
-    opts: { name: string; city: string; state?: string | null },
-    prisma?: any,
-  ): Promise<string | null> {
-    const name = compactText(opts.name).replace(/"/g, '');
-    const city = compactText(opts.city || '').replace(/"/g, '');
-    if (name.length < 3) return null;
-
-    const local = await this.discoverCnpjLocal(prisma, { name, city, state: opts.state }).catch(() => null);
-    if (local) return local;
-
-    if (!fetcher || !process.env.BRAVE_SEARCH_API_KEY) return null;
-    const query = `"${name}" "${city}" CNPJ`.replace(/\s+/g, ' ').trim();
-    const timeoutMs = positiveIntegerEnv('HBX_RADAR_WEB_ENRICHMENT_TIMEOUT_MS', 4500, 15000);
-    const candidates = await this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
-    if (!candidates.length) return null;
-    const allText = candidates.map((c) => `${c.title} ${c.snippet} ${c.url}`).join(' ');
-    return extractCnpjFromText(allText);
-  }
-
-  /**
-   * Descoberta LOCAL de CNPJ por nome+cidade no dump da RFB (CnpjPublicCompany) — inverte o
-   * funil: SELECT local ANTES de queimar Brave (teto 900/mês) ou BrasilAPI (throttle+429).
-   * Só devolve CNPJ quando o match na cidade é INEQUÍVOCO (todos os hits do mesmo cnpjBasico,
-   * ou nome fantasia/razão EXATOS apontando pra uma única empresa) — CNPJ errado envenena o
-   * lead; ambiguidade devolve null e o chamador cai pro Brave.
-   */
-  private async discoverCnpjLocal(
-    prisma: any,
-    opts: { name: string; city: string; state?: string | null },
-  ): Promise<string | null> {
-    if (!prisma?.cnpjPublicCompany?.findMany) return null;
-    const normName = normalizeDatasetText(opts.name);
-    const normCity = normalizeDatasetText(opts.city);
-    // nome muito curto = genérico demais pra afirmar identidade sem verificação humana
-    if (normName.length < 5 || !normCity) return null;
-    const state = String(opts.state || '').trim().toUpperCase();
-    let rows: Array<{ cnpj?: string | null; nomeFantasia?: string | null; razaoSocial?: string | null }> = [];
-    try {
-      rows = await prisma.cnpjPublicCompany.findMany({
-        where: {
-          normalizedCity: normCity,
-          ...(state ? { state } : {}),
-          situacao: 'ativa',
-          searchText: { contains: normName },
-        },
-        select: { cnpj: true, nomeFantasia: true, razaoSocial: true },
-        take: 8,
-        orderBy: { cnpj: 'asc' }, // matriz (…0001…) vem antes das filiais
-      });
-    } catch {
-      return null;
-    }
-    if (!rows?.length) return null;
-    const basicoOf = (row: { cnpj?: string | null }) => String(row.cnpj || '').replace(/\D/g, '').slice(0, 8);
-    const basicos = new Set(rows.map(basicoOf).filter(Boolean));
-    if (basicos.size === 1) {
-      const cnpj = String(rows[0]?.cnpj || '').replace(/\D/g, '');
-      return cnpj.length === 14 ? cnpj : null;
-    }
-    // várias empresas contêm o nome → só aceita match EXATO de fantasia/razão em UMA única empresa
-    const exact = rows.filter((row) =>
-      normalizeDatasetText(row.nomeFantasia) === normName || normalizeDatasetText(row.razaoSocial) === normName);
-    const exactBasicos = new Set(exact.map(basicoOf).filter(Boolean));
-    if (exactBasicos.size === 1) {
-      const cnpj = String(exact[0]?.cnpj || '').replace(/\D/g, '');
-      return cnpj.length === 14 ? cnpj : null;
-    }
-    return null;
   }
 
   private async searchHbxForLead(
@@ -1127,8 +949,8 @@ export class RadarWebEnrichmentService {
       }
       try {
         // BUG-FIX (30/06): `search_lang=pt` (e `pt-BR`) faz a Brave responder 422 Unprocessable
-        // Entity → searchBrave devolvia [] SEMPRE → todo enriquecimento via Brave (CNPJ-por-nome,
-        // descoberta de site, sociais do dono) achava ZERO. `country=br` já enviesa pro Brasil.
+        // Entity → searchBrave devolvia [] SEMPRE → descoberta de site e sociais achava ZERO.
+        // `country=br` já enviesa pro Brasil.
         // Medido ao vivo no IP do VPS: com search_lang=422, sem ele=200.
         const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&country=br&count=10`;
         const response = await fetcher(url, {

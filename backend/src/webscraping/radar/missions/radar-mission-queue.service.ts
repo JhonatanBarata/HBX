@@ -156,11 +156,17 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pausa REAL: fonte única = RadarFactoryCursor.enabled (o mesmo interruptor do PARAR TUDO / PAINEL
-   * ABSOLUTO). Ausência de cursor/tabela ou enabled !== true = PAUSADO — nunca assume "ligado" na dúvida.
-   * Fila pausada → lease devolve vazio → NADA drena e contadores de fonte ficam congelados.
+   * A pausa do RadarFactoryCursor pertence à fábrica/background. O enriquecimento pós-save de uma
+   * pesquisa manual (`enrich_search_item`) tem ciclo próprio no backend e não pode herdar esse freio.
+   * Sem filtro de estágio, preserva o comportamento fail-closed usado pela fábrica e pelo painel.
    */
-  async isQueuePaused(): Promise<boolean> {
+  async isQueuePaused(stages?: RadarMissionStage[] | null): Promise<boolean> {
+    const requestedStages = (stages || []).filter((stage) =>
+      (RADAR_MISSION_STAGES as readonly string[]).includes(stage),
+    );
+    if (requestedStages.length > 0 && requestedStages.every((stage) => stage === 'enrich_search_item')) {
+      return false;
+    }
     const hasCursor = await this.prisma.hasTable('RadarFactoryCursor').catch(() => false);
     if (!hasCursor) return true;
     const cursorDelegate = (this.prisma as any).radarFactoryCursor;
@@ -235,16 +241,16 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     leaseTtlMs?: number | null;
   }): Promise<RadarMissionLeaseResult> {
     if (!(await this.supportsMissionPersistence())) return { supported: false, paused: false, missions: [] };
+    const stages = (input.stages || []).filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage));
     // Sinal elástico sempre acompanha o lease (mesmo pausado/vazio) — é como o worker decide o freio.
     const [activity, lag] = await Promise.all([this.getActivitySnapshot(), this.getQueueLagSnapshot()]);
-    if (await this.isQueuePaused()) return { supported: true, paused: true, missions: [], activity, lag };
+    if (await this.isQueuePaused(stages)) return { supported: true, paused: true, missions: [], activity, lag };
     await this.reviveExpiredLeases().catch(() => 0);
 
     const db = this.prisma as any;
     const now = new Date();
     const batchSize = Math.min(Math.max(1, Math.trunc(Number(input.batchSize) || 1)), 20);
     const ttlMs = Math.min(Math.max(Number(input.leaseTtlMs) || resolveMissionLeaseTtlMs(), 30_000), 900_000);
-    const stages = (input.stages || []).filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage));
     const where: any = { status: 'queued', nextAttemptAt: { lte: now } };
     if (stages.length) where.stage = { in: stages };
     if (input.correlationId) where.correlationId = input.correlationId;

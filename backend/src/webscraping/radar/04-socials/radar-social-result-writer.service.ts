@@ -59,8 +59,20 @@ export class RadarSocialResultWriterService {
     return this.jobPipeline || new RadarEnrichmentJobPipelineService();
   }
 
-  async markSearching(leadId: string, item: any, raw: Record<string, any>, queries: string[]) {
-    await this.runs.updateRunItemRawJson(leadId, {
+  async markSearching(
+    contextOrLeadId: SearchExecutionContext | string,
+    leadIdOrItem: any,
+    itemOrRaw: any,
+    rawOrQueries: Record<string, any> | string[],
+    maybeQueries?: string[],
+  ) {
+    const legacyCall = typeof contextOrLeadId === 'string';
+    const context = legacyCall ? null : contextOrLeadId;
+    const leadId = legacyCall ? contextOrLeadId : String(leadIdOrItem || '');
+    const item = legacyCall ? leadIdOrItem : itemOrRaw;
+    const raw = (legacyCall ? itemOrRaw : rawOrQueries) as Record<string, any>;
+    const queries = (legacyCall ? rawOrQueries : maybeQueries) as string[];
+    const nextRaw = {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
         type: 'social_lookup',
@@ -80,7 +92,27 @@ export class RadarSocialResultWriterService {
         queries,
         startedAt: new Date().toISOString(),
       },
-    });
+    };
+    if (context) await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'social_lookup');
+    else await this.runs.updateRunItemRawJson(leadId, nextRaw);
+  }
+
+  async markSkipped(context: SearchExecutionContext, leadId: string, item: any, raw: Record<string, any>, reason: string) {
+    const nextRaw = {
+      ...raw,
+      ...this.getJobPipeline().withJobStatus(raw, {
+        type: 'social_lookup',
+        status: 'skipped',
+        reason,
+      }),
+      socialLookup: {
+        ...(raw.socialLookup || {}),
+        status: 'skipped',
+        reason,
+        finishedAt: new Date().toISOString(),
+      },
+    };
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'social_lookup').catch(() => null);
   }
 
   async markError(context: SearchExecutionContext, leadId: string, error: unknown) {
@@ -98,7 +130,7 @@ export class RadarSocialResultWriterService {
       retryable: true,
       leadId,
     });
-    await this.runs.updateRunItemRawJson(leadId, {
+    const nextRaw = {
       ...raw,
       ...this.getJobPipeline().withJobStatus(raw, {
         type: 'social_lookup',
@@ -125,7 +157,8 @@ export class RadarSocialResultWriterService {
         ...(Array.isArray(raw.radarStageIssues) ? raw.radarStageIssues : []),
         issue,
       ],
-    }).catch(() => null);
+    };
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'social_lookup').catch(() => null);
   }
 
   async writeResult(context: SearchExecutionContext, leadId: string, item: any, baseLead: any, raw: Record<string, any>, result: RadarSocialLookupResult) {
@@ -226,7 +259,7 @@ export class RadarSocialResultWriterService {
         ? { radarStageIssues: [...(Array.isArray(raw.radarStageIssues) ? raw.radarStageIssues : []), issue] }
         : {}),
     };
-    await this.runs.updateRunItemRawJson(leadId, nextRaw);
+    await this.runs.syncEnrichmentJobSnapshot(context, item, nextRaw, 'social_lookup');
     return nextRaw;
   }
 }

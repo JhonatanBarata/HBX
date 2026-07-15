@@ -869,9 +869,9 @@ export class MasterWebscrapingController {
 
   /**
    * POST /modules/owner/radar/cnpj-backfill?limit=200&socials=1
-   * Worker 1 "CNPJ → dono". Cadeia grátis por lead: (a) web-enrichment/Brave L3 (site+CNPJ),
-   * (b) L4 CNPJ vault → razão/CNAE/sócio/situação + TELEFONE do dono, (b2) sociais DO DONO
-   * (Instagram/Facebook pessoais via busca web), (c) L1 sinais. NÃO inclui L5 (whatsapp-check).
+   * Worker 1 "CNPJ RFB → dono". Cadeia grátis por lead: (a) L4 CNPJ vault para documento já
+   * comprovado pela RFB, (b) sociais DO DONO (Instagram/Facebook pessoais via busca web),
+   * (c) L1 sinais. Não descobre CNPJ por nome/web e NÃO inclui L5 (whatsapp-check).
    * `socials=0` desliga a etapa social. Devolve
    * { scanned, enriched, errors, sitesFound, cnpjsFound, phonesFound, socialsFound }.
    */
@@ -886,8 +886,8 @@ export class MasterWebscrapingController {
 
   /**
    * POST /modules/owner/radar/apply-contacts
-   * Worker 2 "Email finder": aplica nos cards o que o Local Lab achou (e-mail/CNPJ/redes),
-   * casando por `id`. ADITIVO — só preenche campo vazio. Body: { items: [{ id, email?, cnpj?,
+   * Worker 2 "Email finder": aplica nos cards o que o Local Lab achou (e-mail/redes),
+   * casando por `id`. CNPJ recebido é ignorado. Body: { items: [{ id, email?, cnpj?,
    * instagramUrl?, facebookUrl? }] }. Devolve { requested, updated, emails, cnpjs, socials, errors }.
    */
   @Post('apply-contacts')

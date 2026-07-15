@@ -43,7 +43,6 @@ const DEFAULT_POST_DELIVERY_JOB_TYPES: RadarAsyncEnrichmentJobType[] = [
   'email_enrichment',
   'whatsapp_check',
   'website_crawl_light',
-  'cnpj_enrichment',
   'opportunity_signal',
   'post_delivery_update',
 ];

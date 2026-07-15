@@ -19,6 +19,83 @@ function normalizeCnpjDigits(raw: unknown) {
   return digits.length === 14 ? digits : '';
 }
 
+function normalizeExactPhone(raw: string | null | undefined) {
+  const digits = normalizePhoneDigits(raw);
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) return digits.slice(2);
+  return digits;
+}
+
+function normalizeState(value: unknown) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function normalizeAddressStreet(value: unknown) {
+  const normalized = normalizeLookupValue(String(value || ''))
+    .replace(/\b(?:rua|r)\b/g, 'rua')
+    .replace(/\b(?:avenida|av)\b/g, 'avenida')
+    .replace(/\b(?:rodovia|rod)\b/g, 'rodovia')
+    .replace(/\b(?:travessa|tv)\b/g, 'travessa')
+    .replace(/\b(?:estrada|est)\b/g, 'estrada')
+    .replace(/\bcep\s*\d{5}\s*\d{3}\b/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return '';
+  const numberMatch = normalized.match(/\b\d{1,6}[a-z]?\b/);
+  if (!numberMatch?.index) return '';
+  const street = normalized.slice(0, numberMatch.index).trim();
+  return street.length >= 5 ? `${street}:${numberMatch[0]}` : '';
+}
+
+function parseJsonRecord(value: unknown): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return { ...(value as Record<string, any>) };
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function sanitizeCnpjIdentityBlob(value: unknown, path: string, ignoredFields: string[]): unknown {
+  const wasString = typeof value === 'string';
+  let parsed = value;
+  if (wasString) {
+    try {
+      const candidate = JSON.parse(String(value));
+      if (!candidate || typeof candidate !== 'object') return value;
+      parsed = candidate;
+    } catch {
+      return value;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return value;
+
+  const visit = (node: unknown, currentPath: string): unknown => {
+    if (Array.isArray(node)) return node.map((item, index) => visit(item, `${currentPath}[${index}]`));
+    if (!node || typeof node !== 'object') return node;
+    const output: Record<string, any> = {};
+    for (const [key, raw] of Object.entries(node as Record<string, any>)) {
+      const fieldPath = `${currentPath}.${key}`;
+      const normalizedKey = key.toLowerCase();
+      const isCnpjIdentity = normalizedKey === 'cnpj'
+        || normalizedKey === 'cnpjdigits'
+        || normalizedKey === 'cnpjpublic'
+        || (normalizedKey === 'document' && Boolean(normalizeCnpjDigits(raw)));
+      if (isCnpjIdentity) {
+        ignoredFields.push(fieldPath);
+        continue;
+      }
+      output[key] = visit(raw, fieldPath);
+    }
+    return output;
+  };
+
+  const sanitized = visit(parsed, path);
+  return wasString ? JSON.stringify(sanitized) : sanitized;
+}
+
 /**
  * Chave canônica de telefone: BR celular tem DDD(2) + 9 + número(8) = 11 dígitos;
  * o mesmo aparelho pode ser capturado sem o 9º dígito (10 dígitos, DDD+8).
@@ -272,6 +349,192 @@ export class RadarResultMergerService {
     const existingToken = firstNameToken(existing.name);
     if (!candidateToken || !existingToken) return true; // sem nome pra comparar, não bloqueia (conservador)
     return candidateToken === existingToken;
+  }
+
+  /**
+   * Fusão canônica do run PJ. A Receita já foi consultada e é a autoridade cadastral;
+   * o motor web só pode completar canais públicos. O match não usa CNPJ vindo do motor,
+   * domínio, social nem fuzzy: telefone nacional exato, nome exato+cidade+UF ou endereço
+   * com logradouro/número/cidade/UF determinísticos. Se dois registros da Receita
+   * satisfizerem qualquer regra, o candidato fica separado para não colar empresas.
+   */
+  mergeCanonicalRfbWithWeb(input: {
+    rfbResults: WebscrapingContactResult[];
+    webResults: WebscrapingContactResult[];
+    city?: string | null;
+    state?: string | null;
+  }) {
+    const fallbackCity = normalizeLookupValue(input.city || '');
+    const fallbackState = normalizeState(input.state);
+    const rfbResults = (input.rfbResults || []).map((result) => this.withSource({ ...result }, 'cnpj_public'));
+    const unmatchedWeb: WebscrapingContactResult[] = [];
+    let matchedCount = 0;
+    let ambiguousCount = 0;
+
+    for (const rawWeb of input.webResults || []) {
+      const matches = rfbResults
+        .map((rfb, index) => ({ index, reasons: this.canonicalRfbWebMatchReasons(rfb, rawWeb, fallbackCity, fallbackState) }))
+        .filter((match) => match.reasons.length > 0);
+      const webSource = this.resolveWebDiscoverySource(rawWeb);
+      const web = this.withoutUnverifiedWebCadastral(rawWeb, webSource);
+
+      if (matches.length === 1) {
+        this.mergeWebDiscoveryIntoRfb(rfbResults[matches[0].index], web, webSource, matches[0].reasons);
+        matchedCount += 1;
+        continue;
+      }
+
+      const separated = this.withSource(web, webSource) as any;
+      separated.canonicalMatch = {
+        status: matches.length > 1 ? 'ambiguous' : 'unmatched',
+        rules: matches.length > 1 ? Array.from(new Set(matches.flatMap((match) => match.reasons))) : [],
+      };
+      unmatchedWeb.push(separated);
+      if (matches.length > 1) ambiguousCount += 1;
+    }
+
+    return {
+      results: [...rfbResults, ...unmatchedWeb],
+      matchedCount,
+      ambiguousCount,
+      rfbCount: rfbResults.length,
+      unmatchedWebCount: unmatchedWeb.length,
+    };
+  }
+
+  private canonicalRfbWebMatchReasons(
+    rfb: WebscrapingContactResult,
+    web: WebscrapingContactResult,
+    fallbackCity: string,
+    fallbackState: string,
+  ) {
+    const reasons: string[] = [];
+    const rfbPhone = normalizeExactPhone(rfb.phoneDigits || rfb.phone);
+    const webPhone = normalizeExactPhone(web.phoneDigits || web.phone);
+    if (rfbPhone.length >= 10 && webPhone === rfbPhone) reasons.push('phone_exact');
+
+    const rfbCity = normalizeLookupValue(String((rfb as any).city || fallbackCity));
+    const webCity = normalizeLookupValue(String((web as any).city || fallbackCity));
+    const rfbState = normalizeState((rfb as any).state || fallbackState);
+    const webState = normalizeState((web as any).state || fallbackState);
+    const sameGeo = Boolean(rfbCity && webCity && rfbState && webState && rfbCity === webCity && rfbState === webState);
+    if (sameGeo) {
+      const webName = normalizeLookupValue(web.name || '');
+      const rfbNames = new Set([
+        normalizeLookupValue(rfb.name || ''),
+        normalizeLookupValue(String((rfb as any).legalName || '')),
+        normalizeLookupValue(String((rfb as any).razaoSocial || '')),
+      ].filter(Boolean));
+      if (webName && rfbNames.has(webName)) reasons.push('name_city_state_exact');
+
+      const rfbAddress = normalizeAddressStreet(rfb.address);
+      const webAddress = normalizeAddressStreet(web.address);
+      if (rfbAddress && webAddress === rfbAddress) reasons.push('address_number_city_state_exact');
+    }
+    return reasons;
+  }
+
+  private isRfbProvenance(value: unknown) {
+    const source = normalizeSource(String(value || '')).toLowerCase();
+    return source === 'cnpj_public'
+      || source === 'rfb'
+      || source.startsWith('rfb_')
+      || source.includes('receita');
+  }
+
+  private resolveWebDiscoverySource(result: WebscrapingContactResult) {
+    const candidates = [
+      result.source,
+      result.sourceEngine,
+      ...(Array.isArray((result as any).sourceEngines) ? (result as any).sourceEngines : []),
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    return normalizeSource(candidates.find((value) => !this.isRfbProvenance(value)) || 'hbx');
+  }
+
+  private withoutUnverifiedWebCadastral(result: WebscrapingContactResult, webSource: string): WebscrapingContactResult {
+    const output = { ...(result as any) };
+    const ignoredFields: string[] = [];
+    for (const field of [
+      'cnpj', 'cnpjDigits', 'document', 'legalName', 'razaoSocial', 'cnae', 'cnaeDescription',
+      'companySituation', 'companySize', 'companyBranchType', 'ownerName', 'ownerNames',
+      'ownerQualification', 'socios', 'qsa', 'partners', 'quadroSocietario',
+    ]) {
+      if (output[field] != null && String(output[field]).trim() !== '') ignoredFields.push(field);
+      delete output[field];
+    }
+
+    output.evidenceJson = sanitizeCnpjIdentityBlob(output.evidenceJson, 'evidenceJson', ignoredFields);
+    for (const blob of ['metadataJson', 'enrichmentJson', 'signals']) {
+      if (output[blob] == null) continue;
+      output[blob] = sanitizeCnpjIdentityBlob(output[blob], blob, ignoredFields);
+    }
+    if (output.fieldEvidence && typeof output.fieldEvidence === 'object') {
+      output.fieldEvidence = { ...output.fieldEvidence };
+      if (output.fieldEvidence.cnpj != null) ignoredFields.push('fieldEvidence.cnpj');
+      delete output.fieldEvidence.cnpj;
+    }
+    if (output.cnpjEvidence != null) ignoredFields.push('cnpjEvidence');
+    delete output.cnpjEvidence;
+
+    if (output.sourceEvidence) {
+      const sourceEvidence = parseJsonRecord(output.sourceEvidence);
+      output.sourceEvidence = Object.fromEntries(Object.entries(sourceEvidence).flatMap(([source, raw]) => {
+        if (this.isRfbProvenance(source)) {
+          ignoredFields.push(`sourceEvidence.${source}`);
+          return [];
+        }
+        return [[source, sanitizeCnpjIdentityBlob(raw, `sourceEvidence.${source}`, ignoredFields)]];
+      }));
+    }
+    output.source = webSource;
+    output.sourceEngine = webSource;
+    output.sourceEngines = Array.from(new Set([
+      ...(Array.isArray(output.sourceEngines) ? output.sourceEngines : []),
+      webSource,
+    ].map(String).filter((source) => source && !this.isRfbProvenance(source))));
+    if (Array.isArray(output.sources)) {
+      output.sources = output.sources.map(String).filter((source: string) => source && !this.isRfbProvenance(source));
+    }
+    if (ignoredFields.length) {
+      output.canonicalIdentityIgnored = {
+        reason: 'web_cadastral_requires_rfb_match',
+        fields: Array.from(new Set(ignoredFields)),
+      };
+    }
+    return output as WebscrapingContactResult;
+  }
+
+  private mergeWebDiscoveryIntoRfb(
+    target: WebscrapingContactResult,
+    incoming: WebscrapingContactResult,
+    source: string,
+    reasons: string[],
+  ) {
+    const merged = this.withSource(incoming, source) as any;
+    const targetAny = target as any;
+    const incomingEvidence = merged.fieldEvidence || {};
+    this.mergePhone(target, incoming, incomingEvidence.phone);
+    this.mergeWebsite(target, incoming, incomingEvidence.website);
+    this.mergeSocial(target, incoming, incomingEvidence.social);
+    this.mergeEmail(target, incoming, incomingEvidence.email);
+    this.mergeWhatsapp(target, incoming, incomingEvidence.whatsapp, source);
+    this.mergeWebsiteIntelligence(target, incoming);
+    targetAny.sourceEngines = Array.from(new Set([
+      ...(Array.isArray(targetAny.sourceEngines) ? targetAny.sourceEngines : []),
+      ...(Array.isArray(merged.sourceEngines) ? merged.sourceEngines : []),
+      'cnpj_public',
+      source,
+    ].filter(Boolean)));
+    targetAny.sourceEvidence = {
+      ...(targetAny.sourceEvidence || {}),
+      ...(merged.sourceEvidence || {}),
+    };
+    targetAny.canonicalMatch = {
+      status: 'matched_rfb_web',
+      rules: Array.from(new Set(reasons)),
+    };
+    targetAny.sourceChain = 'rfb+web';
+    this.syncEvidenceAliases(targetAny);
   }
 
   mergeSources(sources: Array<{ source: string; results: WebscrapingContactResult[] }>) {

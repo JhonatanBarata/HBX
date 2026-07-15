@@ -264,15 +264,16 @@ export class RadarCoreSearchLoopMixin {
     normalized: NormalizedSearchInput,
     runId: string,
     remainingQuantity: number,
-  ): Promise<{ accepted: number; ran: boolean }> {
-    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return { accepted: 0, ran: false };
-    if (normalized?.targetType !== 'pj') return { accepted: 0, ran: false };
-    if (remainingQuantity <= 0) return { accepted: 0, ran: false };
+    options: { deferPersistence?: boolean } = {},
+  ): Promise<{ accepted: number; ran: boolean; results: WebscrapingContactResult[] }> {
+    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return { accepted: 0, ran: false, results: [] };
+    if (normalized?.targetType !== 'pj') return { accepted: 0, ran: false, results: [] };
+    if (remainingQuantity <= 0) return { accepted: 0, ran: false, results: [] };
 
     const now = Date.now();
     pruneRadarCnpjPublicClientRunState(now);
     const state = radarCnpjPublicClientRunState.get(runId);
-    if (state?.ranThisRun || state?.zeroAccepted) return { accepted: 0, ran: false };
+    if (state?.ranThisRun || state?.zeroAccepted) return { accepted: 0, ran: false, results: [] };
     radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: state?.zeroAccepted || false, updatedAt: now });
 
     try {
@@ -287,7 +288,7 @@ export class RadarCoreSearchLoopMixin {
       });
       const results = Array.isArray(sourceResult?.results) ? sourceResult.results : [];
       let accepted = 0;
-      if (results.length) {
+      if (results.length && !options.deferPersistence) {
         const savedCounts = await this.saveSearchRunResults(
           context,
           normalized,
@@ -303,6 +304,10 @@ export class RadarCoreSearchLoopMixin {
           savedCounts?.savedWebEnrichmentLeadIds,
         );
         accepted = safeInteger(savedCounts?.found);
+      } else if (options.deferPersistence) {
+        // No fluxo principal a Receita continua rodando primeiro, mas só persiste depois
+        // do motor para permitir a fusão canônica rfb↔web antes de nascer qualquer card.
+        accepted = results.length;
       }
       if (accepted === 0) {
         radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: true, updatedAt: now });
@@ -310,12 +315,12 @@ export class RadarCoreSearchLoopMixin {
       this.logger?.log?.(
         `[radar-cadeia] run ${runId}: 1=rfb found=${sourceResult?.foundCount ?? results.length} accepted=${accepted} reason=${sourceResult?.reason || '-'}`,
       );
-      return { accepted, ran: true };
+      return { accepted, ran: true, results };
     } catch (error) {
       this.logger?.warn?.(
         `[radar-cnpj] fonte receita falhou sem derrubar o batch run=${runId}: ${String((error as any)?.message || error)}`,
       );
-      return { accepted: 0, ran: true };
+      return { accepted: 0, ran: true, results: [] };
     }
   }
 
@@ -349,13 +354,17 @@ export class RadarCoreSearchLoopMixin {
     webLeadIds: string[] = [],
     engineUrl?: string | null,
   ) {
-    const socialIds = Array.from(new Set((socialLeadIds || []).map(String).filter(Boolean)));
-    const webIds = Array.from(new Set((webLeadIds || []).map(String).filter(Boolean)));
-    if (input.targetType !== 'pj' || (!socialIds.length && !webIds.length)) return;
+    const approvedIds = Array.from(new Set([
+      ...(socialLeadIds || []),
+      ...(webLeadIds || []),
+    ].map(String).filter(Boolean)));
+    const socialIds = approvedIds;
+    const webIds = approvedIds;
+    if (input.targetType !== 'pj' || !approvedIds.length) return;
 
     const queue = this.getMissionQueue();
     if (!queue.enabled()) {
-      const paused = await queue.isQueuePaused();
+      const paused = await queue.isQueuePaused(['enrich_search_item']);
       if (!paused) {
         this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, input, webIds, engineUrl);
         this.enqueueRadarSocialLookupForSavedLeads(context, runId, input, socialIds, engineUrl);
@@ -364,14 +373,14 @@ export class RadarCoreSearchLoopMixin {
     }
     const durable = await queue.supportsMissionPersistence().catch(() => false);
     if (!durable) {
-      const pausedWithoutPersistence = await queue.isQueuePaused();
+      const pausedWithoutPersistence = await queue.isQueuePaused(['enrich_search_item']);
       if (!pausedWithoutPersistence) {
         this.enqueueRadarWebEnrichmentForSavedLeads(context, runId, input, webIds, engineUrl);
         this.enqueueRadarSocialLookupForSavedLeads(context, runId, input, socialIds, engineUrl);
       }
       return;
     }
-    const paused = await queue.isQueuePaused();
+    const paused = await queue.isQueuePaused(['enrich_search_item']);
 
     const enqueueMode = async (mode: 'web' | 'social', leadId: string) => {
       const result = await queue.enqueue({
@@ -389,6 +398,11 @@ export class RadarCoreSearchLoopMixin {
         priority: mode === 'web' ? 20 : 10,
       });
       if (!result.missionId) throw new Error('RadarMission indisponível para o job pós-save.');
+      await this.getRadarRunRepository().markEnrichmentJobState(context, leadId, {
+        type: mode === 'web' ? 'radar_web_enrichment' : 'social_lookup',
+        status: 'queued',
+        traceId: result.missionId,
+      });
     };
 
     let durableQueued = 0;
@@ -464,7 +478,27 @@ export class RadarCoreSearchLoopMixin {
             if (!leaseLost) await queue.complete(mission.id, mission.leaseId, { mode, leadId });
           } catch (error) {
             await heartbeatInFlight.catch(() => undefined);
-            if (!leaseLost) await queue.fail(mission.id, mission.leaseId, String((error as any)?.message || error), true);
+            if (!leaseLost) {
+              const message = String((error as any)?.message || error);
+              const failed = await queue.fail(mission.id, mission.leaseId, message, true);
+              const payload = mission.payload || {};
+              const leadId = String(payload.leadId || '').trim();
+              const companyId = Math.trunc(Number(payload.companyId || 0));
+              const userId = Math.trunc(Number(payload.userId || 0));
+              const mode = String(payload.mode || '');
+              if (leadId && companyId && userId && (mode === 'web' || mode === 'social')) {
+                await this.getRadarRunRepository().markEnrichmentJobState(
+                  { companyId, userId, user: null } as SearchExecutionContext,
+                  leadId,
+                  {
+                    type: mode === 'web' ? 'radar_web_enrichment' : 'social_lookup',
+                    status: failed.status === 'dead' ? 'failed' : 'queued',
+                    error: message,
+                    traceId: mission.id,
+                  },
+                ).catch(() => null);
+              }
+            }
           } finally {
             if (heartbeatTimer) clearInterval(heartbeatTimer);
           }
@@ -1197,19 +1231,43 @@ export class RadarCoreSearchLoopMixin {
         normalized,
         runId,
         Math.max(0, safeInteger(normalized.quantity) - safeInteger(current.foundCount)),
-      ).catch(() => ({ accepted: 0, ran: false }));
+        { deferPersistence: true },
+      ).catch(() => ({ accepted: 0, ran: false, results: [] }));
 
       const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput) || this.isSocialDiscoveryQuery(queryUsed);
-      const batchResponse = await this.searchHbxEngine(
-        engineBatchInput,
-        excludePhoneDigits,
-        engineUrl,
-        {
-          queryText: sendExplicitQuery ? queryUsed : undefined,
-          batchLimit: quantity,
-          timeoutMs: this.isSocialDiscoveryQuery(queryUsed) ? this.getHbxSocialBatchTimeoutMs() : this.getHbxBatchTimeoutMs(),
-        },
-      );
+      let batchResponse;
+      try {
+        batchResponse = await this.searchHbxEngine(
+          engineBatchInput,
+          excludePhoneDigits,
+          engineUrl,
+          {
+            queryText: sendExplicitQuery ? queryUsed : undefined,
+            batchLimit: quantity,
+            timeoutMs: this.isSocialDiscoveryQuery(queryUsed) ? this.getHbxSocialBatchTimeoutMs() : this.getHbxBatchTimeoutMs(),
+          },
+        );
+      } catch (error) {
+        // A fusão precisa esperar o motor; se ele cair, a Receita não pode ser perdida.
+        // Persiste somente o lote oficial e mantém o erro do motor no fluxo de retry já existente.
+        if (cnpjOutcome.results.length) {
+          const rfbSaved = await this.saveSearchRunResults(
+            context,
+            batchInput,
+            runId,
+            cnpjOutcome.results,
+            'cnpj_public',
+          );
+          await this.enqueueRadarPostSaveEnrichmentForSavedLeads(
+            context,
+            runId,
+            batchInput,
+            rfbSaved?.savedLeadIds,
+            rfbSaved?.savedWebEnrichmentLeadIds,
+          );
+        }
+        throw error;
+      }
       const runAfterEngine = await this.prisma.webscrapingSearchRun.findUnique({
         where: { id: runId },
         select: { status: true },
@@ -1226,13 +1284,20 @@ export class RadarCoreSearchLoopMixin {
           pagesFetched: batchResponse.pagesFetched,
         },
       });
-      const incoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
+      const webIncoming = Array.isArray(batchResponse.results) ? batchResponse.results : [];
+      const canonicalBatch = this.getRadarResultMerger().mergeCanonicalRfbWithWeb({
+        rfbResults: cnpjOutcome.results,
+        webResults: webIncoming,
+        city: batchInput.city,
+        state: batchInput.state,
+      });
+      const incoming = canonicalBatch.results;
       const savedCounts = await this.saveSearchRunResults(
         context,
         batchInput,
         runId,
         incoming,
-        'hbx',
+        null,
         safeInteger(current.attemptCount) * batchLimit,
         engineUrl,
       );
@@ -1257,7 +1322,8 @@ export class RadarCoreSearchLoopMixin {
       // ordem real desta tentativa — RFB (se rodou) sempre antes do web.
       this.logger?.log?.(
         `[radar-cadeia] run ${runId} attempt ${attempt}: ordem=${cnpjOutcome.ran ? 'rfb->web' : 'web'} `
-        + `rfb_accepted=${cnpjOutcome.accepted} web_accepted=${approvedCount}`,
+        + `rfb_candidates=${cnpjOutcome.accepted} fused=${canonicalBatch.matchedCount} `
+        + `ambiguous=${canonicalBatch.ambiguousCount} web_unmatched=${canonicalBatch.unmatchedWebCount} accepted=${approvedCount}`,
       );
 
       if (approvedCount > 0) {

@@ -1339,7 +1339,6 @@ export class RadarCoreQualityEnrichmentMixin {
         finalStatus === 'found'
         && normalized.targetType === 'pj'
         && savedItem?.id
-        && (!resultInstagramUrl || !resultFacebookUrl)
       ) {
         counts.savedLeadIds.push(String(savedItem.id));
       }

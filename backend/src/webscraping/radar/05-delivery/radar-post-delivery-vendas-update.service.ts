@@ -67,6 +67,83 @@ function buildDescription(payload: Record<string, any>) {
 
 @Injectable()
 export class RadarPostDeliveryVendasUpdateService {
+  async recordEnrichmentJobStates(input: {
+    prisma: any;
+    context: SearchExecutionContext;
+    row: any;
+    vendasLeadId?: string | null;
+    jobs: any[];
+  }) {
+    const vendasLeadId = stringOrNull(input.vendasLeadId) || await this.resolveVendasLeadId(input);
+    if (!vendasLeadId || !Array.isArray(input.jobs)) return;
+    const timeline = input.prisma?.vendasLeadTimelineEvent;
+    if (!timeline) return;
+    const raw = parseMaybeJsonObject(input.row?.rawJson);
+    const metadata = parseMaybeJsonObject(input.row?.metadataJson);
+    const enrichment = parseMaybeJsonObject(input.row?.enrichmentJson);
+    const signals = parseMaybeJsonObject(input.row?.signalsJson || enrichment.signals || metadata.signals);
+    const evidence = parseMaybeJsonObject(input.row?.evidenceJson || enrichment.evidence || metadata.evidence);
+    const usefulValue = (field: string) => (
+      input.row?.[field]
+      ?? enrichment[field]
+      ?? metadata[field]
+      ?? raw[field]
+      ?? null
+    );
+    for (const job of input.jobs) {
+      const type = String(job?.type || '').trim();
+      if (type !== 'radar_web_enrichment' && type !== 'social_lookup') continue;
+      const idempotencyKey = `radar_enrichment:${type}`;
+      const existing = await timeline.findFirst({
+        where: { leadId: vendasLeadId, idempotencyKey },
+        select: { id: true, description: true },
+      }).catch(() => null);
+      const now = new Date();
+      const previousDescription = parseMaybeJsonObject(existing?.description);
+      const description = JSON.stringify({
+        ...previousDescription,
+        radarLeadId: input.row?.id || null,
+        website: usefulValue('website'),
+        email: usefulValue('email'),
+        emailStatus: usefulValue('emailStatus'),
+        instagramUrl: usefulValue('instagramUrl'),
+        facebookUrl: usefulValue('facebookUrl'),
+        socialStatus: usefulValue('socialStatus'),
+        socialConfidence: usefulValue('socialConfidence'),
+        recommendedChannel: usefulValue('recommendedChannel'),
+        opportunityReason: usefulValue('opportunityReason'),
+        enrichmentStatus: String(job?.status || 'queued'),
+        enrichment: { ...parseMaybeJsonObject(previousDescription.enrichment), ...metadata, ...enrichment },
+        metadata,
+        signals: { ...parseMaybeJsonObject(previousDescription.signals), ...signals },
+        evidence: { ...parseMaybeJsonObject(previousDescription.evidence), ...evidence },
+        possibleSocialCandidates: arrayOrEmpty(
+          usefulValue('possibleSocialCandidates') || enrichment.possibleSocialCandidates || metadata.possibleSocialCandidates,
+        ),
+        confirmedSocialCandidates: arrayOrEmpty(
+          usefulValue('confirmedSocialCandidates') || enrichment.confirmedSocialCandidates || metadata.confirmedSocialCandidates,
+        ),
+        asyncEnrichmentJobs: input.jobs,
+        postDeliveryJobs: input.jobs,
+        job,
+        postDeliveryUpdate: true,
+        updatedAt: now.toISOString(),
+      });
+      const data = {
+        eventType: `radar_enrichment_${type}`,
+        title: type === 'social_lookup' ? 'Enriquecimento social do Radar' : 'Enriquecimento web do Radar',
+        description,
+        sourceType: 'radar_enrichment',
+        resultLabel: String(job?.status || 'queued'),
+        createdByUserId: input.context.userId,
+        idempotencyKey,
+        createdAt: now,
+      };
+      if (existing?.id) await timeline.update({ where: { id: existing.id }, data }).catch(() => null);
+      else await timeline.create({ data: { leadId: vendasLeadId, ...data } }).catch(() => null);
+    }
+  }
+
   async resolveVendasLeadId(input: {
     prisma: any;
     context: SearchExecutionContext;

@@ -434,9 +434,9 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
   }
 
   /**
-   * Full free-chain backfill para o master:
-   *   (a) web-enrichment discovery (site/social/email + CNPJ-by-name via Brave) para leads sem site e sem CNPJ
-   *   (b) L4 `enrichRow` (CNPJ → razão/CNAE/sócio/situação via dataset local + BrasilAPI)
+   * Backfill cadastral para o master:
+   *   (a) L4 `enrichRow` somente para CNPJ já comprovado pela RFB
+   *   (b) sociais do dono quando o QSA da RFB trouxe um responsável
    *   (c) L1 `enrichSignals` (DDD/região/sinais via metadataJson atualizado)
    * NÃO inclui L5/whatsapp-check (risco de ban).
    * Parâmetros: limit (default 200). Devolve { scanned, enriched, errors, sitesFound, cnpjsFound }.
@@ -446,13 +446,6 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     // Worker 1 "CNPJ → dono": por padrão também caça as redes sociais DO DONO.
     const withSocials = opts.socials !== false;
     let socialBudget = withSocials ? 40 : 0;
-    // ORÇAMENTO BRAVE por execução. Brave free = 2.000 buscas/mês; 1 busca "CNPJ por nome" por
-    // lead sem site queimaria o mês numa única passada (5.900+ leads). Teto por execução +
-    // marcador `cnpjTriedAt` (faz o cursor AVANÇAR pela base, não re-moer os mesmos leads novos).
-    const braveBudgetMax = Math.max(0, Number(process.env.HBX_CNPJ_BACKFILL_BRAVE_BUDGET ?? 40) || 0);
-    let braveBudget = braveBudgetMax;
-    const retryAfterMs = Math.max(1, Number(process.env.HBX_CNPJ_BACKFILL_RETRY_DAYS ?? 14) || 14) * 24 * 60 * 60 * 1000;
-    const nowMs = Date.now();
     const prisma = this.internalPrisma as any;
 
     // Pega um lote grande e filtra em memória (campos JSON não são filtráveis no DB de forma segura).
@@ -469,26 +462,26 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
         return typeof v === 'object' ? v : JSON.parse(v);
       } catch { return {}; }
     };
+    const parseEvidence = (row: any): Record<string, any> => {
+      try {
+        const v = row.evidenceJson;
+        if (!v) return {};
+        return typeof v === 'object' ? v : JSON.parse(v);
+      } catch { return {}; }
+    };
 
-    // Dois grupos de pendência, em ordem de PRIORIDADE:
-    //   (1) tem CNPJ mas L4 incompleto → barato (só BrasilAPI), zero Brave.
-    //   (2) sem site, sem CNPJ, não tentado há `retryAfterMs` → Brave CNPJ-por-nome (com teto).
-    // Lead COM site fica de fora aqui — quem cobre é o crawl local (Tipo 2, ilimitado/grátis).
+    // Apenas CNPJ cuja origem RFB está registrada pode subir para o L4. CNPJ histórico de
+    // qualquer outra fonte é preservado, mas não é promovido nem completado neste estágio.
     const l4Pending: any[] = [];
-    const bravePending: any[] = [];
     for (const row of candidates) {
       const meta = parseMeta(row);
-      const cnpjDigits = String(meta?.cnpj || row?.cnpj || '').replace(/\D/g, '');
-      const hasCnpj = cnpjDigits.length >= 14;
+      const evidence = parseEvidence(row);
+      const rfbCnpj = String(evidence?.cnpjPublic?.cnpj || '').replace(/\D/g, '');
       const l4Complete = Boolean(meta?.razaoSocial)
         && (Boolean(meta?.ownerName) || (Array.isArray(meta?.ownerNames) && meta.ownerNames.length > 0));
-      const hasSite = Boolean(String(row?.website || '').trim());
-      const triedAt = Number(meta?.cnpjTriedAt || 0);
-      const triedRecently = triedAt > 0 && (nowMs - triedAt) < retryAfterMs;
-      if (hasCnpj && !l4Complete) { l4Pending.push(row); continue; }
-      if (!hasSite && !hasCnpj && !triedRecently) { bravePending.push(row); }
+      if (rfbCnpj.length === 14 && !l4Complete) l4Pending.push(row);
     }
-    const pending = [...l4Pending, ...bravePending].slice(0, limit);
+    const pending = l4Pending.slice(0, limit);
 
     const l4Enricher = new RadarCnpjL4EnrichmentService();
     const l1Enricher = new RadarPublicDataService();
@@ -504,45 +497,20 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
     for (const row of pending) {
       try {
         const metaBefore = parseMeta(row);
-        const hasSiteBefore = Boolean(String(row?.website || '').trim());
-        const hasCnpjBefore = String(metaBefore?.cnpj || row?.cnpj || '').replace(/\D/g, '').length >= 14;
 
-        // (a) CNPJ por NOME p/ lead SEM site e SEM CNPJ: base LOCAL da RFB primeiro (SELECT,
-        // zero API — Sprint 2 MOTOR-RFB-FILA), Brave só no que o local não resolve. Marca SEMPRE
-        // `cnpjTriedAt` (achando ou não) pra o backfill AVANÇAR e não re-moer o mesmo lead novo.
-        // Teto de Brave por execução (orçamento free). O run() completo (16s/lead,
-        // busca de site/social) foi removido daqui de propósito: estourava o timeout e a
-        // descoberta de site rende pouco — quem acha e-mail/telefone é o crawl local (Tipo 2,
-        // ilimitado). Com CNPJ em mãos, o passo (b) L4 dispara → razão/dono/telefone do dono.
-        if (!hasSiteBefore && !hasCnpjBefore && braveBudget > 0) {
-          braveBudget -= 1;
-          const found = await webEnrichService.discoverCnpjByName(globalThis.fetch, {
-            name: String(row.name || ''),
-            city: String(row.city || ''),
-            state: String(row.state || '') || null,
-          }, prisma).catch(() => null);
-          const patchedMeta = { ...metaBefore, cnpjTriedAt: nowMs, ...(found ? { cnpj: found } : {}) };
-          await prisma.radarLeadPool.update({
-            where: { id: row.id },
-            data: { metadataJson: JSON.stringify(patchedMeta) },
-          }).catch(() => null);
-          row.metadataJson = patchedMeta;
-          if (found) { cnpjsFound += 1; enriched += 1; }
-        }
-
-        // (b) L4 enrichment: CNPJ → razão/CNAE/sócio/situação/telefone do dono
+        // (a) L4 enrichment: CNPJ RFB → razão/CNAE/sócio/situação/telefone do dono
         const hadPhoneBefore = Boolean(metaBefore?.ownerPhone);
         const l4Result = await l4Enricher.enrichRow(prisma, row);
         if (l4Result !== null) {
           enriched += 1;
           const metaAfterL4 = parseMeta({ metadataJson: l4Result });
-          // cnpjsFound é contabilizado no passo (a); aqui só telefone do dono (novo).
+          // O CNPJ já existia na RFB; aqui só contabilizamos telefone do dono novo.
           if (metaAfterL4?.ownerPhone && !hadPhoneBefore) phonesFound += 1;
           // Update in-memory metadataJson so L1 sees the fresh data
           row.metadataJson = l4Result;
         }
 
-        // (b2) Sociais DO DONO: com o nome do sócio em mãos, caça o perfil pessoal dele.
+        // (b) Sociais DO DONO: com o nome do sócio em mãos, caça o perfil pessoal dele.
         // Best-effort, gasta orçamento por execução; não bloqueia a cadeia se falhar.
         const metaForSocial = parseMeta(row);
         const ownerForSocial = String(metaForSocial?.ownerName || (Array.isArray(metaForSocial?.ownerNames) ? metaForSocial.ownerNames[0] : '') || '').trim();
@@ -589,9 +557,8 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
   }
 
   /**
-   * Worker 2 "Email finder" — aplica nos cards EXISTENTES o que o Local Lab achou (e-mail/CNPJ/
-   * redes), casando por `id`. ADITIVO: só preenche campo vazio, nunca sobrescreve dado já bom.
-   * E-mail → coluna email; CNPJ/razão → metadataJson; instagram/facebook → colunas próprias.
+   * Worker 2 "Email finder" — aplica nos cards EXISTENTES o que o Local Lab achou (e-mail/
+   * redes), casando por `id`. CNPJ recebido é ignorado: identidade canônica vem somente da RFB.
    */
   async applyDiscoveredContactsForMaster(
     items: Array<{ id?: string; email?: string; emails?: string[]; phones?: string[]; cnpj?: string; instagramUrl?: string; facebookUrl?: string }> = [],
@@ -690,13 +657,6 @@ export class WebscrapingService extends RadarWebscrapingCoreService {
             const firstWithWa = (meta.phones as string[]).find((p) => waStore[String(p).replace(/\D/g, '')] === true);
             if (firstWithWa) data.phone = firstWithWa;
           }
-        }
-
-        const cnpj = String(item?.cnpj || '').replace(/\D/g, '');
-        if (cnpj.length === 14 && !String(meta.cnpj || '').replace(/\D/g, '')) {
-          meta.cnpj = cnpj;
-          metaChanged = true;
-          cnpjs += 1;
         }
 
         const ig = String(item?.instagramUrl || '').trim();

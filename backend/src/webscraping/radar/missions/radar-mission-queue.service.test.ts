@@ -159,7 +159,7 @@ test('pausa real: cursor desligado/ausente → lease devolve vazio e nada drena'
   }
 });
 
-test('job interno enrich_search_item respeita a pausa absoluta da fila', async () => {
+test('enrich_search_item de pesquisa manual nao herda a pausa da fabrica', async () => {
   const { service } = buildService({ cursorEnabled: false });
   await service.enqueue({
     stage: 'enrich_search_item',
@@ -171,8 +171,9 @@ test('job interno enrich_search_item respeita a pausa absoluta da fila', async (
     stages: ['enrich_search_item'],
     batchSize: 1,
   });
-  assert.equal(result.paused, true);
-  assert.equal(result.missions.length, 0);
+  assert.equal(result.paused, false);
+  assert.equal(result.missions.length, 1);
+  assert.equal(result.missions[0].stage, 'enrich_search_item');
 });
 
 test('pausa falha fechada quando tabela existe mas delegate Prisma legado nao existe', async () => {

@@ -3538,6 +3538,13 @@ export class RadarCoreDeliveryMixin {
         },
       }),
     ]).catch(() => null);
+    await this.getRadarPostDeliveryVendasUpdate().recordEnrichmentJobStates({
+      prisma: this.prisma,
+      context,
+      row: leadRow,
+      vendasLeadId,
+      jobs: deliveredState.jobs,
+    }).catch(() => null);
     await this.recordRadarLeadEvent({
       leadId: leadRow.id,
       companyId: context.companyId,

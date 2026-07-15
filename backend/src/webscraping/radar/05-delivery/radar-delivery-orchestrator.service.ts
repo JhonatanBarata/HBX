@@ -43,9 +43,23 @@ export class RadarDeliveryOrchestratorService {
       ...enrichment,
       ...(input.lead || {}),
     };
+    const persistedJobs = Array.isArray(raw.asyncEnrichmentJobs)
+      ? raw.asyncEnrichmentJobs
+      : Array.isArray(raw.postDeliveryJobs)
+        ? raw.postDeliveryJobs
+        : [];
+    const pendingJobs = this.getPostDeliveryUpdate().buildPendingJobs({ now });
+    const persistedByType = new Map(
+      persistedJobs
+        .filter((job: any) => job && String(job.type || '').trim())
+        .map((job: any) => [String(job.type), job]),
+    );
     const jobs = Array.isArray(input.jobs) && input.jobs.length
       ? input.jobs
-      : this.getPostDeliveryUpdate().buildPendingJobs({ now });
+      : [
+          ...pendingJobs.map((job) => persistedByType.get(String(job.type)) || job),
+          ...persistedJobs.filter((job: any) => !pendingJobs.some((pending) => String(pending.type) === String(job?.type))),
+        ];
     const postDeliveryUpdate = this.getPostDeliveryUpdate().buildScheduledState({ now, jobs });
     const snapshot = buildRadarStageSnapshot({
       ...raw,
@@ -59,6 +73,7 @@ export class RadarDeliveryOrchestratorService {
       deliveredAt: now,
       deliveryDeliveredAt: now,
       vendasLeadId,
+      asyncEnrichmentJobs: jobs,
       postDeliveryJobs: jobs,
       postDeliveryUpdate,
     };
