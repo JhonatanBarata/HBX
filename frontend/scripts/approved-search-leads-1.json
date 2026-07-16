@@ -26,19 +26,19 @@
   {
     "kind": "text",
     "old": "setPage(1);\nsetTab(\"shelf\");\ntry { localStorage.removeItem(\"hbx:leads-filters\"); } catch { /* sem storage */ }\nloadList(\"shelf\", { page: 1, quantosOverride: 5 });",
-    "new": "setPage(1);\nsetTab(\"shelf\");\nsetHasSearched(false);\nsetHistoryHidden(false);\nsetLiveRunItems(null);\ntry { localStorage.removeItem(\"hbx:leads-filters\"); } catch { /* sem storage */ }",
+    "new": "setPage(1);\nsetTab(\"shelf\");\nsetHasSearched(false);\nsetLiveRunItems(null);\ntry { localStorage.removeItem(\"hbx:leads-filters\"); } catch { /* sem storage */ }",
     "label": "stop clear filter request"
   },
   {
     "kind": "text",
     "old": "  setPage(1);\n  setSelected(new Set());\n  setTab(\"shelf\");\n  loadList(\"shelf\", { page: 1 });\n}\n\n// ── WORM-15: pesquisas salvas",
-    "new": "  setPage(1);\n  setSelected(new Set());\n  setTab(\"shelf\");\n  setHasSearched(false);\n  setHistoryHidden(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n}\n\n// ── WORM-15: pesquisas salvas",
+    "new": "  setPage(1);\n  setSelected(new Set());\n  setTab(\"shelf\");\n  setHasSearched(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n}\n\n// ── WORM-15: pesquisas salvas",
     "label": "stop advanced filter request"
   },
   {
     "kind": "text",
     "old": "  setSavedBar(false);\n  setSavedMsg(`Pesquisa \"${s.nome}\" aplicada.`);\n  loadList(\"shelf\", { page: 1, quantosOverride: nextQtd });\n}",
-    "new": "  setSavedBar(false);\n  setSavedMsg(`Pesquisa \"${s.nome}\" aplicada.`);\n  setHasSearched(false);\n  setHistoryHidden(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n  setSelected(new Set());\n}",
+    "new": "  setSavedBar(false);\n  setSavedMsg(`Pesquisa \"${s.nome}\" aplicada.`);\n  setHasSearched(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n  setSelected(new Set());\n}",
     "label": "stop saved search request"
   },
   {
