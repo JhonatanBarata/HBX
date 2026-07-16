@@ -1,12 +1,17 @@
 export const VIDEO_TARGETS = Object.freeze({
   commercial: {
     title: 'HBX Entregas — vídeo comercial',
+    layout: 'desktop',
     scenes: [
       {
         id: 'opening',
-        source: 'opening',
+        source: 'card',
         duration: 7.2,
-        title: 'HBX Entregas',
+        card: {
+          eyebrow: 'HBX SYSTEM',
+          title: 'HBX Entregas',
+          subtitle: 'Rotas, clientes e recebimentos na mesma operação.',
+        },
         narration: 'Sua operação de entregas, conectada do começo ao fim.',
       },
       {
@@ -85,6 +90,7 @@ export const VIDEO_TARGETS = Object.freeze({
   },
   'tutorial-admin': {
     title: 'HBX Entregas — tutorial do administrador',
+    layout: 'desktop',
     scenes: [
       {
         id: 'admin-intro',
@@ -143,6 +149,7 @@ export const VIDEO_TARGETS = Object.freeze({
   },
   'tutorial-entregador': {
     title: 'HBX Entregas — tutorial do entregador',
+    layout: 'mobile',
     scenes: [
       {
         id: 'driver-intro',
@@ -153,17 +160,17 @@ export const VIDEO_TARGETS = Object.freeze({
       },
       {
         id: 'driver-start',
-        source: 'app',
+        source: 'native',
         route: '/entrega',
         scenario: 'fresh-driver',
         action: 'start-route',
-        duration: 9.0,
-        caption: { eyebrow: 'PASSO 1', title: 'Confira o dia e toque em Iniciar rota.', position: 'top' },
-        narration: 'Confira as entregas do dia e toque em Iniciar rota.',
+        duration: 14.0,
+        caption: { eyebrow: 'PASSO 1', title: 'Escolha o dia, confira a prévia e inicie a rota.', position: 'top' },
+        narration: 'Toque em Iniciar rota, escolha o dia e confira a prévia antes de confirmar.',
       },
       {
         id: 'driver-stop',
-        source: 'app',
+        source: 'native',
         route: '/entrega',
         scenario: 'fresh-driver',
         prepare: 'route-ready',
@@ -173,25 +180,25 @@ export const VIDEO_TARGETS = Object.freeze({
       },
       {
         id: 'driver-arrival',
-        source: 'app',
+        source: 'native',
         route: '/entrega',
         scenario: 'fresh-driver',
         prepare: 'route-ready',
         action: 'arrival-adjust',
         duration: 8.0,
-        caption: { eyebrow: 'PASSO 3', title: 'Toque em Cheguei e confira a quantidade entregue.', position: 'top' },
-        narration: 'Ao chegar, toque em Cheguei e ajuste a quantidade quando for necessário.',
+        caption: { eyebrow: 'PASSO 3', title: 'Abra a parada e confira a quantidade entregue.', position: 'top' },
+        narration: 'Abra a parada, confira a quantidade entregue e ajuste se necessário.',
       },
       {
         id: 'driver-confirm',
-        source: 'app',
+        source: 'native',
         route: '/entrega',
         scenario: 'fresh-driver',
         prepare: 'route-ready',
         action: 'arrival-confirm',
-        duration: 11.0,
-        caption: { eyebrow: 'PASSO 4', title: 'Registre o recebimento e confirme a entrega.', position: 'top' },
-        narration: 'Escolha a forma de recebimento e toque em Entregue. O HBX salva e prepara a próxima parada.',
+        duration: 10.0,
+        caption: { eyebrow: 'PASSO 4', title: 'Confirme a entrega e avance para a próxima parada.', position: 'top' },
+        narration: 'Toque em Confirmar entrega. O HBX salva e prepara a próxima parada.',
       },
       {
         id: 'driver-outro',

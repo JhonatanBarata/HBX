@@ -40,10 +40,12 @@ async function main() {
   add('Abertura Android real', await exists(OPENING_SOURCE), OPENING_SOURCE);
 
   const opening = await fs.readFile(OPENING_SOURCE, 'utf8').catch(() => '');
+  const hasOpeningCore = opening.includes('HBX Mobile — Abertura') && opening.includes('class="hub-wrap"');
+  const hasOpeningHandoff = opening.includes('class="pairing"') || opening.includes('class="handoff"');
   add(
     'Contrato da abertura',
-    opening.includes('HBX Mobile — Abertura') && opening.includes('class="hub-wrap"') && opening.includes('class="pairing"'),
-    'opening.html contém núcleo, animação e tela de vínculo',
+    hasOpeningCore && hasOpeningHandoff,
+    'opening.html contém núcleo, animação e superfície de transição',
   );
 
   add('FFmpeg', commandExists('ffmpeg', ['-version']), 'necessário para MP4, transições, poster e áudio');

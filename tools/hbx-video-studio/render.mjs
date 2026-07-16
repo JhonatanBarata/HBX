@@ -36,15 +36,18 @@ async function findNativeOverride(target, sceneId) {
   return null;
 }
 
-async function normalizeClip(clip, index, dir, target) {
+async function normalizeClip(clip, index, dir, target, canvas) {
   const nativeOverride = await findNativeOverride(target, clip.id);
   const sourceFile = nativeOverride || clip.file;
+  if (!sourceFile) {
+    throw new Error(`A cena ${clip.id} de ${target} exige uma captura Android em tools/hbx-video-studio/native/${target}/${clip.id}.mp4.`);
+  }
   const trimStart = nativeOverride ? 0 : clip.trimStart;
   const out = path.join(dir, `${String(index + 1).padStart(2, '0')}-${clip.id}.mp4`);
   const vf = [
     `fps=${DEFAULT_FPS}`,
-    `scale=${VERTICAL_OUTPUT.width}:${VERTICAL_OUTPUT.height}:force_original_aspect_ratio=decrease`,
-    `pad=${VERTICAL_OUTPUT.width}:${VERTICAL_OUTPUT.height}:(ow-iw)/2:(oh-ih)/2:black`,
+    `scale=${canvas.width}:${canvas.height}:force_original_aspect_ratio=decrease`,
+    `pad=${canvas.width}:${canvas.height}:(ow-iw)/2:(oh-ih)/2:black`,
     'setsar=1',
     `tpad=stop_mode=clone:stop_duration=${clip.duration.toFixed(3)}`,
     'format=yuv420p',
@@ -170,6 +173,29 @@ async function makeHorizontal(verticalFile, outputFile) {
   ], { shell: false });
 }
 
+async function makeVertical(horizontalFile, outputFile) {
+  const filter = [
+    '[0:v]split=2[bg][fg]',
+    `[bg]scale=${VERTICAL_OUTPUT.width}:${VERTICAL_OUTPUT.height}:force_original_aspect_ratio=increase,crop=${VERTICAL_OUTPUT.width}:${VERTICAL_OUTPUT.height},boxblur=24:2[bg2]`,
+    '[fg]scale=1040:-2[fg2]',
+    '[bg2][fg2]overlay=(W-w)/2:(H-h)/2,setsar=1,format=yuv420p[v]',
+  ].join(';');
+  await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'warning',
+    '-y',
+    '-i', horizontalFile,
+    '-filter_complex', filter,
+    '-map', '[v]',
+    '-map', '0:a:0?',
+    '-c:v', 'libx264',
+    '-preset', 'medium',
+    '-crf', '18',
+    '-c:a', 'copy',
+    '-movflags', '+faststart',
+    outputFile,
+  ], { shell: false });
+}
+
 async function makePoster(videoFile, outputFile) {
   await run('ffmpeg', [
     '-hide_banner', '-loglevel', 'warning',
@@ -219,25 +245,33 @@ async function renderTarget(target) {
   const targetWork = path.join(WORK_DIR, target, 'render');
   const normalizedDir = await resetDir(path.join(targetWork, 'normalized'));
   const silentMaster = path.join(targetWork, `${target}-silent.mp4`);
+  const desktopLayout = manifest.layout === 'desktop';
+  const canvas = desktopLayout ? HORIZONTAL_OUTPUT : VERTICAL_OUTPUT;
   await ensureDir(OUTPUT_DIR);
 
   console.log(`\n[video] normalizando ${target}`);
   const normalized = [];
   const nativeOverrides = [];
   for (let index = 0; index < manifest.clips.length; index += 1) {
-    const normalizedClip = await normalizeClip(manifest.clips[index], index, normalizedDir, target);
+    const normalizedClip = await normalizeClip(manifest.clips[index], index, normalizedDir, target, canvas);
     normalized.push(normalizedClip.file);
     if (normalizedClip.nativeOverride) nativeOverrides.push({ scene: manifest.clips[index].id, file: normalizedClip.nativeOverride });
   }
 
   console.log(`[video] aplicando transições em ${target}`);
   const totalDuration = await joinWithTransitions(normalized, manifest.clips, silentMaster);
-  const verticalOutput = path.join(OUTPUT_DIR, `${target}-vertical.mp4`);
-  const audio = await addAudio(silentMaster, target, totalDuration, verticalOutput);
-
-  console.log(`[video] gerando versão horizontal de ${target}`);
   const horizontalOutput = path.join(OUTPUT_DIR, `${target}-horizontal.mp4`);
-  await makeHorizontal(verticalOutput, horizontalOutput);
+  const verticalOutput = path.join(OUTPUT_DIR, `${target}-vertical.mp4`);
+  let audio;
+  if (desktopLayout) {
+    audio = await addAudio(silentMaster, target, totalDuration, horizontalOutput);
+    console.log(`[video] gerando versão vertical de ${target}`);
+    await makeVertical(horizontalOutput, verticalOutput);
+  } else {
+    audio = await addAudio(silentMaster, target, totalDuration, verticalOutput);
+    console.log(`[video] gerando versão horizontal de ${target}`);
+    await makeHorizontal(verticalOutput, horizontalOutput);
+  }
 
   const posterOutput = path.join(OUTPUT_DIR, `${target}-poster.jpg`);
   await makePoster(verticalOutput, posterOutput);

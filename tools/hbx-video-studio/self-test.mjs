@@ -30,10 +30,11 @@ function validateContent() {
     for (const scene of config.scenes) {
       assert.ok(!ids.has(scene.id), `cena duplicada em ${target}: ${scene.id}`);
       ids.add(scene.id);
-      assert.ok(['app', 'opening', 'card'].includes(scene.source), `fonte inválida: ${scene.id}`);
+      assert.ok(['app', 'opening', 'card', 'native'].includes(scene.source), `fonte inválida: ${scene.id}`);
       assert.ok(Number(scene.duration) >= 2, `duração curta/inválida: ${scene.id}`);
       assert.ok(String(scene.narration || '').trim().length > 0, `narração ausente: ${scene.id}`);
       if (scene.source === 'app') assert.match(scene.route, /^\/entrega(?:\/|$)/, `rota fora do app: ${scene.id}`);
+      if (scene.source === 'native') assert.equal(target, 'tutorial-entregador', `cena nativa fora do tutorial: ${scene.id}`);
     }
   }
 }
