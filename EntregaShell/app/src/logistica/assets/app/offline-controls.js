@@ -24,6 +24,9 @@
     .hbx-offline-option strong{display:block;font-size:.86rem}.hbx-offline-option small{display:block;margin-top:3px;opacity:.68;line-height:1.35}
     .hbx-offline-actions{display:flex;align-items:center;gap:10px;margin-top:13px}.hbx-offline-actions button{flex:1}
     .hbx-offline-metric{font-size:.72rem;opacity:.66;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .hbx-route-schematic{position:relative;width:100%;min-height:190px;padding:8px 8px 28px;box-sizing:border-box;background:linear-gradient(145deg,color-mix(in srgb,var(--surface,#fff) 92%,#78c900 8%),var(--surface,#fff));border-radius:inherit;overflow:hidden}
+    .hbx-route-schematic svg{display:block;width:100%;height:160px}.hbx-route-schematic path{fill:none;stroke:#78c900;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;opacity:.82}.hbx-route-schematic circle{fill:var(--surface,#fff);stroke:#78c900;stroke-width:3}.hbx-route-schematic text{fill:currentColor;font:700 11px system-ui;text-anchor:middle;dominant-baseline:central}
+    .hbx-route-schematic small{position:absolute;left:12px;right:12px;bottom:8px;text-align:center;font-size:.68rem;opacity:.65}
   `;
   document.head.appendChild(style);
 
@@ -145,7 +148,46 @@
     });
   }
 
+  function ensureOfflineSchematic() {
+    const host = document.getElementById("route-live-map");
+    if (!host) return;
+    const unavailable = !!host.querySelector(".route-map-unavailable");
+    if (navigator.onLine && !unavailable) return;
+    if (host.dataset.hbxOfflineSchematic === "1" && host.querySelector(".hbx-route-schematic")) return;
+    const route = H.cache.get("logistica-route", null);
+    const rows = route && Array.isArray(route.items) ? route.items : [];
+    const points = rows
+      .map((item, index) => {
+        const client = item && item.cliente || {};
+        const lat = Number(client.lat);
+        const lng = Number(client.lng);
+        const order = Number.isFinite(Number(item && item.rotaOrdem)) ? Number(item.rotaOrdem) : index;
+        return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0) ? { lat, lng, order } : null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.order - b.order);
+    if (!points.length) return;
+    const minLat = Math.min(...points.map(point => point.lat));
+    const maxLat = Math.max(...points.map(point => point.lat));
+    const minLng = Math.min(...points.map(point => point.lng));
+    const maxLng = Math.max(...points.map(point => point.lng));
+    const width = 320; const height = 160; const pad = 18;
+    const lngSpan = Math.max(.0001, maxLng - minLng);
+    const latSpan = Math.max(.0001, maxLat - minLat);
+    const projected = points.map((point, index) => ({
+      x: pad + ((point.lng - minLng) / lngSpan) * (width - pad * 2),
+      y: height - pad - ((point.lat - minLat) / latSpan) * (height - pad * 2),
+      number: index + 1,
+    }));
+    const path = projected.map(point => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" ");
+    const markers = projected.map(point => `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="10"></circle><text x="${point.x.toFixed(1)}" y="${point.y.toFixed(1)}">${point.number}</text>`).join("");
+    host.innerHTML = `<div class="hbx-route-schematic"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Sequência offline da rota"><path d="M ${path.replace(/ /g, " L ")}"></path>${markers}</svg><small>Visão offline da sequência · o mapa de ruas volta quando houver conexão</small></div>`;
+    host.dataset.hbxOfflineSchematic = "1";
+    host.classList.add("is-ready");
+  }
+
   function renderOffline(s) {
+    ensureOfflineSchematic();
     const signature = JSON.stringify({
       route: s.routeId,
       hasRoute: s.hasRoute,
