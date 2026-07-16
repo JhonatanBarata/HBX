@@ -1,0 +1,62 @@
+[
+  {
+    "kind": "text",
+    "old": "const [data, setData] = useState<LeadsResponse | null>(null);\nconst [loadError, setLoadError] = useState<string | null>(null);\nconst [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });",
+    "new": "const [data, setData] = useState<LeadsResponse | null>(null);\nconst [loadError, setLoadError] = useState<string | null>(null);\nconst [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });\n// APPROVED-COMPANY-SEARCH-UX: histórico e resultado são estados distintos.\nconst [hasSearched, setHasSearched] = useState(false);\nconst [historyHidden, setHistoryHidden] = useState(false);",
+    "label": "add search history state"
+  },
+  {
+    "kind": "text",
+    "old": "async function pullGeoLocation() {\n  if (!geo || geoBusy) return;\n  setGeoBusy(true);",
+    "new": "async function pullGeoLocation() {\n  if (!geo || geoBusy) return;\n  markFiltersDirty();\n  setGeoBusy(true);",
+    "label": "mark geolocation dirty"
+  },
+  {
+    "kind": "text",
+    "old": "const filtersTouched = useRef(false);\nuseEffect(() => {\n  if (!filtersTouched.current) { filtersTouched.current = true; return; }\n  const handle = setTimeout(() => { setPage(1); setSelected(new Set()); loadList(tab, { page: 1 }); }, 300);\n  return () => clearTimeout(handle);\n  // eslint-disable-next-line react-hooks/exhaustive-deps\n}, [segment, city, uf, siteFiltro, zapFiltro]);",
+    "new": "// Filtros não consultam o Radar automaticamente. A busca filtrada só começa\n// depois de uma ação explícita no botão Buscar.",
+    "label": "remove automatic filtered request"
+  },
+  {
+    "kind": "text",
+    "old": "function toggleSel(id: string) {\n  setSelected(prev => {\n    const next = new Set(prev);\n    if (next.has(id)) next.delete(id); else next.add(id);\n    return next;\n  });\n}\n\n\nfunction limparFiltros() {",
+    "new": "function toggleSel(id: string) {\n  setSelected(prev => {\n    const next = new Set(prev);\n    if (next.has(id)) next.delete(id); else next.add(id);\n    return next;\n  });\n}\n\nfunction markFiltersDirty() {\n  setHasSearched(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n  setSelected(new Set());\n  setSelLead(null);\n}\n\nfunction limparFiltros() {",
+    "label": "add dirty helper"
+  },
+  {
+    "kind": "text",
+    "old": "setPage(1);\nsetTab(\"shelf\");\ntry { localStorage.removeItem(\"hbx:leads-filters\"); } catch { /* sem storage */ }\nloadList(\"shelf\", { page: 1, quantosOverride: 5 });",
+    "new": "setPage(1);\nsetTab(\"shelf\");\nsetHasSearched(false);\nsetHistoryHidden(false);\nsetLiveRunItems(null);\ntry { localStorage.removeItem(\"hbx:leads-filters\"); } catch { /* sem storage */ }",
+    "label": "stop clear filter request"
+  },
+  {
+    "kind": "text",
+    "old": "  setPage(1);\n  setSelected(new Set());\n  setTab(\"shelf\");\n  loadList(\"shelf\", { page: 1 });\n}\n\n// ── WORM-15: pesquisas salvas",
+    "new": "  setPage(1);\n  setSelected(new Set());\n  setTab(\"shelf\");\n  setHasSearched(false);\n  setHistoryHidden(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n}\n\n// ── WORM-15: pesquisas salvas",
+    "label": "stop advanced filter request"
+  },
+  {
+    "kind": "text",
+    "old": "  setSavedBar(false);\n  setSavedMsg(`Pesquisa \"${s.nome}\" aplicada.`);\n  loadList(\"shelf\", { page: 1, quantosOverride: nextQtd });\n}",
+    "new": "  setSavedBar(false);\n  setSavedMsg(`Pesquisa \"${s.nome}\" aplicada.`);\n  setHasSearched(false);\n  setHistoryHidden(false);\n  setLiveRunItems(null);\n  setSearchMsg(null);\n  setSelected(new Set());\n}",
+    "label": "stop saved search request"
+  },
+  {
+    "kind": "text",
+    "old": "if (!city.trim() && !geo) faltando.push(\"Cidade\");\nif (!segToCheck.trim()) faltando.push(\"Segmento\");",
+    "new": "if (!segToCheck.trim()) faltando.push(\"Segmento\");\nif (!uf.trim()) faltando.push(\"Estado\");\nif (!city.trim()) faltando.push(\"Cidade\");",
+    "label": "require all filters"
+  },
+  {
+    "kind": "text",
+    "old": "if (!validarCamposOuPopup(effSegment)) return;\nsetSearchMsg(null);\nsetLoadError(null);\nsetLiveRunItems([]);",
+    "new": "if (!validarCamposOuPopup(effSegment)) return;\nsetHasSearched(true);\nsetHistoryHidden(false);\nsetSearchMsg(null);\nsetLoadError(null);\nsetLiveRunItems([]);\nsetData(prev => prev ? { ...prev, items: [], total: 0 } : prev);",
+    "label": "set explicit search state"
+  },
+  {
+    "kind": "text",
+    "old": "const showingLiveRun = tab === \"shelf\" && liveRunItems !== null;\nconst items = showingLiveRun ? (liveRunItems ?? []) : (data?.items || []);",
+    "new": "const showingLiveRun = tab === \"shelf\" && liveRunItems !== null;\nconst historyItems = data?.items || [];\nconst hideHistory = tab === \"shelf\" && !hasSearched && historyHidden;\nconst items = showingLiveRun ? (liveRunItems ?? []) : (hideHistory ? [] : historyItems);\nconst hasHistory = tab === \"shelf\" && !hasSearched && !historyHidden && historyItems.length > 0;",
+    "label": "derive history"
+  }
+]
