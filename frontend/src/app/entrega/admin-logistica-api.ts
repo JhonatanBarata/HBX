@@ -1,5 +1,5 @@
 import { apiFetch } from '@/lib/api';
-import type { PlanejarRotaResult, RotaResult } from './entrega-api';
+import { getRota, type PlanejarRotaResult, type RotaResult } from './entrega-api';
 
 export type AdminRouteResult = RotaResult & {
   routeStatus?: 'PLANNED' | 'INITIALIZING' | 'ACTIVE' | 'COMPLETED' | 'REFUNDING' | 'FAILED' | null;
@@ -63,9 +63,23 @@ export type AdminRouteHistoryDay = {
   status: 'PENDENTE' | 'CONCLUÍDA';
 };
 
-export function getAdminRoute(date?: string): Promise<AdminRouteResult> {
+export async function getAdminRoute(date?: string): Promise<AdminRouteResult> {
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
-  return apiFetch<AdminRouteResult>(`/logistica/admin-route/route${query}`);
+  try {
+    const result = await apiFetch<AdminRouteResult>(`/logistica/admin-route/route${query}`);
+    // Mantém a cápsula/cache offline já consolidada no produto. O retorno
+    // administrativo continua sendo a fonte da tela; esta leitura é só aquecimento.
+    void getRota(date).catch(() => undefined);
+    return result;
+  } catch (adminError) {
+    // Sem rede, o SW/app nativo pode ainda possuir exatamente a rota iniciada no
+    // contrato legado. O Admin tem visão integral, então este fallback é seguro.
+    try {
+      return await getRota(date) as AdminRouteResult;
+    } catch {
+      throw adminError;
+    }
+  }
 }
 
 export function getAdminRouteAdjustments(date?: string): Promise<AdminRouteAdjustments> {
