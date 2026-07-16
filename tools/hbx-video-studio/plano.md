@@ -6,6 +6,98 @@ Este arquivo começa exatamente onde o trabalho remoto precisa parar. A arquitet
 
 Produzir e revisar os arquivos finais do HBX Entregas sem tocar em produção e sem expor clientes reais.
 
+## Execução realizada em 16/07/2026
+
+O plano foi executado localmente na branch `agent/hbx-video-studio`, atualizada por fast-forward a partir de `origin/master` (`a79e4603`) antes das alterações. O checkout original do usuário estava sujo e foi preservado; todo o trabalho ocorreu no worktree isolado `.worktrees/hbx-video-studio`.
+
+### Fontes das cenas
+
+- `commercial`: Playwright no sistema web completo, viewport 1600 × 900, tema escuro;
+- `tutorial-admin`: Playwright no sistema web completo, viewport 1600 × 900, tema escuro;
+- `tutorial-entregador`: abertura/encerramento do estúdio e quatro cenas operacionais gravadas no Moto G15 via ADB, 1080 × 2400, tema escuro;
+- cenas Android nativas: `driver-start`, `driver-stop`, `driver-arrival` e `driver-confirm`.
+
+O aplicativo Android usado na captura é a variante isolada `br.com.hbxsystem.logistica.videostudio`. Ela aponta apenas para `http://127.0.0.1:3210`, não inicializa Firebase/bridge de produção e usa o pareamento fictício `123456`. O pacote oficial `br.com.hbxsystem.logistica` e a abertura Android oficial não foram alterados para acomodar o vídeo.
+
+### Correções feitas durante a execução
+
+- a ativação de rota no WebView Android passou a tratar o toque dos chips de dia diretamente, corrigindo a falha real em que o dia não era selecionado;
+- a variante `videoStudio` ignora localização e serviço reais durante a ativação;
+- a API Android local passou a devolver `deliveryIds`, cápsula offline e sincronização fictícias válidas;
+- o diagnóstico reconhece corretamente as duas superfícies válidas da abertura Android;
+- o service worker é bloqueado no contexto Playwright para impedir chamadas que escapem dos mocks;
+- seletores e estados do fluxo atual de clientes, produtos, rota, chegada e confirmação foram alinhados ao frontend do `master`;
+- comercial e tutorial administrativo foram recapturados em 16:9 para eliminar barras laterais sem cortar a interface;
+- o tutorial do entregador deixou de simular celular no navegador: as quatro cenas operacionais exigem arquivos Android reais.
+
+### Arquivos gerados localmente
+
+Todos estão em `tools/hbx-video-studio/output/`, ignorados pelo Git:
+
+```text
+commercial-horizontal.mp4           1920 × 1080  54,66 s
+commercial-vertical.mp4             1080 × 1920  54,66 s
+commercial-poster.jpg
+commercial.srt
+commercial-narracao.md
+tutorial-admin-horizontal.mp4       1920 × 1080  37,57 s
+tutorial-admin-vertical.mp4         1080 × 1920  37,57 s
+tutorial-admin-poster.jpg
+tutorial-admin.srt
+tutorial-admin-narracao.md
+tutorial-entregador-horizontal.mp4  1920 × 1080  44,87 s
+tutorial-entregador-vertical.mp4    1080 × 1920  44,87 s
+tutorial-entregador-poster.jpg
+tutorial-entregador.srt
+tutorial-entregador-narracao.md
+```
+
+Os seis MP4 foram verificados com `ffprobe`: H.264, `yuv420p`, 30 fps, áudio AAC estéreo a 48 kHz e `faststart`. Posters e quadros do início, meio e fim foram revisados. Não foram encontrados cortes, overflow ou mídia com dado real.
+
+### Validações executadas
+
+```text
+npm run video:test                                      PASSOU
+npm run video:doctor -- --require-adb                   PASSOU
+gradlew.bat :app:assembleLogisticaVideoStudio           PASSOU
+captura headed do commercial                            PASSOU (8/8)
+captura tutorial-admin                                  PASSOU (6/6)
+captura tutorial-entregador                             PASSOU (2 Playwright + 4 Android)
+npm run video:render                                    PASSOU
+npm run gate                                            FALHOU na etapa 10/13
+```
+
+O gate concluiu nove etapas verdes. A integração de tenant com Postgres foi pulada automaticamente porque não havia Postgres local. A etapa 10 parou em dois erros de lint preexistentes no `master`, em `frontend/src/app/entrega/admin-page.client.tsx:186` e `:200` (`react-hooks/set-state-in-effect`). Essa tela não foi alterada apenas para fazer o gate passar, conforme a restrição de escopo.
+
+### Pendências humanas
+
+- gravar ou aprovar as três locuções; os MP4 atuais têm uma faixa AAC silenciosa válida;
+- assistir aos seis MP4 e aprovar visualmente;
+- o PR #25 já estava mesclado quando esta continuação começou, portanto não pode ser mantido em rascunho nem receber estes commits como parte do PR. O corpo pode registrar esta execução, mas qualquer nova revisão por PR depende de decisão humana.
+
+### Reprodução resumida
+
+```powershell
+npm ci
+Push-Location frontend; npm ci; Pop-Location
+npx playwright install chromium
+
+# terminal 1
+Push-Location frontend
+npm run dev -- --hostname 127.0.0.1 --port 3101
+
+# terminal 2
+$env:HBX_VIDEO_BASE_URL = 'http://127.0.0.1:3101'
+npm run video:test
+npm run video:doctor
+npm run video:capture -- --target commercial --headed
+npm run video:capture -- --target tutorial-admin
+npm run video:capture -- --target tutorial-entregador
+npm run video:render
+```
+
+Para refazer as tomadas Android, seguir a seção “Tutorial do entregador no Android” do `README.md` antes da captura e manter somente os quatro MP4 nativos em `native/tutorial-entregador/`.
+
 ## Branch
 
 Trabalhar na branch:
@@ -33,10 +125,10 @@ Na raiz do repositório, confirme que não há alterações locais e atualize a 
 git status -sb
 git branch --show-current
 git fetch origin
-git rebase origin/master
-npm install
+git merge --ff-only origin/master
+npm ci
 Push-Location frontend
-npm install
+npm ci
 Pop-Location
 npx playwright install chromium
 npm run video:test
