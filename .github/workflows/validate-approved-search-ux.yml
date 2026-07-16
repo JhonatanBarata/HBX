@@ -1,0 +1,42 @@
+name: Validate approved company-search UX
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "frontend/**"
+      - ".github/workflows/validate-approved-search-ux.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-approved-company-search-ux-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Validate patch contracts against source
+        run: node frontend/scripts/approved-company-search-loader.cjs
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Build production frontend
+        working-directory: frontend
+        run: npm run build
