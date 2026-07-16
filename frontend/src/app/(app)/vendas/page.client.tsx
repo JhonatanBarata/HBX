@@ -1134,7 +1134,7 @@ export function VendasClient() {
           {/* STAGE — 2 camadas SOBREPOSTAS em crossfade (uma casca só) */}
           <div className="vnd-stage">
             <div className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <div className="content">
+                <div className={"content" + (deal ? " vnd-content--detail-open" : "")}>
                   <div className="work">
             <section className="panel">
               <div className="panel-head">
@@ -1381,7 +1381,7 @@ export function VendasClient() {
             </section>
           </div>
 
-          <aside className="ctx" data-tut="vendas-painel">
+          <aside className={"ctx" + (deal ? " ctx--vendas-detail" : "")} data-tut="vendas-painel">
             <div key={deal?.id ?? "empty"} className="ctx-body">
               <DetalhesNegocio
                 detail={deal ? toNegocioDetail(deal) : null}

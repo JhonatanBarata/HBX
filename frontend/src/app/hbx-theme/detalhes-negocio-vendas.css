@@ -18,6 +18,21 @@
     var(--hbx-surface);
 }
 
+/* O detalhe aberto não pode viver dentro de uma segunda moldura com padding.
+   Ele já é a superfície do contexto e deve aproveitar toda a coluna. */
+.vnd-layer .content.vnd-content--detail-open > .ctx.ctx--vendas-detail {
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  border-left: 0;
+}
+
+.vnd-layer .content.vnd-content--detail-open > .ctx.ctx--vendas-detail > .ctx-body {
+  min-height: 100%;
+  padding: 0;
+  gap: 0;
+}
+
 .dn-root--vendas > .dn-root__topbar {
   position: sticky;
   top: 0;
@@ -496,6 +511,40 @@
 .dn-root--vendas > .sep {
   margin-right: 12px;
   margin-left: 12px;
+}
+
+/* Em viewport estreito, o detalhe substitui a lista enquanto está aberto.
+   Assim não sobra uma faixa morta do funil ao lado da ficha. Fechar devolve
+   imediatamente a lista, pois a classe só existe enquanto há um lead ativo. */
+@media (max-width: 760px) {
+  .vnd-layer.is-on > .content.vnd-content--detail-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vnd-layer.is-on > .content.vnd-content--detail-open > .work {
+    display: none;
+  }
+
+  .vnd-layer.is-on > .content.vnd-content--detail-open > .ctx.ctx--vendas-detail {
+    width: 100%;
+    min-height: 0;
+  }
+
+  .dn-root--vendas {
+    min-height: 100%;
+  }
+
+  .dn-root--vendas .dn-zone--1 {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .dn-root--vendas .dn-zone1-intel {
+    margin-right: -16px;
+    margin-left: -16px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
 }
 
 @media (max-width: 380px) {
