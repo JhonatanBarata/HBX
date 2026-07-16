@@ -768,16 +768,24 @@
     }
   }
 
-  async function refresh(silent) {
+  async function refresh(silent, boot) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
-    const results = await Promise.allSettled([H.api(`/logistica/rota?date=${encodeURIComponent(operationalDate())}`), H.api("/logistica/produtos"), H.api("/logistica/config")]);
+    const requests = [H.api(`/logistica/rota?date=${encodeURIComponent(operationalDate())}`), H.api("/logistica/produtos"), H.api("/logistica/config")];
+    const bootTotal = requests.length + (state.screen === "clients" ? 1 : 0);
+    if (boot) H.boot.begin("logistica", bootTotal);
+    const tracked = boot ? requests.map(request => Promise.resolve(request).finally(() => H.boot.step("logistica"))) : requests;
+    const results = await Promise.allSettled(tracked);
     if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; }
     else state.error = err(results[0].reason);
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
-    if (state.screen === "clients") await loadClients(true, true);
+    if (state.screen === "clients") {
+      await loadClients(true, true);
+      if (boot) H.boot.step("logistica");
+    }
     state.loading = false; state.refreshing = false; render();
     if (routeActive()) activateNativeRoute();
+    if (boot) H.boot.ready("logistica");
   }
   function activateNativeRoute(startResult) {
     const route = startResult || state.route || {}; const open = openItems();
@@ -1288,5 +1296,5 @@
     moduleActive = false;
     window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
   }
-  else { render(); refresh(true); state.screenMotion = ""; }
+  else { render(); refresh(true, true); state.screenMotion = ""; }
 })();

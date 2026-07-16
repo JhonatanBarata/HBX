@@ -263,6 +263,44 @@
     },
   };
 
+  // A abertura só libera o shell quando os módulos ativos terminarem a primeira
+  // leitura real. Cada resposta concluída avança a barra; erro concluído também
+  // conta, pois o próprio módulo abrirá no estado de erro recuperável.
+  const bootMode = HBX.info().mode;
+  const bootModules = HBX.modules.get();
+  const bootExpected = bootMode === "vendas"
+    ? ["vendas"]
+    : [bootModules.logistica && "logistica", bootModules.vendas && "vendas"].filter(Boolean);
+  const bootState = new Map(bootExpected.map(name => [name, { done: 0, total: 1, ready: false }]));
+  let bootReadySent = false;
+  function publishBootProgress() {
+    const entries = [...bootState.values()];
+    if (!entries.length) return;
+    const ratio = entries.reduce((sum, item) => sum + Math.min(1, item.done / Math.max(1, item.total)), 0) / entries.length;
+    const value = Math.min(96, 45 + Math.round(ratio * 51));
+    bridge && bridge.appLoadProgress && bridge.appLoadProgress(value);
+    if (bootReadySent || !entries.every(item => item.ready)) return;
+    bootReadySent = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      bridge && bridge.appReady && bridge.appReady(document.documentElement.dataset.theme || "dark");
+    }));
+  }
+  HBX.boot = {
+    begin(name, total) {
+      const item = bootState.get(name); if (!item) return;
+      item.total = Math.max(1, Number(total) || 1); item.done = 0; item.ready = false;
+      publishBootProgress();
+    },
+    step(name) {
+      const item = bootState.get(name); if (!item || item.ready) return;
+      item.done = Math.min(item.total, item.done + 1); publishBootProgress();
+    },
+    ready(name) {
+      const item = bootState.get(name); if (!item) return;
+      item.done = item.total; item.ready = true; publishBootProgress();
+    },
+  };
+
   // Os apps usam delegação de clique no #app e fecham overlays quando o alvo
   // acionável é o próprio backdrop. Sem esta barreira, um clique em input/select
   // sobe até .modal-wrap/.sheet-wrap e é confundido com clique fora do conteúdo.

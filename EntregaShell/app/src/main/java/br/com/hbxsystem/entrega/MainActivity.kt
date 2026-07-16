@@ -9,6 +9,9 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.GeolocationPermissions
@@ -48,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var webView: WebView
+    private lateinit var root: FrameLayout
     private lateinit var nativeBridge: NativeAppBridge
     private lateinit var routeBridge: HBXShellBridge
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -57,6 +61,15 @@ class MainActivity : AppCompatActivity() {
     private var dialogoPermissao: AlertDialog? = null
     private var ultimoVoltarEm = 0L
     private var saidaEmAndamento = false
+    private val openingHandler = Handler(Looper.getMainLooper())
+    private var openingWebView: WebView? = null
+    private var openingOverlayReady = false
+    private var openingProgress = 42
+    private var pendingReadyTheme: String? = null
+    private var appRevealed = false
+    private var readyRevealScheduled = false
+    private var mainHandoffVisibleAt = 0L
+    private var visualStateRequestId = 1L
 
     private val localizacaoLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -87,6 +100,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        mainHandoffVisibleAt = SystemClock.uptimeMillis() + 1_630L
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
         val assetLoader = WebViewAssetLoader.Builder()
@@ -95,6 +109,8 @@ class MainActivity : AppCompatActivity() {
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
+            alpha = 0f
+            translationX = resources.displayMetrics.density * 72f
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -180,19 +196,27 @@ class MainActivity : AppCompatActivity() {
             onRouteRequested = routeBridge::setRota,
             onRouteStopped = routeBridge::clearRota,
             onLocationPermissionRequested = ::solicitarLocalizacaoParaCadastro,
+            onAppLoadProgress = ::updateOpeningProgress,
+            onAppReady = ::revealReadyApp,
         )
         webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
 
-        val root = FrameLayout(this).apply {
+        val appHost = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#0B1020"))
             addView(webView, FrameLayout.LayoutParams(-1, -1))
         }
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+        root = FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#0B1020"))
+            addView(appHost, FrameLayout.LayoutParams(-1, -1))
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(appHost) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
         setContentView(root)
+        openingProgress = intent.getIntExtra(OpeningActivity.EXTRA_OPENING_PROGRESS, 42).coerceIn(0, 95)
+        mountOpeningOverlay(assetLoader)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (saidaEmAndamento) return
@@ -205,6 +229,100 @@ class MainActivity : AppCompatActivity() {
             }
         })
         webView.loadUrl(LOCAL_ENTRY)
+    }
+
+    private fun mountOpeningOverlay(assetLoader: WebViewAssetLoader) {
+        val overlay = WebView(this).apply {
+            setBackgroundColor(Color.parseColor("#050713"))
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = false
+            settings.allowFileAccess = false
+            webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?) =
+                    request?.url?.let(assetLoader::shouldInterceptRequest)
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    view.postVisualStateCallback(1L, object : WebView.VisualStateCallback() {
+                        override fun onComplete(requestId: Long) {
+                            if (isFinishing || isDestroyed || openingWebView !== view) return
+                            root.setBackgroundColor(Color.parseColor("#050713"))
+                            openingOverlayReady = true
+                            updateOpeningProgress(openingProgress)
+                            pendingReadyTheme?.let(::revealReadyApp)
+                        }
+                    })
+                }
+            }
+        }
+        openingWebView = overlay
+        root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
+        overlay.loadUrl("${HbxMobileExperience.openingUrl}?phase=loading&progress=$openingProgress")
+    }
+
+    private fun updateOpeningProgress(value: Int) {
+        if (appRevealed || isFinishing || isDestroyed) return
+        openingProgress = maxOf(openingProgress, value.coerceIn(0, 99))
+        if (!openingOverlayReady) return
+        openingWebView?.evaluateJavascript(
+            "window.HBXOpening&&window.HBXOpening.setProgress($openingProgress)",
+            null,
+        )
+    }
+
+    private fun revealReadyApp(theme: String) {
+        if (appRevealed || isFinishing || isDestroyed) return
+        pendingReadyTheme = theme
+        openingProgress = 100
+        if (!openingOverlayReady || readyRevealScheduled) return
+        val overlay = openingWebView ?: return
+        readyRevealScheduled = true
+        overlay.evaluateJavascript(
+            "window.HBXOpening&&window.HBXOpening.setProgress(100)",
+        ) {
+            if (isFinishing || isDestroyed || openingWebView !== overlay) return@evaluateJavascript
+            overlay.postVisualStateCallback(++visualStateRequestId, object : WebView.VisualStateCallback() {
+                override fun onComplete(requestId: Long) {
+                    if (isFinishing || isDestroyed || openingWebView !== overlay) return
+                    val now = SystemClock.uptimeMillis()
+                    val revealAt = maxOf(now + 650L, mainHandoffVisibleAt + 550L)
+                    openingHandler.postDelayed({
+                        if (isFinishing || isDestroyed || appRevealed) return@postDelayed
+                        performReadyReveal(pendingReadyTheme ?: theme)
+                    }, (revealAt - now).coerceAtLeast(0L))
+                }
+            })
+        }
+    }
+
+    private fun performReadyReveal(theme: String) {
+        if (appRevealed || isFinishing || isDestroyed) return
+        appRevealed = true
+        openingWebView?.evaluateJavascript(
+            "window.HBXOpening&&window.HBXOpening.complete('app','${if (theme == "light") "light" else "dark"}')",
+            null,
+        )
+        openingHandler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            webView.animate()
+                .alpha(1f)
+                .translationX(0f)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.7f))
+                .setDuration(920L)
+                .start()
+            openingWebView?.animate()
+                ?.alpha(0f)
+                ?.translationX(-resources.displayMetrics.density * 38f)
+                ?.setInterpolator(android.view.animation.DecelerateInterpolator(1.35f))
+                ?.setDuration(760L)
+                ?.withEndAction {
+                    val overlay = openingWebView ?: return@withEndAction
+                    root.setBackgroundColor(Color.parseColor("#0B1020"))
+                    (overlay.parent as? FrameLayout)?.removeView(overlay)
+                    overlay.destroy()
+                    openingWebView = null
+                }
+                ?.start()
+        }, 420L)
     }
 
     private fun confirmarSaida() {
@@ -237,6 +355,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        openingHandler.removeCallbacksAndMessages(null)
+        openingWebView?.let { overlay ->
+            (overlay.parent as? FrameLayout)?.removeView(overlay)
+            overlay.destroy()
+        }
+        openingWebView = null
         fileChooserCallback?.onReceiveValue(null)
         nativeBridge.close()
         webView.removeJavascriptInterface("HBXAndroid")

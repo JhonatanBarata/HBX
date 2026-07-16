@@ -5,30 +5,32 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#050713">
   <title>HBX Mobile — Abertura</title>
+  <script>
+    const openingParams = new URLSearchParams(location.search);
+    document.documentElement.dataset.phase = openingParams.get('phase') === 'loading' ? 'loading' : 'entry';
+    document.documentElement.dataset.native = openingParams.get('native') === '1' ? 'true' : 'false';
+    document.documentElement.dataset.fastLogin = openingParams.get('fastLogin') === '1' ? 'true' : 'false';
+  </script>
   <style>
     :root {
-      color-scheme: dark;
+      color-scheme:dark;
       --bg:#050713;
       --bg2:#080d1f;
       --ink:#f7fbff;
       --muted:#91a0bd;
       --blue:#2e5bff;
       --cyan:#00e5ff;
+      --deep-blue:#173db8;
       --violet:#8a5cff;
       --lime:#9aea35;
+      --handoff:#050713;
       --spring:cubic-bezier(.22,1,.36,1);
     }
     * { box-sizing:border-box; }
-    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:#02040b; }
-    body { color:var(--ink); font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
-    button { font:inherit; }
+    html,body { width:100%;height:100%;margin:0;overflow:hidden;background:#02040b; }
+    body { color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision; }
     .stage {
-      position:relative;
-      width:100vw;
-      height:100dvh;
-      min-height:560px;
-      overflow:hidden;
-      isolation:isolate;
+      position:relative;width:100vw;height:100dvh;min-height:560px;overflow:hidden;isolation:isolate;
       background:
         radial-gradient(circle at 50% 39%,rgba(46,91,255,.19),transparent 29%),
         radial-gradient(circle at 82% 13%,rgba(0,229,255,.10),transparent 24%),
@@ -36,216 +38,143 @@
         linear-gradient(180deg,var(--bg2),var(--bg) 62%,#03050d);
     }
     .stage::before {
-      content:"";
-      position:absolute;
-      inset:-20%;
-      z-index:-3;
-      opacity:.22;
-      background-image:
-        linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
-        linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
-      background-size:30px 30px;
-      transform:perspective(560px) rotateX(62deg) translateY(15%);
-      transform-origin:50% 100%;
-      -webkit-mask-image:linear-gradient(to top,#000,transparent 72%);
-      mask-image:linear-gradient(to top,#000,transparent 72%);
+      content:"";position:absolute;inset:-20%;z-index:-3;opacity:.22;
+      background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+      background-size:30px 30px;transform:perspective(560px) rotateX(62deg) translateY(15%);transform-origin:50% 100%;
+      -webkit-mask-image:linear-gradient(to top,#000,transparent 72%);mask-image:linear-gradient(to top,#000,transparent 72%);
     }
-    .aurora { position:absolute; border-radius:50%; filter:blur(72px); opacity:.2; pointer-events:none; }
+    .aurora { position:absolute;border-radius:50%;filter:blur(72px);opacity:.2;pointer-events:none; }
     .aurora.a { width:260px;height:260px;left:-90px;top:20%;background:var(--violet); }
     .aurora.b { width:240px;height:240px;right:-100px;top:8%;background:var(--cyan); }
     .aurora.c { width:260px;height:260px;left:20%;bottom:-160px;background:var(--blue); }
+
     .topbar {
-      position:absolute;
-      z-index:8;
-      top:max(18px,env(safe-area-inset-top));
-      left:18px;
-      right:18px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      color:#c7d4ed;
-      font-size:9px;
-      font-weight:800;
-      letter-spacing:.16em;
-      opacity:0;
-      transform:translateY(-8px);
-      animation:topIn .58s .18s var(--spring) forwards,topOut .42s 4.72s ease forwards;
+      position:absolute;z-index:8;top:max(18px,env(safe-area-inset-top));left:18px;right:18px;display:flex;align-items:center;justify-content:space-between;
+      color:#c7d4ed;font-size:9px;font-weight:800;letter-spacing:.16em;opacity:0;transform:translateY(-8px);animation:topIn .75s .23s var(--spring) forwards;
     }
     .brand-chip { display:flex;align-items:center;gap:8px; }
     .brand-chip i { width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 5px rgba(154,234,53,.08),0 0 16px rgba(154,234,53,.8); }
     .scene-code { color:#71809d; }
     @keyframes topIn { to { opacity:1;transform:none; } }
-    @keyframes topOut { to { opacity:0;transform:translateY(-10px); } }
 
-    .network { position:absolute;inset:0;width:100%;height:100%;z-index:2;animation:networkOut .46s 4.78s var(--spring) forwards; }
+    .network { position:absolute;inset:0;width:100%;height:100%;z-index:2; }
     .route-ghost { fill:none;stroke:rgba(94,122,176,.13);stroke-width:1; }
     .route-live {
-      fill:none;
-      stroke:url(#flowGradient);
-      stroke-width:2.25;
-      stroke-linecap:round;
-      path-length:1;
-      stroke-dasharray:1;
-      stroke-dashoffset:1;
-      filter:url(#lineGlow);
-      animation:routeDraw .72s var(--spring) forwards,routeGlow 1.7s 2.1s ease-in-out infinite;
+      fill:none;stroke-width:2.25;stroke-linecap:round;path-length:1;stroke-dasharray:1;stroke-dashoffset:1;opacity:0;filter:url(#lineGlow);
     }
-    .r1 { animation-delay:1.18s,2.10s; }
-    .r2 { animation-delay:1.72s,2.28s; }
-    .r3 { animation-delay:2.26s,2.46s; }
-    .r4 { animation-delay:2.80s,2.64s; }
-    @keyframes routeDraw { to { stroke-dashoffset:0; } }
-    @keyframes routeGlow { 50% { opacity:.58;stroke-width:2.85; } }
-    @keyframes networkOut { to { opacity:0;transform:scale(1.12);filter:blur(4px); } }
+    .route-live.r1 { stroke:url(#truckFlow);animation:routeWake 1.25s .94s var(--spring) forwards; }
+    .route-live.r2 { stroke:url(#carFlow);animation:routeWake 1.25s 1.56s var(--spring) forwards; }
+    .route-live.r3 { stroke:url(#bikeFlow);animation:routeWake 1.25s 2.18s var(--spring) forwards; }
+    .route-live.r4 { stroke:url(#packageFlow);animation:routeWake 1.25s 2.80s var(--spring) forwards; }
+    @keyframes routeWake { 8%{opacity:1} 100%{opacity:.92;stroke-dashoffset:0} }
+    .route-pulse { fill:none;stroke:#efffff;stroke-width:4.4;stroke-linecap:round;stroke-dasharray:.11 1;opacity:0;filter:url(#pulseGlow); }
+    .route-pulse.p1 { stroke:url(#truckFlow);animation:pulseRun 1.25s .94s linear forwards; }
+    .route-pulse.p2 { stroke:url(#carFlow);animation:pulseRun 1.25s 1.56s linear forwards; }
+    .route-pulse.p3 { stroke:url(#bikeFlow);animation:pulseRun 1.25s 2.18s linear forwards; }
+    .route-pulse.p4 { stroke:url(#packageFlow);animation:pulseRun 1.25s 2.80s linear forwards; }
+    @keyframes pulseRun { 7%{opacity:1} 88%{opacity:1} 100%{opacity:0;stroke-dashoffset:-1} }
 
     .hub-wrap {
-      position:absolute;
-      z-index:6;
-      top:31.6%;
-      left:50%;
-      width:142px;
-      height:142px;
-      transform:translate(-50%,-50%);
-      display:grid;
-      place-items:center;
-      animation:hubWrapOut .46s 4.78s var(--spring) forwards;
+      position:absolute;z-index:6;top:31.6%;left:50%;width:142px;height:142px;transform:translate(-50%,-50%);display:grid;place-items:center;
     }
     .hub-glow { position:absolute;inset:-32px;border-radius:50%;background:radial-gradient(circle,rgba(0,229,255,.22),transparent 66%);filter:blur(8px); }
     .hub {
-      position:relative;
-      width:114px;
-      height:114px;
-      display:grid;
-      place-items:center;
-      border-radius:50%;
-      opacity:0;
-      transform:scale(.56) rotate(-10deg);
+      position:relative;width:114px;height:114px;display:grid;place-items:center;border-radius:50%;opacity:1;transform:scale(1);
       background:radial-gradient(circle,rgba(0,229,255,.24),rgba(7,11,25,.95) 48%,rgba(7,11,25,.82) 70%);
-      border:1px solid rgba(0,229,255,.24);
-      box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 0 1px rgba(255,255,255,.05),0 18px 70px rgba(0,0,0,.46);
-      animation:hubBootPulse 1.34s .08s var(--spring) forwards;
+      border:1px solid rgba(0,229,255,.24);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 0 1px rgba(255,255,255,.05),0 18px 70px rgba(0,0,0,.46);
+      animation:hubEnergize 1.17s .13s var(--spring) forwards;
     }
-    .hub::before,.hub::after { content:"";position:absolute;inset:-11px;border:1px solid rgba(0,229,255,.24);border-radius:50%;animation:shockwave 1.15s .38s ease-out forwards; }
-    .hub::after { animation-delay:.84s; }
-    .hub-ring { position:absolute;inset:12px;border:3px solid transparent;border-top-color:var(--cyan);border-right-color:var(--blue);border-radius:50%;animation:spin 4.8s linear infinite; }
-    .hub strong { font-size:28px;letter-spacing:-.08em;text-shadow:0 0 16px rgba(0,229,255,.7); }
-    @keyframes hubBootPulse {
-      0% { opacity:0;transform:scale(.56) rotate(-10deg); }
-      27% { opacity:1;transform:scale(1) rotate(0); }
-      47% { transform:scale(1.13);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 44px rgba(0,229,255,.34),0 18px 70px rgba(0,0,0,.42); }
-      61% { transform:scale(.96); }
-      78% { transform:scale(1.075);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 30px rgba(46,91,255,.28),0 18px 70px rgba(0,0,0,.42); }
-      100% { opacity:1;transform:scale(1);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 22px rgba(0,229,255,.14),0 18px 70px rgba(0,0,0,.46); }
-    }
-    @keyframes shockwave { 0%{opacity:0;transform:scale(.6)} 22%{opacity:.76} 100%{opacity:0;transform:scale(1.58)} }
-    @keyframes spin { to { transform:rotate(360deg); } }
-    @keyframes hubWrapOut { to { opacity:0;transform:translate(-50%,-50%) scale(1.34);filter:blur(4px); } }
+    .hub::before,.hub::after { content:"";position:absolute;inset:-11px;border:1px solid rgba(0,229,255,.24);border-radius:50%;opacity:0;animation:shockwave 1.50s .39s ease-out forwards; }
+    .hub::after { animation-delay:.94s; }
+    .hub-ring { position:absolute;inset:12px;border-radius:50%;opacity:0;transform:scale(.86);overflow:visible;animation:ringOn .44s .23s var(--spring) forwards; }
+    .hub-ring-live { fill:none;stroke:url(#hubRingColors);stroke-width:4;stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:100;transform-origin:50% 50%;will-change:transform,stroke-dashoffset;animation:ringFill 5s .23s linear forwards,ringSpin 6.24s .23s linear infinite; }
+    .hub-mark { position:relative;z-index:2;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 8px rgba(0,229,255,.7)); }
+    @keyframes hubEnergize { 42%{transform:scale(1.08);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 42px rgba(0,229,255,.30),0 18px 70px rgba(0,0,0,.42)} 68%{transform:scale(.97)} 100%{transform:scale(1)} }
+    @keyframes ringOn { to { opacity:1;transform:scale(1); } }
+    @keyframes ringFill { to { stroke-dashoffset:0; } }
+    @keyframes shockwave { 0%{opacity:0;transform:scale(.72)} 22%{opacity:.76} 100%{opacity:0;transform:scale(1.58)} }
+    @keyframes ringSpin { from { transform:rotate(-90deg); } to { transform:rotate(270deg); } }
 
     .vehicle {
-      position:absolute;
-      z-index:5;
-      width:65px;
-      height:65px;
-      display:grid;
-      place-items:center;
-      border:1px solid rgba(124,217,255,.25);
-      border-radius:21px;
-      background:linear-gradient(145deg,rgba(16,25,51,.95),rgba(7,11,25,.9));
-      box-shadow:0 14px 32px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(46,91,255,.13);
-      color:#eef8ff;
-      opacity:0;
-      transform:scale(.5) translateY(10px);
-      animation:nodeOn .52s var(--spring) forwards,vehicleOut .42s 4.74s ease forwards;
+      --arrival:1.68s;--rgb:0,229,255;position:absolute;z-index:5;width:65px;height:65px;display:grid;place-items:center;border:1px solid rgba(124,217,255,.25);border-radius:21px;
+      background:linear-gradient(145deg,rgba(16,25,51,.95),rgba(7,11,25,.9));box-shadow:0 14px 32px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08),0 0 24px rgba(46,91,255,.13);
+      color:#eef8ff;opacity:0;transform:scale(.5) translateY(10px);animation:nodeOn .86s var(--arrival) var(--spring) forwards;
     }
+    .vehicle::before { content:"";position:absolute;inset:-10px;border:2.4px solid rgba(var(--rgb),.92);border-radius:30px;opacity:0;animation:arrivalPulse 1.55s var(--arrival) ease-out forwards; }
     .vehicle::after { position:absolute;top:73px;white-space:nowrap;color:#aabbd8;font-size:8px;font-weight:850;letter-spacing:.15em; }
-    .vehicle svg { width:35px;height:35px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round; }
-    .vehicle .accent { stroke:var(--cyan); }
-    .vehicle .accent-lime { stroke:var(--lime); }
-    .truck { top:15.7%;right:9.5%;animation-delay:1.70s,4.74s; }.truck::after{content:"CAMINHÃO"}
-    .car { top:22.7%;left:7.7%;animation-delay:2.24s,4.74s; }.car::after{content:"CARRO"}
-    .bike { top:48.5%;right:7.8%;animation-delay:2.78s,4.74s; }.bike::after{content:"MOTO"}
-    .package { top:50.2%;left:8.8%;animation-delay:3.32s,4.74s; }.package::after{content:"ENTREGAS"}
-    @keyframes nodeOn { 0%{opacity:0;transform:scale(.5) translateY(10px);filter:brightness(.6)} 70%{opacity:1;transform:scale(1.09);filter:brightness(1.35)} 100%{opacity:1;transform:scale(1);filter:brightness(1)} }
-    @keyframes vehicleOut { to { opacity:0;transform:scale(1.12);filter:blur(3px); } }
-
-    .copy {
-      position:absolute;
-      z-index:5;
-      top:62.2%;
-      left:24px;
-      right:24px;
-      text-align:center;
-      animation:copyOut .42s 4.68s ease forwards;
+    .vehicle svg { width:35px;height:35px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;animation:iconIgnite .86s var(--arrival) var(--spring) forwards; }
+    .vehicle .accent,.vehicle .accent-lime { stroke:rgb(var(--rgb)); }
+    .truck { top:15.7%;right:9.5%;--arrival:2.19s;--rgb:23,61,184; }.truck::after{content:"CAMINHÃO"}
+    .car { top:22.7%;left:7.7%;--arrival:2.81s;--rgb:46,91,255; }.car::after{content:"CARRO"}
+    .bike { top:46.1%;right:13.2%;--arrival:3.43s;--rgb:154,234,53; }.bike::after{content:"MOTO"}
+    .package { top:50.2%;left:8.8%;--arrival:4.05s;--rgb:138,92,255; }.package::after{content:"ENTREGAS"}
+    @keyframes nodeOn {
+      0%{opacity:0;transform:scale(.5) translateY(10px);filter:saturate(.2) brightness(.55)}
+      42%{opacity:1;transform:scale(1.20);filter:saturate(1.7) brightness(1.85);border-color:rgba(var(--rgb),.95);box-shadow:0 0 54px rgba(var(--rgb),.62),0 14px 32px rgba(0,0,0,.24),inset 0 0 24px rgba(var(--rgb),.22)}
+      68%{transform:scale(.93);filter:saturate(1.25) brightness(1.22)}
+      100%{opacity:1;transform:scale(1);filter:saturate(1) brightness(1);border-color:rgba(var(--rgb),.46);box-shadow:0 0 24px rgba(var(--rgb),.24),0 14px 32px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08)}
     }
-    .eyebrow,.copy h1,.copy p { opacity:0;transform:translateY(10px);animation:copyIn .65s var(--spring) forwards; }
-    .eyebrow { color:var(--lime);font-size:9px;font-weight:900;letter-spacing:.25em;animation-delay:3.22s; }
-    .copy h1 { margin:11px 0 0;font-size:clamp(38px,11vw,50px);line-height:.94;letter-spacing:-.065em;animation-delay:3.38s; }
+    @keyframes iconIgnite { 0%{transform:scale(.68);opacity:.25} 46%{transform:scale(1.25);opacity:1;filter:drop-shadow(0 0 8px rgba(var(--rgb),.95))} 100%{transform:scale(1);opacity:1;filter:drop-shadow(0 0 3px rgba(var(--rgb),.38))} }
+    @keyframes arrivalPulse {
+      0%{opacity:0;transform:scale(.66);border-color:rgba(var(--rgb),0);box-shadow:0 0 0 0 rgba(var(--rgb),0),0 0 0 0 rgba(var(--rgb),0)}
+      14%{opacity:1;transform:scale(.76);border-color:rgba(var(--rgb),.98);box-shadow:0 0 30px rgba(var(--rgb),.76),0 0 0 0 rgba(var(--rgb),.70)}
+      43%{opacity:.94;transform:scale(1.10);box-shadow:0 0 42px rgba(var(--rgb),.64),0 0 0 8px rgba(var(--rgb),.48)}
+      72%{opacity:.58;transform:scale(1.43);box-shadow:0 0 58px rgba(var(--rgb),.38),0 0 0 18px rgba(var(--rgb),.28)}
+      100%{opacity:0;transform:scale(1.82);border-color:rgba(var(--rgb),0);box-shadow:0 0 72px rgba(var(--rgb),0),0 0 0 32px rgba(var(--rgb),0)}
+    }
+
+    .copy { position:absolute;z-index:9;top:64.5%;left:24px;right:24px;text-align:center; }
+    .eyebrow,.copy h1,.copy p { opacity:0;transform:translateY(10px);animation:copyIn .85s var(--spring) forwards; }
+    .eyebrow { color:var(--lime);font-size:11.25px;font-weight:900;letter-spacing:.25em;animation-delay:4.39s; }
+    .copy h1 { margin:13.75px 0 0;font-size:clamp(47.5px,13.75vw,62.5px);line-height:.94;letter-spacing:-.065em;animation-delay:4.58s; }
     .copy h1 b { background:linear-gradient(90deg,#fff 12%,#d5edff 45%,#a9baff);-webkit-background-clip:text;background-clip:text;color:transparent; }
-    .copy h1 span { display:block;margin-top:9px;font-size:12px;letter-spacing:.43em;text-indent:.43em;color:#c8d5ed; }
-    .copy p { max-width:310px;margin:20px auto 0;color:#9caecc;font-size:12px;line-height:1.55;animation-delay:3.54s; }
+    .copy h1 span { display:block;margin-top:11.25px;font-size:15px;letter-spacing:.43em;text-indent:.43em;color:#c8d5ed; }
+    .copy p { max-width:310px;margin:20px auto 0;color:#9caecc;font-size:12px;line-height:1.55;animation-delay:4.76s; }
     @keyframes copyIn { to { opacity:1;transform:none; } }
-    @keyframes copyOut { to { opacity:0;transform:translateY(12px); } }
 
-    .pairing {
-      position:absolute;
-      inset:0;
-      z-index:18;
-      display:grid;
-      place-items:center;
-      opacity:0;
-      pointer-events:none;
-      padding:28px 24px max(28px,env(safe-area-inset-bottom));
-      background:radial-gradient(circle at 50% 34%,rgba(46,91,255,.13),transparent 31%),linear-gradient(180deg,#080d1e,#050713);
-      animation:pairingIn .62s 5.04s var(--spring) forwards;
-    }
-    .pair-card {
-      width:min(100%,336px);
-      opacity:0;
-      transform:translateY(14px) scale(.985);
-      animation:pairCoreIn .52s 5.20s var(--spring) forwards;
-    }
-    .pair-card h2 { margin:0 0 24px;text-align:center;color:#f7fbff;font-size:clamp(27px,7.5vw,32px);line-height:1.08;letter-spacing:-.045em;font-weight:800; }
-    .google-play-button {
-      width:100%;
-      height:52px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      gap:12px;
-      border:1px solid #dadce0;
-      border-radius:4px;
-      padding:0 18px;
-      background:#fff;
-      color:#3c4043;
-      font-family:Roboto,Arial,sans-serif;
-      font-size:15px;
-      font-weight:500;
-      letter-spacing:.01em;
-      box-shadow:0 1px 2px rgba(0,0,0,.18);
-      cursor:pointer;
-      -webkit-tap-highlight-color:transparent;
-    }
-    .google-play-button:active { background:#f1f3f4;box-shadow:0 1px 1px rgba(0,0,0,.16); }
-    .google-play-button:focus-visible { outline:3px solid rgba(66,133,244,.34);outline-offset:3px; }
-    .google-play-mark { width:22px;height:22px;flex:0 0 22px;display:block; }
-    @keyframes pairingIn { from{opacity:0} to{opacity:1;pointer-events:auto} }
-    @keyframes pairCoreIn { to{opacity:1;transform:none} }
+    .systems { position:absolute;z-index:10;left:24px;right:24px;bottom:max(26px,calc(env(safe-area-inset-bottom) + 18px));opacity:0;transform:translateY(10px);animation:systemsIn .68s 5.30s var(--spring) forwards; }
+    .systems-head { display:flex;align-items:center;justify-content:space-between;margin-bottom:12.5px;color:rgba(142,162,196,.62);font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase; }
+    .systems-head strong { color:rgba(205,232,249,.84);font-variant-numeric:tabular-nums; }
+    .rail { position:relative;height:4px;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.065); }
+    .rail i { position:absolute;inset:0;border-radius:inherit;transform:scaleX(0);transform-origin:left;background:linear-gradient(90deg,var(--blue),var(--cyan) 64%,var(--lime));box-shadow:0 0 14px rgba(0,229,255,.52);transition:transform .42s var(--spring); }
+    .modules { display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:16px; }
+    .module { height:36px;display:grid;place-items:center;border:1px solid rgba(130,171,229,.1);border-radius:12px;color:rgba(178,199,226,.44);background:rgba(10,16,34,.48);font-size:9px;font-weight:800;letter-spacing:.075em;text-transform:uppercase;transition:color .28s ease,border-color .28s ease,background .28s ease,box-shadow .28s ease; }
+    .module.is-ready { color:#e1faff;border-color:rgba(0,229,255,.27);background:rgba(0,229,255,.052);box-shadow:inset 0 0 13px rgba(0,229,255,.045); }
+    @keyframes systemsIn { to { opacity:1;transform:none; } }
+
+    .handoff { position:absolute;inset:0;z-index:30;pointer-events:none;opacity:0;background:var(--handoff); }
+    .handoff::before { content:"";position:absolute;inset:-24%;opacity:0;transform:scale(.34);border-radius:50%;background:radial-gradient(circle at 50% 31.6%,#fff 0%,rgba(225,253,255,.98) 5%,rgba(0,229,255,.76) 16%,rgba(46,91,255,.30) 31%,transparent 54%);mix-blend-mode:screen; }
+    html.to-app .handoff,html.to-login .handoff { animation:handoffIn .76s ease forwards; }
+    html.to-app .handoff::before,html.to-login .handoff::before { animation:transmuxFlash .72s cubic-bezier(.2,.75,.22,1) forwards; }
+    @keyframes handoffIn { 0%,24%{opacity:0} 48%{opacity:.22} 100%{opacity:1} }
+    @keyframes transmuxFlash { 0%{opacity:0;transform:scale(.34)} 30%{opacity:1;transform:scale(.72)} 58%{opacity:.88;transform:scale(1.04)} 100%{opacity:0;transform:scale(1.42)} }
+
+    html[data-native="true"]:not(.started) .stage * { animation-play-state:paused!important; }
+    html[data-phase="loading"] .topbar { opacity:1;transform:none;animation:none; }
+    html[data-phase="loading"] .network { opacity:1;transform:none;animation:none; }
+    html[data-phase="loading"] .route-live { opacity:.92;stroke-dashoffset:0;animation:none; }
+    html[data-phase="loading"] .route-pulse { opacity:0;animation:none; }
+    html[data-phase="loading"] .hub-wrap { opacity:1;filter:none;animation:none; }
+    html[data-phase="loading"] .hub { opacity:1;transform:scale(1);animation:none; }
+    html[data-phase="loading"] .hub::before,html[data-phase="loading"] .hub::after { display:none; }
+    html[data-phase="loading"] .hub-ring { opacity:1;transform:scale(1);animation:none; }
+    html[data-phase="loading"] .hub-ring-live { stroke-dashoffset:0;animation:ringSpin 6.24s linear infinite; }
+    html[data-phase="loading"] .vehicle { opacity:1;transform:scale(1);filter:none;animation:none; }
+    html[data-phase="loading"] .vehicle::before,html[data-phase="loading"] .vehicle svg { animation:none; }
+    html[data-phase="loading"] .copy,html[data-phase="loading"] .copy * { opacity:1;transform:none;animation:none; }
+    html[data-phase="loading"] .systems { opacity:1;transform:none;animation:none; }
 
     @media (max-height:700px) {
       .hub-wrap { top:29.5%;transform:translate(-50%,-50%) scale(.88); }
-      .copy { top:58%; }
-      .copy p { margin-top:14px; }
-      .pair-card h2 { margin-bottom:20px; }
+      .copy { top:60.5%; }.copy p { margin-top:14px; }
+      .systems { bottom:18px; }.modules { margin-top:11px; }
     }
     @media (max-width:340px) {
-      .vehicle { width:58px;height:58px;border-radius:18px; }
-      .vehicle::after { top:65px;font-size:7px; }
-      .vehicle svg { width:31px;height:31px; }
-      .copy { left:18px;right:18px; }
+      .vehicle { width:58px;height:58px;border-radius:18px; }.vehicle::after { top:65px;font-size:7px; }.vehicle svg { width:31px;height:31px; }
+      .copy { left:18px;right:18px; }.systems { left:18px;right:18px; }
     }
     @media (prefers-reduced-motion:reduce) {
-      .topbar,.network,.hub-wrap,.vehicle,.copy { display:none; }
-      .pairing,.pair-card { opacity:1;transform:none;animation:none;pointer-events:auto; }
+      * { animation-duration:.001ms!important;animation-delay:0ms!important;animation-iteration-count:1!important; }
     }
   </style>
 </head>
@@ -256,11 +185,16 @@
 
     <svg class="network" viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
       <defs>
-        <linearGradient id="flowGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2e5bff"/><stop offset=".55" stop-color="#00e5ff"/><stop offset="1" stop-color="#9aea35"/></linearGradient>
+        <linearGradient id="truckFlow" gradientUnits="userSpaceOnUse" x1="195" y1="267" x2="310" y2="159"><stop offset="0" stop-color="var(--cyan)"/><stop offset="1" stop-color="var(--deep-blue)"/></linearGradient>
+        <linearGradient id="carFlow" gradientUnits="userSpaceOnUse" x1="195" y1="267" x2="76" y2="220"><stop offset="0" stop-color="var(--cyan)"/><stop offset="1" stop-color="var(--blue)"/></linearGradient>
+        <linearGradient id="bikeFlow" gradientUnits="userSpaceOnUse" x1="195" y1="267" x2="306" y2="422"><stop offset="0" stop-color="var(--cyan)"/><stop offset="1" stop-color="var(--lime)"/></linearGradient>
+        <linearGradient id="packageFlow" gradientUnits="userSpaceOnUse" x1="195" y1="267" x2="77" y2="453"><stop offset="0" stop-color="var(--cyan)"/><stop offset="1" stop-color="var(--violet)"/></linearGradient>
         <filter id="lineGlow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="pulseGlow" x="-120%" y="-120%" width="340%" height="340%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       </defs>
-      <path class="route-ghost" d="M195 267 C230 238 259 197 310 159"/><path class="route-ghost" d="M195 267 C162 246 135 225 76 220"/><path class="route-ghost" d="M195 267 C239 310 261 365 315 441"/><path class="route-ghost" d="M195 267 C154 315 123 366 77 453"/>
-      <path class="route-live r1" d="M195 267 C230 238 259 197 310 159"/><path class="route-live r2" d="M195 267 C162 246 135 225 76 220"/><path class="route-live r3" d="M195 267 C239 310 261 365 315 441"/><path class="route-live r4" d="M195 267 C154 315 123 366 77 453"/>
+      <path class="route-ghost" d="M195 267 C230 238 259 197 310 159"/><path class="route-ghost" d="M195 267 C162 246 135 225 76 220"/><path class="route-ghost" d="M195 267 C239 305 265 365 306 422"/><path class="route-ghost" d="M195 267 C154 315 123 366 77 453"/>
+      <path class="route-live r1" pathLength="1" d="M195 267 C230 238 259 197 310 159"/><path class="route-live r2" pathLength="1" d="M195 267 C162 246 135 225 76 220"/><path class="route-live r3" pathLength="1" d="M195 267 C239 305 265 365 306 422"/><path class="route-live r4" pathLength="1" d="M195 267 C154 315 123 366 77 453"/>
+      <path class="route-pulse p1" pathLength="1" d="M195 267 C230 238 259 197 310 159"/><path class="route-pulse p2" pathLength="1" d="M195 267 C162 246 135 225 76 220"/><path class="route-pulse p3" pathLength="1" d="M195 267 C239 305 265 365 306 422"/><path class="route-pulse p4" pathLength="1" d="M195 267 C154 315 123 366 77 453"/>
     </svg>
 
     <div class="vehicle truck"><svg viewBox="0 0 40 40"><path d="M5.5 12.5h18.2v14H5.5zM23.7 17h5.7l4.6 5.2v4.3H23.7z"/><path class="accent" d="M27 19h2.1l2.4 2.8H27z"/><circle cx="12" cy="28" r="3.2"/><circle cx="29" cy="28" r="3.2"/></svg></div>
@@ -268,18 +202,160 @@
     <div class="vehicle bike"><svg viewBox="0 0 40 40"><circle cx="10" cy="28.5" r="5"/><circle cx="30" cy="28.5" r="5"/><path d="M10 28.5l6.5-10h6.2l4.4 10M16.5 18.5l5 10M14 22h11.4M22.7 18.5l2.1-3.2h4.7"/><path class="accent-lime" d="M13.4 18.2h8.8l1.4 3.2H15z"/></svg></div>
     <div class="vehicle package"><svg viewBox="0 0 40 40"><path d="M7.5 13.5L20 7l12.5 6.5v14L20 34 7.5 27.5zM7.5 13.5L20 20l12.5-6.5M20 20v14"/><path class="accent" d="M13 10.7l12.5 6.5-4.2 2.2-12.4-6.5z"/></svg></div>
 
-    <div class="hub-wrap"><div class="hub-glow"></div><div class="hub"><i class="hub-ring"></i><strong>HBX</strong></div></div>
-    <section class="copy"><div class="eyebrow">REDE OPERACIONAL ATIVA</div><h1><b>HBX</b><span>MOBILE</span></h1><p>Vendas, rotas, entregas e clientes pulsando na mesma operação.</p></section>
-
-    <section class="pairing" aria-label="Vincular aparelho">
-      <div class="pair-card">
-        <h2>Vincule este aparelho</h2>
-        <button class="google-play-button" type="button" aria-label="Conectar com Google Play" onclick="location.href='index.html'">
-          <svg class="google-play-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="#00A0FF" d="M3.35 2.28c-.22.28-.35.68-.35 1.17v17.1c0 .49.13.89.35 1.17L13.2 12 3.35 2.28z"/><path fill="#FFCC00" d="M16.48 8.78 13.2 12l3.28 3.22 3.93-2.25c1.12-.64 1.12-1.69 0-2.33l-3.93-2.26z"/><path fill="#00D95F" d="M3.35 2.28 13.2 12l3.28-3.22L5.54 2.51c-.9-.52-1.72-.41-2.19-.23z"/><path fill="#FF3A44" d="M3.35 21.72c.47.18 1.29.29 2.19-.23l10.94-6.27L13.2 12l-9.85 9.72z"/></svg>
-          <span>Conectar com Google Play</span>
-        </button>
-      </div>
+    <div class="hub-wrap"><div class="hub-glow"></div><div class="hub"><svg class="hub-ring" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="hubRingColors" gradientUnits="userSpaceOnUse" x1="12" y1="10" x2="88" y2="90"><stop offset="0" stop-color="var(--cyan)"/><stop offset=".32" stop-color="var(--blue)"/><stop offset=".58" stop-color="var(--violet)"/><stop offset=".82" stop-color="var(--lime)"/><stop offset="1" stop-color="var(--cyan)"/></linearGradient></defs><circle class="hub-ring-live" cx="50" cy="50" r="46" pathLength="100"/></svg><svg class="hub-mark" viewBox="22 22 64 64" aria-label="HBX"><path fill="#fff" d="M34 46h3.6v6.2h3.8V46H45v16h-3.6v-6.2h-3.8V62H34z"/><path fill="#fff" d="M48.5 46h3.6v16h-3.6z"/><path fill="none" stroke="#fff" stroke-width="3.6" d="M50.3 47.8h4.5a2.6 2.6 0 1 1 0 5.2h-4.5"/><path fill="none" stroke="#fff" stroke-width="3.6" d="M50.3 55.4h4.8a2.4 2.4 0 1 1 0 4.8h-4.8"/><path fill="#fff" d="M62.5 46h3.7l2.05 4.9 2.05-4.9H74l-4.15 8L74 62h-3.7l-2.05-4.9L66.2 62h-3.7l4.15-8z"/></svg></div></div>
+    <section class="copy"><div class="eyebrow">REDE OPERACIONAL ATIVA</div><h1><b>HBX</b><span>MOBILE</span></h1></section>
+    <section class="systems" aria-label="Carregamento dos dados">
+      <div class="systems-head"><span>Sincronizando módulos</span><strong id="progress">0%</strong></div>
+      <div class="rail"><i></i></div>
+      <div class="modules"><div class="module">Rotas</div><div class="module">Frota</div><div class="module">Clientes</div><div class="module">Entregas</div></div>
     </section>
+    <div class="handoff"></div>
   </main>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const progress = document.getElementById('progress');
+      const rail = document.querySelector('.rail i');
+      const modules = [...document.querySelectorAll('.module')];
+      const bridge = window.HBXOpeningAndroid;
+      const reduced = matchMedia('(prefers-reduced-motion:reduce)').matches;
+      const fastLogin = root.dataset.fastLogin === 'true';
+      const fastLoginRate = 1 / .7;
+      const stage = document.querySelector('.stage');
+      const network = document.querySelector('.network');
+      const hubWrap = document.querySelector('.hub-wrap');
+      const routeLayers = [
+        [...document.querySelectorAll('.route-ghost')],
+        [...document.querySelectorAll('.route-live')],
+        [...document.querySelectorAll('.route-pulse')],
+      ];
+      const routeGeometry = [
+        { target:document.querySelector('.truck'),gradient:'truckFlow',curve:[.304,.269,.557,.648] },
+        { target:document.querySelector('.car'),gradient:'carFlow',curve:[.277,.447,.504,.894] },
+        { target:document.querySelector('.bike'),gradient:'bikeFlow',curve:[.396,.245,.631,.632] },
+        { target:document.querySelector('.package'),gradient:'packageFlow',curve:[.347,.258,.610,.532] },
+      ];
+      let started = false;
+      let sequenceSent = false;
+      let geometryFrame = 0;
+      let currentProgress = Math.max(0,Math.min(100,Number(openingParams.get('progress') || 0)));
+
+      function borderContact(target,startX,startY) {
+        const centerX = target.offsetLeft + target.offsetWidth / 2;
+        const centerY = target.offsetTop + target.offsetHeight / 2;
+        const directionX = startX - centerX;
+        const directionY = startY - centerY;
+        const distance = Math.hypot(directionX,directionY) || 1;
+        const unitX = directionX / distance;
+        const unitY = directionY / distance;
+        const halfWidth = target.offsetWidth / 2;
+        const halfHeight = target.offsetHeight / 2;
+        const radius = Math.min(
+          parseFloat(getComputedStyle(target).borderTopLeftRadius) || 0,
+          halfWidth,
+          halfHeight,
+        );
+        const sideX = Math.max(0,halfWidth - radius);
+        const sideY = Math.max(0,halfHeight - radius);
+        const candidates = [];
+
+        if (Math.abs(unitX) > .0001) {
+          const time = halfWidth / Math.abs(unitX);
+          if (Math.abs(unitY * time) <= sideY + .5) candidates.push(time);
+        }
+        if (Math.abs(unitY) > .0001) {
+          const time = halfHeight / Math.abs(unitY);
+          if (Math.abs(unitX * time) <= sideX + .5) candidates.push(time);
+        }
+
+        let time;
+        if (candidates.length) {
+          time = Math.min(...candidates);
+        } else {
+          const cornerX = (Math.sign(unitX) || 1) * sideX;
+          const cornerY = (Math.sign(unitY) || 1) * sideY;
+          const projection = unitX * cornerX + unitY * cornerY;
+          const discriminant = Math.max(0,projection * projection - (cornerX * cornerX + cornerY * cornerY - radius * radius));
+          time = projection + Math.sqrt(discriminant);
+        }
+
+        return { x:centerX + unitX * time,y:centerY + unitY * time };
+      }
+
+      function syncNetworkGeometry() {
+        geometryFrame = 0;
+        const width = stage.clientWidth;
+        const height = stage.clientHeight;
+        if (!width || !height) return;
+        network.setAttribute('viewBox',`0 0 ${width} ${height}`);
+        const stageRect = stage.getBoundingClientRect();
+        const hubRect = hubWrap.getBoundingClientRect();
+        const startX = hubRect.left - stageRect.left + hubRect.width / 2;
+        const startY = hubRect.top - stageRect.top + hubRect.height / 2;
+        const format = value => Math.round(value * 100) / 100;
+
+        routeGeometry.forEach((route,index) => {
+          const end = borderContact(route.target,startX,startY);
+          const deltaX = end.x - startX;
+          const deltaY = end.y - startY;
+          const [c1x,c1y,c2x,c2y] = route.curve;
+          const path = `M${format(startX)} ${format(startY)} C${format(startX + deltaX * c1x)} ${format(startY + deltaY * c1y)} ${format(startX + deltaX * c2x)} ${format(startY + deltaY * c2y)} ${format(end.x)} ${format(end.y)}`;
+          routeLayers.forEach(layer => layer[index]?.setAttribute('d',path));
+          const gradient = document.getElementById(route.gradient);
+          gradient?.setAttribute('x1',format(startX));
+          gradient?.setAttribute('y1',format(startY));
+          gradient?.setAttribute('x2',format(end.x));
+          gradient?.setAttribute('y2',format(end.y));
+        });
+      }
+
+      function scheduleGeometrySync() {
+        if (geometryFrame) cancelAnimationFrame(geometryFrame);
+        geometryFrame = requestAnimationFrame(syncNetworkGeometry);
+      }
+
+      function setProgress(value) {
+        const next = Math.max(currentProgress,Math.min(100,Math.round(Number(value) || 0)));
+        currentProgress = next;
+        progress.textContent = `${next}%`;
+        rail.style.transform = `scaleX(${next / 100})`;
+        const lit = next >= 100 ? 4 : Math.min(3,Math.floor(next / 25));
+        modules.forEach((module,index) => module.classList.toggle('is-ready',index < lit));
+      }
+      function notifySequenceReady() {
+        if (sequenceSent) return;
+        sequenceSent = true;
+        bridge && typeof bridge.sequenceReady === 'function' && bridge.sequenceReady();
+      }
+      function applyFastLoginRate() {
+        if (!fastLogin) return;
+        stage.getAnimations({ subtree:true }).forEach(animation => { animation.playbackRate = fastLoginRate; });
+      }
+      function start() {
+        if (started) return false;
+        started = true;
+        root.classList.add('started');
+        applyFastLoginRate();
+        setTimeout(notifySequenceReady,reduced ? 80 : fastLogin ? 4256 : 6080);
+        return true;
+      }
+      function complete(kind,theme) {
+        root.style.setProperty('--handoff',kind === 'app' && theme === 'light' ? '#f4f7f0' : kind === 'app' ? '#0d120d' : '#050713');
+        root.classList.add(kind === 'app' ? 'to-app' : 'to-login');
+        applyFastLoginRate();
+      }
+      window.HBXOpening = { start,setProgress,complete };
+      syncNetworkGeometry();
+      if ('ResizeObserver' in window) new ResizeObserver(scheduleGeometrySync).observe(stage);
+      addEventListener('resize',scheduleGeometrySync,{ passive:true });
+      setProgress(currentProgress);
+      applyFastLoginRate();
+      if (root.dataset.phase === 'loading') {
+        root.classList.add('started');
+      } else if (root.dataset.native !== 'true') {
+        start();
+      }
+    })();
+  </script>
 </body>
 </html>

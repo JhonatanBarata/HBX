@@ -24,11 +24,14 @@ class NativeAppBridge(
     private val onRouteRequested: (String) -> Unit,
     private val onRouteStopped: () -> Unit,
     private val onLocationPermissionRequested: () -> Unit,
+    private val onAppLoadProgress: (Int) -> Unit,
+    private val onAppReady: (String) -> Unit,
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val api = NativeApiClient(activity, ticket)
     private val operational = OperationalStore(activity)
     private val logoutEmAndamento = AtomicBoolean(false)
+    private val appReadyEnviado = AtomicBoolean(false)
 
     init {
         if (BuildConfig.APP_MODE == "logistica") OperationalSync.requestFlush(activity)
@@ -120,6 +123,19 @@ class NativeAppBridge(
     fun requestLocationPermission() {
         if (BuildConfig.APP_MODE != "logistica") return
         activity.runOnUiThread(onLocationPermissionRequested)
+    }
+
+    @JavascriptInterface
+    fun appLoadProgress(value: Int) {
+        if (appReadyEnviado.get()) return
+        activity.runOnUiThread { onAppLoadProgress(value.coerceIn(0, 99)) }
+    }
+
+    @JavascriptInterface
+    fun appReady(theme: String) {
+        if (!appReadyEnviado.compareAndSet(false, true)) return
+        val safeTheme = if (theme == "light") "light" else "dark"
+        activity.runOnUiThread { onAppReady(safeTheme) }
     }
 
     @JavascriptInterface

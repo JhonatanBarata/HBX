@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Marca HBX em vector (recriação do frontend/src/app/icon.png): anel com
-     gradiente azul→ciano→violeta + "HBX" em branco. Tudo dentro da safe zone
-     (círculo Ø66 do adaptive icon; o anel tem raio 27). -->
+<!-- Núcleo aprovado da abertura HBX: disco, brilho central e palavra HBX.
+     O anel e os quatro braços pertencem somente à animação de entrada. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -9,43 +8,44 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- anel (donut r27→r23.2) -->
-    <path
-        android:fillType="evenOdd"
-        android:pathData="M54,27 a27,27 0 1,1 -0.02,0 z M54,30.8 a23.2,23.2 0 1,0 0.02,0 z">
+    <path android:pathData="M54,22a32,32 0,1 1,0,64a32,32 0,1 1,0,-64">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:type="sweep"
+                android:type="radial"
                 android:centerX="54"
-                android:centerY="54">
-                <item android:offset="0" android:color="#FF2E5BFF" />
-                <item android:offset="0.35" android:color="#FF00E5FF" />
-                <item android:offset="0.72" android:color="#FF7C4DFF" />
-                <item android:offset="1" android:color="#FF2E5BFF" />
+                android:centerY="54"
+                android:gradientRadius="32">
+                <item android:offset="0" android:color="#C000E5FF" />
+                <item android:offset="0.28" android:color="#7400AFC7" />
+                <item android:offset="0.56" android:color="#FF07101F" />
+                <item android:offset="1" android:color="#F4070B19" />
             </gradient>
         </aapt:attr>
     </path>
 
-    <!-- H -->
     <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M34,46 h3.6 v6.2 h3.8 v-6.2 h3.6 v16 h-3.6 v-6.2 h-3.8 v6.2 h-3.6 z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#5000E5FF"
+        android:strokeWidth="0.8"
+        android:pathData="M54,22.4a31.6,31.6 0,1 1,0,63.2a31.6,31.6 0,1 1,0,-63.2" />
 
-    <!-- B: haste + dois bojos em pill (stroke) -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M48.5,46 h3.6 v16 h-3.6 z" />
+        android:pathData="M34,46h3.6v6.2h3.8v-6.2h3.6v16h-3.6v-6.2h-3.8v6.2h-3.6z" />
     <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M48.5,46h3.6v16h-3.6z" />
+    <path
+        android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="3.6"
-        android:pathData="M50.3,47.8 h4.5 a2.6,2.6 0 1 1 0,5.2 h-4.5" />
+        android:pathData="M50.3,47.8h4.5a2.6,2.6 0,1 1,0,5.2h-4.5" />
     <path
+        android:fillColor="#00000000"
         android:strokeColor="#FFFFFFFF"
         android:strokeWidth="3.6"
-        android:pathData="M50.3,55.4 h4.8 a2.4,2.4 0 1 1 0,4.8 h-4.8" />
-
-    <!-- X -->
+        android:pathData="M50.3,55.4h4.8a2.4,2.4 0,1 1,0,4.8h-4.8" />
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M62.5,46 h3.7 l2.05,4.9 2.05,-4.9 h3.7 l-4.15,8 4.15,8 h-3.7 l-2.05,-4.9 -2.05,4.9 h-3.7 l4.15,-8 z" />
+        android:pathData="M62.5,46h3.7l2.05,4.9l2.05,-4.9h3.7l-4.15,8l4.15,8h-3.7l-2.05,-4.9l-2.05,4.9h-3.7l4.15,-8z" />
 </vector>

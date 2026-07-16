@@ -2,15 +2,15 @@ package br.com.hbxsystem.entrega
 
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -20,23 +20,69 @@ import android.widget.ImageView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.WebViewAssetLoader
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
-/** Exibe a abertura antes de qualquer decisão de vínculo ou autenticação. */
+/** Abertura única: o ícone nativo entrega o mesmo núcleo para a animação web. */
 class OpeningActivity : AppCompatActivity() {
+    companion object {
+        const val EXTRA_OFFLINE_RESUME = "hbxOfflineResume"
+        const val EXTRA_OPENING_PROGRESS = "hbxOpeningProgress"
+    }
+
     private val handler = Handler(Looper.getMainLooper())
-    private var continued = false
-    private var nativeHandoff: View? = null
-    private var handoffRevealAt = 0L
-    private var handoffRevealScheduled = false
+    private lateinit var executor: ExecutorService
+    private lateinit var credentialStore: DeviceCredentialStore
     private lateinit var webView: WebView
+    private lateinit var root: FrameLayout
+    private lateinit var logo: ImageView
+    private var nativeHandoff: View? = null
+    private var webReady = false
+    private var nativeArrived = false
+    private var nativeMoveStarted = false
+    private var handoffStarted = false
+    private var sequenceReady = false
+    private var sessionReady = false
+    private var continued = false
+    private var offlineResume = false
+    private var entryUri: Uri? = null
+    private var sessionFailure: Throwable? = null
+    private var openingProgress = 0
+    private var fastLogin = false
+
+    private inner class OpeningBridge {
+        @JavascriptInterface
+        fun sequenceReady() {
+            runOnUiThread {
+                sequenceReady = true
+                continueWhenReady()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (HbxMobileExperience.premiumShell) {
-            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() = Unit
-            })
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = Unit
+        })
+        window.statusBarColor = Color.parseColor("#080D20")
+        window.navigationBarColor = Color.parseColor("#02040B")
+        executor = Executors.newSingleThreadExecutor()
+        credentialStore = DeviceCredentialStore(this)
+        fastLogin = credentialStore.readDeviceToken().isNullOrBlank()
+        offlineResume = intent.getBooleanExtra(EXTRA_OFFLINE_RESUME, false)
+
+        root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#050713")) }
+        val handoff = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#050713")) }
+        logo = ImageView(this).apply {
+            setImageResource(R.drawable.ic_launcher_foreground)
+            scaleType = ImageView.ScaleType.FIT_CENTER
         }
+        handoff.addView(logo, FrameLayout.LayoutParams(dp(288), dp(288)).apply { gravity = Gravity.CENTER })
+        root.addView(handoff, FrameLayout.LayoutParams(-1, -1))
+        nativeHandoff = handoff
+        setContentView(root)
+
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
@@ -44,112 +90,162 @@ class OpeningActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#050713"))
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = false
+            settings.allowFileAccess = false
+            addJavascriptInterface(OpeningBridge(), "HBXOpeningAndroid")
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                     assetLoader.shouldInterceptRequest(request.url)
 
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    if (request.url.path?.endsWith("/index.html") == true) {
-                        continueToPairing()
-                        return true
-                    }
-                    return false
+                override fun onPageFinished(view: WebView, url: String) {
+                    webReady = true
+                    setOpeningProgress(openingProgress)
+                    startNativeMove()
                 }
+            }
+        }
+        root.addView(webView, 0, FrameLayout.LayoutParams(-1, -1))
+        webView.loadUrl("${HbxMobileExperience.openingUrl}?native=1&fastLogin=${if (fastLogin) 1 else 0}")
 
-                override fun onPageCommitVisible(view: WebView, url: String) {
-                    if (nativeHandoff == null || handoffRevealScheduled) return
-                    handoffRevealScheduled = true
-                    val delay = (handoffRevealAt - SystemClock.uptimeMillis()).coerceAtLeast(0L)
-                    handler.postDelayed(::revealWebOpening, delay)
-                }
-            }
-        }
-        if (HbxMobileExperience.premiumShell) {
-            val root = FrameLayout(this).apply {
-                setBackgroundColor(Color.parseColor("#050713"))
-                addView(webView, FrameLayout.LayoutParams(-1, -1))
-            }
-            val handoff = FrameLayout(this).apply {
-                setBackgroundColor(Color.parseColor("#050713"))
-            }
-            val logo = ImageView(this).apply {
-                setImageResource(R.drawable.ic_launcher_foreground)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            }
-            val hubShell = View(this).apply {
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#F0070B19"))
-                    setStroke(dp(1), Color.parseColor("#12FFFFFF"))
-                }
-                alpha = 0f
-                scaleX = .88f
-                scaleY = .88f
-            }
-            handoff.addView(hubShell, FrameLayout.LayoutParams(dp(122), dp(122)).apply { gravity = Gravity.CENTER })
-            handoff.addView(logo, FrameLayout.LayoutParams(dp(288), dp(288)).apply { gravity = Gravity.CENTER })
-            root.addView(handoff, FrameLayout.LayoutParams(-1, -1))
-            nativeHandoff = handoff
-            handoffRevealAt = SystemClock.uptimeMillis() + 1_180L
-            setContentView(root)
-            logo.post {
-                val center = logo.y + logo.height / 2f
-                val targetRatio = if (root.height <= dp(700)) .292f else .316f
-                val target = root.height * targetRatio
-                logo.animate()
-                    .translationY(target - center)
-                    .scaleX(.375f)
-                    .scaleY(.375f)
-                    .setStartDelay(330L)
-                    .setDuration(780L)
-                    .start()
-            }
-            hubShell.post {
-                val center = hubShell.y + hubShell.height / 2f
-                val targetRatio = if (root.height <= dp(700)) .292f else .316f
-                val target = root.height * targetRatio
-                hubShell.animate()
-                    .translationY(target - center)
-                    .alpha(1f)
-                    .scaleX(1f)
-                    .scaleY(1f)
-                    .setStartDelay(520L)
-                    .setDuration(590L)
-                    .start()
-            }
-        } else {
-            setContentView(webView)
-        }
-        webView.loadUrl(HbxMobileExperience.openingUrl)
-        handler.postDelayed(::continueToPairing, 7_500L)
+        authenticateSavedDevice()
     }
 
-    private fun continueToPairing() {
-        if (continued || isFinishing || isDestroyed) return
+    private fun startNativeMove() {
+        if (nativeMoveStarted || !webReady || isFinishing || isDestroyed) return
+        nativeMoveStarted = true
+        logo.post {
+            val center = logo.y + logo.height / 2f
+            val targetRatio = if (root.height <= dp(700)) .295f else .316f
+            val target = root.height * targetRatio
+            logo.animate()
+                .translationY(target - center)
+                .scaleX(.668f)
+                .scaleY(.668f)
+                .setStartDelay(openingTime(90L))
+                .setDuration(openingTime(1_070L))
+                .withEndAction {
+                    nativeArrived = true
+                    startWebHandoffWhenReady()
+                }
+                .start()
+        }
+    }
+
+    private fun authenticateSavedDevice() {
+        val token = credentialStore.readDeviceToken()
+        if (token.isNullOrBlank()) {
+            sessionReady = true
+            continueWhenReady()
+            return
+        }
+        setOpeningProgress(8)
+        executor.execute {
+            runOnUiThread { setOpeningProgress(18) }
+            try {
+                val uri = MobileEntrySession.authenticate(token, credentialStore.installationId())
+                runOnUiThread {
+                    entryUri = uri
+                    sessionReady = true
+                    setOpeningProgress(42)
+                    continueWhenReady()
+                }
+            } catch (error: Throwable) {
+                runOnUiThread {
+                    sessionFailure = error
+                    sessionReady = true
+                    continueWhenReady()
+                }
+            }
+        }
+    }
+
+    private fun startWebHandoffWhenReady() {
+        if (!webReady || !nativeArrived || handoffStarted || isFinishing || isDestroyed) return
+        handoffStarted = true
+        webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.start()") {
+            handler.postDelayed({
+                nativeHandoff?.animate()
+                    ?.alpha(0f)
+                    ?.setDuration(openingTime(170L))
+                    ?.withEndAction {
+                        (nativeHandoff?.parent as? ViewGroup)?.removeView(nativeHandoff)
+                        nativeHandoff = null
+                    }
+                    ?.start()
+            }, openingTime(44L))
+        }
+    }
+
+    private fun setOpeningProgress(value: Int) {
+        openingProgress = value.coerceIn(0, 100)
+        if (!webReady) return
+        webView.evaluateJavascript(
+            "window.HBXOpening&&window.HBXOpening.setProgress($openingProgress)",
+            null,
+        )
+    }
+
+    private fun continueWhenReady() {
+        if (!sequenceReady || !sessionReady || continued || isFinishing || isDestroyed) return
+        entryUri?.let {
+            launchMain(it)
+            return
+        }
+        val failure = sessionFailure
+        if (offlineResume && failure !is MobileEntrySession.ApiException) {
+            setOpeningProgress(42)
+            launchMain(null)
+            return
+        }
+        if ((failure as? MobileEntrySession.ApiException)?.status == 401) {
+            credentialStore.clearDeviceToken()
+        }
+        val message = failure?.message
+        transitionToPairing(message)
+    }
+
+    private fun launchMain(uri: Uri?) {
+        if (continued) return
         continued = true
-        handler.removeCallbacksAndMessages(null)
-        startActivity(Intent(this, PairingActivity::class.java))
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                data = uri
+                putExtra(EXTRA_OPENING_PROGRESS, openingProgress.coerceAtLeast(42))
+                putExtra(EXTRA_OFFLINE_RESUME, offlineResume)
+            },
+        )
         finish()
         @Suppress("DEPRECATION")
-        overridePendingTransition(0, 0)
+        overridePendingTransition(R.anim.hbx_handoff_enter, R.anim.hbx_handoff_exit)
     }
 
-    private fun revealWebOpening() {
-        nativeHandoff?.animate()
-            ?.alpha(0f)
-            ?.setDuration(170L)
-            ?.withEndAction {
-                (nativeHandoff?.parent as? ViewGroup)?.removeView(nativeHandoff)
-                nativeHandoff = null
-            }
-            ?.start()
+    private fun transitionToPairing(message: String?) {
+        if (continued) return
+        continued = true
+        webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.complete('login','dark')", null)
+        handler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            startActivity(
+                Intent(this, PairingActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                    putExtra(PairingActivity.EXTRA_FORCE_PAIRING, true)
+                    putExtra(PairingActivity.EXTRA_PAIRING_MESSAGE, message)
+                },
+            )
+            finish()
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }, openingTime(700L))
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         nativeHandoff?.animate()?.cancel()
         nativeHandoff = null
-        if (::webView.isInitialized) webView.destroy()
+        if (::executor.isInitialized) executor.shutdownNow()
+        if (::webView.isInitialized) {
+            webView.removeJavascriptInterface("HBXOpeningAndroid")
+            webView.destroy()
+        }
         super.onDestroy()
     }
 
@@ -158,4 +254,6 @@ class OpeningActivity : AppCompatActivity() {
         value.toFloat(),
         resources.displayMetrics,
     ).toInt()
+
+    private fun openingTime(value: Long): Long = if (fastLogin) (value * .7).toLong() else value
 }

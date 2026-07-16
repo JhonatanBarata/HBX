@@ -2,6 +2,7 @@ package br.com.hbxsystem.entrega
 
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -9,14 +10,20 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebStorage
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -44,12 +51,19 @@ import java.util.concurrent.Executors
  * escolhida pelo operador; aparelhos já vinculados entram pela credencial nativa.
  */
 class PairingActivity : AppCompatActivity() {
+    companion object {
+        const val EXTRA_FORCE_PAIRING = "hbxForcePairing"
+        const val EXTRA_PAIRING_MESSAGE = "hbxPairingMessage"
+    }
+
     private class ApiException(val status: Int, message: String) : Exception(message)
 
     private lateinit var credentialStore: DeviceCredentialStore
     private lateinit var executor: ExecutorService
     private lateinit var root: FrameLayout
     private var googleButton: Button? = null
+    private var pairingButton: Button? = null
+    private var pairingCodeInput: EditText? = null
     private var closing = false
     private var loadingAnimator: ObjectAnimator? = null
 
@@ -78,9 +92,11 @@ class PairingActivity : AppCompatActivity() {
             }
         })
 
+        val forcePairing = intent.getBooleanExtra(EXTRA_FORCE_PAIRING, false)
+        val initialMessage = intent.getStringExtra(EXTRA_PAIRING_MESSAGE)
         val savedToken = credentialStore.readDeviceToken()
-        if (savedToken.isNullOrBlank()) {
-            showGooglePairingScreen()
+        if (forcePairing || savedToken.isNullOrBlank()) {
+            showPairingScreen(initialMessage)
         } else {
             showLoadingScreen("Entrando no HBX…")
             authenticateSavedDevice(savedToken)
@@ -108,9 +124,9 @@ class PairingActivity : AppCompatActivity() {
             failure = { error ->
                 if (error is ApiException && error.status == 401) {
                     credentialStore.clearDeviceToken()
-                    showGooglePairingScreen("Este aparelho foi desconectado. Conecte novamente com sua conta Google.")
+                    showPairingScreen("Este aparelho foi desconectado. Vincule novamente este aparelho.")
                 } else {
-                    showGooglePairingScreen(error.message ?: "Não foi possível conectar ao HBX.")
+                    showPairingScreen(error.message ?: "Não foi possível conectar ao HBX.")
                 }
             },
         )
@@ -146,6 +162,33 @@ class PairingActivity : AppCompatActivity() {
                 showMessage(error.message ?: "Não foi possível conectar com Google Play.")
             }
         }
+    }
+
+    private fun submitPairingCode() {
+        val code = pairingCodeInput?.text?.toString().orEmpty().filter(Char::isDigit)
+        if (code.length != 6) {
+            pairingCodeInput?.requestFocus()
+            showMessage("Digite os 6 números exibidos no HBX web.")
+            return
+        }
+        setBusy(true)
+        runNetwork(
+            request = {
+                postJson(
+                    "/mobile/devices/pair",
+                    JSONObject()
+                        .put("code", code)
+                        .put("installationId", credentialStore.installationId())
+                        .put("deviceName", deviceDisplayName())
+                        .put("platform", "android-${BuildConfig.APP_MODE}"),
+                )
+            },
+            success = ::completePairing,
+            failure = { error ->
+                setBusy(false)
+                showMessage(error.message ?: "Não foi possível vincular este aparelho.")
+            },
+        )
     }
 
     private fun submitGoogleIdToken(idToken: String) {
@@ -244,33 +287,28 @@ class PairingActivity : AppCompatActivity() {
     }
 
     private fun openEntryUrl(entryUrl: String) {
-        val uri = runCatching { Uri.parse(entryUrl) }.getOrNull()
-        val expected = runCatching { Uri.parse(BuildConfig.WEB_BASE_URL) }.getOrNull()
-        val productionHosts = setOf(expected?.host, expected?.host?.removePrefix("www.")).filterNotNull()
-        val allowed = if (BuildConfig.DEBUG) {
-            uri != null && expected != null && uri.scheme == expected.scheme &&
-                uri.host == expected.host && uri.port == expected.port &&
-                (uri.scheme == "https" || uri.scheme == "http")
-        } else {
-            uri != null && uri.scheme == "https" && uri.host in productionHosts && uri.port == expected?.port
-        }
-        if (!allowed) {
-            showGooglePairingScreen("O HBX devolveu uma entrada inválida. Atualize o aplicativo.")
+        val uri = MobileEntrySession.validatedEntryUri(entryUrl)
+        if (uri == null) {
+            showPairingScreen("O HBX devolveu uma entrada inválida. Atualize o aplicativo.")
             return
         }
         startActivity(
             Intent(this, MainActivity::class.java).apply {
                 data = uri
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                putExtra(OpeningActivity.EXTRA_OPENING_PROGRESS, 42)
             },
         )
         finish()
+        @Suppress("DEPRECATION")
+        overridePendingTransition(R.anim.hbx_handoff_enter, R.anim.hbx_handoff_exit)
     }
 
     private fun showLoadingScreen(message: String) {
         loadingAnimator?.cancel()
         loadingAnimator = null
         googleButton = null
+        pairingButton = null
+        pairingCodeInput = null
         root.removeAllViews()
         root.background = mobileBackground()
 
@@ -318,7 +356,7 @@ class PairingActivity : AppCompatActivity() {
         }
     }
 
-    private fun showGooglePairingScreen(initialMessage: String? = null) {
+    private fun showPairingScreen(initialMessage: String? = null) {
         loadingAnimator?.cancel()
         loadingAnimator = null
         root.removeAllViews()
@@ -336,20 +374,115 @@ class PairingActivity : AppCompatActivity() {
             topMargin = dp(12)
         })
 
-        val column = LinearLayout(this).apply {
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(24), dp(30), dp(24), dp(22))
             alpha = 0f
             translationY = dp(14).toFloat()
         }
-        column.addView(TextView(this).apply {
-            text = "Vincule este aparelho"
+
+        content.addView(TextView(this).apply {
+            text = "REDE OPERACIONAL ATIVA"
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#9AEA35"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+            letterSpacing = .28f
+            translationY = dp(10).toFloat()
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(16) })
+        content.addView(TextView(this).apply {
+            text = "HBX"
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#DDE7FA"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 48f)
+            letterSpacing = -.055f
+            translationY = dp(10).toFloat()
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
+        content.addView(TextView(this).apply {
+            text = "M O B I L E"
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#8E9AB5"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            letterSpacing = .16f
+            translationY = dp(10).toFloat()
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = -dp(5) })
+
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(20), dp(20), dp(18))
+            background = roundedStrokeBackground("#E60A1124", "#332E5BFF", 24)
+            elevation = dp(8).toFloat()
+        }
+        card.addView(TextView(this).apply {
+            text = "Vincule este Aparelho"
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
-            letterSpacing = -.045f
-        }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(24) })
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 25f)
+            letterSpacing = -.035f
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        card.addView(TextView(this).apply {
+            text = "Este código é gerado no seu Administrador."
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#9EACC7"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setLineSpacing(0f, 1.18f)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+
+        val codeInput = EditText(this).apply {
+            hint = "000000"
+            gravity = Gravity.CENTER
+            inputType = InputType.TYPE_CLASS_NUMBER
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            filters = arrayOf(InputFilter.LengthFilter(6))
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#40506C"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 25f)
+            setTypeface(typeface, Typeface.BOLD)
+            letterSpacing = .28f
+            background = roundedStrokeBackground("#B3060B18", "#5C506789", 14)
+            setPadding(dp(14), 0, dp(14), 0)
+            setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == EditorInfo.IME_ACTION_DONE) {
+                    submitPairingCode()
+                    true
+                } else false
+            }
+        }
+        pairingCodeInput = codeInput
+        card.addView(codeInput, LinearLayout.LayoutParams(-1, dp(58)).apply { topMargin = dp(18) })
+
+        val pairButton = Button(this).apply {
+            text = "Vincular aparelho"
+            isAllCaps = false
+            stateListAnimator = null
+            minimumHeight = 0
+            minHeight = 0
+            setTextColor(Color.parseColor("#07101A"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#9AEA35"), Color.parseColor("#43E89A")),
+            ).apply { cornerRadius = dp(14).toFloat() }
+            setOnClickListener { submitPairingCode() }
+        }
+        pairingButton = pairButton
+        card.addView(pairButton, LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(12) })
+
+        card.addView(TextView(this).apply {
+            text = "OU"
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#667793"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 9f)
+            letterSpacing = .18f
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14); bottomMargin = dp(10) })
 
         val button = Button(this).apply {
             text = "Conectar com Google Play"
@@ -367,11 +500,76 @@ class PairingActivity : AppCompatActivity() {
             setOnClickListener { startGoogleSignIn() }
         }
         googleButton = button
-        column.addView(button, LinearLayout.LayoutParams(-1, dp(52)))
+        card.addView(button, LinearLayout.LayoutParams(-1, dp(48)))
+        content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(64) })
+        content.addView(View(this).apply { minimumHeight = dp(28) }, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        val width = (resources.displayMetrics.widthPixels - dp(48)).coerceAtMost(dp(336))
-        root.addView(column, FrameLayout.LayoutParams(width, -2).apply { gravity = Gravity.CENTER })
-        column.animate().alpha(1f).translationY(0f).setStartDelay(80L).setDuration(520L).start()
+        val links = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        links.addView(footerLink("Ajuda") { openWhatsAppSupport() })
+        links.addView(footerDot())
+        links.addView(footerLink("Termos") { openWebPage("/termos") })
+        links.addView(footerDot())
+        links.addView(footerLink("Privacidade") { openWebPage("/politicas") })
+        content.addView(links, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(22) })
+        content.addView(TextView(this).apply {
+            text = "© 2026 HBX System"
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#52617C"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(9) })
+
+        val support = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = roundedStrokeBackground("#1725D366", "#5925D366", 18)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { openWhatsAppSupport() }
+        }
+        support.addView(FrameLayout(this).apply {
+            background = roundedBackground("#25D366", 22)
+            addView(ImageView(this@PairingActivity).apply {
+                setImageResource(R.drawable.ic_whatsapp_original)
+                imageTintList = null
+                contentDescription = "WhatsApp"
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+            }, FrameLayout.LayoutParams(-1, -1))
+        }, LinearLayout.LayoutParams(dp(44), dp(44)))
+        support.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(TextView(this@PairingActivity).apply {
+                text = "Falar com o suporte"
+                setTextColor(Color.WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            })
+            addView(TextView(this@PairingActivity).apply {
+                text = "Abra uma conversa no WhatsApp"
+                setTextColor(Color.parseColor("#9FCBB5"))
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(2) })
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(12) })
+        support.addView(TextView(this).apply {
+            text = "›"
+            setTextColor(Color.parseColor("#25D366"))
+            setTypeface(typeface, Typeface.BOLD)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+        })
+        content.addView(support, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(18) })
+
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            clipToPadding = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(content, FrameLayout.LayoutParams(-1, -2))
+        }
+        val width = resources.displayMetrics.widthPixels.coerceAtMost(dp(430))
+        root.addView(scroll, FrameLayout.LayoutParams(width, -1).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        content.animate().alpha(1f).translationY(0f).setStartDelay(80L).setDuration(520L).start()
 
         if (!initialMessage.isNullOrBlank()) {
             root.post { showMessage(initialMessage) }
@@ -379,6 +577,12 @@ class PairingActivity : AppCompatActivity() {
     }
 
     private fun setBusy(busy: Boolean) {
+        pairingCodeInput?.isEnabled = !busy
+        pairingButton?.apply {
+            isEnabled = !busy
+            alpha = if (busy) .72f else 1f
+            text = if (busy) "Vinculando…" else "Vincular aparelho"
+        }
         googleButton?.apply {
             isEnabled = !busy
             alpha = if (busy) .72f else 1f
@@ -388,6 +592,46 @@ class PairingActivity : AppCompatActivity() {
 
     private fun showMessage(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun openWhatsAppSupport() {
+        val message = Uri.encode("Olá, preciso de ajuda para vincular meu aparelho ao HBX Mobile.")
+        val uri = Uri.parse("https://wa.me/5519997024884?text=$message")
+        val whatsappPackage = listOf("com.whatsapp", "com.whatsapp.w4b")
+            .firstOrNull { packageManager.getLaunchIntentForPackage(it) != null }
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply { whatsappPackage?.let(::setPackage) }
+        try {
+            startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                .onFailure { showMessage("Não foi possível abrir o WhatsApp neste aparelho.") }
+        }
+    }
+
+    private fun openWebPage(path: String) {
+        val uri = Uri.parse(BuildConfig.WEB_BASE_URL.trimEnd('/') + path)
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (_: ActivityNotFoundException) {
+            showMessage("Não foi possível abrir esta página neste aparelho.")
+        }
+    }
+
+    private fun footerLink(label: String, action: () -> Unit) = TextView(this).apply {
+        text = label
+        setTextColor(Color.parseColor("#8FA0BC"))
+        setTypeface(typeface, Typeface.BOLD)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        setPadding(dp(8), dp(7), dp(8), dp(7))
+        isClickable = true
+        isFocusable = true
+        setOnClickListener { action() }
+    }
+
+    private fun footerDot() = TextView(this).apply {
+        text = "•"
+        setTextColor(Color.parseColor("#33415B"))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
     }
 
     private fun deviceDisplayName(): String {

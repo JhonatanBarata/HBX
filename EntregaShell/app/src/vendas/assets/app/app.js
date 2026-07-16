@@ -151,11 +151,14 @@
     H.mobileShell.setContext({ appName: "vendas", currentScreen: state.screen, navigate: navigateSales });
   }
 
-  async function refresh(silent) {
+  async function refresh(silent, boot) {
     state.refreshing = true;
     if (!silent && !state.board) state.loading = true;
     render();
-    const results = await Promise.allSettled([H.api("/vendas/board"), H.api("/vendas/report?period=30d"), H.api("/vendas/pending-summary"), H.api("/products?status=active")]);
+    const requests = [H.api("/vendas/board"), H.api("/vendas/report?period=30d"), H.api("/vendas/pending-summary"), H.api("/products?status=active")];
+    if (boot) H.boot.begin("vendas", requests.length);
+    const tracked = boot ? requests.map(request => Promise.resolve(request).finally(() => H.boot.step("vendas"))) : requests;
+    const results = await Promise.allSettled(tracked);
     if (results[0].status === "fulfilled") {
       state.board = results[0].value;
       H.cache.set("vendas-board", state.board);
@@ -169,6 +172,7 @@
     state.loading = false;
     state.refreshing = false;
     render();
+    if (boot) H.boot.ready("vendas");
   }
   async function loadRadar(filters) {
     const radar = state.radar; const next = { ...radar, ...filters, loading: true, error: null }; state.radar = next; render();
@@ -304,5 +308,5 @@
   };
   window.dispatchEvent(new CustomEvent("hbx:sales-ready"));
   if (!embedded && !H.modules.get().vendas) window.location.replace("../app/index.html?screen=route");
-  else { render(); refresh(true); state.screenMotion = ""; }
+  else { render(); refresh(true, true); state.screenMotion = ""; }
 })();

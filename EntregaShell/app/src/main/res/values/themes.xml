@@ -12,7 +12,11 @@
     <style name="Theme.EntregaShell.NoActionBar" parent="Theme.EntregaShell">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
+        <item name="android:windowBackground">#050713</item>
+        <item name="android:windowDisablePreview">true</item>
     </style>
+
+    <style name="Theme.EntregaShell.Launcher" parent="Theme.EntregaShell.NoActionBar" />
 
     <style name="Theme.EntregaShell.Closing" parent="Theme.EntregaShell.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
