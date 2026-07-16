@@ -49,7 +49,7 @@ function createFakePrisma(options: { cursorEnabled?: boolean | null; hasCursorTa
     missions,
     hasTable: async (name: string) => tableSet.has(name),
     radarFactoryCursor: {
-      findUnique: async () => (options.cursorEnabled == null ? null : { enabled: options.cursorEnabled }),
+      upsert: async () => ({ enabled: options.cursorEnabled == null ? true : options.cursorEnabled }),
     },
     authSession: {
       // conta "sessões ativas na janela" — o teste injeta o número direto (não simula lastSeenAt real)
@@ -148,15 +148,21 @@ test('isMissionQueueEnabled: default OFF (aditivo/reversível)', () => {
 
 // ─── Serviço (fila) ──────────────────────────────────────────────────────────────────────────────
 
-test('pausa real: cursor desligado/ausente → lease devolve vazio e nada drena', async () => {
-  for (const cursorEnabled of [false, null]) {
-    const { fake, service } = buildService({ cursorEnabled });
-    await service.enqueue({ stage: 'alvo', payload: { x: 1 } });
-    const result = await service.lease({ workerId: 'w1', batchSize: 5 });
-    assert.equal(result.paused, true);
-    assert.equal(result.missions.length, 0);
-    assert.equal(fake.missions[0].status, 'queued');
-  }
+test('pausa real: cursor desligado → lease devolve vazio e nada drena', async () => {
+  const { fake, service } = buildService({ cursorEnabled: false });
+  await service.enqueue({ stage: 'alvo', payload: { x: 1 } });
+  const result = await service.lease({ workerId: 'w1', batchSize: 5 });
+  assert.equal(result.paused, true);
+  assert.equal(result.missions.length, 0);
+  assert.equal(fake.missions[0].status, 'queued');
+});
+
+test('cursor ausente materializa o default ligado e não trava a primeira ativação', async () => {
+  const { service } = buildService({ cursorEnabled: null });
+  await service.enqueue({ stage: 'alvo', payload: { x: 1 } });
+  const result = await service.lease({ workerId: 'w1', batchSize: 5 });
+  assert.equal(result.paused, false);
+  assert.equal(result.missions.length, 1);
 });
 
 test('enrich_search_item de pesquisa manual nao herda a pausa da fabrica', async () => {
@@ -176,7 +182,7 @@ test('enrich_search_item de pesquisa manual nao herda a pausa da fabrica', async
   assert.equal(result.missions[0].stage, 'enrich_search_item');
 });
 
-test('pausa falha fechada quando tabela existe mas delegate Prisma legado nao existe', async () => {
+test('pausa falha fechada quando tabela existe mas delegate Prisma não existe', async () => {
   const service = new RadarMissionQueueService({
     hasTable: async (name: string) => name === 'RadarFactoryCursor',
   } as any);

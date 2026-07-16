@@ -46,6 +46,7 @@ function normalizePhoneDigits(value: unknown) {
 
 export type FabricaStatus = {
   supported: boolean;
+  unavailableReason: string | null;
   running: boolean;
   stopRequested: boolean;
   budget: number;
@@ -85,20 +86,28 @@ export class RadarFabricaService {
     this.l4 = new RadarCnpjL4EnrichmentService(this.leadContactWrite);
   }
 
-  private db() {
-    return this.prisma as any;
-  }
-
-  private async supports(): Promise<boolean> {
-    return this.prisma.hasTable('RadarFabricaRun').catch(() => false);
+  private async availability(): Promise<{ supported: true } | { supported: false; reason: string }> {
+    if (!this.prisma.radarFabricaRun?.upsert || !this.prisma.radarFactoryCursor?.upsert) {
+      return { supported: false, reason: 'prisma_client_desatualizado' };
+    }
+    const requiredTables = ['RadarFabricaRun', 'RadarFactoryCursor', 'RadarMission', 'RadarLeadPool', 'LeadContact', 'CnpjPublicCompany'];
+    const tableChecks = await Promise.all(requiredTables.map(async (table) => ({
+      table,
+      present: await this.prisma.hasTable(table),
+    })));
+    const missing = tableChecks.filter((check) => !check.present).map((check) => check.table);
+    return missing.length
+      ? { supported: false, reason: `migration_ausente:${missing.join(',')}` }
+      : { supported: true };
   }
 
   /** Linha única da corrida (cria dormente se faltar). */
-  private async getOrCreateRun(): Promise<any> {
-    const db = this.db();
-    return db.radarFabricaRun
-      .upsert({ where: { key: RUN_KEY }, create: { key: RUN_KEY }, update: {} })
-      .catch(() => null);
+  private getOrCreateRun() {
+    return this.prisma.radarFabricaRun.upsert({
+      where: { key: RUN_KEY },
+      create: { key: RUN_KEY },
+      update: {},
+    });
   }
 
   /** PARAR TUDO global (RadarFactoryCursor.enabled) — a fábrica respeita o mesmo interruptor da fila. */
@@ -109,16 +118,18 @@ export class RadarFabricaService {
   async status(): Promise<FabricaStatus> {
     const role = currentRole();
     const paidLocked = isLocalRole();
-    const supported = await this.supports();
+    const availability = await this.availability();
+    const supported = availability.supported;
     const [run, rfbBaseCount, queue] = await Promise.all([
       supported ? this.getOrCreateRun() : Promise.resolve(null),
-      this.db().cnpjPublicCompany?.count?.().catch(() => 0) ?? Promise.resolve(0),
+      supported ? this.prisma.cnpjPublicCompany.count() : Promise.resolve(0),
       this.missionQueue.stats().catch(() => null),
     ]);
     const budget = Number(run?.budget || 0);
     const processed = Number(run?.processed || 0);
     return {
       supported,
+      unavailableReason: availability.supported === false ? availability.reason : null,
       running: Boolean(run?.running),
       stopRequested: Boolean(run?.stopRequested),
       budget,
@@ -147,7 +158,8 @@ export class RadarFabricaService {
     | { started: false; reason: string; status?: FabricaStatus }
     | { started: true; status: FabricaStatus }
   > {
-    if (!(await this.supports())) return { started: false, reason: 'fabrica_indisponivel_migration_ausente' };
+    const availability = await this.availability();
+    if (availability.supported === false) return { started: false, reason: availability.reason };
 
     const budget = Math.trunc(Number(input?.budget));
     if (!Number.isFinite(budget) || budget <= 0) {
@@ -155,7 +167,6 @@ export class RadarFabricaService {
     }
     const cappedBudget = Math.min(budget, MAX_BUDGET);
 
-    const db = this.db();
     const run = await this.getOrCreateRun();
     if (run?.running) {
       return { started: false, reason: 'ja_rodando', status: await this.status() };
@@ -163,7 +174,7 @@ export class RadarFabricaService {
 
     // reset da corrida: zera contadores, define budget, arma running. paidAttempts SEMPRE zera —
     // é a prova de R$0 desta corrida.
-    await db.radarFabricaRun.update({
+    await this.prisma.radarFabricaRun.update({
       where: { key: RUN_KEY },
       data: {
         running: true,
@@ -177,7 +188,7 @@ export class RadarFabricaService {
         startedAt: new Date(),
         finishedAt: null,
       },
-    }).catch(() => null);
+    });
 
     this.logger.log(`[fabrica] START budget=${cappedBudget} role=${currentRole() || '(local)'} paidLocked=${isLocalRole()}`);
     // drain em background — o start responde na hora, o trabalho corre depois (pull, sem bloquear a rota).
@@ -189,17 +200,19 @@ export class RadarFabricaService {
 
   /** PARE AGORA: marca stopRequested; o drain sai no próximo checkpoint e congela com segurança. */
   async stop(): Promise<{ stopped: boolean; status?: FabricaStatus }> {
-    if (!(await this.supports())) return { stopped: false };
-    await this.db().radarFabricaRun
-      .updateMany({ where: { key: RUN_KEY }, data: { stopRequested: true } })
-      .catch(() => null);
+    const availability = await this.availability();
+    if (!availability.supported) return { stopped: false };
+    await this.prisma.radarFabricaRun.updateMany({
+      where: { key: RUN_KEY },
+      data: { stopRequested: true },
+    });
     this.logger.log('[fabrica] STOP solicitado — congelando no próximo checkpoint.');
     return { stopped: true, status: await this.status() };
   }
 
   /** Deve continuar? Sai por: stop pedido, budget batido ou PARAR TUDO global. */
   private async shouldContinue(): Promise<{ go: boolean; reason?: string }> {
-    const run = await this.db().radarFabricaRun.findUnique({ where: { key: RUN_KEY } }).catch(() => null);
+    const run = await this.prisma.radarFabricaRun.findUnique({ where: { key: RUN_KEY } }).catch(() => null);
     if (!run || !run.running) return { go: false, reason: 'parada' };
     if (run.stopRequested) return { go: false, reason: 'stop_solicitado' };
     if (Number(run.processed || 0) >= Number(run.budget || 0)) return { go: false, reason: 'budget_atingido' };
@@ -208,7 +221,7 @@ export class RadarFabricaService {
   }
 
   private async finishRun(reason: string) {
-    await this.db().radarFabricaRun
+    await this.prisma.radarFabricaRun
       .updateMany({ where: { key: RUN_KEY }, data: { running: false, finishedAt: new Date() } })
       .catch(() => null);
     this.logger.log(`[fabrica] corrida encerrada (${reason}).`);
@@ -248,7 +261,7 @@ export class RadarFabricaService {
    * Devolve o lead já existente OU o recém-criado. null = RFB esgotada.
    */
   private async materializeNextLead(): Promise<{ id: string; cnpj: string; name: string } | null> {
-    const db = this.db();
+    const db = this.prisma;
     // varre a RFB em ordem estável; pula quem já tem lead (placeId materializado).
     // Página pequena — o drain é sequencial e o skip é raro depois das primeiras.
     const pageSize = 50;
@@ -283,7 +296,7 @@ export class RadarFabricaService {
 
   /** Cria a linha RadarLeadPool mínima a partir do registro RFB (mesmo shape do cnpj_public provider). */
   private async createLeadFromCnpjRow(company: any, placeId: string): Promise<{ id: string; name: string } | null> {
-    const db = this.db();
+    const db = this.prisma;
     const name = String(company.nomeFantasia || company.razaoSocial || '').trim();
     if (!name) return null;
     const cnpj = normalizeCnpj(company.cnpj);
@@ -325,7 +338,7 @@ export class RadarFabricaService {
   }
 
   private async phoneTaken(phoneDigits: string): Promise<boolean> {
-    const found = await this.db().radarLeadPool
+    const found = await this.prisma.radarLeadPool
       .findFirst({ where: { phoneDigits }, select: { id: true } })
       .catch(() => null);
     return Boolean(found);
@@ -350,7 +363,7 @@ export class RadarFabricaService {
    * NENHUMA fonte paga é tocada no local (trava Lei nº1). paidAttempts fica 0 = prova de R$0.
    */
   private async processEnrichMissionForLead(leadId: string): Promise<void> {
-    const db = this.db();
+    const db = this.prisma;
     let contactsWritten = 0;
     try {
       // CNPJ NÃO é coluna de RadarLeadPool — o L4 lê de metadataJson/evidenceJson. Selecionar um
@@ -427,7 +440,7 @@ export class RadarFabricaService {
 
   /** Marca a missão `enrich_lead` do lead como completa (pelo dedupeKey — consumo local direto). */
   private async completeEnrichMission(leadId: string, contactsWritten: number): Promise<void> {
-    const db = this.db();
+    const db = this.prisma;
     await db.radarMission.updateMany({
       where: { stage: 'enrich_lead', dedupeKey: `lead:${leadId}`, status: { in: ['queued', 'leased'] } },
       data: { status: 'completed', completedAt: new Date(), resultJson: { contactsWritten } as any, leaseExpiresAt: null, lastError: null },
@@ -439,7 +452,7 @@ export class RadarFabricaService {
   }
 
   private async countLeadContacts(leadId: string): Promise<number> {
-    return this.db().leadContact.count({ where: { radarLeadId: leadId } }).catch(() => 0);
+    return this.prisma.leadContact.count({ where: { radarLeadId: leadId } }).catch(() => 0);
   }
 
   private parseJson(value: unknown): Record<string, any> {

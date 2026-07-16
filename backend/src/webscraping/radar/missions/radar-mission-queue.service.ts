@@ -169,10 +169,15 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     }
     const hasCursor = await this.prisma.hasTable('RadarFactoryCursor').catch(() => false);
     if (!hasCursor) return true;
-    const cursorDelegate = (this.prisma as any).radarFactoryCursor;
-    if (!cursorDelegate?.findUnique) return true;
+    const cursorDelegate = this.prisma.radarFactoryCursor;
+    if (!cursorDelegate?.upsert) return true;
     const cursor = await cursorDelegate
-      .findUnique({ where: { key: 'main' }, select: { enabled: true } })
+      .upsert({
+        where: { key: 'main' },
+        create: { key: 'main' },
+        update: {},
+        select: { enabled: true },
+      })
       .catch(() => null);
     return !cursor || cursor.enabled !== true;
   }

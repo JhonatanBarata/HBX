@@ -64,6 +64,7 @@ function makeFakePrisma(opts: { hasFabrica?: boolean; rfb?: any[] } = {}) {
       async findFirst() { return null; },
     },
     radarFactoryCursor: {
+      async upsert() { return { key: 'main', enabled: true }; },
       async findUnique() { return { enabled: true }; }, // PARAR TUDO global desligado
     },
   } as any;
@@ -107,7 +108,16 @@ test('start sem migration → indisponível', async () => {
   const svc = makeService(prisma);
   const r = await svc.start({ budget: 5 });
   assert.equal(r.started, false);
-  assert.equal((r as any).reason, 'fabrica_indisponivel_migration_ausente');
+  assert.equal((r as any).reason, 'migration_ausente:RadarFabricaRun');
+});
+
+test('status sem delegate Prisma não finge fábrica offline nem contadores zerados', async () => {
+  const prisma = makeFakePrisma();
+  delete prisma.radarFabricaRun;
+  const svc = makeService(prisma);
+  const status = await svc.status();
+  assert.equal(status.supported, false);
+  assert.equal(status.unavailableReason, 'prisma_client_desatualizado');
 });
 
 test('status expõe a trava anti-pago e paidAttempts=0 (prova de R$0)', async () => {
