@@ -2063,6 +2063,7 @@ async function ponteRender() {
     // Falha de leitura não trava o restante do painel e nunca libera o controle por suposição.
     if (pill) { pill.textContent = "sem leitura"; pill.className = "pill pill-muted"; }
     if (toggleBtn) toggleBtn.disabled = true;
+    if (modelBtn) { modelBtn.disabled = true; delete modelBtn.dataset.warm; }
     const verdictTitle = $("#ponte-verdict-title");
     const verdictDetail = $("#ponte-verdict-detail");
     if (verdictTitle) verdictTitle.textContent = "Sem leitura da ponte";
@@ -2144,8 +2145,7 @@ async function ponteRender() {
   // Interlock informativo: worker OFF (PC prestes a desligar/painel fechado) = "fila espera no VPS"
   // como ESTADO, nunca erro — coberto pelo ramo `!p.enabled` acima e pelo próprio backoff de rede
   // (lastError de rede não vira alarme vermelho, só aparece no rodapé).
-  const fb = $("#ponte-feedback");
-  if (fb) fb.textContent = p.lastError ? `último aviso: ${p.lastError}` : "";
+  ponteFeedback(p.lastError ? `Último aviso: ${p.lastError}` : "", p.lastError ? "error" : "");
 
   ponteRenderJobs(p.lastJobs);
   return p;
