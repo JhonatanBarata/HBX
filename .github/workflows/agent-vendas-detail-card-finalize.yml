@@ -1,0 +1,95 @@
+name: Finalize HBX Vendas detail card
+
+on:
+  push:
+    branches:
+      - agent/vendas-detail-card-finalize
+    paths:
+      - .github/workflows/agent-vendas-detail-card-finalize.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-vendas-detail-card-finalize
+  cancel-in-progress: true
+
+jobs:
+  apply-validate-and-amend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout finalization branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/vendas-detail-card-finalize
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Materialize the approved card in source
+        working-directory: frontend
+        run: node scripts/apply-vendas-detail-card-polish.mjs
+
+      - name: Remove the temporary self-patching hooks
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const file = 'frontend/package.json';
+          const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+          for (const key of ['predev', 'predev:preview', 'prebuild', 'prelint']) {
+            delete pkg.scripts[key];
+          }
+          fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
+          NODE
+          rm frontend/scripts/apply-vendas-detail-card-polish.mjs
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Verify transitions and final repository shape
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync('frontend/src/components/hbx/detalhes-negocio.tsx', 'utf8');
+          const count = (needle) => source.split(needle).length - 1;
+          if (!source.includes('export function formatPhoneDisplay')) throw new Error('Máscara do telefone ausente.');
+          if (!source.includes('dn-root--vendas')) throw new Error('Modificador visual do card ausente.');
+          if (!source.includes('REGRA SAGRADA')) throw new Error('Contrato de transições ausente.');
+          if (count('<TypedText') < 10) throw new Error('TypedText foi reduzido indevidamente.');
+          if (count('dn-kv-row') < 10) throw new Error('Costuras dn-kv-row foram reduzidas indevidamente.');
+          const pkg = JSON.parse(fs.readFileSync('frontend/package.json', 'utf8'));
+          for (const key of ['predev', 'predev:preview', 'prebuild', 'prelint']) {
+            if (pkg.scripts[key]) throw new Error(`Hook temporário ainda presente: ${key}`);
+          }
+          if (fs.existsSync('frontend/scripts/apply-vendas-detail-card-polish.mjs')) {
+            throw new Error('Script temporário ainda existe.');
+          }
+          console.log(`Transições preservadas: TypedText=${count('<TypedText')}; dn-kv-row=${count('dn-kv-row')}`);
+          NODE
+
+      - name: Publish one clean branch commit
+        shell: bash
+        run: |
+          rm .github/workflows/agent-vendas-detail-card-finalize.yml
+          git config user.name "OpenAI"
+          git config user.email "noreply@openai.com"
+          git add -A
+          git commit --amend -m "fix: commit Vendas detail card source"
+          git push --force-with-lease origin HEAD:agent/vendas-detail-card-finalize
