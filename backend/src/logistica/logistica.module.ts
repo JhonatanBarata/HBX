@@ -9,6 +9,8 @@ import { ModulesAccessModule } from '../modules/modules.module';
 import { AuthModule } from '../auth/auth.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
+import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
+import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
@@ -16,6 +18,8 @@ import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.servic
 import { ResumoDiarioService } from './resumo-diario.service';
 import { LogisticaPedidoPublicoService } from './logistica-pedido-publico.service';
 import { LogisticaController } from './logistica.controller';
+import { LogisticaAdminRouteController } from './logistica-admin-route.controller';
+import { LogisticaAdminRouteService } from './logistica-admin-route.service';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
@@ -66,18 +70,31 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
  * (LogisticaConfig.pedidoPublicoAtivo, default false). Controller entra AQUI
  * (regra do S6: nada em app.module.ts); pedido vira Entrega 'agendada' — ZERO
  * WhatsApp/cobrança (efeitos continuam só no confirmar, atrás da flag do N6).
+ *
+ * ADMIN MOBILE (16/07): ocorrência recorrente, data operacional e rota deixam de
+ * ser a mesma coisa. O adapter LogisticaRecorrenciaOccurrenceService mantém o
+ * CRUD antigo, mas direciona preview/gerar-dia para o motor determinístico de
+ * ocorrências. O novo controller expõe Ajustar → Traçar → Começar exclusivamente
+ * ao administrador, sem antecipar a futura árvore de roles.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
   controllers: [
     LogisticaController,
+    LogisticaAdminRouteController,
     LogisticaPedidoPublicoController,
     LogisticaTrackingMobileController,
     LogisticaOfflineController,
   ],
   providers: [
     LogisticaService,
-    LogisticaRecorrenciaService,
+    LogisticaOccurrenceService,
+    LogisticaRecorrenciaOccurrenceService,
+    {
+      provide: LogisticaRecorrenciaService,
+      useExisting: LogisticaRecorrenciaOccurrenceService,
+    },
+    LogisticaAdminRouteService,
     LogisticaRotaService,
     LogisticaConfigService,
     LogisticaRecoveryService,
@@ -99,6 +116,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
   exports: [
     LogisticaService,
     LogisticaRecorrenciaService,
+    LogisticaOccurrenceService,
     LogisticaRotaService,
     LogisticaConfigService,
     LogisticaOperacaoService,
