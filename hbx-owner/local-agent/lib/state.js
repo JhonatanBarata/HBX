@@ -22,20 +22,33 @@ function ensureDir() {
   try { fs.mkdirSync(STATE_DIR, { recursive: true }); } catch { /* já existe */ }
 }
 
-// Lê um journal. Retorna `null` se não existir ou se estiver corrompido (nunca lança) —
-// o chamador trata ausência como "sem estado a retomar".
-function load(name) {
+function parseJournal(raw) {
+  try {
+    return { status: "valid", data: JSON.parse(raw) };
+  } catch {
+    return { status: "corrupt", data: null };
+  }
+}
+
+// Inspeciona um journal preservando a diferença entre ausente, ilegível e corrompido.
+// Controles de segurança usam esse resultado para não confundir corrupção com primeiro boot.
+function inspect(name) {
   let raw;
   try {
     raw = fs.readFileSync(statePath(name), "utf8");
-  } catch {
-    return null; // não existe → sem journal
+  } catch (error) {
+    return {
+      status: error && error.code === "ENOENT" ? "missing" : "unreadable",
+      data: null,
+    };
   }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null; // corrompido (não deveria acontecer com escrita atômica) → ignora
-  }
+  return parseJournal(raw);
+}
+
+// Leitura compatível com os journals de retomada: ausência/erro continuam retornando `null`.
+function load(name) {
+  const result = inspect(name);
+  return result.status === "valid" ? result.data : null;
 }
 
 // Grava um journal de forma ATÔMICA. Nunca lança (falha de disco não pode derrubar o worker) —
@@ -59,4 +72,4 @@ function clear(name) {
   try { fs.unlinkSync(statePath(name)); return true; } catch { return false; }
 }
 
-module.exports = { STATE_DIR, statePath, ensureDir, load, save, clear };
+module.exports = { STATE_DIR, statePath, ensureDir, parseJournal, inspect, load, save, clear };

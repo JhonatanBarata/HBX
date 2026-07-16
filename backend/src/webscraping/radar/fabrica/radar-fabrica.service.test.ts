@@ -152,6 +152,59 @@ test('TRAVA: mesmo com budget, drena RFB sem NENHUMA tentativa paga (paidAttempt
   assert.equal(prisma._leads.length >= 1, true);
 });
 
+test('budget 5000 alcança empresa após mais de 2000 registros já materializados', async () => {
+  const rfb = Array.from({ length: 5_000 }, (_, index) => {
+    const cnpj = String(index + 1).padStart(14, '0');
+    return { cnpj, razaoSocial: `EMPRESA ${index + 1}` };
+  });
+  const prisma = makeFakePrisma({ rfb });
+
+  // Simula uma retomada: os 4.999 primeiros registros já viraram lead em corridas anteriores.
+  // O teste chama somente a seleção/materialização; não aciona fila, L4, rede ou scraping real.
+  prisma._leads.push(...rfb.slice(0, 4_999).map((company, index) => ({
+    id: `existing_${index + 1}`,
+    placeId: `cnpj_public:${company.cnpj}`,
+    name: company.razaoSocial,
+  })));
+
+  const svc = makeService(prisma);
+  const lead = await (svc as any).materializeNextLead();
+
+  assert.equal(lead?.cnpj, rfb[4_999].cnpj);
+  assert.equal(prisma._leads.length, 5_000);
+});
+
+test('pedido de 5000 conclui o budget inteiro sem fila, rede ou scraping real', async () => {
+  const rfb = Array.from({ length: 5_000 }, (_, index) => ({
+    cnpj: String(index + 1).padStart(14, '0'),
+    razaoSocial: `EMPRESA ${index + 1}`,
+  }));
+  const prisma = makeFakePrisma({ rfb });
+  const svc = makeService(prisma) as any;
+
+  // Isola somente o laço da fábrica: nenhuma missão é publicada e nenhum enriquecedor é chamado.
+  svc.enqueueEnrichMission = async () => undefined;
+  svc.processEnrichMissionForLead = async (leadId: string) => {
+    await prisma.radarFabricaRun.updateMany({
+      where: { key: 'main' },
+      data: { processed: { increment: 1 }, lastLeadId: leadId },
+    });
+  };
+
+  const started = await svc.start({ budget: 5_000 });
+  assert.equal(started.started, true);
+
+  const deadline = Date.now() + 10_000;
+  while (prisma._run.running && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.equal(prisma._run.running, false, 'a corrida deve encerrar sozinha ao bater o budget');
+  assert.equal(prisma._run.processed, 5_000);
+  assert.equal(prisma._run.materialized, 5_000);
+  assert.equal(prisma._leads.length, 5_000);
+});
+
 test('stop marca stopRequested (congela com segurança)', async () => {
   const prisma = makeFakePrisma({ rfb: [] });
   const svc = makeService(prisma);

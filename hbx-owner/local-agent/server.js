@@ -408,7 +408,9 @@ function engineContainerNames(n = ENGINE_FLEET_SIZE) {
 }
 
 function runningEngineSet() {
-  const r = dockerRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
+  // Esta leitura pertence ao fluxo de mutação start/stop e permanece síncrona de propósito:
+  // a sequência precisa decidir e executar a mudança sobre o mesmo retrato da frota.
+  const r = execRead(["docker", "ps", "--filter", "name=hbx-engine-", "--format", "{{.Names}}"]);
   const set = new Set();
   if (r.ok) {
     for (const line of String(r.stdout || "").split(/\r?\n/)) {
@@ -506,22 +508,72 @@ function execRead(command) {
   };
 }
 
-// `docker ps`/`docker stats` bloqueiam o event loop 1–2s (spawnSync). No polling do painel
-// (frota + containers a cada poucos segundos) isso congelava o agent. Cache de 5s por comando:
-// leituras repetidas dentro da janela reusam o resultado e não disparam docker de novo. É read-only
-// e cai rápido (5s) — nunca esconde uma mudança por muito tempo. Só as LEITURAS usam cache; os
-// `docker start/stop` continuam via execRead direto (mutação nunca é cacheada).
-const dockerReadCache = new Map(); // cmdKey -> { at, result }
+function execReadAsync(command) {
+  assertSafeCommand(command);
+  const [binary, ...args] = command;
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (exitCode, error) => {
+      if (settled) return;
+      settled = true;
+      if (error && !stderr) stderr = error.message || String(error);
+      resolve({
+        command: command.join(" "),
+        exitCode,
+        stdout,
+        stderr,
+        ok: exitCode === 0,
+      });
+    };
+    let child;
+    try {
+      child = spawn(resolveExecutable(binary), args, {
+        cwd: rootDir,
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      finish(null, error);
+      return;
+    }
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+    child.on("error", (error) => finish(null, error));
+    child.on("close", (code) => finish(code, null));
+  });
+}
+
+// `docker ps`/`docker stats` são leituras de painel e não podem disputar o event loop com o freio
+// da ponte. A primeira chamada roda em subprocesso assíncrono; polls iguais compartilham a mesma
+// Promise e, depois, o resultado por 5s. `docker start/stop` continuam no execRead síncrono acima:
+// mutações não são cacheadas nem tiveram seu comportamento alterado.
+const dockerReadCache = new Map(); // cmdKey -> { generation, at, result, pending }
 const DOCKER_READ_TTL_MS = 5000;
+let dockerReadGeneration = 0;
 function dockerRead(command) {
   const key = command.join(" ");
   const hit = dockerReadCache.get(key);
-  if (hit && Date.now() - hit.at < DOCKER_READ_TTL_MS) return hit.result;
-  const result = execRead(command);
-  dockerReadCache.set(key, { at: Date.now(), result });
-  return result;
+  if (hit?.pending) return hit.pending;
+  if (hit?.result && Date.now() - hit.at < DOCKER_READ_TTL_MS) return Promise.resolve(hit.result);
+
+  const generation = dockerReadGeneration;
+  const pending = execReadAsync(command).then((result) => {
+    const current = dockerReadCache.get(key);
+    if (current?.pending === pending && current.generation === generation) {
+      dockerReadCache.set(key, { generation, at: Date.now(), result, pending: null });
+    }
+    return result;
+  });
+  dockerReadCache.set(key, { generation, at: 0, result: null, pending });
+  return pending;
 }
-function invalidateDockerReadCache() { dockerReadCache.clear(); }
+function invalidateDockerReadCache() {
+  dockerReadGeneration += 1;
+  dockerReadCache.clear();
+}
 
 function requestLocalLabHealth(timeoutMs = 1200) {
   return new Promise((resolve) => {
@@ -823,6 +875,7 @@ const ponteWorker = createPonteWorker({
   fetchSiteText,
   controlStore: {
     load: () => stateStore.load("ponte-control"),
+    inspect: () => stateStore.inspect("ponte-control"),
     save: (data) => stateStore.save("ponte-control", data),
   },
   log: (msg) => console.log(msg),
@@ -1310,10 +1363,12 @@ async function readDiskUsage() {
   }
 }
 
-function readContainers() {
-  const result = dockerRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
+async function readContainers() {
+  const [result, stats] = await Promise.all([
+    dockerRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]),
+    dockerRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]),
+  ]);
   if (!result.ok) return { ok: false, items: [], error: (result.stderr || "docker indisponivel").trim() };
-  const stats = dockerRead(["docker", "stats", "--no-stream", "--format", "{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"]);
   const statMap = new Map();
   for (const line of String(stats.stdout || "").split(/\r?\n/)) {
     const [name, cpu, mem] = line.split("\t");
@@ -1395,12 +1450,12 @@ async function readSystemSnapshot() {
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
   const ramUsedPct = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0;
-  const [cpuPct, disk, capacity] = await Promise.all([
+  const [cpuPct, disk, capacity, containers] = await Promise.all([
     readCpuPercent(),
     readDiskUsage(),
     readEngineCapacity().catch(() => ({ ok: false, reason: "erro" })),
+    readContainers(),
   ]);
-  const containers = readContainers();
   const pressure = {
     ram: { usedPct: ramUsedPct, limit: PRESSURE_LIMITS.ram, totalGb: Math.round(totalMem / 1e9) },
     cpu: { usedPct: cpuPct, limit: PRESSURE_LIMITS.cpu, cores: os.cpus().length },
@@ -2590,7 +2645,7 @@ async function route(req, res) {
       return;
     }
     // Estado docker REAL dos containers (running/exited/missing) pra cruzar com o backend.
-    const docker = execRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
+    const docker = await dockerRead(["docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]);
     const dockerAvailable = docker.ok;
     const dockerByName = new Map();
     if (dockerAvailable) {
@@ -3078,8 +3133,8 @@ async function route(req, res) {
 
   // GET /owner/containers — containers local (docker) + VPS (via Ops Control) + top processos
   if (req.method === "GET" && url.pathname === "/owner/containers") {
-    const local = readContainers();
-    const [vpsCtrs, vpsOv] = await Promise.all([
+    const [local, vpsCtrs, vpsOv] = await Promise.all([
+      readContainers(),
       opsRequest("GET", "/api/containers", null, 20000),
       opsRequest("GET", "/api/overview", null, 40000),
     ]);
@@ -3491,19 +3546,31 @@ async function route(req, res) {
   sendError(res, 404, "Endpoint nao encontrado.");
 }
 
-const server = http.createServer((req, res) => {
-  route(req, res).catch((error) => sendError(res, 500, error.message));
-});
+function createOwnerServer() {
+  return http.createServer((req, res) => {
+    route(req, res).catch((error) => sendError(res, 500, error.message));
+  });
+}
 
-server.listen(PORT, HOST, () => {
-  // Estado durável: garante o dir e detecta transferência não-finalizada (agent morreu no meio) →
-  // vira resumable:true no /owner/transfer/status. O enricher retoma sozinho pelo journal no start.
-  stateStore.ensureDir();
-  const resume = loadTransferResumeOnBoot();
-  if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
-  console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
-  // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
-  try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
-  // D4: 1ª checagem de drift no boot (força o throttle). Best-effort — nunca derruba a subida do agent.
-  refreshOpsDrift(true).catch(() => {});
-});
+const server = createOwnerServer();
+
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    // Estado durável: garante o dir e detecta transferência não-finalizada (agent morreu no meio) →
+    // vira resumable:true no /owner/transfer/status. O enricher retoma sozinho pelo journal no start.
+    stateStore.ensureDir();
+    const resume = loadTransferResumeOnBoot();
+    if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
+    console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
+    // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
+    try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
+    // D4: 1ª checagem de drift no boot (força o throttle). Best-effort — nunca derruba a subida do agent.
+    refreshOpsDrift(true).catch(() => {});
+  });
+}
+
+module.exports.__testing = {
+  createOwnerServer,
+  dockerRead,
+  invalidateDockerReadCache,
+};

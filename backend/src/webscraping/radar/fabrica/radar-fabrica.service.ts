@@ -72,6 +72,7 @@ export type FabricaStatus = {
 export class RadarFabricaService {
   private readonly logger = new Logger(RadarFabricaService.name);
   private draining = false;
+  private rfbScanOffset = 0;
   // L4 e extração IA são instanciados na mão (não são providers NestJS — mesmo padrão do
   // getCnpjL4Enrichment lazy do core). O gravador único (com gate) é injetado no L4 pra manter
   // a proveniência/telemetria unificada.
@@ -172,6 +173,7 @@ export class RadarFabricaService {
       return { started: false, reason: 'ja_rodando', status: await this.status() };
     }
 
+    this.rfbScanOffset = 0;
     // reset da corrida: zera contadores, define budget, arma running. paidAttempts SEMPRE zera —
     // é a prova de R$0 desta corrida.
     await this.prisma.radarFabricaRun.update({
@@ -262,15 +264,17 @@ export class RadarFabricaService {
    */
   private async materializeNextLead(): Promise<{ id: string; cnpj: string; name: string } | null> {
     const db = this.prisma;
-    // varre a RFB em ordem estável; pula quem já tem lead (placeId materializado).
-    // Página pequena — o drain é sequencial e o skip é raro depois das primeiras.
+    // Varre a RFB inteira em ordem estável e pula quem já tem lead (placeId materializado).
+    // Não use teto fixo no skip: uma corrida de 5.000 precisa alcançar registros além dos 2.000
+    // primeiros já materializados, inclusive ao retomar depois de corridas anteriores.
     const pageSize = 50;
-    for (let skip = 0; skip < 2000; skip += pageSize) {
+    for (;;) {
       const companies = await db.cnpjPublicCompany
-        .findMany({ orderBy: { cnpj: 'asc' }, skip, take: pageSize })
+        .findMany({ orderBy: { cnpj: 'asc' }, skip: this.rfbScanOffset, take: pageSize })
         .catch(() => []);
       if (!companies.length) return null;
       for (const company of companies) {
+        this.rfbScanOffset += 1;
         const cnpj = normalizeCnpj(company.cnpj);
         if (cnpj.length < 14) continue;
         const placeId = `cnpj_public:${cnpj}`;

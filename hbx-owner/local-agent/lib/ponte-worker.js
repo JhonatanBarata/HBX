@@ -118,7 +118,7 @@ function safeParseJson(raw) {
  *  - ollamaRequest(method, path, payload, timeoutMs): chamada ao Ollama local (house helper).
  *  - backendRequest(method, route, payload, options): chamada autenticada ao backend (house helper).
  *  - fetchSiteText(website): crawl leve do site (reusa o do server.js) — só p/ enrich_lead.
- *  - controlStore: { load(), save(data) } para o freio manual persistente.
+ *  - controlStore: { load(), inspect?(), save(data) } para o freio manual persistente.
  *  - log(msg): logger. env: process.env (injetável nos testes). now(): Date.now injetável.
  */
 function createPonteWorker(deps) {
@@ -145,15 +145,33 @@ function createPonteWorker(deps) {
   const maxSourceChars = envInt(env, "HBX_PONTE_MAX_SOURCE_CHARS", 6000);
 
   let persistedControl = null;
-  try { persistedControl = controlStore && controlStore.load ? controlStore.load() : null; } catch { persistedControl = null; }
+  let controlJournalStatus = "missing";
+  try {
+    if (controlStore && controlStore.inspect) {
+      const inspected = controlStore.inspect();
+      controlJournalStatus = String(inspected?.status || "unreadable");
+      persistedControl = controlJournalStatus === "valid" ? inspected?.data : null;
+    } else {
+      persistedControl = controlStore && controlStore.load ? controlStore.load() : null;
+      controlJournalStatus = persistedControl == null ? "missing" : "valid";
+    }
+  } catch {
+    controlJournalStatus = "unreadable";
+    persistedControl = null;
+  }
   const hasManualJournal = typeof persistedControl?.manualEnabled === "boolean" || typeof persistedControl?.pausedByOwner === "boolean";
-  const initialManualEnabled = hasManualJournal
+  const invalidManualJournal = controlJournalStatus === "corrupt"
+    || controlJournalStatus === "unreadable"
+    || (controlJournalStatus === "valid" && !hasManualJournal);
+  const initialManualEnabled = invalidManualJournal
+    ? false
+    : hasManualJournal
     ? (typeof persistedControl.manualEnabled === "boolean" ? persistedControl.manualEnabled : !persistedControl.pausedByOwner)
     : envBool(env, "HBX_PONTE_WORKER_ENABLED", false);
 
   const state = {
     manualEnabled: initialManualEnabled,
-    controlSource: hasManualJournal ? "owner" : "automatic_config",
+    controlSource: invalidManualJournal ? "fail_safe" : (hasManualJournal ? "owner" : "automatic_config"),
     controlUpdatedAt: hasManualJournal ? (persistedControl.updatedAt || null) : null,
     running: false,
     circuitOpen: false,
@@ -164,7 +182,7 @@ function createPonteWorker(deps) {
     lastReason: null,
     lastActivity: null, // { activeUsers, windowMinutes }
     lastLag: null, // { queuedDue, oldestQueuedAgeMs }
-    lastError: null,
+    lastError: invalidManualJournal ? "controle_persistente_invalido" : null,
     idleSinceMs: null,
     startedAt: null,
     totals: { leased: 0, completed: 0, failed: 0, coldLoads: 0, unloads: 0 },

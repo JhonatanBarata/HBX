@@ -310,6 +310,53 @@ test("freio do dono persiste e o boot não rearma mesmo com env ligado", () => {
   assert.equal(rebooted.start(), false);
 });
 
+test("journal corrompido falha seguro e não rearma a ponte pelo env", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const store = {
+    load: () => null,
+    inspect: () => ({ status: "corrupt", data: null }),
+    save: () => true,
+  };
+  const worker = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+
+  assert.equal(worker.status().manualEnabled, false);
+  assert.equal(worker.status().pausedByOwner, true);
+  assert.equal(worker.status().controlSource, "fail_safe");
+  assert.equal(worker.status().lastError, "controle_persistente_invalido");
+  assert.equal(worker.start(), false);
+  assert.equal(backend.calls.length, 0);
+});
+
+test("journal realmente ausente ainda permite a configuração automática do primeiro boot", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const store = {
+    load: () => null,
+    inspect: () => ({ status: "missing", data: null }),
+    save: () => true,
+  };
+  const worker = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+
+  assert.equal(worker.status().manualEnabled, true);
+  assert.equal(worker.status().controlSource, "automatic_config");
+});
+
+test("journal presente com formato inválido também falha seguro", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const store = {
+    load: () => ({ manualEnabled: "sim" }),
+    inspect: () => ({ status: "valid", data: { manualEnabled: "sim" } }),
+    save: () => true,
+  };
+  const worker = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+
+  assert.equal(worker.status().manualEnabled, false);
+  assert.equal(worker.status().controlSource, "fail_safe");
+  assert.equal(worker.start(), false);
+});
+
 test("enabled=true libera novamente, confirma estado final e persiste no reboot", () => {
   const backend = makeBackend({});
   const ollama = makeOllama({});

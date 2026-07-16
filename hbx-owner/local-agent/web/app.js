@@ -1879,8 +1879,8 @@ async function fabRender() {
   }
   set("#fab-processed", r.processed);
   set("#fab-budget-left", r.budgetLeft != null ? r.budgetLeft : (r.budget != null && r.processed != null ? Math.max(0, r.budget - r.processed) : null));
-  set("#fab-current", r.currentLead || r.current || null);
-  set("#fab-errors", r.errors);
+  set("#fab-current", r.lastLeadId);
+  set("#fab-errors", r.lastError);
   fabFeedback(r.message || (running ? "Enriquecendo a base — para sozinha no fim do limite." : "Parada. Informe o limite e aperte Iniciar."), running ? "success" : "");
   return r;
 }

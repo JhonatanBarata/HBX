@@ -6,7 +6,7 @@ function input() {
   return { targetType: 'pj', city: 'Campinas', state: 'SP', segment: 'restaurante' } as any;
 }
 
-test('pos-save duravel deduplica ids e separa web/social por dedupeKey', async () => {
+test('pos-save duravel deduplica ids e cria web+social para todo lead aprovado', async () => {
   const instance: any = new (RadarCoreSearchLoopMixin as any)();
   const enqueued: any[] = [];
   instance.getMissionQueue = () => ({
@@ -15,6 +15,7 @@ test('pos-save duravel deduplica ids e separa web/social por dedupeKey', async (
     isQueuePaused: async () => false,
     enqueue: async (job: any) => { enqueued.push(job); return { created: true, missionId: `m${enqueued.length}` }; },
   });
+  instance.getRadarRunRepository = () => ({ markEnrichmentJobState: async () => undefined });
   instance.drainRadarPostSaveEnrichmentQueue = async () => undefined;
 
   await instance.enqueueRadarPostSaveEnrichmentForSavedLeads(
@@ -29,6 +30,7 @@ test('pos-save duravel deduplica ids e separa web/social por dedupeKey', async (
     'run:run-1:item:a:web',
     'run:run-1:item:b:web',
     'run:run-1:item:a:social',
+    'run:run-1:item:b:social',
   ]);
   assert.ok(enqueued.every((job) => job.stage === 'enrich_search_item'));
   assert.ok(enqueued.every((job) => job.payload.companyId === 1 && job.payload.userId === 2));
@@ -80,12 +82,17 @@ test('falha parcial da persistencia cai para memoria somente no item que falhou'
     isQueuePaused: async () => false,
     enqueue: async (job: any) => {
       if (job.payload.leadId === 'b') throw new Error('db offline');
-      durable.push(job.payload.leadId);
+      durable.push(`${job.payload.mode}:${job.payload.leadId}`);
       return { created: true, missionId: `m-${job.payload.leadId}` };
     },
   });
-  instance.enqueueRadarWebEnrichmentForSavedLeads = (_context: any, _run: string, _input: any, ids: string[]) => memory.push(...ids);
-  instance.enqueueRadarSocialLookupForSavedLeads = () => undefined;
+  instance.getRadarRunRepository = () => ({ markEnrichmentJobState: async () => undefined });
+  instance.enqueueRadarWebEnrichmentForSavedLeads = (_context: any, _run: string, _input: any, ids: string[]) => {
+    memory.push(...ids.map((id) => `web:${id}`));
+  };
+  instance.enqueueRadarSocialLookupForSavedLeads = (_context: any, _run: string, _input: any, ids: string[]) => {
+    memory.push(...ids.map((id) => `social:${id}`));
+  };
   instance.drainRadarPostSaveEnrichmentQueue = async () => undefined;
 
   await instance.enqueueRadarPostSaveEnrichmentForSavedLeads(
@@ -96,8 +103,8 @@ test('falha parcial da persistencia cai para memoria somente no item que falhou'
     ['a', 'b'],
   );
 
-  assert.deepEqual(durable, ['a']);
-  assert.deepEqual(memory, ['b']);
+  assert.deepEqual(durable, ['web:a', 'social:a']);
+  assert.deepEqual(memory, ['web:b', 'social:b']);
 });
 
 test('flag da fila OFF usa fallback legado quando PARAR TUDO esta liberado', async () => {
@@ -127,7 +134,7 @@ test('flag da fila OFF nao usa fallback quando PARAR TUDO esta pausado', async (
   assert.equal(touched, false);
 });
 
-test('fila pausada persiste o job mas nao dispara drain nem fallback', async () => {
+test('fila pausada persiste web+social mas nao dispara drain nem fallback', async () => {
   const instance: any = new (RadarCoreSearchLoopMixin as any)();
   let enqueued = 0;
   let drained = 0;
@@ -138,6 +145,7 @@ test('fila pausada persiste o job mas nao dispara drain nem fallback', async () 
     isQueuePaused: async () => true,
     enqueue: async () => { enqueued += 1; return { created: true, missionId: 'm1' }; },
   });
+  instance.getRadarRunRepository = () => ({ markEnrichmentJobState: async () => undefined });
   instance.drainRadarPostSaveEnrichmentQueue = async () => { drained += 1; };
   instance.enqueueRadarWebEnrichmentForSavedLeads = () => { memory += 1; };
 
@@ -146,7 +154,7 @@ test('fila pausada persiste o job mas nao dispara drain nem fallback', async () 
   );
   await new Promise((resolve) => setTimeout(resolve, 5));
 
-  assert.equal(enqueued, 1);
+  assert.equal(enqueued, 2);
   assert.equal(drained, 0);
   assert.equal(memory, 0);
 });
