@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
+import "./approved-company-search.css";
 
 import { ThemeAttributes } from "@/components/hbx/theme-attributes";
 import { GlobalErrorHost } from "@/components/hbx/error-popup";
