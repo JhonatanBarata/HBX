@@ -23,6 +23,9 @@ import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
 import { LogisticaTrackedBillingService } from './logistica-tracked-billing.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
+import { LogisticaOfflineController } from './logistica-offline.controller';
+import { LogisticaOfflineService } from './logistica-offline.service';
+import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-tracked-billing.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -36,6 +39,10 @@ import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.servic
  * para a cobrança vencida da logística entrar no funil hbx-recovery EXISTENTE via
  * createCustomer (opt-in por LogisticaConfig.moduloRecoveryAtivo, default OFF). Sem
  * ciclo: hbx-recovery NÃO importa logistica.
+ *
+ * OFFLINE-ROTA: LogisticaOfflineController emite uma cápsula restrita a uma rota
+ * ACTIVE/aparelho. A implementação especializada de tracked billing reserva os
+ * créditos ao preparar e continua concluindo a claim na transação canônica.
  *
  * S2 COBRANÇA-WHATS (11/07): LogisticaCobrancaAvisoService = aviso de cobrança +
  * lembrete de vencimento no zap (Pix copia-e-cola), DORMENTE atrás de
@@ -60,7 +67,12 @@ import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.servic
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
-  controllers: [LogisticaController, LogisticaPedidoPublicoController, LogisticaTrackingMobileController],
+  controllers: [
+    LogisticaController,
+    LogisticaPedidoPublicoController,
+    LogisticaTrackingMobileController,
+    LogisticaOfflineController,
+  ],
   providers: [
     LogisticaService,
     LogisticaRecorrenciaService,
@@ -73,7 +85,12 @@ import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.servic
     LogisticaOperacaoService,
     LogisticaRouteBillingService,
     LogisticaTrackingService,
-    LogisticaTrackedBillingService,
+    OfflineAwareLogisticaTrackedBillingService,
+    {
+      provide: LogisticaTrackedBillingService,
+      useExisting: OfflineAwareLogisticaTrackedBillingService,
+    },
+    LogisticaOfflineService,
     LogisticaTrackingBonusService,
   ],
   exports: [
