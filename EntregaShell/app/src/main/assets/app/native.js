@@ -150,6 +150,32 @@
     },
   };
 
+  // Os apps usam delegação de clique no #app e fecham overlays quando o alvo
+  // acionável é o próprio backdrop. Sem esta barreira, um clique em input/select
+  // sobe até .modal-wrap/.sheet-wrap e é confundido com clique fora do conteúdo.
+  // Registra antes de app.js para bloquear somente esse fechamento fantasma,
+  // preservando ações explícitas, submit de formulário e clique real no backdrop.
+  const appRoot = document.getElementById("app");
+  if (appRoot) {
+    const explicitTargetSelector = [
+      "[data-screen]",
+      "[data-action]",
+      "[data-block]",
+      "[data-lead]",
+      "[data-wa]",
+      "[data-delivery]",
+      "[data-client]",
+      "[data-mode]",
+    ].join(",");
+    appRoot.addEventListener("click", event => {
+      const overlay = event.target.closest?.(".sheet-wrap[data-action],.modal-wrap[data-action]");
+      if (!overlay || event.target === overlay) return;
+      const explicitTarget = event.target.closest?.(explicitTargetSelector);
+      if (explicitTarget && explicitTarget !== overlay) return;
+      event.stopImmediatePropagation();
+    });
+  }
+
   const savedTheme = HBX.cache.get("theme", "system");
   function applyTheme(value) {
     const dark = value === "dark" || (value === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
