@@ -3,7 +3,7 @@ package br.com.hbxsystem.entrega
 import android.content.ContentValues
 import org.json.JSONObject
 
-private const val OPERATIONAL_SYNC_GRACE_MS = 7L * 24 * 60 * 60 * 1000
+private const val OPERATIONAL_SYNC_GRACE_MS = 72L * 60 * 60 * 1000
 
 /**
  * A autorização expirada não permite nova ação, mas continua autenticando o envio
