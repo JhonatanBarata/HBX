@@ -708,25 +708,6 @@ body {
   .ai-bridge-summary, .ai-bridge-metrics { grid-template-columns: 1fr; }
 }
 
-/* Chaves de API / Integrações
-   Layout em colunas (masonry): cada grupo empacota colado no de cima, sem a altura
-   acoplada da grid — acaba o espaço morto que o grupo "LOGIN & E-MAIL" (alto) criava. */
-.int-grid { columns: 320px; column-gap: 16px; }
-.int-group { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; break-inside: avoid; -webkit-column-break-inside: avoid; }
-.int-row { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 12px; padding: 9px 0; border-top: 1px solid var(--border); }
-.int-group .int-row:first-of-type { border-top: none; }
-.int-main { flex: 1 1 180px; min-width: 0; }
-.int-name { font-size: .86rem; font-weight: 700; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.int-desc { font-size: .74rem; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
-.int-side { display: flex; align-items: flex-start; gap: 6px; flex: none; }
-/* campo de injetar cai numa linha própria, largura cheia — não espreme o nome/descrição */
-.int-inject-slot { flex-basis: 100%; }
-.int-inject-slot:empty { display: none; }
-.int-inject { display: flex; gap: 6px; }
-.int-input { flex: 1 1 auto; min-width: 0; }
-.int-missing { opacity: .92; }
-.int-badges { display: flex; gap: 6px; }
-
 /* ══════════ OWNERV2 (02/07) — painel único: LOCAL (esq) × VPS (dir) ══════════ */
 .v2-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; margin-bottom: 20px; }
 .v2-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }

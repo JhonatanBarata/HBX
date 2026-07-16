@@ -3296,10 +3296,10 @@ model RadarFactoryCursor {
 }
 
 // Fila durável da PONTE local do HBX Owner. O VPS só persiste lease/retry; o nó local
-// puxa por HTTP e executa exclusivamente enrich_lead/xray_note produzidas pela saga paga.
+// puxa por HTTP e executa enrich_lead produzido pela saga paga.
 model RadarMission {
   id             String    @id @default(cuid())
-  stage          String    // enrich_lead | enrich_search_item | xray_note
+  stage          String    // enrich_lead | enrich_search_item
   status         String    @default("queued") // queued | leased | completed | dead | canceled
   priority       Int       @default(0)
   payloadVersion Int       @default(1)
@@ -4813,31 +4813,6 @@ model CnpjPublicPartner {
   importedAt               DateTime  @default(now())
 
   @@index([cnpjBasico])
-}
-
-// RAIO-X DE CNPJ EM LOTE (HOT-04, 02/07 — docs/PLANEJAMENTOS/hot/04-enriquecimento-lote.md).
-// Historico/estado de um job de lote colado no painel Owner (:3107): cola ate 10k CNPJs e exporta
-// somente o cadastro ja carregado em CnpjPublicCompany/Partner. Nao busca rede, nao materializa lead,
-// nao faz IA e nao toca RadarMission. Enriquecimento pertence exclusivamente a saga paga de claim.
-model CnpjXrayJob {
-  id              String    @id @default(cuid())
-  status          String    @default("queued") // queued | running_cadastral | done | error
-  layers          String    // JSON string fixo ["cadastral"]
-  requestedCount  Int       @default(0) // linhas coladas (bruto, antes de validar)
-  validCount      Int       @default(0) // CNPJs válidos após DV mod-11 + dedup
-  invalidCount    Int       @default(0)
-  processedCount  Int       @default(0) // já resolvidos na camada cadastral
-  invalidReportJson Json?   // relatório do que caiu na validação: [{ raw, reason }]
-  resultFileName  String?   // nome do XLSX gerado (histórico/download)
-  resultPath      String?   // caminho relativo no disco onde o XLSX foi salvo
-  lastError       String?
-  requestedByUserId Int?
-  startedAt       DateTime?
-  finishedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([status, createdAt])
 }
 
 // WORM-14 (02/07, docs/PLANEJAMENTOS/worm/14-assistente-ia-wizard.md):

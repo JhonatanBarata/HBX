@@ -8,8 +8,8 @@ import { isMissionQueueEnabled, PONTE_MISSION_STAGES, type RadarMissionStage } f
  * ÚNICA e LEVE que a vitrine (leads/page.client.tsx) e o estoque de Vendas consultam por lote
  * de leadIds — nunca 1 request por card.
  *
- * Fonte: RadarMission (stages `enrich_lead`/`xray_note` da PONTE, CHIP E1) casada por
- * `payloadJson.radarLeadId` (dedupeKey é `lead:<id>`/`xray-note:<id>`, mas o lookup usa o
+ * Fonte: RadarMission (stage `enrich_lead` da PONTE, CHIP E1) casada por
+ * `payloadJson.radarLeadId` (dedupeKey é `lead:<id>`, mas o lookup usa o
  * payload puro pra não acoplar ao formato da dedupeKey). NÃO confundir com o
  * `RadarLeadEnrichment`/`enrichmentStatus` do pipeline genérico (night-factory) que a vitrine já
  * expõe — são fontes DIFERENTES; este endpoint é o estado da fila da PONTE 30B especificamente.
@@ -25,7 +25,7 @@ export type RadarPonteLeadStatus =
   | {
       state: 'done';
       completedAt: string | null;
-      summary: { phonesAdded: number; emailsAdded: number; hasNote: boolean; noteScore: number | null };
+      summary: { phonesAdded: number; emailsAdded: number };
     };
 
 export type RadarPonteStatusMap = Record<string, RadarPonteLeadStatus>;
@@ -61,7 +61,7 @@ export class RadarPonteStatusService {
     if (!(await this.prisma.hasTable('RadarMission').catch(() => false))) return result;
 
     const db = this.db();
-    // Só as missões da PONTE (enrich_lead/xray_note) — as demais são in-process (fábrica de busca).
+    // Só as missões da PONTE (enrich_lead) — as demais são in-process (fábrica de busca).
     const rows = await db.radarMission.findMany({
       where: {
         stage: { in: PONTE_MISSION_STAGES as unknown as string[] },
@@ -95,7 +95,7 @@ export class RadarPonteStatusService {
       } else if (row.status === 'leased') {
         if (!bucket.leased) bucket.leased = row;
       } else if (row.status === 'completed') {
-        // guarda o mais recente completed (pode haver enrich_lead + xray_note completos)
+        // guarda o completed mais recente da ponte para o lead
         if (!bucket.completed || (row.completedAt && row.completedAt > bucket.completed.completedAt)) {
           bucket.completed = row;
         }
@@ -133,7 +133,7 @@ export class RadarPonteStatusService {
         result[id] = {
           state: 'done',
           completedAt: bucket.completed.completedAt instanceof Date ? bucket.completed.completedAt.toISOString() : null,
-          summary: { phonesAdded: 0, emailsAdded: 0, hasNote: false, noteScore: null },
+          summary: { phonesAdded: 0, emailsAdded: 0 },
         };
       }
     }
@@ -143,25 +143,17 @@ export class RadarPonteStatusService {
   }
 
   /** Resumo do que chegou pros leads `done`: +N telefones/e-mails (LeadContact source
-   * ai_extraction) e a nota ICP (RadarLeadPool.metadataJson.aiNote), gravados pelo
-   * MissionResultApplyService (caminho único — ver E1). Falha aqui nunca derruba o status geral. */
+   * ai_extraction), gravados pelo MissionResultApplyService (caminho único — ver E1).
+   * Falha aqui nunca derruba o status geral. */
   private async fillDoneSummaries(result: RadarPonteStatusMap, leadIds: string[]): Promise<void> {
     const db = this.db();
     try {
-      const [contactRows, leadRows] = await Promise.all([
-        (await this.prisma.hasTable('LeadContact').catch(() => false))
-          ? db.leadContact.findMany({
-              where: { radarLeadId: { in: leadIds }, source: 'ai_extraction' },
-              select: { radarLeadId: true, kind: true },
-            }).catch(() => [])
-          : Promise.resolve([]),
-        (await this.prisma.hasTable('RadarLeadPool').catch(() => false))
-          ? db.radarLeadPool.findMany({
-              where: { id: { in: leadIds } },
-              select: { id: true, metadataJson: true },
-            }).catch(() => [])
-          : Promise.resolve([]),
-      ]);
+      const contactRows = (await this.prisma.hasTable('LeadContact').catch(() => false))
+        ? await db.leadContact.findMany({
+            where: { radarLeadId: { in: leadIds }, source: 'ai_extraction' },
+            select: { radarLeadId: true, kind: true },
+          }).catch(() => [])
+        : [];
 
       const contactCounts = new Map<string, { phones: number; emails: number }>();
       for (const row of Array.isArray(contactRows) ? contactRows : []) {
@@ -173,27 +165,13 @@ export class RadarPonteStatusService {
         contactCounts.set(leadId, bucket);
       }
 
-      const noteByLead = new Map<string, { hasNote: boolean; noteScore: number | null }>();
-      for (const row of Array.isArray(leadRows) ? leadRows : []) {
-        const leadId = String(row?.id || '');
-        if (!leadId) continue;
-        const meta = this.parseJson(row?.metadataJson);
-        const aiNote = meta?.aiNote;
-        const notaIcp = aiNote?.notaIcp;
-        const nota = Number.isFinite(Number(notaIcp)) ? Number(notaIcp) : null;
-        noteByLead.set(leadId, { hasNote: Boolean(aiNote), noteScore: nota });
-      }
-
       for (const leadId of leadIds) {
         const current = result[leadId];
         if (!current || current.state !== 'done') continue;
         const counts = contactCounts.get(leadId) || { phones: 0, emails: 0 };
-        const note = noteByLead.get(leadId) || { hasNote: false, noteScore: null };
         current.summary = {
           phonesAdded: counts.phones,
           emailsAdded: counts.emails,
-          hasNote: note.hasNote,
-          noteScore: note.noteScore,
         };
       }
     } catch {

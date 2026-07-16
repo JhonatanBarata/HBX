@@ -137,7 +137,7 @@ test("tick idle: lease sem missões e fila vazia → idle, sem chamada ao Ollama
 test("tick freia: usuário ativo → devolve missão leaseada (fail retryable) e não chama Ollama", async () => {
   const failCalls = [];
   const backend = makeBackend({
-    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "m1", stage: "xray_note", leaseId: "L1", payload: {} }], activity: { activeUsers: 2 }, lag: { queuedDue: 5 } } },
+    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "m1", stage: "enrich_lead", leaseId: "L1", payload: {} }], activity: { activeUsers: 2 }, lag: { queuedDue: 5 } } },
     "/fail": (payload, route) => { failCalls.push({ route, payload }); return { ok: true, data: { ok: true } }; },
   });
   const ollama = makeOllama({});
@@ -155,7 +155,7 @@ test("tick freia: usuário ativo → devolve missão leaseada (fail retryable) e
 test("tick warm: 30B frio → warm-check exclusivo (1-token, ctx 8192) ANTES de processar", async () => {
   const generateBodies = [];
   const backend = makeBackend({
-    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "m1", stage: "xray_note", leaseId: "L1", payload: {} }], activity: { activeUsers: 0 }, lag: { queuedDue: 5 } } },
+    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "m1", stage: "enrich_lead", leaseId: "L1", payload: {} }], activity: { activeUsers: 0 }, lag: { queuedDue: 5 } } },
     "/fail": { ok: true, data: { ok: true } },
   });
   const ollama = makeOllama({
@@ -175,21 +175,21 @@ test("tick warm: 30B frio → warm-check exclusivo (1-token, ctx 8192) ANTES de 
   assert.ok(!ollama.calls.some((c) => c.route === "/api/chat"), "não processa missão no tick de warm");
 });
 
-// ─── 7. tick work: processa xray_note quente → complete com num_ctx 8192 ──────────────────────────
+// ─── 7. tick work: processa enrich_lead quente → complete com num_ctx 8192 ────────────────────────
 
-test("tick work: nota xray processada no 30B quente → complete com resultado", async () => {
+test("tick work: enrich_lead processado no 30B quente → complete com resultado", async () => {
   const completeCalls = [];
   const chatBodies = [];
   const backend = makeBackend({
-    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "mX", stage: "xray_note", leaseId: "LX", payload: { radarLeadId: "lead-1", note: { razaoSocial: "ACME LTDA", situacao: "ATIVA", cnaeDescription: "Comércio", porte: "ME", city: "SP", state: "SP", hasWebsite: true, hasWhatsappValidado: true, hasEmail: true } } }], activity: { activeUsers: 0 }, lag: { queuedDue: 1 } } },
+    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "mX", stage: "enrich_lead", leaseId: "LX", payload: { radarLeadId: "lead-1", name: "ACME LTDA", website: "https://acme.test" } }], activity: { activeUsers: 0 }, lag: { queuedDue: 1 } } },
     "/complete": (payload) => { completeCalls.push(payload); return { ok: true, data: { ok: true } }; },
     "/heartbeat": { ok: true, data: { ok: true } },
   });
   const ollama = makeOllama({
     "GET /api/ps": { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M" }] } }, // já quente
-    "POST /api/chat": (payload) => { chatBodies.push(payload); return { ok: true, data: { message: { content: '{"nota_icp": 72, "resumo": "empresa ativa com canais"}' } } }; },
+    "POST /api/chat": (payload) => { chatBodies.push(payload); return { ok: true, data: { message: { content: '{"telefones":["1132224455"],"emails":["contato@acme.test"],"nome_dono":null}' } } }; },
   });
-  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, fetchSiteText: async () => "Contato 11 3222-4455 contato@acme.test", env: baseEnv() });
   // 1º tick: já quente (ps resident) → work direto
   w._state.warm = true;
   await w._tickOnce();
@@ -197,7 +197,7 @@ test("tick work: nota xray processada no 30B quente → complete com resultado",
   assert.equal(chatBodies.length, 1);
   assert.equal(chatBodies[0].options.num_ctx, PONTE_NUM_CTX, "num_ctx unificado 8192");
   assert.equal(completeCalls.length, 1);
-  assert.equal(completeCalls[0].result.notaIcp, 72);
+  assert.deepEqual(completeCalls[0].result.telefones, ["1132224455"]);
   assert.equal(completeCalls[0].result.radarLeadId, "lead-1");
   assert.equal(w.status().totals.completed, 1);
 });
@@ -206,7 +206,7 @@ test("tick work: nota xray processada no 30B quente → complete com resultado",
 
 test("disjuntor: falhas consecutivas até o teto abrem o circuito e param o worker", async () => {
   const backend = makeBackend({
-    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "mF", stage: "xray_note", leaseId: "LF", payload: { radarLeadId: "l", note: { razaoSocial: "X", situacao: "A", cnaeDescription: "C", porte: "ME", city: "SP", state: "SP", hasWebsite: true, hasWhatsappValidado: true, hasEmail: true } } }], activity: { activeUsers: 0 }, lag: { queuedDue: 1 } } },
+    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "mF", stage: "enrich_lead", leaseId: "LF", payload: { radarLeadId: "l", website: "https://acme.test" } }], activity: { activeUsers: 0 }, lag: { queuedDue: 1 } } },
     "/fail": { ok: true, data: { ok: true } },
     "/heartbeat": { ok: true, data: { ok: true } },
   });
@@ -214,7 +214,7 @@ test("disjuntor: falhas consecutivas até o teto abrem o circuito e param o work
     "GET /api/ps": { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M" }] } },
     "POST /api/chat": { ok: false, error: "timeout" }, // sempre falha
   });
-  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv({ HBX_PONTE_MAX_CONSECUTIVE_FAILURES: "3" }) });
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, fetchSiteText: async () => "Contato 11 3222-4455", env: baseEnv({ HBX_PONTE_MAX_CONSECUTIVE_FAILURES: "3" }) });
   w._state.warm = true;
   await w._tickOnce(); // falha 1
   assert.equal(w.status().circuitOpen, false);
@@ -254,16 +254,16 @@ test("falha de rede no lease: backoff, NÃO conta pro disjuntor", async () => {
 test("complete recusado (apply falhou) → worker marca fail retryable, não conta como sucesso", async () => {
   const failCalls = [];
   const backend = makeBackend({
-    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "mR", stage: "xray_note", leaseId: "LR", payload: { radarLeadId: "l", note: { razaoSocial: "X", situacao: "A", cnaeDescription: "C", porte: "ME", city: "SP", state: "SP", hasWebsite: true, hasWhatsappValidado: true, hasEmail: true } } }], activity: { activeUsers: 0 }, lag: { queuedDue: 1 } } },
+    "/lease": { ok: true, data: { supported: true, paused: false, missions: [{ id: "mR", stage: "enrich_lead", leaseId: "LR", payload: { radarLeadId: "l", website: "https://acme.test" } }], activity: { activeUsers: 0 }, lag: { queuedDue: 1 } } },
     "/complete": { ok: false, data: { ok: false, reason: "apply_failed:update_falhou", retryable: true } },
     "/fail": (payload) => { failCalls.push(payload); return { ok: true, data: { ok: true } }; },
     "/heartbeat": { ok: true, data: { ok: true } },
   });
   const ollama = makeOllama({
     "GET /api/ps": { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M" }] } },
-    "POST /api/chat": { ok: true, data: { message: { content: '{"nota_icp": 50, "resumo": "ok"}' } } },
+    "POST /api/chat": { ok: true, data: { message: { content: '{"telefones":["1132224455"],"emails":[],"nome_dono":null}' } } },
   });
-  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, fetchSiteText: async () => "Contato 11 3222-4455", env: baseEnv() });
   w._state.warm = true;
   await w._tickOnce();
   assert.equal(w.status().totals.completed, 0);

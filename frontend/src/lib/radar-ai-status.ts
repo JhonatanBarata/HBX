@@ -6,7 +6,7 @@
 // polling reusado pela vitrine de leads (leads/page.client.tsx) e pelo estoque de Vendas
 // (vendas/page.client.tsx). Fonte real: POST /webscraping/radar/ai-status (RadarPonteStatusService,
 // backend/src/webscraping/radar/missions/radar-ponte-status.service.ts) — status da fila da PONTE
-// 30B (RadarMission stages enrich_lead/xray_note), DIFERENTE do enrichmentStatus do pipeline
+// 30B (RadarMission stage enrich_lead), DIFERENTE do enrichmentStatus do pipeline
 // genérico (night-factory) que a vitrine já expõe. Flag da fila OFF no backend → 'none' pra tudo,
 // nenhuma tela muda (degrade invisível).
 
@@ -20,7 +20,7 @@ export type RadarAiLeadStatus =
   | {
       state: "done";
       completedAt: string | null;
-      summary: { phonesAdded: number; emailsAdded: number; hasNote: boolean; noteScore: number | null };
+      summary: { phonesAdded: number; emailsAdded: number };
     };
 
 export type RadarAiStatusMap = Record<string, RadarAiLeadStatus>;
@@ -33,11 +33,10 @@ export const RADAR_AI_STATUS_COPY = {
   queuedStale: "⏳ Na fila — a IA processa fora do horário de pico",
   processing: "✨ IA enriquecendo agora",
   done: "✓ Enriquecido por IA",
-  doneSummary: (summary: { phonesAdded: number; emailsAdded: number; hasNote: boolean }) => {
+  doneSummary: (summary: { phonesAdded: number; emailsAdded: number }) => {
     const parts: string[] = [];
     if (summary.phonesAdded > 0) parts.push(`+${summary.phonesAdded} telefone${summary.phonesAdded > 1 ? "s" : ""}`);
     if (summary.emailsAdded > 0) parts.push(`+${summary.emailsAdded} e-mail${summary.emailsAdded > 1 ? "s" : ""}`);
-    if (summary.hasNote) parts.push("nota da IA");
     return parts.join(" · ");
   },
 };
@@ -53,7 +52,7 @@ export function radarAiStatusLabel(status: RadarAiLeadStatus | undefined | null)
   return null;
 }
 
-/** Resumo (linha 2, opcional) só no estado 'done' — "+2 telefones · +1 e-mail · nota da IA". */
+/** Resumo (linha 2, opcional) só no estado 'done' — "+2 telefones · +1 e-mail". */
 export function radarAiStatusSummaryLabel(status: RadarAiLeadStatus | undefined | null): string | null {
   if (!status || status.state !== "done") return null;
   const text = RADAR_AI_STATUS_COPY.doneSummary(status.summary);

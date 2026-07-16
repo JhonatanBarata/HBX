@@ -7,7 +7,7 @@
 //
 // LEIS QUE O T1/T2 MEDIRAM (não opcionais):
 //  1. num_ctx SEMPRE capado E UNIFICADO em 8192 em TODA chamada — trocar ctx entre chamadas realoca
-//     KV e foi a causa do run CTXMISTO abortado (T2 §3). Aqui: PONTE_NUM_CTX fixo pros dois tipos.
+//     KV e foi a causa do run CTXMISTO abortado (T2 §3). Aqui: PONTE_NUM_CTX é fixo.
 //  2. NUNCA cold-load com missão em voo (T2 §4.3: swap-morte 0,58GB livre / 2,94 tok/s). Warm-check
 //     EXCLUSIVO (chamada 1-token) ANTES do 1º lease; só leaseia depois de residente.
 //  3. Descarga (keep_alive 0) quando o elástico manda parar por ociosidade.
@@ -22,7 +22,7 @@
 
 const OLLAMA_30B_MODEL = "qwen3:30b-a3b-instruct-2507-q4_K_M";
 const PONTE_NUM_CTX = 8192; // capado E unificado (lei 1)
-const PONTE_STAGES = ["enrich_lead", "xray_note"];
+const PONTE_STAGES = ["enrich_lead"];
 
 // Prompt de extração — VERBATIM do backend/src/webscraping/radar/03-enrichment/ai-contact-extraction.service.ts
 const EXTRACTION_SYSTEM_PROMPT = [
@@ -37,16 +37,6 @@ const EXTRACTION_SYSTEM_PROMPT = [
   "- Telefone: apenas números de telefone/WhatsApp do próprio negócio, com DDD quando presente. NÃO extraia CNPJ, CPF, CEP, inscrição estadual, preços, quilometragem, datas, horários, protocolos, notas fiscais, coordenadas, versões de software ou números de endereço como telefone.",
   "- Email: apenas emails do próprio negócio. Ignore emails de plataformas/exemplos.",
   "- Nome do negócio NÃO é nome do dono.",
-].join("\n");
-
-// Prompt de nota — VERBATIM do backend/src/webscraping/radar/cnpj-xray/cnpj-xray-ai-note.service.ts
-const NOTE_SYSTEM_PROMPT = [
-  "Você avalia leads B2B brasileiros pra um vendedor.",
-  "Devolva SOMENTE JSON válido, nada fora dele, no formato:",
-  '{"nota_icp": 0-100, "resumo": "..."}',
-  "nota_icp: quanto esse negócio parece um bom cliente (site no ar, WhatsApp confirmado, porte,",
-  "segmento definido = nota alta; dado pobre/empresa inativa = nota baixa).",
-  "resumo: 1 frase curta (até 140 caracteres) explicando o porquê da nota, em português.",
 ].join("\n");
 
 function envBool(env, name, def) {
@@ -293,32 +283,6 @@ function createPonteWorker(deps) {
           sourceText, // o BACKEND re-roda o gate contra a fonte (caminho único, fonte da verdade)
         },
       };
-    }
-
-    if (stage === "xray_note") {
-      const note = payload.note || {};
-      const lines = [
-        note.razaoSocial ? `Razão social: ${note.razaoSocial}` : null,
-        note.nomeFantasia ? `Nome fantasia: ${note.nomeFantasia}` : null,
-        note.situacao ? `Situação cadastral: ${note.situacao}` : null,
-        note.cnaeDescription ? `Ramo: ${note.cnaeDescription}` : null,
-        note.porte ? `Porte: ${note.porte}` : null,
-        note.city || note.state ? `Local: ${[note.city, note.state].filter(Boolean).join("/")}` : null,
-        `Site: ${note.hasWebsite ? "sim" : "não"}`,
-        `WhatsApp validado: ${note.hasWhatsappValidado ? "sim" : "não"}`,
-        `E-mail: ${note.hasEmail ? "sim" : "não"}`,
-      ].filter(Boolean);
-      if (lines.length <= 3) {
-        // dado pobre — nota null (o backend faz noop, não zera nota existente)
-        return { result: { radarLeadId: payload.radarLeadId || null, notaIcp: null, resumo: null, model } };
-      }
-      const out = await callOllamaChat(NOTE_SYSTEM_PROMPT, lines.join("\n"), envInt(env, "HBX_PONTE_NOTE_MAX_TOKENS", 150));
-      if (!out.ok) return { fail: out.reason, retryable: true };
-      const p = out.parsed;
-      const notaRaw = Number(p.nota_icp);
-      const nota = Number.isFinite(notaRaw) ? Math.max(0, Math.min(100, Math.round(notaRaw))) : null;
-      const resumo = String(p.resumo || "").trim().slice(0, 140) || null;
-      return { result: { radarLeadId: payload.radarLeadId || null, notaIcp: nota, resumo, model } };
     }
 
     // Estágio inesperado no lease da ponte → não-retryable (não é trabalho nosso).
@@ -617,5 +581,4 @@ module.exports = {
   PONTE_NUM_CTX,
   PONTE_STAGES,
   EXTRACTION_SYSTEM_PROMPT,
-  NOTE_SYSTEM_PROMPT,
 };

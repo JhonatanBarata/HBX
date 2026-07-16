@@ -118,8 +118,6 @@ test('TRAVA LEI Nº1: HBX_ROLE=local recusa tryConsumePaid ANTES do contador (R$
   // contador NÃO foi incrementado (trava cortou antes de tocar o banco)
   const ym = new Date().toISOString().slice(0, 7);
   assert.equal(db.rows.get(`brave|${ym}`), undefined);
-  // Serper e o repasse pro motor também ficam OFF no local
-  assert.equal(SourceBudgetService.serperAllowed(), false);
   delete process.env.HBX_ROLE;
 });
 

@@ -11,12 +11,9 @@ import type { LeadContactCandidate } from '../persistence/lead-contact-gate';
  * CAMINHO ÚNICO de escrita:
  *   - `enrich_lead`  → contatos passam pelo LeadContactWriteService (gate anti-alucinação SEMPRE,
  *                      source `ai_extraction` conf. 60, proveniência literal contra a `sourceText`).
- *   - `xray_note`    → nota ICP + resumo gravam no metadataJson do RadarLeadPool (mesma fonte de
- *                      evidência que o presenter já lê — sem migration, aditivo).
  *
  * IDEMPOTÊNCIA: o LeadContactWriteService já pula contato existente (radarLeadId, kind,
- * valueNormalized); a nota é um upsert de campo em metadataJson (reprocessar sobrescreve o mesmo
- * bloco `aiNote`, não duplica). Reaplicar a mesma missão é seguro por construção.
+ * valueNormalized). Reaplicar a mesma missão é seguro por construção.
  *
  * O gate roda no BACKEND (fonte única da verdade), com a `sourceText` que o worker devolveu — o
  * worker até roda o gate localmente pra economizar, mas quem MANDA é este caminho. Sem `sourceText`,
@@ -25,7 +22,7 @@ import type { LeadContactCandidate } from '../persistence/lead-contact-gate';
 
 export type MissionResultApplyOutcome = {
   applied: boolean;
-  kind: 'contacts' | 'note' | 'noop';
+  kind: 'contacts' | 'noop';
   written?: number;
   skipped?: number;
   rejected?: number;
@@ -60,7 +57,6 @@ export class MissionResultApplyService {
     const payload = (input?.payload || {}) as Record<string, unknown>;
 
     if (stage === 'enrich_lead') return this.applyContacts(payload, result);
-    if (stage === 'xray_note') return this.applyNote(payload, result);
     // Estágios da fábrica in-process não têm resultado da ponte — complete segue normal (noop).
     return { applied: true, kind: 'noop' };
   }
@@ -104,50 +100,5 @@ export class MissionResultApplyService {
       });
     if (!outcome) return { applied: false, kind: 'contacts', reason: 'write_falhou' };
     return { applied: true, kind: 'contacts', written: outcome.written, skipped: outcome.skipped, rejected: outcome.rejected.length };
-  }
-
-  /**
-   * `xray_note`: grava nota ICP (0-100) + resumo no metadataJson do lead (bloco `aiNote`). Aditivo,
-   * idempotente (sobrescreve o mesmo bloco), sem migration. Só grava se a nota for um número válido
-   * (rede de segurança: worker que degradou devolve nota null → noop, não zera a nota existente).
-   */
-  private async applyNote(
-    payload: Record<string, unknown>,
-    result: Record<string, unknown>,
-  ): Promise<MissionResultApplyOutcome> {
-    const leadId = this.resolveLeadId(payload, result);
-    if (!leadId) return { applied: false, kind: 'note', reason: 'lead_id_ausente' };
-
-    // null/undefined = worker degradou → nota nula (NÃO coagir null pra 0, que zeraria a nota existente).
-    const notaValue = (result as any).notaIcp;
-    const notaRaw = notaValue == null ? NaN : Number(notaValue);
-    const nota = Number.isFinite(notaRaw) ? Math.max(0, Math.min(100, Math.round(notaRaw))) : null;
-    const resumo = String((result as any).resumo || '').trim().slice(0, 140) || null;
-    if (nota == null) return { applied: true, kind: 'note', reason: 'nota_nula_noop', written: 0 };
-
-    const db = this.db();
-    const hasTable = await this.prisma.hasTable('RadarLeadPool').catch(() => false);
-    if (!hasTable || !db?.radarLeadPool?.update) return { applied: false, kind: 'note', reason: 'sem_tabela' };
-
-    try {
-      const row = await db.radarLeadPool.findUnique({ where: { id: leadId }, select: { metadataJson: true } }).catch(() => null);
-      if (!row) return { applied: false, kind: 'note', reason: 'lead_nao_encontrado' };
-      let metadata: Record<string, unknown> = {};
-      if (row.metadataJson) {
-        try { metadata = JSON.parse(String(row.metadataJson)) || {}; } catch { metadata = {}; }
-      }
-      metadata.aiNote = {
-        notaIcp: nota,
-        resumo,
-        model: String((result as any).model || 'qwen3:30b-a3b-instruct-2507-q4_K_M'),
-        at: new Date().toISOString(),
-        source: 'ponte_30b',
-      };
-      await db.radarLeadPool.update({ where: { id: leadId }, data: { metadataJson: JSON.stringify(metadata) } });
-      return { applied: true, kind: 'note', written: 1 };
-    } catch (error) {
-      this.logger.warn(`aplicação de nota falhou lead=${leadId}: ${error instanceof Error ? error.message : error}`);
-      return { applied: false, kind: 'note', reason: 'update_falhou' };
-    }
   }
 }

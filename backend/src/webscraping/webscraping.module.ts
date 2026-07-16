@@ -37,8 +37,6 @@ import { RadarMissionsController } from './radar/missions/radar-missions.control
 import { MissionResultApplyService } from './radar/missions/mission-result-apply.service';
 import { RadarFabricaService } from './radar/fabrica/radar-fabrica.service';
 import { RadarFabricaController } from './radar/fabrica/radar-fabrica.controller';
-import { CnpjXrayService } from './radar/cnpj-xray/cnpj-xray.service';
-import { CnpjXrayController } from './radar/cnpj-xray/cnpj-xray.controller';
 import { RadarDuplicateFilterService } from './radar/02-filter/radar-duplicate-filter.service';
 import { RadarQualityGateService } from './radar/02-filter/radar-quality-gate.service';
 import { RadarRunItemFilterService } from './radar/02-filter/radar-run-item-filter.service';
@@ -174,8 +172,8 @@ const RADAR_SERVICES = [
 
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, EnrichmentCostModule, forwardRef(() => VendasModule)],
-  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController, CnpjXrayController],
-  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, MissionResultApplyService, RadarFabricaService, CnpjXrayService, ...RADAR_SERVICES],
-  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarFabricaService, CnpjXrayService],
+  controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController],
+  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, MissionResultApplyService, RadarFabricaService, ...RADAR_SERVICES],
+  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarFabricaService],
 })
 export class WebscrapingModule {}

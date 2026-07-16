@@ -15,7 +15,7 @@
  * ─── 2 FAIXAS ───────────────────────────────────────────────────────────────────────────────────
  *  realtime  (bot ai-intent-classifier, intent-engine NLU, assistente sandbox): PRIORIDADE
  *            ABSOLUTA. Concorrência default 2 (casa com OLLAMA_NUM_PARALLEL=2 da VPS).
- *  batch     (xray-note, saneamento, extração): concorrência 1. PAUSA enquanto houver realtime
+ *  batch     (saneamento, extração): concorrência 1. PAUSA enquanto houver realtime
  *            ESPERANDO ou EXECUTANDO — não começa um job novo se há realtime na área. Sem
  *            starvation: quando a fila realtime esvazia, o batch admitido roda até o fim. O realtime
  *            que chega no meio de UM job batch em voo espera esse único job (concorrência 1 do batch
@@ -130,7 +130,7 @@ export class AiGatewayService {
   /**
    * Latência TÍPICA de UM job da faixa (ms), usada só na conta de recusa-cedo (espera prevista).
    * NÃO é timeout — é a estimativa "quanto costuma demorar" pra decidir se vale entrar na fila.
-   * realtime: bot p95 ~6,8s parado (CHIP 5) → default 7000. batch: xray/saneamento p50 ~10–23s,
+   * realtime: bot p95 ~6,8s parado (CHIP 5) → default 7000. batch: saneamento p50 ~10–23s,
    * default conservador 20000 (o batch tem orçamento largo; superestimar só recusa mais cedo).
    */
   static laneTypicalLatencyMs(lane: AiGatewayLane): number {

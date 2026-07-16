@@ -2,12 +2,12 @@
  * Política de acesso a providers pagos/premium no enriquecimento de leads.
  *
  * Fonte única de configuração — lê das envs:
- *   HBX_ENRICH_ALLOW_PAID    → libera providers tier "paid"    (ex.: Serper, ScrapingDog, Tavily)
+ *   HBX_ENRICH_ALLOW_PAID    → libera providers tier "paid"    (ex.: ScrapingDog, Tavily)
  *   HBX_ENRICH_ALLOW_PREMIUM → libera providers tier "premium" (ex.: Exa, Firecrawl, SerpApi)
  *
  * Ambas default desligadas. A amarração a plano/cobrança é responsabilidade de outra frente.
  *
- * AVISO: sem SERPER_API_KEY / BRAVE_SEARCH_API_KEY setados no motor Python,
+ * AVISO: sem as chaves dos providers setadas no motor Python,
  * nenhum provider pago dispara mesmo com allowPaid=true.
  */
 

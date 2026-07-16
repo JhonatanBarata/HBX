@@ -904,7 +904,7 @@ async function readAiStatus() {
   };
 }
 
-// Crawl LEVE de site → texto puro (mesma limpeza do cnpj-xray.service.ts). Só p/ o worker da PONTE
+// Crawl LEVE de site → texto puro. Só p/ o worker da PONTE.
 // extrair contato via 30B; degrada gracioso (string vazia) em qualquer erro/timeout.
 async function fetchSiteText(website) {
   if (!website || !/^https?:\/\//i.test(website)) return "";
@@ -2458,8 +2458,6 @@ function readBody(req) {
 const INTEGRATION_CATALOG = [
   { key: "GOOGLE_PLACES_API_KEY", label: "Google Places", group: "Busca & Leads", cost: "pago", desc: "Fonte de leads estruturada e imbanível (alternativa paga ao scraping do seu IP)." },
   { key: "BRAVE_SEARCH_API_KEY", label: "Brave Search", group: "Busca & Leads", cost: "grátis", desc: "Busca de site/CNPJ no enriquecimento. Sem chave cai no Bing/DDG." },
-  { key: "SERPER_API_KEY", label: "Serper (Google)", group: "Busca & Leads", cost: "pago", desc: "Busca Google paga p/ enriquecimento em escala." },
-  { key: "OPENAI_API_KEY", label: "OpenAI", group: "IA", cost: "pago", desc: "Respostas inteligentes / assistente. Só liga se usar a IA." },
   { key: "GOOGLE_CLIENT_ID", label: "Login Google", group: "Login & E-mail", cost: "grátis", desc: "Entrar com Google (OAuth)." },
   { key: "GMAIL_OAUTH_CLIENT_ID", label: "Gmail — Client ID", group: "Login & E-mail", cost: "grátis", desc: "Envio de e-mail pelo Gmail (módulo e-mail)." },
   { key: "GMAIL_OAUTH_CLIENT_SECRET", label: "Gmail — Secret", group: "Login & E-mail", cost: "grátis", desc: "Par do Client ID do Gmail." },
@@ -2642,47 +2640,6 @@ async function route(req, res) {
   if (req.method === "POST" && url.pathname === "/owner/fabrica/stop") {
     const r = await backendRequest("POST", "/modules/owner/fabrica/stop", {}, { timeoutMs: 30000 });
     sendJson(res, 200, normalizeFabricaResponse("stop", r));
-    return;
-  }
-
-  // ── RAIO-X DE CNPJ EM LOTE (HOT-04) — cola até 10k CNPJs, camadas cadastral/vivo/ia. ──
-  // Mesmo padrão de proxy da fábrica: degrade gracioso (offline) se o backend ainda não tiver
-  // as rotas /modules/owner/cnpj-xray/*. Download é STREAM puro (mesma função da export-all).
-  if (req.method === "POST" && url.pathname === "/owner/cnpj-xray/estimate") {
-    let body = {};
-    try { body = await readBody(req); } catch { body = {}; }
-    const r = await backendRequest("POST", "/modules/owner/cnpj-xray/estimate", body, { timeoutMs: 15000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "xray_nao_publicado" : (r.error || `http_${r.statusCode || "?"}`) });
-    return;
-  }
-  if (req.method === "POST" && url.pathname === "/owner/cnpj-xray/start") {
-    let body = {};
-    try { body = await readBody(req); } catch { body = {}; }
-    const r = await backendRequest("POST", "/modules/owner/cnpj-xray/start", body, { timeoutMs: 30000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "xray_nao_publicado" : (r.error || `http_${r.statusCode || "?"}`) });
-    return;
-  }
-  if (req.method === "GET" && url.pathname === "/owner/cnpj-xray/jobs") {
-    const r = await backendRequest("GET", "/modules/owner/cnpj-xray/jobs", null, { timeoutMs: 15000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "xray_nao_publicado" : (r.error || `http_${r.statusCode || "?"}`) });
-    return;
-  }
-  if (req.method === "GET" && url.pathname.startsWith("/owner/cnpj-xray/jobs/") && !url.pathname.endsWith("/download")) {
-    const id = decodeURIComponent(url.pathname.slice("/owner/cnpj-xray/jobs/".length));
-    const r = await backendRequest("GET", `/modules/owner/cnpj-xray/jobs/${encodeURIComponent(id)}`, null, { timeoutMs: 15000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "job_nao_encontrado" : (r.error || `http_${r.statusCode || "?"}`) });
-    return;
-  }
-  if (req.method === "GET" && url.pathname.match(/^\/owner\/cnpj-xray\/jobs\/[^/]+\/download$/)) {
-    const id = decodeURIComponent(url.pathname.split("/")[4]);
-    const r = await streamBackendToClient("GET", `/modules/owner/cnpj-xray/jobs/${encodeURIComponent(id)}/download`, res, backendToken);
-    if (!r.ok && !r.streamed && !res.headersSent) {
-      sendJson(res, 200, { ok: false, reason: r.statusCode ? `http_${r.statusCode}` : (r.error || "download_falhou") });
-    }
     return;
   }
 

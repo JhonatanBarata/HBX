@@ -3,28 +3,17 @@ import assert from 'node:assert/strict';
 import { MissionResultApplyService } from './mission-result-apply.service';
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 
-// Fake prisma mínimo: leadContact (gate write path) + radarLeadPool (nota) + hasTable.
-function createFakePrisma(seedLead?: { id: string; metadataJson?: string | null }) {
+// Fake prisma mínimo: leadContact (gate write path) + hasTable.
+function createFakePrisma() {
   const contacts: any[] = [];
-  const leads: any[] = seedLead ? [{ ...seedLead }] : [];
-  const tableSet = new Set(['RadarLeadPool', 'LeadContact']);
+  const tableSet = new Set(['LeadContact']);
   return {
     contacts,
-    leads,
     hasTable: async (name: string) => tableSet.has(name),
     leadContact: {
       findFirst: async ({ where }: any) =>
         contacts.find((c) => c.radarLeadId === where.radarLeadId && c.kind === where.kind && c.valueNormalized === where.valueNormalized) || null,
       create: async ({ data }: any) => { contacts.push({ id: `c${contacts.length + 1}`, ...data }); return data; },
-    },
-    radarLeadPool: {
-      findUnique: async ({ where }: any) => leads.find((l) => l.id === where.id) || null,
-      update: async ({ where, data }: any) => {
-        const l = leads.find((x) => x.id === where.id);
-        if (!l) throw new Error('not found');
-        Object.assign(l, data);
-        return l;
-      },
     },
   };
 }
@@ -81,51 +70,6 @@ test('E1 apply enrich_lead: idempotente — reaplicar a mesma missão não dupli
   assert.equal(second.written, 0);
   assert.equal(second.skipped, 1, 'segunda aplicação pula o já existente');
   assert.equal(prisma.contacts.length, 1);
-});
-
-test('E1 apply xray_note: nota + resumo gravam no metadataJson (bloco aiNote), aditivo', async () => {
-  const prisma = createFakePrisma({ id: 'lead-4', metadataJson: JSON.stringify({ cnpj: '123', existente: true }) });
-  const svc = buildService(prisma);
-  const out = await svc.apply({
-    stage: 'xray_note',
-    payload: { radarLeadId: 'lead-4' },
-    result: { notaIcp: 72, resumo: 'empresa ativa com canais', model: 'qwen3:30b' },
-  });
-  assert.equal(out.applied, true);
-  assert.equal(out.kind, 'note');
-  const meta = JSON.parse(prisma.leads[0].metadataJson);
-  assert.equal(meta.aiNote.notaIcp, 72);
-  assert.equal(meta.aiNote.resumo, 'empresa ativa com canais');
-  assert.equal(meta.aiNote.source, 'ponte_30b');
-  assert.equal(meta.existente, true, 'não apaga o metadata anterior (aditivo)');
-});
-
-test('E1 apply xray_note: nota null → noop, NÃO zera nota existente', async () => {
-  const prisma = createFakePrisma({ id: 'lead-5', metadataJson: JSON.stringify({ aiNote: { notaIcp: 90 } }) });
-  const svc = buildService(prisma);
-  const out = await svc.apply({ stage: 'xray_note', payload: { radarLeadId: 'lead-5' }, result: { notaIcp: null, resumo: null } });
-  assert.equal(out.applied, true);
-  assert.equal(out.reason, 'nota_nula_noop');
-  const meta = JSON.parse(prisma.leads[0].metadataJson);
-  assert.equal(meta.aiNote.notaIcp, 90, 'nota anterior preservada');
-});
-
-test('E1 apply xray_note: idempotente — reaplicar sobrescreve o mesmo bloco, não duplica', async () => {
-  const prisma = createFakePrisma({ id: 'lead-6', metadataJson: null });
-  const svc = buildService(prisma);
-  await svc.apply({ stage: 'xray_note', payload: { radarLeadId: 'lead-6' }, result: { notaIcp: 40, resumo: 'a' } });
-  await svc.apply({ stage: 'xray_note', payload: { radarLeadId: 'lead-6' }, result: { notaIcp: 55, resumo: 'b' } });
-  const meta = JSON.parse(prisma.leads[0].metadataJson);
-  assert.equal(meta.aiNote.notaIcp, 55, 'última aplicação vence, bloco único');
-  assert.equal(Object.keys(meta).length, 1, 'só o bloco aiNote, sem duplicação');
-});
-
-test('E1 apply: lead sem id → applied false, não-retryable (payload ruim)', async () => {
-  const prisma = createFakePrisma();
-  const svc = buildService(prisma);
-  const out = await svc.apply({ stage: 'xray_note', payload: {}, result: { notaIcp: 50 } });
-  assert.equal(out.applied, false);
-  assert.equal(out.reason, 'lead_id_ausente');
 });
 
 test('E1 apply: stage da fábrica (não-ponte) → noop applied true (complete segue normal)', async () => {

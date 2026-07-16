@@ -316,7 +316,7 @@ test('lag da fila: conta só missão devida; idade do item mais velho', async ()
 
 test('CHIP E1: sinal elástico (activity+lag) viaja junto do lease — mesmo vazio', async () => {
   const { service } = buildService({ activeSessions: 3 });
-  const result = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
+  const result = await service.lease({ workerId: 'ponte', stages: ['enrich_lead'], batchSize: 1 });
   assert.ok(result.activity, 'lease traz activity');
   assert.equal(result.activity!.activeUsers, 3);
   assert.ok(result.lag, 'lease traz lag');
@@ -326,20 +326,20 @@ test('CHIP E1: activity degrada gracioso sem tabela AuthSession (activeUsers 0, 
   const { service } = buildService({ hasAuthSessionTable: false, activeSessions: 9 });
   const snap = await service.getActivitySnapshot();
   assert.equal(snap.activeUsers, 0);
-  const result = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
+  const result = await service.lease({ workerId: 'ponte', stages: ['enrich_lead'], batchSize: 1 });
   assert.equal(result.activity!.activeUsers, 0);
 });
 
-test('CHIP E1: stage xray_note é leasável e getLeasedContext devolve stage+payload sob o lease', async () => {
+test('CHIP E1: stage enrich_lead é leasável e getLeasedContext devolve stage+payload sob o lease', async () => {
   const { service } = buildService();
-  await service.enqueue({ stage: 'xray_note', payload: { radarLeadId: 'lead-9', note: { razaoSocial: 'ACME' } }, dedupeKey: 'xray-note:lead-9' });
-  const leased = await service.lease({ workerId: 'ponte', stages: ['xray_note'], batchSize: 1 });
+  await service.enqueue({ stage: 'enrich_lead', payload: { radarLeadId: 'lead-9' }, dedupeKey: 'lead:lead-9' });
+  const leased = await service.lease({ workerId: 'ponte', stages: ['enrich_lead'], batchSize: 1 });
   assert.equal(leased.missions.length, 1);
   const m = leased.missions[0];
   const ctx = await service.getLeasedContext(m.id, m.leaseId);
   assert.equal(ctx.ok, true);
   if (ctx.ok) {
-    assert.equal(ctx.stage, 'xray_note');
+    assert.equal(ctx.stage, 'enrich_lead');
     assert.equal((ctx.payload as any).radarLeadId, 'lead-9');
     assert.ok(!ctx.alreadyCompleted);
   }

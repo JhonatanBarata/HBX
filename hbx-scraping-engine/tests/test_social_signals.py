@@ -15,7 +15,7 @@ async def _run_engine_only(self, request, hbx_engine_provider):
 
 def _isolate_enrich_lead_from_live_providers(monkeypatch) -> None:
     """`enrich_lead` roteia por `LeadEnrichmentProviderRouter`, que tem suite
-    propria (test_provider_router_serper.py) e cai pra internet REAL
+    própria e cai pra internet REAL
     (DuckDuckGoProvider/WebSearchService) sempre que acha o resultado do motor
     "insuficiente" -- exatamente o caso de testes que esperam None/rejeicao.
     Sem isolar, o fallback (e o cache de classe do router, compartilhado entre

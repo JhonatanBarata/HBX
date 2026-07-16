@@ -86,7 +86,6 @@ async function main() {
   console.log(`paidAttempts nesta corrida: ${afterRun.paidAttempts} (esperado 0)`);
   console.log(`trava ativa (paidLocked): ${afterRun.paidLocked} (esperado true)`);
   const { SourceBudgetService } = require('../dist/webscraping/source-budget/source-budget.service');
-  console.log(`SourceBudgetService.serperAllowed(): ${SourceBudgetService.serperAllowed()} (esperado false)`);
   console.log(`tryConsumePaid('brave'): ${await SourceBudgetService.tryConsumePaid('brave')} (esperado false — trava)`);
 
   await prisma.$disconnect();

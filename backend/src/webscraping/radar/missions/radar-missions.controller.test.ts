@@ -24,5 +24,5 @@ test('lease HTTP sem stages usa somente os stages publicos da PONTE', async () =
 
   await controller.lease({ workerId: 'ponte', batchSize: 5 });
 
-  assert.deepEqual(captured.stages, ['enrich_lead', 'xray_note']);
+  assert.deepEqual(captured.stages, ['enrich_lead']);
 });

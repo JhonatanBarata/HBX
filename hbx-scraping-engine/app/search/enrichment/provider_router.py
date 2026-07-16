@@ -133,7 +133,6 @@ class LeadEnrichmentProviderRouter:
             ProviderDefinition("HbxEngineProvider", True, 30, supportsSearch=True),
             ProviderDefinition("DuckDuckGoProvider", True, 40, freeQuotaMonthly=10_000, supportsSearch=True, tier="free"),
             ProviderDefinition("BraveSearchProvider", bool(os.getenv("BRAVE_SEARCH_API_KEY")), 50, freeQuotaMonthly=2_000, costPerRequest=0.001, supportsSearch=True, requiresApiKey=True, tier="free", envKey="BRAVE_SEARCH_API_KEY"),
-            ProviderDefinition("SerperProvider", bool(os.getenv("SERPER_API_KEY")), 60, costPerRequest=0.001, supportsSearch=True, requiresApiKey=True, tier="paid", envKey="SERPER_API_KEY"),
             ProviderDefinition("ScrapingDogProvider", bool(os.getenv("SCRAPINGDOG_API_KEY")), 70, costPerRequest=0.002, supportsSearch=True, requiresApiKey=True, tier="paid", envKey="SCRAPINGDOG_API_KEY"),
             ProviderDefinition("TavilyProvider", bool(os.getenv("TAVILY_API_KEY")), 80, costPerRequest=0.002, supportsSearch=True, supportsSemanticSearch=True, requiresApiKey=True, tier="paid", envKey="TAVILY_API_KEY"),
             ProviderDefinition("ExaProvider", bool(os.getenv("EXA_API_KEY")), 90, costPerRequest=0.003, supportsSearch=True, supportsSemanticSearch=True, requiresApiKey=True, tier="premium", envKey="EXA_API_KEY"),
@@ -490,8 +489,6 @@ class LeadEnrichmentProviderRouter:
                 results = await self.search_duckduckgo(request)
             elif provider.name == "BraveSearchProvider":
                 results = await self.search_brave(request, provider)
-            elif provider.name == "SerperProvider":
-                results = await self.search_serper(request, provider)
             else:
                 results = []
             return ProviderRun(
@@ -565,39 +562,6 @@ class LeadEnrichmentProviderRouter:
                         "title": row.get("title"),
                         "body": row.get("description"),
                     }, provider.name, query))
-        return self.classify_rows(request, rows)
-
-    async def search_serper(
-        self,
-        request: EnrichLeadRequest,
-        provider: ProviderDefinition,
-        client: httpx.AsyncClient | None = None,
-    ) -> list[dict]:
-        key = os.getenv(provider.envKey or "")
-        if not key:
-            return []
-        rows: list[dict] = []
-        owns_client = client is None
-        http_client = client or httpx.AsyncClient(timeout=8.0)
-        try:
-            for query in self.queries_for_request(request)[:4]:
-                response = await http_client.post(
-                    "https://google.serper.dev/search",
-                    json={"q": query, "gl": "br", "hl": "pt-br", "num": 10},
-                    headers={"X-API-KEY": key, "Content-Type": "application/json"},
-                )
-                if response.status_code >= 400:
-                    continue
-                data = response.json()
-                for row in data.get("organic") or []:
-                    rows.append(self.normalize_search_row({
-                        "href": row.get("link"),
-                        "title": row.get("title"),
-                        "body": row.get("snippet"),
-                    }, provider.name, query))
-        finally:
-            if owns_client:
-                await http_client.aclose()
         return self.classify_rows(request, rows)
 
     def queries_for_request(self, request: EnrichLeadRequest) -> list[str]:

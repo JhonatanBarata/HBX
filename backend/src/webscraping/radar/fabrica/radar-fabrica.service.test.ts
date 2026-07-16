@@ -147,7 +147,6 @@ test('TRAVA: mesmo com budget, drena RFB sem NENHUMA tentativa paga (paidAttempt
   await new Promise((r) => setTimeout(r, 200));
   const status = await svc.status();
   assert.equal(status.paidAttempts, 0, 'NENHUMA tentativa paga pode ocorrer no local');
-  assert.equal(SourceBudgetService.serperAllowed(), false, 'Serper OFF no local');
   assert.ok(status.materialized >= 1, 'materializou lead(s) da RFB');
   assert.equal(prisma._leads.length >= 1, true);
 });

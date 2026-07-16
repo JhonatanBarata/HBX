@@ -2,12 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RadarPonteStatusService } from './radar-ponte-status.service';
 
-// Fake prisma mínimo: radarMission (fila) + leadContact (resumo) + radarLeadPool (nota ICP).
-function createFakePrisma(input: { missions?: any[]; contacts?: any[]; leads?: any[] } = {}) {
+// Fake prisma mínimo: radarMission (fila) + leadContact (resumo).
+function createFakePrisma(input: { missions?: any[]; contacts?: any[] } = {}) {
   const missions = input.missions || [];
   const contacts = input.contacts || [];
-  const leads = input.leads || [];
-  const tableSet = new Set(['RadarMission', 'LeadContact', 'RadarLeadPool']);
+  const tableSet = new Set(['RadarMission', 'LeadContact']);
   return {
     hasTable: async (name: string) => tableSet.has(name),
     radarMission: {
@@ -23,12 +22,6 @@ function createFakePrisma(input: { missions?: any[]; contacts?: any[]; leads?: a
       findMany: async ({ where }: any) => {
         const ids: string[] = where?.radarLeadId?.in || [];
         return contacts.filter((c) => ids.includes(c.radarLeadId) && (!where?.source || c.source === where.source));
-      },
-    },
-    radarLeadPool: {
-      findMany: async ({ where }: any) => {
-        const ids: string[] = where?.id?.in || [];
-        return leads.filter((l) => ids.includes(l.id));
       },
     },
   };
@@ -84,7 +77,7 @@ test('E3 status: missão queued PARADA além do TTL de honestidade vira stale=tr
   await withMissionQueueFlag('true', async () => {
     const old = new Date(Date.now() - 20 * 60_000); // 20min > 15min TTL
     const prisma = createFakePrisma({
-      missions: [{ id: 'm1', stage: 'xray_note', status: 'queued', payloadJson: { radarLeadId: 'lead-1' }, createdAt: old }],
+      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-1' }, createdAt: old }],
     });
     const svc = new RadarPonteStatusService(prisma as any);
     const status = await svc.getStatusForLeads(['lead-1']);
@@ -105,7 +98,7 @@ test('E3 status: missão leased (em voo) vira "processing"', async () => {
   });
 });
 
-test('E3 status: missão completed vira "done" com resumo (+telefones/+emails/nota)', async () => {
+test('E3 status: missão completed vira "done" com resumo (+telefones/+emails)', async () => {
   await withMissionQueueFlag('true', async () => {
     const prisma = createFakePrisma({
       missions: [{ id: 'm1', stage: 'enrich_lead', status: 'completed', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date(), completedAt: new Date() }],
@@ -114,7 +107,6 @@ test('E3 status: missão completed vira "done" com resumo (+telefones/+emails/no
         { radarLeadId: 'lead-1', kind: 'phone', source: 'ai_extraction' },
         { radarLeadId: 'lead-1', kind: 'email', source: 'ai_extraction' },
       ],
-      leads: [{ id: 'lead-1', metadataJson: JSON.stringify({ aiNote: { notaIcp: 85, resumo: 'Empresa ativa.' } }) }],
     });
     const svc = new RadarPonteStatusService(prisma as any);
     const status = await svc.getStatusForLeads(['lead-1']);
@@ -122,22 +114,19 @@ test('E3 status: missão completed vira "done" com resumo (+telefones/+emails/no
     const summary = (status['lead-1'] as any).summary;
     assert.equal(summary.phonesAdded, 2);
     assert.equal(summary.emailsAdded, 1);
-    assert.equal(summary.hasNote, true);
-    assert.equal(summary.noteScore, 85);
   });
 });
 
-test('E3 status: done é permanente mesmo sem nota/contato (worker degradou) — nunca volta a "queued"', async () => {
+test('E3 status: done é permanente mesmo sem contato (worker degradou) — nunca volta a "queued"', async () => {
   await withMissionQueueFlag('true', async () => {
     const prisma = createFakePrisma({
-      missions: [{ id: 'm1', stage: 'xray_note', status: 'completed', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date(), completedAt: new Date() }],
+      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'completed', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date(), completedAt: new Date() }],
     });
     const svc = new RadarPonteStatusService(prisma as any);
     const status = await svc.getStatusForLeads(['lead-1']);
     assert.equal(status['lead-1'].state, 'done');
     const summary = (status['lead-1'] as any).summary;
     assert.equal(summary.phonesAdded, 0);
-    assert.equal(summary.hasNote, false);
   });
 });
 

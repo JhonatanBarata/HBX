@@ -311,55 +311,8 @@
     </div>
   </section>
 
-  <!-- ============ RAIO-X DE CNPJ EM LOTE (HOT-04, largura cheia) ============ -->
-  <section class="card" id="xray-card">
-    <div class="cockpit-head">
-      <div class="hero-title">
-        <span class="label">Raio-X de CNPJ · lote</span>
-        <span id="xray-status" class="pill pill-muted">pronto</span>
-      </div>
-    </div>
-    <p class="delta" style="margin:0 0 10px;">Cola até 10.000 CNPJs (1 por linha, com ou sem máscara). Camada cadastral é instantânea e grátis; vivo/IA enfileiram e enriquecem em background.</p>
-
-    <textarea id="xray-input" class="cf-input" style="width:100%;min-height:140px;font-family:monospace;font-size:.8rem;" placeholder="11.222.333/0001-81&#10;11444777000161&#10;..."></textarea>
-    <div style="display:flex;align-items:center;gap:14px;margin-top:8px;flex-wrap:wrap;">
-      <span id="xray-line-count" class="delta">0 linha(s)</span>
-      <label class="cf-toggle"><input type="checkbox" id="xray-layer-cadastral" checked disabled /> Cadastral (grátis, instantâneo)</label>
-      <label class="cf-toggle"><input type="checkbox" id="xray-layer-vivo" /> Vivo — crawl + WhatsApp-gate</label>
-      <label class="cf-toggle"><input type="checkbox" id="xray-layer-ia" /> IA — nota ICP + resumo</label>
-      <button id="btn-xray-estimate" class="btn btn-sm btn-blue">Estimar custo/tempo</button>
-      <button id="btn-xray-start" class="btn btn-sm btn-green">▶ Iniciar Raio-X</button>
-    </div>
-    <p id="xray-estimate" class="delta" style="margin-top:8px;"></p>
-    <p id="xray-feedback" class="delta" style="margin-top:4px;">—</p>
-
-    <div style="overflow-x:auto;margin-top:14px;">
-      <table class="cockpit-table" id="xray-jobs-table">
-        <thead>
-          <tr><th>Job</th><th>Status</th><th>Camadas</th><th>Válidos</th><th>Inválidos</th><th>Processados</th><th>Vivo (fila)</th><th>IA</th><th>Criado</th><th>Ação</th></tr>
-        </thead>
-        <tbody id="xray-jobs-tbody"><tr><td colspan="10" class="delta">lendo histórico…</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- ============ CHAVES DE API / INTEGRAÇÕES (Local × VPS, largura cheia) ============ -->
-  <section class="card" id="integrations">
-    <div class="cockpit-head">
-      <div class="hero-title">
-        <span class="label">Chaves de API · Integrações</span>
-        <span class="pill pill-muted">Local × VPS</span>
-      </div>
-      <button id="btn-int-refresh" class="btn btn-sm btn-blue">↺ Reler</button>
-    </div>
-    <p class="delta" style="margin:0 0 12px;"><strong>Injetar grava direto no .env da VPS</strong> (produção) e recria o backend — leva alguns segundos pra subir. O Local é só leitura.</p>
-    <!-- S2: causa VISÍVEL da ponte VPS (não só title). Quando o Ops Control caiu NESTA máquina, mostra o botão "Religar Ops Control" aqui. -->
-    <div id="vps-int-status" class="delta" style="display:none;margin:0 0 12px;"></div>
-    <div id="integrations-grid" class="int-grid"><p class="delta">lendo…</p></div>
-  </section>
-
   </main>
 
-  <script src="/app.js?v=20260716bank-cleanup"></script>
+  <script src="/app.js?v=20260716integrations-cleanup"></script>
 </body>
 </html>

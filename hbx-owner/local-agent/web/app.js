@@ -64,7 +64,6 @@ function opsReasonText(reason) {
   if (!reason) return "";
   return OPS_REASON_TEXT[reason] || String(reason);
 }
-let lastOpsAlive = null; // vivacidade do último ping — detecta a virada pra refrescar os badges na hora
 async function pingStatus() {
   try {
     const h = await api("GET", "/health");
@@ -82,12 +81,6 @@ async function pingStatus() {
     if (opsPill) opsPill.title = opsDrift
       ? "Imagem do Ops Control atrás do código de ops-control/ — rebuild: npm run up (ou docker compose up -d --build)."
       : "";
-    // Virou (vivo↔morto) com o painel aberto → refresca os badges pra o banner/botão "Religar" aparecer
-    // (ou sumir) SEM esperar um "Reler" manual. Só na TRANSIÇÃO (nunca todo poll) e nunca durante um
-    // religar em curso (o opsRestartClick já cuida do refresh e do âmbar).
-    const alive = Boolean(h.opsConfigured && h.opsAlive);
-    if (lastOpsAlive !== null && lastOpsAlive !== alive && !opsRestarting) { loadVpsBadges().catch(() => {}); }
-    lastOpsAlive = alive;
   } catch {
     paintPill("#st-agent", "agent offline", "bad");
   }
@@ -1490,178 +1483,6 @@ async function renderMotorStrip() {
   }
 }); }
 
-/* ---------- Chaves de API / Integrações ---------- */
-function intCostPill(c) { return c === "grátis" ? "pill-ok" : c === "pago" ? "pill-amber" : "pill-muted"; }
-async function renderIntegrations() {
-  const grid = $("#integrations-grid");
-  if (!grid) return;
-  let data;
-  try { data = await api("GET", "/owner/integrations"); }
-  catch (e) { grid.innerHTML = `<p class="delta">erro: ${esc(e.message)}</p>`; return; }
-  const items = (data && data.items) || [];
-  const groups = {};
-  for (const it of items) (groups[it.group] = groups[it.group] || []).push(it);
-  // Local = só leitura (badge). VPS preenche depois (SSH ~15s) e, se faltar, abre o campo de injetar NA VPS.
-  grid.innerHTML = Object.keys(groups).map((g) => `
-    <div class="int-group">
-      <div class="label" style="margin:0 0 8px;">${esc(g)}</div>
-      ${groups[g].map((it) => `
-        <div class="int-row">
-          <div class="int-main">
-            <div class="int-name">${esc(it.label)} <span class="pill ${intCostPill(it.cost)}" style="font-size:.64rem;">${esc(it.cost)}</span></div>
-            <div class="int-desc">${esc(it.desc)}</div>
-          </div>
-          <div class="int-side">
-            <div class="int-badges">
-              <span class="pill int-local ${it.present ? "pill-ok" : "pill-muted"}" data-int-local="${esc(it.key)}">${it.present ? "Local ✓" : "Local ✗"}</span>
-              <span class="pill pill-muted int-vps" data-int="${esc(it.key)}">VPS …</span>
-            </div>
-          </div>
-          <div class="int-inject-slot" data-int="${esc(it.key)}"></div>
-        </div>`).join("")}
-    </div>`).join("");
-  loadVpsBadges();
-}
-// S2 — "religando…" em curso: trava o botão Religar e segura a re-habilitação do "Salvar na VPS"
-// até a vivacidade (opsAlive) confirmar. 1 clique = 1 ciclo; a confirmação é por polling, nunca loop.
-let opsRestarting = false;
-
-// Linha de status HONESTA acima dos badges (não só title): a causa em TEXTO. Quando o Ops Control
-// caiu NESTA máquina (reason ops_caido), oferece o botão "Religar Ops Control".
-function renderVpsIntStatus(ok, reason) {
-  const box = $("#vps-int-status");
-  if (!box) return;
-  if (ok) { box.style.display = "none"; box.innerHTML = ""; return; }
-  box.style.display = "";
-  box.className = "delta"; // .delta.bad/.warn não existem no tema do Owner → cor via var inline (token, não hex)
-  const txt = esc(opsReasonText(reason) || "sem leitura da VPS");
-  if (reason === "ops_caido") {
-    box.innerHTML = `<span style="color:var(--red);font-weight:700;">⛔ ${txt}</span> <button id="btn-ops-restart" class="btn btn-sm btn-red" style="margin-left:8px;">↻ Religar Ops Control</button>`;
-    const b = $("#btn-ops-restart");
-    if (b) {
-      if (opsRestarting) { b.disabled = true; b.className = "btn btn-sm btn-amber"; b.textContent = "religando…"; }
-      b.onclick = opsRestartClick;
-    }
-  } else {
-    const color = reason === "ops_token_ausente" ? "var(--text-muted)" : "var(--amber)";
-    box.innerHTML = `<span style="color:${color};">${txt}</span>`;
-  }
-}
-
-// Religa o Ops Control (POST /owner/ops/restart) e ESPERA a vivacidade voltar — âmbar "religando…"
-// até o /health?opsFresh=1 responder opsAlive. Teto de ~15s (10×1.5s): sem loop, o botão NÃO
-// re-dispara sozinho; se não subir, volta a oferecer o clique (ação humana, não auto-retry).
-async function opsRestartClick() {
-  if (opsRestarting) return;
-  opsRestarting = true;
-  const b = $("#btn-ops-restart");
-  if (b) { b.disabled = true; b.className = "btn btn-sm btn-amber"; b.textContent = "religando…"; }
-  try {
-    await api("POST", "/owner/ops/restart", {});
-  } catch (e) {
-    opsRestarting = false;
-    if (b) { b.disabled = false; b.className = "btn btn-sm btn-red"; b.textContent = "falhou — tentar de novo"; }
-    return;
-  }
-  let alive = false;
-  for (let i = 0; i < 10; i += 1) {
-    await new Promise((r) => setTimeout(r, 1500));
-    try {
-      const h = await api("GET", "/health?opsFresh=1"); // fura o cache de 10s → confirma na hora que subir
-      if (h && h.opsConfigured && h.opsAlive) { alive = true; break; }
-    } catch { /* segue tentando dentro do teto */ }
-  }
-  opsRestarting = false;
-  pingStatus();            // repinta a pílula do topo (verde "ops ✓" se subiu, "ops caído" se não)
-  await loadVpsBadges();   // sucesso confirmado → badges voltam e "Salvar na VPS" re-habilita
-  if (!alive) {
-    const nb = $("#btn-ops-restart");
-    if (nb) { nb.className = "btn btn-sm btn-red"; nb.textContent = "não subiu — tentar de novo"; nb.disabled = false; }
-  }
-}
-
-// D5: repinta os badges "Local ✓/✗" a partir de dados prontos (do snapshot), sem re-fetch.
-function paintLocalIntBadges(items) {
-  if (!Array.isArray(items)) return;
-  const byKey = {};
-  for (const it of items) byKey[it.key] = it;
-  document.querySelectorAll(".int-local").forEach((el) => {
-    const k = el.getAttribute("data-int-local");
-    const it = byKey[k];
-    if (!it) return;
-    const present = !!it.present;
-    el.className = "pill int-local " + (present ? "pill-ok" : "pill-muted");
-    el.textContent = present ? "Local ✓" : "Local ✗";
-  });
-}
-
-// preVps: quando vem preenchido (do snapshot SSE), pinta SEM fetch — o badge "VPS …" morre sozinho, sem
-// clique (D5). undefined → busca no /owner/integrations/vps (⟳, transição de vivacidade, religar).
-async function loadVpsBadges(preVps) {
-  let vps = preVps;
-  if (vps === undefined) { try { vps = await api("GET", "/owner/integrations/vps"); } catch { vps = null; } }
-  const ok = !!(vps && vps.ok);
-  const items = (ok && vps.items) || {};
-  const reason = (vps && vps.reason) || "";
-  renderVpsIntStatus(ok, reason); // causa VISÍVEL + botão Religar quando ops_caido (S2 Passo 3)
-  document.querySelectorAll(".int-vps").forEach((el) => {
-    const k = el.getAttribute("data-int");
-    const slot = document.querySelector(`.int-inject-slot[data-int="${k}"]`);
-    if (!ok) {
-      el.className = "pill pill-muted int-vps"; el.textContent = "VPS —"; el.title = opsReasonText(reason) || "sem leitura da VPS";
-      if (slot) slot.innerHTML = "";
-      return;
-    }
-    const v = items[k];
-    const present = !!(v && v.present);
-    el.className = "pill int-vps " + (present ? "pill-ok" : "pill-bad");
-    el.textContent = present ? "VPS ✓" : "VPS ✗";
-    if (slot) slot.innerHTML = present ? "" : `<div class="int-inject"><input class="cf-input int-input" data-int="${esc(k)}" placeholder="colar chave (VPS)…" autocomplete="off" /><button class="btn btn-sm btn-green int-save" data-int="${esc(k)}">Salvar na VPS</button></div>`;
-  });
-  document.querySelectorAll(".int-save").forEach((b) => { b.onclick = () => intSave(b.getAttribute("data-int")); });
-}
-// D6: enquanto uma injeção confirma (backend da VPS recriando), o snapshot NÃO repinta os badges de
-// integração (senão resetaria o botão "recriando…" no meio). O poll de confirmação assume o controle.
-let intInjecting = false;
-
-async function intSave(key) {
-  const input = document.querySelector(`.int-input[data-int="${key}"]`);
-  const btn = document.querySelector(`.int-save[data-int="${key}"]`);
-  const value = input ? input.value.trim() : "";
-  if (!value) { if (input) input.focus(); return; }
-  if (btn) { btn.disabled = true; btn.textContent = "gravando na VPS…"; }
-  try {
-    const r = await api("POST", "/owner/integrations/set", { key, value });
-    if (r && r.ok) { if (btn) btn.textContent = "✓ recriando backend…"; confirmVpsKey(key); }
-    else if (btn) { btn.disabled = false; btn.textContent = (r && r.reason) || "falhou"; }
-  } catch { if (btn) { btn.disabled = false; btn.textContent = "erro"; } }
-}
-
-// D6: antes era um sleep FIXO de 22s → lia no meio do boot do backend da VPS. Agora poll a cada 5s até
-// 90s em /owner/integrations/vps?force=1 (fura o cache): para quando a chave aparece present (badge vira
-// VPS ✓ e o slot limpa sozinho) OU o prazo estoura → "não confirmei — recarregue". Sem loop infinito.
-async function confirmVpsKey(key) {
-  intInjecting = true;
-  const deadline = Date.now() + 90000;
-  try {
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 5000));
-      let vps = null;
-      try { vps = await api("GET", "/owner/integrations/vps?force=1"); } catch { vps = null; }
-      if (vps && vps.ok) {
-        const v = vps.items && vps.items[key];
-        if (v && v.present) { loadVpsBadges(vps); return; } // confirmado → repinta tudo com o dado fresco
-      }
-    }
-    // prazo estourou sem a chave aparecer present → devolve o clique com o aviso honesto.
-    const nb = document.querySelector(`.int-save[data-int="${key}"]`);
-    if (nb) { nb.disabled = false; nb.textContent = "não confirmei — recarregue"; }
-  } finally {
-    intInjecting = false;
-  }
-}
-{ const ir = $("#btn-int-refresh"); if (ir) ir.addEventListener("click", renderIntegrations); }
-
 /* ══════════ OWNERV2 (02/07) — painel único: cartões novos ══════════ */
 
 /* ---------- Fábrica de enriquecimento (coluna LOCAL) ----------
@@ -2011,147 +1832,6 @@ async function ponteResetClick() {
   finally { if (btn) btn.disabled = false; ponteRender(); }
 }
 
-/* ---------- Raio-X de CNPJ em lote (HOT-04) ---------- */
-function xraySelectedLayers() {
-  const layers = ["cadastral"]; // sempre ligada (grátis, instantânea) — checkbox fica disabled
-  if ($("#xray-layer-vivo")?.checked) layers.push("vivo");
-  if ($("#xray-layer-ia")?.checked) layers.push("ia");
-  return layers;
-}
-function xrayParsedLines() {
-  const raw = String($("#xray-input")?.value || "");
-  return raw.split("\n").map((l) => l.trim()).filter(Boolean);
-}
-function xrayUpdateLineCount() {
-  const el = $("#xray-line-count");
-  if (el) el.textContent = `${xrayParsedLines().length} linha(s)`;
-}
-{ const t = $("#xray-input"); if (t) t.addEventListener("input", xrayUpdateLineCount); }
-
-async function xrayEstimate() {
-  const fb = $("#xray-estimate");
-  const lines = xrayParsedLines();
-  if (!lines.length) { if (fb) fb.textContent = "Cole ao menos 1 CNPJ antes de estimar."; return; }
-  try {
-    const r = await api("POST", "/owner/cnpj-xray/estimate", { cnpjs: lines, layers: xraySelectedLayers() });
-    if (!r || !r.ok) { if (fb) fb.textContent = r && r.offline ? "Raio-X offline (backend ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`; return; }
-    const est = r.estimate || {};
-    const perLayer = (est.perLayer || []).map((l) => `${esc(l.label)}: ~${Math.round(l.secondsEstimate)}s`).join(" · ");
-    if (fb) fb.textContent = `Válidos: ${r.validCount} · Inválidos: ${r.invalidCount} · Tempo estimado total: ~${est.totalSecondsEstimate || 0}s (${perLayer})`;
-  } catch (err) {
-    if (fb) fb.textContent = `erro: ${err.message}`;
-  }
-}
-
-async function xrayStart() {
-  const fb = $("#xray-feedback");
-  const btn = $("#btn-xray-start");
-  const lines = xrayParsedLines();
-  if (!lines.length) { if (fb) fb.textContent = "Cole ao menos 1 CNPJ antes de iniciar."; return; }
-  if (lines.length > 10000) { if (fb) fb.textContent = "Máximo de 10.000 CNPJs por lote."; return; }
-  if (btn) btn.disabled = true;
-  try {
-    const r = await api("POST", "/owner/cnpj-xray/start", { cnpjs: lines, layers: xraySelectedLayers() });
-    if (r && r.ok && r.started) {
-      if (fb) fb.textContent = `Job iniciado (${r.jobId}) — ${r.validCount} CNPJ(s) válido(s), ${r.invalidCount} descartado(s). Acompanhe na tabela abaixo.`;
-      $("#xray-input").value = "";
-      xrayUpdateLineCount();
-      xrayJobsRender();
-    } else {
-      if (fb) fb.textContent = r && r.offline ? "Raio-X offline (backend ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`;
-    }
-  } catch (err) {
-    if (fb) fb.textContent = `erro: ${err.message}`;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-const XRAY_STATUS_LABEL = {
-  queued: "na fila", running_cadastral: "cadastral…", running_vivo: "vivo…",
-  running_ia: "IA…", done: "concluído", error: "erro",
-};
-function xrayStatusPillClass(status) {
-  if (status === "done") return "pill-ok";
-  if (status === "error") return "pill-bad";
-  return "pill-muted";
-}
-async function xrayJobsRender() {
-  const tbody = $("#xray-jobs-tbody");
-  if (!tbody) return;
-  let r;
-  try { r = await api("GET", "/owner/cnpj-xray/jobs"); }
-  catch (err) { r = { ok: false, reason: err.message }; }
-  if (!r || !r.ok || !Array.isArray(r.jobs)) {
-    tbody.innerHTML = `<tr><td colspan="10" class="delta">${r && r.offline ? "Raio-X offline (backend ainda não publicado)." : "sem leitura do histórico."}</td></tr>`;
-    return;
-  }
-  if (!r.jobs.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="delta">nenhum job ainda.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = r.jobs.map((j) => {
-    const created = j.createdAt ? new Date(j.createdAt).toLocaleString("pt-BR") : "—";
-    const layers = (j.layers || []).join(", ");
-    const action = j.downloadReady
-      ? `<button class="btn btn-sm btn-blue xray-dl-btn" data-job-id="${esc(j.id)}">⬇ XLSX</button>`
-      : (j.status === "error" ? `<span class="delta" title="${esc(j.lastError || "")}">falhou</span>` : "—");
-    return `<tr>
-      <td style="font-size:11px;">${esc(j.id.slice(0, 12))}…</td>
-      <td><span class="pill ${xrayStatusPillClass(j.status)}">${esc(XRAY_STATUS_LABEL[j.status] || j.status)}</span></td>
-      <td>${esc(layers)}</td>
-      <td>${esc(j.validCount)}</td>
-      <td>${esc(j.invalidCount)}</td>
-      <td>${esc(j.processedCount)}</td>
-      <td>${esc(j.missionsDone)}/${esc(j.missionsQueued)}</td>
-      <td>${esc(j.aiDone)}</td>
-      <td>${esc(created)}</td>
-      <td>${action}</td>
-    </tr>`;
-  }).join("");
-}
-
-/** Download autenticado (token no header — mesmo motivo do ckExportAllStream: <a href> não manda o Bearer). */
-async function xrayDownload(jobId, btn) {
-  if (btn) btn.disabled = true;
-  try {
-    const res = await fetch(`/owner/cnpj-xray/jobs/${encodeURIComponent(jobId)}/download`, {
-      method: "GET",
-      headers: { Authorization: "Bearer " + TOKEN },
-    });
-    const ct = String(res.headers.get("content-type") || "");
-    if (!res.ok || ct.includes("application/json")) {
-      let reason = "http_" + res.status;
-      try { const j = await res.json(); reason = j.reason || j.message || reason; } catch (e) { /* corpo não-json */ }
-      throw new Error(reason);
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `raio-x-cnpj-${jobId}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    const fb = $("#xray-feedback");
-    if (fb) fb.textContent = `falha ao baixar: ${err.message}`;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-{
-  const tbody = $("#xray-jobs-tbody");
-  if (tbody) tbody.addEventListener("click", (ev) => {
-    const btn = ev.target.closest(".xray-dl-btn");
-    if (btn) xrayDownload(btn.dataset.jobId, btn);
-  });
-}
-
-{ const b = $("#btn-xray-estimate"); if (b) b.addEventListener("click", xrayEstimate); }
-{ const b = $("#btn-xray-start"); if (b) b.addEventListener("click", xrayStart); }
-
 { const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
@@ -2433,7 +2113,6 @@ cbLoadStaticOptions();
 /* ---------- Boot ---------- */
 pingStatus();
 renderMotorStrip();
-renderIntegrations();
 refreshLabState();
 renderSistema();
 // F0 (02/07): renderFactoryTruth (painel da fábrica de descoberta) removido.
@@ -2444,13 +2123,11 @@ loadCockpit();
 fabRender();
 aiLocalRender();
 ponteRender();
-xrayJobsRender();
-xrayUpdateLineCount();
 // ─────────────────────────── TIMERS DE POLLING (FALLBACK À PROVA DE BALA) ───────────────────────────
 // Sprint 4: os que o SSE consegue empurrar (sistema + motores VPS) viram timers GERENCIÁVEIS.
 // Enquanto o SSE está SAUDÁVEL eles rodam DEVAGAR (mantidos vivos só como rede de segurança);
 // se o SSE cair 2× ou não existir (EventSource ausente), voltam ao ritmo ORIGINAL e o painel funciona
-// IDÊNTICO a hoje. Os demais (motor-strip/lab/ping/fábrica/IA/xray) seguem no timer normal — o
+// IDÊNTICO a hoje. Os demais (motor-strip/lab/ping/fábrica/IA) seguem no timer normal — o
 // SSE não os cobre, então nunca são desacelerados.
 const POLL_FAST = { sistema: 5000, vpsEngines: 15000 }; // ritmo original (fallback e boot)
 const POLL_SLOW = { sistema: 45000, vpsEngines: 60000 }; // com SSE vivo: só rede de segurança
@@ -2506,14 +2183,6 @@ function paintSnapshot(snap) {
     renderVps(vps.system, vps.leads, vps.engines);
     // Enricher (métricas). labUp não vem no snapshot → mantém o do último poll (não apaga).
     if (snap.enricher) enrPaint(snap.enricher);
-    // Integrações (D5): pinta local + VPS pelo snapshot — o badge "VPS …" morre sozinho, sem clique/fetch.
-    // Só quando o grid já foi montado (renderIntegrations) e fora de uma injeção/religar em curso (esses
-    // fluxos controlam os mesmos badges e não podem ser resetados no meio).
-    const grid = $("#integrations-grid");
-    if (grid && grid.children.length && !intInjecting && !opsRestarting) {
-      if (snap.local && snap.local.integrations) paintLocalIntBadges(snap.local.integrations.items);
-      if (snap.vps && snap.vps.integrations) loadVpsBadges(snap.vps.integrations);
-    }
   } catch (err) {
     console.warn("[sse] paintSnapshot falhou:", err && err.message);
   }
@@ -2555,4 +2224,3 @@ function connectSSE() {
   });
 }
 connectSSE();
-setInterval(xrayJobsRender, 8000);       // histórico de jobs do Raio-X de CNPJ (HOT-04)
