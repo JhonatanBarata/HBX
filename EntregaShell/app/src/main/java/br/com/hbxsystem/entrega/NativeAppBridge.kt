@@ -109,7 +109,11 @@ class NativeAppBridge(
     @JavascriptInterface
     fun stopRoute() {
         if (BuildConfig.APP_MODE != "logistica") return
-        activity.runOnUiThread(onRouteStopped)
+        executor.execute {
+            operational.enqueueFinalizeIfComplete()
+            OperationalSync.requestFlush(activity)
+            activity.runOnUiThread(onRouteStopped)
+        }
     }
 
     @JavascriptInterface
