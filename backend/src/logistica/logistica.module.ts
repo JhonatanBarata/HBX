@@ -20,6 +20,7 @@ import { LogisticaPedidoPublicoService } from './logistica-pedido-publico.servic
 import { LogisticaController } from './logistica.controller';
 import { LogisticaAdminRouteController } from './logistica-admin-route.controller';
 import { LogisticaAdminRouteService } from './logistica-admin-route.service';
+import { LogisticaAdminRouteViewService } from './logistica-admin-route-view.service';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
@@ -95,6 +96,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
       useExisting: LogisticaRecorrenciaOccurrenceService,
     },
     LogisticaAdminRouteService,
+    LogisticaAdminRouteViewService,
     LogisticaRotaService,
     LogisticaConfigService,
     LogisticaRecoveryService,
