@@ -7,6 +7,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { LogisticaAdminRouteService } from './logistica-admin-route.service';
+import { LogisticaAdminRouteViewService } from './logistica-admin-route-view.service';
 
 class PrepareAdminRouteDto {
   @IsOptional()
@@ -40,7 +41,10 @@ class PrepareAdminRouteDto {
 @ModuleAccess('logistica')
 @Admin()
 export class LogisticaAdminRouteController {
-  constructor(private readonly adminRoute: LogisticaAdminRouteService) {}
+  constructor(
+    private readonly adminRoute: LogisticaAdminRouteService,
+    private readonly routeView: LogisticaAdminRouteViewService,
+  ) {}
 
   private companyId(req: any): number {
     const id = Math.trunc(Number(req?.user?.companyId || 0));
@@ -50,7 +54,7 @@ export class LogisticaAdminRouteController {
 
   @Get('route')
   route(@Req() req: any, @Query('date') date?: string) {
-    return this.adminRoute.getRoute(this.companyId(req), date, req.user);
+    return this.routeView.getRoute(this.companyId(req), date, req.user);
   }
 
   @Get('adjustments')
