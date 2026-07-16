@@ -14,6 +14,11 @@ export type OfflineRouteGrantPayload = {
   expiresAt: number;
 };
 
+export type OfflineGrantVerificationOptions = {
+  /** Permite somente sincronizar dados já capturados; não autoriza novas ações. */
+  expiredGraceSeconds?: number;
+};
+
 const GRANT_DOMAIN = 'hbx-offline-route:v1';
 
 export function createOfflineRouteGrant(input: Omit<OfflineRouteGrantPayload, 'version' | 'grantId' | 'issuedAt'>, now = new Date()) {
@@ -35,7 +40,12 @@ export function signOfflineRouteGrant(payload: OfflineRouteGrantPayload, secretI
   return `${encoded}.${signature}`;
 }
 
-export function verifyOfflineRouteGrant(tokenInput: string, now = new Date(), secretInput?: string): OfflineRouteGrantPayload {
+export function verifyOfflineRouteGrant(
+  tokenInput: string,
+  now = new Date(),
+  secretInput?: string,
+  options: OfflineGrantVerificationOptions = {},
+): OfflineRouteGrantPayload {
   const token = String(tokenInput || '').trim();
   const [encoded, signature, ...rest] = token.split('.');
   if (!encoded || !signature || rest.length > 0) throw new Error('offline_grant_invalid');
@@ -62,7 +72,8 @@ export function verifyOfflineRouteGrant(tokenInput: string, now = new Date(), se
     throw new Error('offline_grant_invalid_payload');
   }
   const nowSeconds = Math.floor(now.getTime() / 1000);
-  if (Number(payload.expiresAt) <= nowSeconds) throw new Error('offline_grant_expired');
+  const grace = Math.max(0, Math.trunc(Number(options.expiredGraceSeconds || 0)));
+  if (Number(payload.expiresAt) + grace <= nowSeconds) throw new Error('offline_grant_expired');
   if (Number(payload.issuedAt) > nowSeconds + 120) throw new Error('offline_grant_future');
   return payload as OfflineRouteGrantPayload;
 }
