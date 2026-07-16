@@ -13,7 +13,7 @@ import {
 } from 'class-validator';
 import { OpenMobileDeviceSessionDto } from '../../auth/dto/mobile-device.dto';
 
-export const OFFLINE_OPERATION_TYPES = ['CONFIRM_DELIVERY', 'CANCEL_DELIVERY'] as const;
+export const OFFLINE_OPERATION_TYPES = ['CONFIRM_DELIVERY', 'CANCEL_DELIVERY', 'FINALIZE_ROUTE'] as const;
 export type OfflineOperationType = (typeof OFFLINE_OPERATION_TYPES)[number];
 
 export class PrepareLogisticaOfflineRouteDto extends OpenMobileDeviceSessionDto {
@@ -30,6 +30,7 @@ export class LogisticaOfflineCommandDto {
   @IsIn(OFFLINE_OPERATION_TYPES)
   type!: OfflineOperationType;
 
+  /** Para FINALIZE_ROUTE o cliente repete routeId neste campo. */
   @IsString()
   @MaxLength(80)
   deliveryId!: string;
