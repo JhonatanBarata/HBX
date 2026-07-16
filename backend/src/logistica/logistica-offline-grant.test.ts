@@ -72,19 +72,26 @@ test('expiração operacional é 06:00 do dia seguinte em São Paulo', () => {
 });
 
 test('factory preenche identidade e emissão sem confiar no cliente', () => {
-  const now = new Date('2026-07-16T12:00:00.000Z');
-  const expiresAt = Math.floor(new Date('2026-07-17T09:00:00.000Z').getTime() / 1000);
-  const created = createOfflineRouteGrant({
-    deviceId: 'device-2',
-    userId: 11,
-    companyId: 21,
-    routeId: 'route-2',
-    routeDate: '2026-07-16',
-    routeMode: 'ESSENTIAL',
-    billingRevision: 4,
-    expiresAt,
-  }, now);
-  const verified = verifyOfflineRouteGrant(created.token, now, process.env.JWT_SECRET || undefined);
-  assert.equal(verified.issuedAt, Math.floor(now.getTime() / 1000));
-  assert.match(verified.grantId, /^[0-9a-f-]{36}$/i);
+  const previous = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = secret;
+  try {
+    const now = new Date('2026-07-16T12:00:00.000Z');
+    const expiresAt = Math.floor(new Date('2026-07-17T09:00:00.000Z').getTime() / 1000);
+    const created = createOfflineRouteGrant({
+      deviceId: 'device-2',
+      userId: 11,
+      companyId: 21,
+      routeId: 'route-2',
+      routeDate: '2026-07-16',
+      routeMode: 'ESSENTIAL',
+      billingRevision: 4,
+      expiresAt,
+    }, now);
+    const verified = verifyOfflineRouteGrant(created.token, now, secret);
+    assert.equal(verified.issuedAt, Math.floor(now.getTime() / 1000));
+    assert.match(verified.grantId, /^[0-9a-f-]{36}$/i);
+  } finally {
+    if (previous === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = previous;
+  }
 });
