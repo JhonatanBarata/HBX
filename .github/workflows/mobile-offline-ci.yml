@@ -41,6 +41,8 @@ jobs:
       - run: npm ci
       - run: npm run prisma:validate
       - run: npm run build
+      - name: Admin route occurrence tests
+        run: node --test dist/logistica/logistica-admin-route.service.test.js
       - name: Offline grant tests
         run: node --test dist/logistica/logistica-offline-grant.test.js
       - name: Existing logistics billing tests
