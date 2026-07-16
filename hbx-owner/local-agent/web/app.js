@@ -2086,11 +2086,11 @@ async function ponteRender() {
     if (known) toggleBtn.dataset.enabled = manualEnabled ? "true" : "false";
     else delete toggleBtn.dataset.enabled;
     toggleBtn.setAttribute("aria-pressed", manualEnabled === true ? "true" : "false");
-    toggleBtn.textContent = known ? (manualEnabled ? "Desligar ponte" : "Ligar ponte") : "Controle indisponível";
+    toggleBtn.textContent = known ? (manualEnabled ? "Desativar agora" : "Ativar novamente") : "Controle indisponível";
     toggleBtn.className = `btn ${manualEnabled === true ? "btn-red" : "btn-green"}`;
     toggleBtn.title = manualEnabled === true
-      ? "Freio manual: impede esta máquina de buscar novos trabalhos no VPS"
-      : "Override manual: permite que esta máquina volte a buscar trabalhos no VPS";
+      ? "Emergência: impede esta máquina de buscar novos trabalhos no VPS"
+      : "Reativa a ponte depois do freio de emergência e volta a buscar trabalhos no VPS";
     if (toggleBtn.dataset.busy !== "true") toggleBtn.disabled = !known;
   }
   if (modelBtn) {
@@ -2142,8 +2142,8 @@ async function ponteRender() {
     if (verdictDetail) verdictDetail.textContent = p.lastReason || "";
   }
 
-  // Interlock informativo: worker OFF (PC prestes a desligar/painel fechado) = "fila espera no VPS"
-  // como ESTADO, nunca erro — coberto pelo ramo `!p.enabled` acima e pelo próprio backoff de rede
+  // Interlock informativo: ponte desativada = "fila espera no VPS" como ESTADO, nunca erro —
+  // coberto pelo ramo `manualEnabled === false` acima e pelo próprio backoff de rede
   // (lastError de rede não vira alarme vermelho, só aparece no rodapé).
   ponteFeedback(p.lastError ? `Último aviso: ${p.lastError}` : "", p.lastError ? "error" : "");
 

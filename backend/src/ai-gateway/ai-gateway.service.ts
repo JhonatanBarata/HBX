@@ -39,7 +39,7 @@
  * ─── PADRÃO DA CASA ─────────────────────────────────────────────────────────────────────────────
  *  Espelha o SourceBudgetService: classe com estado ESTÁTICO (serve toda instância do processo, sem
  *  DI em cada call-site — os callers batch são instanciados na mão com `new`), telemetria via
- *  snapshot estático exposto no tree-status (:3107 já consome), envs como fonte de verdade.
+ *  snapshot estático disponível para diagnóstico, envs como fonte de verdade.
  */
 
 export type AiGatewayLane = 'realtime' | 'batch';
@@ -394,10 +394,10 @@ export class AiGatewayService {
     }
   }
 
-  // ── telemetria (gauge do :3107 / tree-status) ─────────────────────────────────────────────────
+  // ── telemetria read-only ──────────────────────────────────────────────────────────────────────
   /**
    * Snapshot por faixa: aceitas / recusadas-cedo (por motivo) / aguardando / em voo / p95 de espera.
-   * Mesmo espírito do `SourceBudgetService.usageSnapshot()` — consumido pelo tree-status.
+   * Mesmo espírito do `SourceBudgetService.usageSnapshot()` — disponível para diagnóstico.
    */
   static snapshot() {
     const laneGauge = (lane: AiGatewayLane) => {

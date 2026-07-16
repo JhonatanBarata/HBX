@@ -298,7 +298,7 @@ export class ZapCheckGuardService {
   }
 
   /**
-   * Snapshot READ-ONLY do freio (F3, 02/07, painel :3107 "Árvore do motor" — tree-status).
+   * Snapshot READ-ONLY do freio para diagnóstico operacional.
    * Só LÊ o estado estático já mantido pelas camadas acima — não muda comportamento, não zera
    * contador, não altera o disjuntor. `breakerState()` já resolve a transição open→half_open pelo
    * relógio, então o snapshot nunca mostra "open" vencido como se ainda estivesse aberto.

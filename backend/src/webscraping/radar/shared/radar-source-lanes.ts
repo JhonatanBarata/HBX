@@ -1,6 +1,6 @@
 // Lanes de ORIGEM do card (03/07/2026 — conserto do medidor sourceChain que mentia dos 2 lados):
-// tabela ÚNICA rfb/web que antes vivia TRIPLICADA (03-enrichment/radar-core-quality-enrichment,
-// 06-presentation/radar-core-presentation e radar-tree-status) e desconhecia os rótulos reais
+// tabela ÚNICA rfb/web que antes vivia TRIPLICADA entre enriquecimento, apresentação e o antigo
+// agregador operacional, e desconhecia os rótulos reais
 // que o motor Python emite (`hbx_scraping:free_pj`, `hbx_scraping:web`, `hbx_agenda:*`...).
 //
 // Vocabulário:
