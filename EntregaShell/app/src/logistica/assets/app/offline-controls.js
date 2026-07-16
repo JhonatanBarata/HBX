@@ -212,7 +212,13 @@
     renderOffline(status());
   }
 
-  const observer = new MutationObserver(() => {
+  function managedMutationTarget(target) {
+    const element = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
+    return !!(element && element.closest && element.closest(".hbx-offline-banner,.hbx-offline-settings,.hbx-route-schematic"));
+  }
+
+  const observer = new MutationObserver(mutations => {
+    if (!mutations.some(mutation => !managedMutationTarget(mutation.target))) return;
     if (observerQueued) return;
     observerQueued = true;
     requestAnimationFrame(() => {
