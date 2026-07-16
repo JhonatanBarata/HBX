@@ -63,6 +63,17 @@ export type AdminRouteHistoryDay = {
   status: 'PENDENTE' | 'CONCLUÍDA';
 };
 
+function localDateKey(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 export async function getAdminRoute(date?: string): Promise<AdminRouteResult> {
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
   try {
@@ -82,9 +93,19 @@ export async function getAdminRoute(date?: string): Promise<AdminRouteResult> {
   }
 }
 
-export function getAdminRouteAdjustments(date?: string): Promise<AdminRouteAdjustments> {
+export async function getAdminRouteAdjustments(date?: string): Promise<AdminRouteAdjustments> {
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
-  return apiFetch<AdminRouteAdjustments>(`/logistica/admin-route/adjustments${query}`);
+  try {
+    return await apiFetch<AdminRouteAdjustments>(`/logistica/admin-route/adjustments${query}`);
+  } catch {
+    const operationalDate = date || localDateKey();
+    return {
+      operationalDate,
+      today: { existingStops: 0, expectedStops: 0, totalStops: 0, missingGps: 0 },
+      days: [],
+      pending: [],
+    };
+  }
 }
 
 export function prepareAdminRoute(payload: PrepareAdminRoutePayload): Promise<PrepareAdminRouteResult> {
