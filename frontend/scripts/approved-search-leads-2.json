@@ -13,8 +13,8 @@
   },
   {
     "kind": "text",
-    "old": "<div className=\"be-cmdbar\" data-tut=\"leads-filtros\">",
-    "new": "<div className=\"be-cmdbar\" data-tut=\"leads-filtros\" onInputCapture={markFiltersDirty} onChangeCapture={markFiltersDirty}>",
+    "old": "<div className=\"be-cmdbar be-cmdbar--required\" data-tut=\"leads-filtros\">",
+    "new": "<div className=\"be-cmdbar be-cmdbar--required\" data-tut=\"leads-filtros\" onInputCapture={markFiltersDirty} onChangeCapture={markFiltersDirty}>",
     "label": "capture command filter changes"
   },
   {
