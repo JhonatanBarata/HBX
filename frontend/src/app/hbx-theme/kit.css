@@ -439,11 +439,11 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .ctx-empty__hint { font-size: 0.75rem; line-height: 1.5; }
 /* "ficha" limpa (15/06): linhas com divisória fina, rótulo discreto, valor firme */
 .kv { display: grid; gap: 0; }
-.kv .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: 0.76rem; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); }
+.kv .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; width: 100%; min-width: 0; overflow: hidden; font-size: 0.76rem; padding: 7px 0; border-bottom: 1px solid var(--border-hairline); }
 .kv .row:first-child { padding-top: 0; }
 .kv .row:last-child { border-bottom: none; padding-bottom: 0; }
 .kv .k { color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }
-.kv .v { font-weight: 700; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv .v { flex: 1 1 0; max-width: 100%; font-weight: 700; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* valor ausente recua (declutter — "muita informação" some sem sumir a linha) */
 .kv .v.is-empty { font-weight: 500; color: var(--text-muted); opacity: 0.6; }
 /* valor-âncora (ex.: Valor) — foco visual do bloco */

@@ -48,7 +48,7 @@ const ADS: Record<StageKey, { lines: [string, string, string]; subline: string }
   },
   vendas: {
     lines: ["Venda", "sem perder", "o fio."],
-    subline: "Funil, propostas e próximos passos.",
+    subline: "Do primeiro contato à cobrança.",
   },
   whatsapp: {
     lines: ["Converse", "e retorne", "no tempo."],
@@ -68,7 +68,7 @@ const STAGE_ROTATION_MS = 6300;
 const MANUAL_RESUME_MS = 18000;
 
 const ICONS: Record<IconName, string[]> = {
-  arrow: ["M5 12h14", "m14 0-5-5", "m5 5-5 5"],
+  arrow: ["M5 12h14", "M14 7l5 5-5 5"],
   bolt: ["m13 2-9 12h7l-1 8 9-12h-7l1-8Z"],
   check: ["m5 12 4 4L19 6"],
   chevron: ["m9 18 6-6-6-6"],
@@ -215,6 +215,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   // "/?entrar"/"/?criar" chegam com o card JÁ aberto (SSR — sem flash da home).
   const [screen, setScreen] = useState<EntryScreen>(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
+  const [cookieVisible, setCookieVisible] = useState(true);
   const stage = STAGES[stageIndex];
   const ad = ADS[stage.key];
 
@@ -243,6 +244,11 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     setThemeModeState(currentMode === "dark" ? "dark" : "light");
   }, []);
 
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sincroniza a visibilidade com o consentimento persistido no navegador
+    if (window.localStorage.getItem("hbx-cookie-consent")) setCookieVisible(false);
+  }, []);
+
   // Navegação client-side pra /?entrar | /?criar (links legados /login e
   // /register redirecionam pra cá) precisa trocar o card mesmo com o
   // componente já montado — o estado segue a prop.
@@ -265,10 +271,6 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
   function openLogin() {
     setScreen("login");
-  }
-
-  function openCriar() {
-    setScreen("criar");
   }
 
   function closeCard() {
@@ -321,7 +323,6 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
       <section className="f1-hero f1-home" aria-hidden={screen !== "home"} inert={screen !== "home"}>
         <div className="f1-copy">
-          <div className="f1-kicker"><span /><Icon name="bolt" /> Uma esteira. Do início ao fim.</div>
           <h1 key={stage.key} aria-label={ad.lines.join(" ")} aria-live="polite">
             <span>{ad.lines[0]}</span>
             <span><em>{ad.lines[1]}</em></span>
@@ -329,17 +330,14 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           </h1>
           <p key={`${stage.key}-subline`}>{ad.subline}</p>
           <div className="f1-cta-row">
-            <button className="f1-primary-cta" type="button" onClick={openCriar}>
-              Quero conhecer <Icon name="arrow" />
-            </button>
-            <a className="f1-round-cta" href="mailto:jhonatan@hbxsystem.com.br?subject=Quero%20conhecer%20o%20HBX" aria-label="Falar por e-mail" title="jhonatan@hbxsystem.com.br">
-              <Icon name="email" />
+            <a className="f1-primary-cta" href="#produto">
+              Conhecer a HBX <Icon name="arrow" />
             </a>
+            <a className="f1-secondary-cta" href="mailto:jhonatan@hbxsystem.com.br?subject=Quero%20conhecer%20o%20HBX">Fale conosco</a>
           </div>
-          <div className="f1-trust-line"><span><Icon name="check" /> Tudo conectado</span><i /><span>HBX System</span></div>
         </div>
 
-        <div className="f1-product-wrap">
+        <div className="f1-product-wrap" id="produto">
           <div className="f1-product-aura" aria-hidden="true" />
           <article className="f1-product">
             <header className="f1-product__bar">
@@ -370,12 +368,11 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         </div>
 
         <div className="f1-stage-shell">
-          <div className="f1-stage-intro"><span>01 — 05</span><strong>A esteira completa</strong></div>
           <div className="f1-stage-track" role="group" aria-label="Etapas da esteira HBX">
             <span className="f1-stage-pill" aria-hidden="true" />
             {STAGES.map((item, index) => (
               <button className={index === stageIndex ? "is-active" : ""} type="button" key={item.key} onClick={() => chooseStage(index)} aria-pressed={index === stageIndex}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
+                <Icon name={STAGE_ICONS[item.key]} />
                 <strong>{item.label}</strong>
               </button>
             ))}
@@ -394,6 +391,28 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           </div>
         )}
       </section>
+
+      <footer className="f1-footer">
+        <span>© 2026 HBX</span>
+        <nav aria-label="Links legais">
+          <a href="/termos">Termos de Uso</a>
+          <a href="/politicas">Política de Privacidade</a>
+          <a href="/politicas#cookies">Política de Cookies</a>
+        </nav>
+      </footer>
+
+      {cookieVisible && (
+        <aside className="f1-cookie-banner" role="dialog" aria-label="Preferências de privacidade">
+          <div>
+            <strong>Preferências de privacidade</strong>
+            <p>Usamos cookies necessários e, com sua permissão, dados de uso. <a href="/politicas">Ver política</a></p>
+          </div>
+          <div className="f1-cookie-actions">
+            <button type="button" onClick={() => { window.localStorage.setItem("hbx-cookie-consent", "necessary"); setCookieVisible(false); }}>Só necessários</button>
+            <button type="button" className="is-accept" onClick={() => { window.localStorage.setItem("hbx-cookie-consent", "all"); setCookieVisible(false); }}>Aceitar</button>
+          </div>
+        </aside>
+      )}
     </main>
   );
 }

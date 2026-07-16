@@ -2,6 +2,10 @@
 
 Este arquivo se aplica **exclusivamente ao ChatGPT, Codex e a qualquer agente operado pela OpenAI** neste repositório. Ele não limita o proprietário, colaboradores humanos nem outras automações não operadas pela OpenAI.
 
+## Escopo visual definido por Jhonatan
+
+Quando Jhonatan enviar melhorias prontas, uma descrição e fotos de referência, o agente deve alterar somente a parte explicitamente descrita e mostrada nas fotos. Tudo o que não for mencionado e não aparecer nas referências deve permanecer sem alteração. Se houver dúvida material sobre o limite do escopo, o agente deve perguntar antes de escrever.
+
 ## Política Git obrigatória
 
 1. O único branch em que um agente OpenAI pode operar é o branch existente `master`.
