@@ -31,7 +31,22 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Validate patch contracts against source
-        run: node frontend/scripts/approved-company-search-loader.cjs
+        shell: bash
+        run: |
+          set +e
+          node frontend/scripts/approved-company-search-loader.cjs > approved-search-validation.log 2>&1
+          status=$?
+          cat approved-search-validation.log
+          exit "$status"
+
+      - name: Upload validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: approved-search-validation
+          path: approved-search-validation.log
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Install frontend dependencies
         working-directory: frontend
