@@ -26,6 +26,7 @@ import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.servic
 import { LogisticaOfflineController } from './logistica-offline.controller';
 import { LogisticaOfflineService } from './logistica-offline.service';
 import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-tracked-billing.service';
+import { LogisticaOfflineReservationReconcilerService } from './logistica-offline-reservation-reconciler.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -42,7 +43,8 @@ import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-
  *
  * OFFLINE-ROTA: LogisticaOfflineController emite uma cápsula restrita a uma rota
  * ACTIVE/aparelho. A implementação especializada de tracked billing reserva os
- * créditos ao preparar e continua concluindo a claim na transação canônica.
+ * créditos ao preparar e continua concluindo a claim na transação canônica. O
+ * reconciliador devolve claims ainda DEBITED depois que a rota chega a COMPLETED.
  *
  * S2 COBRANÇA-WHATS (11/07): LogisticaCobrancaAvisoService = aviso de cobrança +
  * lembrete de vencimento no zap (Pix copia-e-cola), DORMENTE atrás de
@@ -91,6 +93,7 @@ import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-
       useExisting: OfflineAwareLogisticaTrackedBillingService,
     },
     LogisticaOfflineService,
+    LogisticaOfflineReservationReconcilerService,
     LogisticaTrackingBonusService,
   ],
   exports: [
