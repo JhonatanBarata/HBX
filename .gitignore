@@ -103,3 +103,11 @@ hbx-owner/local-agent/.owner-token
 /.test-login.local.md
 
 test-results/
+
+# HBX Video Studio: mídia e estado local nunca entram no repositório.
+tools/hbx-video-studio/.work/
+tools/hbx-video-studio/output/
+tools/hbx-video-studio/audio/*
+!tools/hbx-video-studio/audio/README.md
+tools/hbx-video-studio/native/*
+!tools/hbx-video-studio/native/README.md
