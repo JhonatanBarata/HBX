@@ -102,3 +102,56 @@ fun OperationalStore.enqueueFinalizeIfComplete(nowMs: Long = System.currentTimeM
         ).use { it.moveToFirst() }
     }
 }
+
+/**
+ * Um comprovante permanentemente rejeitado invalida qualquer confirmação que o
+ * referencie. O fato local continua no banco como REJECTED para suporte/auditoria.
+ */
+fun OperationalStore.rejectProofDependents(proof: PendingOperationalProof, error: String) {
+    val localId = "local:${proof.id}"
+    writableDatabase.update(
+        "operation_outbox",
+        ContentValues().apply {
+            put("state", "REJECTED")
+            put("last_error", "Comprovante rejeitado: ${error.take(320)}")
+        },
+        "route_id = ? AND state = 'PENDING' AND payload_json LIKE ?",
+        arrayOf(proof.routeId, "%$localId%"),
+    )
+
+    readableDatabase.query(
+        "route_snapshot",
+        arrayOf("payload_json"),
+        "route_id = ?",
+        arrayOf(proof.routeId),
+        null,
+        null,
+        null,
+        "1",
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) return
+        val route = runCatching { JSONObject(cursor.getString(0)) }.getOrNull() ?: return
+        val items = route.optJSONArray("items") ?: return
+        for (index in 0 until items.length()) {
+            val delivery = items.optJSONObject(index) ?: continue
+            if (delivery.optString("id") != proof.deliveryId) continue
+            val receipt = delivery.optJSONObject("comprovante") ?: break
+            val idKey = if (proof.type == "foto") "fotoId" else "assinaturaId"
+            val pendingKey = if (proof.type == "foto") "fotoPending" else "assinaturaPending"
+            val rejectedKey = if (proof.type == "foto") "fotoRejected" else "assinaturaRejected"
+            if (receipt.optString(idKey) == localId) receipt.remove(idKey)
+            receipt.put(pendingKey, false)
+            receipt.put(rejectedKey, error.take(300))
+            break
+        }
+        writableDatabase.update(
+            "route_snapshot",
+            ContentValues().apply {
+                put("payload_json", route.toString())
+                put("updated_at_ms", System.currentTimeMillis())
+            },
+            "route_id = ?",
+            arrayOf(proof.routeId),
+        )
+    }
+}
