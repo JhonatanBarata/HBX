@@ -301,10 +301,11 @@
     .mobile-bottom-nav { display: none; }
     .preview-frame[data-device="mobile"] .app-topbar { padding: 9px 12px; }
     .preview-frame[data-device="mobile"] .topbar-chip { display: none; }
+    .preview-frame[data-device="mobile"] .top-actions button { min-width: 44px; height: 44px; }
     .preview-frame[data-device="mobile"] .app-body { padding: 12px 12px 80px; }
     .preview-frame[data-device="mobile"] .surface-head { align-items: flex-start; flex-direction: column; }
     .preview-frame[data-device="mobile"] .surface-actions { width: 100%; overflow-x: auto; }
-    .preview-frame[data-device="mobile"] .surface-actions button { flex: 1 0 auto; }
+    .preview-frame[data-device="mobile"] .surface-actions button { flex: 1 0 auto; min-height: 44px; }
     .preview-frame[data-device="mobile"] .kpis { grid-template-columns: 1fr 1fr; }
     .preview-frame[data-device="mobile"] .service-grid { grid-template-columns: 1fr; }
     .preview-frame[data-device="mobile"] .owner-layout,
@@ -336,7 +337,8 @@
       .illustrative { white-space: normal; }
       .control-deck { position: static; }
       .segmented { overflow-x: auto; }
-      .segmented button { flex: 1 0 auto; }
+      .segmented button { flex: 1 0 auto; min-height: 44px; }
+      .icon-btn, .simulate-btn, .state-select { min-height: 44px; }
       .preview-frame { padding: 4px; border-radius: 21px; }
       .approval-rail, .state-matrix { grid-template-columns: 1fr; }
       .approval-rail .rail-panel:first-child { grid-column: auto; }
