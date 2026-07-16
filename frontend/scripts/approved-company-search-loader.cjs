@@ -41,7 +41,9 @@ function indentBlock(block, indent) {
 
 function replaceOnce(source, oldText, newText, label) {
   const candidates = [{ oldText, newText }];
-  for (let width = 2; width <= 28; width += 2) {
+  // JSX profundo desta tela chega a mais de 30 espaços. O limite de 80 cobre
+  // a árvore atual e continua finito para falhar de forma determinística.
+  for (let width = 2; width <= 80; width += 2) {
     const indent = ' '.repeat(width);
     candidates.push({
       oldText: indentBlock(oldText, indent),
