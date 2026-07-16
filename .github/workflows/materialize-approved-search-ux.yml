@@ -1,0 +1,106 @@
+name: Materialize approved company-search UX
+
+on:
+  pull_request:
+    branches:
+      - master
+    paths:
+      - "frontend/.materialize-approved-search"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-approved-company-search-ux-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Materialize source and remove build-time bridge
+        shell: bash
+        run: |
+          node frontend/scripts/approved-company-search-loader.cjs --write
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          config_path = Path("frontend/next.config.ts")
+          config = config_path.read_text(encoding="utf-8")
+          config, const_count = re.subn(
+              r'\nconst APPROVED_COMPANY_SEARCH_LOADER = path\.resolve\(.*?\n\);\n',
+              '\n',
+              config,
+              count=1,
+              flags=re.S,
+          )
+          if const_count != 1:
+              raise SystemExit(f"loader constant: expected 1 match, found {const_count}")
+          config, rules_count = re.subn(
+              r'\tturbopack: \{\n\t\troot: path\.resolve\(__dirname\),\n.*?\t\},\n\tasync headers',
+              '\tturbopack: {\n\t\troot: path.resolve(__dirname),\n\t},\n\tasync headers',
+              config,
+              count=1,
+              flags=re.S,
+          )
+          if rules_count != 1:
+              raise SystemExit(f"turbopack bridge: expected 1 match, found {rules_count}")
+          config_path.write_text(config, encoding="utf-8")
+          PY
+
+          rm -f \
+            frontend/.materialize-approved-search \
+            frontend/scripts/approved-company-search-loader.cjs \
+            frontend/scripts/approved-search-leads-1.json \
+            frontend/scripts/approved-search-leads-2.json \
+            frontend/scripts/approved-search-leads-3.json \
+            frontend/scripts/approved-search-radar.json \
+            frontend/scripts/approved-search-vendas.json
+
+      - name: Commit materialized source locally
+        shell: bash
+        run: |
+          git config user.name "HBX UI Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            'frontend/src/app/(app)/leads/page.client.tsx' \
+            'frontend/src/app/(app)/vendas/page.client.tsx' \
+            frontend/next.config.ts \
+            frontend/.materialize-approved-search \
+            frontend/scripts/approved-company-search-loader.cjs \
+            frontend/scripts/approved-search-leads-1.json \
+            frontend/scripts/approved-search-leads-2.json \
+            frontend/scripts/approved-search-leads-3.json \
+            frontend/scripts/approved-search-radar.json \
+            frontend/scripts/approved-search-vendas.json
+          git diff --cached --check
+          git commit -m "fix(vendas): apply approved company search experience"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Build production frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Confirm build left the commit reproducible
+        run: git diff --exit-code
+
+      - name: Push validated materialization to PR branch
+        run: git push origin HEAD:${{ github.event.pull_request.head.ref }}
