@@ -1,0 +1,82 @@
+name: Mobile offline route CI
+
+on:
+  push:
+    branches:
+      - agent/mobile-route-offline
+  pull_request:
+    paths:
+      - '.github/workflows/mobile-offline-ci.yml'
+      - 'backend/src/logistica/**'
+      - 'backend/package.json'
+      - 'backend/package-lock.json'
+      - 'backend/prisma/**'
+      - 'EntregaShell/**'
+      - 'docs/PLANEJAMENTOS/HBX-MOBILE-OFFLINE-ROTA-TESTE.md'
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hbx_ci
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/hbx_ci
+      JWT_SECRET: hbx-mobile-offline-ci-secret-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run prisma:validate
+      - run: npm run build
+      - name: Offline grant tests
+        run: node --test dist/logistica/logistica-offline-grant.test.js
+      - name: Existing logistics billing tests
+        run: >-
+          node --test
+          dist/logistica/logistica-route-billing.service.test.js
+          dist/logistica/logistica-tracked-billing.service.test.js
+          dist/logistica/logistica-tracking-bonus.service.test.js
+      - run: npm run lint:tenant-scope
+      - name: Packaged JavaScript syntax
+        working-directory: EntregaShell
+        run: |
+          node --check app/src/main/assets/app/native.js
+          node --check app/src/logistica/assets/app/app.js
+          node --check app/src/logistica/assets/app/offline-controls.js
+
+  android:
+    name: Android logistica debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test, lint and assemble
+        working-directory: EntregaShell
+        run: |
+          chmod +x ./gradlew
+          ./gradlew testLogisticaDebugUnitTest lintLogisticaDebug assembleLogisticaDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: hbx-mobile-logistica-debug
+          path: EntregaShell/app/build/outputs/apk/logistica/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
