@@ -51,6 +51,19 @@ function baseEnv(overrides = {}) {
   };
 }
 
+function makeControlStore(initial = null, saveOk = true) {
+  let value = initial;
+  return {
+    load: () => value,
+    save: (next) => {
+      if (!saveOk) return false;
+      value = { ...next };
+      return true;
+    },
+    read: () => value,
+  };
+}
+
 // ─── 1. decideNextAction — o coração puro do elástico/freios ─────────────────────────────────────
 
 test("decideNextAction: disjuntor aberto vence tudo", () => {
@@ -266,22 +279,61 @@ test("worker DESLIGADO (flag OFF) não inicia loop", () => {
   const ollama = makeOllama({});
   const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv({ HBX_PONTE_WORKER_ENABLED: "" }) });
   assert.equal(w.start(), false);
-  assert.equal(w.status().enabled, false);
   assert.equal(w.status().manualEnabled, false);
+  assert.equal(w.status().pausedByOwner, true);
   assert.equal(w.status().running, false);
 });
 
-test("controle manual reflete o loop efetivamente ligado ou desligado", () => {
+test("sem journal, o primeiro boot segue a configuração automática/env", () => {
   const backend = makeBackend({});
   const ollama = makeOllama({});
-  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
-
-  assert.equal(w.status().manualEnabled, false);
-  assert.equal(w.start(), true);
+  const store = makeControlStore();
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
   assert.equal(w.status().manualEnabled, true);
+  assert.equal(w.status().controlSource, "automatic_config");
+  assert.equal(w.start(), true);
   assert.equal(w.status().running, true);
+});
 
-  w.stop();
-  assert.equal(w.status().manualEnabled, false);
-  assert.equal(w.status().running, false);
+test("freio do dono persiste e o boot não rearma mesmo com env ligado", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const store = makeControlStore();
+  const first = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+  assert.equal(first.setManualEnabled(false).ok, true);
+  assert.equal(store.read().pausedByOwner, true);
+
+  const rebooted = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+  assert.equal(rebooted.status().manualEnabled, false);
+  assert.equal(rebooted.status().pausedByOwner, true);
+  assert.equal(rebooted.status().controlSource, "owner");
+  assert.equal(rebooted.start(), false);
+});
+
+test("enabled=true libera novamente, confirma estado final e persiste no reboot", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const store = makeControlStore({ manualEnabled: false, pausedByOwner: true, updatedAt: "antes" });
+  const first = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+  const result = first.setManualEnabled(true);
+  assert.equal(result.ok, true);
+  assert.equal(result.status.manualEnabled, true);
+  assert.equal(result.status.pausedByOwner, false);
+  assert.equal(result.status.running, true);
+  assert.equal(store.read().manualEnabled, true);
+
+  const rebooted = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+  assert.equal(rebooted.status().manualEnabled, true);
+  assert.equal(rebooted.start(), true);
+});
+
+test("falha ao persistir mantém o estado anterior e não responde otimista", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const store = makeControlStore(null, false);
+  const worker = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
+  const result = worker.setManualEnabled(false);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "controle_nao_persistido");
+  assert.equal(result.status.manualEnabled, true);
 });

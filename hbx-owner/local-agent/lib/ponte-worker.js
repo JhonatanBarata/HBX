@@ -17,7 +17,8 @@
 //
 // DISJUNTOR (lei da casa, família do WhatsApp): teto de falhas consecutivas → PARA o loop, acende
 // estado VERMELHO consultável (status pro :3107/E2), não reprocessa sozinho. Backoff exponencial com
-// teto. Flag própria HBX_PONTE_WORKER_ENABLED default OFF. NUNCA loop livre.
+// teto. A configuração automática/env define apenas o primeiro boot; o freio manual do dono é
+// persistente e prevalece nos próximos boots. NUNCA loop livre.
 
 const OLLAMA_30B_MODEL = "qwen3:30b-a3b-instruct-2507-q4_K_M";
 const PONTE_NUM_CTX = 8192; // capado E unificado (lei 1)
@@ -117,6 +118,7 @@ function safeParseJson(raw) {
  *  - ollamaRequest(method, path, payload, timeoutMs): chamada ao Ollama local (house helper).
  *  - backendRequest(method, route, payload, options): chamada autenticada ao backend (house helper).
  *  - fetchSiteText(website): crawl leve do site (reusa o do server.js) — só p/ enrich_lead.
+ *  - controlStore: { load(), save(data) } para o freio manual persistente.
  *  - log(msg): logger. env: process.env (injetável nos testes). now(): Date.now injetável.
  */
 function createPonteWorker(deps) {
@@ -126,6 +128,7 @@ function createPonteWorker(deps) {
   const log = deps.log || (() => {});
   const env = deps.env || process.env;
   const now = deps.now || (() => Date.now());
+  const controlStore = deps.controlStore || null;
 
   const model = String(env.HBX_PONTE_MODEL || OLLAMA_30B_MODEL);
   const workerId = String(env.HBX_PONTE_WORKER_ID || `ponte-local-${process.pid || "x"}`);
@@ -141,8 +144,17 @@ function createPonteWorker(deps) {
   const heartbeatMs = Math.max(15000, Math.trunc((leaseTtlSeconds * 1000) / 3)); // ~1/3 do TTL
   const maxSourceChars = envInt(env, "HBX_PONTE_MAX_SOURCE_CHARS", 6000);
 
+  let persistedControl = null;
+  try { persistedControl = controlStore && controlStore.load ? controlStore.load() : null; } catch { persistedControl = null; }
+  const hasManualJournal = typeof persistedControl?.manualEnabled === "boolean" || typeof persistedControl?.pausedByOwner === "boolean";
+  const initialManualEnabled = hasManualJournal
+    ? (typeof persistedControl.manualEnabled === "boolean" ? persistedControl.manualEnabled : !persistedControl.pausedByOwner)
+    : envBool(env, "HBX_PONTE_WORKER_ENABLED", false);
+
   const state = {
-    enabled: envBool(env, "HBX_PONTE_WORKER_ENABLED", false),
+    manualEnabled: initialManualEnabled,
+    controlSource: hasManualJournal ? "owner" : "automatic_config",
+    controlUpdatedAt: hasManualJournal ? (persistedControl.updatedAt || null) : null,
     running: false,
     circuitOpen: false,
     circuitReason: null,
@@ -162,6 +174,7 @@ function createPonteWorker(deps) {
 
   let loopTimer = null;
   let stopping = false;
+  let loopExecuting = false;
 
   function pushJob(entry) {
     state.lastJobs.unshift({ at: new Date(now()).toISOString(), ...entry });
@@ -346,7 +359,7 @@ function createPonteWorker(deps) {
 
   // Um CICLO do loop: pega o sinal do lease, decide, age. Retorna o delay pro próximo ciclo.
   async function tick() {
-    if (stopping || !state.enabled) return pollCapMs;
+    if (stopping || !state.manualEnabled) return pollCapMs;
     if (state.circuitOpen) { state.lastAction = "circuit_open"; return pollCapMs; }
 
     // Lease traz o sinal elástico (activity+lag) JUNTO — 1 chamada, sem endpoint novo de status.
@@ -416,7 +429,7 @@ function createPonteWorker(deps) {
 
     let anyFailed = false;
     for (const mission of missions) {
-      if (stopping) break;
+      if (stopping || !state.manualEnabled) break;
       const r = await processMission(mission);
       if (!r.ok) anyFailed = true;
     }
@@ -439,13 +452,15 @@ function createPonteWorker(deps) {
   }
 
   function scheduleNext(delayMs) {
-    if (stopping || !state.enabled) return;
+    if (stopping || !state.manualEnabled || loopTimer || loopExecuting) return;
     loopTimer = setTimeout(runLoop, Math.max(1000, delayMs));
     if (loopTimer.unref) loopTimer.unref();
   }
 
   async function runLoop() {
-    if (stopping || !state.enabled) return;
+    loopTimer = null;
+    if (stopping || !state.manualEnabled) return;
+    loopExecuting = true;
     let delay = pollBaseMs;
     try {
       delay = await tick();
@@ -453,8 +468,89 @@ function createPonteWorker(deps) {
       // Erro inesperado no tick NÃO abre disjuntor (isso é pra falha de MISSÃO) — só backoff e loga.
       state.lastError = `tick_erro:${(error && error.message) || error}`;
       delay = computeBackoffMs(2, pollBaseMs, pollCapMs);
+    } finally {
+      loopExecuting = false;
     }
     scheduleNext(delay);
+  }
+
+  function statusSnapshot() {
+    return {
+      manualEnabled: state.manualEnabled,
+      pausedByOwner: !state.manualEnabled,
+      controlSource: state.controlSource,
+      controlUpdatedAt: state.controlUpdatedAt,
+      controlPersistent: Boolean(controlStore && controlStore.load && controlStore.save),
+      running: state.running,
+      circuitOpen: state.circuitOpen,
+      circuitReason: state.circuitReason,
+      consecutiveFailures: state.consecutiveFailures,
+      maxConsecutiveFailures,
+      warm: state.warm,
+      model,
+      workerId,
+      lastAction: state.lastAction,
+      lastReason: state.lastReason,
+      activity: state.lastActivity,
+      lag: state.lastLag,
+      lastError: state.lastError,
+      currentMissionId: state.currentMissionId,
+      startedAt: state.startedAt,
+      totals: state.totals,
+      lastJobs: state.lastJobs,
+    };
+  }
+
+  function startRuntime() {
+    if (!state.manualEnabled) {
+      log("[ponte] ponte pausada pelo dono — boot não rearma sozinho.");
+      return false;
+    }
+    if (state.running) return true;
+    state.running = true;
+    stopping = false;
+    state.startedAt = new Date(now()).toISOString();
+    state.lastAction = "starting";
+    state.lastReason = "ponte liberada — aguardando próximo ciclo";
+    log(`[ponte] worker LIGADO (model=${model}, batch=${batchSize}, freia≥${activityFreiaThreshold} ativo).`);
+    scheduleNext(pollBaseMs);
+    return true;
+  }
+
+  function pauseRuntime() {
+    stopping = true;
+    state.running = false;
+    state.lastAction = "owner_paused";
+    state.lastReason = state.currentMissionId
+      ? "pausa confirmada — concluindo somente a missão já em voo"
+      : "pausada pelo dono";
+    if (loopTimer) clearTimeout(loopTimer);
+    loopTimer = null;
+  }
+
+  function setManualEnabled(enabled) {
+    if (typeof enabled !== "boolean") {
+      return { ok: false, reason: "enabled_boolean_obrigatorio", status: statusSnapshot() };
+    }
+    const updatedAt = new Date(now()).toISOString();
+    let persisted = false;
+    try {
+      persisted = Boolean(controlStore && controlStore.save && controlStore.save({
+        manualEnabled: enabled,
+        pausedByOwner: !enabled,
+        updatedAt,
+      }));
+    } catch { persisted = false; }
+    if (!persisted) {
+      return { ok: false, reason: "controle_nao_persistido", status: statusSnapshot() };
+    }
+
+    state.manualEnabled = enabled;
+    state.controlSource = "owner";
+    state.controlUpdatedAt = updatedAt;
+    if (enabled) startRuntime();
+    else pauseRuntime();
+    return { ok: true, status: statusSnapshot() };
   }
 
   return {
@@ -465,22 +561,10 @@ function createPonteWorker(deps) {
     computeBackoffMs,
 
     start() {
-      if (!state.enabled) { log("[ponte] worker DESLIGADO (HBX_PONTE_WORKER_ENABLED != on) — não inicia."); return false; }
-      if (state.running) return true;
-      state.running = true;
-      stopping = false;
-      state.startedAt = new Date(now()).toISOString();
-      log(`[ponte] worker LIGADO (model=${model}, batch=${batchSize}, freia≥${activityFreiaThreshold} ativo).`);
-      scheduleNext(pollBaseMs);
-      return true;
+      return startRuntime();
     },
 
-    stop() {
-      stopping = true;
-      state.running = false;
-      if (loopTimer) clearTimeout(loopTimer);
-      loopTimer = null;
-    },
+    setManualEnabled,
 
     /** Rearma o disjuntor (botão manual do :3107/E2). Zera falhas, fecha o circuito. */
     resetCircuit() {
@@ -488,7 +572,7 @@ function createPonteWorker(deps) {
       state.circuitReason = null;
       state.consecutiveFailures = 0;
       state.lastError = null;
-      if (state.enabled && state.running && !loopTimer) scheduleNext(pollBaseMs);
+      if (state.manualEnabled && state.running && !loopTimer) scheduleNext(pollBaseMs);
       return true;
     },
 
@@ -497,30 +581,7 @@ function createPonteWorker(deps) {
 
     /** Estado VERMELHO/verde consultável pro painel :3107 (E2). Só leitura, nunca lança. */
     status() {
-      return {
-        enabled: state.enabled,
-        // Estado operacional controlado pelo painel. A flag `enabled` continua
-        // sendo a trava de configuração; `manualEnabled` informa se o loop está
-        // efetivamente autorizado a buscar novos trabalhos agora.
-        manualEnabled: state.running,
-        running: state.running,
-        circuitOpen: state.circuitOpen,
-        circuitReason: state.circuitReason,
-        consecutiveFailures: state.consecutiveFailures,
-        maxConsecutiveFailures,
-        warm: state.warm,
-        model,
-        workerId,
-        lastAction: state.lastAction,
-        lastReason: state.lastReason,
-        activity: state.lastActivity,
-        lag: state.lastLag,
-        lastError: state.lastError,
-        currentMissionId: state.currentMissionId,
-        startedAt: state.startedAt,
-        totals: state.totals,
-        lastJobs: state.lastJobs,
-      };
+      return statusSnapshot();
     },
 
     // exposto p/ testes injetarem um tick único

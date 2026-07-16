@@ -22,6 +22,7 @@ const {
   httpModuleForUrl,
 } = require("./lib/util");
 const { parseEngineCapacity } = require("./lib/engine-capacity");
+const { normalizeFabricaResponse } = require("./lib/fabrica-proxy");
 // Worker local da PONTE (CHIP E1) — puxa missão do backend e executa no 30B local. Ver lib/ponte-worker.js.
 const { createPonteWorker } = require("./lib/ponte-worker");
 
@@ -815,12 +816,16 @@ async function fetchSiteText(website) {
   }
 }
 
-// Instância única do worker da PONTE. Injetado com os helpers da casa (ollamaRequest, backendRequest,
-// fetchSiteText). Só INICIA se HBX_PONTE_WORKER_ENABLED=on (default OFF — lei da casa, nunca loop livre).
+// Instância única do worker da PONTE. Sem journal, a configuração/env decide o primeiro boot.
+// Depois de um freio manual, o journal prevalece e o boot não rearma sozinho.
 const ponteWorker = createPonteWorker({
   ollamaRequest,
   backendRequest: (method, route, payload, options) => backendRequest(method, route, payload, options || {}),
   fetchSiteText,
+  controlStore: {
+    load: () => stateStore.load("ponte-control"),
+    save: (data) => stateStore.save("ponte-control", data),
+  },
   log: (msg) => console.log(msg),
   env: process.env,
 });
@@ -2431,14 +2436,12 @@ async function route(req, res) {
     return;
   }
 
-  // ── FÁBRICA de leads (contrato OWNERV2 — outro worker implementa o backend em paralelo) ──
-  // GET status · POST start {budget} · POST stop. Enquanto o backend LOCAL não tiver as rotas
-  // /modules/owner/fabrica/*, isto DEGRADA gracioso: devolve { ok:false, offline:true } e a UI
-  // mostra "fábrica offline" em vez de quebrar. Proxy pelo padrão backendRequest do server.
+  // ── FÁBRICA de leads ──
+  // O proxy preserva a causa real: rede fora, rota ausente, infraestrutura Prisma ausente,
+  // recusa operacional e erro interno são estados diferentes.
   if (req.method === "GET" && url.pathname === "/owner/fabrica/status") {
     const r = await backendRequest("GET", "/modules/owner/fabrica/status", null, { timeoutMs: 15000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: true, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    sendJson(res, 200, normalizeFabricaResponse("status", r));
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/fabrica/start") {
@@ -2447,14 +2450,12 @@ async function route(req, res) {
     const budget = Number(body && body.budget);
     const payload = Number.isFinite(budget) && budget > 0 ? { budget: Math.trunc(budget) } : {};
     const r = await backendRequest("POST", "/modules/owner/fabrica/start", payload, { timeoutMs: 30000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    sendJson(res, 200, normalizeFabricaResponse("start", r));
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/fabrica/stop") {
     const r = await backendRequest("POST", "/modules/owner/fabrica/stop", {}, { timeoutMs: 30000 });
-    if (r.ok && r.data) { sendJson(res, 200, { ok: true, ...r.data }); return; }
-    sendJson(res, 200, { ok: false, offline: r.statusCode === 404, reason: r.statusCode === 404 ? "fabrica_nao_publicada" : (r.error || `http_${r.statusCode || "?"}`) });
+    sendJson(res, 200, normalizeFabricaResponse("stop", r));
     return;
   }
 
@@ -3505,30 +3506,14 @@ async function route(req, res) {
     sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
     return;
   }
-  if (req.method === "POST" && url.pathname === "/owner/ponte/start") {
-    const started = ponteWorker.start();
-    sendJson(res, 200, { ok: started, ponte: ponteWorker.status() });
-    return;
-  }
-  if (req.method === "POST" && url.pathname === "/owner/ponte/stop") {
-    ponteWorker.stop();
-    sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
-    return;
-  }
   if (req.method === "POST" && url.pathname === "/owner/ponte/control") {
     const body = await readBody(req);
     if (typeof body.enabled !== "boolean") {
-      sendError(res, 400, "O campo enabled deve ser booleano.");
+      sendJson(res, 400, { ok: false, reason: "enabled_boolean_obrigatorio", ponte: ponteWorker.status() });
       return;
     }
-
-    const ok = body.enabled ? ponteWorker.start() : (ponteWorker.stop(), true);
-    const ponte = ponteWorker.status();
-    sendJson(res, ok ? 200 : 409, {
-      ok,
-      ponte,
-      reason: ok ? undefined : "A ponte está desabilitada pela configuração local HBX_PONTE_WORKER_ENABLED.",
-    });
+    const result = ponteWorker.setManualEnabled(body.enabled);
+    sendJson(res, result.ok ? 200 : 500, { ok: result.ok, reason: result.reason, ponte: result.status });
     return;
   }
   if (req.method === "POST" && url.pathname === "/owner/ponte/warm") {
