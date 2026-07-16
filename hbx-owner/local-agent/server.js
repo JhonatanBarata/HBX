@@ -330,8 +330,8 @@ const OPS_DRIFT_RECHECK_MS = 5 * 60 * 1000;
 
 // Hash do ÚLTIMO commit que tocou ops-control/ — a MESMA régua que a imagem grava no build (ARG). Casa
 // iff a imagem foi buildada com o ops-control/ atual. Silencia (retorna "") se não for um repo git.
-function localOpsGitHash() {
-  const r = execRead(["git", "log", "-1", "--format=%h", "--", "ops-control"]);
+async function localOpsGitHash() {
+  const r = await execReadAsync(["git", "log", "-1", "--format=%h", "--", "ops-control"]);
   if (!r.ok) return "";
   return String(r.stdout || "").trim().split(/\r?\n/)[0].trim();
 }
@@ -370,7 +370,7 @@ function readOpsBuildInfo(timeoutMs = 2500) {
 async function refreshOpsDrift(force) {
   if (!opsToken) { opsDrift = { checked: false, drift: false, buildHash: null, localHash: null, at: Date.now(), error: "ops_token_ausente" }; return opsDrift; }
   if (!force && opsDrift.at && Date.now() - opsDrift.at < OPS_DRIFT_RECHECK_MS) return opsDrift;
-  const localHash = localOpsGitHash();
+  const localHash = await localOpsGitHash();
   const info = await readOpsBuildInfo();
   if (!localHash || !info.ok || !info.gitHash || info.gitHash === "unknown") {
     // Falta base de comparação → NÃO afirma drift (drift:false, checked:false). Guarda o que deu p/ debug.
@@ -508,9 +508,7 @@ function execRead(command) {
   };
 }
 
-function execReadAsync(command) {
-  assertSafeCommand(command);
-  const [binary, ...args] = command;
+function spawnCaptureAsync(binary, args, commandLabel) {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
@@ -520,7 +518,7 @@ function execReadAsync(command) {
       settled = true;
       if (error && !stderr) stderr = error.message || String(error);
       resolve({
-        command: command.join(" "),
+        command: commandLabel || [binary, ...args].join(" "),
         exitCode,
         stdout,
         stderr,
@@ -529,7 +527,7 @@ function execReadAsync(command) {
     };
     let child;
     try {
-      child = spawn(resolveExecutable(binary), args, {
+      child = spawn(binary, args, {
         cwd: rootDir,
         shell: false,
         windowsHide: true,
@@ -544,6 +542,12 @@ function execReadAsync(command) {
     child.on("error", (error) => finish(null, error));
     child.on("close", (code) => finish(code, null));
   });
+}
+
+function execReadAsync(command) {
+  assertSafeCommand(command);
+  const [binary, ...args] = command;
+  return spawnCaptureAsync(resolveExecutable(binary), args, command.join(" "));
 }
 
 // `docker ps`/`docker stats` são leituras de painel e não podem disputar o event loop com o freio
@@ -610,8 +614,28 @@ function requestLocalLabHealth(timeoutMs = 1200) {
 // mas o lab sobe com `node server.js` (cwd no diretório), então a CommandLine vem
 // "<...>node.exe server.js" SEM o diretório → o match falhava e o stop virava no-op.
 // Aqui unimos: dono da porta 3098 ∪ qualquer node cujo CommandLine cite o server.js do lab.
+// Esta consulta pode levar muitos segundos no WMI. Ela roda fora do event loop e polls concorrentes
+// compartilham o mesmo subprocesso/resultado, para nunca segurar o freio da ponte.
+const LOCAL_LAB_PROCESS_TTL_MS = 10_000;
+let localLabProcessGeneration = 0;
+let localLabProcessCache = { generation: 0, at: 0, result: null, pending: null };
+
+function parseLocalLabProcesses(result) {
+  if (!result.ok || !String(result.stdout || "").trim()) return [];
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return (Array.isArray(parsed) ? parsed : [parsed]).filter((item) => item && item.ProcessId);
+  } catch {
+    return [];
+  }
+}
+
 function findLocalLabProcesses() {
-  if (process.platform !== "win32") return [];
+  if (process.platform !== "win32") return Promise.resolve([]);
+  if (localLabProcessCache.pending) return localLabProcessCache.pending;
+  if (localLabProcessCache.result && Date.now() - localLabProcessCache.at < LOCAL_LAB_PROCESS_TTL_MS) {
+    return Promise.resolve(localLabProcessCache.result);
+  }
   const labServerPath = path.join(localLabDir, "server.js").replace(/\\/g, "\\\\");
   const script = [
     "$ErrorActionPreference = 'SilentlyContinue'",
@@ -627,24 +651,29 @@ function findLocalLabProcesses() {
     "}",
     "$pids | ForEach-Object { [pscustomobject]@{ ProcessId = $_ } } | ConvertTo-Json -Compress",
   ].join("\n");
-  const result = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
-    cwd: rootDir,
-    shell: false,
-    encoding: "utf8",
-    windowsHide: true,
+  const generation = localLabProcessGeneration;
+  const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script];
+  const pending = spawnCaptureAsync("powershell", args, "powershell local-lab-processes").then((result) => {
+    const processes = parseLocalLabProcesses(result);
+    if (localLabProcessCache.pending === pending && localLabProcessCache.generation === generation) {
+      localLabProcessCache = { generation, at: Date.now(), result: processes, pending: null };
+    }
+    return processes;
   });
-  if (result.status !== 0 || !String(result.stdout || "").trim()) return [];
-  try {
-    const parsed = JSON.parse(result.stdout);
-    return (Array.isArray(parsed) ? parsed : [parsed]).filter((item) => item && item.ProcessId);
-  } catch {
-    return [];
-  }
+  localLabProcessCache = { generation, at: 0, result: null, pending };
+  return pending;
+}
+
+function invalidateLocalLabProcessCache() {
+  localLabProcessGeneration += 1;
+  localLabProcessCache = { generation: localLabProcessGeneration, at: 0, result: null, pending: null };
 }
 
 async function readLocalLabStatus() {
-  const health = await requestLocalLabHealth();
-  const processes = findLocalLabProcesses();
+  const [health, processes] = await Promise.all([
+    requestLocalLabHealth(),
+    findLocalLabProcesses(),
+  ]);
   return {
     ok: true,
     url: localLabUrl,
@@ -675,6 +704,7 @@ function startLocalLab() {
     windowsHide: true,
   });
   child.unref();
+  invalidateLocalLabProcessCache();
   return {
     pid: child.pid,
     logPath: relativeLogPath(logPath),
@@ -714,7 +744,7 @@ async function stopLocalLab() {
   }
 
   // (2) mata o que restou (idempotente: pode não sobrar nada).
-  const processes = findLocalLabProcesses();
+  const processes = await findLocalLabProcesses();
   const pids = [];
   for (const item of processes) {
     const pid = Number(item.ProcessId);
@@ -723,6 +753,7 @@ async function stopLocalLab() {
       killPidWindows(pid);
     }
   }
+  if (pids.length) invalidateLocalLabProcessCache();
 
   // (3) confirma que o /health caiu (espera curta).
   let down = false;
