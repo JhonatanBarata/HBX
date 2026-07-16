@@ -28,6 +28,7 @@
     "test:resumo-diario": "npm run build && node --test dist/logistica/resumo-diario.service.test.js",
     "test:logistica-billing": "npm run build && node --test dist/logistica/logistica-route-billing.service.test.js dist/logistica/logistica-tracked-billing.service.test.js dist/logistica/logistica-tracking-bonus.service.test.js",
     "test:logistica-offline": "npm run build && node --test dist/logistica/logistica-offline-grant.test.js",
+    "test:logistica-admin-route": "npm run build && node --test dist/logistica/logistica-admin-route.service.test.js",
     "test:auvo-scaffold": "npm run build && node --test dist/integrations/auvo/auvo.integration.service.test.js dist/integrations/auvo/auvo.client.test.js dist/integrations/auvo/auvo.mapper.test.js",
     "test:whatsapp-hotfix": "npm run build && node --test dist/hbx-recovery/hbx-recovery.service.test.js dist/messaging/whatsapp-channel.test.js dist/inbox/inbox.service.test.js dist/messaging/conversations.service.test.js dist/messaging/messaging.service.test.js dist/customer-profile/customer-profile.service.test.js dist/integrations/integration-secrets.service.test.js dist/integrations/integration-connections.service.test.js",
     "smoke:integration-connections": "npm run build && node ./scripts/integration-connections-smoke.js",
