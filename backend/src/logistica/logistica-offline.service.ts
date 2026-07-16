@@ -22,6 +22,7 @@ import {
   type OfflineRouteGrantPayload,
   verifyOfflineRouteGrant,
 } from './logistica-offline-grant';
+import { LogisticaOfflineReservationReconcilerService } from './logistica-offline-reservation-reconciler.service';
 import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-tracked-billing.service';
 import { LogisticaOperacaoService, type LogisticaActor } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
@@ -39,6 +40,7 @@ type OfflineCommandResult = {
   commandId: string;
   status: 'ACK' | 'DUPLICATE' | 'RETRY' | 'REJECTED' | 'CONFLICT';
   message?: string;
+  details?: Record<string, unknown>;
 };
 
 @Injectable()
@@ -50,6 +52,7 @@ export class LogisticaOfflineService {
     private readonly operacao: LogisticaOperacaoService,
     private readonly routeBilling: LogisticaRouteBillingService,
     private readonly trackedBilling: OfflineAwareLogisticaTrackedBillingService,
+    private readonly reservationReconciler: LogisticaOfflineReservationReconcilerService,
   ) {}
 
   async prepare(dto: PrepareLogisticaOfflineRouteDto) {
@@ -133,13 +136,26 @@ export class LogisticaOfflineService {
     const grant = await this.verifyGrant(context.device, dto.grant, true);
     const route = await this.assertCurrentRoute(grant, context.device, true);
     const results: OfflineCommandResult[] = [];
+    let earlierCommandBlockedFinalization = false;
     for (const command of dto.commands || []) {
+      if (command.type === 'FINALIZE_ROUTE' && earlierCommandBlockedFinalization) {
+        results.push({
+          commandId: command.commandId,
+          status: 'RETRY',
+          message: 'A finalização aguarda as operações anteriores desta rota.',
+        });
+        continue;
+      }
       try {
         this.assertCapturedWithinGrant(command.capturedAt, grant);
-        await this.assertDeliveryInRoute(grant, command.deliveryId);
-        results.push(await this.applyCommand(context, grant, command));
+        if (command.type !== 'FINALIZE_ROUTE') await this.assertDeliveryInRoute(grant, command.deliveryId);
+        const result = await this.applyCommand(context, grant, command);
+        results.push(result);
+        if (result.status !== 'ACK' && result.status !== 'DUPLICATE') earlierCommandBlockedFinalization = true;
       } catch (error) {
-        results.push(this.commandFailure(command.commandId, error));
+        const failure = this.commandFailure(command.commandId, error);
+        results.push(failure);
+        earlierCommandBlockedFinalization = true;
       }
     }
     return {
@@ -178,6 +194,29 @@ export class LogisticaOfflineService {
     grant: OfflineRouteGrantPayload,
     command: LogisticaOfflineCommandDto,
   ): Promise<OfflineCommandResult> {
+    if (command.type === 'FINALIZE_ROUTE') {
+      if (command.deliveryId !== grant.routeId || String((command.payload as any)?.routeId || '') !== grant.routeId) {
+        throw new ForbiddenException('A finalização não pertence à rota autorizada.');
+      }
+      if (grant.routeMode === 'ESSENTIAL') {
+        return { commandId: command.commandId, status: 'ACK', details: { releasedCredits: 0 } };
+      }
+      const released = await this.reservationReconciler.releaseRouteReservations({
+        companyId: context.device.companyId,
+        routeId: grant.routeId,
+        actorUserId: Number(context.actor.id) || null,
+      });
+      return {
+        commandId: command.commandId,
+        status: 'ACK',
+        details: {
+          releasedCredits: released.released * 2,
+          consumedCredits: released.consumed * 2,
+          alreadyReleasedCredits: released.alreadyReleased * 2,
+        },
+      };
+    }
+
     const current = await this.operacao.assertEntregaAcessivel(
       context.device.companyId,
       command.deliveryId,
@@ -327,7 +366,7 @@ export class LogisticaOfflineService {
       statusCode === 408 ||
       statusCode === 425 ||
       statusCode === 429 ||
-      (statusCode === 409 && /GPS|posição|rastreamento|processamento|reserva|reconcili/i.test(message))
+      (statusCode === 409 && /GPS|posição|rastreamento|processamento|reserva|reconcili|entregas? abertas|sincronize|liberar/i.test(message))
     ) {
       return { commandId, status: 'RETRY', message };
     }
