@@ -475,7 +475,6 @@ const STATIC_TYPES = {
   ".js": "application/javascript; charset=utf-8",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
-  // HOT-06: config de vídeos/tutoriais (tutoriais.json) servida como estática, mesma regra do resto de web/.
   ".json": "application/json; charset=utf-8",
 };
 
@@ -2646,44 +2645,6 @@ async function route(req, res) {
   // Cockpit Radar Local×VPS: o que cada ambiente raspa AGORA + decisão. Cacheado (SSH pesado).
   if (req.method === "GET" && url.pathname === "/owner/radar-cockpit") {
     sendJson(res, 200, await readRadarCockpit(url.searchParams.get("force") === "1"));
-    return;
-  }
-
-  // Gauge do governor por fonte (Sprint 3 MOTOR-RFB-FILA): usado/teto/período do SourceApiUsage,
-  // lido do backend LOCAL (a leitura da VPS ainda não tem rota no Ops Control — coluna VPS degrada).
-  if (req.method === "GET" && url.pathname === "/owner/source-budget") {
-    const r = await backendRequest("GET", "/modules/owner/radar/source-budget", null, { timeoutMs: 15000 });
-    if (r.ok && r.data) {
-      sendJson(res, 200, r.data);
-    } else {
-      sendJson(res, 200, { ok: false, reason: r.error || r.data?.message || `http_${r.statusCode || "?"}`, sources: [] });
-    }
-    return;
-  }
-
-  // Agregador da aba "Árvore do motor" (F3, 02/07): 1 chamada só, cache 10s no PRÓPRIO backend
-  // (server.js só repassa) — a árvore não faz 12 fetches. Lido do backend LOCAL (mesma verdade
-  // que o resto do painel usa pro que é "sua máquina"); a VPS ainda não tem rota espelhada.
-  if (req.method === "GET" && url.pathname === "/owner/radar/tree-status") {
-    const r = await backendRequest("GET", "/modules/owner/radar/tree-status", null, { timeoutMs: 15000 });
-    if (r.ok && r.data) {
-      sendJson(res, 200, r.data);
-    } else {
-      sendJson(res, 200, { ok: false, reason: r.error || r.data?.message || `http_${r.statusCode || "?"}` });
-    }
-    return;
-  }
-
-  // Redrive de dead-letter da fila de missões S4 (botão da árvore) — repassa pro backend local,
-  // que já tem a rota /modules/owner/missions/redrive protegida por JWT+Master.
-  if (req.method === "POST" && url.pathname === "/owner/missions/redrive") {
-    const body = await readBody(req);
-    const r = await backendRequest("POST", "/modules/owner/missions/redrive", body || {}, { timeoutMs: 20000 });
-    if (r.ok && r.data) {
-      sendJson(res, 200, r.data);
-    } else {
-      sendJson(res, 200, { ok: false, reason: r.error || r.data?.message || `http_${r.statusCode || "?"}` });
-    }
     return;
   }
 

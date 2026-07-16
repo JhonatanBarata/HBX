@@ -74,7 +74,6 @@ import { LeadPersonWriteService } from './radar/persistence/lead-person-write.se
 import { RadarRunRepositoryService } from './radar/persistence/radar-run-repository.service';
 import { RadarDiagnosticService } from './radar/shared/radar-diagnostic.service';
 import { RadarSharedNormalizerService } from './radar/shared/radar-shared-normalizer.service';
-import { RadarTreeStatusService } from './radar-tree-status/radar-tree-status.service';
 import { WebscrapingInternalRadarController } from './webscraping-internal-radar.controller';
 import { MasterWebscrapingController, WebscrapingController } from './webscraping.controller';
 import { WebscrapingService } from './webscraping.service';
@@ -176,7 +175,7 @@ const RADAR_SERVICES = [
 @Module({
   imports: [ModulesAccessModule, MessagingModule, MailModule, CommercialPlansModule, MasterContextModule, LeadHarvestModule, EnrichmentCostModule, forwardRef(() => VendasModule)],
   controllers: [WebscrapingController, MasterWebscrapingController, WebscrapingInternalRadarController, RadarMissionsController, RadarFabricaController, CnpjBaseController, CnpjXrayController],
-  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, MissionResultApplyService, RadarTreeStatusService, RadarFabricaService, CnpjXrayService, ...RADAR_SERVICES],
-  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarTreeStatusService, RadarFabricaService, CnpjXrayService],
+  providers: [WebscrapingService, HbxEnginePoolService, HbxEngineDockerAdapterService, HbxEngineTelemetryService, HbxEngineGovernorService, RadarMissionQueueService, MissionResultApplyService, RadarFabricaService, CnpjXrayService, ...RADAR_SERVICES],
+  exports: [WebscrapingService, HbxEnginePoolService, HbxEngineGovernorService, RadarMissionQueueService, RadarFabricaService, CnpjXrayService],
 })
 export class WebscrapingModule {}
