@@ -95,7 +95,18 @@ function parseWeekdays(value: unknown): number[] {
 function dateParts(dateKey: string): { year: number; month: number; day: number } {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
   if (!match) throw new BadRequestException('Data inválida. Use YYYY-MM-DD.');
-  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    throw new BadRequestException('Data de calendário inválida.');
+  }
+  return { year, month, day };
 }
 
 export function addCivilDays(dateKey: string, amount: number): string {
@@ -126,6 +137,24 @@ export function saoPauloDateKey(value: Date | string | null | undefined): string
 
 export function occurrenceItemId(recurrenceId: string, sourceDate: string): string {
   return `occ_${sourceDate.replace(/-/g, '')}_${String(recurrenceId || '').trim()}`;
+}
+
+function occurrenceBusinessKey(
+  sourceDate: string,
+  customerProfileId: string,
+  localId: string | null,
+  productId: number | null | undefined,
+): string {
+  return `${sourceDate}\u0000${customerProfileId}\u0000${localId || ''}\u0000${Number(productId || 0)}`;
+}
+
+function candidateBusinessKey(candidate: OccurrenceCandidate): string {
+  return occurrenceBusinessKey(
+    candidate.sourceDate,
+    candidate.row.customerProfileId,
+    candidate.row.localId,
+    candidate.row.productId,
+  );
 }
 
 function dateRange(dateKey: string): { start: Date; end: Date } {
@@ -176,7 +205,14 @@ function appendNote(current: unknown, note: string): string | null {
 
 function uniqueDateKeys(value: unknown, fallback: string): string[] {
   const rows = Array.isArray(value) ? value : [];
-  const dates = Array.from(new Set(rows.map((item) => canonicalRouteDate(String(item || ''))))).sort();
+  const dates = Array.from(
+    new Set(
+      rows
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .map((item) => canonicalRouteDate(item)),
+    ),
+  ).sort();
   const result = dates.length > 0 ? dates : [fallback];
   if (result.length > MAX_SOURCE_DATES) {
     throw new BadRequestException(`Escolha no máximo ${MAX_SOURCE_DATES} datas por preparação.`);
@@ -192,6 +228,24 @@ function isUniqueError(error: unknown): boolean {
   return !!error && typeof error === 'object' && (error as any).code === 'P2002';
 }
 
+function consumeLegacyCoverage(
+  candidates: OccurrenceCandidate[],
+  deterministicIds: Set<string>,
+  legacyCounts: Map<string, number>,
+): Set<string> {
+  const counts = new Map(legacyCounts);
+  const covered = new Set<string>();
+  for (const candidate of candidates) {
+    if (deterministicIds.has(candidate.itemId)) continue;
+    const key = candidateBusinessKey(candidate);
+    const remaining = counts.get(key) || 0;
+    if (remaining <= 0) continue;
+    covered.add(candidate.itemId);
+    counts.set(key, remaining - 1);
+  }
+  return covered;
+}
+
 @Injectable()
 export class LogisticaOccurrenceService {
   private readonly logger = new Logger(LogisticaOccurrenceService.name);
@@ -202,11 +256,15 @@ export class LogisticaOccurrenceService {
     if (!companyId) throw new BadRequestException('Empresa não identificada.');
     const sourceDate = canonicalRouteDate(sourceDateInput);
     const candidates = await this.buildCandidates(companyId, [sourceDate]);
-    const existing = await this.loadExistingOccurrenceIds(candidates.map((candidate) => candidate.itemId));
+    const [existing, legacyCounts] = await Promise.all([
+      this.loadExistingOccurrenceIds(this.prisma, candidates.map((candidate) => candidate.itemId)),
+      this.loadLegacyOccurrenceCounts(this.prisma, companyId, [sourceDate]),
+    ]);
+    const legacyCovered = consumeLegacyCoverage(candidates, existing, legacyCounts);
     const groups = new Map<string, OccurrencePreviewCustomer>();
 
     for (const candidate of candidates) {
-      if (existing.has(candidate.itemId)) continue;
+      if (existing.has(candidate.itemId) || legacyCovered.has(candidate.itemId)) continue;
       const row = candidate.row;
       const key = groupKey(row.customerProfileId, row.localId);
       let group = groups.get(key);
@@ -254,7 +312,14 @@ export class LogisticaOccurrenceService {
     const candidates = await this.buildCandidates(companyId, sourceDates);
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        return await this.materializeWithinTransaction(companyId, operationalDate, sourceDates, candidates, driverUserId, actorUserId);
+        return await this.materializeWithinTransaction(
+          companyId,
+          operationalDate,
+          sourceDates,
+          candidates,
+          driverUserId,
+          actorUserId,
+        );
       } catch (error) {
         if (attempt === 0 && isUniqueError(error)) continue;
         throw error;
@@ -286,7 +351,12 @@ export class LogisticaOccurrenceService {
           })
         : [];
       const existingById = new Map(existingRows.map((row: any) => [String(row.id), row]));
-      const newCandidates = candidates.filter((candidate) => !existingById.has(candidate.itemId));
+      const existingIds = new Set(existingById.keys());
+      const legacyCounts = await this.loadLegacyOccurrenceCounts(tx, companyId, sourceDates);
+      const legacyCovered = consumeLegacyCoverage(candidates, existingIds, legacyCounts);
+      const newCandidates = candidates.filter(
+        (candidate) => !existingById.has(candidate.itemId) && !legacyCovered.has(candidate.itemId),
+      );
       const deliveryIds = new Set<string>();
 
       for (const row of existingRows) {
@@ -374,9 +444,13 @@ export class LogisticaOccurrenceService {
             where: { entregaId: delivery.id },
             select: { productId: true, qtdPrevista: true, valorUnit: true },
           });
-          const quantidade = allItems.reduce((sum: number, item: any) => sum + Math.max(0, Number(item.qtdPrevista) || 0), 0);
+          const quantidade = allItems.reduce(
+            (sum: number, item: any) => sum + Math.max(0, Number(item.qtdPrevista) || 0),
+            0,
+          );
           const valor = allItems.reduce(
-            (sum: number, item: any) => sum + Math.max(0, Number(item.qtdPrevista) || 0) * Math.max(0, Number(item.valorUnit) || 0),
+            (sum: number, item: any) =>
+              sum + Math.max(0, Number(item.qtdPrevista) || 0) * Math.max(0, Number(item.valorUnit) || 0),
             0,
           );
           await tx.entrega.update({
@@ -482,13 +556,69 @@ export class LogisticaOccurrenceService {
     return candidates;
   }
 
-  private async loadExistingOccurrenceIds(ids: string[]): Promise<Set<string>> {
+  private async loadExistingOccurrenceIds(prisma: any, ids: string[]): Promise<Set<string>> {
     if (ids.length === 0) return new Set();
-    const rows = await this.prisma.entregaItem.findMany({
+    const rows = await prisma.entregaItem.findMany({
       where: { id: { in: ids } },
       select: { id: true },
     });
-    return new Set(rows.map((row) => String(row.id)));
+    return new Set(rows.map((row: any) => String(row.id)));
+  }
+
+  /**
+   * Compatibilidade com entregas geradas antes do identificador `occ_*` existir.
+   * Conta itens por data+cliente+local+produto e consome uma unidade por vínculo;
+   * assim dois vínculos iguais continuam distinguíveis, sem recriar o histórico.
+   */
+  private async loadLegacyOccurrenceCounts(
+    prisma: any,
+    companyId: number,
+    sourceDates: string[],
+  ): Promise<Map<string, number>> {
+    const dates = Array.from(new Set(sourceDates)).sort();
+    if (dates.length === 0) return new Map();
+    const rows = await prisma.entrega.findMany({
+      where: {
+        companyId,
+        scheduledAt: {
+          gte: dateRange(dates[0]).start,
+          lte: dateRange(dates[dates.length - 1]).end,
+        },
+      },
+      select: {
+        id: true,
+        scheduledAt: true,
+        customerProfileId: true,
+        localId: true,
+        productId: true,
+        itens: { select: { id: true, productId: true } },
+      },
+    });
+
+    const counts = new Map<string, number>();
+    for (const delivery of rows) {
+      const sourceDate = saoPauloDateKey(delivery.scheduledAt);
+      if (!sourceDate || !dates.includes(sourceDate)) continue;
+      const legacyProducts = delivery.itens
+        .filter((item: any) => !String(item.id || '').startsWith('occ_') && !String(item.id || '').startsWith('carry_'))
+        .map((item: any) => Number(item.productId || 0))
+        .filter((productId: number) => productId > 0);
+      const productIds = legacyProducts.length > 0
+        ? legacyProducts
+        : Number(delivery.productId || 0) > 0
+          ? [Number(delivery.productId)]
+          : [];
+      for (const productId of productIds) {
+        const key = occurrenceBusinessKey(
+          sourceDate,
+          String(delivery.customerProfileId),
+          delivery.localId ?? null,
+          productId,
+        );
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    return counts;
   }
 
   private async lockOperationalDate(tx: any, companyId: number, operationalDate: string): Promise<void> {
