@@ -27,11 +27,13 @@ Não fazer deploy e não mesclar antes da aprovação visual do dono.
 
 ## Etapa 1 — preparar o ambiente
 
-Na raiz do repositório:
+Na raiz do repositório, confirme que não há alterações locais e atualize a branch sobre o `master` mais recente antes de capturar:
 
 ```powershell
 git status -sb
 git branch --show-current
+git fetch origin
+git rebase origin/master
 npm install
 Push-Location frontend
 npm install
@@ -39,6 +41,8 @@ Pop-Location
 npx playwright install chromium
 npm run video:test
 ```
+
+Se houver conflito no rebase, preserve as mudanças atuais de `master` e reaplique somente os arquivos do estúdio e da documentação deste PR. Não continue para a captura enquanto `npm run video:test` não passar.
 
 Esperado: `HBX Video Studio: contratos, dados demo e servidor validados.`
 
