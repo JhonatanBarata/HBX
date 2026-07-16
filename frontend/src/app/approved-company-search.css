@@ -1,0 +1,140 @@
+/* Approved company-search UX — 16/07/2026
+   Escopo intencional: somente a tela Radar embutida em Vendas/Leads. */
+
+/* Segmento abre com a mesma área útil dos seletores longos de UF/cidade. */
+.leads-page .be-search__menu {
+  max-height: min(520px, calc(100vh - 210px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Estado verdadeiramente indisponível: sem azul, brilho ou hover de ação. */
+.leads-page .be-cmdbar__go:disabled,
+.leads-page .leads-bulk-pull:disabled,
+.leads-page .leads-history-clear:disabled,
+.leads-page .leads-bulk-select:disabled {
+  background: var(--hbx-surface-soft);
+  border-color: var(--border-hairline);
+  color: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  filter: none;
+  opacity: 0.72;
+  transform: none;
+}
+
+.leads-page .be-cmdbar__go:disabled:hover,
+.leads-page .leads-bulk-pull:disabled:hover,
+.leads-page .leads-history-clear:disabled:hover,
+.leads-page .leads-bulk-select:disabled:hover {
+  background: var(--hbx-surface-soft);
+  border-color: var(--border-hairline);
+  color: var(--text-muted);
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+/* Selecionar + ação principal formam um grupo; modo de exibição vai à direita. */
+.leads-page .leads-headrow--toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.leads-page .leads-headrow__start {
+  order: 1;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.leads-page .leads-headrow__end {
+  order: 2;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.leads-page .leads-headrow__center {
+  order: 3;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-left: auto;
+}
+
+.leads-page .leads-history-clear {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.leads-page .leads-history-note {
+  width: fit-content;
+  margin: 2px 14px 0;
+  padding: 4px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* O Radar passa a ser um viewer de estado, não um segundo painel de instruções. */
+.leads-page .radar-viewer {
+  align-content: start;
+}
+
+.leads-page .radar-viewer .radar-hero__copy {
+  gap: 4px;
+}
+
+.leads-page .radar-viewer__status {
+  max-width: 30ch;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.leads-page .radar-viewer__chips {
+  padding: 0 4px;
+}
+
+.leads-page .radar-viewer__feedback {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 760px) {
+  .leads-page .be-search__menu {
+    max-height: min(420px, calc(100vh - 180px));
+  }
+
+  .leads-page .leads-headrow--toolbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .leads-page .leads-headrow__center {
+    width: 100%;
+    margin-left: 0;
+  }
+}
