@@ -6,10 +6,6 @@ const DEFAULT_API_URL =
 		? "https://api.hbxsystem.com.br"
 		: "http://localhost:3000";
 
-const APPROVED_COMPANY_SEARCH_LOADER = path.resolve(
-	__dirname,
-	"scripts/approved-company-search-loader.cjs",
-);
 
 const nextConfig: NextConfig = {
 	// NEXT_DIST_DIR permite um segundo dev server (preview do Claude) sem
@@ -17,18 +13,6 @@ const nextConfig: NextConfig = {
 	...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
 	turbopack: {
 		root: path.resolve(__dirname),
-		// A tela original é muito grande; o loader aplica a UX aprovada em memória,
-		// tanto no `next dev` quanto no `next build`, sem sujar o checkout do VPS.
-		rules: {
-			"src/app/(app)/leads/page.client.tsx": {
-				loaders: [APPROVED_COMPANY_SEARCH_LOADER],
-				as: "*.tsx",
-			},
-			"src/app/(app)/vendas/page.client.tsx": {
-				loaders: [APPROVED_COMPANY_SEARCH_LOADER],
-				as: "*.tsx",
-			},
-		},
 	},
 	async headers() {
 		const isProd = process.env.NODE_ENV === "production";
