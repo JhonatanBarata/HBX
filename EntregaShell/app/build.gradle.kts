@@ -75,8 +75,8 @@ android {
         create("logistica") {
             dimension = "experience"
             applicationId = "br.com.hbxsystem.logistica"
-            versionCode = 3
-            versionName = "1.1.0"
+            versionCode = 4
+            versionName = "1.2.0"
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
             manifestPlaceholders["hbxAppLabel"] = "HBX Mobile"
         }
@@ -106,7 +106,14 @@ android {
             }
         }
         release {
-            isMinifyEnabled = false
+            // A autoridade continua no servidor; R8 apenas remove o caminho fácil de
+            // copiar nomes/classes e reduz a superfície do APK distribuído.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (releaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
