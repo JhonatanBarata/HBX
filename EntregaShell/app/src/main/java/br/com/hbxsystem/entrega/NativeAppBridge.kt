@@ -8,7 +8,10 @@ import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
 import android.webkit.WebView
+import android.widget.Toast
 import org.json.JSONObject
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -24,18 +27,57 @@ class NativeAppBridge(
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val api = NativeApiClient(activity, ticket)
+    private val operational = OperationalStore(activity)
     private val logoutEmAndamento = AtomicBoolean(false)
+
+    init {
+        if (BuildConfig.APP_MODE == "logistica") OperationalSync.requestFlush(activity)
+    }
 
     @JavascriptInterface
     fun request(id: String, method: String, path: String, body: String?) {
         val safeId = id.take(80)
         executor.execute {
+            if (BuildConfig.APP_MODE == "logistica") {
+                operational.interceptMutation(method, path, body)?.let { local ->
+                    resolve(safeId, local.status, local.body, null)
+                    OperationalSync.requestFlush(activity)
+                    return@execute
+                }
+            }
             try {
                 val response = api.request(method, path, body)
-                resolve(safeId, response.status, response.body, null)
+                val responseBody = if (
+                    BuildConfig.APP_MODE == "logistica" &&
+                    OperationalPolicy.isRouteRead(method, path) &&
+                    response.successful
+                ) {
+                    operational.mergeAndStoreServerRoute(response.body)
+                } else {
+                    response.body
+                }
+                resolve(safeId, response.status, responseBody, null)
+                if (BuildConfig.APP_MODE == "logistica" &&
+                    (OperationalPolicy.isRouteRead(method, path) || path.substringBefore('?') == "/logistica/rota/iniciar")
+                ) {
+                    OperationalSync.requestFlush(activity)
+                }
             } catch (error: Throwable) {
                 val status = (error as? NativeApiClient.ApiException)?.status ?: 0
-                resolve(safeId, status, "{}", error.message ?: "Falha de comunicação com o HBX.")
+                val fallback = if (
+                    BuildConfig.APP_MODE == "logistica" &&
+                    status == 0 &&
+                    OperationalPolicy.isRouteRead(method, path)
+                ) {
+                    operational.routeFallback()
+                } else {
+                    null
+                }
+                if (fallback != null) {
+                    resolve(safeId, fallback.status, fallback.body, null)
+                } else {
+                    resolve(safeId, status, "{}", error.message ?: "Falha de comunicação com o HBX.")
+                }
             }
         }
     }
@@ -71,15 +113,47 @@ class NativeAppBridge(
         val safeId = id.take(80)
         executor.execute {
             try {
+                require(BuildConfig.APP_MODE == "logistica") { "Comprovante disponível somente no HBX Mobile." }
                 require(base64.length <= 7_100_000) { "A imagem deve ter no máximo 5 MB." }
-                val bytes = Base64.decode(base64, Base64.DEFAULT)
-                val response = api.uploadProof(deliveryId, type, filename, mime, bytes, clientKey)
-                resolve(safeId, response.status, response.body, null)
+                val original = Base64.decode(base64, Base64.DEFAULT)
+                require(original.isNotEmpty() && original.size <= 5 * 1024 * 1024) { "A imagem deve ter no máximo 5 MB." }
+                val encoded = ProofFileCodec.normalize(type, original, mime)
+                val dir = File(activity.filesDir, "hbx-proofs").apply { mkdirs() }
+                val file = File(dir, "${type}-${UUID.randomUUID()}${encoded.extension}")
+                file.outputStream().use { it.write(encoded.bytes) }
+                val stored = operational.enqueueProof(
+                    deliveryId = deliveryId,
+                    type = type,
+                    file = file,
+                    filename = filename.substringBeforeLast('.', filename) + encoded.extension,
+                    mime = encoded.mime,
+                )
+                resolve(safeId, 202, stored.toString(), null)
+                OperationalSync.requestFlush(activity)
             } catch (error: Throwable) {
-                val status = (error as? NativeApiClient.ApiException)?.status ?: 0
-                resolve(safeId, status, "{}", error.message ?: "Não foi possível enviar o comprovante.")
+                resolve(safeId, 0, "{}", error.message ?: "Não foi possível guardar o comprovante.")
             }
         }
+    }
+
+    @JavascriptInterface
+    fun offlineStatus(): String = if (BuildConfig.APP_MODE == "logistica") {
+        operational.statusJson()
+    } else {
+        JSONObject().put("supported", false).toString()
+    }
+
+    @JavascriptInterface
+    fun setOfflinePreferences(wifiOnly: Boolean, retainAfterUpload: Boolean): String {
+        if (BuildConfig.APP_MODE != "logistica") return offlineStatus()
+        operational.setPreferences(wifiOnly, retainAfterUpload)
+        OperationalSync.requestFlush(activity)
+        return operational.statusJson()
+    }
+
+    @JavascriptInterface
+    fun flushOffline() {
+        if (BuildConfig.APP_MODE == "logistica") OperationalSync.requestFlush(activity)
     }
 
     @JavascriptInterface
@@ -113,12 +187,25 @@ class NativeAppBridge(
         .put("versionName", BuildConfig.VERSION_NAME)
         .put("versionCode", BuildConfig.VERSION_CODE)
         .put("platform", "android")
+        .put("offlineRouteSupported", BuildConfig.APP_MODE == "logistica")
         .toString()
 
     @JavascriptInterface
     fun logout() {
         if (!logoutEmAndamento.compareAndSet(false, true)) return
+        if (BuildConfig.APP_MODE == "logistica" && operational.hasPending()) {
+            logoutEmAndamento.set(false)
+            activity.runOnUiThread {
+                Toast.makeText(
+                    activity,
+                    "Há entregas ou comprovantes pendentes. Sincronize antes de desconectar o aparelho.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            return
+        }
         api.clearSession()
+        if (BuildConfig.APP_MODE == "logistica") operational.clearAll()
         DeviceCredentialStore(activity).clearDeviceToken()
         activity.runOnUiThread {
             WebStorage.getInstance().deleteAllData()
