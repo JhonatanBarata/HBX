@@ -1,8 +1,8 @@
-import { EntregaHome } from "./page.client";
+import { AdminEntregaHome } from "./admin-page.client";
 
-// HOME "vitrine" do app de entrega (M1) — PROVA o Design System Entrega com
-// dado ESTÁTICO (as telas reais Hoje/Rota/Chegada são o M4). Server component
-// fino: delega pro client (auth reusada, botão Instalar, hooks de PWA).
+// Um único HBX Mobile. O Admin recebe primeiro a experiência completa de controle
+// logístico e execução; perfis limitados continuam no fluxo legado até a árvore
+// de roles ser aplicada sobre esta base estável.
 export default function EntregaPage() {
-  return <EntregaHome />;
+  return <AdminEntregaHome />;
 }
