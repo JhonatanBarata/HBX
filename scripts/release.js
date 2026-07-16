@@ -166,6 +166,10 @@ function ensureRequiredEnv(env) {
     appDir: String(env.HOSTINGER_APP_DIR).trim(),
     frontendUrl,
     backendUrl: normalizeBaseUrl(env.PROD_BACKEND_URL || ''),
+    androidApkUrl: String(
+      env.NEXT_PUBLIC_ANDROID_APK_URL
+      || `${frontendUrl}/download/android-logistica`,
+    ).trim(),
     hbxEngineCount,
     hbxEngineWarmCount,
     hbxEngineMaxCount,
@@ -325,6 +329,7 @@ function buildRemoteReleaseScript(config, services) {
     `HBX_ENGINE_HARD_LIMIT=${shellSingleQuote(HBX_ENGINE_HARD_LIMIT)}`,
     `BACKEND_URL=${shellSingleQuote(config.backendUrl)}`,
     `FRONTEND_URL=${shellSingleQuote(config.frontendUrl)}`,
+    `REQUESTED_NEXT_PUBLIC_ANDROID_APK_URL=${shellSingleQuote(config.androidApkUrl)}`,
     'BACKEND_VERIFY_ATTEMPTS=30',
     `WEBWHATS_APP_DIR=${shellSingleQuote(config.webwhatsAppDir)}`,
     `WEBWHATS_RUN_USER=${shellSingleQuote(config.webwhatsRunUser)}`,
@@ -342,6 +347,7 @@ function buildRemoteReleaseScript(config, services) {
     'WHATSAPP_MODAL_INTERNAL_URL_VALUE="$(awk -F= \'/^[[:space:]]*WHATSAPP_MODAL_INTERNAL_URL[[:space:]]*=/{print $2; exit}\' backend/.env)"',
     'if [ "$WHATSAPP_MODAL_INTERNAL_URL_VALUE" != "http://172.18.0.1:8080" ]; then echo "ERRO: backend/.env precisa manter WHATSAPP_MODAL_INTERNAL_URL=http://172.18.0.1:8080. Atual: $WHATSAPP_MODAL_INTERNAL_URL_VALUE"; exit 1; fi',
     'upsert_root_env() { key="$1"; value="$2"; tmp="$(mktemp)"; awk -v key="$key" -v value="$value" \'BEGIN{done=0} $0 ~ "^" key "=" { print key "=" value; done=1; next } { print } END{ if (!done) print key "=" value }\' .env > "$tmp"; cat "$tmp" > .env; rm -f "$tmp"; }',
+    'upsert_root_env NEXT_PUBLIC_ANDROID_APK_URL "$REQUESTED_NEXT_PUBLIC_ANDROID_APK_URL"',
     'upsert_root_env HBX_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',
     'upsert_root_env HBX_ENGINE_MAX_COUNT "$REQUESTED_HBX_ENGINE_MAX_COUNT"',
     'upsert_root_env HBX_LIST_ENGINE_COUNT "$REQUESTED_HBX_ENGINE_COUNT"',

@@ -102,12 +102,12 @@ A migration:
 Frontend:
 
 ```env
-NEXT_PUBLIC_ANDROID_APK_URL=https://www.hbxsystem.com.br/download/android
+NEXT_PUBLIC_ANDROID_APK_URL=https://www.hbxsystem.com.br/download/android-logistica
 ```
 
 Use uma URL estável que redirecione para o APK atual. Como a variável é `NEXT_PUBLIC_*`, trocar seu valor exige novo build do frontend; trocar apenas o destino do redirecionamento não exige.
 
-No deploy da Hostinger, a URL assume `https://www.hbxsystem.com.br/download/android` por padrão e é passada ao build Docker do frontend. O APK continua fora do Git e deve ser publicado no destino estável com a assinatura oficial.
+No deploy da Hostinger, a URL assume `https://www.hbxsystem.com.br/download/android-logistica` por padrão e é passada ao build Docker do frontend. O APK continua fora do Git e deve ser publicado no destino estável com a assinatura oficial.
 
 Na VPS atual, o Nginx atende essa rota pelo link `/var/www/hbx-downloads/hbx-mobile.apk`. O HBX Logística usa a rota estável `https://www.hbxsystem.com.br/download/android-logistica` e o link `/var/www/hbx-downloads/hbx-logistica.apk`. Cada release deve enviar os APKs com nomes versionados, conferir o SHA-256 remoto e só então atualizar os links; os AABs continuam reservados à Play depois do aceite em aparelho físico.
 

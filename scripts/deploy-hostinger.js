@@ -183,7 +183,7 @@ function ensureRequiredEnv(env) {
     ).trim(),
     androidApkUrl: String(
       env.NEXT_PUBLIC_ANDROID_APK_URL
-      || `${frontendUrl}/download/android`,
+      || `${frontendUrl}/download/android-logistica`,
     ).trim(),
     webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),

@@ -23,7 +23,7 @@ type MobileDevice = {
   active: boolean;
 };
 
-const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android").trim();
+const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
 
 function formatDate(value?: string | null) {
   if (!value) return "Ainda não usado";
