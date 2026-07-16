@@ -18,13 +18,16 @@ const LEADS_PATCHES = [
 const LEADS_REGEX = require('./approved-search-radar.json');
 const VENDAS_PATCHES = require('./approved-search-vendas.json');
 
-function occurrences(source, needle) {
+// Todos os contratos começam no início lógico de uma linha. Exigir esse limite
+// evita contar o mesmo bloco duas vezes quando a versão sem indentação também
+// caberia a partir do segundo espaço de uma linha mais recuada.
+function lineOccurrences(source, needle) {
   if (!needle) return 0;
   let count = 0;
   let index = 0;
   while ((index = source.indexOf(needle, index)) !== -1) {
-    count += 1;
-    index += needle.length;
+    if (index === 0 || source[index - 1] === '\n') count += 1;
+    index += Math.max(1, needle.length);
   }
   return count;
 }
@@ -47,7 +50,7 @@ function replaceOnce(source, oldText, newText, label) {
   }
 
   const matches = candidates
-    .map((candidate) => ({ ...candidate, count: occurrences(source, candidate.oldText) }))
+    .map((candidate) => ({ ...candidate, count: lineOccurrences(source, candidate.oldText) }))
     .filter((candidate) => candidate.count > 0);
   const total = matches.reduce((sum, candidate) => sum + candidate.count, 0);
   if (total !== 1) {
