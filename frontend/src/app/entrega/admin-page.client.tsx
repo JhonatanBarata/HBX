@@ -183,7 +183,8 @@ function AdminRouteWorkspace() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const timeout = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timeout);
   }, [load]);
 
   useEffect(() => {
@@ -197,7 +198,9 @@ function AdminRouteWorkspace() {
   }, []);
 
   useEffect(() => {
-    if (sync.sincronizados > 0) void load(true);
+    if (sync.sincronizados <= 0) return undefined;
+    const timeout = window.setTimeout(() => void load(true), 0);
+    return () => window.clearTimeout(timeout);
   }, [sync.sincronizados, load]);
 
   const allOpenStops = useMemo(() => (route ? paradasAbertas(route) : []), [route]);

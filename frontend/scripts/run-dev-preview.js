@@ -14,7 +14,9 @@ const env = {
 };
 
 const nextCli = require.resolve('next/dist/bin/next');
-const child = spawn(process.execPath, [nextCli, 'dev'], {
+// Mantém o preview no mesmo bundler do dev principal; evita o erro de HMR
+// do Turbopack que deixa chunks CSS sem o elemento <link> correspondente.
+const child = spawn(process.execPath, [nextCli, 'dev', '--webpack'], {
   cwd: process.cwd(),
   env,
   stdio: 'inherit',

@@ -10,7 +10,7 @@
 .notice,
 .historyRow {
   border: 1px solid var(--border-hairline);
-  background: var(--hbx-surface, rgba(255, 255, 255, 0.04));
+  background: var(--hbx-surface);
   border-radius: 18px;
 }
 
@@ -20,7 +20,7 @@
   padding: 18px;
   background:
     radial-gradient(circle at 88% 8%, color-mix(in srgb, var(--hbx-brand) 24%, transparent), transparent 44%),
-    var(--hbx-surface, rgba(255, 255, 255, 0.04));
+    var(--hbx-surface);
 }
 
 .eyebrow {
@@ -55,7 +55,7 @@
   min-width: 0;
   padding: 11px 10px;
   border-radius: 14px;
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.045));
+  background: var(--hbx-surface-soft);
 }
 
 .metric strong,
@@ -100,12 +100,12 @@
 
 .primary {
   background: var(--hbx-brand);
-  color: var(--hbx-brand-contrast, #07130e);
+  color: var(--hbx-brand-contrast);
 }
 
 .secondary {
   border-color: var(--border-hairline);
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.045));
+  background: var(--hbx-surface-soft);
   color: var(--text-primary);
 }
 
@@ -184,7 +184,7 @@
 
 button.row {
   border: 1px solid var(--border-hairline);
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.045));
+  background: var(--hbx-surface-soft);
   color: inherit;
   border-radius: 14px;
   cursor: pointer;
@@ -213,7 +213,7 @@ button.row {
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.06));
+  background: var(--hbx-surface-soft);
 }
 
 .progressFill {
@@ -262,7 +262,7 @@ button.row {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-hairline);
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.06));
+  background: var(--hbx-surface-soft);
   color: var(--text-primary);
 }
 
@@ -278,7 +278,7 @@ button.row {
   height: 30px;
   padding: 0 7px;
   border-radius: 10px;
-  color: var(--hbx-warning, #f4b942);
+  color: var(--hbx-warning);
   font-size: 0.68rem;
   font-weight: 850;
 }
@@ -317,7 +317,7 @@ button.row {
   min-height: 58px;
   place-items: center;
   border-color: var(--border-hairline);
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.04));
+  background: var(--hbx-surface-soft);
   color: var(--text-muted);
 }
 
@@ -344,7 +344,7 @@ button.row {
   padding: 11px 12px;
   border: 1px solid var(--border-hairline);
   border-radius: 14px;
-  background: var(--hbx-surface-soft, rgba(255, 255, 255, 0.04));
+  background: var(--hbx-surface-soft);
 }
 
 .checkRow input {
@@ -372,10 +372,10 @@ button.row {
   height: 48px;
   border-radius: 16px;
   background: var(--hbx-brand);
-  color: var(--hbx-brand-contrast, #07130e);
+  color: var(--hbx-brand-contrast);
   font-size: 1.45rem;
   font-weight: 500;
-  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-md);
   cursor: pointer;
 }
 

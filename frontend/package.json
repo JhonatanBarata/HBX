@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "node ./scripts/apply-vendas-detail-card-polish.mjs",
-    "dev": "next dev -p 3001",
+    "dev": "next dev --webpack -p 3001",
     "predev:preview": "node ./scripts/apply-vendas-detail-card-polish.mjs",
     "dev:preview": "node ./scripts/run-dev-preview.js",
     "prebuild": "node ./scripts/apply-vendas-detail-card-polish.mjs",

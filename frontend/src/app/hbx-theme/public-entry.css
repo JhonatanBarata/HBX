@@ -369,6 +369,58 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   clip-path: inset(0 round var(--f1-radius-lg));
   pointer-events: auto;
 }
+
+.f1-mobile-apps {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: min(1200px, calc(100% - clamp(32px, 8vw, 136px)));
+  margin: 24px auto 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.f1-mobile-app {
+  position: relative;
+  display: flex;
+  min-height: 250px;
+  overflow: hidden;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 28px 20px;
+  border: 1px solid var(--f1-line-strong);
+  border-radius: 28px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--f1-surface-solid) 94%, transparent), color-mix(in srgb, var(--f1-surface) 68%, transparent));
+  box-shadow: 0 20px 60px var(--f1-shadow-soft);
+}
+.f1-mobile-app::after { content: ""; position: absolute; width: 170px; height: 170px; right: -54px; bottom: -78px; border-radius: 50%; background: var(--f1-accent-soft); filter: blur(20px); opacity: 0.65; pointer-events: none; }
+.f1-mobile-app--apple { flex-direction: row-reverse; }
+.f1-mobile-app__copy { position: relative; z-index: 1; display: grid; gap: 8px; }
+.f1-mobile-app__copy small { color: var(--f1-text-soft); font-size: 0.67rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.f1-mobile-app__copy strong { color: var(--f1-text); font-size: clamp(1.2rem, 2.2vw, 1.72rem); line-height: 1.04; letter-spacing: -0.045em; }
+.f1-mobile-app__art-wrap { position: relative; z-index: 1; flex: 0 0 40%; height: 220px; }
+.f1-mobile-app__art-wrap img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; filter: drop-shadow(0 22px 20px rgba(0, 0, 0, 0.2)); }
+.f1-mobile-app--android .f1-mobile-app__art-wrap { align-self: flex-end; height: 275px; margin: -15px -10px -26px 0; }
+.f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 195px; margin: 0 -10px 0 -18px; }
+.f1-mobile-app__ribbon { position: absolute; z-index: 2; top: 20px; left: -33px; width: 142px; padding: 7px 0; color: #18202c; background: #e5ebf2; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); font-size: 0.65rem; font-weight: 900; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; transform: rotate(-34deg); }
+.f1-mobile-app__link { display: inline-flex; width: fit-content; min-height: 38px; margin-top: 5px; padding: 0 14px; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent); border-radius: 12px; color: var(--f1-text); background: color-mix(in srgb, var(--f1-accent) 16%, transparent); font-size: 0.72rem; font-weight: 800; transition: transform 0.25s ease, background 0.25s ease; }
+.f1-mobile-app__link:hover { background: color-mix(in srgb, var(--f1-accent) 26%, transparent); transform: translateY(-2px); }
+.f1-mobile-app__link .f1-icon { width: 14px; height: 14px; }
+
+@media (max-width: 800px) {
+  .f1-mobile-apps { width: calc(100% - 32px); margin-top: 8px; grid-template-columns: 1fr; gap: 14px; }
+  .f1-mobile-app { min-height: 205px; padding: 18px 20px; border-radius: 23px; }
+  .f1-mobile-app__art-wrap { flex-basis: 38%; height: 185px; }
+  .f1-mobile-app--android .f1-mobile-app__art-wrap { height: 225px; margin: -12px -10px -21px 0; }
+  .f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 165px; margin-left: -12px; }
+}
+@media (max-width: 420px) {
+  .f1-mobile-app__copy strong { font-size: 1.16rem; }
+  .f1-mobile-app__art-wrap { flex-basis: 36%; }
+  .f1-mobile-app--android .f1-mobile-app__art-wrap { height: 205px; }
+  .f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 145px; }
+  .f1-mobile-app__ribbon { top: 16px; left: -39px; transform: rotate(-35deg) scale(0.9); }
+}
 /* Casca COMPLETA do card embutido (W1: o .login-console base do screens.css
    morreu junto com a tela /login — o que o embedded usava veio pra cá). */
 .public-entry .login-console--embedded {
