@@ -131,6 +131,7 @@ function runStep(command, args, options = {}) {
     captureOutput: options.captureOutput,
     allowFailure: options.allowFailure,
     env: options.env,
+    stdin: options.stdin,
   });
 }
 
@@ -692,8 +693,9 @@ function buildRemoteReleaseScript(config, services) {
 function deployOnHostinger(config, services) {
   const sshTarget = `${config.sshUser}@${config.sshHost}`;
   const remoteScript = buildRemoteReleaseScript(config, services);
-  runStep('ssh', [sshTarget, 'bash', '-lc', shellSingleQuote(remoteScript)], {
+  runStep('ssh', [sshTarget, 'bash', '-ls'], {
     label: `ssh ${sshTarget} release seletivo`,
+    stdin: remoteScript,
   });
 }
 
