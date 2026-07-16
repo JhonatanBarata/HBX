@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-16T22:35:02.775Z",
+  "timezone": "America/Sao_Paulo",
+  "privacy": "Snapshot sem nomes, telefones, e-mails, CNPJ, credenciais ou IDs brutos.",
+  "git": {
+    "backupCommit": "8110f855",
+    "baselineCommit": "23dfb1e6",
+    "branch": "master"
+  },
+  "production": {
+    "services": {
+      "backend": "running",
+      "webscraping": "running",
+      "scrapingEngine": "running",
+      "postgres": "running"
+    },
+    "engines": {
+      "total": 21,
+      "running": 2,
+      "stopped": 19
+    },
+    "flags": {
+      "HBX_MISSION_QUEUE_ENABLED": "true",
+      "HBX_RADAR_AI_SANEAMENTO_ENABLED": "false",
+      "HBX_AI_SANEAMENTO_MODEL": "qwen3:4b-instruct"
+    },
+    "missions": [
+      {
+        "stage": "enrich_search_item",
+        "status": "completed",
+        "count": 384
+      }
+    ],
+    "leadStock": {
+      "total24h": 46,
+      "withEmail24h": 36,
+      "clean24h": 32,
+      "rejected24h": 0,
+      "total7d": 310,
+      "withEmail7d": 223
+    }
+  },
+  "local": {
+    "ownerPortListening": true,
+    "ownerStatusRequest": "timeout_after_8_seconds",
+    "localLab": "running",
+    "ollama": "running",
+    "residentModels": [],
+    "model30bState": "cold"
+  },
+  "xangriLa": {
+    "cityTotal": 14,
+    "sentinelCount": 14,
+    "aggregate": {
+      "withWebsite": 3,
+      "withEmail": 10,
+      "withPhone": 14,
+      "withAiSaneamento": 0,
+      "withAiNote": 0,
+      "withPonte30b": 0,
+      "allSentToVendas": true,
+      "allWithSingleVendasLink": true
+    },
+    "sentinels": [
+      {
+        "idHash": "65780e519eff",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T22:27:42.781Z"
+      },
+      {
+        "idHash": "77ab670e8f61",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T22:27:42.777Z"
+      },
+      {
+        "idHash": "deae54973a8c",
+        "hasWebsite": true,
+        "hasEmail": false,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T22:27:42.772Z"
+      },
+      {
+        "idHash": "a9a2215e7f9e",
+        "hasWebsite": true,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:22:02.445Z"
+      },
+      {
+        "idHash": "f212df1c282f",
+        "hasWebsite": false,
+        "hasEmail": false,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:21:36.635Z"
+      },
+      {
+        "idHash": "f0005d8a3116",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:21:25.605Z"
+      },
+      {
+        "idHash": "91b891953e15",
+        "hasWebsite": true,
+        "hasEmail": false,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:21:17.218Z"
+      },
+      {
+        "idHash": "9f3ff76be8ae",
+        "hasWebsite": false,
+        "hasEmail": false,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:21:17.070Z"
+      },
+      {
+        "idHash": "7d5c9ffa93b0",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:20:51.544Z"
+      },
+      {
+        "idHash": "d6fd53666b04",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:20:40.513Z"
+      },
+      {
+        "idHash": "db03b85a67af",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:20:31.958Z"
+      },
+      {
+        "idHash": "cb83b62b3ce6",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:20:06.362Z"
+      },
+      {
+        "idHash": "e81131df1588",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:19:55.400Z"
+      },
+      {
+        "idHash": "40199b806aed",
+        "hasWebsite": false,
+        "hasEmail": true,
+        "hasPhone": true,
+        "updatedAt": "2026-07-16T15:19:46.811Z"
+      }
+    ]
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "local_deep_enrich_v1",
+  "privacy": "Dados integralmente sintéticos. Domínios .invalid não resolvem na internet.",
+  "defaults": {
+    "companyId": 7001,
+    "radarLeadId": "sentinel-radar-001",
+    "workVersion": 1,
+    "stage": "local_deep_enrich_v1"
+  },
+  "cases": [
+    {
+      "id": "official_site_new_contacts",
+      "input": {
+        "existing": { "email": null, "phone": null, "website": null },
+        "evidence": { "sourceUrl": "https://empresa-a.invalid/contato", "pageType": "contact", "literalEmail": "contato@empresa-a.invalid", "literalPhone": "+5500000000001", "officialSite": true, "whatsappConfirmed": true }
+      },
+      "expected": { "appendContacts": ["email", "phone"], "fillRadar": ["email", "phone", "website"], "preserveIdentity": true }
+    },
+    {
+      "id": "no_site_no_new_data",
+      "input": { "existing": { "email": null, "phone": null, "website": null }, "evidence": [] },
+      "expected": { "noNewData": true, "receiptRequired": true, "status": "completed" }
+    },
+    {
+      "id": "social_only",
+      "input": { "existing": { "instagramUrl": null }, "evidence": { "sourceUrl": "https://social.example.invalid/empresa-b", "pageType": "social", "sameCompany": true } },
+      "expected": { "fillRadar": ["instagramUrl"], "appendContacts": [], "preserveIdentity": true }
+    },
+    {
+      "id": "third_party_directory",
+      "input": { "existing": { "website": null }, "evidence": { "sourceUrl": "https://diretorio.invalid/empresa-c", "pageType": "directory", "claimsOfficialSite": "https://empresa-c.invalid" } },
+      "expected": { "fillRadar": [], "appendContactsOnlyWithLiteralEvidence": true, "manualReviewForOfficialSite": true }
+    },
+    {
+      "id": "identity_mismatch",
+      "input": { "existing": { "identityFingerprint": "synthetic-a" }, "evidence": { "identityFingerprint": "synthetic-b" } },
+      "expected": { "rejectDelta": true, "preserveIdentity": true, "canonicalIdentityWrites": 0 }
+    },
+    {
+      "id": "duplicate_contact",
+      "input": { "existingContacts": [{ "kind": "email", "valueNormalized": "contato@empresa-d.invalid" }], "candidate": { "kind": "email", "valueNormalized": "contato@empresa-d.invalid" } },
+      "expected": { "createdContacts": 0, "idempotent": true }
+    },
+    {
+      "id": "manual_field_preserved",
+      "input": { "existing": { "email": "manual@empresa-e.invalid", "emailOrigin": "manual" }, "candidate": { "email": "novo@empresa-e.invalid" } },
+      "expected": { "radarEmail": "manual@empresa-e.invalid", "overwrites": 0, "candidateMayBeIndexedAsContact": true }
+    },
+    {
+      "id": "same_tenant_vendas_link",
+      "input": { "missionCompanyId": 7001, "companyStateCompanyId": 7001, "vendasCompanyId": 7001, "vendasLeadId": "sentinel-vendas-001" },
+      "expected": { "updateLinkedVendasOnly": true, "transactionCommitted": true }
+    },
+    {
+      "id": "cross_tenant_attempt",
+      "input": { "missionCompanyId": 7001, "companyStateCompanyId": 7001, "vendasCompanyId": 7002, "vendasLeadId": "sentinel-vendas-002" },
+      "expected": { "transactionCommitted": false, "rollbackAll": true, "errorCode": "tenant_mismatch" }
+    },
+    {
+      "id": "expired_lease",
+      "input": { "leaseState": "expired", "workerMatches": true, "requestHashMatches": true },
+      "expected": { "transactionCommitted": false, "errorCode": "lease_expired" }
+    },
+    {
+      "id": "identical_replay",
+      "input": { "existingReceipt": true, "requestHashMatches": true },
+      "expected": { "idempotentReplay": true, "sameReceipt": true, "newWrites": 0 }
+    },
+    {
+      "id": "divergent_hash_replay",
+      "input": { "existingReceipt": true, "requestHashMatches": false },
+      "expected": { "transactionCommitted": false, "errorCode": "request_hash_mismatch", "newWrites": 0 }
+    },
+    {
+      "id": "mid_transaction_failure",
+      "input": { "injectFailureAfter": "lead_contact_upsert" },
+      "expected": { "transactionCommitted": false, "rollbackAll": true, "partialWrites": 0 }
+    },
+    {
+      "id": "late_result_after_delivery",
+      "input": { "deliveryAlreadyCompleted": true, "missionCompanyId": 7001, "companyStateCompanyId": 7001, "vendasCompanyId": 7001, "vendasLeadId": "sentinel-vendas-003" },
+      "expected": { "updateRadar": true, "updateLinkedVendasOnly": true, "changeCommercialStatus": false, "newDebit": false }
+    }
+  ]
+}
