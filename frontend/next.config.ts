@@ -6,7 +6,6 @@ const DEFAULT_API_URL =
 		? "https://api.hbxsystem.com.br"
 		: "http://localhost:3000";
 
-
 const nextConfig: NextConfig = {
 	// NEXT_DIST_DIR permite um segundo dev server (preview do Claude) sem
 	// brigar pelo .next do dev principal — ver script dev:preview.
