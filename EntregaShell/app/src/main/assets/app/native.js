@@ -9,6 +9,14 @@
     try { return JSON.parse(raw); } catch (_) { return { raw }; }
   }
 
+  function bridgeJson(method, fallback) {
+    try {
+      return bridge && typeof bridge[method] === "function" ? parseBody(bridge[method]()) : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   window.HBXNative = {
     _resolve(payloadText) {
       let envelope;
@@ -67,16 +75,37 @@
         reader.onload = () => {
           const base64 = String(reader.result || "").split(",").pop() || "";
           const id = `upload_${Date.now()}_${++sequence}`;
-          pending.set(id, { resolve, reject });
+          const timer = setTimeout(() => {
+            if (!pending.has(id)) return;
+            pending.delete(id);
+            reject(new Error("O comprovante demorou para ser armazenado."));
+          }, 45000);
+          pending.set(id, {
+            resolve: value => { clearTimeout(timer); resolve(value); },
+            reject: error => { clearTimeout(timer); reject(error); },
+          });
           bridge.uploadProof(id, String(deliveryId), String(type), String(file.name || `${type}.jpg`), String(file.type || "image/jpeg"), base64, String(clientKey || HBX.uuid()));
         };
         reader.readAsDataURL(file);
       });
     },
+    offline: {
+      status() {
+        return bridgeJson("offlineStatus", { supported: false, hasRoute: false, pendingOperations: 0, pendingProofs: 0 });
+      },
+      setPreferences(wifiOnly, retainAfterUpload) {
+        try {
+          if (!bridge || typeof bridge.setOfflinePreferences !== "function") return this.status();
+          return parseBody(bridge.setOfflinePreferences(Boolean(wifiOnly), Boolean(retainAfterUpload)));
+        } catch (_) {
+          return this.status();
+        }
+      },
+      flush() { bridge && bridge.flushOffline && bridge.flushOffline(); },
+    },
     logout() {
-      // Dados operacionais são por empresa/aparelho. Apague antes de trocar o
-      // vínculo para que nenhum flavor mostre a carteira do usuário anterior.
-      HBX.cache.clearPrivateData();
+      // A ponte nativa só limpa WebStorage e vínculo depois de confirmar que não há
+      // entrega/comprovante pendente. Não apague localStorage antes dessa decisão.
       bridge && bridge.logout && bridge.logout();
     },
     info() {
