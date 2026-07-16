@@ -498,6 +498,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [data, setData] = useState<LeadsResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ shelf: number | null; carteira: number | null }>({ shelf: null, carteira: null });
+  // APPROVED-COMPANY-SEARCH-UX: histórico e resultado são estados distintos.
+  const [hasSearched, setHasSearched] = useState(false);
+  const [historyHidden, setHistoryHidden] = useState(false);
 
   // lead selecionado no painel de detalhe
   const [selLead, setSelLead] = useState<RadarLead | null>(null);
@@ -637,6 +640,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   async function pullGeoLocation() {
     if (!geo || geoBusy) return;
+    markFiltersDirty();
     setGeoBusy(true);
     try {
       const resp = await fetch(
@@ -772,13 +776,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return () => { cancelled = true; cancelAnimationFrame(id); };
   }, []);
 
-  const filtersTouched = useRef(false);
-  useEffect(() => {
-    if (!filtersTouched.current) { filtersTouched.current = true; return; }
-    const handle = setTimeout(() => { setPage(1); setSelected(new Set()); loadList(tab, { page: 1 }); }, 300);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segment, city, uf, siteFiltro, zapFiltro]);
+  // Filtros não consultam o Radar automaticamente. A busca filtrada só começa
+  // depois de uma ação explícita no botão Buscar.
 
   // B0: polling por operationalState do backend (não por status fantasma)
   useEffect(() => {
@@ -851,6 +850,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     });
   }
 
+  function markFiltersDirty() {
+    setHasSearched(false);
+    setLiveRunItems(null);
+    setSearchMsg(null);
+    setSelected(new Set());
+    setSelLead(null);
+  }
 
   function limparFiltros() {
     setUf("");
@@ -867,8 +873,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setZapFiltro("qualquer");
     setPage(1);
     setTab("shelf");
+    setHasSearched(false);
+    setLiveRunItems(null);
     try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
-    loadList("shelf", { page: 1, quantosOverride: 5 });
   }
 
   // Item 3b: "Aplicar filtro" do popup avançado — traduz o subconjunto compatível
@@ -886,7 +893,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setPage(1);
     setSelected(new Set());
     setTab("shelf");
-    loadList("shelf", { page: 1 });
+    setHasSearched(false);
+    setLiveRunItems(null);
+    setSearchMsg(null);
   }
 
   // ── WORM-15: pesquisas salvas ────────────────────────────────────────────
@@ -918,7 +927,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setTab("shelf");
     setSavedBar(false);
     setSavedMsg(`Pesquisa "${s.nome}" aplicada.`);
-    loadList("shelf", { page: 1, quantosOverride: nextQtd });
+    setHasSearched(false);
+    setLiveRunItems(null);
+    setSearchMsg(null);
+    setSelected(new Set());
   }
 
   function openSaveModal() {
@@ -977,8 +989,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   function validarCamposOuPopup(effSegment?: string): boolean {
     const segToCheck = effSegment != null ? effSegment : segment;
     const faltando: string[] = [];
-    if (!city.trim() && !geo) faltando.push("Cidade");
     if (!segToCheck.trim()) faltando.push("Segmento");
+    if (!uf.trim()) faltando.push("Estado");
+    if (!city.trim()) faltando.push("Cidade");
     if (faltando.length > 0) {
       setMissingModal(faltando);
       return false;
@@ -995,9 +1008,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const effRadius = override?.radiusKm != null ? override.radiusKm : (alcance ? Number(alcance) : 0);
     // P4: valida e abre popup se faltando (usa o segmento efetivo)
     if (!validarCamposOuPopup(effSegment)) return;
+    setHasSearched(true);
+    setHistoryHidden(false);
     setSearchMsg(null);
     setLoadError(null);
     setLiveRunItems([]);
+    setData(prev => prev ? { ...prev, items: [], total: 0 } : prev);
     setRunBusy(true);
     try {
       // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400).
@@ -1100,7 +1116,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   const showingLiveRun = tab === "shelf" && liveRunItems !== null;
-  const items = showingLiveRun ? (liveRunItems ?? []) : (data?.items || []);
+  const historyItems = data?.items || [];
+  const hideHistory = tab === "shelf" && !hasSearched && historyHidden;
+  const items = showingLiveRun ? (liveRunItems ?? []) : (hideHistory ? [] : historyItems);
+  const hasHistory = tab === "shelf" && !hasSearched && !historyHidden && historyItems.length > 0;
 
   // CHIP E3 (05/07) — status de IA por lote (fila da PONTE 30B): "na fila"/"enriquecendo agora"/
   // "enriquecido", ligado por leadId. Polling leve só dos leads da página atual (nunca N chamadas
@@ -1115,8 +1134,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const cityOptions = uf
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
     : [];
+  const canSearch = Boolean(segment.trim() && uf.trim() && city.trim());
 
-  const pageTotal = showingLiveRun ? (liveRunItems?.length ?? 0) : (data?.total || 0);
+  const pageTotal = showingLiveRun ? (liveRunItems?.length ?? 0) : (hideHistory ? 0 : (data?.total || 0));
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
 
   // CRÉDITOS FASE 2 (R5): a cota MENSAL de cards por plano (usage.cards) deixou
@@ -1145,9 +1165,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
       : tab === "carteira"
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
-        : city
-          ? `Nenhuma empresa disponível em ${city} ainda. Use o Radar ao lado para buscar.`
-          : "Escolha cidade + segmento na barra acima e busque leads.";
+        : hasSearched
+          ? `Nenhuma empresa encontrada para ${segment || "este segmento"} em ${city || "esta cidade"}${uf ? `/${uf}` : ""}.`
+          : "Preencha os filtros para começar.";
 
   const meterPct = Math.min(100, Math.round(
     isSeller
@@ -1267,7 +1287,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         }
         actions={
           <div style={{ display: "grid", gap: 8 }}>
-            {tab === "shelf" && (
+            {tab === "shelf" && hasSearched && (
               <button className="btn-teal"
                 onClick={() => puxar(lead.id)}
                 disabled={pullBusyId === lead.id || bulkBusy || meterBlocked}>
@@ -1305,7 +1325,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         <div className="be-adv-grid2">
           <div className="f">
             <label htmlFor="cb-alcance">Alcance</label>
-            <select id="cb-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => setAlcance(e.target.value)}>
+            <select id="cb-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => { markFiltersDirty(); setAlcance(e.target.value); }}>
               <option value="">Só a cidade</option>
               <option value="25">+ 25 km</option>
               <option value="50">+ 50 km</option>
@@ -1342,7 +1362,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   key={opt.key}
                   type="button"
                   className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                  onClick={() => setSiteFiltro(opt.key)}
+                  onClick={() => { markFiltersDirty(); setSiteFiltro(opt.key); }}
                   aria-pressed={siteFiltro === opt.key}
                 >
                   {opt.label}
@@ -1361,7 +1381,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   key={opt.key}
                   type="button"
                   className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                  onClick={() => setZapFiltro(opt.key)}
+                  onClick={() => { markFiltersDirty(); setZapFiltro(opt.key); }}
                   aria-pressed={zapFiltro === opt.key}
                 >
                   {opt.label}
@@ -1467,9 +1487,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   type ActiveChip = { key: string; label: string; onRemove: () => void };
   function activeChips(): ActiveChip[] {
     const chips: ActiveChip[] = [];
-    if (alcance) chips.push({ key: "alcance", label: `+ ${alcance} km`, onRemove: () => setAlcance("") });
-    if (siteFiltro !== "qualquer") chips.push({ key: "site", label: siteFiltro === "com" ? "Com site" : "Sem site", onRemove: () => setSiteFiltro("qualquer") });
-    if (zapFiltro !== "qualquer") chips.push({ key: "zap", label: "Com WhatsApp", onRemove: () => setZapFiltro("qualquer") });
+    if (alcance) chips.push({ key: "alcance", label: `+ ${alcance} km`, onRemove: () => { markFiltersDirty(); setAlcance(""); } });
+    if (siteFiltro !== "qualquer") chips.push({ key: "site", label: siteFiltro === "com" ? "Com site" : "Sem site", onRemove: () => { markFiltersDirty(); setSiteFiltro("qualquer"); } });
+    if (zapFiltro !== "qualquer") chips.push({ key: "zap", label: "Com WhatsApp", onRemove: () => { markFiltersDirty(); setZapFiltro("qualquer"); } });
     return chips;
   }
 
@@ -1480,7 +1500,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const optionalCount = activeChips().length;
     const cityIsKnown = cityOptions.some(o => o.label === city);
     return (
-      <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
+      <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros" onInputCapture={markFiltersDirty} onChangeCapture={markFiltersDirty}>
         <div className="be-search be-required-segment" data-tut="leads-busca-criativa" ref={segBoxRef}>
           <I d={ICONS.search} size={16} />
           <input
@@ -1489,7 +1509,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             value={segment}
             onChange={e => { setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}
             onKeyDown={e => {
-              if (e.key === "Enter" && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
+              if (e.key === "Enter" && canSearch && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
               else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
             }}
             role="combobox"
@@ -1538,7 +1558,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                           + (match ? " be-search__opt--match" : "")
                           + (selected ? " be-search__opt--active" : "")
                         }
-                        onClick={() => { setSegment(o.label); setSegMenuOpen(false); }}
+                        onClick={() => { markFiltersDirty(); setSegment(o.label); setSegMenuOpen(false); }}
                       >
                         <span>{o.label}</span>
                         {typeof o.count === "number" && (
@@ -1553,9 +1573,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         </div>
 
         <div
-          className={"be-required-location" + (geo && !city.trim() ? " is-geo" : "")}
+          className="be-required-location"
           aria-label="Localização obrigatória da busca"
-          title={geo && !city.trim() ? "Sua localização atual será usada na busca" : "Escolha UF e cidade"}
+          title="Escolha UF e cidade"
         >
           <select
             id="cb-uf-inline"
@@ -1575,7 +1595,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             aria-label="Cidade obrigatória"
             aria-required="true"
           >
-            <option value="">{geo && !city.trim() ? "Localização ativa" : "Cidade"}</option>
+            <option value="">Cidade</option>
             {city && !cityIsKnown && <option value={city}>{city}</option>}
             {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
           </select>
@@ -1584,7 +1604,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         {runActive ? (
           <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
         ) : (
-          <button className="btn-teal be-cmdbar__go" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>
+          <button
+            className="btn-teal be-cmdbar__go"
+            data-tut="leads-buscar"
+            onClick={() => executarBusca()}
+            disabled={runBusy || !canSearch}
+            title={!canSearch ? "Selecione segmento, estado e cidade" : undefined}
+          >
             {runBusy ? "Iniciando…" : "Buscar"}
           </button>
         )}
@@ -1605,8 +1631,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   // ── Radar console: o disco + controles quando nenhum lead está selecionado ──
   function renderRadarConsole(mini: boolean) {
-    // Item 8: sem cálculo de estado de pausa/parada aqui — o painel não renderiza
-    // mais UI de estado. Só existe "buscando agora" (runActive) pro botão Parar.
     if (mini) {
       return (
         <div className="radar-mini-bar">
@@ -1614,7 +1638,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             <RadarDisc mini />
           </div>
           <div style={{ minWidth: 0 }}>
-            <div className="radar-mini-bar__title">Buscando empresas</div>
+            <div className="radar-mini-bar__title">Radar HBX</div>
             <div className="radar-mini-bar__sub">{[city, uf].filter(Boolean).join("/") || "Todo o Brasil"}{segment ? ` · ${segment}` : ""}</div>
           </div>
           <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
@@ -1624,8 +1648,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       );
     }
 
-    // Espelho legível dos filtros ativos pro show-off do aside (não é input —
-    // quem busca é a barra de comando no topo dos resultados).
+    // Viewer enxuto: um estado, uma frase curta e somente os chips do recorte.
+    // O histórico continua na área de resultados; o Radar não repete a narrativa.
     const activeSummary = [
       segment.trim(),
       [city, uf].filter(Boolean).join("/"),
@@ -1633,44 +1657,43 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       siteFiltro === "com" ? "Com site" : siteFiltro === "sem" ? "Sem site" : "",
       zapFiltro === "com" ? "Com WhatsApp" : "",
     ].filter(Boolean);
+    const radarTitle = runActive
+      ? "Buscando empresas"
+      : hasSearched
+        ? (items.length > 0 ? "Busca concluída" : "Nenhuma empresa encontrada")
+        : "Radar pronto";
+    const radarStatus = runActive
+      ? `Mapeando ${city || "sua região"}${runProgress != null ? ` · ${runProgress}%` : "…"}`
+      : hasSearched
+        ? (items.length > 0
+          ? `${fmtInt(items.length)} empresa${items.length === 1 ? " encontrada" : "s encontradas"}`
+          : "Tente outra cidade ou segmento.")
+        : canSearch
+          ? "Tudo pronto para buscar."
+          : "Preencha os filtros para começar.";
 
     return (
-      <div className="radar-console radar-showoff">
-        {/* Show-off do Radar: disco-sonar protagonista (puro enfeite) + ESPELHO dos
-            filtros ativos + status ao vivo. Os INPUTS saíram daqui pra barra de
-            comando no topo dos resultados (redesenho 05/07) — o aside deixou de ser
-            um paredão de campos e virou a vitrine do que o Radar está varrendo. */}
+      <div className="radar-console radar-showoff radar-viewer">
         <div className="radar-hero">
           <div className="radar-hero__disc">
             <RadarDisc />
           </div>
           <div className="radar-hero__copy">
             <span className="radar-hero__eyebrow">Radar HBX</span>
-            <h2 className="radar-hero__title">Buscar empresas</h2>
+            <h2 className="radar-hero__title">{radarTitle}</h2>
+            <p className="radar-viewer__status">{radarStatus}</p>
           </div>
         </div>
 
-        {/* Espelho dos filtros ativos — mostra o que a barra de comando vai varrer */}
-        <div className="radar-showoff__mirror">
-          <span className="radar-showoff__mirror-lbl">Varrendo por</span>
-          {activeSummary.length > 0 ? (
-            <div className="radar-showoff__chips">
-              {activeSummary.map((t, i) => <span key={i} className="radar-showoff__chip">{t}</span>)}
-            </div>
-          ) : (
-            <p className="radar-showoff__empty">Escolha segmento e cidade na barra acima e clique em Buscar.</p>
-          )}
-        </div>
-
-        {/* Status REAL de uma busca em andamento (feedback de operação async — não
-            é o disco decorativo narrando estado). */}
-        {runActive && (
-          <div className="radar2-live radar2-live--funcionando">
-            <span className="dot" /> Varrendo {city || "…"} · {fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+        {activeSummary.length > 0 && (
+          <div className="radar-showoff__chips radar-viewer__chips">
+            {activeSummary.map((text, index) => <span key={index} className="radar-showoff__chip">{text}</span>)}
           </div>
         )}
-        {savedMsg && <p className="hint" style={{ margin: 0 }}>{savedMsg}</p>}
-        {searchMsg && <p className="hint" style={{ margin: 0 }}>{searchMsg}</p>}
+
+        {!runActive && hasSearched && items.length === 0 && searchMsg && (
+          <p className="radar-viewer__feedback">{searchMsg}</p>
+        )}
       </div>
     );
   }
@@ -1735,7 +1758,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   }}
                 >
                   <span className="row-dense__id">
-                    {tab === "shelf" && (
+                    {tab === "shelf" && hasSearched && (
                       <label className="row-dense__pick" onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
@@ -1779,7 +1802,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                         <I d={ICONS.msg} size={13} />
                       </button>
                     )}
-                    {tab === "shelf" ? (
+                    {tab === "shelf" && hasSearched ? (
                       <button
                         type="button"
                         className="btn-teal btn-xs"
@@ -1870,8 +1893,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                     <button
                       type="button"
                       className="btn-ghost btn-xs leads-bulk-select"
-                      disabled={items.length === 0}
-                      aria-pressed={items.length > 0 && selected.size === items.length}
+                      disabled={!hasSearched || items.length === 0}
+                      aria-pressed={hasSearched && items.length > 0 && selected.size === items.length}
                       onClick={() => {
                         if (selected.size === items.length && items.length > 0) {
                           setSelected(new Set());
@@ -1912,7 +1935,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 </div>
 
                 <div className="leads-headrow__end">
-                  {tab === "shelf" && (
+                  {tab === "shelf" && (hasSearched ? (
                     <button
                       type="button"
                       className="btn-teal radar2-pull-btn leads-bulk-pull"
@@ -1920,11 +1943,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       onClick={puxarSelecionados}
                       disabled={selected.size === 0 || meterBlocked || bulkBusy}
                     >
-                      <I d={ICONS.check} size={13} /> {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                      {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
                     </button>
-                  )}
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs leads-history-clear"
+                      onClick={() => { setHistoryHidden(true); setSelected(new Set()); setSelLead(null); }}
+                      disabled={!hasHistory}
+                      title={hasHistory ? "Remover o histórico exibido" : "Nenhum histórico para excluir"}
+                    >
+                      <I d={ICONS.x} size={13} /> Excluir histórico
+                    </button>
+                  ))}
                 </div>
               </div>
+              {hasHistory && <div className="leads-history-note">Histórico recente</div>}
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
@@ -1965,7 +1999,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                               className={"be-card" + (isSel ? " be-card--sel" : "") + (checked ? " be-card--checked" : "")}
                               onClick={() => setSelLead(isSel ? null : row)}
                             >
-                              {tab === "shelf" && (
+                              {tab === "shelf" && hasSearched && (
                                 <label className="be-card__pick" onClick={e => e.stopPropagation()}>
                                   <input
                                     type="checkbox"
@@ -2015,9 +2049,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                                     : <span>{row.phone || row.email || "—"}</span>}
                                 </div>
                                 <div onClick={e => e.stopPropagation()}>
-                                  {tab === "shelf"
+                                  {tab === "shelf" && hasSearched
                                     ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
-                                    : <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>}
+                                    : tab === "carteira"
+                                      ? <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>
+                                      : null}
                                 </div>
                               </div>
                             </article>
