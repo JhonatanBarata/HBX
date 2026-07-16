@@ -1,4 +1,5 @@
 import java.io.FileInputStream
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -45,6 +46,26 @@ val debugWebBaseUrl = providers.gradleProperty("hbxWebBaseUrl")
     .orElse(productionWebBaseUrl)
     .get()
     .trimEnd('/')
+val videoStudioApiBaseUrl = providers.gradleProperty("hbxVideoApiBaseUrl")
+    .orElse("http://127.0.0.1:3210")
+    .get()
+    .trimEnd('/')
+val videoStudioWebBaseUrl = providers.gradleProperty("hbxVideoWebBaseUrl")
+    .orElse("http://127.0.0.1:3210")
+    .get()
+    .trimEnd('/')
+
+fun requireVideoLoopback(value: String, name: String) {
+    val uri = runCatching { URI(value) }.getOrNull()
+    require(
+        uri != null && uri.scheme in setOf("http", "https") &&
+            uri.host in setOf("127.0.0.1", "localhost", "::1") &&
+            uri.userInfo == null,
+    ) { "$name do Video Studio deve usar somente loopback; recebido: $value" }
+}
+
+requireVideoLoopback(videoStudioApiBaseUrl, "hbxVideoApiBaseUrl")
+requireVideoLoopback(videoStudioWebBaseUrl, "hbxVideoWebBaseUrl")
 
 android {
     namespace = "br.com.hbxsystem.entrega"
@@ -59,6 +80,7 @@ android {
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
         buildConfigField("String", "APP_MODE", buildConfigString("vendas"))
+        buildConfigField("boolean", "VIDEO_STUDIO", "false")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", buildConfigString(googleWebClientId))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
         manifestPlaceholders["hbxAppLabel"] = "HBX Vendas"
@@ -104,6 +126,18 @@ android {
             if (releaseSigningReady) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+        create("videoStudio") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".videostudio"
+            versionNameSuffix = "-video"
+            buildConfigField("String", "API_BASE_URL", buildConfigString(videoStudioApiBaseUrl))
+            buildConfigField("String", "WEB_BASE_URL", buildConfigString(videoStudioWebBaseUrl))
+            buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", buildConfigString("video-studio-local"))
+            buildConfigField("boolean", "VIDEO_STUDIO", "true")
+            manifestPlaceholders["hbxUsesCleartextTraffic"] = "true"
+            manifestPlaceholders["hbxAppLabel"] = "HBX Video Studio"
+            matchingFallbacks += listOf("debug")
         }
         release {
             // A autoridade continua no servidor; R8 apenas remove o caminho fácil de
@@ -163,6 +197,7 @@ val prepareMobileVendasAssets = tasks.register<Sync>("prepareMobileVendasAssets"
 
 android.sourceSets.getByName("logistica").assets.srcDir(generatedMobileVendasAssets)
 tasks.configureEach {
+    if (name.endsWith("VideoStudioGoogleServices")) enabled = false
     val empacotaAssetsLogistica = name.startsWith("mergeLogistica") && name.endsWith("Assets")
     val validaAssetsLogistica = name.contains("Logistica") && name.contains("lint", ignoreCase = true)
     if (empacotaAssetsLogistica || validaAssetsLogistica) {

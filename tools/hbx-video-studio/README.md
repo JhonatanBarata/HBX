@@ -2,14 +2,14 @@
 
 Estúdio local e reproduzível para gerar o vídeo comercial e os tutoriais do **HBX Entregas** a partir do próprio produto.
 
-Ele não filma a tela inteira de forma improvisada e não consulta produção. O fluxo é:
+Ele não consulta produção. O fluxo separa cada material pela interface que ele realmente representa:
 
 1. reutilizar a abertura oficial em `EntregaShell/app/src/logistica/assets/app/opening.html`;
 2. renderizar as telas reais de `/entrega`, `/entrega/clientes` e `/entrega/produtos`;
 3. interceptar as APIs com dados inteiramente fictícios;
-4. dirigir cada ação com Playwright;
-5. montar MP4 vertical e horizontal, poster, legenda e roteiro com FFmpeg;
-6. substituir, quando necessário, uma cena por uma tomada Android nativa feita via ADB.
+4. dirigir o comercial e o tutorial administrativo no sistema web completo (1600 × 900) com Playwright;
+5. gravar as ações do entregador no aplicativo Android real, usando o APK isolado `videoStudio` e uma API local;
+6. montar MP4 vertical e horizontal, poster, legenda e roteiro com FFmpeg.
 
 A abertura original não é alterada. A variante comercial é injetada apenas no servidor local do estúdio.
 
@@ -39,7 +39,7 @@ Os arquivos ficam em `tools/hbx-video-studio/output/` e não entram no Git.
 - FFmpeg disponível no `PATH`;
 - frontend do HBX rodando, normalmente em `http://127.0.0.1:3001`.
 
-ADB é opcional e só é necessário para cenas que dependem do Android real.
+ADB é obrigatório para produzir do zero o tutorial do entregador. O comercial e o tutorial administrativo não dependem dele.
 
 ## Primeiro uso
 
@@ -119,17 +119,22 @@ Também são aceitos `.mp3` e `.m4a`. O FFmpeg normaliza a voz para aproximadame
 
 O texto da locução é exportado em `output/<alvo>-narracao.md`. As legendas com os tempos finais ficam em `output/<alvo>.srt`.
 
-## Cenas Android nativas
+## Tutorial do entregador no Android
 
-A maior parte do vídeo vem do código. Use o Android real apenas para demonstrar algo que o navegador não reproduz com fidelidade, por exemplo:
+As cenas `driver-start`, `driver-stop`, `driver-arrival` e `driver-confirm` devem vir do aparelho Android. O APK usado para vídeo tem o pacote isolado `br.com.hbxsystem.logistica.videostudio`, aceita somente a API local em `127.0.0.1:3210` e não inicializa Firebase, bridge de produção ou tarefas em segundo plano.
 
-- abertura do Google Maps por Intent;
-- pedido de permissão de localização;
-- notificação do Android;
-- GPS em segundo plano;
-- retorno do Maps para o HBX.
+Inicie a API fictícia local, compile e instale o APK:
 
-No Windows, conecte um único aparelho autorizado por depuração USB e execute:
+```powershell
+npm run video:native:server
+npm run video:native:build
+adb reverse tcp:3210 tcp:3210
+adb install -r EntregaShell/app/build/outputs/apk/logistica/videoStudio/app-logistica-videoStudio.apk
+adb shell cmd uimode night yes
+adb shell am start -n br.com.hbxsystem.logistica.videostudio/br.com.hbxsystem.entrega.MainActivity
+```
+
+Use somente o pareamento fictício `123456`. Depois grave cada cena com `native-capture.ps1`, usando exatamente os IDs acima. Exemplo:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/hbx-video-studio/native-capture.ps1 `
@@ -145,7 +150,14 @@ O arquivo será salvo em:
 tools/hbx-video-studio/native/tutorial-entregador/driver-stop.mp4
 ```
 
-Durante `video:render`, qualquer arquivo em `native/<alvo>/<id-da-cena>.<extensão>` substitui automaticamente a gravação Playwright com o mesmo ID. Não é necessário recapturar as outras cenas.
+Durante `video:render`, os quatro arquivos em `native/tutorial-entregador/` são usados na montagem. A captura Playwright desse alvo produz apenas a abertura, o encerramento e o manifesto; ela não simula a tela operacional do celular.
+
+Ao terminar, remova o redirecionamento e restaure o modo visual do aparelho se ele tiver sido alterado:
+
+```powershell
+adb reverse --remove tcp:3210
+adb shell cmd uimode night no
+```
 
 ## Onde alterar o vídeo
 

@@ -167,6 +167,60 @@ export async function installDemoApi(page, state) {
     await json(route, buildSummary(state));
   });
 
+  await page.route(/\/hbx\/api\/logistica\/admin-route\/route(?:\?.*)?$/, async (route) => {
+    await json(route, {
+      ...buildRoute(state),
+      routeStatus: state.started ? 'ACTIVE' : state.generated ? 'PLANNED' : null,
+      routeMode: 'ESSENTIAL',
+    });
+  });
+
+  await page.route(/\/hbx\/api\/logistica\/admin-route\/adjustments(?:\?.*)?$/, async (route) => {
+    const current = buildRoute(state);
+    await json(route, {
+      operationalDate: state.routeDate,
+      today: {
+        existingStops: current.items.length,
+        expectedStops: current.items.length,
+        totalStops: current.items.length,
+        missingGps: 0,
+      },
+      days: [
+        { date: state.routeDate, label: 'Hoje', isToday: true, customers: 6, items: 14 },
+        { date: '2026-07-16', label: 'Quinta-feira', isToday: false, customers: 2, items: 5 },
+      ],
+      pending: [],
+    });
+  });
+
+  await page.route('**/hbx/api/logistica/admin-route/prepare', async (route) => {
+    state.generated = true;
+    await json(route, {
+      operationalDate: state.routeDate,
+      sourceDates: [state.routeDate],
+      movedPending: 0,
+      materialized: buildRoute(state).items.length,
+      skipped: 0,
+      plan: buildRoutePlan(state),
+    });
+    state.started = false;
+  });
+
+  await page.route('**/hbx/api/logistica/admin-route/start', async (route) => {
+    state.generated = true;
+    state.started = true;
+    await json(route, buildRoutePlan(state));
+  });
+
+  await page.route(/\/hbx\/api\/logistica\/admin-route\/history(?:\?.*)?$/, async (route) => {
+    await json(route, {
+      days: [
+        { date: '2026-07-16', label: 'Quinta-feira, 16 de julho', total: 5, delivered: 5, cancelled: 0, pending: 0, immutable: true, status: 'CONCLUÍDA' },
+        { date: '2026-07-15', label: 'Quarta-feira, 15 de julho', total: 6, delivered: 5, cancelled: 0, pending: 1, immutable: true, status: 'PENDENTE' },
+      ],
+    });
+  });
+
   await page.route('**/hbx/api/logistica/dia-preview**', async (route) => {
     await json(route, buildDayPreview(queryValue(route, 'date') || state.routeDate));
   });

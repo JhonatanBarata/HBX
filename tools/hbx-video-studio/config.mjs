@@ -22,7 +22,10 @@ export const OPENING_SOURCE = path.join(
 
 export const BASE_URL = String(process.env.HBX_VIDEO_BASE_URL || 'http://127.0.0.1:3001').replace(/\/$/, '');
 export const FIXED_NOW = process.env.HBX_VIDEO_FIXED_NOW || '2026-07-17T09:41:00-03:00';
-export const CAPTURE_VIEWPORT = Object.freeze({ width: 432, height: 768 });
+export const CAPTURE_VIEWPORTS = Object.freeze({
+  desktop: Object.freeze({ width: 1600, height: 900 }),
+  mobile: Object.freeze({ width: 432, height: 768 }),
+});
 export const VERTICAL_OUTPUT = Object.freeze({ width: 1080, height: 1920 });
 export const HORIZONTAL_OUTPUT = Object.freeze({ width: 1920, height: 1080 });
 export const DEFAULT_FPS = 30;
@@ -32,6 +35,14 @@ export const TARGET_NAMES = Object.freeze([
   'tutorial-admin',
   'tutorial-entregador',
 ]);
+
+export function captureLayoutForTarget(target) {
+  return target === 'tutorial-entregador' ? 'mobile' : 'desktop';
+}
+
+export function captureViewportForTarget(target) {
+  return CAPTURE_VIEWPORTS[captureLayoutForTarget(target)];
+}
 
 export function parseTarget(value) {
   const normalized = String(value || 'all').trim().toLowerCase();

@@ -36,6 +36,8 @@
 		"video:doctor": "node ./tools/hbx-video-studio/preflight.mjs && node ./tools/hbx-video-studio/doctor.mjs",
 		"video:capture": "node ./tools/hbx-video-studio/preflight.mjs && node ./tools/hbx-video-studio/capture.mjs",
 		"video:render": "node ./tools/hbx-video-studio/render.mjs",
+		"video:native:server": "node ./tools/hbx-video-studio/native-demo-server.mjs",
+		"video:native:build": "cd EntregaShell && gradlew.bat :app:assembleLogisticaVideoStudio",
 		"video:all": "npm run video:doctor && npm run video:capture && npm run video:render",
 		"owner:app": "powershell -NoProfile -ExecutionPolicy Bypass -File ./hbx-owner/local-agent/start-owner.ps1",
 		"owner:self-check": "node ./hbx-owner/local-agent/scripts/health-check.js",

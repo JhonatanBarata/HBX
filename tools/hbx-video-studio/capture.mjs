@@ -5,9 +5,10 @@ import { chromium } from '@playwright/test';
 
 import {
   BASE_URL,
-  CAPTURE_VIEWPORT,
   FIXED_NOW,
   WORK_DIR,
+  captureLayoutForTarget,
+  captureViewportForTarget,
   parseArgs,
   parseTarget,
 } from './config.mjs';
@@ -49,6 +50,8 @@ async function addCaptureInitScript(context) {
         localStorage.setItem(onboardKey, '1');
         localStorage.setItem('hbx:entrega:empresa-nome', 'Distribuidora Água Clara');
         localStorage.setItem('hbx:entrega:queue-owner', '700:77');
+        localStorage.setItem('hbx:pele', 'aurora-mod');
+        localStorage.setItem('hbx:mode', 'dark');
       } catch {
         // O script também roda em documentos sem origin; o próximo documento tenta de novo.
       }
@@ -83,14 +86,15 @@ async function addCaptureInitScript(context) {
   );
 }
 
-async function installCaption(page, caption) {
+async function installCaption(page, caption, layout) {
   if (!caption) return;
   const position = caption.position === 'bottom' ? 'bottom' : 'top';
   await page.addStyleTag({
     content: `
       .hbx-video-caption {
-        position:fixed; z-index:2147483646; left:18px; right:18px;
-        ${position === 'bottom' ? 'bottom:92px;' : 'top:72px;'}
+        position:fixed; z-index:2147483646;
+        ${layout === 'desktop' ? 'left:auto;right:32px;width:430px;' : 'left:18px;right:18px;'}
+        ${position === 'bottom' ? (layout === 'desktop' ? 'bottom:32px;' : 'bottom:92px;') : (layout === 'desktop' ? 'top:32px;' : 'top:72px;')}
         pointer-events:none; padding:13px 15px 14px; border-radius:18px;
         color:#f8fbff; background:rgba(4,8,19,.78); border:1px solid rgba(139,226,255,.22);
         box-shadow:0 18px 54px rgba(0,0,0,.34); backdrop-filter:blur(18px) saturate(1.15);
@@ -98,8 +102,8 @@ async function installCaption(page, caption) {
         animation:hbxVideoCaptionIn .55s cubic-bezier(.22,1,.36,1) forwards,
                   hbxVideoCaptionOut .45s 3.25s ease forwards;
       }
-      .hbx-video-caption__eyebrow { color:#9aea35; font-size:9px; font-weight:900; letter-spacing:.2em; }
-      .hbx-video-caption__title { margin-top:7px; font-size:16px; line-height:1.23; font-weight:820; letter-spacing:-.025em; text-wrap:balance; }
+      .hbx-video-caption__eyebrow { color:#9aea35; font-size:${layout === 'desktop' ? 11 : 9}px; font-weight:900; letter-spacing:.2em; }
+      .hbx-video-caption__title { margin-top:7px; font-size:${layout === 'desktop' ? 20 : 16}px; line-height:1.23; font-weight:820; letter-spacing:-.025em; text-wrap:balance; }
       @keyframes hbxVideoCaptionIn { to { opacity:1; transform:none; } }
       @keyframes hbxVideoCaptionOut { to { opacity:0; transform:translateY(${position === 'bottom' ? '9px' : '-9px'}); } }
       .hbx-video-tap {
@@ -164,9 +168,21 @@ async function cancelAutoNavigation(page) {
 async function prepareRouteReady(page) {
   const arrived = page.getByRole('button', { name: 'Cheguei', exact: true });
   if (await arrived.isVisible().catch(() => false)) return;
-  const start = page.getByRole('button', { name: /^Iniciar rota$/ });
-  await start.waitFor({ state: 'visible', timeout: 12_000 });
-  await start.click();
+  const adminStart = page.getByRole('button', { name: 'Começar rota', exact: true });
+  if (!(await adminStart.isVisible().catch(() => false))) {
+    const trace = page.getByRole('button', { name: 'Traçar melhor rota', exact: true });
+    if (await trace.isVisible().catch(() => false)) {
+      await trace.click();
+      await adminStart.waitFor({ state: 'visible', timeout: 18_000 });
+    }
+  }
+  if (await adminStart.isVisible().catch(() => false)) {
+    await adminStart.click();
+  } else {
+    const start = page.getByRole('button', { name: /^Iniciar rota$/ });
+    await start.waitFor({ state: 'visible', timeout: 12_000 });
+    await start.click();
+  }
   await arrived.waitFor({ state: 'visible', timeout: 18_000 });
   await sleep(650);
   await cancelAutoNavigation(page);
@@ -190,7 +206,7 @@ async function runSceneAction(page, scene) {
       await sleep(1_150);
       await search.fill('');
       await sleep(800);
-      const card = page.locator('button.ent-card').filter({ hasText: 'Padaria Primavera' }).first();
+      const card = page.locator('.ent-card').filter({ hasText: 'Padaria Primavera' }).first();
       await visualTap(page, card);
       await page.getByText('Editar cliente', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
       await sleep(1_650);
@@ -205,15 +221,28 @@ async function runSceneAction(page, scene) {
       return;
     }
     case 'generate-preview': {
-      const button = page.getByRole('button', { name: 'Gerar entregas de hoje', exact: true });
-      await visualTap(page, button);
-      await page.getByText('Gerar entregas', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
-      await page.getByText('Padaria Primavera', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+      const adjust = page.getByRole('button', { name: 'Ajustar clientes', exact: true }).first();
+      if (await adjust.isVisible().catch(() => false)) {
+        await visualTap(page, adjust);
+        await page.getByRole('heading', { name: 'Ajustar clientes', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+      } else {
+        const button = page.getByRole('button', { name: 'Gerar entregas de hoje', exact: true });
+        await visualTap(page, button);
+        await page.getByText('Gerar entregas', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+        await page.getByText('Padaria Primavera', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+      }
       await sleep(3_300);
       return;
     }
     case 'start-route': {
-      const button = page.getByRole('button', { name: /^Iniciar rota$/ });
+      const trace = page.getByRole('button', { name: 'Traçar melhor rota', exact: true });
+      if (await trace.isVisible().catch(() => false)) {
+        await visualTap(page, trace);
+        await page.getByRole('button', { name: 'Começar rota', exact: true }).waitFor({ state: 'visible', timeout: 18_000 });
+      }
+      const button = (await page.getByRole('button', { name: 'Começar rota', exact: true }).isVisible().catch(() => false))
+        ? page.getByRole('button', { name: 'Começar rota', exact: true })
+        : page.getByRole('button', { name: /^Iniciar rota$/ });
       await visualTap(page, button);
       await page.getByRole('button', { name: 'Cheguei', exact: true }).waitFor({ state: 'visible', timeout: 18_000 });
       await sleep(1_100);
@@ -224,7 +253,7 @@ async function runSceneAction(page, scene) {
     case 'arrival-adjust': {
       const arrived = page.getByRole('button', { name: 'Cheguei', exact: true });
       await visualTap(page, arrived);
-      await page.getByText('Padaria Primavera', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+      await page.getByRole('dialog').getByText('Padaria Primavera', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
       await sleep(900);
       const plus = page.getByRole('button', { name: 'Mais um Galão 20L' });
       await visualTap(page, plus);
@@ -232,9 +261,12 @@ async function runSceneAction(page, scene) {
       return;
     }
     case 'arrival-confirm': {
-      const arrived = page.getByRole('button', { name: 'Cheguei', exact: true });
-      await visualTap(page, arrived);
-      await page.getByText('Padaria Primavera', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+      const delivered = page.getByRole('button', { name: 'Entregue', exact: true });
+      if (!(await delivered.isVisible().catch(() => false))) {
+        const arrived = page.getByRole('button', { name: 'Cheguei', exact: true });
+        await visualTap(page, arrived);
+      }
+      await page.getByRole('dialog').getByText('Padaria Primavera', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
       await sleep(700);
       const pix = page.getByRole('button', { name: 'Pix', exact: true });
       if (await pix.isVisible().catch(() => false)) await visualTap(page, pix);
@@ -244,9 +276,8 @@ async function runSceneAction(page, scene) {
         await visualTap(page, qr);
         await sleep(1_250);
       }
-      const delivered = page.getByRole('button', { name: 'Entregue', exact: true });
       await visualTap(page, delivered);
-      await page.locator('.ent-sucesso').waitFor({ state: 'visible', timeout: 12_000 });
+      await page.getByRole('dialog').getByText('Mercado Central', { exact: true }).waitFor({ state: 'visible', timeout: 12_000 });
       await sleep(1_650);
       await cancelAutoNavigation(page);
       return;
@@ -271,21 +302,22 @@ function openingUrl(origin) {
   return url.toString();
 }
 
-async function captureScene({ browser, studioOrigin, target, scene, index, rawDir, errorDir }) {
+async function captureScene({ browser, studioOrigin, target, scene, index, rawDir, errorDir, layout, viewport }) {
   const state = createDemoState({ scenario: scene.scenario || 'standard' });
   const geo = firstOpenCoordinates(state);
   const context = await browser.newContext({
-    viewport: CAPTURE_VIEWPORT,
-    screen: CAPTURE_VIEWPORT,
-    isMobile: true,
-    hasTouch: true,
+    viewport,
+    screen: viewport,
+    isMobile: layout === 'mobile',
+    hasTouch: layout === 'mobile',
     deviceScaleFactor: 1,
     locale: 'pt-BR',
     timezoneId: 'America/Sao_Paulo',
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
     geolocation: geo,
-    recordVideo: { dir: rawDir, size: CAPTURE_VIEWPORT },
+    serviceWorkers: 'block',
+    recordVideo: { dir: rawDir, size: viewport },
   });
   await addCaptureInitScript(context);
   await context.grantPermissions(['geolocation'], { origin: BASE_URL });
@@ -296,6 +328,9 @@ async function captureScene({ browser, studioOrigin, target, scene, index, rawDi
   const consoleLines = [];
   page.on('console', (message) => consoleLines.push(`[${message.type()}] ${message.text()}`));
   page.on('pageerror', (error) => consoleLines.push(`[pageerror] ${error.message}`));
+  page.on('response', (response) => {
+    if (response.status() >= 400) consoleLines.push(`[response ${response.status()}] ${response.url()}`);
+  });
 
   let sceneStartedAt = 0;
   try {
@@ -313,7 +348,7 @@ async function captureScene({ browser, studioOrigin, target, scene, index, rawDi
     }
 
     await prepareScene(page, scene);
-    await installCaption(page, scene.caption);
+    await installCaption(page, scene.caption, layout);
     await sleep(240);
     sceneStartedAt = performance.now();
     await runSceneAction(page, scene);
@@ -355,15 +390,27 @@ async function captureTarget({ browser, studioOrigin, target }) {
   const targetDir = path.join(WORK_DIR, target);
   const rawDir = await resetDir(path.join(targetDir, 'raw'));
   const errorDir = await resetDir(path.join(targetDir, 'errors'));
+  const layout = targetConfig.layout || captureLayoutForTarget(target);
+  const viewport = captureViewportForTarget(target);
   const clips = [];
 
   console.log(`\n[video] ${targetConfig.title}`);
   for (let index = 0; index < targetConfig.scenes.length; index += 1) {
     const scene = targetConfig.scenes[index];
     process.stdout.write(`[video] capturando ${index + 1}/${targetConfig.scenes.length}: ${scene.id}... `);
-    const clip = await captureScene({ browser, studioOrigin, target, scene, index, rawDir, errorDir });
+    const clip = scene.source === 'native'
+      ? {
+          id: scene.id,
+          source: scene.source,
+          file: null,
+          trimStart: 0,
+          duration: scene.duration,
+          caption: scene.caption || null,
+          narration: scene.narration || '',
+        }
+      : await captureScene({ browser, studioOrigin, target, scene, index, rawDir, errorDir, layout, viewport });
     clips.push(clip);
-    console.log('ok');
+    console.log(scene.source === 'native' ? 'Android obrigatório' : 'ok');
   }
 
   const manifest = {
@@ -371,7 +418,8 @@ async function captureTarget({ browser, studioOrigin, target }) {
     target,
     title: targetConfig.title,
     capturedAt: new Date().toISOString(),
-    viewport: CAPTURE_VIEWPORT,
+    layout,
+    viewport,
     clips,
   };
   const manifestPath = path.join(targetDir, 'manifest.json');

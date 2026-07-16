@@ -331,6 +331,13 @@
     state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
     refreshDayPreview();
   }
+  function toggleManagedRouteDay(day) {
+    if (!Number.isInteger(day) || day < 1 || day > 7) return;
+    state.daySelection = state.daySelection.includes(day)
+      ? state.daySelection.filter(value => value !== day)
+      : [...state.daySelection, day].sort((a, b) => a - b);
+    refreshDayPreview();
+  }
   function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "" }; }
   function resetClientProductEditor() {
     state.clientProductEditingId = null;
@@ -719,6 +726,13 @@
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
+    // O WebView de alguns aparelhos não entrega de forma confiável o toque
+    // destes chips ao listener delegado do shell. O listener direto mantém a
+    // montagem da rota operável sem duplicar o clique no listener global.
+    app.querySelectorAll("[data-day]").forEach(button => button.addEventListener("click", event => {
+      event.stopPropagation();
+      toggleManagedRouteDay(Number(button.dataset.day));
+    }));
     const modal = app.querySelector(".modal");
     const sheet = app.querySelector(".sheet");
     if (modal && modalScroll) modal.scrollTop = modalScroll;
@@ -972,7 +986,7 @@
     }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
     if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.clientDetail = null; state.clientProducts = []; state.clientProductsError = null; state.clientCepStatus = ""; clientCepRequestId += 1; resetClientProductEditor(); showModal("client-product"); loadClientProducts(); loadClientDetail(); } return; }
-    if (target.dataset.day) { const day = Number(target.dataset.day); state.daySelection = state.daySelection.includes(day) ? state.daySelection.filter(value => value !== day) : [...state.daySelection, day].sort((a, b) => a - b); refreshDayPreview(); return; }
+    if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
     if (target.dataset.clientProductMode) { state.clientProductMode = target.dataset.clientProductMode; render(); return; }

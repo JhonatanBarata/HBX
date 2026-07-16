@@ -439,6 +439,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun solicitarAtivacaoRota(route: NativeRouteRequest) {
+        if (BuildConfig.VIDEO_STUDIO) {
+            // O APK do estúdio nunca lê localização real nem inicia o serviço de rota.
+            rotaPendente = null
+            return
+        }
         rotaPendente = route
         val disclosure = route.mode == "TRACKED" && !trackingDisclosureAccepted()
         if (temLocalizacao() && temNotificacoes() && !disclosure) {
