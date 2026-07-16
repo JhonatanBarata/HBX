@@ -29,6 +29,7 @@ import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
 import { apiFetch, type ApiError } from "@/lib/api";
+import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { ChannelPresence } from "@/lib/radar-channel-presence";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
@@ -557,7 +558,7 @@ function TypedTextCore({ text, speed, delay }: { text: string; speed: number; de
     return () => { clearTimeout(timer); clearInterval(iv); };
   }, [text, speed, delay]);
 
-  return <span className={"dn-typed" + (done ? " done" : "")}>{shown}</span>;
+  return <span className={"dn-typed" + (done ? " done" : "")} title={text}>{shown}</span>;
 }
 
 function TypedText({ text, speed = 48, delay = 0 }: { text: string; speed?: number; delay?: number }) {
@@ -2006,7 +2007,7 @@ export function DetalhesNegocio({
               {n.cnpj && (
                 <div className="row dn-kv-row">
                   <span className="k">CNPJ</span>
-                  <span className="v hbx-mono"><TypedText text={n.cnpj} speed={46} delay={60} /></span>
+                  <span className="v hbx-mono"><TypedText text={formatBrCnpj(n.cnpj)} speed={46} delay={60} /></span>
                 </div>
               )}
               {n.razaoSocial && (
@@ -2018,7 +2019,7 @@ export function DetalhesNegocio({
               {n.cnae && (
                 <div className="row dn-kv-row">
                   <span className="k">CNAE</span>
-                  <span className="v"><TypedText text={n.cnae} speed={46} delay={100} /></span>
+                  <span className="v"><TypedText text={formatBrCnae(n.cnae)} speed={46} delay={100} /></span>
                 </div>
               )}
               {n.ownerName && (
@@ -2031,7 +2032,13 @@ export function DetalhesNegocio({
                 <div className="row dn-kv-row">
                   <span className="k">Tel. do dono</span>
                   <span className="v">
-                    <a href={`tel:${n.ownerPhone.replace(/[^\d+]/g, "")}`} className="ctx-phone ctx-phone--inline">{showAgenda ? formatPhoneDisplay(n.ownerPhone) : n.ownerPhone}</a>
+                    <a
+                      href={`tel:${n.ownerPhone.replace(/[^\d+]/g, "")}`}
+                      className="ctx-phone ctx-phone--inline"
+                      title={formatPhoneDisplay(n.ownerPhone)}
+                    >
+                      {showAgenda ? formatPhoneDisplay(n.ownerPhone) : n.ownerPhone}
+                    </a>
                   </span>
                 </div>
               )}
@@ -2433,8 +2440,8 @@ export function DetalhesNegocio({
           <li className="ctx-tl-item" key={ev.id}>
             <span className="ctx-tl-dot" aria-hidden="true" />
             <div className="ctx-tl-body">
-              <span className="ctx-tl-title">{ev.title || "Atualização"}</span>
-              {ev.description && <span className="ctx-tl-desc">{ev.description}</span>}
+              <span className="ctx-tl-title" title={ev.title || undefined}>{ev.title || "Atualização"}</span>
+              {ev.description && <span className="ctx-tl-desc" title={ev.description}>{ev.description}</span>}
               <div className="ctx-tl-foot">
                 {ev.resultLabel && <span className="tag teal">{ev.resultLabel}</span>}
                 {ev.returnAt && <span className="tag warn">Retorno {fmtDate(ev.returnAt)}</span>}

@@ -1323,6 +1323,10 @@ html, body { height: 100%; }
 .lead-cockpit__grid { display: grid; grid-template-columns: minmax(360px, 1.15fr) minmax(320px, 1fr); gap: 14px; align-items: start; }
 .lead-cockpit__col { display: grid; gap: 14px; min-width: 0; align-content: start; }
 .lead-cockpit__box { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--border-hairline); border-radius: var(--radius-md); background: var(--hbx-surface-soft); min-width: 0; }
+.lead-cockpit__box .kv { min-width: 0; overflow: hidden; }
+.lead-cockpit__box .kv .dn-kv-row { display: grid; grid-template-columns: minmax(108px, 0.65fr) minmax(0, 1.35fr); }
+.lead-cockpit__box .kv .v { width: 100%; }
+.lead-cockpit__box .kv .v > a { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lead-cockpit__box-title { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
 .lead-cockpit__box .muted-note { margin: 0; }
 /* Copiloto embutido no topo do box de WhatsApp: a caixa já dá o padding lateral;
@@ -1330,7 +1334,12 @@ html, body { height: 100%; }
 .lead-cockpit__box .copiloto { padding: 0 0 10px; }
 .lead-cockpit__noconn { display: grid; gap: 10px; justify-items: start; }
 .lead-cockpit__noconn .hint { margin: 0; }
-.lead-cockpit__copy { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lead-cockpit__copy { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; width: 100%; }
+.lead-cockpit__copy-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lead-cockpit__copy > .tag,
+.lead-cockpit__copy > button { flex: 0 0 auto; }
+.lead-cockpit .ctx-tl-title,
+.lead-cockpit .ctx-tl-desc { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lead-cockpit__owner { display: inline-flex; align-items: center; gap: 6px; }
 .lead-cockpit__txt { margin: 0; font-size: 0.74rem; line-height: 1.55; color: var(--text-body); white-space: pre-wrap; overflow-wrap: anywhere; }
 .lead-cockpit__block { display: grid; gap: 6px; justify-items: start; }

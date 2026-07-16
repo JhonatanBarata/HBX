@@ -26,12 +26,13 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { Av, I, ICONS, WhatsAppMark, useCurrentUser, useEntitlements, useMyModules, isModuleVisible } from "@/components/hbx/shell";
-import { AgendaLeadPanel, ConversationPanel, LockGate, humanize } from "@/components/hbx/detalhes-negocio";
+import { AgendaLeadPanel, ConversationPanel, LockGate, formatPhoneDisplay, humanize } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
 import { apiFetch } from "@/lib/api";
-import { formatBrPhone, onlyDigits } from "@/lib/br-phone";
+import { onlyDigits } from "@/lib/br-phone";
+import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
 
 // ── Contratos dos extras (fail-soft: erro → "—"/estado vazio) ────────────────
@@ -139,10 +140,13 @@ function sourceModuleLabel(sourceModule?: string | null): string {
 // ── Linhas de ficha (padrão CopyField de /leads/[id] — copy 1-clique) ─────────
 
 function KvRow({ label, children }: { label: string; children: React.ReactNode }) {
+  const title = typeof children === "string" || typeof children === "number"
+    ? String(children)
+    : undefined;
   return (
     <div className="row dn-kv-row">
       <span className="k">{label}</span>
-      <span className="v">{children}</span>
+      <span className="v" title={title}>{children}</span>
     </div>
   );
 }
@@ -172,7 +176,7 @@ function CopyRow({ label, value, mono = true, badge }: {
     <div className="row dn-kv-row">
       <span className="k">{label}</span>
       <span className="v lead-cockpit__copy">
-        <span className={mono ? "hbx-mono" : undefined}>{value}</span>
+        <span className={`lead-cockpit__copy-text${mono ? " hbx-mono" : ""}`} title={value}>{value}</span>
         {badge}
         <button type="button" className="btn-ghost btn-xs" onClick={copiar} title={copied ? "Copiado" : "Copiar"} aria-label={`Copiar ${label}`}>
           <I d={copied ? ICONS.check : ICONS.doc} size={12} />
@@ -625,9 +629,9 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
     // Fallback: sem endpoint/sem match na RFB → só o que o card já tem.
     const fallbackRows = (
       <div className="kv">
-        <CopyRow label="CNPJ" value={c?.cnpj || lead.cnpj} />
+        <CopyRow label="CNPJ" value={formatBrCnpj(c?.cnpj || lead.cnpj)} />
         <CopyRow label="Razão social" value={c?.razaoSocial || lead.razaoSocial} mono={false} />
-        <KvRow label="CNAE">{lead.cnae || "—"}</KvRow>
+        <KvRow label="CNAE">{formatBrCnae(lead.cnae) || "—"}</KvRow>
         <KvRow label="Situação">{lead.companySituation ? humanize(lead.companySituation) : "—"}</KvRow>
       </div>
     );
@@ -650,7 +654,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
     return (
       <React.Fragment>
         <div className="kv">
-          <CopyRow label="CNPJ" value={c.cnpj || lead.cnpj} />
+          <CopyRow label="CNPJ" value={formatBrCnpj(c.cnpj || lead.cnpj)} />
           <CopyRow label="Razão social" value={c.razaoSocial || lead.razaoSocial} mono={false} />
           <KvRow label="Nome fantasia">{c.nomeFantasia || "—"}</KvRow>
           <KvRow label="Situação">
@@ -658,7 +662,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
               ? <span className={"tag" + (String(c.situacao).toLowerCase().includes("ativa") ? " teal" : " warn")}>{humanize(c.situacao)}</span>
               : "—"}
           </KvRow>
-          <KvRow label="CNAE">{c.cnae ? `${c.cnae}${c.cnaeDescription ? ` — ${c.cnaeDescription}` : ""}` : (lead.cnae || "—")}</KvRow>
+          <KvRow label="CNAE">{c.cnae ? `${formatBrCnae(c.cnae)}${c.cnaeDescription ? ` — ${c.cnaeDescription}` : ""}` : (formatBrCnae(lead.cnae) || "—")}</KvRow>
           <KvRow label="Porte">{c.porte || "—"}</KvRow>
           <KvRow label="Capital social">{c.capitalSocial != null ? fmtMoney(c.capitalSocial) : "—"}</KvRow>
           <KvRow label="Natureza jurídica">{c.naturezaJuridica || "—"}</KvRow>
@@ -676,7 +680,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
               {c.partners.map((p, i) => (
                 <div className="row dn-kv-row" key={`p-${i}`}>
                   <span className="k">{p.qualification ? humanize(p.qualification) : "Sócio"}</span>
-                  <span className="v">{p.name || "—"}</span>
+                  <span className="v" title={p.name || undefined}>{p.name || "—"}</span>
                 </div>
               ))}
             </div>
@@ -698,7 +702,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
                 <CopyRow
                   key={`ph-${i}`}
                   label={i === 0 ? "Telefone" : `Telefone ${i + 1}`}
-                  value={formatBrPhone(p) || p}
+                  value={formatPhoneDisplay(p)}
                   badge={waMap[onlyDigits(p)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
                 />
               ))}
@@ -708,7 +712,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
               ))}
               <KvRow label="Site">
                 {lead.website ? (
-                  <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer">
+                  <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" title={lead.website}>
                     {lead.website}
                   </a>
                 ) : "—"}
@@ -757,8 +761,8 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
                   <li className="ctx-tl-item" key={ev.id}>
                     <span className="ctx-tl-dot" aria-hidden="true" />
                     <div className="ctx-tl-body">
-                      <span className="ctx-tl-title">{ev.title || "Atualização"}</span>
-                      {ev.description && <span className="ctx-tl-desc">{ev.description}</span>}
+                      <span className="ctx-tl-title" title={ev.title || undefined}>{ev.title || "Atualização"}</span>
+                      {ev.description && <span className="ctx-tl-desc" title={ev.description}>{ev.description}</span>}
                       <div className="ctx-tl-foot">
                         {ev.resultLabel && <span className="tag teal">{ev.resultLabel}</span>}
                         {ev.returnAt && <span className="tag warn">Retorno {fmtDate(ev.returnAt)}</span>}
@@ -899,8 +903,8 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
           <div className="lead-cockpit__head">
             <Av name={lead.name || "—"} size={46} />
             <div className="lead-cockpit__id">
-              <h3 className="lead-cockpit__name">{lead.name || "—"}</h3>
-              <span className="lead-cockpit__sub">
+              <h3 className="lead-cockpit__name" title={lead.name || undefined}>{lead.name || "—"}</h3>
+              <span className="lead-cockpit__sub" title={[lead.razaoSocial, lead.segment, cityUf].filter(Boolean).join(" • ") || undefined}>
                 {[lead.razaoSocial, lead.segment, cityUf].filter(Boolean).join(" • ") || "—"}
               </span>
               <div className="lead-cockpit__badges">

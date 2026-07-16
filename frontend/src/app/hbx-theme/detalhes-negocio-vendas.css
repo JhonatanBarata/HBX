@@ -91,14 +91,21 @@
   font-size: 1rem;
   line-height: 1.14;
   letter-spacing: -0.02em;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dn-root--vendas .ctx-hero .sub--seg {
   margin-top: 2px;
   color: var(--text-body);
   font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dn-root--vendas .ctx-hero .sub--loc {
@@ -107,6 +114,16 @@
   gap: 4px;
   margin-top: 2px;
   line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dn-root--vendas .ctx-hero .sub--loc > .dn-typed {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dn-root--vendas .ctx-tags {
@@ -186,6 +203,35 @@
   display: grid;
   gap: 8px !important;
   min-width: 0;
+}
+
+.dn-root--vendas .kv .row {
+  display: grid;
+  grid-template-columns: minmax(78px, 0.55fr) minmax(0, 1.45fr);
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dn-root--vendas .kv .v,
+.dn-root--vendas .kv .v > .dn-typed,
+.dn-root--vendas .kv .v > a {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-root--vendas .ctx-tl-title,
+.dn-root--vendas .ctx-tl-desc {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dn-root--vendas .dn-contact-primary-card {
@@ -291,7 +337,9 @@
 
 .dn-root--vendas .dn-contact-block > .row.dn-kv-row .v {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dn-root--vendas .dn-zone--convo,
