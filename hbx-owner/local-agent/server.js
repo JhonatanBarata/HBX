@@ -3515,6 +3515,22 @@ async function route(req, res) {
     sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
     return;
   }
+  if (req.method === "POST" && url.pathname === "/owner/ponte/control") {
+    const body = await readBody(req);
+    if (typeof body.enabled !== "boolean") {
+      sendError(res, 400, "O campo enabled deve ser booleano.");
+      return;
+    }
+
+    const ok = body.enabled ? ponteWorker.start() : (ponteWorker.stop(), true);
+    const ponte = ponteWorker.status();
+    sendJson(res, ok ? 200 : 409, {
+      ok,
+      ponte,
+      reason: ok ? undefined : "A ponte está desabilitada pela configuração local HBX_PONTE_WORKER_ENABLED.",
+    });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/owner/ponte/warm") {
     const r = await ponteWorker.warm();
     sendJson(res, 200, { ok: Boolean(r && r.ok), warm: r, ponte: ponteWorker.status() });

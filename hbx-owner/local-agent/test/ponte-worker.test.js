@@ -267,5 +267,21 @@ test("worker DESLIGADO (flag OFF) não inicia loop", () => {
   const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv({ HBX_PONTE_WORKER_ENABLED: "" }) });
   assert.equal(w.start(), false);
   assert.equal(w.status().enabled, false);
+  assert.equal(w.status().manualEnabled, false);
+  assert.equal(w.status().running, false);
+});
+
+test("controle manual reflete o loop efetivamente ligado ou desligado", () => {
+  const backend = makeBackend({});
+  const ollama = makeOllama({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+
+  assert.equal(w.status().manualEnabled, false);
+  assert.equal(w.start(), true);
+  assert.equal(w.status().manualEnabled, true);
+  assert.equal(w.status().running, true);
+
+  w.stop();
+  assert.equal(w.status().manualEnabled, false);
   assert.equal(w.status().running, false);
 });

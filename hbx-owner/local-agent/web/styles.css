@@ -30,7 +30,7 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
@@ -152,12 +152,27 @@ body {
 }
 .btn:hover { filter: brightness(1.07); }
 .btn:active { transform: translateY(1px); }
+.btn:focus-visible, .icon-btn:focus-visible, .cf-input:focus-visible, summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 42%, transparent);
+  outline-offset: 2px;
+}
 .btn-green { background: var(--green); }
 .btn-amber { background: var(--amber); }
 .btn-blue { background: var(--blue); }
 .btn-red { background: var(--red); }
+.btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
 .btn-sm { padding: 6px 12px; font-size: .78rem; border-radius: 8px; }
 .btn:disabled { opacity: .55; cursor: default; filter: none; }
+
+.operation-feedback {
+  min-height: 1.1em;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: .8rem;
+}
+.operation-feedback.is-success { color: var(--green); font-weight: 650; }
+.operation-feedback.is-warning { color: var(--amber); font-weight: 650; }
+.operation-feedback.is-error { color: var(--red); font-weight: 650; }
 
 /* Local Lab on/off (pré-requisito do export local → VPS) */
 .lab-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0 2px; }
@@ -599,6 +614,28 @@ body {
 .enr-controls { gap: 10px; }
 .enr-controls .lab-state { font-size: .78rem; }
 
+/* IA local: Ollama hospeda o modelo; a ponte atende os trabalhos do VPS. */
+.ai-bridge-card { overflow: hidden; }
+.ai-bridge-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.ai-bridge-intro { min-width: 0; }
+.ai-bridge-intro p { margin: 7px 0 0; color: var(--text-muted); font-size: .82rem; line-height: 1.45; }
+.ai-bridge-actions { flex: none; }
+.ai-bridge-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.ai-bridge-summary .metric { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.ai-bridge-summary .metric strong { font-size: 1.35rem; }
+.ai-bridge-model { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 10px; }
+.ai-bridge-model strong { display: block; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-bridge-metrics { margin: 12px 0; }
+.ai-bridge-metrics .metric strong { font-size: 1.1rem; }
+@media (max-width: 760px) {
+  .ai-bridge-head, .ai-bridge-model { align-items: stretch; flex-direction: column; }
+  .ai-bridge-actions .btn, .ai-bridge-model .btn { width: 100%; }
+  .ai-bridge-summary, .ai-bridge-metrics { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 460px) {
+  .ai-bridge-summary, .ai-bridge-metrics { grid-template-columns: 1fr; }
+}
+
 /* Chaves de API / Integrações
    Layout em colunas (masonry): cada grupo empacota colado no de cima, sem a altura
    acoplada da grid — acaba o espaço morto que o grupo "LOGIN & E-MAIL" (alto) criava. */
@@ -626,15 +663,6 @@ body {
 .v2-col[data-env="vps"] .v2-col-title { color: var(--brand); }
 .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 1180px) { .v2-cols { grid-template-columns: 1fr; } }
-/* gauges do cofre (Fonte de busca — só na direita) */
-.fonte-gauge { margin-bottom: 10px; }
-.fonte-gauge .fg-head { display: flex; align-items: baseline; gap: 8px; font-size: .82rem; }
-.fonte-gauge .fg-name { font-weight: 700; }
-.fonte-gauge .fg-text { margin-left: auto; color: var(--text-muted); font-size: .76rem; }
-.fonte-gauge .bar { margin-top: 4px; }
-.fonte-gauge .bar-fill.warn { background: var(--amber); }
-.fonte-gauge .bar-fill.blocked { background: var(--red); }
-
 /* ══════════ HOT-06 — ▶️ tutorial ao lado de cada bloco de filtro + página Treinamentos ══════════ */
 /* Ícone injetado via JS dentro do <summary> de cada bloco de #cnpj-base (data-tutorial="..."). */
 .tut-link {

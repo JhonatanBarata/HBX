@@ -1851,24 +1851,26 @@ async function confirmVpsKey(key) {
 /* ══════════ OWNERV2 (02/07) — painel único: cartões novos ══════════ */
 
 /* ---------- Fábrica de enriquecimento (coluna LOCAL) ----------
-   Contrato F2 (outro worker implementa o backend): GET /owner/fabrica/status ·
-   POST /owner/fabrica/start {budget} · POST /owner/fabrica/stop. Até o F2 aterrissar,
-   o proxy devolve { ok:false, offline:true } e o card mostra "fábrica offline" — degrade
-   honesto, sem quebrar. O PARAR daqui é o ÚNICO parar do painel (scraping local = seu IP). */
+   GET /owner/fabrica/status · POST /owner/fabrica/start {budget} · POST /owner/fabrica/stop.
+   O PARAR daqui é o ÚNICO parar do painel (scraping local = seu IP). */
+function fabFeedback(message, state = "") {
+  const fb = $("#fab-feedback");
+  if (!fb) return;
+  fb.textContent = message;
+  fb.className = `operation-feedback${state ? ` is-${state}` : ""}`;
+}
+
 async function fabRender() {
   let r;
   try { r = await api("GET", "/owner/fabrica/status"); }
   catch (err) { r = { ok: false, reason: err.message }; }
   const pill = $("#fab-status");
-  const fb = $("#fab-feedback");
   const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "—" : String(v); };
   if (!r || !r.ok) {
-    if (pill) { pill.textContent = r && r.offline ? "fábrica offline" : "sem leitura"; pill.className = "pill pill-muted"; }
-    if (fb) fb.textContent = r && r.offline
-      ? "Backend da fábrica ainda não publicado (F2) — o card liga sozinho quando a rota existir."
-      : `sem leitura: ${(r && (r.reason || r.error)) || "?"}`;
+    if (pill) { pill.textContent = "falha no backend"; pill.className = "pill pill-bad"; }
+    fabFeedback(`A fábrica não respondeu: ${(r && (r.reason || r.error)) || "erro desconhecido"}.`, "error");
     set("#fab-processed"); set("#fab-budget-left"); set("#fab-current"); set("#fab-errors");
-    return;
+    return r;
   }
   const running = Boolean(r.running || r.active || r.status === "running");
   if (pill) {
@@ -1879,37 +1881,46 @@ async function fabRender() {
   set("#fab-budget-left", r.budgetLeft != null ? r.budgetLeft : (r.budget != null && r.processed != null ? Math.max(0, r.budget - r.processed) : null));
   set("#fab-current", r.currentLead || r.current || null);
   set("#fab-errors", r.errors);
-  if (fb) fb.textContent = r.message || (running ? "Enriquecendo a base — para sozinha no fim do budget." : "Parada. Informe o budget e aperte Iniciar.");
+  fabFeedback(r.message || (running ? "Enriquecendo a base — para sozinha no fim do limite." : "Parada. Informe o limite e aperte Iniciar."), running ? "success" : "");
+  return r;
 }
 
 async function fabStart() {
   const input = $("#fab-budget");
-  const fb = $("#fab-feedback");
+  const pill = $("#fab-status");
   const budget = input ? Math.trunc(Number(input.value)) : NaN;
   if (!Number.isFinite(budget) || budget < 1) {
-    if (fb) fb.textContent = "Budget obrigatório: diga QUANTOS leads scrapear (ex.: 200) antes de iniciar.";
+    fabFeedback("Informe quantos leads devem ser processados antes de iniciar (ex.: 200).", "error");
     if (input) input.focus();
     return;
   }
   const btn = $("#btn-fab-start");
-  if (btn) btn.disabled = true;
+  const initialLabel = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = "Iniciando…"; }
+  fabFeedback("Enviando o comando ao backend…");
   try {
     const r = await api("POST", "/owner/fabrica/start", { budget });
-    if (fb) fb.textContent = r && r.ok ? `Fábrica iniciada — para sozinha depois de ${budget} leads.`
-      : (r && r.offline ? "Fábrica offline (backend F2 ainda não publicado)." : `falhou: ${(r && r.reason) || "?"}`);
-  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
-  finally { if (btn) btn.disabled = false; fabRender(); }
+    if (!r || !r.ok) throw new Error((r && (r.reason || r.error)) || "o backend não confirmou o início");
+    const status = await fabRender();
+    const running = Boolean(status && (status.running || status.active || status.status === "running"));
+    if (running) fabFeedback(`Fábrica iniciada e confirmada — limite de ${budget} leads.`, "success");
+    else fabFeedback("O backend aceitou o comando, mas a execução ainda não apareceu como ativa.", "warning");
+  } catch (err) {
+    if (pill) { pill.textContent = "não iniciou"; pill.className = "pill pill-bad"; }
+    fabFeedback(`Não iniciou: ${err.message}.`, "error");
+  } finally {
+    if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); btn.textContent = initialLabel; }
+  }
 }
 
 async function fabStop() {
-  const fb = $("#fab-feedback");
   const btn = $("#btn-fab-stop");
   if (btn) btn.disabled = true;
   try {
     const r = await api("POST", "/owner/fabrica/stop", {});
-    if (fb) fb.textContent = r && r.ok ? "PARADA — o scraping local congelou."
-      : (r && r.offline ? "Fábrica offline (nada rodando pra parar)." : `falhou: ${(r && r.reason) || "?"}`);
-  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+    if (r && r.ok) fabFeedback("Parada confirmada — o scraping local foi interrompido.", "success");
+    else fabFeedback(`Não foi possível parar: ${(r && (r.reason || r.error)) || "erro desconhecido"}.`, "error");
+  } catch (err) { fabFeedback(`Não foi possível parar: ${err.message}.`, "error"); }
   finally { if (btn) btn.disabled = false; fabRender(); }
 }
 
@@ -1937,21 +1948,36 @@ async function aiLocalRender() {
 async function aiWarmClick() {
   const fb = $("#ai-local-feedback");
   const btn = $("#btn-ai-warm");
-  if (btn) btn.disabled = true;
-  if (fb) fb.textContent = "aquecendo o 30b…";
+  if (!btn || (btn.dataset.warm !== "true" && btn.dataset.warm !== "false")) return;
+  const unload = btn.dataset.warm === "true";
+  let outcome = null;
+  btn.dataset.busy = "true";
+  btn.disabled = true;
+  btn.textContent = "Confirmando…";
+  if (fb) fb.textContent = unload ? "liberando o 30B da memória…" : "aquecendo o 30B…";
   try {
-    const r = await api("POST", "/owner/ai/warm", { model: "qwen3:30b-a3b-instruct-2507-q4_K_M" });
-    if (fb) fb.textContent = r && r.ok ? "30b aquecido (na RAM)." : `falhou: ${(r && r.reason) || "?"}`;
-  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
-  finally { if (btn) btn.disabled = false; }
+    const r = await api("POST", unload ? "/owner/ponte/unload" : "/owner/ponte/warm");
+    if (!r || !r.ok) throw new Error((r && (r.reason || r.error)) || "o backend não confirmou o comando");
+    const confirmed = await ponteRender();
+    if (!confirmed || Boolean(confirmed.warm) === unload) {
+      throw new Error("o estado reconsultado não confirmou a mudança");
+    }
+    outcome = unload ? "30B removido da memória." : "30B aquecido e confirmado na memória.";
+  } catch (err) {
+    outcome = `O modelo não mudou: ${err.message}.`;
+  } finally {
+    delete btn.dataset.busy;
+    await ponteRender();
+    if (fb) {
+      fb.textContent = outcome;
+      fb.className = `operation-feedback ${outcome && outcome.startsWith("O modelo não") ? "is-error" : "is-success"}`;
+    }
+  }
 }
 
-/* ---------- CÉREBRO 30B — cockpit da PONTE (CHIP E2, 05/07) ----------
-   Lê GET /owner/ponte/status (worker de lib/ponte-worker.js, instanciado no server.js desde o
-   CHIP E1). Tudo que o painel mostra vem do MESMO status() que o worker já expõe — nenhum cálculo
-   novo aqui, só apresentação. AQUECIMENTO ELÁSTICO VISÍVEL (decisão do dono 05/07, sem cron): o
-   painel explica O PORQUÊ do estado atual via lastReason (ex.: "cedendo a vez — 2 usuário(s)
-   ativo(s)", "30B frio — aquecer antes de leasear", "fila vazia — nada a processar"). */
+/* ---------- IA local para o VPS ----------
+   GET /owner/ponte/status é a fonte de verdade. O controle manual da ponte e o estado do modelo
+   são operações diferentes; a interface só confirma mudanças depois de reler esse status. */
 const PONTE_ACTION_LABEL = {
   circuit_open: "disjuntor aberto",
   freia: "cedendo a vez",
@@ -2028,39 +2054,53 @@ function ponteRenderJobs(lastJobs) {
 async function ponteRender() {
   const pill = $("#ponte-status");
   const toggleBtn = $("#btn-ponte-toggle");
+  const modelBtn = $("#btn-ai-warm");
   let r;
   try { r = await api("GET", "/owner/ponte/status"); }
   catch (err) { r = { ok: false, reason: err.message }; }
 
   if (!r || !r.ok || !r.ponte) {
-    // Endpoint ausente (server.js antigo ainda no ar, pré-E1) OU worker não instanciado — degrada
-    // honesto, nunca trava o resto do painel.
+    // Falha de leitura não trava o restante do painel e nunca libera o controle por suposição.
     if (pill) { pill.textContent = "sem leitura"; pill.className = "pill pill-muted"; }
     if (toggleBtn) toggleBtn.disabled = true;
     const verdictTitle = $("#ponte-verdict-title");
     const verdictDetail = $("#ponte-verdict-detail");
-    if (verdictTitle) verdictTitle.textContent = "Sem leitura do worker da ponte";
-    if (verdictDetail) verdictDetail.textContent = (r && r.reason) || "reinicie o local-agent para carregar o CHIP E1/E2.";
+    if (verdictTitle) verdictTitle.textContent = "Sem leitura da ponte";
+    if (verdictDetail) verdictDetail.textContent = (r && r.reason) || "O local-agent não informou o estado da ponte.";
     ponteRenderJobs([]);
     return;
   }
   const p = r.ponte;
 
-  // Endpoint respondeu: a ponte está conectada. O estado quente/frio fica no botão único.
+  // O endpoint respondeu. O botão principal reflete somente o controle real do worker;
+  // quente/frio pertence ao Ollama e fica na ação secundária de aquecimento.
+  const manualEnabled = p.manualEnabled;
   if (pill) {
-    pill.textContent = "conectado";
-    pill.className = "pill pill-ok";
+    const known = typeof manualEnabled === "boolean";
+    pill.textContent = known ? (manualEnabled ? "ponte ligada" : "ponte desligada") : "controle sem leitura";
+    pill.className = `pill ${known ? (manualEnabled ? "pill-ok" : "pill-amber") : "pill-muted"}`;
   }
   if (toggleBtn) {
+    const known = typeof manualEnabled === "boolean";
+    if (known) toggleBtn.dataset.enabled = manualEnabled ? "true" : "false";
+    else delete toggleBtn.dataset.enabled;
+    toggleBtn.setAttribute("aria-pressed", manualEnabled === true ? "true" : "false");
+    toggleBtn.textContent = known ? (manualEnabled ? "Desligar ponte" : "Ligar ponte") : "Controle indisponível";
+    toggleBtn.className = `btn ${manualEnabled === true ? "btn-red" : "btn-green"}`;
+    toggleBtn.title = manualEnabled === true
+      ? "Freio manual: impede esta máquina de buscar novos trabalhos no VPS"
+      : "Override manual: permite que esta máquina volte a buscar trabalhos no VPS";
+    if (toggleBtn.dataset.busy !== "true") toggleBtn.disabled = !known;
+  }
+  if (modelBtn) {
     const warm = Boolean(p.warm);
-    toggleBtn.dataset.warm = warm ? "true" : "false";
-    toggleBtn.setAttribute("aria-pressed", warm ? "true" : "false");
-    toggleBtn.textContent = warm ? "ON · Descarregar" : "OFF · Aquecer";
-    toggleBtn.className = `btn btn-sm ${warm ? "btn-amber" : "btn-blue"}`;
-    toggleBtn.title = warm
-      ? "Descarrega o 30B da RAM agora (keep_alive 0)"
-      : "Aquece o 30B agora (cold-load ~2min, keep_alive -1)";
-    if (toggleBtn.dataset.busy !== "true") toggleBtn.disabled = false;
+    modelBtn.dataset.warm = warm ? "true" : "false";
+    modelBtn.setAttribute("aria-pressed", warm ? "true" : "false");
+    modelBtn.textContent = warm ? "Liberar 30B da memória" : "Aquecer 30B";
+    modelBtn.title = warm
+      ? "Descarrega o 30B da memória; isso não muda o liga/desliga da ponte"
+      : "Carrega o 30B na memória; isso não liga nem desliga a ponte";
+    if (modelBtn.dataset.busy !== "true") modelBtn.disabled = false;
   }
 
   ponteRenderCircuit(p);
@@ -2078,19 +2118,21 @@ async function ponteRender() {
   set("#ponte-failed", totals.failed);
   set("#ponte-coldloads", totals.coldLoads);
 
-  // Verdict: POR QUE o worker está em cada estado — a exigência central do CHIP E2 (aquecimento
-  // elástico VISÍVEL, decisão do dono 05/07: "o painel mostra POR QUE o worker está em cada estado").
+  // Explica por que a ponte está em cada estado sem misturar isso com o estado do modelo.
   const verdictEl = $("#ponte-verdict");
   const verdictIcon = $("#ponte-verdict-icon");
   const verdictTitle = $("#ponte-verdict-title");
   const verdictDetail = $("#ponte-verdict-detail");
-  const action = p.enabled ? (p.lastAction || (p.circuitOpen ? "circuit_open" : null)) : null;
+  const action = manualEnabled === true ? (p.lastAction || (p.circuitOpen ? "circuit_open" : null)) : null;
   const vClass = action ? (PONTE_ACTION_VERDICT_CLASS[action] || "") : "";
   if (verdictEl) verdictEl.className = `verdict-line${vClass ? ` ${vClass}` : ""}`;
   if (verdictIcon) verdictIcon.textContent = action === "work" ? "✓" : (action === "circuit_open" ? "✕" : "•");
-  if (!p.enabled) {
-    if (verdictTitle) verdictTitle.textContent = "Worker desligado";
-    if (verdictDetail) verdictDetail.textContent = "HBX_PONTE_WORKER_ENABLED não está ligado — a fila espera no VPS/backend (estado, não erro).";
+  if (manualEnabled === false) {
+    if (verdictTitle) verdictTitle.textContent = "Ponte desligada pelo dono";
+    if (verdictDetail) verdictDetail.textContent = "Os trabalhos continuam aguardando no VPS até a ponte local voltar.";
+  } else if (typeof manualEnabled !== "boolean") {
+    if (verdictTitle) verdictTitle.textContent = "Controle da ponte sem leitura";
+    if (verdictDetail) verdictDetail.textContent = "O botão permanece bloqueado até o backend informar o estado manual real.";
   } else if (!action) {
     if (verdictTitle) verdictTitle.textContent = "Aguardando 1º ciclo…";
     if (verdictDetail) verdictDetail.textContent = "";
@@ -2106,28 +2148,40 @@ async function ponteRender() {
   if (fb) fb.textContent = p.lastError ? `último aviso: ${p.lastError}` : "";
 
   ponteRenderJobs(p.lastJobs);
+  return p;
+}
+
+function ponteFeedback(message, state = "") {
+  const fb = $("#ponte-feedback");
+  if (!fb) return;
+  fb.textContent = message;
+  fb.className = `operation-feedback${state ? ` is-${state}` : ""}`;
 }
 
 async function ponteToggleClick() {
-  const fb = $("#ponte-feedback");
   const btn = $("#btn-ponte-toggle");
-  const unload = btn && btn.dataset.warm === "true";
+  if (!btn || (btn.dataset.enabled !== "true" && btn.dataset.enabled !== "false")) return;
+  const targetEnabled = btn.dataset.enabled !== "true";
+  let outcome = null;
   if (btn) btn.dataset.busy = "true";
   if (btn) btn.disabled = true;
-  if (fb) fb.textContent = unload
-    ? "descarregando o 30b…"
-    : "aquecendo o 30b (ponte) — cold-load capado leva ~2min…";
+  btn.textContent = "Confirmando…";
+  ponteFeedback(targetEnabled ? "Solicitando ativação da ponte…" : "Solicitando parada da ponte…");
   try {
-    const r = await api("POST", unload ? "/owner/ponte/unload" : "/owner/ponte/warm");
-    if (fb) {
-      fb.textContent = r && r.ok
-        ? (unload ? "30b descarregado (RAM liberada)." : "30b residente (ponte).")
-        : (unload ? "não confirmado — confira /api/ps." : `falhou: ${(r && r.warm && r.warm.reason) || "?"}`);
+    const r = await api("POST", "/owner/ponte/control", { enabled: targetEnabled });
+    if (!r || !r.ok) throw new Error((r && (r.reason || r.error)) || "o backend não confirmou o comando");
+    const confirmed = await ponteRender();
+    if (!confirmed || confirmed.manualEnabled !== targetEnabled) {
+      throw new Error("o estado reconsultado não confirmou a mudança");
     }
-  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
+    outcome = { message: targetEnabled ? "Ponte ligada e confirmada." : "Ponte desligada e confirmada.", state: "success" };
+  } catch (err) {
+    outcome = { message: `A ponte não mudou: ${err.message}.`, state: "error" };
+  }
   finally {
-    if (btn) delete btn.dataset.busy;
+    delete btn.dataset.busy;
     await ponteRender();
+    if (outcome) ponteFeedback(outcome.message, outcome.state);
   }
 }
 
@@ -2141,87 +2195,6 @@ async function ponteResetClick() {
     if (fb) fb.textContent = "disjuntor rearmado — worker volta a processar no próximo ciclo.";
   } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
   finally { if (btn) btn.disabled = false; ponteRender(); }
-}
-
-/* ---------- Cartões do tree-status (coluna VPS: motor de leads + fonte de busca) ----------
-   A aba "Árvore do motor" morreu como aba (OWNERV2); os números dela viram ESTES cartões,
-   lendo o MESMO endpoint agregador (GET /owner/radar/tree-status, cache 10s no backend).
-   Falha parcial = null honesto (padrão herdado do F3): bloco sem leitura mostra "—". */
-function tsBlock(b) { return b && b.ok !== false && !b.error ? (b.data !== undefined ? b.data : b) : null; }
-
-async function treeCardsRender() {
-  let d;
-  try { d = await api("GET", "/owner/radar/tree-status"); }
-  catch (err) { d = { ok: false, reason: err.message }; }
-  const mvPill = $("#mv-status");
-  const fontePill = $("#fonte-status");
-  const gaugesEl = $("#fonte-gauges");
-  const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "—" : String(v); };
-
-  if (!d || (d.ok === false && !d.seed)) {
-    const why = (d && (d.reason || d.error)) || "sem leitura";
-    if (mvPill) { mvPill.textContent = "sem leitura"; mvPill.className = "pill pill-muted"; }
-    if (fontePill) { fontePill.textContent = "sem leitura"; fontePill.className = "pill pill-muted"; }
-    if (gaugesEl) gaugesEl.innerHTML = `<p class="delta">cofre sem leitura: ${esc(why)}</p>`;
-    return;
-  }
-
-  /* Motor de leads: pesquisa (seed/card) + fila (missions) */
-  const seed = tsBlock(d.seed);
-  const card = tsBlock(d.card);
-  const missions = tsBlock(d.missions);
-  set("#mv-runs", seed ? seed.runsToday : null);
-  set("#mv-delivered", card ? card.deliveredToday : null);
-  const lag = missions && missions.lag ? missions.lag : null;
-  set("#mv-queue", missions ? (missions.supported ? (lag ? lag.queuedDue : 0) : "off") : null);
-  set("#mv-fila-estado", !missions ? null : (!missions.supported ? "sem fila" : (missions.paused ? "PAUSADA" : "fluindo")));
-  const split = card && card.split ? card.split : null;
-  const splitEl = $("#mv-split");
-  if (splitEl) {
-    splitEl.textContent = split
-      ? `origem dos cards: rfb+web ${split.rfb_web} · só web ${split.web} · só rfb ${split.rfb} · sem mapa ${split.unmapped}`
-      : "origem dos cards: —";
-  }
-  const noteEl = $("#mv-note");
-  if (noteEl) noteEl.textContent = missions && missions.paused ? "Fila PAUSADA — cursor PARAR TUDO do backend (governor)." : "";
-  if (mvPill) {
-    const paused = Boolean(missions && missions.paused);
-    mvPill.textContent = paused ? "fila pausada" : "fluindo";
-    mvPill.className = "pill " + (paused ? "pill-amber" : "pill-ok");
-  }
-  const genEl = $("#mv-generated");
-  if (genEl && d.generatedAt) genEl.textContent = `lido ${new Date(d.generatedAt).toLocaleTimeString("pt-BR")}`;
-
-  /* Fonte de busca: gauges do cofre (governor por fonte) — SÓ neste lado (direita) */
-  const vault = tsBlock(d.vault);
-  const sources = vault && Array.isArray(vault.sources) ? vault.sources : [];
-  if (fontePill) {
-    fontePill.textContent = sources.length ? `${sources.length} fontes` : "sem leitura";
-    fontePill.className = "pill " + (sources.length ? "pill-ok" : "pill-muted");
-  }
-  if (gaugesEl) {
-    gaugesEl.innerHTML = sources.length ? sources.map((s) => {
-      let text = "";
-      let pct = null;
-      let state = "ok";
-      if (s.counterError) {
-        text = s.tier === "paid" ? "contador ilegível → PAUSADA (fail-closed)" : "contador ilegível (segue)";
-        state = s.tier === "paid" ? "blocked" : "warn";
-      } else if (s.cap != null) {
-        const used = Number(s.used || 0);
-        pct = Math.max(0, Math.min(100, Math.round((used / s.cap) * 100)));
-        text = `${used.toLocaleString("pt-BR")} / ${Number(s.cap).toLocaleString("pt-BR")}${s.period === "day" ? " hoje" : " no mês"}`;
-        state = pct >= 100 ? "blocked" : pct >= 70 ? "warn" : "ok";
-      } else {
-        text = s.allowed === false ? "OFF" : "sem teto fixo";
-      }
-      const barHtml = pct == null ? "" :
-        `<div class="bar sm"><div class="bar-fill ${state === "ok" ? "" : state}" style="width:${pct}%"></div></div>`;
-      return `<div class="fonte-gauge"><div class="fg-head"><span class="fg-name">${esc(s.source)}</span>` +
-        `<span class="pill ${s.tier === "paid" ? "pill-amber" : "pill-muted"}">${s.tier === "paid" ? "pago" : "grátis"}</span>` +
-        `<span class="fg-text">${esc(text)}</span></div>${barHtml}</div>`;
-    }).join("") : '<p class="delta">cofre sem fontes monitoradas.</p>';
-  }
 }
 
 /* ---------- Raio-X de CNPJ em lote (HOT-04) ---------- */
@@ -2734,14 +2707,13 @@ loadCockpit();
 fabRender();
 aiLocalRender();
 ponteRender();
-treeCardsRender();
 xrayJobsRender();
 xrayUpdateLineCount();
 // ─────────────────────────── TIMERS DE POLLING (FALLBACK À PROVA DE BALA) ───────────────────────────
 // Sprint 4: os que o SSE consegue empurrar (system + banco + motores VPS) viram timers GERENCIÁVEIS.
 // Enquanto o SSE está SAUDÁVEL eles rodam DEVAGAR (mantidos vivos só como rede de segurança);
 // se o SSE cair 2× ou não existir (EventSource ausente), voltam ao ritmo ORIGINAL e o painel funciona
-// IDÊNTICO a hoje. Os demais (motor-strip/lab/ping/fábrica/IA/tree/xray) seguem no timer normal — o
+// IDÊNTICO a hoje. Os demais (motor-strip/lab/ping/fábrica/IA/xray) seguem no timer normal — o
 // SSE não os cobre, então nunca são desacelerados.
 const POLL_FAST = { sistema: 5000, vpsEngines: 15000 }; // ritmo original (fallback e boot)
 const POLL_SLOW = { sistema: 45000, vpsEngines: 60000 }; // com SSE vivo: só rede de segurança
@@ -2763,11 +2735,9 @@ setInterval(renderMotorStrip, 12000);
 setInterval(renderEnginesTruth, 10000);  // tabela de motores (no-op se o details estiver fechado)
 setInterval(refreshLabState, 5000);
 setInterval(pingStatus, 10000);          // S2: pílula honesta ≤15s (com o cache 10s do opsAlive, cada poll relê fresco)
-setInterval(fabRender, 10000);           // fábrica de enriquecimento (degrade "offline" até o F2)
+setInterval(fabRender, 10000);           // fábrica de enriquecimento
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
-setInterval(ponteRender, 8000);          // Cérebro 30B · worker da ponte (CHIP E2) — gauge + jobs
-setInterval(treeCardsRender, 20000);     // motor de leads + fonte de busca (tree-status, cache 10s no backend)
-
+setInterval(ponteRender, 8000);          // ponte local: controle, estado e trabalhos
 // ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────
 // EventSource escuta /owner/events?token=<TOKEN> (o header Authorization não passa por EventSource;
 // o agent valida o ?token= só nessa rota). Eventos: `snapshot` (árvore composta), `transfer`, `enricher`.

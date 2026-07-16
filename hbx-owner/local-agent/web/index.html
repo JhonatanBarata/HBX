@@ -57,10 +57,10 @@
             <span id="fab-status" class="pill pill-muted">lendo…</span>
           </div>
           <div class="cockpit-actions">
-            <label class="cf-toggle" title="Orçamento obrigatório: a fábrica para sozinha depois de X leads">só scrapear
-              <input id="fab-budget" class="cf-input" type="number" min="1" step="1" placeholder="X" style="width:80px;" />
+            <label class="cf-toggle" title="A fábrica para sozinha ao atingir este total">Limite de leads
+              <input id="fab-budget" class="cf-input" type="number" min="1" step="1" placeholder="Ex.: 200" aria-label="Limite de leads" style="width:96px;" />
             </label>
-            <button id="btn-fab-start" class="btn btn-sm btn-green" title="Liga a fábrica de enriquecimento com o orçamento informado (obrigatório)">▶ Iniciar</button>
+            <button id="btn-fab-start" class="btn btn-sm btn-green" title="Inicia a fábrica com o limite de leads informado">▶ Iniciar</button>
             <button id="btn-fab-stop" class="btn btn-sm btn-red" title="PARA o scraping local — congela a fábrica (único PARAR do painel; o freio do VPS é o governor)">⏸ Parar</button>
           </div>
         </div>
@@ -70,7 +70,7 @@
           <div class="metric"><span class="label">Lead atual</span><strong id="fab-current" style="font-size:13px;">—</strong></div>
           <div class="metric"><span class="label">Erros</span><strong id="fab-errors">—</strong></div>
         </div>
-        <p id="fab-feedback" class="delta" style="margin-top:8px;">—</p>
+        <p id="fab-feedback" class="operation-feedback" role="status" aria-live="polite">—</p>
 
         <div class="hero-strip-row" style="margin-top:12px;">
           <span class="label">Motores</span>
@@ -99,31 +99,20 @@
         </details>
       </section>
 
-      <!-- IA LOCAL (Ollama :11434 — o que já existia, renomeado) -->
-      <section class="card" id="ia-local">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">IA LOCAL · Ollama</span>
-            <span id="ai-local-status" class="pill pill-muted">lendo…</span>
+      <!-- Uma operação, duas responsabilidades: Ollama hospeda o modelo; a ponte atende o VPS. -->
+      <section class="card ai-bridge-card" id="cerebro-30b">
+        <div class="ai-bridge-head">
+          <div class="ai-bridge-intro">
+            <div class="hero-title">
+              <span class="label">IA local para o VPS</span>
+              <span id="ponte-status" class="pill pill-muted" title="A ponte busca trabalhos no VPS e devolve os resultados">ponte…</span>
+              <span id="ai-local-status" class="pill pill-muted" title="O Ollama mantém o modelo disponível nesta máquina">Ollama…</span>
+            </div>
+            <p>O Ollama fornece o modelo nesta máquina. A ponte busca os trabalhos no VPS e devolve os resultados.</p>
           </div>
-          <button id="btn-ai-warm" class="btn btn-sm btn-blue" title="Pré-carrega o 30b na RAM (evita o 1º hit lento, cold-load ~2min)">🔥 Aquecer 30b</button>
-        </div>
-        <p id="ai-local-models" class="delta" style="margin-top:8px;">—</p>
-        <span id="ai-local-feedback" class="delta"></span>
-      </section>
-
-      <!-- CÉREBRO 30B · cockpit da PONTE (CHIP E2, 05/07) — o worker que puxa missão do backend
-           e processa no 30B local (lib/ponte-worker.js, CHIP E1). Gauge real: residente/frio, fila,
-           throughput, últimos jobs, elástico (POR QUÊ está em cada estado) e disjuntor. -->
-      <section class="card" id="cerebro-30b">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">Cérebro 30B · worker da ponte</span>
-            <span id="ponte-status" class="pill pill-muted">lendo…</span>
-          </div>
-          <div class="cockpit-actions">
-            <button id="btn-ponte-toggle" class="btn btn-sm btn-blue" title="Aquece o 30B agora (cold-load ~2min, keep_alive -1)" aria-pressed="false" disabled>OFF · Aquecer</button>
-            <button id="btn-ponte-reset" class="btn btn-sm btn-red hidden" title="Rearma o disjuntor (some falhas consecutivas e volta a processar)">⟲ Rearmar disjuntor</button>
+          <div class="cockpit-actions ai-bridge-actions">
+            <button id="btn-ponte-toggle" class="btn btn-red" title="Freio manual: liga ou desliga a ponte que recebe trabalhos do VPS" aria-pressed="false" disabled>Lendo ponte…</button>
+            <button id="btn-ponte-reset" class="btn btn-sm btn-red hidden" title="Rearma a ponte depois de falhas consecutivas">⟲ Rearmar</button>
           </div>
         </div>
 
@@ -132,30 +121,38 @@
           <span id="ponte-circuit-reason" class="verdict-detail"></span>
         </div>
 
-        <div class="grid-4" style="margin-top:10px;">
-          <div class="metric"><span class="label">Modelo</span><strong id="ponte-model" style="font-size:12px;">—</strong></div>
-          <div class="metric"><span class="label">Fila (pendentes)</span><strong id="ponte-lag">—</strong></div>
-          <div class="metric"><span class="label">Usuários ativos</span><strong id="ponte-activity">—</strong></div>
-          <div class="metric"><span class="label">Throughput (últimos jobs)</span><strong id="ponte-throughput">—</strong></div>
-        </div>
-        <div class="grid-4" style="margin-top:8px;">
-          <div class="metric"><span class="label">Leaseados</span><strong id="ponte-leased">—</strong></div>
+        <div class="ai-bridge-summary">
+          <div class="metric"><span class="label">Trabalhos esperando</span><strong id="ponte-lag">—</strong></div>
+          <div class="metric"><span class="label">Uso local</span><strong id="ponte-activity">—</strong></div>
           <div class="metric"><span class="label">Concluídos</span><strong id="ponte-completed">—</strong></div>
-          <div class="metric"><span class="label">Falhados</span><strong id="ponte-failed">—</strong></div>
-          <div class="metric"><span class="label">Cold-loads</span><strong id="ponte-coldloads">—</strong></div>
         </div>
 
         <div id="ponte-verdict" class="verdict-line" style="margin-top:12px;">
           <span id="ponte-verdict-icon" class="vdot">•</span><strong id="ponte-verdict-title">Lendo…</strong>
           <span id="ponte-verdict-detail" class="verdict-detail"></span>
         </div>
-        <p id="ponte-feedback" class="delta" style="margin-top:6px;"></p>
+        <p id="ponte-feedback" class="operation-feedback" role="status" aria-live="polite"></p>
 
-        <details id="ponte-jobs-details" class="motor-details" open>
-          <summary class="label">Últimos jobs</summary>
+        <details id="ponte-jobs-details" class="motor-details ai-bridge-details">
+          <summary class="label">Detalhes e últimos trabalhos</summary>
+          <div class="ai-bridge-model">
+            <div>
+              <span class="label">Modelo da ponte</span>
+              <strong id="ponte-model">—</strong>
+            </div>
+            <button id="btn-ai-warm" class="btn btn-sm btn-secondary" title="Carrega o 30B na memória do Ollama; não liga nem desliga a ponte">Aquecer 30B</button>
+          </div>
+          <p id="ai-local-models" class="delta">—</p>
+          <p id="ai-local-feedback" class="operation-feedback" role="status" aria-live="polite"></p>
+          <div class="grid-4 ai-bridge-metrics">
+            <div class="metric"><span class="label">Velocidade estimada</span><strong id="ponte-throughput">—</strong></div>
+            <div class="metric"><span class="label">Recebidos</span><strong id="ponte-leased">—</strong></div>
+            <div class="metric"><span class="label">Falhados</span><strong id="ponte-failed">—</strong></div>
+            <div class="metric"><span class="label">Carregamentos</span><strong id="ponte-coldloads">—</strong></div>
+          </div>
           <div style="overflow-x:auto;">
             <table class="cockpit-table" id="ponte-jobs-table" style="font-size:12px;">
-              <thead><tr><th>Quando</th><th>Tipo</th><th>Resultado</th><th>Latência</th><th>Nota</th></tr></thead>
+              <thead><tr><th>Quando</th><th>Tipo</th><th>Resultado</th><th>Tempo</th><th>Nota</th></tr></thead>
               <tbody id="ponte-jobs-tbody"><tr><td colspan="5" class="delta">lendo…</td></tr></tbody>
             </table>
           </div>
@@ -236,47 +233,6 @@
           <span id="vps-verdict-detail" class="verdict-detail"></span>
         </div>
         <p class="delta" style="margin-top:8px;">Motores atendendo cliente: <strong id="vps-engines-big" style="font-size:14px;">—</strong> · <span id="vps-engines-line">—</span></p>
-      </section>
-
-      <!-- Motor de leads (números do tree-status: pesquisa + fila de missões) — sem botão de parar: VPS é fluido, o freio de lá é o governor -->
-      <section class="card" id="motor-vps">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">Motor de leads · pesquisa &amp; fila</span>
-            <span id="mv-status" class="pill pill-muted">lendo…</span>
-          </div>
-          <span id="mv-generated" class="delta"></span>
-        </div>
-        <div class="grid-4" style="margin-top:10px;">
-          <div class="metric"><span class="label">Buscas hoje</span><strong id="mv-runs">—</strong></div>
-          <div class="metric"><span class="label">Cards entregues hoje</span><strong id="mv-delivered">—</strong></div>
-          <div class="metric"><span class="label">Fila (devidas)</span><strong id="mv-queue">—</strong></div>
-          <div class="metric"><span class="label">Fila · estado</span><strong id="mv-fila-estado">—</strong></div>
-        </div>
-        <p id="mv-split" class="delta" style="margin-top:8px;">origem dos cards: —</p>
-        <p id="mv-note" class="delta"></p>
-      </section>
-
-      <!-- Fonte de busca (gauges pagos — SÓ aqui na direita; a esquerda é 100% grátis) -->
-      <section class="card" id="fonte-busca">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">Fonte de busca · grátis primeiro, pago só reforço</span>
-            <span id="fonte-status" class="pill pill-muted">lendo…</span>
-          </div>
-        </div>
-        <div id="fonte-gauges" style="margin-top:10px;"><p class="delta">lendo cofre…</p></div>
-      </section>
-
-      <!-- IA VPS (read-only — a definir em testes; NÃO inventar backend de IA na VPS) -->
-      <section class="card" id="ia-vps">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">IA VPS</span>
-            <span class="pill pill-muted">a definir em testes</span>
-          </div>
-        </div>
-        <p class="delta" style="margin-top:8px;">Slot reservado: a IA que roda no servidor ainda está em teste. Hoje a inferência é 100% local (coluna esquerda). Quando o dono definir o modelo/host da VPS, este cartão mostra o estado real — nada é inventado aqui.</p>
       </section>
 
       <!-- BANCO · cockpit de leads da VPS + Exportar tudo -->

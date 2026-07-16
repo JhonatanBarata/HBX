@@ -499,6 +499,10 @@ function createPonteWorker(deps) {
     status() {
       return {
         enabled: state.enabled,
+        // Estado operacional controlado pelo painel. A flag `enabled` continua
+        // sendo a trava de configuração; `manualEnabled` informa se o loop está
+        // efetivamente autorizado a buscar novos trabalhos agora.
+        manualEnabled: state.running,
         running: state.running,
         circuitOpen: state.circuitOpen,
         circuitReason: state.circuitReason,
