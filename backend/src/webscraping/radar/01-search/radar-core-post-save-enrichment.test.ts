@@ -162,6 +162,7 @@ test('fila pausada persiste web+social mas nao dispara drain nem fallback', asyn
 test('drain reconstrui contexto minimo e input sem contatos a partir do payload seguro', async () => {
   const instance: any = new (RadarCoreSearchLoopMixin as any)();
   let leased = false;
+  const leaseRequests: any[] = [];
   let captured: any = null;
   let completed = 0;
   let heartbeats = 0;
@@ -169,7 +170,8 @@ test('drain reconstrui contexto minimo e input sem contatos a partir do payload 
   let timerCleared = 0;
   instance.getMissionQueue = () => ({
     enabled: () => true,
-    lease: async () => {
+    lease: async (request: any) => {
+      leaseRequests.push(request);
       if (leased) return { supported: true, paused: false, missions: [] };
       leased = true;
       return {
@@ -209,6 +211,12 @@ test('drain reconstrui contexto minimo e input sem contatos a partir do payload 
   assert.equal(timerStarted, 1, 'heartbeat periódico é iniciado durante o trabalho');
   assert.equal(timerCleared, 1, 'timer é sempre limpo ao terminar');
   assert.equal(completed, 1);
+  assert.ok(leaseRequests.length >= 1);
+  assert.ok(leaseRequests.every((request) => (
+    Array.isArray(request.stages)
+    && request.stages.length === 1
+    && request.stages[0] === 'enrich_search_item'
+  )), 'o consumidor VPS nunca deve leasear stages destinados ao localhost');
 });
 
 test('drain nao processa nem completa missao com lease stale no heartbeat inicial', async () => {
