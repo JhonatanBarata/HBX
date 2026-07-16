@@ -3264,6 +3264,37 @@ model WebscrapingOperationalConfig {
   @@index([enabled, preset])
 }
 
+// Freio durável compartilhado pela fábrica/background e pela fila da ponte.
+// A linha canônica usa key="main"; ausência da linha materializa o default enabled=true.
+model RadarFactoryCursor {
+  id                       String    @id @default(cuid())
+  key                      String    @unique @default("main")
+  enabled                  Boolean   @default(true)
+  forcedOn                 Boolean   @default(false)
+  status                   String    @default("idle")
+  currentState             String?
+  currentCity              String?
+  currentSegment           String?
+  currentTargetType        String    @default("pj")
+  currentStateIndex        Int       @default(0)
+  currentCityIndex         Int       @default(0)
+  currentSegmentIndex      Int       @default(0)
+  currentTargetTypeIndex   Int       @default(0)
+  lastCampaignId           String?
+  lastRunId                String?
+  lastSavedCount           Int       @default(0)
+  lastDuplicateCount       Int       @default(0)
+  lastRejectedCount        Int       @default(0)
+  consecutiveEmptyCount    Int       @default(0)
+  consecutiveFailureCount  Int       @default(0)
+  lastError                String?
+  reasonStopped            String?
+  lastWorkedAt             DateTime?
+  nextRunAt                DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+}
+
 // Fila durável da PONTE local do HBX Owner. O VPS só persiste lease/retry; o nó local
 // puxa por HTTP e executa exclusivamente enrich_lead/xray_note produzidas pela saga paga.
 model RadarMission {
@@ -3292,6 +3323,26 @@ model RadarMission {
   @@index([stage, status, nextAttemptAt])
   @@index([status, leaseExpiresAt])
   @@index([correlationId, status])
+}
+
+// Estado durável da corrida da fábrica de enriquecimento. O backend e o card do Owner
+// compartilham a linha canônica key="main"; o modelo precisa existir no Prisma Client.
+model RadarFabricaRun {
+  id               String    @id @default(cuid())
+  key              String    @unique @default("main")
+  running          Boolean   @default(false)
+  stopRequested    Boolean   @default(false)
+  budget           Int       @default(0)
+  processed        Int       @default(0)
+  materialized     Int       @default(0)
+  contactsWritten  Int       @default(0)
+  paidAttempts     Int       @default(0)
+  lastLeadId       String?
+  lastError        String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }
 
 model HarvestImportBatch {
