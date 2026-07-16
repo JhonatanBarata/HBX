@@ -26,7 +26,7 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
-import { isCompanySeller } from "@/lib/roles";
+
 import { useTabParam } from "@/lib/use-tab-param";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
@@ -408,9 +408,7 @@ export function VendasClient() {
   const userVnd = useCurrentUser();
   const modsVnd = useMyModules();
   const podeBuscarLeads = isModuleVisible("leads", entVnd, userVnd, modsVnd);
-  // Cota/valor/baixa só pro ADMIN (docs/Rules/PAGAMENTOS.md + VENDAS-REFAB invariante
-  // nº6, 04/07): vendedor nunca vê a cota financeira da empresa.
-  const isSellerVnd = isCompanySeller(userVnd);
+
   // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
@@ -1118,18 +1116,11 @@ export function VendasClient() {
                 ]} />
               </div>
               <div className={"vnd-stats__layer" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
+                {/* Cards puxados (mês) foi removido: o indicador não representa
+                    mais uma regra operacional válida. */}
                 <KpiRow items={[
                   { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
                   { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
-                  // Cota/valor/baixa só pro ADMIN — vendedor vê só a carteira dele (o
-                  // /webscraping/radar/standing-order label já vem "Em mãos" pro seller;
-                  // aqui a gente reforça no front pra nunca vazar rótulo/valor de cota
-                  // financeira da empresa por engano num futuro contrato do backend).
-                  // dataTut "leads-cota": âncora REAL do passo "Seu limite" do tour do
-                  // Radar (a âncora antiga morreu no redesign — reancorada aqui, 10/07).
-                  isSellerVnd
-                    ? { icon: "bolt", label: "Em mãos", value: buscarStats.cotaValue || "—", delta: "—", dataTut: "leads-cota" }
-                    : { icon: "bolt", label: buscarStats.cotaLabel || "Cota do mês", value: buscarStats.cotaValue || "—", delta: "—", dataTut: "leads-cota" },
                 ]} />
               </div>
             </div>
