@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HBX Owner</title>
-  <link rel="stylesheet" href="/styles.css?v=20260702v2" />
+  <link rel="stylesheet" href="/styles.css?v=20260716-enricher" />
 </head>
 <body>
   <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
@@ -161,32 +161,39 @@
 
       <!-- Enriquecedor (roda NESTA máquina, com o SEU IP — mira o VPS) -->
       <section class="card" id="enricher">
-        <div class="cockpit-head">
-          <div class="hero-title">
-            <span class="label">Enriquecedor · e-mail / CNPJ / dono</span>
-            <span class="pill pill-muted">mira o VPS</span>
+        <header class="enr-header">
+          <div class="enr-heading">
+            <div class="enr-title-row">
+              <h2>Enriquecedor · e-mail / CNPJ / dono</h2>
+              <span class="pill pill-muted">mira o VPS</span>
+            </div>
             <span id="enr-status" class="pill pill-muted">parado</span>
           </div>
-          <div class="cockpit-actions enr-controls">
+          <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
+        </header>
+
+        <div class="enr-config">
+          <div class="enr-modes">
             <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
             <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
             <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
+          </div>
+          <div class="enr-lab">
             <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
             <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
-            <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
           </div>
         </div>
-        <div class="grid-3" style="margin-top:10px;">
+
+        <div class="enr-metrics">
           <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
           <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
           <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
-        </div>
-        <div class="grid-3" style="margin-top:8px;">
           <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
           <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
           <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
         </div>
-        <p id="enr-feedback" class="delta" style="margin-top:8px;">Desligado.</p>
+
+        <p id="enr-feedback" class="delta" role="status" aria-live="polite">Desligado.</p>
       </section>
 
       <!-- Banco de leads LOCAL + transferência local → VPS -->
