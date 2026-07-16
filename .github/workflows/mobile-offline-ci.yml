@@ -11,6 +11,9 @@ on:
       - 'backend/package.json'
       - 'backend/package-lock.json'
       - 'backend/prisma/**'
+      - 'frontend/src/app/entrega/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
       - 'EntregaShell/**'
       - 'docs/PLANEJAMENTOS/HBX-MOBILE-OFFLINE-ROTA-TESTE.md'
   workflow_dispatch:
@@ -35,12 +38,31 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run prisma:validate
-      - run: npm run build
+      - name: Build backend
+        id: backend_build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../backend-build.log
+      - name: Upload backend build diagnostics
+        if: failure() && steps.backend_build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build-log
+          path: backend-build.log
+          if-no-files-found: error
+          retention-days: 3
+      - name: Admin route and occurrence contracts
+        run: >-
+          node --test
+          dist/logistica/logistica-occurrence.service.test.js
+          dist/logistica/logistica-admin-route.service.test.js
+          dist/logistica/logistica-operacao.service.test.js
       - name: Offline grant tests
         run: node --test dist/logistica/logistica-offline-grant.test.js
       - name: Existing logistics billing tests
@@ -56,6 +78,38 @@ jobs:
           node --check app/src/main/assets/app/native.js
           node --check app/src/logistica/assets/app/app.js
           node --check app/src/logistica/assets/app/offline-controls.js
+
+  frontend:
+    name: Admin mobile frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Build frontend
+        id: frontend_build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../frontend-build.log
+      - name: Upload frontend build diagnostics
+        if: failure() && steps.frontend_build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build-log
+          path: frontend-build.log
+          if-no-files-found: error
+          retention-days: 3
 
   android:
     name: Android logistica debug

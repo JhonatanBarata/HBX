@@ -350,8 +350,10 @@ export class LogisticaOccurrenceService {
             },
           })
         : [];
-      const existingById = new Map(existingRows.map((row: any) => [String(row.id), row]));
-      const existingIds = new Set(existingById.keys());
+      const existingById = new Map<string, any>(
+        existingRows.map((row: any): [string, any] => [String(row.id), row]),
+      );
+      const existingIds = new Set<string>(existingById.keys());
       const legacyCounts = await this.loadLegacyOccurrenceCounts(tx, companyId, sourceDates);
       const legacyCovered = consumeLegacyCoverage(candidates, existingIds, legacyCounts);
       const newCandidates = candidates.filter(
