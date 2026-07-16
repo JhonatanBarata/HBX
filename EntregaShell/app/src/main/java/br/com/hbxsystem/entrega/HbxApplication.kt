@@ -25,6 +25,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
         override fun run() {
             if (BuildConfig.APP_MODE != "logistica" || resumedActivities <= 0) return
             HbxMobileBridge.sendDeviceHeartbeat(this@HbxApplication)
+            OperationalSync.requestFlush(this@HbxApplication)
             mainHandler.postDelayed(this, 30_000L)
         }
     }
@@ -41,6 +42,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
             RotaService.requestStop(this)
         } else {
             TrackingSync.rescheduleIfPending(this)
+            OperationalSync.rescheduleIfPending(this)
         }
         // O HBX Mobile também contém a experiência de Vendas, portanto a
         // mesma ponte de ações e push funciona nos dois flavors.
@@ -55,6 +57,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
             maybeAskNotificationPermission(activity)
             if (BuildConfig.APP_MODE == "logistica") {
                 TrackingSync.requestFlush(this)
+                OperationalSync.requestFlush(this)
                 mainHandler.removeCallbacks(logisticsHeartbeat)
                 mainHandler.post(logisticsHeartbeat)
             }
