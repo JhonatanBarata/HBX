@@ -49,18 +49,17 @@ function buildOccurrenceHarness(input: RecurrenceSeed[], validDriverId = 42) {
     return true;
   };
 
-  const entregaFindMany = async ({ where }: any = {}) => {
-    return Array.from(deliveries.values()).filter((delivery) => {
+  const entregaFindMany = async ({ where }: any = {}) => Array.from(deliveries.values())
+    .filter((delivery) => {
       if (where?.companyId != null && delivery.companyId !== where.companyId) return false;
-      if (!matchesDate(delivery.scheduledAt, where?.scheduledAt)) return false;
-      return true;
-    }).map((delivery) => ({
+      return matchesDate(delivery.scheduledAt, where?.scheduledAt);
+    })
+    .map((delivery) => ({
       ...delivery,
       itens: Array.from(items.values())
         .filter((item) => item.entregaId === delivery.id)
         .map((item) => ({ ...item })),
     }));
-  };
 
   const entregaItemFindMany = async ({ where }: any = {}) => {
     if (where?.id?.in) {
@@ -110,27 +109,23 @@ function buildOccurrenceHarness(input: RecurrenceSeed[], validDriverId = 42) {
     },
     entrega: {
       findMany: entregaFindMany,
-      findFirst: async ({ where }: any) => {
-        return Array.from(deliveries.values()).find((delivery) => {
-          if (delivery.companyId !== where.companyId) return false;
-          if (delivery.customerProfileId !== where.customerProfileId) return false;
-          if ((delivery.localId ?? null) !== (where.localId ?? null)) return false;
-          if (where.status?.in && !where.status.in.includes(delivery.status)) return false;
-          if (!matchesDate(delivery.scheduledAt, where.scheduledAt)) return false;
-          if (Array.isArray(where.OR)) {
-            const driverAllowed = where.OR.some((clause: any) => clause.entregadorId === delivery.entregadorId);
-            if (!driverAllowed) return false;
-          }
-          return true;
-        }) ?? null;
-      },
+      findFirst: async ({ where }: any) => Array.from(deliveries.values()).find((delivery) => {
+        if (delivery.companyId !== where.companyId) return false;
+        if (delivery.customerProfileId !== where.customerProfileId) return false;
+        if ((delivery.localId ?? null) !== (where.localId ?? null)) return false;
+        if (where.status?.in && !where.status.in.includes(delivery.status)) return false;
+        if (!matchesDate(delivery.scheduledAt, where.scheduledAt)) return false;
+        if (Array.isArray(where.OR)) {
+          const driverAllowed = where.OR.some((clause: any) => clause.entregadorId === delivery.entregadorId);
+          if (!driverAllowed) return false;
+        }
+        return true;
+      }) ?? null,
       create: async ({ data }: any) => {
         const id = data.id || `delivery-${++deliverySequence}`;
         const delivery = { id, createdAt: new Date(), rotaOrdem: null, etaAt: null, ...data, itens: undefined };
         deliveries.set(id, delivery);
-        for (const item of data.itens?.create || []) {
-          items.set(item.id, { ...item, entregaId: id });
-        }
+        for (const item of data.itens?.create || []) items.set(item.id, { ...item, entregaId: id });
         return { id, notes: delivery.notes ?? null, entregadorId: delivery.entregadorId ?? null };
       },
       update: async ({ where, data }: any) => {
@@ -263,6 +258,38 @@ test('quarta e sexta do mesmo cliente/local viram uma única parada operacional 
   assert.equal(saoPauloDateKey(harness.recurrences[1].proximaData), '2026-07-24');
 });
 
+test('materialização mantém dados de outra empresa fora da operação', async () => {
+  const harness = buildOccurrenceHarness([
+    weeklySeed(),
+    weeklySeed({
+      id: 'foreign-recurrence',
+      companyId: 8,
+      customerProfileId: 'foreign-customer',
+      productId: 99,
+      product: { id: 99, name: 'Produto externo', price: 99, priceCents: null },
+      customerProfile: {
+        id: 'foreign-customer',
+        name: 'Outra empresa',
+        precoPadrao: null,
+        lat: null,
+        lng: null,
+        geoFonte: null,
+      },
+    }),
+  ]);
+
+  await harness.service.materialize(7, {
+    operationalDate: '2026-07-16',
+    sourceDates: ['2026-07-15'],
+    driverUserId: 42,
+    actorUserId: 42,
+  });
+
+  assert.equal(harness.deliveries.size, 1);
+  assert.ok(harness.items.has('occ_20260715_rec-wed'));
+  assert.ok(!harness.items.has('occ_20260715_foreign-recurrence'));
+});
+
 test('motorista precisa pertencer à mesma empresa antes de materializar', async () => {
   const harness = buildOccurrenceHarness([weeklySeed()], 99);
   await assert.rejects(
@@ -328,7 +355,7 @@ test('preparar traça sem cobrar e começar é a única etapa que inicia a rota 
   assert.equal(planejarCalls.length, 1);
   assert.equal(planejarCalls[0][0], 7);
   assert.equal(planejarCalls[0][2], 42);
-  assert.equal(planejarCalls[0][5], false, 'Traçar não pode cobrar/criar rota comercial');
+  assert.equal(planejarCalls[0][4], false, 'Traçar não pode cobrar/criar rota comercial');
   assert.equal(iniciarCalls.length, 0);
 
   await service.start(7, { operationalDate: '2026-07-16' }, actor);
