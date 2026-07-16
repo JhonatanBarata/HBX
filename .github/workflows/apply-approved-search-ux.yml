@@ -1,0 +1,608 @@
+name: Apply approved company-search UX
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/apply-approved-search-ux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-approved-company-search-ux
+  cancel-in-progress: false
+
+jobs:
+  patch-master:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Apply approved UX changes
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+          import re
+
+          leads_path = Path("frontend/src/app/(app)/leads/page.client.tsx")
+          vendas_path = Path("frontend/src/app/(app)/vendas/page.client.tsx")
+          css_path = Path("frontend/src/app/hbx-theme/screens.css")
+
+          leads = leads_path.read_text(encoding="utf-8")
+          vendas = vendas_path.read_text(encoding="utf-8")
+          css = css_path.read_text(encoding="utf-8")
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          def replace_between(text: str, start: str, end: str, replacement: str, label: str) -> str:
+              start_index = text.find(start)
+              if start_index < 0:
+                  raise SystemExit(f"{label}: start marker not found")
+              end_index = text.find(end, start_index)
+              if end_index < 0:
+                  raise SystemExit(f"{label}: end marker not found")
+              return text[:start_index] + replacement + text[end_index:]
+
+          # Search history is local UI history. It never deletes leads or server data.
+          leads = replace_once(
+              leads,
+              'type Tab = "shelf" | "carteira";\n\n// B0: statuses realmente terminais',
+              '''type Tab = "shelf" | "carteira";
+
+type SearchHistoryItem = {
+  id: string;
+  segment: string;
+  uf: string;
+  city: string;
+  createdAt: string;
+  count: number;
+};
+
+const SEARCH_HISTORY_KEY = "hbx:leads-search-history";
+
+function getStoredSearchHistory(): SearchHistoryItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]") as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is SearchHistoryItem => Boolean(
+        item && typeof item === "object"
+        && typeof (item as SearchHistoryItem).segment === "string"
+        && typeof (item as SearchHistoryItem).uf === "string"
+        && typeof (item as SearchHistoryItem).city === "string"
+        && typeof (item as SearchHistoryItem).createdAt === "string"
+      ))
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
+// B0: statuses realmente terminais''',
+              "history type",
+          )
+
+          leads = replace_once(
+              leads,
+              '  const [runBusy, setRunBusy] = useState(false);\n  const [searchMsg, setSearchMsg] = useState<string | null>(null);\n  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);',
+              '''  const [runBusy, setRunBusy] = useState(false);
+  const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);''',
+              "search state",
+          )
+
+          leads = replace_once(
+              leads,
+              '  const [savedMsg, setSavedMsg] = useState<string | null>(null);\n\n  // WhatsApp action: sessão QR + acesso ao Atendimento',
+              '''  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (!cancelled) setSearchHistory(getStoredSearchHistory());
+    });
+    return () => { cancelled = true; cancelAnimationFrame(id); };
+  }, []);
+
+  // WhatsApp action: sessão QR + acesso ao Atendimento''',
+              "history hydration",
+          )
+
+          leads = replace_once(
+              leads,
+              '  function limparFiltros() {\n',
+              '''  function markSearchDraft() {
+    setHasSearched(false);
+    setRun(null);
+    setLiveRunItems(null);
+    setSelected(new Set());
+    setSearchMsg(null);
+    setLoadError(null);
+  }
+
+  function clearSearchHistory() {
+    setSearchHistory([]);
+    try { localStorage.removeItem(SEARCH_HISTORY_KEY); } catch { /* sem storage */ }
+  }
+
+  function rememberSearch(count: number) {
+    const entry: SearchHistoryItem = {
+      id: `${Date.now()}-${uf}-${city}-${segment}`,
+      segment: segment.trim(),
+      uf: uf.trim(),
+      city: city.trim(),
+      createdAt: new Date().toISOString(),
+      count: Math.max(0, Math.trunc(Number(count) || 0)),
+    };
+    const next = [
+      entry,
+      ...searchHistory.filter(item => !(item.segment === entry.segment && item.uf === entry.uf && item.city === entry.city)),
+    ].slice(0, 5);
+    setSearchHistory(next);
+    try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next)); } catch { /* sem storage */ }
+  }
+
+  function limparFiltros() {
+''',
+              "history helpers",
+          )
+
+          leads = replace_once(
+              leads,
+              '    try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }\n    loadList("shelf", { page: 1, quantosOverride: 5 });\n',
+              '''    try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
+    setHasSearched(false);
+    setLiveRunItems(null);
+''',
+              "clear without request",
+          )
+
+          leads = replace_once(
+              leads,
+              '    setSelected(new Set());\n    setTab("shelf");\n    loadList("shelf", { page: 1 });\n  }\n\n  // ── WORM-15: pesquisas salvas',
+              '''    setSelected(new Set());
+    setTab("shelf");
+    markSearchDraft();
+  }
+
+  // ── WORM-15: pesquisas salvas''',
+              "advanced filters without request",
+          )
+
+          leads = replace_once(
+              leads,
+              '    setSavedBar(false);\n    setSavedMsg(`Pesquisa "${s.nome}" aplicada.`);\n    loadList("shelf", { page: 1, quantosOverride: nextQtd });\n  }',
+              '''    setSavedBar(false);
+    setSavedMsg(`Pesquisa "${s.nome}" aplicada.`);
+    markSearchDraft();
+  }''',
+              "saved search without request",
+          )
+
+          leads = replace_once(
+              leads,
+              '    const faltando: string[] = [];\n    if (!city.trim() && !geo) faltando.push("Cidade");\n    if (!segToCheck.trim()) faltando.push("Segmento");',
+              '''    const faltando: string[] = [];
+    if (!segToCheck.trim()) faltando.push("Segmento");
+    if (!uf.trim()) faltando.push("Estado");
+    if (!city.trim()) faltando.push("Cidade");''',
+              "three required filters",
+          )
+
+          leads = replace_once(
+              leads,
+              '    if (!validarCamposOuPopup(effSegment)) return;\n    setSearchMsg(null);',
+              '''    if (!validarCamposOuPopup(effSegment)) return;
+    setHasSearched(true);
+    setSearchMsg(null);''',
+              "search state on submit",
+          )
+
+          leads = replace_once(
+              leads,
+              '      setSelected(new Set());\n      if (res?.message) setSearchMsg(res.message);',
+              '''      setSelected(new Set());
+      rememberSearch(res?.meta?.deliveredCount ?? res?.items?.length ?? res?.foundCount ?? 0);
+      if (res?.message) setSearchMsg(res.message);''',
+              "remember submitted search",
+          )
+
+          auto_effect = '''  const filtersTouched = useRef(false);
+  useEffect(() => {
+    if (!filtersTouched.current) { filtersTouched.current = true; return; }
+    const handle = setTimeout(() => { setPage(1); setSelected(new Set()); loadList(tab, { page: 1 }); }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segment, city, uf, siteFiltro, zapFiltro]);
+
+'''
+          leads = replace_once(
+              leads,
+              auto_effect,
+              '''  // Alterar filtros só prepara a pesquisa. Nenhuma chamada ao Radar é feita
+  // até a ação explícita do usuário no botão Buscar.
+
+''',
+              "remove automatic filter request",
+          )
+
+          leads = replace_once(
+              leads,
+              '  const showingLiveRun = tab === "shelf" && liveRunItems !== null;\n  const items = showingLiveRun ? (liveRunItems ?? []) : (data?.items || []);',
+              '''  const showingLiveRun = tab === "shelf" && liveRunItems !== null;
+  const rawItems = showingLiveRun ? (liveRunItems ?? []) : (data?.items || []);
+  const items = tab === "shelf" && !hasSearched ? [] : rawItems;''',
+              "hide pool before search",
+          )
+
+          leads = replace_once(
+              leads,
+              '  const cityOptions = uf\n    ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)\n    : [];\n\n  const pageTotal',
+              '''  const cityOptions = uf
+    ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
+    : [];
+  const filtersReady = Boolean(segment.trim() && uf.trim() && city.trim());
+
+  const pageTotal''',
+              "ready state",
+          )
+
+          empty_start = '  const emptyMsg = loadError\n'
+          empty_end = '\n\n  const meterPct = Math.min(100, Math.round('
+          new_empty = '''  const emptyMsg = hasSearched && loadError
+    ? loadError
+    : runActive && tab === "shelf"
+      ? `Procurando empresas em ${city || "sua região"}…`
+      : !hasSearched
+        ? filtersReady
+          ? "Tudo pronto para buscar."
+          : "Preencha segmento, estado e cidade para começar."
+        : searchMsg
+          ? searchMsg
+          : data?.meta?.available === false
+            ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
+            : tab === "carteira"
+              ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
+              : "Nenhuma empresa encontrada para esta combinação.";'''
+          leads = replace_between(leads, empty_start, empty_end, new_empty, "empty state")
+
+          leads = replace_once(
+              leads,
+              '            onChange={e => { setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}',
+              '            onChange={e => { markSearchDraft(); setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}',
+              "segment draft",
+          )
+          leads = replace_once(
+              leads,
+              '              if (e.key === "Enter" && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }',
+              '              if (e.key === "Enter" && filtersReady && !runBusy && !runActive) { e.preventDefault(); setSegMenuOpen(false); executarBusca(); }',
+              "enter validation",
+          )
+          leads = replace_once(
+              leads,
+              '                        onClick={() => { setSegment(o.label); setSegMenuOpen(false); }}',
+              '                        onClick={() => { markSearchDraft(); setSegment(o.label); setSegMenuOpen(false); }}',
+              "segment option draft",
+          )
+          leads = replace_once(
+              leads,
+              '            onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}',
+              '            onChange={e => { markSearchDraft(); setCity(""); setAlcance(""); setUf(e.target.value); }}',
+              "state draft",
+          )
+          leads = replace_once(
+              leads,
+              '            onChange={e => { setAlcance(""); setCity(e.target.value); }}',
+              '            onChange={e => { markSearchDraft(); setAlcance(""); setCity(e.target.value); }}',
+              "city draft",
+          )
+          leads = replace_once(
+              leads,
+              '          <button className="btn-teal be-cmdbar__go" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy}>',
+              '          <button className="btn-teal be-cmdbar__go" data-tut="leads-buscar" onClick={() => executarBusca()} disabled={runBusy || !filtersReady} aria-disabled={runBusy || !filtersReady}>',
+              "disabled search button",
+          )
+
+          toolbar_start = '              <div className="leads-headrow leads-headrow--toolbar">\n'
+          toolbar_end = '              {/* Progresso REAL de uma busca em andamento'
+          new_toolbar = '''              <div className="leads-headrow leads-headrow--toolbar">
+                <div className="leads-headrow__start">
+                  {!embedded && (
+                    <div className="tabs" data-tut="leads-abas">
+                      <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                        Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                      </button>
+                      <button className={"tab" + (tab === "carteira" ? " active" : "")} onClick={() => switchTab("carteira")}>
+                        Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                      </button>
+                    </div>
+                  )}
+                  {tab === "shelf" && (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs leads-bulk-select"
+                      disabled={items.length === 0}
+                      aria-pressed={items.length > 0 && selected.size === items.length}
+                      onClick={() => {
+                        if (selected.size === items.length && items.length > 0) setSelected(new Set());
+                        else setSelected(new Set(items.map(r => r.id)));
+                      }}
+                    >
+                      {selected.size === items.length && items.length > 0 ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  )}
+                  {tab === "shelf" && (hasSearched ? (
+                    <button
+                      type="button"
+                      className="btn-teal radar2-pull-btn leads-bulk-pull"
+                      data-tut="leads-puxar"
+                      onClick={puxarSelecionados}
+                      disabled={selected.size === 0 || meterBlocked || bulkBusy}
+                    >
+                      {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs leads-history-clear"
+                      onClick={clearSearchHistory}
+                      disabled={searchHistory.length === 0}
+                    >
+                      <I d={ICONS.trash} size={13} /> Excluir histórico
+                    </button>
+                  ))}
+                </div>
+
+                <div className="leads-headrow__end">
+                  <div className="glass-pill-track leads-viewtoggle" role="group" aria-label="Modo de exibição da lista">
+                    <GlassPill {...viewPill} />
+                    <button
+                      type="button"
+                      ref={viewPill.itemRef("linhas")}
+                      className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "linhas" ? " active" : "")}
+                      onClick={() => setViewMode("linhas")}
+                      aria-pressed={viewMode === "linhas"}
+                      title="Ver em linhas (denso)"
+                    >
+                      <I d={ICONS.list} size={14} /> Linhas
+                    </button>
+                    <button
+                      type="button"
+                      ref={viewPill.itemRef("cards")}
+                      className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "cards" ? " active" : "")}
+                      onClick={() => setViewMode("cards")}
+                      aria-pressed={viewMode === "cards"}
+                      title="Ver em cards"
+                    >
+                      <I d={ICONS.grid} size={14} /> Cards
+                    </button>
+                  </div>
+                </div>
+              </div>
+'''
+          leads = replace_between(leads, toolbar_start, toolbar_end, new_toolbar, "toolbar layout")
+
+          radar_start = '    // Espelho legível dos filtros ativos pro show-off do aside'
+          radar_end = '  // Origem do lead na lista:'
+          new_radar = '''    const activeSummary = [
+      segment.trim(),
+      [city, uf].filter(Boolean).join("/"),
+      alcance ? `+ ${alcance} km` : "",
+      siteFiltro === "com" ? "Com site" : siteFiltro === "sem" ? "Sem site" : "",
+      zapFiltro === "com" ? "Com WhatsApp" : "",
+    ].filter(Boolean);
+    const radarTitle = runActive
+      ? "Mapeando empresas…"
+      : hasSearched
+        ? items.length > 0 ? "Busca concluída" : "Nenhuma empresa encontrada"
+        : filtersReady ? "Pronto para buscar" : "Radar pronto";
+    const radarSubtitle = runActive
+      ? `${fmtInt(runVisibleCount)} empresas localizadas`
+      : hasSearched
+        ? items.length > 0 ? `${fmtInt(items.length)} empresas disponíveis` : "Tente outra cidade ou segmento."
+        : filtersReady ? "Revise os filtros e clique em Buscar." : "Preencha os filtros para começar.";
+
+    return (
+      <div className="radar-console radar-showoff">
+        <div className="radar-hero">
+          <div className="radar-hero__disc"><RadarDisc /></div>
+          <div className="radar-hero__copy">
+            <span className="radar-hero__eyebrow">Radar HBX</span>
+            <h2 className="radar-hero__title">{radarTitle}</h2>
+            <p className="radar-hero__sub">{radarSubtitle}</p>
+          </div>
+        </div>
+
+        {activeSummary.length > 0 && (
+          <div className="radar-showoff__chips" aria-label="Filtros atuais">
+            {activeSummary.map((text, index) => <span key={index} className="radar-showoff__chip">{text}</span>)}
+          </div>
+        )}
+
+        {!hasSearched && searchHistory.length > 0 && (
+          <div className="radar-history">
+            <span className="radar-history__label">Histórico recente</span>
+            <div className="radar-history__list">
+              {searchHistory.map(entry => (
+                <div key={entry.id} className="radar-history__item">
+                  <span className="radar-history__query">{entry.segment}</span>
+                  <span className="radar-history__meta">
+                    {entry.city}/{entry.uf} · {new Date(entry.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {runActive && (
+          <div className="radar2-live radar2-live--funcionando">
+            <span className="dot" /> Varrendo {city || "…"}{runProgress != null ? ` · ${runProgress}%` : ""}
+          </div>
+        )}
+        {savedMsg && <p className="hint radar-viewer-msg">{savedMsg}</p>}
+        {hasSearched && searchMsg && <p className="hint radar-viewer-msg">{searchMsg}</p>}
+      </div>
+    );
+  }
+
+  // Origem do lead na lista:'''
+          leads = replace_between(leads, radar_start, radar_end, new_radar, "radar viewer")
+
+          # Search mode no longer renders the obsolete monthly pulled-cards KPI.
+          vendas_pattern = re.compile(
+              r'(?P<open><div className=\{"vnd-stats__layer" \+ \(modo === "buscar" \? " is-on" : ""\)\} aria-hidden=\{modo !== "buscar"\}>\s*)'
+              r'<KpiRow items=\{\[.*?\]\} />'
+              r'(?P<close>\s*</div>)',
+              re.S,
+          )
+          replacement = r'''\g<open><KpiRow items={[
+                  { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
+                  { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
+                ]} />\g<close>'''
+          vendas, count = vendas_pattern.subn(replacement, vendas, count=1)
+          if count != 1:
+              raise SystemExit(f"search KPI block: expected one match, found {count}")
+
+          css_marker = "/* APPROVED-COMPANY-SEARCH-UX 2026-07-16 */"
+          if css_marker not in css:
+              css += '''
+
+/* APPROVED-COMPANY-SEARCH-UX 2026-07-16 */
+.leads-page .be-search__menu {
+  max-height: min(392px, calc(100vh - 220px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.leads-page .be-cmdbar__go:disabled,
+.leads-page .leads-bulk-pull:disabled,
+.leads-page .leads-history-clear:disabled,
+.leads-page .leads-bulk-select:disabled {
+  background: var(--hbx-surface-soft) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--border-hairline) !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+  opacity: .62;
+  filter: none !important;
+  transform: none !important;
+}
+
+.leads-page .leads-headrow--toolbar {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.leads-page .leads-headrow__start,
+.leads-page .leads-headrow__end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.leads-page .leads-headrow__start { flex: 1 1 auto; }
+.leads-page .leads-headrow__end { flex: 0 0 auto; margin-left: auto; }
+.leads-page .leads-history-clear:not(:disabled) {
+  color: var(--hbx-danger);
+  border-color: color-mix(in srgb, var(--hbx-danger) 30%, var(--border-hairline));
+}
+
+.leads-page .radar-hero__sub {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: .72rem;
+  line-height: 1.45;
+}
+.leads-page .radar-showoff > .radar-showoff__chips {
+  justify-content: center;
+  padding: 0 12px;
+}
+.leads-page .radar-history {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--hbx-surface-soft) 82%, transparent);
+}
+.leads-page .radar-history__label {
+  color: var(--text-muted);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.leads-page .radar-history__list { display: grid; gap: 6px; }
+.leads-page .radar-history__item {
+  display: grid;
+  gap: 2px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+}
+.leads-page .radar-history__query {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: .72rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.leads-page .radar-history__meta {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: .63rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.leads-page .radar-viewer-msg { margin: 0; }
+
+@media (max-width: 780px) {
+  .leads-page .leads-headrow--toolbar { align-items: stretch; flex-direction: column; }
+  .leads-page .leads-headrow__start { flex-wrap: wrap; }
+  .leads-page .leads-headrow__end { align-self: flex-end; }
+}
+'''
+
+          leads_path.write_text(leads, encoding="utf-8")
+          vendas_path.write_text(vendas, encoding="utf-8")
+          css_path.write_text(css, encoding="utf-8")
+          PY
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Validate changed TypeScript
+        working-directory: frontend
+        run: npx eslint 'src/app/(app)/leads/page.client.tsx' 'src/app/(app)/vendas/page.client.tsx'
+
+      - name: Commit patch to master
+        shell: bash
+        run: |
+          git rm .github/workflows/apply-approved-search-ux.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/app/'(app)'/leads/page.client.tsx \
+                  frontend/src/app/'(app)'/vendas/page.client.tsx \
+                  frontend/src/app/hbx-theme/screens.css
+          git commit -m "feat(frontend): apply approved company-search UX"
+          git push origin master
