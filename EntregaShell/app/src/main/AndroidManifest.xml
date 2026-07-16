@@ -44,9 +44,9 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- A abertura vem antes do gate de autenticação/vinculação. -->
+        <!-- Porta do APK: retoma uma rota preparada ou segue para a abertura normal. -->
         <activity
-            android:name=".OpeningActivity"
+            android:name=".OfflineLauncherActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
@@ -56,6 +56,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".OpeningActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.EntregaShell.NoActionBar" />
 
         <activity
             android:name=".ClosingActivity"
@@ -119,10 +126,14 @@
             </intent-filter>
         </service>
 
-        <!-- Reenvia a outbox SQLite somente quando o VPS volta a ficar acessível.
-             JobScheduler é nativo do Android: não usa Firebase/Play Services. -->
+        <!-- Reenvia as outboxes SQLite somente quando a rede exigida volta. -->
         <service
             android:name=".TrackingUploadJobService"
+            android:exported="true"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <service
+            android:name=".OperationalUploadJobService"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
