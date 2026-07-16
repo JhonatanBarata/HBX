@@ -39,9 +39,27 @@ class NativeAppBridge(
         val safeId = id.take(80)
         executor.execute {
             if (BuildConfig.APP_MODE == "logistica") {
+                val network = OperationalNetwork.current(activity)
+                if (!network.validated && OperationalPolicy.isRouteRead(method, path)) {
+                    operational.routeFallback()?.let { local ->
+                        resolve(safeId, local.status, local.body, null)
+                        return@execute
+                    }
+                }
                 operational.interceptMutation(method, path, body)?.let { local ->
                     resolve(safeId, local.status, local.body, null)
                     OperationalSync.requestFlush(activity)
+                    return@execute
+                }
+                if (!network.validated && OperationalPolicy.deliveryIdForMutation(method, path) != null) {
+                    resolve(
+                        safeId,
+                        423,
+                        JSONObject()
+                            .put("userMessage", "Esta rota ainda não possui uma autorização offline válida. Conecte o aparelho antes de continuar.")
+                            .toString(),
+                        null,
+                    )
                     return@execute
                 }
             }
@@ -114,6 +132,9 @@ class NativeAppBridge(
         executor.execute {
             try {
                 require(BuildConfig.APP_MODE == "logistica") { "Comprovante disponível somente no HBX Mobile." }
+                require(JSONObject(operational.statusJson()).optBoolean("grantReady")) {
+                    "A rota ainda não está protegida para operar sem sinal. Mantenha a internet e tente novamente."
+                }
                 require(base64.length <= 7_100_000) { "A imagem deve ter no máximo 5 MB." }
                 val original = Base64.decode(base64, Base64.DEFAULT)
                 require(original.isNotEmpty() && original.size <= 5 * 1024 * 1024) { "A imagem deve ter no máximo 5 MB." }
