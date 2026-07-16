@@ -32,6 +32,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
 
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.VIDEO_STUDIO) return
         registerActivityLifecycleCallbacks(this)
         if (BuildConfig.APP_MODE == "vendas") {
             // A atualização do antigo app único vira HBX Vendas. Se havia uma
