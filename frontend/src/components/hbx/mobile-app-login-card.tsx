@@ -1,9 +1,5 @@
 "use client";
 
-import { useState } from "react";
-
-import { requestMobileLinkAfterLogin } from "@/lib/mobile-link-intent";
-
 import styles from "./mobile-app-login-card.module.css";
 
 const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
@@ -14,18 +10,6 @@ const MOBILE_ICON = [
 ];
 
 export function MobileAppLoginCard() {
-  const [linkRequested, setLinkRequested] = useState(false);
-
-  function prepareLinking() {
-    requestMobileLinkAfterLogin();
-    setLinkRequested(true);
-    window.requestAnimationFrame(() => {
-      const field = document.getElementById("em") as HTMLInputElement | null;
-      field?.focus();
-      field?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }
-
   return (
     <section className={styles.card} aria-label="Aplicativo móvel HBX">
       <span className={styles.icon} aria-hidden="true">
@@ -41,13 +25,7 @@ export function MobileAppLoginCard() {
         <a className={styles.download} href={MOBILE_APK_URL} target="_blank" rel="noreferrer">
           Baixar aplicativo HBX
         </a>
-        <button type="button" className={styles.linkButton} onClick={prepareLinking}>
-          {linkRequested ? "Vínculo preparado" : "Entrar e vincular"}
-        </button>
       </div>
-      {linkRequested && (
-        <small className={styles.note}>Depois do login, o HBX abrirá direto na tela de vinculação.</small>
-      )}
     </section>
   );
 }

@@ -308,10 +308,6 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <span>HBX</span>
         </Link>
         <nav className="f1-header__actions" aria-label="Ações principais">
-          {screen === "home" && <a className="f1-icon-button f1-email-button" href="mailto:jhonatan@hbxsystem.com.br?subject=Quero%20conhecer%20o%20HBX" title="Enviar e-mail para o HBX">
-            <Icon name="email" />
-            <span>E-mail</span>
-          </a>}
           <button className="f1-icon-button" type="button" onClick={toggleTheme} aria-label={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"} title={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"}>
             <Icon name={themeMode === "dark" ? "sun" : "moon"} />
           </button>
