@@ -289,7 +289,7 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
       throw new HttpException('Créditos insuficientes para preparar a rota rastreada.', HttpStatus.PAYMENT_REQUIRED);
     }
 
-    const paidCreditsConsumed = await this.paidCreditsForUsage(input.companyId, usageKey);
+    const paidCreditsConsumed = await this.offlinePaidCreditsForUsage(input.companyId, usageKey);
     const finalized = await delegate.updateMany({
       where: {
         id: claim.id,
@@ -349,7 +349,7 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
     if (positions < 1) throw new ConflictException('A posição da entrega ainda não chegou ao servidor.');
   }
 
-  private async paidCreditsForUsage(companyId: number, usageKey: string): Promise<number> {
+  private async offlinePaidCreditsForUsage(companyId: number, usageKey: string): Promise<number> {
     const debits = await (this.offlinePrisma as any).creditLedgerEntry.findMany({
       where: { companyId, usageKey, kind: 'debit' },
       select: { amount: true, parentEntryId: true },

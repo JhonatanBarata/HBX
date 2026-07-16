@@ -198,7 +198,7 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
       return { refunded: debit?.amount || 0, balanceAfter: available, alreadyProcessed: false };
     },
   };
-  prisma.$queryRawUnsafe = async () => [];
+  prisma.$executeRawUnsafe = async () => 0;
   prisma.$transaction = async (callback: any) => callback(prisma);
   const config: any = { resolveRouteMode: async () => mode };
   const service = new LogisticaRouteBillingService(prisma, wallet, config);

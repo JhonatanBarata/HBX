@@ -98,7 +98,7 @@ function setup(options?: { mode?: 'ESSENTIAL' | 'TRACKED'; validPosition?: boole
       findMany: async () => [{ companyId: 7 }],
       findFirst: async ({ where }: any) => where.companyId === 7 ? { trackingAtivo: true } : null,
     },
-    $queryRawUnsafe: async () => [],
+    $executeRawUnsafe: async () => 0,
   };
   const wallet: any = {
     debit: async (companyId: number, amount: number, input: any) => {

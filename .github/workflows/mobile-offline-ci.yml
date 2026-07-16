@@ -3,7 +3,7 @@ name: Mobile offline route CI
 on:
   push:
     branches:
-      - agent/mobile-route-offline
+      - master
   pull_request:
     paths:
       - '.github/workflows/mobile-offline-ci.yml'
