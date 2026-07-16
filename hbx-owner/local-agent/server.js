@@ -173,13 +173,13 @@ function recordOpsHealthy() {
   opsAutoHeal.lastError = null;
 }
 
-// Uma passada do auto-heal (síncrona e curta — mesmo padrão do ensureEnginesUp). Só é chamada pelo
-// triggerOpsAutoHeal, que já aplicou o rate-limit e já incrementou o contador de tentativas.
-function healOpsControlOnce(reason) {
+// Uma passada do auto-heal. Docker pode levar muitos segundos no Windows, então até esta sequência
+// de leitura+start roda fora do event loop; o disjuntor e a mutação permanecem os mesmos.
+async function healOpsControlOnce(reason) {
   console.log(`[ops-heal] tentativa ${opsAutoHeal.attempts}/${OPS_HEAL_MAX_ATTEMPTS} — Ops Control :3099 recusou conexao (${reason}).`);
   // Fonte da verdade = docker, não o app. O container existe? Em que estado? (separador ESPAÇO: o `|`
   // é bloqueado pelo assertSafeCommand como operador de shell — nome de container nunca tem espaço.)
-  const ps = execRead(["docker", "ps", "-a", "--filter", "name=hbx-ops-control", "--format", "{{.Names}} {{.State}}"]);
+  const ps = await execReadAsync(["docker", "ps", "-a", "--filter", "name=hbx-ops-control", "--format", "{{.Names}} {{.State}}"]);
   if (!ps.ok) {
     opsAutoHeal.lastError = `docker indisponivel: ${(ps.stderr || "").trim().slice(0, 160)}`;
     console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
@@ -200,7 +200,7 @@ function healOpsControlOnce(reason) {
     return;
   }
   // Container parado (exited/created/dead) → religa com start simples (preserva o env da criação).
-  const start = execRead(["docker", "start", "hbx-ops-control"]);
+  const start = await execReadAsync(["docker", "start", "hbx-ops-control"]);
   if (start.ok) {
     opsAutoHeal.lastHealAt = Date.now();
     opsAutoHeal.lastError = null;
@@ -222,30 +222,31 @@ function triggerOpsAutoHeal(reason) {
   opsAutoHeal.lastAttemptAt = now;
   opsAutoHeal.attempts += 1;
   opsAutoHeal.state = "tentando";
-  try {
-    healOpsControlOnce(reason);
-  } catch (error) {
-    opsAutoHeal.lastError = `excecao no heal: ${error.message}`;
-    console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
-  }
-  // Teto: 3 seguidas sem sucesso → desisti (para de tentar; expõe no /health). Reinício do agent OU uma
-  // resposta real do :3099 (recordOpsHealthy) religa o auto-heal.
-  if (opsAutoHeal.attempts >= OPS_HEAL_MAX_ATTEMPTS) {
-    opsAutoHeal.state = "desisti";
-    console.log(`[ops-heal] DESISTI apos ${opsAutoHeal.attempts} tentativas seguidas sem sucesso. Ultimo erro: ${opsAutoHeal.lastError || "?"}. Religue manualmente (npm run up / docker compose ops).`);
-  }
+  healOpsControlOnce(reason)
+    .catch((error) => {
+      opsAutoHeal.lastError = `excecao no heal: ${error.message}`;
+      console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
+    })
+    .finally(() => {
+      // Teto: 3 seguidas sem sucesso → desisti. Uma resposta real pode ter zerado attempts enquanto
+      // o subprocesso rodava; nesse caso não sobrescrevemos o estado saudável.
+      if (opsAutoHeal.attempts >= OPS_HEAL_MAX_ATTEMPTS) {
+        opsAutoHeal.state = "desisti";
+        console.log(`[ops-heal] DESISTI apos ${opsAutoHeal.attempts} tentativas seguidas sem sucesso. Ultimo erro: ${opsAutoHeal.lastError || "?"}. Religue manualmente (npm run up / docker compose ops).`);
+      }
+    });
 }
 
 // Religar MANUAL (botão "Religar Ops Control" do painel, S2). Um clique humano NÃO é o "loop livre"
 // que a âncora 18/06 combate — a UI trava o botão em "religando…" até o :3099 confirmar e NUNCA
 // re-dispara sozinha. Então o humano ASSUME o disjuntor: sai de "desisti", zera a contagem e conta 1
 // tentativa (reusa o MESMO healOpsControlOnce → mesma allowlist `docker start`). Sem loop, sem fila.
-function manualHealOpsControl() {
+async function manualHealOpsControl() {
   opsAutoHeal.state = "tentando";
   opsAutoHeal.attempts = 1;              // clique humano recomeça a contagem (não empilha no teto do auto)
   opsAutoHeal.lastAttemptAt = Date.now(); // trava o auto-heal por 5min (não dobra o docker start em cima)
   try {
-    healOpsControlOnce("religar-manual");
+    await healOpsControlOnce("religar-manual");
   } catch (error) {
     opsAutoHeal.lastError = `excecao no heal: ${error.message}`;
     console.log(`[ops-heal] ${opsAutoHeal.lastError}`);
@@ -508,14 +509,16 @@ function execRead(command) {
   };
 }
 
-function spawnCaptureAsync(binary, args, commandLabel) {
+function spawnCaptureAsync(binary, args, commandLabel, timeoutMs = 30_000) {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let timer = null;
     const finish = (exitCode, error) => {
       if (settled) return;
       settled = true;
+      if (timer) clearTimeout(timer);
       if (error && !stderr) stderr = error.message || String(error);
       resolve({
         command: commandLabel || [binary, ...args].join(" "),
@@ -541,6 +544,11 @@ function spawnCaptureAsync(binary, args, commandLabel) {
     child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
     child.on("error", (error) => finish(null, error));
     child.on("close", (code) => finish(code, null));
+    timer = setTimeout(() => {
+      try { child.kill(); } catch { /* o processo pode ter encerrado no mesmo tick */ }
+      finish(null, new Error(`timeout_${timeoutMs}ms`));
+    }, timeoutMs);
+    if (timer.unref) timer.unref();
   });
 }
 
@@ -630,8 +638,9 @@ function parseLocalLabProcesses(result) {
   }
 }
 
-function findLocalLabProcesses() {
+function findLocalLabProcesses(force = false) {
   if (process.platform !== "win32") return Promise.resolve([]);
+  if (force) invalidateLocalLabProcessCache();
   if (localLabProcessCache.pending) return localLabProcessCache.pending;
   if (localLabProcessCache.result && Date.now() - localLabProcessCache.at < LOCAL_LAB_PROCESS_TTL_MS) {
     return Promise.resolve(localLabProcessCache.result);
@@ -744,7 +753,7 @@ async function stopLocalLab() {
   }
 
   // (2) mata o que restou (idempotente: pode não sobrar nada).
-  const processes = await findLocalLabProcesses();
+  const processes = await findLocalLabProcesses(true);
   const pids = [];
   for (const item of processes) {
     const pid = Number(item.ProcessId);
@@ -2928,7 +2937,7 @@ async function route(req, res) {
   // (/health?opsFresh=1), nunca re-clica sozinha — sem loop. `ok` = o docker start disparou sem erro
   // (o :3099 pode levar uns segundos pra ligar; quem confirma "de pé" é o opsAlive, não este retorno).
   if (req.method === "POST" && url.pathname === "/owner/ops/restart") {
-    const heal = manualHealOpsControl();
+    const heal = await manualHealOpsControl();
     const started = !heal.lastError;
     sendJson(res, started ? 200 : 502, {
       ok: started,

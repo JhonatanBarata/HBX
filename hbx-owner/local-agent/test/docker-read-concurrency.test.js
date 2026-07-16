@@ -74,3 +74,40 @@ test("leitura Docker lenta não bloqueia GET crítico da ponte e polls iguais s�
     invalidateDockerReadCache();
   }
 });
+
+test("polling real do Local Lab não causa starvation no freio da ponte", {
+  skip: process.platform !== "win32",
+  timeout: 45_000,
+}, async () => {
+  const server = createOwnerServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+
+  try {
+    const port = server.address().port;
+    let labFinished = false;
+    const firstLabRead = getJson(port, "/local-lab/status").finally(() => { labFinished = true; });
+    const secondLabRead = getJson(port, "/local-lab/status");
+
+    // O health do Lab pode consumir até 1,2s; depois começa a consulta real ao PowerShell/WMI.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    assert.equal(labFinished, false, "a consulta real do Local Lab deveria continuar em andamento");
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const startedAt = Date.now();
+      const response = await getJson(port, "/owner/ponte/status");
+      const elapsedMs = Date.now() - startedAt;
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.body.ok, true);
+      assert.ok(elapsedMs < 1_500, `tentativa ${attempt + 1}: freio levou ${elapsedMs}ms durante polling do Lab`);
+    }
+
+    const [firstLab, secondLab] = await Promise.all([firstLabRead, secondLabRead]);
+    assert.equal(firstLab.statusCode, 200);
+    assert.equal(secondLab.statusCode, 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
