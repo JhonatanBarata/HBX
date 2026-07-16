@@ -1,6 +1,11 @@
 import { apiFetch } from '@/lib/api';
 import type { PlanejarRotaResult, RotaResult } from './entrega-api';
 
+export type AdminRouteResult = RotaResult & {
+  routeStatus?: 'PLANNED' | 'INITIALIZING' | 'ACTIVE' | 'COMPLETED' | 'REFUNDING' | 'FAILED' | null;
+  routeMode?: 'ESSENTIAL' | 'TRACKED' | null;
+};
+
 export type AdminAdjustmentDay = {
   date: string;
   label: string;
@@ -58,9 +63,9 @@ export type AdminRouteHistoryDay = {
   status: 'PENDENTE' | 'CONCLUÍDA';
 };
 
-export function getAdminRoute(date?: string): Promise<RotaResult> {
+export function getAdminRoute(date?: string): Promise<AdminRouteResult> {
   const query = date ? `?date=${encodeURIComponent(date)}` : '';
-  return apiFetch<RotaResult>(`/logistica/admin-route/route${query}`);
+  return apiFetch<AdminRouteResult>(`/logistica/admin-route/route${query}`);
 }
 
 export function getAdminRouteAdjustments(date?: string): Promise<AdminRouteAdjustments> {
