@@ -46,10 +46,21 @@ export class LogisticaAdminRouteViewService {
       }),
     ]);
 
-    const items = Array.isArray((payload as any)?.items)
+    let items = Array.isArray((payload as any)?.items)
       ? (payload as any).items.filter((item: any) => !item?.entregador || Number(item.entregador.id) === userId)
       : [];
     const mode = route?.mode === 'TRACKED' ? 'TRACKED' : route?.mode === 'ESSENTIAL' ? 'ESSENTIAL' : null;
+
+    // O banco marca somente a primeira parada como `em_rota`. Depois que ela é
+    // concluída, as demais continuam `agendada`, embora o agregado permaneça
+    // ACTIVE. Para a interface não oferecer "Começar" outra vez, projetamos a
+    // primeira parada aberta como atual sem reescrever o histórico no banco.
+    if (route?.status === 'ACTIVE' && !items.some((item: any) => item.status === 'em_rota')) {
+      const nextIndex = items.findIndex((item: any) => item.status === 'agendada');
+      if (nextIndex >= 0) {
+        items = items.map((item: any, index: number) => index === nextIndex ? { ...item, status: 'em_rota' } : item);
+      }
+    }
 
     return {
       ...(payload as any),
