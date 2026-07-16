@@ -5,7 +5,7 @@
   // que também contém contatos importados pelo WhatsApp. Nunca reaproveite esse cache.
   H.cache.remove("logistica-clients");
   const state = {
-    screen: "route",
+    screen: new URLSearchParams(window.location.search).get("screen") || "route",
     route: H.cache.get("logistica-route", null),
     routeSelection: H.cache.get("logistica-route-selection", null),
     products: H.cache.get("logistica-products", []),
@@ -26,7 +26,7 @@
     refreshing: false,
     error: null,
     toast: null,
-    screenMotion: "",
+    screenMotion: new URLSearchParams(window.location.search).get("motion") || "",
     navMotionFrom: null,
     closingOverlay: null,
     openingOverlay: null,
@@ -66,6 +66,7 @@
     confirmation: null,
   };
   const app = document.getElementById("app");
+  let moduleActive = true;
   let clientsRequestId = 0;
   let clientCepRequestId = 0;
   let clientsSearchTimer = null;
@@ -102,6 +103,7 @@
     gps: "<circle cx='12' cy='12' r='3'/><circle cx='12' cy='12' r='8'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3'/>",
     search: "<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>",
     sales: "<path d='M4 20V10M10 20V4M16 20v-7M22 20V7'/>",
+    calendar: "<rect x='3' y='5' width='18' height='16' rx='2'/><path d='M16 3v4M8 3v4M3 10h18'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -236,10 +238,9 @@
   function shell(content) {
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const brandName = state.companyName ? `HBX - ${state.companyName}` : "HBX";
-    return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>${H.escape(brandName)}</strong></div></div><div class="toolbar"><span class="sync-dot ${state.error ? "offline" : ""}"></span><button class="icon-btn" data-action="theme" aria-label="Tema">${icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${state.refreshing ? "disabled" : ""}>${icon("refresh", 18)}</button></div></header><main class="content ${state.screenMotion ? `screen-enter-${state.screenMotion}` : ""}">${content}</main>${nav()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nav() { const rows = [["route", "route", "Rota"], ["clients", "users", "Clientes"], ["products", "box", "Produtos"], ["settings", "gear", "Ajustes"], ["sales", "sales", "Vendas"]]; const activeIndex = Math.max(0, rows.findIndex(([id]) => id === state.screen)); const moving = Number.isInteger(state.navMotionFrom) && state.navMotionFrom !== activeIndex; return `<nav class="bottom-nav" style="--nav-count:5;--nav-from:${moving ? state.navMotionFrom : activeIndex};--nav-to:${activeIndex}"><i class="nav-water ${moving ? "is-moving" : ""}" aria-hidden="true"></i>${rows.map(([id, ic, label]) => `<button class="nav-btn ${state.screen === id ? "active" : ""}" data-screen="${id}">${icon(ic)}<span>${label}</span></button>`).join("")}</nav>`; }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próximo cliente</p><h2>${H.escape(client.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(client))}</p><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small><button class="btn btn-primary btn-block next-stop-button" data-action="next-stop">Próximo cliente</button></section></div>`; }
   function confirmationOverlay() {
     const confirmation = state.confirmation;
@@ -575,8 +576,9 @@
     return shell(`<div class="screen-head"><div><h1>Produtos</h1><p class="subtitle">Catálogo usado nas entregas</p></div>${isAdmin() ? `<button class="link-btn" data-action="new-product">Adicionar</button>` : ""}</div><div class="compact-grid">${products.length ? products.map(p => `<article class="card card-pad"><div class="avatar">${icon("box", 19)}</div><h3 style="margin-top:10px">${H.escape(p.nome || p.name)}</h3><p class="subtitle">${H.escape(p.unidade || "unidade")} · ${p.usaLogistica ? "Logística" : "Catálogo"}</p>${isAdmin() && p.precoCatalogo != null ? `<strong style="display:block;margin-top:8px">${H.money(p.precoCatalogo)}</strong>` : ""}</article>`).join("") : empty("Catálogo vazio", isAdmin() ? "Adicione o primeiro produto." : "O administrador ainda não cadastrou produtos.")}</div>`);
   }
   function settingsScreen() {
-    const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED";
+    const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED"; const modules = H.modules.get();
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1><p class="subtitle">Aplicativo, rota e permissões</p></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ao vivo ativo" : "Modo essencial"}</h2><p class="muted">O GPS só funciona durante uma rota ativa e para ao encerrar.</p></section>
+      <div class="section-title"><strong>Módulos</strong><span>Pelo menos um deve ficar ativo</span></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong><span>Rota, clientes e produtos</span></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong><span>Clientes, WhatsApp e agenda</span></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong><span>${trackedAvailable ? defaultTracked ? "Preferência: Rota Rastreada" : "Preferência: Rota Essencial" : "Indisponível pela configuração global"}</span></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo congelado</strong><span>${routeActive() ? `Esta rota permanece ${routeTracked() ? "Rastreada" : "Essencial"} até o fim` : "Pode ser escolhido antes de iniciar"}</span></div></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong><span>Abre a entrega ao entrar no raio definido</span></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão da rota</strong><span>${defaultTracked ? "Rastreada" : "Essencial"}${routeActive() ? " · bloqueado durante a rota" : ""}</span></div><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong><span>Saldo, débitos e bônus elegível</span></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar nome</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema claro/escuro</strong><span>Interface de alta definição</span></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong><span>Rota, produtos e configurações</span></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair deste aparelho</strong><span>Remove o vínculo e os dados locais</span></div><span>›</span></button></section><p class="subtitle" style="text-align:center;margin-top:14px">Versão ${H.escape(H.info().versionName || "local")} · GPS sem API paga</p>`);
@@ -710,11 +712,12 @@
     });
   }
   function render() {
+    if (!moduleActive) return;
     const modalScroll = app.querySelector(".modal")?.scrollTop || 0;
     const sheetScroll = app.querySelector(".sheet")?.scrollTop || 0;
     disposeRouteMap();
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
-    app.innerHTML = (screens[state.screen] || routeScreen)();
+    H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
     const modal = app.querySelector(".modal");
     const sheet = app.querySelector(".sheet");
@@ -722,7 +725,9 @@
     if (sheet && sheetScroll) sheet.scrollTop = sheetScroll;
     if (state.screen === "route" && !state.dayReview) void mountRouteMap();
     if (state.modal === "manage-day" && state.dayReview) void mountDayReviewMap();
-    state.screenMotion = ""; state.openingOverlay = null;
+    H.revealActiveNav();
+    H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
+    state.openingOverlay = null;
   }
 
   async function loadClients(reset, silent) {
@@ -911,11 +916,7 @@
   }
   function clientById(id) { return (state.clients || []).find(c => String(c.id) === String(id)); }
   function navigateTo(nextScreen, motion) {
-    if (nextScreen === "sales") {
-      window.location.href = "../vendas/index.html?from=mobile";
-      return;
-    }
-    const screens = ["route", "clients", "products", "settings", "sales"];
+    const screens = ["route", "clients", "products", "settings"];
     const currentIndex = screens.indexOf(state.screen);
     const nextIndex = screens.indexOf(nextScreen);
     state.navMotionFrom = currentIndex === -1 || nextIndex === -1 || currentIndex === nextIndex ? null : currentIndex;
@@ -924,6 +925,7 @@
     state.selected = null;
     state.modal = null;
     render();
+    state.screenMotion = "";
     clearTimeout(navMotionTimer);
     navMotionTimer = setTimeout(() => { state.navMotionFrom = null; }, 360);
     if (nextScreen === "clients" && state.clientsPage === 0) loadClients(true);
@@ -948,11 +950,18 @@
   function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; render(); }
 
   app.addEventListener("click", async event => {
-    const target = event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
+    if (!moduleActive) return;
+    const target = event.target.closest("[data-screen],[data-nav],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
     // O wrapper fecha somente pelo toque no fundo. Controles dentro do modal não
     // podem herdar o data-action="close-modal" do wrapper.
     if (target.matches(".modal-wrap,.sheet-wrap") && event.target !== target) return;
     if (target.dataset.screen) { navigateTo(target.dataset.screen); return; }
+    if (target.dataset.nav) {
+      const salesScreens = { "sales-clients": "funnel", "sales-chat": "chat", "sales-agenda": "agenda" };
+      if (salesScreens[target.dataset.nav] && H.salesModule) { H.salesModule.activate(salesScreens[target.dataset.nav], "forward"); return; }
+      if (salesScreens[target.dataset.nav]) window.location.href = `../vendas/index.html?screen=${salesScreens[target.dataset.nav]}&motion=forward&from=mobile`;
+      return;
+    }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
     if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.clientDetail = null; state.clientProducts = []; state.clientProductsError = null; state.clientCepStatus = ""; clientCepRequestId += 1; resetClientProductEditor(); showModal("client-product"); loadClientProducts(); loadClientDetail(); } return; }
     if (target.dataset.day) { const day = Number(target.dataset.day); state.daySelection = state.daySelection.includes(day) ? state.daySelection.filter(value => value !== day) : [...state.daySelection, day].sort((a, b) => a - b); refreshDayPreview(); return; }
@@ -967,6 +976,14 @@
       return;
     }
     const action = target.dataset.action;
+    if (action === "module-toggle") {
+      const current = H.modules.get(); const module = target.dataset.module;
+      if (!Object.prototype.hasOwnProperty.call(current, module)) return;
+      const next = { ...current, [module]: !current[module] };
+      if (!H.modules.set(next)) { toast("Mantenha pelo menos um módulo ativo.", true); return; }
+      render();
+      return;
+    }
     if (action === "reopen-delivery" && state.selected) {
       const reopenedId = state.selected.id;
       try {
@@ -1061,7 +1078,7 @@
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); if (navigator.vibrate) navigator.vibrate(14); }, 520);
       routeStopHold = hold;
     }
-    if (event.touches.length !== 1 || state.modal || state.selected || target.closest("input, textarea, select, [contenteditable]")) { touchStart = null; return; }
+    if (event.touches.length !== 1 || state.modal || state.selected || !target.closest("[data-route-current]")) { touchStart = null; return; }
     const touch = event.touches[0];
     touchStart = { x: touch.clientX, y: touch.clientY, currentStopId: target.closest("[data-route-current]")?.dataset.routeCurrent || null };
   }, { passive: true });
@@ -1109,10 +1126,6 @@
       void removeStopForToday(items().find(item => item.id === currentStopId), "Cliente ausente; pulado hoje.", "Cliente não está no local? Vamos pular somente a entrega de hoje e abrir a próxima parada. O cliente e a recorrência continuam cadastrados.");
       return;
     }
-    if (Math.abs(dx) < 64 || Math.abs(dx) <= Math.abs(dy)) return;
-    const screens = ["route", "clients", "products", "settings"];
-    const index = screens.indexOf(state.screen);
-    navigateTo(screens[(index + (dx < 0 ? 1 : -1) + screens.length) % screens.length], dx < 0 ? "forward" : "back");
   }, { passive: true });
   app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); } routeStopHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop]")) event.preventDefault(); });
@@ -1262,5 +1275,18 @@
       else { state.newClientGpsLoading = false; state.newClientCepStatus = "Permita a localização para usar este atalho."; render(); }
     }
   };
-  render(); refresh(true);
+  if (!["route", "clients", "products", "settings"].includes(state.screen)) state.screen = "route";
+  H.logisticaModule = {
+    activate(screen, motion) {
+      moduleActive = true;
+      H.salesModule && H.salesModule.deactivate();
+      navigateTo(screen || "route", motion || "back");
+    },
+    deactivate() { moduleActive = false; },
+  };
+  if (!H.modules.get().logistica && state.screen !== "settings") {
+    moduleActive = false;
+    window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
+  }
+  else { render(); refresh(true); state.screenMotion = ""; }
 })();

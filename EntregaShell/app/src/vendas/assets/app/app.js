@@ -2,9 +2,11 @@
   "use strict";
   const H = window.HBX;
   const isMobileModule = H.info().mode === "logistica";
+  const embedded = document.currentScript && document.currentScript.hasAttribute("data-embedded-sales");
   const cached = H.cache.get("vendas-board", null);
   const state = {
-    screen: "funnel",
+    screen: new URLSearchParams(window.location.search).get("screen") || "funnel",
+    screenMotion: new URLSearchParams(window.location.search).get("motion") || "",
     funnelView: "list",
     block: "today",
     query: "",
@@ -28,6 +30,8 @@
     ["encerrado", "Fechamento", "Contrato e compromissos"],
   ];
   const app = document.getElementById("app");
+  let moduleActive = !embedded;
+  let screenMotionTimer = null;
 
   const paths = {
     funnel: "<path d='M4 5h16l-6 7v5l-4 2v-7z'/>",
@@ -42,9 +46,14 @@
     plus: "<path d='M12 5v14M5 12h14'/>",
     close: "<path d='m6 6 12 12M18 6 6 18'/>",
     user: "<circle cx='12' cy='8' r='4'/><path d='M4 21a8 8 0 0 1 16 0'/>",
+    users: "<circle cx='9' cy='7' r='4'/><path d='M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3.2a4 4 0 0 1 0 7.6M18 15.2A4 4 0 0 1 22 19v2'/>",
+    sales: "<path d='M4 5h16l-6 7v5l-4 2v-7z'/>",
     chart: "<path d='M4 20V10M10 20V4M16 20v-7M22 20V7'/>",
     logout: "<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'/>",
     back: "<path d='m15 18-6-6 6-6'/>",
+    route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
+    box: "<path d='m21 8-9 5-9-5 9-5z'/><path d='m3 8 9 5v9l9-5V8M12 13v9'/>",
+    gear: "<circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1-2.8-2.8.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3h4v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1h.2v4h-.2a1.7 1.7 0 0 0-1.5 1z'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.more}</svg>`; }
   function initials(name) { return String(name || "Lead").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -64,15 +73,13 @@
   function errorText(error) { return error instanceof Error ? error.message : "Não foi possível concluir."; }
 
   function shell(content) {
-    const subtitle = ({ funnel: "Carteira comercial", search: "Clientes e empresas", chat: "Contatos pessoais", agenda: "Próximas ações", more: "Relatórios e ajustes" })[state.screen];
-    return `<header class="topbar">
-      <div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>${isMobileModule ? "HBX Mobile · Vendas" : "HBX Vendas"}</strong><span>${subtitle}${state.error ? " · modo offline" : " · sincronizado com o VPS"}</span></div></div>
-      <div class="toolbar">${isMobileModule ? `<button class="icon-btn" data-action="mobile-home" aria-label="Voltar ao HBX Mobile" title="Voltar ao HBX Mobile">${icon("back", 18)}</button>` : ""}<span class="sync-dot ${state.error ? "offline" : ""}" title="${state.error ? "Sem sinal" : "Online"}"></span><button class="icon-btn" data-action="theme" aria-label="Alternar tema">${icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${state.refreshing ? "disabled" : ""}>${icon("refresh", 18)}</button></div>
-    </header><main class="content">${content}</main>${nav()}${state.selected ? leadSheet(state.selected) : ""}${state.modal ? modal() : ""}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${state.selected ? leadSheet(state.selected) : ""}${state.modal ? modal() : ""}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    return H.mobileShell.frame({ appName: "vendas", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nav() {
-    const items = [["funnel", "funnel", "Funil"], ["search", "search", "Buscar"], ["chat", "chat", "WhatsApp"], ["agenda", "calendar", "Agenda"], ["more", "more", "Mais"]];
-    return `<nav class="bottom-nav" style="--nav-count:5">${items.map(([id, ic, label]) => `<button class="nav-btn ${state.screen === id ? "active" : ""}" data-screen="${id}">${icon(ic)}<span>${label}</span></button>`).join("")}</nav>`;
+  function navigateSales(nextScreen, motion) {
+    const screens = ["funnel", "chat", "agenda"]; const currentIndex = screens.indexOf(state.screen); const nextIndex = screens.indexOf(nextScreen);
+    state.screenMotion = motion || (nextIndex >= currentIndex ? "forward" : "back"); state.screen = nextScreen; state.selected = null; state.modal = null; render(); state.screenMotion = "";
+    clearTimeout(screenMotionTimer);
   }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
@@ -82,21 +89,21 @@
     return `<button class="lead-card" data-lead="${H.escape(lead.id)}"><div class="avatar">${H.escape(initials(lead.name))}</div><div class="card-main"><strong>${H.escape(lead.name || "Lead sem nome")}</strong><span>${H.escape(sub)}</span><small>${lead.returnAt ? H.date(lead.returnAt) : `${Number(lead.attemptCount || 0)} tentativa(s)`}</small></div><div><span class="badge ${badgeClass}">${H.escape(lead.statusLabel || lead.status || "Novo")}</span>${lead.opportunityScore != null ? `<div class="score">${Number(lead.opportunityScore)}</div>` : ""}</div></button>`;
   }
   function funnelScreen() {
-    if (state.loading) return shell(`<div class="screen-head"><div><h1>Seu funil</h1><p class="subtitle">Carregando carteira…</p></div></div>${loading()}`);
+    if (state.loading) return shell(`<div class="screen-head"><div><h1>Clientes</h1><p class="subtitle">Carregando carteira…</p></div><button class="icon-btn" data-action="open-search" aria-label="Buscar clientes">${icon("search", 18)}</button></div>${loading()}`);
     if (!state.board) return shell(empty("Carteira indisponível", state.error || "Toque em atualizar para tentar novamente."));
     const s = state.board.summary || {};
     const list = state.board.blocks && state.board.blocks[state.block] || [];
     const quadro = `<div class="sales-board">${stages.map(([stage, label, sub]) => { const cards = allLeads().filter(lead => String(lead.status || "novo").toLowerCase() === stage); return `<section class="sales-column"><div class="sales-column-head"><strong>${label}</strong><span>${cards.length}</span></div><small>${sub}</small><div class="sales-column-list">${cards.length ? cards.map(card).join("") : `<p>Nenhum lead</p>`}</div></section>`; }).join("")}</div>`;
-    return shell(`<div class="screen-head"><div><h1>Seu funil</h1><p class="subtitle">${Number(s.total || 0)} cards na carteira</p></div>${state.board.team ? `<button class="link-btn" data-action="team">Equipe</button>` : ""}</div>
+    return shell(`<div class="screen-head"><div><h1>Clientes</h1><p class="subtitle">${Number(s.total || 0)} cards na carteira</p></div><div class="screen-actions"><button class="icon-btn" data-action="open-search" aria-label="Buscar clientes">${icon("search", 18)}</button>${state.board.team ? `<button class="link-btn" data-action="team">Equipe</button>` : ""}</div></div>
       <section class="hero"><span class="hero-kicker">● Carteira ativa</span><h2>Sua operação comercial</h2><p class="muted">Todos os leads adquiridos entram na mesma esteira para contato e acompanhamento.</p></section>
       <div class="kpis"><div class="kpi"><span>Hoje</span><strong>${Number(s.today || 0)}</strong><small>ações</small></div><div class="kpi"><span>Atrasados</span><strong>${Number(s.overdue || 0)}</strong><small>prioridade</small></div><div class="kpi"><span>Fechados</span><strong>${Number(s.closed || 0)}</strong><small>histórico</small></div></div>
       <div class="sales-view"><button class="${state.funnelView === "list" ? "active" : ""}" data-action="funnel-view" data-view="list">Lista</button><button class="${state.funnelView === "board" ? "active" : ""}" data-action="funnel-view" data-view="board">Quadro</button></div>
       ${state.funnelView === "board" ? quadro : `<div class="chips">${["today", "overdue", "scheduled", "closed"].map(key => `<button class="chip ${state.block === key ? "active" : ""}" data-block="${key}">${titleFor(key)} · ${Number(s[key] || 0)}</button>`).join("")}</div><div class="section-title"><strong>${titleFor(state.block)}</strong><span>${list.length} card(s)</span></div><div class="list">${list.length ? list.map(card).join("") : empty("Tudo limpo por aqui", "Nenhum card nesta faixa.")}</div>`}`);
   }
-  function searchScreen() {
+  function searchContent() {
     const radar = state.radar;
     const results = radar.items || [];
-    return shell(`<div class="screen-head"><div><h1>Buscar empresas</h1><p class="subtitle">Radar HBX · empresas reais disponíveis</p></div><button class="link-btn" data-action="new-lead">Novo lead</button></div><section class="card card-pad"><form id="radar-search-form"><div class="field"><label>Segmento</label><input name="segment" maxlength="90" value="${H.escape(radar.segment)}" placeholder="Ex.: Distribuidora de água"></div><div class="form-grid"><div class="field"><label>Cidade</label><input name="city" maxlength="90" value="${H.escape(radar.city)}" placeholder="Cidade"></div><div class="field"><label>UF</label><input name="state" maxlength="2" value="${H.escape(radar.state)}" placeholder="SP" style="text-transform:uppercase"></div></div><button class="btn btn-primary btn-block" type="submit" ${radar.loading ? "disabled" : ""}>${radar.loading ? "Buscando…" : "Buscar no Radar"}</button></form></section><div class="section-title"><strong>Disponíveis</strong><span>${Number(radar.total || results.length)}</span></div><div class="list">${radar.loading ? loading() : results.length ? results.map(lead => `<article class="lead-card radar-card"><div class="avatar">${H.escape(initials(lead.name))}</div><div class="card-main"><strong>${H.escape(lead.name || "Empresa")}</strong><span>${H.escape([lead.segment, lead.city, lead.state].filter(Boolean).join(" · ") || "Empresa no Radar")}</span><small>${lead.opportunityScore != null ? `Oportunidade ${Number(lead.opportunityScore)}/100` : "Disponível no Radar"}</small></div><button class="btn btn-primary radar-pull" data-action="radar-pull" data-radar-id="${H.escape(lead.id)}">Puxar</button></article>`).join("") : empty(radar.error ? "Radar indisponível" : "Escolha o recorte", radar.error || "Informe segmento, cidade ou UF e toque em buscar.")}</div><button class="fab" data-action="new-lead" aria-label="Novo lead">+</button>`);
+    return `<div class="screen-head"><div><h2>Buscar empresas</h2><p class="subtitle">Radar HBX · empresas reais disponíveis</p></div><button class="link-btn" data-action="new-lead">Novo lead</button></div><section class="card card-pad"><form id="radar-search-form"><div class="field"><label>Segmento</label><input name="segment" maxlength="90" value="${H.escape(radar.segment)}" placeholder="Ex.: Distribuidora de água"></div><div class="form-grid"><div class="field"><label>Cidade</label><input name="city" maxlength="90" value="${H.escape(radar.city)}" placeholder="Cidade"></div><div class="field"><label>UF</label><input name="state" maxlength="2" value="${H.escape(radar.state)}" placeholder="SP" style="text-transform:uppercase"></div></div><button class="btn btn-primary btn-block" type="submit" ${radar.loading ? "disabled" : ""}>${radar.loading ? "Buscando…" : "Buscar no Radar"}</button></form></section><div class="section-title"><strong>Disponíveis</strong><span>${Number(radar.total || results.length)}</span></div><div class="list">${radar.loading ? loading() : results.length ? results.map(lead => `<article class="lead-card radar-card"><div class="avatar">${H.escape(initials(lead.name))}</div><div class="card-main"><strong>${H.escape(lead.name || "Empresa")}</strong><span>${H.escape([lead.segment, lead.city, lead.state].filter(Boolean).join(" · ") || "Empresa no Radar")}</span><small>${lead.opportunityScore != null ? `Oportunidade ${Number(lead.opportunityScore)}/100` : "Disponível no Radar"}</small></div><button class="btn btn-primary radar-pull" data-action="radar-pull" data-radar-id="${H.escape(lead.id)}">Puxar</button></article>`).join("") : empty(radar.error ? "Radar indisponível" : "Escolha o recorte", radar.error || "Informe segmento, cidade ou UF e toque em buscar.")}</div>`;
   }
   function chatScreen() {
     const leads = allLeads().filter(lead => H.digits(lead.phone || lead.phoneNormalized));
@@ -126,6 +133,7 @@
       ${timeline.length ? `<div class="section-title"><strong>Histórico</strong></div><div class="list">${timeline.map(event => `<div class="row-card"><div class="card-main"><strong>${H.escape(event.title || "Atualização")}</strong><span>${H.escape(event.description || event.resultLabel || "")}</span><small>${H.date(event.createdAt)}</small></div></div>`).join("")}</div>` : ""}</section></div>`;
   }
   function modal() {
+    if (state.modal === "search") return `<div class="modal-wrap" data-action="close-modal"><section class="modal search-modal"><div class="sheet-head"><div class="avatar">${icon("search", 18)}</div><div><h2>Buscar</h2><p class="subtitle">Clientes e empresas</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${searchContent()}</section></div>`;
     if (state.modal === "new-lead") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Novo lead</h2><p class="subtitle">Cadastro manual no seu funil</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-lead-form"><div class="form-grid"><div class="field"><label>Nome ou empresa</label><input name="name" maxlength="120" required></div><div class="field"><label>Telefone</label><input name="phone" inputmode="tel" maxlength="24"></div><div class="field"><label>E-mail</label><input name="email" type="email"></div><div class="field"><label>Retorno</label><input name="returnAt" type="datetime-local"></div></div><div class="field"><label>Endereço</label><input name="address" maxlength="280"></div><div class="field"><label>Próxima ação</label><input name="nextAction" maxlength="140" value="Primeiro contato"></div><div class="field"><label>Observação</label><textarea name="shortNote" maxlength="280"></textarea></div><button class="btn btn-primary btn-block" type="submit">Cadastrar lead</button></form></section></div>`;
     if (state.modal === "team") {
       const team = state.board && state.board.team;
@@ -136,8 +144,11 @@
     return "";
   }
   function render() {
-    const screens = { funnel: funnelScreen, search: searchScreen, chat: chatScreen, agenda: agendaScreen, more: moreScreen };
-    app.innerHTML = (screens[state.screen] || funnelScreen)();
+    if (!moduleActive) return;
+    const screens = { funnel: funnelScreen, chat: chatScreen, agenda: agendaScreen };
+    H.mobileShell.mount(app, (screens[state.screen] || funnelScreen)());
+    H.revealActiveNav();
+    H.mobileShell.setContext({ appName: "vendas", currentScreen: state.screen, navigate: navigateSales });
   }
 
   async function refresh(silent) {
@@ -197,14 +208,22 @@
   }
 
   app.addEventListener("click", async event => {
-    if (event.target.closest(".sheet,.modal") && !event.target.closest("[data-screen],[data-action],[data-block],[data-lead],[data-wa]")) return;
-    const target = event.target.closest("[data-screen],[data-action],[data-block],[data-lead],[data-wa]");
+    if (!moduleActive) return;
+    if (event.target.closest(".sheet,.modal") && !event.target.closest("[data-screen],[data-nav],[data-action],[data-block],[data-lead],[data-wa]")) return;
+    const target = event.target.closest("[data-screen],[data-nav],[data-action],[data-block],[data-lead],[data-wa]");
     if (!target) return;
-    if (target.dataset.screen) { state.screen = target.dataset.screen; state.selected = null; state.modal = null; render(); return; }
+    if (target.dataset.screen) { navigateSales(target.dataset.screen); return; }
+    if (target.dataset.nav) {
+      const logScreens = { "log-route": "route", "log-clients": "clients", "log-products": "products", settings: "settings" };
+      if (logScreens[target.dataset.nav] && H.logisticaModule) { H.logisticaModule.activate(logScreens[target.dataset.nav], target.dataset.nav === "settings" ? "forward" : "back"); return; }
+      if (logScreens[target.dataset.nav]) window.location.href = `../app/index.html?screen=${logScreens[target.dataset.nav]}&motion=${target.dataset.nav === "settings" ? "forward" : "back"}`;
+      return;
+    }
     if (target.dataset.block) { state.block = target.dataset.block; render(); return; }
     if (target.dataset.lead) { state.selected = allLeads().find(item => item.id === target.dataset.lead) || null; render(); return; }
     if (target.dataset.wa) { const lead = allLeads().find(item => item.id === target.dataset.wa); if (lead) openWhatsapp(lead); return; }
     const action = target.dataset.action;
+    if (action === "open-search") { state.modal = "search"; render(); }
     if (action === "mobile-home" && isMobileModule) { window.location.replace("../app/index.html"); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
@@ -274,6 +293,16 @@
   document.addEventListener("hbx:theme", render);
   window.addEventListener("online", () => refresh(true));
   window.HBXApp = { refresh };
-  render();
-  refresh(true);
+  if (!["funnel", "chat", "agenda"].includes(state.screen)) state.screen = "funnel";
+  H.salesModule = {
+    activate(screen, motion) {
+      moduleActive = true;
+      H.logisticaModule && H.logisticaModule.deactivate();
+      navigateSales(screen || "funnel", motion || "forward");
+    },
+    deactivate() { moduleActive = false; },
+  };
+  window.dispatchEvent(new CustomEvent("hbx:sales-ready"));
+  if (!embedded && !H.modules.get().vendas) window.location.replace("../app/index.html?screen=route");
+  else { render(); refresh(true); state.screenMotion = ""; }
 })();
