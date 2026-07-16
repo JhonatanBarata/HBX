@@ -550,17 +550,6 @@ body {
 
 .cockpit-pagination { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
-/* Aviso da guia VPS indisponível */
-.ck-vps-unavail {
-  padding: 20px 16px;
-  border: 1px dashed var(--border);
-  border-radius: 9px;
-  color: var(--text-muted);
-  font-size: .85rem;
-  text-align: center;
-  margin: 8px 0;
-}
-
 /* ================================================================
    REDESENHO 29/06 — herói da fábrica, fileira de motores, tela limpa
 ================================================================ */
