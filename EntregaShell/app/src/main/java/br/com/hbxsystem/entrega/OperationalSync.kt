@@ -63,18 +63,23 @@ object OperationalSync {
             }
         }
 
-        val refreshedCandidate = store.grantCandidate()
-        val routeId = refreshedCandidate?.routeId
-        val grant = routeId?.let(store::grantForRoute)
-        if (routeId != null && grant != null) {
-            val proofAllowed = OperationalPolicy.proofUploadAllowed(
-                wifiOnly = store.proofWifiOnly(),
-                validated = network.validated,
-                unmetered = network.unmetered,
-            )
+        val proofAllowed = OperationalPolicy.proofUploadAllowed(
+            wifiOnly = store.proofWifiOnly(),
+            validated = network.validated,
+            unmetered = network.unmetered,
+        )
+        val routeIds = store.pendingOperationalRouteIds()
+        for (routeId in routeIds) {
+            val grant = store.grantForSync(routeId)
+            if (grant == null) {
+                if (store.pendingCommands().any { it.routeId == routeId } || store.pendingProofs().any { it.routeId == routeId }) {
+                    retry = true
+                }
+                continue
+            }
+
             if (proofAllowed) {
-                for (proof in store.pendingProofs()) {
-                    if (proof.routeId != routeId) continue
+                for (proof in store.pendingProofs(limit = 20).filter { it.routeId == routeId }) {
                     try {
                         val response = api.uploadProof(grant, proof)
                         val remoteId = listOf("id", "comprovanteId", "proofId")
@@ -91,11 +96,11 @@ object OperationalSync {
                         }
                     }
                 }
-            } else if (store.hasPendingProofs()) {
+            } else if (store.pendingProofs(limit = 1).any { it.routeId == routeId }) {
                 retry = true
             }
 
-            val commands = store.pendingCommands().filter { it.routeId == routeId }
+            val commands = store.pendingCommands(limit = 50).filter { it.routeId == routeId }
             val sendable = commands.filter { store.resolvedCommandPayload(it) != null }
             if (sendable.isNotEmpty()) {
                 try {
@@ -133,8 +138,6 @@ object OperationalSync {
                 }
             }
             if (commands.size > sendable.size) retry = true
-        } else if (store.hasPending()) {
-            retry = true
         }
 
         OperationalFlushResult(pending = store.hasPending() || needsGrant(store), retry = retry)
@@ -147,7 +150,7 @@ object OperationalSync {
 
     private fun isPermanent(error: Throwable): Boolean {
         val status = (error as? OperationalApiClient.ApiException)?.statusCode ?: return false
-        return status in 400..499 && status !in setOf(401, 408, 425, 429)
+        return status in 400..499 && status !in setOf(402, 408, 409, 425, 429)
     }
 
     private fun isRetryable(error: Throwable): Boolean = !isPermanent(error)
