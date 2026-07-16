@@ -1,2 +1,0 @@
-triggered-at: 2026-07-16T00:00:00Z
-workflow: apply-approved-search-ux-v2.yml
