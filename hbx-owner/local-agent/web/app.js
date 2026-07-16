@@ -141,28 +141,6 @@ function paintChk(sel, on, pending) {
   e.className = "chk " + (pending ? "warn" : on ? "on" : "off");
 }
 
-/* ---------- Banco de leads (local + VPS) ---------- */
-async function renderLocalBank(preBank) {
-  const set = (sel, txt, cls) => { const e = $(sel); if (e) { e.textContent = txt; if (cls != null) e.className = cls; } };
-  try {
-    const b = preBank !== undefined ? preBank : await api("GET", "/owner/leads-bank");
-    if (b && b.ok && b.total != null) {
-      const total = Number(b.total);
-      const delta = Number(b.deltaToday || 0);
-      set("#sys-bank-local", total.toLocaleString("pt-BR"));
-      set("#sys-bank-local-delta", delta > 0 ? `+${delta} hoje` : "sem novos hoje", delta > 0 ? "delta up" : "delta");
-      set("#sys-leads-falling", delta > 0 ? `▲ +${delta} caindo hoje` : "parado hoje");
-      return { total, delta };
-    }
-    set("#sys-bank-local", b && b.configured ? "indisponível" : "config token");
-    set("#sys-bank-local-delta", (b && b.reason) || "");
-    return { total: null, delta: 0 };
-  } catch {
-    set("#sys-bank-local", "—");
-    return { total: null, delta: 0 };
-  }
-}
-
 let vpsBankLoading = false;
 let vpsBankAt = 0;
 async function refreshVpsBank(force, preLeads) {
@@ -172,25 +150,17 @@ async function refreshVpsBank(force, preLeads) {
     if (!force && vpsBankAt && Date.now() - vpsBankAt < 60000) return;
     vpsBankLoading = true;
   }
-  // mesma contagem do VPS aparece no header do Cockpit (#sys-bank-vps) e no card Banco de leads (#sys-bank-vps-mini)
-  const setVpsCount = (txt) => { document.querySelectorAll("#sys-bank-vps, #sys-bank-vps-mini").forEach((e) => { e.textContent = txt; }); };
-  const delta = $("#sys-bank-vps-delta");
-  if (preLeads === undefined && delta && (!vpsBankAt || force)) delta.textContent = "lendo a VPS…";
+  const setVpsCount = (txt) => { const e = $("#sys-bank-vps"); if (e) e.textContent = txt; };
   try {
     const d = preLeads !== undefined ? preLeads : await api("GET", "/owner/vps/leads");
     if (d && d.ok && d.total != null) {
       setVpsCount(Number(d.total).toLocaleString("pt-BR"));
-      if (delta) {
-        delta.textContent = d.today > 0 ? `+${d.today} em 24h` : "sem novos 24h";
-        delta.className = d.today > 0 ? "delta up" : "delta";
-      }
       vpsBankAt = Date.now();
     } else {
       setVpsCount(d && d.configured === false ? "config Ops" : "—");
-      if (delta) delta.textContent = (d && opsReasonText(d.reason)) || "VPS indisponível";
     }
   } catch {
-    if (delta) delta.textContent = "erro lendo VPS";
+    setVpsCount("—");
   } finally {
     vpsBankLoading = false;
   }
@@ -295,12 +265,10 @@ function markToggleUnknown(key) {
 }
 function paintLabToggle(on) { setToggleReal("lab", on); }
 
-async function renderSistema(preSystem, preBank) {
-  // Sprint 4: se veio do snapshot SSE (preSystem/preBank), pinta desses dados — sem re-fetch.
-  // Sem pré (timer/fallback), busca como antes. Contrato idêntico pro caminho de polling.
-  const bankPromise = preBank !== undefined ? renderLocalBank(preBank) : renderLocalBank();
+async function renderSistema(preSystem) {
+  // Sprint 4: se veio do snapshot SSE, pinta sem re-fetch; sem pré, busca como antes.
+  // A leitura do banco VPS permanece porque alimenta o cockpit; só a leitura do card local foi removida.
   if (preSystem === undefined) refreshVpsBank();
-
   let s = preSystem;
   if (s === undefined) {
     try {
@@ -312,7 +280,6 @@ async function renderSistema(preSystem, preBank) {
   }
   if (!s || s.ok === false) {
     $("#sys-engines-counts").textContent = s && s.reason ? `sistema: ${s.reason}` : "sistema indisponível";
-    await bankPromise.catch(() => ({ total: null }));
     return;
   }
 
@@ -349,8 +316,6 @@ async function renderSistema(preSystem, preBank) {
     paintChk("#chk-elastic", false);
     paintChk("#chk-factory", false);
   }
-
-  await bankPromise.catch(() => ({ total: null }));
 }
 
 /* ---------- VPS (pressão + motores + veredito), via Ops Control ---------- */
@@ -548,7 +513,6 @@ async function cleanJunkLeads() {
       fb.textContent = `pronto: ${r.cleared} cards-lixo apagados.`;
       fb.className = "delta up";
       pushFeed(`Limpeza concluída: ${r.cleared} cards-lixo fora do banco local.`, "ok");
-      renderLocalBank();
       loadCockpit();
     } else {
       fb.textContent = r.message || r.reason || "falha ao limpar.";
@@ -568,7 +532,6 @@ async function cleanJunkLeads() {
    - Pagina 100 por página
    - Exporta CSV das linhas filtradas
    - Enriquecer: inicia job do Lab alimentando leads com website/instagramUrl filtrados
-   - Enviar pro VPS: manda lote filtrado usando o caminho export-all existente
 ================================================================ */
 
 const CK_CHUNK = 100;       // mostra 100 por vez; rolar pra baixo carrega +100
@@ -1045,12 +1008,9 @@ async function ckExportUnclaimedContacts() {
   }
 }
 
-/* ---------- Exportar TUDO (stream csv.gz — OWNERV2) ----------
-   Dois caminhos ROTULADOS (pedido do dono): o card BANCO (direita) exporta o banco da VPS
-   (/owner/vps/export-all → ops-control → backend da VPS); o card do banco local (esquerda)
-   exporta o banco desta máquina (/owner/export-all → backend local). Stream autenticado: o
-   token vai no header, então NÃO dá pra usar <a href>/window.open — fetch → blob → download.
-   O servidor é memória-constante nos dois caminhos. */
+/* ---------- Exportar banco da VPS (stream csv.gz — OWNERV2) ----------
+   Stream autenticado: o token vai no header, então NÃO dá pra usar <a href>/window.open —
+   fetch → blob → download. O servidor mantém uso constante de memória. */
 async function ckExportAllStream(route, btnSel, fbSel, filePrefix, label) {
   const btn = $(btnSel);
   const fb  = $(fbSel);
@@ -1088,39 +1048,6 @@ async function ckExportAllStream(route, btnSel, fbSel, filePrefix, label) {
   }
 }
 function ckExportAllVps()   { return ckExportAllStream("/owner/vps/export-all", "#btn-export-all", "#export-feedback", "hbx-leads-vps", "da VPS"); }
-function ckExportAllLocal() { return ckExportAllStream("/owner/export-all", "#btn-export-local", "#export-local-feedback", "hbx-leads-local", "local"); }
-
-/* ---------- Mover TUDO pro VPS (envia tudo + limpa o local; SEM cópia) ---------- */
-async function ckSendToVps() {
-  const fb = $("#export-feedback");
-  if (ckSource !== "local") return; // só move o banco local
-  if (!confirm(`MOVER todo o banco local pro VPS (produção) e LIMPAR o local?\n\nEnvia TUDO e apaga a cópia local — sem duplicar. Os leads aparecem na guia VPS.`)) return;
-  fb.textContent = "movendo todo o banco local pro VPS…"; fb.className = "delta";
-  const btn = $("#btn-cockpit-vps");
-  if (btn) btn.disabled = true;
-  pushFeed("Cockpit: movendo TODO o banco local pro VPS (envia + limpa)…", "info");
-  try {
-    // /owner/export-all-leads envia todos e limpa o local por leadIds após o import OK.
-    const r = await api("POST", "/owner/export-all-leads", { confirm: true });
-    if (r.ok && !r.empty) {
-      fb.textContent = `pronto: ${r.exported || 0} movidos pro VPS · ${r.cleared || 0} limpos do local.`; fb.className = "delta up";
-      pushFeed(`Cockpit: ${r.exported || 0} leads movidos pro VPS (local limpo).`, "ok");
-      if (typeof refreshVpsBank === "function") refreshVpsBank(true);
-      if (typeof renderLocalBank === "function") renderLocalBank();
-      loadCockpit();
-    } else if (r.empty) {
-      fb.textContent = "nada pra mover (banco local vazio)."; fb.className = "delta";
-    } else {
-      fb.textContent = r.reason || r.message || "falha ao mover."; fb.className = "delta";
-      pushFeed(`Cockpit mover pro VPS falhou: ${r.reason || r.message || "erro"}.`, "warn");
-    }
-  } catch (err) {
-    fb.textContent = err.message; fb.className = "delta";
-  } finally {
-    if (btn) btn.disabled = false;
-    ckUpdateActionButtons();
-  }
-}
 
 /* ---------- Enriquecer (Email Lab) ---------- */
 const EL_TERMINAL_SET = new Set(["done", "completed", "finished", "failed", "error", "cancelled", "canceled"]);
@@ -1359,115 +1286,6 @@ async function enrToggle() {
   } catch (err) { if (fb) { fb.textContent = err.message; fb.className = "delta"; } }
 }
 
-/* ---------- Tudo ou nada: trazer/mandar tudo (VPS <-> local) com progresso vivo ---------- */
-let transferPollTimer = null;
-
-function setBankButtonsDisabled(v) {
-  const b = $("#btn-push-vps");
-  if (b) b.disabled = v;
-}
-
-function paintTransfer(st) {
-  const box = $("#transfer-box");
-  const statusEl = $("#transfer-status");
-  const bar = $("#transfer-bar");
-  const pctEl = $("#transfer-pct");
-  if (box) box.style.display = "";
-  const dirLabel = st.direction === "push" ? "Mandando pro VPS" : "Trazendo pro local";
-  const total = Number(st.total || 0);
-  // processed = leads que JÁ passaram (stream real dos dois lados); fallback pros contadores de detalhe.
-  const processed = Number(st.processed != null ? st.processed : (st.direction === "push" ? st.sent : st.pulled) || 0);
-  // % honesta: processed ÷ total real do banco. Sem total ainda, mostra um fiapo só pra indicar "iniciou".
-  let pct = total ? Math.min(100, Math.round((processed / total) * 100)) : (st.running ? 3 : 0);
-  let line = total
-    ? `${dirLabel}: ${processed.toLocaleString("pt-BR")} / ${total.toLocaleString("pt-BR")}`
-    : `${dirLabel}…`;
-  if (st.phase && !st.done) line += ` · ${st.phase}`;
-  const failed = Number(st.failed || 0);
-  const nf = (n) => Number(n || 0).toLocaleString("pt-BR");
-  if (st.done) {
-    if (st.ok && failed === 0) {
-      pct = 100;
-      const novos = Number(st.imported || 0);
-      if (st.direction === "push") {
-        // TRANSFERÊNCIA: mandou pro VPS e LIMPOU o local — "Sua máquina" zera.
-        const moved = Number(st.sent || 0);
-        const cleared = Number(st.cleared || 0);
-        const vpsT = Number(st.otherTotal || 0);
-        line = `✓ Transferi tudo: ${nf(moved)} enviados pro VPS · ${nf(cleared)} apagados do local.`;
-        line += vpsT ? ` VPS agora ${nf(vpsT)}. Local zerado ✓` : " Local zerado ✓";
-      } else {
-        // Reconciliação HONESTA do pull: total=VPS, otherTotal=local.
-        const localT = Number(st.otherTotal) || 0;
-        const vpsT = Number(st.total) || 0;
-        const moved = Number(st.pulled || 0);
-        line = `✓ Trouxe tudo: ${nf(moved)} processados, ${nf(novos)} novos no destino.`;
-        const ja = Number(st.duplicates || 0), rej = Number(st.rejected || 0);
-        if (ja || rej) line += ` (${nf(ja)} já estavam no local${rej ? `, ${nf(rej)} sem site/não importáveis` : ""})`;
-        if (localT && vpsT) {
-          line += ` Local ${nf(localT)} · VPS ${nf(vpsT)}`;
-          const d = Math.abs(vpsT - localT);
-          if (d === 0) line += " — iguais ✓";
-        }
-      }
-    } else if (st.ok && failed > 0) {
-      // Concluiu mas alguns lotes piscaram — honesto: mostra quanto faltou e que reclicar completa.
-      line = st.direction === "push"
-        ? `⚠ ${nf(st.sent)} enviados · ${nf(failed)} piscaram — reclica pra completar`
-        : `⚠ ${nf(st.imported)} no local · ${nf(failed)} piscaram — reclica pra completar`;
-    } else {
-      // Erro fatal: mantém a barra onde parou — não mente 100%.
-      line = `✕ ${st.error || "falhou"}${processed ? ` (parou em ${nf(processed)})` : ""}`;
-    }
-  }
-  const warnPartial = st.done && st.ok && failed > 0;
-  if (statusEl) { statusEl.textContent = line; statusEl.className = "delta" + (st.done && !st.ok ? "" : " up"); }
-  if (bar) { bar.style.width = pct + "%"; bar.style.background = (st.done && !st.ok) ? "#e5534b" : warnPartial ? "#f0a93b" : "#39d98a"; }
-  if (pctEl) pctEl.textContent = (st.done && !st.ok) ? "—" : pct + "%";
-}
-
-async function pollTransferOnce() {
-  let st;
-  try { st = await api("GET", "/owner/transfer/status"); }
-  catch { return; }
-  paintTransfer(st);
-  if (st.done || !st.running) {
-    if (transferPollTimer) { clearInterval(transferPollTimer); transferPollTimer = null; }
-    setBankButtonsDisabled(false);
-    if (st.ok) {
-      pushFeed(st.direction === "push" ? `Transferidos ${st.sent} leads pro VPS · ${st.cleared || 0} apagados do local.` : `Trazidos ${st.pulled} do VPS (${st.imported} importados).`, "ok");
-    } else if (st.error) {
-      pushFeed(`Transferência: ${st.error}`, "warn");
-    }
-    renderLocalBank();
-    refreshVpsBank(true);
-  }
-}
-
-async function startTransfer(route) {
-  setBankButtonsDisabled(true);
-  const box = $("#transfer-box"); if (box) box.style.display = "";
-  const statusEl = $("#transfer-status"); if (statusEl) { statusEl.textContent = "iniciando…"; statusEl.className = "delta up"; }
-  const bar = $("#transfer-bar"); if (bar) { bar.style.width = "0%"; bar.style.background = "#39d98a"; }
-  try {
-    const r = await api("POST", route, {});
-    if (!r.ok && !r.started) {
-      if (statusEl) { statusEl.textContent = r.reason || r.message || "não iniciou"; statusEl.className = "delta"; }
-      setBankButtonsDisabled(false);
-      return;
-    }
-  } catch (err) {
-    if (statusEl) { statusEl.textContent = err.message; statusEl.className = "delta"; }
-    setBankButtonsDisabled(false);
-    return;
-  }
-  if (transferPollTimer) clearInterval(transferPollTimer);
-  pollTransferOnce();
-  transferPollTimer = setInterval(pollTransferOnce, 1200);
-}
-
-function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
-
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
   const reloadBtn      = $("#btn-cockpit-reload");
@@ -1476,9 +1294,7 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   const cnpjBackfillBtn = $("#btn-cnpj-backfill");
   const exportUnclaimedBtn = $("#btn-export-unclaimed");
   const exportAllVpsBtn   = $("#btn-export-all");
-  const exportLocalBtn    = $("#btn-export-local");
   const discoverBtn    = $("#btn-cockpit-discover");
-  const pushVpsBtn     = $("#btn-push-vps");
   const prevBtn        = $("#btn-ck-prev");
   const nextBtn        = $("#btn-ck-next");
   const clearBtn       = $("#btn-cockpit-clear");
@@ -1491,8 +1307,6 @@ function ckPushAllToVps() { startTransfer("/owner/push-all-to-vps"); }
   if (cnpjBackfillBtn) cnpjBackfillBtn.addEventListener("click", ckCnpjBackfill);
   if (exportUnclaimedBtn) exportUnclaimedBtn.addEventListener("click", ckExportUnclaimedContacts);
   if (exportAllVpsBtn) exportAllVpsBtn.addEventListener("click", ckExportAllVps);
-  if (exportLocalBtn) exportLocalBtn.addEventListener("click", ckExportAllLocal);
-  if (pushVpsBtn) pushVpsBtn.addEventListener("click", ckPushAllToVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 
   // Enriquecedor de Cards (1 worker contínuo)
@@ -2633,7 +2447,7 @@ ponteRender();
 xrayJobsRender();
 xrayUpdateLineCount();
 // ─────────────────────────── TIMERS DE POLLING (FALLBACK À PROVA DE BALA) ───────────────────────────
-// Sprint 4: os que o SSE consegue empurrar (system + banco + motores VPS) viram timers GERENCIÁVEIS.
+// Sprint 4: os que o SSE consegue empurrar (sistema + motores VPS) viram timers GERENCIÁVEIS.
 // Enquanto o SSE está SAUDÁVEL eles rodam DEVAGAR (mantidos vivos só como rede de segurança);
 // se o SSE cair 2× ou não existir (EventSource ausente), voltam ao ritmo ORIGINAL e o painel funciona
 // IDÊNTICO a hoje. Os demais (motor-strip/lab/ping/fábrica/IA/xray) seguem no timer normal — o
@@ -2663,7 +2477,7 @@ setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + mo
 setInterval(ponteRender, 8000);          // ponte local: controle, estado e trabalhos
 // ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────
 // EventSource escuta /owner/events?token=<TOKEN> (o header Authorization não passa por EventSource;
-// o agent valida o ?token= só nessa rota). Eventos: `snapshot` (árvore composta), `transfer`, `enricher`.
+// o agent valida o ?token= só nessa rota). O painel consome `snapshot` e `enricher`.
 //
 // FALLBACK À PROVA DE BALA (requisito nº1): o polling NUNCA é removido.
 //  • Sem EventSource no browser → connectSSE() nem tenta; os timers rodam no ritmo ORIGINAL.
@@ -2686,14 +2500,12 @@ function paintSnapshot(snap) {
     if (!snap || snap.ok === false) return;
     const local = snap.local || {};
     const vps = snap.vps || {};
-    // Sistema (sua máquina) + banco local, sem re-fetch.
-    renderSistema(local.system, local.bank);
+    // Sistema da máquina local, sem re-fetch.
+    renderSistema(local.system);
     // VPS: pressão/veredito + banco VPS + motores, tudo com o MESMO generatedAt do snapshot.
     renderVps(vps.system, vps.leads, vps.engines);
     // Enricher (métricas). labUp não vem no snapshot → mantém o do último poll (não apaga).
     if (snap.enricher) enrPaint(snap.enricher);
-    // Transferência (se houver estado).
-    if (snap.transfer) paintTransferFromEvent(snap.transfer);
     // Integrações (D5): pinta local + VPS pelo snapshot — o badge "VPS …" morre sozinho, sem clique/fetch.
     // Só quando o grid já foi montado (renderIntegrations) e fora de uma injeção/religar em curso (esses
     // fluxos controlam os mesmos badges e não podem ser resetados no meio).
@@ -2704,18 +2516,6 @@ function paintSnapshot(snap) {
     }
   } catch (err) {
     console.warn("[sse] paintSnapshot falhou:", err && err.message);
-  }
-}
-
-// Reusa a lógica de done do polling (feed + recarrega bancos) quando o evento diz done.
-function paintTransferFromEvent(st) {
-  if (!st) return;
-  paintTransfer(st);
-  if (st.done || !st.running) {
-    setBankButtonsDisabled(false);
-    // Ao concluir, refresca os bancos (o snapshot seguinte também traz, mas isto é imediato).
-    renderLocalBank();
-    refreshVpsBank(true);
   }
 }
 
@@ -2742,10 +2542,6 @@ function connectSSE() {
   es.addEventListener("snapshot", (ev) => {
     sseState.errorStreak = 0; sseState.healthy = true;
     try { paintSnapshot(JSON.parse(ev.data)); } catch {}
-  });
-  es.addEventListener("transfer", (ev) => {
-    sseState.errorStreak = 0; sseState.healthy = true;
-    try { paintTransferFromEvent(JSON.parse(ev.data)); } catch {}
   });
   es.addEventListener("enricher", (ev) => {
     sseState.errorStreak = 0; sseState.healthy = true;

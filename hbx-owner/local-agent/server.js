@@ -23,6 +23,7 @@ const {
 } = require("./lib/util");
 const { parseEngineCapacity } = require("./lib/engine-capacity");
 const { normalizeFabricaResponse } = require("./lib/fabrica-proxy");
+const { DEFAULT_BATCH_SIZE, createAutoTransferWorker, validateAutoBatchCompletion } = require("./lib/auto-transfer");
 // Worker local da PONTE (CHIP E1) — puxa missão do backend e executa no 30B local. Ver lib/ponte-worker.js.
 const { createPonteWorker } = require("./lib/ponte-worker");
 
@@ -65,9 +66,12 @@ let transferJob = {
   done: false, ok: null, error: null, startedAt: 0, finishedAt: 0,
 };
 
-function freshTransferJob(direction) {
+function freshTransferJob(direction, options = {}) {
   return {
     running: true, direction, phase: "iniciando",
+    trigger: options.automatic === true ? "auto" : "manual",
+    batchSize: Number(options.batchSize) > 0 ? Math.trunc(Number(options.batchSize)) : null,
+    sourceTotal: null,
     processed: 0, total: null, otherTotal: null, page: 0, errors: 0, failed: 0, lastError: null,
     pulled: 0, imported: 0, duplicates: 0, rejected: 0, sent: 0, cleared: 0,
     done: false, ok: null, error: null, startedAt: Date.now(), finishedAt: 0,
@@ -79,36 +83,51 @@ function freshTransferJob(direction) {
 // status → a UI mostra "retomar" (reclica a rota de start; o import é idempotente por externalId).
 // No fim OK o journal é apagado. `transferResume` é o que o boot achou (só p/ exibir até religar).
 let transferResume = null;
+function transferResumeFromJournal(j) {
+  if (!j || j.running !== true) return null;
+  const batchSize = Number(j.batchSize) > 0 ? Math.trunc(Number(j.batchSize)) : null;
+  const cleared = Math.max(0, Number(j.cleared) || 0);
+  return {
+    direction: j.direction || null,
+    trigger: j.trigger === "auto" ? "auto" : "manual",
+    batchSize,
+    remaining: batchSize ? Math.max(0, batchSize - cleared) : null,
+    page: Number(j.page) || 0,
+    pulled: Number(j.pulled) || 0,
+    sent: Number(j.sent) || 0,
+    cleared,
+    imported: Number(j.imported) || 0,
+    startedAt: Number(j.startedAt) || 0,
+  };
+}
 function saveTransferJournal(sentIds) {
-  stateStore.save("transfer", {
+  const journal = {
     running: true,
     direction: transferJob.direction,
+    trigger: transferJob.trigger || "manual",
+    batchSize: transferJob.batchSize || null,
     page: transferJob.page,
     sentIds: Array.isArray(sentIds) ? sentIds.slice(-100000) : [],
     pulled: transferJob.pulled,
     sent: transferJob.sent,
+    cleared: transferJob.cleared,
     imported: transferJob.imported,
     startedAt: transferJob.startedAt,
     savedAt: Date.now(),
-  });
+  };
+  if (stateStore.save("transfer", journal)) transferResume = transferResumeFromJournal(journal);
 }
 function clearTransferJournal() {
   transferResume = null;
   stateStore.clear("transfer");
 }
 // No boot: se sobrou um journal (agent morreu no meio de uma transferência), guarda pra expor
-// resumable no status. NÃO retoma sozinho — o dono reclica (evita transferência-fantasma no boot).
+// resumable no status. Lotes MANUAIS continuam esperando o dono; lotes AUTO são retomados pela
+// agenda abaixo, preservando a intenção automática e a idempotência por externalId.
 function loadTransferResumeOnBoot() {
   const j = stateStore.load("transfer");
   if (j && j.running === true) {
-    transferResume = {
-      direction: j.direction || null,
-      page: Number(j.page) || 0,
-      pulled: Number(j.pulled) || 0,
-      sent: Number(j.sent) || 0,
-      imported: Number(j.imported) || 0,
-      startedAt: Number(j.startedAt) || 0,
-    };
+    transferResume = transferResumeFromJournal(j);
   } else {
     transferResume = null;
     if (j) stateStore.clear("transfer"); // journal já finalizado que ficou pra trás → limpa
@@ -1978,11 +1997,16 @@ async function runTransferPull() {
 // Por que apagar SÓ no fim (e não página a página): a leitura pagina por `page` (offset = page×limit).
 // Se eu apagasse no meio, o banco encolheria e o offset da próxima página pularia leads → buracos.
 // Lendo o banco inteiro primeiro (sem apagar) a paginação fica estável; a limpeza vem por leadIds no fim.
-async function runTransferPush() {
-  const pageSize = 500;
+async function runTransferPush(options = {}) {
+  const requestedMax = Number(options.maxLeads);
+  const maxLeads = Number.isFinite(requestedMax) && requestedMax > 0 ? Math.trunc(requestedMax) : null;
+  const pageSize = maxLeads ? Math.min(500, maxLeads) : 500;
   const maxPages = 2000;
   let chunkSeq = 0;
   let consecutiveFails = 0;
+  let selected = 0;
+  let mapped = 0;
+  let cleanupFailed = false;
   const sentIds = []; // ids locais que o VPS ACEITOU → apagados do local no fim (vira transferência)
   if (!backendToken) await refreshBackendToken().catch(() => null);
   try {
@@ -1998,14 +2022,24 @@ async function runTransferPush() {
           || (page === 1 ? `backend local indisponível (http_${r.statusCode || "?"})` : "backend local parou de responder no meio");
         break;
       }
-      if (typeof r.data.total === "number") transferJob.total = r.data.total;
-      const items = Array.isArray(r.data.items) ? r.data.items : [];
+      if (typeof r.data.total === "number") {
+        transferJob.sourceTotal = r.data.total;
+        transferJob.total = maxLeads ? Math.min(maxLeads, r.data.total) : r.data.total;
+      }
+      let items = Array.isArray(r.data.items) ? r.data.items : [];
+      if (maxLeads) items = items.slice(0, Math.max(0, maxLeads - selected));
       if (!items.length) break;
+      selected += items.length;
       const leads = items
         .map((row) => mapCardToHarvestLead(row, { sourceMode: "imported_lab", method: "owner_push_all", origin: "local_radar_pool", provider: "local_lab" }))
         .filter(Boolean);
+      mapped += leads.length;
+      if (transferJob.trigger === "auto" && leads.length !== items.length) {
+        transferJob.error = `Lote automático contém ${items.length - leads.length} card(s) sem id/nome; nada será marcado como concluído.`;
+        transferJob.lastError = transferJob.error;
+      }
       // Manda em sub-lotes que cabem no body-parser do backend da VPS (senão 413 "entity too large").
-      for (const sub of chunkLeadsBySize(leads)) {
+      for (const sub of transferJob.error ? [] : chunkLeadsBySize(leads)) {
         transferJob.phase = "enviando pro VPS";
         // O import da VPS (buildEmailLabImportPayload) EXIGE batchId — sem ele dá 400 "Export sem batchId".
         // 4 tentativas com backoff: a VPS pisca ("fetch failed") sob carga — um blip não pode matar a transferência.
@@ -2035,6 +2069,10 @@ async function runTransferPush() {
           transferJob.failed += sub.length;
           transferJob.lastError = imp.reason || imp.data?.error || imp.data?.message || "falha no lote";
           consecutiveFails += 1;
+          if (transferJob.trigger === "auto") {
+            transferJob.error = `VPS instável (${transferJob.lastError}) — lote automático será retomado com backoff.`;
+            break;
+          }
           if (consecutiveFails >= 5) {
             transferJob.error = `VPS instável (${transferJob.lastError}) — parei em ${transferJob.sent} enviados; reclica pra continuar.`;
             break;
@@ -2044,6 +2082,7 @@ async function runTransferPush() {
       saveTransferJournal(sentIds); // grava progresso + ids já aceitos a cada página OK
       broadcastTransfer();          // empurra o progresso pro SSE (barra atualiza sem esperar o poll)
       if (transferJob.error) break;
+      if (maxLeads && selected >= maxLeads) break;
       if (transferJob.total != null && transferJob.sent >= transferJob.total) break;
       if (items.length < pageSize) break;
     }
@@ -2054,8 +2093,33 @@ async function runTransferPush() {
       for (let i = 0; i < sentIds.length; i += 2000) {
         const chunk = sentIds.slice(i, i + 2000);
         const del = await backendRequest("DELETE", "/modules/owner/radar/database-cards/batch", { leadIds: chunk }, { timeoutMs: 30000 });
-        if (del.ok) transferJob.cleared += Number(del.data?.affected ?? chunk.length) || 0;
-        else transferJob.lastError = del.error || del.data?.message || `falha ao limpar o local (http_${del.statusCode || "?"})`;
+        if (del.ok) {
+          const affected = Number(del.data?.affected ?? chunk.length) || 0;
+          transferJob.cleared += affected;
+          if (affected !== chunk.length) {
+            cleanupFailed = true;
+            transferJob.lastError = `limpeza parcial: removeu ${affected} de ${chunk.length}`;
+            transferJob.error = transferJob.error || transferJob.lastError;
+          }
+        } else {
+          cleanupFailed = true;
+          transferJob.lastError = del.error || del.data?.message || `falha ao limpar o local (http_${del.statusCode || "?"})`;
+          transferJob.error = transferJob.error || transferJob.lastError;
+        }
+      }
+    }
+    if (transferJob.trigger === "auto") {
+      const completion = validateAutoBatchCompletion({
+        requested: maxLeads,
+        selected,
+        mapped,
+        sent: transferJob.sent,
+        cleared: transferJob.cleared,
+        cleanupFailed,
+      });
+      if (!completion.ok) {
+        transferJob.lastError = completion.reason;
+        transferJob.error = transferJob.error || completion.reason;
       }
     }
     transferJob.ok = !transferJob.error;
@@ -2075,6 +2139,34 @@ async function runTransferPush() {
     else saveTransferJournal(sentIds);          // parou com erro → deixa retomável no boot
     broadcastTransfer();                        // estado final (done) pro SSE
   }
+}
+
+// Ponto de entrada UNICO para rota manual e agenda automatica. O teste/set de
+// transferJob.running e a troca para running=true sao sincronas no mesmo event loop,
+// portanto dois chamadores nunca abrem duas transferencias simultaneas.
+function startTransferJob(direction, options = {}) {
+  if (transferJob.running) {
+    return { started: false, reason: "Já tem uma transferência rodando — espera terminar." };
+  }
+  const isPull = direction === "pull";
+  transferResume = null;
+  transferJob = freshTransferJob(isPull ? "pull" : "push", options);
+  broadcastTransfer();
+
+  const work = isPull
+    ? runTransferPull()
+    : runTransferPush({ maxLeads: options.maxLeads });
+  const done = work.catch((err) => {
+    transferJob.error = err?.message || "falha";
+    transferJob.ok = false;
+    transferJob.done = true;
+    transferJob.running = false;
+    transferJob.finishedAt = Date.now();
+    saveTransferJournal([]);
+    broadcastTransfer();
+  }).then(() => ({ ...transferJob }));
+
+  return { started: true, direction: transferJob.direction, done };
 }
 
 function clampEngineRange(body) {
@@ -2844,21 +2936,12 @@ async function route(req, res) {
   // O progresso vivo sai por GET /owner/transfer/status (a UI desenha a barra).
   if (req.method === "POST" && (url.pathname === "/owner/import-all-from-vps" || url.pathname === "/owner/push-all-to-vps")) {
     const isPull = url.pathname === "/owner/import-all-from-vps";
-    if (transferJob.running) {
-      sendJson(res, 200, { ok: false, running: true, reason: "Já tem uma transferência rodando — espera terminar." });
+    const launch = startTransferJob(isPull ? "pull" : "push", { automatic: false });
+    if (!launch.started) {
+      sendJson(res, 200, { ok: false, running: true, reason: launch.reason });
       return;
     }
-    transferResume = null; // recomeçou de fato → some com o aviso de retomada do boot
-    transferJob = freshTransferJob(isPull ? "pull" : "push");
-    broadcastTransfer();   // "iniciando" pro SSE já na largada
-    (isPull ? runTransferPull() : runTransferPush()).catch((err) => {
-      transferJob.error = err?.message || "falha";
-      transferJob.ok = false; transferJob.done = true;
-      transferJob.running = false; transferJob.finishedAt = Date.now();
-      saveTransferJournal([]); // falha dura → deixa retomável
-      broadcastTransfer();
-    });
-    sendJson(res, 200, { ok: true, started: true, direction: transferJob.direction });
+    sendJson(res, 200, { ok: true, started: true, direction: launch.direction });
     return;
   }
 
@@ -3592,6 +3675,21 @@ function createOwnerServer() {
   });
 }
 
+// A agenda apenas conta e chama o MESMO startTransferJob da rota manual. Nenhuma chamada
+// depende do painel aberto; o timer vive junto do processo local-agent.
+const autoTransferWorker = createAutoTransferWorker({
+  batchSize: DEFAULT_BATCH_SIZE,
+  readLocalTotal: readLocalCardTotal,
+  isTransferRunning: () => transferJob.running,
+  getResume: () => transferResume,
+  startBatch: (batchSize) => startTransferJob("push", {
+    automatic: true,
+    batchSize,
+    maxLeads: batchSize,
+  }),
+  log: (message) => console.log(message),
+});
+
 const server = createOwnerServer();
 
 if (require.main === module) {
@@ -3601,16 +3699,20 @@ if (require.main === module) {
     stateStore.ensureDir();
     const resume = loadTransferResumeOnBoot();
     if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
+    autoTransferWorker.start(5_000);
     console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
     // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
     try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
     // D4: 1ª checagem de drift no boot (força o throttle). Best-effort — nunca derruba a subida do agent.
     refreshOpsDrift(true).catch(() => {});
   });
+  server.once("close", () => autoTransferWorker.stop());
 }
 
 module.exports.__testing = {
   createOwnerServer,
   dockerRead,
   invalidateDockerReadCache,
+  startTransferJob,
+  autoTransferWorker,
 };
