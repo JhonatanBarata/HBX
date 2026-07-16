@@ -206,7 +206,7 @@ page = replaceOnce(
 );
 
 const titleStart = "      {/* ── Título com expandir (opt-in) + fechar ─────────────────────── */}\n";
-const emptyStart = "      {/* ── Empty state ──────────────────────────────────────────────── */}\n";
+const emptyStart = "      {/* ── Empty state";
 const titleReplacement = `      {/* ── Título com expandir (opt-in) + fechar ─────────────────────── */}
       {/* Sem showAgenda o DOM continua idêntico para Atendimento/Leads. */}
       <h3 className={showAgenda ? "dn-root__topbar" : undefined}>
