@@ -44,12 +44,12 @@ export class LogisticaMobileService {
   async getRoute(companyId: number, date: string | undefined, actor: LogisticaActor) {
     if (!companyId) throw new BadRequestException('Empresa não identificada.');
     const route: any = await this.logistica.listRota(companyId, date, actor);
-    const items = Array.isArray(route?.items) ? route.items : [];
-    const customerIds = Array.from(
-      new Set(
+    const items: any[] = Array.isArray(route?.items) ? route.items : [];
+    const customerIds: string[] = Array.from(
+      new Set<string>(
         items
           .map((item: any) => String(item?.cliente?.id || '').trim())
-          .filter(Boolean),
+          .filter((id: string) => id.length > 0),
       ),
     );
 
