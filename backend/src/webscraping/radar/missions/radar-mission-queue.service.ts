@@ -319,8 +319,28 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   private supportsCache: { at: number; value: boolean } | null = null;
   private sweeperTimer: ReturnType<typeof setInterval> | null = null;
   private reconcilerTimer: ReturnType<typeof setInterval> | null = null;
+  private reconcilerRunning = false;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  private async runLocalDeepReconcilerOnce() {
+    if (this.reconcilerRunning) return;
+    if (!isLocalDeepEnrichmentQueueEnabled()) return;
+
+    this.reconcilerRunning = true;
+
+    try {
+      await this.reconcileLocalDeepEnrichmentMissions();
+    } catch (error: any) {
+      this.logger.warn(
+        `[local-deep-enrich] reconciliador falhou sem afetar Radar: ${
+          String(error?.message || error)
+        }`,
+      );
+    } finally {
+      this.reconcilerRunning = false;
+    }
+  }
 
   onModuleInit() {
     // Sweeper de lease vencido: mesmo sem ninguém dar lease (nó local desligado), missão presa em
@@ -336,14 +356,11 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       30 * 60_000,
     );
     this.reconcilerTimer = setInterval(() => {
-      if (!isLocalDeepEnrichmentQueueEnabled()) return;
-      void this.reconcileLocalDeepEnrichmentMissions().catch((error: any) => {
-        this.logger.warn(`[local-deep-enrich] reconciliador falhou sem afetar Radar: ${String(error?.message || error)}`);
-      });
+      void this.runLocalDeepReconcilerOnce();
     }, reconcileEveryMs);
     this.reconcilerTimer.unref?.();
     if (isLocalDeepEnrichmentQueueEnabled()) {
-      void this.reconcileLocalDeepEnrichmentMissions().catch(() => ({ scanned: 0, enqueued: 0 }));
+      void this.runLocalDeepReconcilerOnce();
     }
   }
 
@@ -458,7 +475,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     try {
       const created = await db.radarMission.create({ data });
       return { created: true, missionId: created.id };
-    } catch (error) {
+    } catch (error: any) {
       // corrida no unique (stage, dedupeKey) → outro emissor ganhou; devolve o existente.
       if (input.dedupeKey) {
         const existing = await db.radarMission.findUnique({
@@ -466,6 +483,41 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
           select: { id: true },
         }).catch(() => null);
         if (existing) return { created: false, missionId: existing.id };
+      }
+      // FK órfã: `RadarLeadPool.ownerCompanyId` é Int? SEM relation no schema — valor de empresa
+      // deletada sobrevive no card e vaza pra cá como companyId, que TEM FK em RadarMission. Um
+      // único card envenenado não pode matar o enfileiramento (nem, no reconciliador, o ciclo
+      // inteiro); missão sem empresa vale mais que reconciliador morto.
+      if (error?.code === 'P2003') {
+        const fkField = String(error?.meta?.field_name || error?.message || '');
+        if (fkField.includes('companyId') || fkField.includes('requestedByUserId')) {
+          this.logger.warn(
+            `[mission-queue] FK órfã (${fkField.slice(0, 200)}) ao enfileirar radarLeadId=${
+              compactMissionText(input.radarLeadId, 200)
+            }; retentando sem companyId/requestedByUserId.`,
+          );
+          try {
+            const retried = await db.radarMission.create({
+              data: { ...data, companyId: null, requestedByUserId: null },
+            });
+            return { created: true, missionId: retried.id };
+          } catch (retryError: any) {
+            this.logger.warn(
+              `[mission-queue] retentativa sem companyId/requestedByUserId falhou (radarLeadId=${
+                compactMissionText(input.radarLeadId, 200)
+              }): ${String(retryError?.message || retryError)}`,
+            );
+            return { created: false, missionId: null };
+          }
+        }
+        // Outra FK violada (ex.: radarLeadId de lead já deletado) — mesmo princípio: dado órfão
+        // nunca propaga pra cima e derruba quem chamou enqueue.
+        this.logger.warn(
+          `[mission-queue] FK violada (${fkField.slice(0, 200)}) ao enfileirar radarLeadId=${
+            compactMissionText(input.radarLeadId, 200)
+          }; descartando sem propagar.`,
+        );
+        return { created: false, missionId: null };
       }
       throw error;
     }
@@ -621,7 +673,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       throw new Error('local_deep_enrich_reconciler_cursor_delegate_missing');
     }
     const batchSize = Math.min(
-      Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_BATCH_SIZE) || 500, 1),
+      Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_BATCH_SIZE) || 100, 1),
       2_000,
     );
     const startedAt = new Date();
@@ -650,6 +702,25 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       sourceUrl: true,
       placeId: true,
       phoneDigits: true,
+      phone: true,
+      email: true,
+      emailStatus: true,
+      contacts: {
+        select: {
+          kind: true,
+          valueNormalized: true,
+        },
+        orderBy: {
+          rank: 'asc',
+        },
+        take: 10,
+      },
+      people: {
+        select: {
+          id: true,
+        },
+        take: 1,
+      },
       ownerCompanyId: true,
       campaignId: true,
       status: true,
@@ -686,21 +757,92 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     for (const row of Array.isArray(rows) ? rows : []) {
       const status = compactMissionText(row?.status, 80).toLowerCase();
       if (LOCAL_DEEP_ENRICH_EXCLUDED_STATUSES.has(status)) continue;
-      const outcome = await this.enqueueLocalDeepEnrichment({
-        radarLeadId: row?.id,
-        name: row?.name,
-        city: row?.city,
-        state: row?.state,
-        segment: row?.segment,
-        website: row?.website,
-        sourceUrl: row?.sourceUrl,
-        identityKey: row?.placeId || row?.phoneDigits || null,
-        companyId: row?.ownerCompanyId || null,
-        runId: row?.campaignId || null,
-        priority: status === 'sent_to_vendas' ? 100 : 0,
-        priorityReason: status === 'sent_to_vendas' ? 'delivered' : 'reconciled',
-      });
-      if (outcome.created) enqueued += 1;
+
+      const contacts = Array.isArray(row?.contacts)
+        ? row.contacts
+        : [];
+
+      const directPhoneDigits = String(
+        row?.phoneDigits || row?.phone || '',
+      ).replace(/\D/g, '');
+
+      const hasPhone =
+        directPhoneDigits.length >= 10 ||
+        contacts.some((contact: any) => {
+          const kind = String(contact?.kind || '');
+          const digits = String(
+            contact?.valueNormalized || '',
+          ).replace(/\D/g, '');
+
+          return (
+            ['phone', 'whatsapp'].includes(kind) &&
+            digits.length >= 10
+          );
+        });
+
+      const emailStatus = String(
+        row?.emailStatus || '',
+      ).toLowerCase();
+
+      const hasEmail =
+        (
+          Boolean(String(row?.email || '').trim()) &&
+          !['missing', 'invalid'].includes(emailStatus)
+        ) ||
+        contacts.some(
+          (contact: any) =>
+            String(contact?.kind || '') === 'email' &&
+            Boolean(String(contact?.valueNormalized || '').trim()),
+        );
+
+      const hasPerson =
+        Array.isArray(row?.people) &&
+        row.people.length > 0;
+
+      // Já possui telefone, e-mail e responsável.
+      // Não precisa gastar o PC nem entrar novamente na fila.
+      if (hasPhone && hasEmail && hasPerson) {
+        continue;
+      }
+
+      const missingCount =
+        Number(!hasPhone) +
+        Number(!hasEmail) +
+        Number(!hasPerson);
+
+      const priority =
+        status === 'sent_to_vendas'
+          ? 100
+          : missingCount >= 2
+            ? 60
+            : 20;
+
+      // 1 card por vez: card envenenado (FK órfã que escapou do freio do enqueue, ou qualquer
+      // outra falha pontual) não pode abortar o lote inteiro — perde 1 card, nunca o ciclo.
+      try {
+        const outcome = await this.enqueueLocalDeepEnrichment({
+          radarLeadId: row?.id,
+          name: row?.name,
+          city: row?.city,
+          state: row?.state,
+          segment: row?.segment,
+          website: row?.website,
+          sourceUrl: row?.sourceUrl,
+          identityKey: row?.placeId || row?.phoneDigits || null,
+          companyId: row?.ownerCompanyId || null,
+          runId: row?.campaignId || null,
+          priority,
+          priorityReason: status === 'sent_to_vendas' ? 'delivered' : 'reconciled',
+        });
+        if (outcome.created) enqueued += 1;
+      } catch (error: any) {
+        this.logger.warn(
+          `[local-deep-enrich] card ${compactMissionText(row?.id, 200)} falhou no reconciliador: ${
+            String(error?.message || error)
+          }`,
+        );
+        continue;
+      }
     }
 
     const lastRow = rows[rows.length - 1] || null;

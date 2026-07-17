@@ -372,6 +372,14 @@ async function pollOnce(nowMs = Date.now()) {
     return { ok: false, action: 'lab_unavailable', error: lab.error };
   }
 
+  // Um job novo não herda as falhas do job anterior.
+  if (
+    state.observation.jobId &&
+    state.observation.jobId !== jobId
+  ) {
+    state.recoveryEvents = [];
+  }
+
   const signature = buildJobSignature(lab.job);
   if (state.observation.jobId !== jobId || state.observation.signature !== signature) {
     state.observation = { jobId, signature, changedAt: nowIso(nowMs) };

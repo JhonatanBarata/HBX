@@ -393,6 +393,36 @@ test('enqueue idempotente: dedupeKey vivo não duplica; terminal re-arma', async
   assert.equal(fake.missions[0].attempts, 0);
 });
 
+test('enqueue: FK órfã (P2003 companyId) retenta uma vez sem companyId/requestedByUserId', async () => {
+  // Reproduz o bug de produção: RadarLeadPool.ownerCompanyId é Int? sem relation no schema, então
+  // um valor de empresa deletada sobrevive no card e vira companyId (que TEM FK) na missão. O
+  // create real do Prisma rejeitaria com P2003 na 1ª tentativa; aqui simulamos isso no fake.
+  const { fake, service } = buildService();
+  let calls = 0;
+  const originalCreate = fake.radarMission.create;
+  fake.radarMission.create = async ({ data }: any) => {
+    calls += 1;
+    if (calls === 1) {
+      const err: any = new Error('Foreign key constraint violated on the constraint: `RadarMission_companyId_fkey`');
+      err.code = 'P2003';
+      err.meta = { field_name: 'RadarMission_companyId_fkey (index)' };
+      throw err;
+    }
+    return originalCreate({ data });
+  };
+  const result = await service.enqueue({
+    stage: 'alvo',
+    payload: { x: 1 },
+    companyId: 999_999,
+    requestedByUserId: 888_888,
+  });
+  assert.equal(result.created, true);
+  assert.equal(calls, 2);
+  assert.equal(fake.missions.length, 1);
+  assert.equal(fake.missions[0].companyId, null);
+  assert.equal(fake.missions[0].requestedByUserId, null);
+});
+
 test('contrato local: terminal não rearma e prioridade pós-entrega atualiza a mesma missão', async () => {
   const { fake, service } = buildService();
   const first = await service.enqueue({

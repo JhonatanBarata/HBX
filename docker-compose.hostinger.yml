@@ -71,6 +71,9 @@ services:
       HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS: ${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}
       HBX_RADAR_CLIENT_FALLBACK_TO_POOL: ${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}
       HBX_RADAR_WHATSAPP_CHECK_MODE: ${HBX_RADAR_WHATSAPP_CHECK_MODE:-enrich}
+      # Socket + CLI ligam o caminho "docker local" do governor de motores (hbx-engine-docker-adapter.service.ts):
+      # na VPS não existe ops-control, então start/stop/restart de hbx-engine-1..20 passa a ir direto no socket.
+      HBX_ENGINE_DOCKER_CLI_PATH: /usr/local/bin/docker
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -79,6 +82,8 @@ services:
       # volume o filesystem do container é efêmero e todo anexo recebido entre dois publishes
       # some no recreate (perda irrecuperável de mídia de cliente).
       - ./backend/storage:/app/storage
+      # Socket do Docker do host montado — dá ao backend o mesmo caminho "docker local" do governor de motores.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - hbx_net
 

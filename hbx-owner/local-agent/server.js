@@ -1013,22 +1013,36 @@ function enricherSleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 // de `want` cards juntando ceil(want/20) páginas reais a partir do cursor lógico `logicalPage`.
 // Retorna { items, total } e respeita o fim do banco (página real < 20).
 async function vpsReadCardsAggregated(logicalPage, want) {
-  const VPS_CAP = 20;                                            // teto real do backend da VPS
-  const startVpsPage = Math.floor(((logicalPage - 1) * want) / VPS_CAP) + 1;
-  const pagesNeeded = Math.ceil(want / VPS_CAP);
-  const items = [];
-  let total = null;
-  for (let i = 0; i < pagesNeeded; i += 1) {
-    if (!enricherJob.running) break;
-    const r = await opsRequest("GET", `/api/radar/vps/database-cards?limit=${VPS_CAP}&page=${startVpsPage + i}`, null, 30000);
-    if (!r.ok) break;                                            // falha de rede → corta sem inventar buraco
-    const data = (r.data && (r.data.data || r.data)) || {};
-    if (typeof data.total === "number") total = data.total;
-    const pageItems = Array.isArray(data.items) ? data.items : [];
-    for (const it of pageItems) items.push(it);
-    if (pageItems.length < VPS_CAP) break;                       // fim real do banco
+  // Uma única página por ciclo.
+  // 100 é grande o bastante para trabalhar e pequeno o bastante para não sobrecarregar.
+  const limit = Math.min(
+    Math.max(Number(want) || 100, 1),
+    100,
+  );
+
+  const response = await opsRequest(
+    "GET",
+    `/api/radar/vps/database-cards?limit=${limit}&page=${logicalPage}`,
+    null,
+    30000,
+  );
+
+  if (!response.ok) {
+    return {
+      items: [],
+      total: null,
+    };
   }
-  return { items, total };
+
+  const data =
+    response.data && (response.data.data || response.data)
+      ? response.data.data || response.data
+      : {};
+
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    total: typeof data.total === "number" ? data.total : null,
+  };
 }
 
 // Um ciclo: dispara Tipo 1 no VPS (a cada N ciclos) + crawleia 1 página de cards (Tipo 2).
@@ -1053,7 +1067,7 @@ async function enricherCycle() {
   // cards por varredura; o backend deployado trava em 20/página — ver vpsReadCardsAggregated).
   if (enricherJob.types.scraper) {
     enricherJob.phase = "lendo VPS p/ crawl";
-    const { items, total } = await vpsReadCardsAggregated(enricherJob.cursorPage, 500);
+    const { items, total } = await vpsReadCardsAggregated(enricherJob.cursorPage, 100);
     if (typeof total === "number") enricherJob.vpsTotal = total;
     if (!items.length) { enricherJob.cursorPage = 1; return; } // fim da base → recomeça a varredura
     enricherJob.cardsScanned += items.length;
@@ -3130,14 +3144,11 @@ async function route(req, res) {
 
   // Liga o worker contínuo (fica enriquecendo enquanto o PC estiver ligado).
   if (req.method === "POST" && url.pathname === "/owner/enricher/start") {
-    if (enricherJob.running) { sendJson(res, 200, { ok: false, reason: "ja_rodando", message: "Enriquecedor já está ligado." }); return; }
-    const body = await readBody(req);
-    const identity = body.identity !== false; // Tipo 1
-    const scraper = body.scraper !== false;   // Tipo 2
-    const aggressive = body.aggressive === true;
-    if (!identity && !scraper) { sendJson(res, 200, { ok: false, reason: "sem_tipo", message: "Escolha pelo menos um tipo." }); return; }
-    startEnricher({ identity, scraper, aggressive });
-    sendJson(res, 200, { ok: true, message: "Enriquecedor ligado — roda enquanto o PC ficar ligado.", types: enricherJob.types, aggressive });
+    sendJson(res, 409, {
+      ok: false,
+      reason: "enriquecedor_legado_desativado",
+      message: "O enriquecedor antigo foi desativado. O processamento agora usa local_deep_enrich_v1.",
+    });
     return;
   }
 
@@ -3691,7 +3702,21 @@ if (require.main === module) {
     stateStore.ensureDir();
     const resume = loadTransferResumeOnBoot();
     if (resume) console.log(`[state] transferência ${resume.direction || "?"} não-finalizada detectada (retomável).`);
-    autoTransferWorker.start(5_000);
+    const autoTransferEnabled = [
+      "1",
+      "true",
+      "yes",
+      "sim",
+      "on",
+    ].includes(
+      String(
+        process.env.HBX_OWNER_AUTO_TRANSFER_ENABLED || "false",
+      ).trim().toLowerCase(),
+    );
+
+    if (autoTransferEnabled) {
+      autoTransferWorker.start(5_000);
+    }
     console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
     // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
     try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }

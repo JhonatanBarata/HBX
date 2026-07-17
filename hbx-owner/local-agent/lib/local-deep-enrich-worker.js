@@ -663,7 +663,14 @@ function createLocalDeepEnrichWorker(deps = {}) {
     state.target.status = config.ready ? "connecting" : "awaiting_configuration";
     state.target.database = config.expectedDatabase || null;
     if (!config.ready) return { ok: false, reason: config.reason || "writer_nao_configurado" };
-    if (cachedHandshakeAt && now() - cachedHandshakeAt < 60_000 && state.target.connected) return { ok: true };
+    if (
+      cachedHandshakeAt &&
+      now() - cachedHandshakeAt < 60_000 &&
+      state.target.connected
+    ) {
+      state.target.status = "connected";
+      return { ok: true };
+    }
     const checked = await writer.handshake();
     if (!checked || !checked.ok) {
       state.target.connected = false;
