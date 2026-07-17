@@ -370,6 +370,10 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   pointer-events: auto;
 }
 
+.public-entry.is-login .f1-mobile-apps {
+  display: none;
+}
+
 .f1-mobile-apps {
   position: relative;
   z-index: 2;
