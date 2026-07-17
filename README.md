@@ -44,7 +44,7 @@ Para salvar o projeto antes de formatar a maquina e reconstruir o ambiente depoi
 
 - `npm run up` recusa `backend/.env` apontando para banco remoto no host, para evitar abrir Prisma Studio ou ferramentas locais contra produção por engano.
 - `npm run up` valida backend em `http://localhost:3000/health` e frontend em `http://localhost:3001`; Prisma Studio vira opcional se `backend/.env` nao estiver pronto para o host.
-- `npm run publish` roda preflight de Prisma e build; health de producao fica separado em `npm run verify:prod`.
+- `npm run publish` faz o build e confirma API e frontend diretamente na VPS antes de concluir.
 - Mudancas em `frontend/` entram no build Docker `hbx-frontend` na Hostinger.
 - `npm run force` salva backup local em `backups/ops/<timestamp>` e tenta dump seguro de producao antes de parar processos.
 - `npm run verify:prod` recusa targets locais e só aceita URLs remotas de produção.
