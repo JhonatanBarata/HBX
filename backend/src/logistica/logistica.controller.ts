@@ -34,6 +34,7 @@ import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
+import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -84,6 +85,7 @@ export class LogisticaController {
     private readonly operacao: LogisticaOperacaoService = null as any,
     private readonly tracking: LogisticaTrackingService = null as any,
     private readonly trackingBonus: LogisticaTrackingBonusService = null as any,
+    private readonly occurrences: LogisticaOccurrenceService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -520,7 +522,9 @@ export class LogisticaController {
   @Get('dia-preview')
   diaPreview(@Req() req: any, @Query('date') date?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recorrencia.getDiaPreview(companyId, date, req.user);
+    return this.occurrences
+      ? this.occurrences.preview(companyId, date)
+      : this.recorrencia.getDiaPreview(companyId, date, req.user);
   }
 
   // ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ───────────────────────────────

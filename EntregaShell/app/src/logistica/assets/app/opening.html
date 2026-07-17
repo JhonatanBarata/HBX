@@ -170,6 +170,7 @@
     /* Fechamento: a própria linha do tempo de entrada é reproduzida ao contrário. */
     html[data-mode="exit"] .topbar { opacity:1;transform:none;animation:none; }
     html[data-mode="exit"] .route-live { opacity:.92;stroke-dashoffset:0;animation:none; }
+    html[data-mode="exit"] .route-ghost { opacity:1; }
     html[data-mode="exit"] .route-pulse { opacity:0;stroke-dashoffset:-1;animation:none; }
     html[data-mode="exit"] .hub-wrap,html[data-mode="exit"] .hub { opacity:1;filter:none;animation:none; }
     html[data-mode="exit"] .hub-ring { opacity:1;transform:scale(1);animation:none; }
@@ -208,6 +209,7 @@
     html[data-mode="exit"].exiting .route-pulse.p3 { animation:pulseRun 1.25s 2.55s linear reverse both; }
     html[data-mode="exit"].exiting .route-pulse.p2 { animation:pulseRun 1.25s 3.17s linear reverse both; }
     html[data-mode="exit"].exiting .route-pulse.p1 { animation:pulseRun 1.25s 3.79s linear reverse both; }
+    html[data-mode="exit"].exiting .route-ghost { animation:exitFade .38s 5.34s ease forwards; }
 
     html[data-mode="exit"].exiting .hub::after { animation:shockwave 1.5s 3.54s ease-out reverse both; }
     html[data-mode="exit"].exiting .hub::before { animation:shockwave 1.5s 4.09s ease-out reverse both; }
@@ -215,7 +217,9 @@
     html[data-mode="exit"].exiting .hub-ring { animation:ringOn .44s 5.31s var(--spring) reverse both; }
     html[data-mode="exit"].exiting .hub-ring-live { animation:ringFill 5s .75s linear reverse both,ringSpin 5s .75s linear reverse both; }
     html[data-mode="exit"].exiting .hub-mark { animation:markReveal .76s 4.89s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .hub-glow { animation:exitFade .38s 5.34s ease forwards; }
     html[data-mode="exit"].exiting .topbar { animation:topIn .75s 5s var(--spring) reverse both; }
+    @keyframes exitFade { to { opacity:0; } }
 
     @media (max-height:700px) {
       .hub-wrap { top:29.5%;transform:translate(-50%,-50%) scale(.88); }

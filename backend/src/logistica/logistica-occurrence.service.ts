@@ -361,6 +361,31 @@ export class LogisticaOccurrenceService {
       );
       const deliveryIds = new Set<string>();
 
+      const cancelledDeliveryIds = Array.from(new Set<string>(
+        existingRows
+          .filter((row: any) => Number(row.entrega?.companyId) === companyId && row.entrega?.status === 'cancelada')
+          .map((row: any) => String(row.entregaId)),
+      ));
+      if (cancelledDeliveryIds.length > 0) {
+        await tx.entrega.updateMany({
+          where: { id: { in: cancelledDeliveryIds }, companyId, status: 'cancelada' },
+          data: {
+            status: 'agendada',
+            scheduledAt: start,
+            startedAt: null,
+            deliveredAt: null,
+            deliveredLat: null,
+            deliveredLng: null,
+            rotaOrdem: null,
+            etaAt: null,
+            entregadorId: driverUserId,
+            atribuidoPorUserId: driverUserId ? actorUserId : null,
+            atribuidoAt: driverUserId ? new Date() : null,
+          },
+        });
+        cancelledDeliveryIds.forEach((id) => deliveryIds.add(id));
+      }
+
       for (const row of existingRows) {
         if (Number(row.entrega?.companyId) !== companyId) continue;
         const scheduledKey = saoPauloDateKey(row.entrega?.scheduledAt);
@@ -562,9 +587,13 @@ export class LogisticaOccurrenceService {
     if (ids.length === 0) return new Set();
     const rows = await prisma.entregaItem.findMany({
       where: { id: { in: ids } },
-      select: { id: true },
+      select: { id: true, entrega: { select: { status: true } } },
     });
-    return new Set(rows.map((row: any) => String(row.id)));
+    return new Set(
+      rows
+        .filter((row: any) => row.entrega?.status !== 'cancelada')
+        .map((row: any) => String(row.id)),
+    );
   }
 
   /**
@@ -582,6 +611,7 @@ export class LogisticaOccurrenceService {
     const rows = await prisma.entrega.findMany({
       where: {
         companyId,
+        status: { not: 'cancelada' },
         scheduledAt: {
           gte: dateRange(dates[0]).start,
           lte: dateRange(dates[dates.length - 1]).end,
