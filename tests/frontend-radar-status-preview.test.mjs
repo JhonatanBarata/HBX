@@ -18,6 +18,14 @@ const vendasMobileSource = readFileSync(
   new URL("../frontend/src/components/casca/screens/vendas.tsx", import.meta.url),
   "utf8",
 );
+const vendasLiveSource = readFileSync(
+  new URL("../frontend/src/app/hbx-theme/vendas-live.css", import.meta.url),
+  "utf8",
+);
+const globalsSource = readFileSync(
+  new URL("../frontend/src/app/globals.css", import.meta.url),
+  "utf8",
+);
 
 const EXPECTED_STATES = ["queued", "processing", "released", "invalidated"];
 const EXPECTED_LABELS = [
@@ -37,7 +45,7 @@ function quotedValues(source) {
   return Array.from(source.matchAll(/["']([^"']+)["']/g), (match) => match[1]);
 }
 
-test("preview congela somente os quatro estados e tons aprovados", () => {
+test("fluxo vivo congela somente os quatro estados e tons aprovados", () => {
   const orderBlock = previewSource.match(/PREVIEW_STATE_ORDER[^=]*=\s*\[([^\]]+)\]/s);
   const statesBlock = previewSource.match(/const PREVIEW_STATES[^=]*=\s*\{([\s\S]*?)\n\};/);
   assert.ok(orderBlock, "PREVIEW_STATE_ORDER precisa permanecer explícita e auditável");
@@ -46,24 +54,49 @@ test("preview congela somente os quatro estados e tons aprovados", () => {
   assert.deepEqual(propertyValues(statesBlock[1], "label"), EXPECTED_LABELS);
   assert.deepEqual(propertyValues(statesBlock[1], "tone"), EXPECTED_TONES);
 
-  assert.match(previewSource, /tone: "waiting" \| "working" \| "success" \| "danger"/);
-  assert.match(previewSource, /radar-status-preview--\$\{status\.tone\}/);
-  assert.match(previewSource, /radar-status-preview__step--\$\{itemMeta\.tone\}/);
+  assert.match(previewSource, /type PreviewState = "queued" \| "processing" \| "released" \| "invalidated"/);
+  assert.match(previewSource, /type PreviewTone = "waiting" \| "working" \| "success" \| "danger"/);
+  assert.match(previewSource, /PREVIEW_STATE_ORDER\.map/);
   assert.match(previewSource, /data-preview-state=\{state\}/);
-  assert.match(previewSource, /role="status"/);
-  assert.match(previewSource, /aria-live="polite"/);
+  assert.match(previewSource, /data-enrichment-source=\{state\}/);
+  assert.match(previewSource, /aria-pressed=\{active\}/);
+  assert.match(previewSource, /createPortal\(/);
+  assert.match(previewSource, /Radar de enriquecimento/);
 });
 
-test("preview não reintroduz descrição, clarity, autoplay, API ou ação comercial", () => {
-  assert.doesNotMatch(previewSource, /\bdescription\s*:|\bclarity\b|lifecycleLabel/i);
-  assert.doesNotMatch(previewSource, /\bautoplay\b|\bplaying\b|setInterval|setTimeout|Simular|Pausar simulação/i);
+test("fluxo observa os badges existentes, usa um único cano e preserva as ações dos leads", () => {
+  assert.equal(
+    (previewSource.match(/document\.createElementNS\(svgNamespace, "svg"\)/g) || []).length,
+    1,
+    "a tela deve montar um único SVG de encanamento",
+  );
+  assert.match(previewSource, /const pipe = document\.createElementNS\(svgNamespace, "svg"\)/);
+  assert.match(previewSource, /const pathFor = \(source: HTMLElement, target: HTMLElement\)/);
+  assert.match(previewSource, /\.radar-ai-badge\[data-local-enrichment-state\]/);
+  assert.match(previewSource, /target\.dataset\.enrichmentState = status/);
+  assert.match(previewSource, /target\.classList\.add\("vnd-enrichment-target"\)/);
+  assert.match(previewSource, /target\.dispatchEvent\(new MouseEvent\("click", \{ bubbles: true \}\)\)/);
+  assert.match(previewSource, /tr\[id\^='vnd-row-'\]/);
+  assert.match(previewSource, /\.row-dense/);
+  assert.match(previewSource, /\.be-card/);
+  assert.match(previewSource, /prefers-reduced-motion/);
+
   assert.doesNotMatch(previewSource, /\bapiFetch\b|\bfetch\s*\(|\bXMLHttpRequest\b|\baxios\b/);
   assert.doesNotMatch(previewSource, /send-to-vendas|pull-to-vendas|method:\s*["'](?:POST|PATCH|PUT|DELETE)["']/i);
+});
 
-  assert.match(previewSource, /PREVIEW_STATE_ORDER\.map/);
-  assert.match(previewSource, /aria-pressed=\{isActive\}/);
-  assert.match(previewSource, /onClick=\{\(\) => setState\(item\)\}/);
-  assert.match(previewSource, /Empresa Aurora/);
+test("acabamento do Vendas cobre topo, cano, cockpit, Detalhes e Buscar sem cor literal", () => {
+  assert.match(vendasLiveSource, /\.vnd-enrichment-rail-slot__states\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4,/);
+  assert.match(vendasLiveSource, /\.vnd-live-pipe\s*\{/);
+  assert.match(vendasLiveSource, /\.vnd-live-token--released\s*\{\s*--flow-color:\s*var\(--hbx-success\)/);
+  assert.match(vendasLiveSource, /\.vnd-enrichment-target\.is-enrichment-arrival/);
+  assert.match(vendasLiveSource, /\.hbx-modal\.lead-cockpit\s*\{/);
+  assert.match(vendasLiveSource, /\.lead-cockpit__body\s*\{[\s\S]*?overflow-y:\s*auto/);
+  assert.match(vendasLiveSource, /\.ctx\.ctx--vendas-detail\s*>\s*\.ctx-body\s*\{[\s\S]*?overflow-y:\s*auto\s*!important/);
+  assert.match(vendasLiveSource, /\.dn-root--vendas \.dn-typed\s*\{/);
+  assert.match(vendasLiveSource, /\.vnd-layer--buscar \.row-dense/);
+  assert.match(globalsSource, /@import "\.\/hbx-theme\/vendas-live\.css";\s*$/);
+  assert.doesNotMatch(vendasLiveSource, /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
 });
 
 test("desktop disponibiliza Enriquecimento em produção e preserva o gate comercial do Radar", () => {
