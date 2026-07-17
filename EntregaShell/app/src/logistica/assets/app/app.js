@@ -121,7 +121,7 @@
   function deliveredItems() { return items().filter(item => item.status === "entregue"); }
   function isAdmin() { return !!state.config && Object.prototype.hasOwnProperty.call(state.config, "modoRotaPadrao"); }
   function serverRouteActive() { return !!(state.route && state.route.routeStatus === "ACTIVE"); }
-  function routeActive() { return serverRouteActive() && !state.routePaused; }
+  function routeActive() { return serverRouteActive() && openItems().length > 0 && !state.routePaused; }
   function routeTracked() {
     // O modo só fica congelado depois que a rota realmente inicia. Antes disso,
     // a rota pronta deve acompanhar imediatamente a preferência salva no Ajustes.
@@ -564,9 +564,10 @@
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const mode = routeTracked() ? "Rastreada" : "Essencial";
     const hasMapPoints = routeMapPoints().length > 0;
-    const paused = serverRouteActive() && state.routePaused;
+    const paused = serverRouteActive() && open.length > 0 && state.routePaused;
+    const cancelRouteButton = isAdmin() && open.length ? `<button class="btn btn-danger" data-action="cancel-route">Cancelar</button>` : "";
     return shell(`<div class="screen-head"><div><h1>Rota de hoje</h1><p class="subtitle">${new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}</p></div>${isAdmin() && !routeActive() ? `<button class="link-btn" data-action="route-mode">Modo</button>` : ""}</div>
-      <section class="hero"><div style="display:flex;justify-content:space-between;gap:12px"><div><span class="hero-kicker">● ${routeActive() ? "Rota ativa" : paused ? "Rota pausada" : "Rota pronta"}</span><h2>${total} parada(s) · ${mode}</h2></div><span class="badge success">${mode}</span></div>${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : `<div class="route-map-empty">${total ? "Sem localização no mapa." : "Sem rota hoje."}</div>`}<div class="progress"><i style="width:${progress}%"></i></div><div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Pausar</button>` : paused ? `<button class="btn btn-primary" data-action="resume-route">${icon("route", 17)} Retomar rota</button>` : `<button class="btn btn-primary" data-action="start-route" ${open.length ? "" : "disabled"}>${icon("route", 17)} Iniciar rota</button><button class="btn btn-dark" data-action="plan-route">Planejar</button>`}</div></section>
+      <section class="hero"><div style="display:flex;justify-content:space-between;gap:12px"><div><span class="hero-kicker">● ${routeActive() ? "Rota ativa" : paused ? "Rota pausada" : total ? "Rota pronta" : "Sem rota"}</span><h2>${total} parada(s) · ${mode}</h2></div><span class="badge success">${mode}</span></div>${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : `<div class="route-map-empty">${total ? "Sem localização no mapa." : "Sem rota hoje."}</div>`}<div class="progress"><i style="width:${progress}%"></i></div><div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Pausar</button>${cancelRouteButton}` : paused ? `<button class="btn btn-primary" data-action="resume-route">${icon("route", 17)} Retomar rota</button>${cancelRouteButton}` : `<button class="btn btn-primary" data-action="start-route" ${open.length ? "" : "disabled"}>${icon("route", 17)} Iniciar rota</button><button class="btn btn-dark" data-action="plan-route">Planejar</button>${cancelRouteButton}`}</div></section>
       <div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong></div></div>
       <div class="section-title"><strong>${next ? "Próxima parada" : "Situação"}</strong><span>${next && next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${next ? stopCard(next, true) : empty(total ? "Rota concluída" : "Nenhuma entrega hoje", "")}
       <div class="section-title"><strong>Sequência da rota</strong><span>${total} parada(s)</span></div><div class="list">${items().length ? orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("") : ""}</div><button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
@@ -947,6 +948,31 @@
       toast("Entrega retirada somente da rota de hoje.");
     } catch (error) { toast(err(error), true); }
   }
+  async function performCancelRoute() {
+    const open = [...openItems()];
+    if (!open.length) return;
+    let cancelled = 0;
+    try {
+      for (const item of open) {
+        await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, {
+          method: "POST",
+          body: { motivo: "Rota cancelada pelo administrador." },
+        });
+        cancelled++;
+      }
+      clearInterval(nextStopTimer);
+      state.nextStop = null;
+      state.routePaused = false;
+      H.cache.remove("logistica-route-paused");
+      clearRouteSelection();
+      H.stopRoute();
+      await refresh(true);
+      toast("Rota cancelada.");
+    } catch (error) {
+      await refresh(true);
+      toast(`Canceladas ${cancelled} de ${open.length}. ${err(error)}`, true);
+    }
+  }
   async function markNotDelivered(item) {
     const reason = state.deliveryReason;
     if (!item || !reason) return;
@@ -1078,6 +1104,7 @@
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
       if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
+      if (confirmation.type === "cancel-route") await performCancelRoute();
       if (confirmation.type === "logout") H.logout();
       return;
     }
@@ -1096,6 +1123,7 @@
     if (action === "route-mode") { if (!isAdmin()) return; showModal("route-mode"); }
     if (action === "start-route") openDayManager("start");
     if (action === "plan-route") openDayManager("plan");
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar rota?", message: `${openItems().length} paradas sairão de hoje. Clientes não serão excluídos.`, confirmLabel: "Cancelar rota", danger: true, icon: "route" }; render(); }
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
