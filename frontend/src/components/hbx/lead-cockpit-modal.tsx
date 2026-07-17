@@ -1,45 +1,38 @@
 "use client";
 
-// ┌─────────────────────────────────────────────────────────────────────────────┐
-// │ LEAD-COCKPIT (PR11072026) — detalhe avançado do lead no Pipeline de Vendas │
-// │                                                                             │
-// │ Overlay grande no CENTRO (.hbx-veil central; a moldura .lead-cockpit só    │
-// │ dimensiona — Lei nº2, proibido re-centralizar/z-index inline) com 3 guias  │
-// │ em Glass Pill:                                                              │
-// │  · Atendimento — WhatsApp embutido (ConversationPanel, rotina NORMAL do    │
-// │    Atendimento — zero chamada nova ao motor) + e-mail de apresentação      │
-// │    (endpoints já existentes do card) + abordagem (leadIntelligence) +      │
-// │    agenda do lead (AgendaLeadPanel).                                        │
-// │  · Cadastro — ficha "CNPJ biz": contato copy-1-clique, empresa RFB rica    │
-// │    (GET /vendas/lead/:id/cockpit — W1), origem & sinais, responsável +     │
-// │    histórico resumido.                                                      │
-// │  · Financeiro — SÓ admin (canViewValues; LEI DO VENDEDOR — a guia nem      │
-// │    monta): venda do card + extrato do cliente (financeiro-tenant) +        │
-// │    gerar cobrança (idempotente) e baixa manual por título.                 │
-// │                                                                             │
-// │ Regras: dado sem contrato = "—" (nunca fake); todo fetch é fail-soft       │
-// │ (seção com erro mostra vazio, nunca quebra o modal); visual 100% em        │
-// │ classes centrais (.lead-cockpit-* em screens.css + kit) — check-pele.      │
-// └─────────────────────────────────────────────────────────────────────────────┘
-
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useState } from "react";
 
-import { Av, I, ICONS, WhatsAppMark, useCurrentUser, useEntitlements, useMyModules, isModuleVisible } from "@/components/hbx/shell";
-import { AgendaLeadPanel, ConversationPanel, LockGate, formatPhoneDisplay, humanize } from "@/components/hbx/detalhes-negocio";
+import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
+import type { VendasLead } from "@/app/(app)/vendas/page.client";
+import {
+  AgendaLeadPanel,
+  ConversationPanel,
+  LockGate,
+  formatPhoneDisplay,
+  humanize,
+} from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
+import {
+  Av,
+  I,
+  ICONS,
+  WhatsAppMark,
+  isModuleVisible,
+  useCurrentUser,
+  useEntitlements,
+  useMyModules,
+} from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
-import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
 import { apiFetch } from "@/lib/api";
 import { onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { RadarAiLeadStatus } from "@/lib/radar-ai-status";
-import type { VendasLead } from "@/app/(app)/vendas/page.client";
 
-// ── Contratos dos extras (fail-soft: erro → "—"/estado vazio) ────────────────
+type Guia = "atendimento" | "cadastro" | "financeiro";
+type CanalAtendimento = "whatsapp" | "email";
 
-// GET /vendas/lead/:leadId/cockpit (W1) — RFB rica lida do banco local.
 type CockpitCompany = {
   found?: boolean;
   locked?: boolean;
@@ -59,19 +52,16 @@ type CockpitCompany = {
   partners?: Array<{ name?: string | null; qualification?: string | null }> | null;
 } | null;
 
-// GET /financeiro-tenant/clientes/:customerProfileId/extrato (só admin).
 type ExtratoCharge = {
   id: string;
   amount: number;
-  currency?: string | null;
   description?: string | null;
   status?: string | null;
-  lifecycle?: string | null;
   sourceModule?: string | null;
   dueDate?: string | null;
   paidAt?: string | null;
-  createdAt?: string | null;
 };
+
 type Extrato = {
   clienteId: string;
   nome?: string | null;
@@ -80,75 +70,156 @@ type Extrato = {
   charges: ExtratoCharge[];
 } | null;
 
-type Guia = "atendimento" | "cadastro" | "financeiro";
-
-// ── Helpers (formatação local — máscara de telefone vem de lib/br-phone) ─────
-
 function fmtMoney(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
+function fmtDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString("pt-BR");
 }
 
-function fmtDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+function fmtDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function yearsSince(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  const years = Math.floor((Date.now() - d.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+function yearsSince(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const years = Math.floor((Date.now() - date.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
   return years >= 0 ? years : null;
 }
 
-const CHARGE_STATUS_LABEL: Record<string, string> = {
-  pending: "Em aberto",
-  paid: "Pago",
-  canceled: "Cancelado",
-  cancelled: "Cancelado",
-  failed: "Falhou",
-};
-
 function chargeStatusLabel(status?: string | null): string {
   const key = String(status || "").toLowerCase();
-  return CHARGE_STATUS_LABEL[key] || (status ? humanize(status) : "—");
+  if (key === "pending") return "Em aberto";
+  if (key === "paid") return "Pago";
+  if (["canceled", "cancelled"].includes(key)) return "Cancelado";
+  if (key === "failed") return "Falhou";
+  return status ? humanize(status) : "—";
 }
 
-function chargeTagCls(status?: string | null): string {
+function chargeTagClass(status?: string | null): string {
   const key = String(status || "").toLowerCase();
   if (key === "paid") return "tag teal";
   if (key === "pending") return "tag warn";
-  if (key === "canceled" || key === "cancelled" || key === "failed") return "tag red";
+  if (["canceled", "cancelled", "failed"].includes(key)) return "tag red";
   return "tag";
 }
 
-function sourceModuleLabel(sourceModule?: string | null): string {
-  const key = String(sourceModule || "").toLowerCase();
+function sourceModuleLabel(source?: string | null): string {
+  const key = String(source || "").toLowerCase();
   if (!key) return "—";
   if (key.startsWith("logistica")) return "Logística";
   if (key.startsWith("vendas")) return "Vendas";
   return humanize(key);
 }
 
-// ── Linhas de ficha (padrão CopyField de /leads/[id] — copy 1-clique) ─────────
+function TypewriterText({ text, speed = 14, delay = 90, className = "" }: {
+  text: string;
+  speed?: number;
+  delay?: number;
+  className?: string;
+}) {
+  const [shown, setShown] = useState("");
+  const [done, setDone] = useState(false);
 
-function KvRow({ label, children }: { label: string; children: React.ReactNode }) {
-  const title = typeof children === "string" || typeof children === "number"
-    ? String(children)
-    : undefined;
+  useEffect(() => {
+    if (!text) return;
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (reduceMotion) {
+      const frame = window.requestAnimationFrame(() => {
+        setShown(text);
+        setDone(true);
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const timeout = window.setTimeout(() => {
+      let index = 0;
+      interval = setInterval(() => {
+        index += 1;
+        setShown(text.slice(0, index));
+        if (index >= text.length) {
+          if (interval) clearInterval(interval);
+          setDone(true);
+        }
+      }, speed);
+    }, delay);
+
+    return () => {
+      window.clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
+  }, [delay, speed, text]);
+
   return (
-    <div className="row dn-kv-row">
-      <span className="k">{label}</span>
-      <span className="v" title={title}>{children}</span>
+    <span className={`lead-cockpit__typed${done ? " is-done" : ""}${className ? ` ${className}` : ""}`} title={text}>
+      {shown}
+    </span>
+  );
+}
+
+function AnimatedScore({ score, suffix = "/100", compact = false }: {
+  score: number;
+  suffix?: string;
+  compact?: boolean;
+}) {
+  const target = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
+  const [value, setValue] = useState(0);
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (reduceMotion) {
+      const frame = window.requestAnimationFrame(() => setValue(target));
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    let frame = 0;
+    let started = 0;
+    const duration = 1350;
+    const tick = (time: number) => {
+      if (!started) started = time;
+      const progress = Math.min(1, (time - started) / duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setValue(Math.round(target * eased));
+      if (progress < 1) frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [target]);
+
+  const style = { "--lead-cockpit-score": `${value}%` } as React.CSSProperties;
+  return (
+    <span className={`lead-cockpit__animated-score${compact ? " is-compact" : ""}`} style={style} title={`Score: ${target}${suffix}`}>
+      <strong>{value}</strong>
+      <small>{suffix}</small>
+    </span>
+  );
+}
+
+function InfoRow({ label, children, mono = false }: {
+  label: string;
+  children: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="lead-cockpit__kv-row">
+      <span className="lead-cockpit__kv-key">{label}</span>
+      <span className={`lead-cockpit__kv-value${mono ? " hbx-mono" : ""}`}>{children}</span>
     </div>
   );
 }
@@ -160,35 +231,47 @@ function CopyRow({ label, value, mono = true, badge }: {
   badge?: React.ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
-  if (!value) {
-    return (
-      <div className="row dn-kv-row">
-        <span className="k">{label}</span>
-        <span className="v muted-note">—</span>
-      </div>
-    );
-  }
-  function copiar() {
-    navigator.clipboard?.writeText(value as string).then(
-      () => { setCopied(true); setTimeout(() => setCopied(false), 1500); },
+  const display = value || "—";
+
+  function copy() {
+    if (!value) return;
+    navigator.clipboard?.writeText(value).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
       () => undefined,
     );
   }
+
   return (
-    <div className="row dn-kv-row">
-      <span className="k">{label}</span>
-      <span className="v lead-cockpit__copy">
-        <span className={`lead-cockpit__copy-text${mono ? " hbx-mono" : ""}`} title={value}>{value}</span>
+    <div className="lead-cockpit__kv-row">
+      <span className="lead-cockpit__kv-key">{label}</span>
+      <span className="lead-cockpit__copy-value">
+        <span className={mono ? "hbx-mono" : ""} title={value || undefined}>{display}</span>
         {badge}
-        <button type="button" className="btn-ghost btn-xs" onClick={copiar} title={copied ? "Copiado" : "Copiar"} aria-label={`Copiar ${label}`}>
-          <I d={copied ? ICONS.check : ICONS.doc} size={12} />
-        </button>
+        {value && (
+          <button type="button" className="lead-cockpit__copy-button" onClick={copy} aria-label={`Copiar ${label}`}>
+            <I d={copied ? ICONS.check : ICONS.doc} size={11} />
+          </button>
+        )}
       </span>
     </div>
   );
 }
 
-// ── Componente ────────────────────────────────────────────────────────────────
+function CardTitle({ icon, title, action }: {
+  icon: string[];
+  title: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="lead-cockpit__compact-card-head">
+      <span><I d={icon} size={12} /> {title}</span>
+      {action}
+    </div>
+  );
+}
 
 export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose, onConversationChanged }: {
   lead: VendasLead;
@@ -199,18 +282,35 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   onConversationChanged?: () => void | Promise<void>;
 }) {
   const router = useRouter();
-  const ent = useEntitlements();
-  const user = useCurrentUser();
-  const mods = useMyModules();
-  // Mesmo default do DetalhesNegocio: enquanto não carrega assume liberado.
-  const canIntel = !ent.loaded || ent.canSeeLeadIntelligence;
-  // Atalho "Buscar parecidos" (Concierge): fail-closed por módulo (Lei do
-  // FRONTEND.md — módulo sem acesso some da navegação, nunca aparece e barra no
-  // clique). Só entra no header quando /modules/me afirma accessible:true.
-  const conciergeVisible = isModuleVisible("concierge", ent, user, mods);
+  const entitlements = useEntitlements();
+  const currentUser = useCurrentUser();
+  const modules = useMyModules();
+  const canSeeIntelligence = !entitlements.loaded || entitlements.canSeeLeadIntelligence;
+  const conciergeVisible = isModuleVisible("concierge", entitlements, currentUser, modules);
 
   const [tab, setTab] = useState<Guia>("atendimento");
-  const guias: Array<{ key: Guia; label: string; icon: string[] }> = canViewValues
+  const [channel, setChannel] = useState<CanalAtendimento>("whatsapp");
+  const [company, setCompany] = useState<CockpitCompany>(null);
+  const [companyLoading, setCompanyLoading] = useState(true);
+  const [waOk, setWaOk] = useState<boolean | null>(null);
+  const [waConnectOpen, setWaConnectOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
+  const [emailReady, setEmailReady] = useState<boolean | null>(null);
+  const [emailPreview, setEmailPreview] = useState<{ subject: string; text: string; to: string } | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const [copilotoEnabled, setCopilotoEnabled] = useState(false);
+  const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
+  const [addedNotes, setAddedNotes] = useState<NonNullable<VendasLead["timeline"]>>([]);
+  const [cnpjCopied, setCnpjCopied] = useState(false);
+  const [templateCopied, setTemplateCopied] = useState(false);
+  const [customerProfileId, setCustomerProfileId] = useState<string | null>(lead.customerProfileId || null);
+  const [extrato, setExtrato] = useState<Extrato>(null);
+  const [extratoError, setExtratoError] = useState(false);
+  const [financeBusy, setFinanceBusy] = useState<string | null>(null);
+  const [financeMessage, setFinanceMessage] = useState<string | null>(null);
+
+  const guides: Array<{ key: Guia; label: string; icon: string[] }> = canViewValues
     ? [
         { key: "atendimento", label: "Atendimento", icon: ICONS.msg },
         { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
@@ -220,116 +320,158 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         { key: "atendimento", label: "Atendimento", icon: ICONS.msg },
         { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
       ];
-  const pill = useGlassPill<HTMLButtonElement>(tab, guias.length);
+  const tabPill = useGlassPill<HTMLButtonElement>(tab, guides.length);
 
-  // Empresa RFB rica (W1) — null enquanto carrega/erro; fail-soft pro card.
-  const [company, setCompany] = useState<CockpitCompany>(null);
-  const [companyLoading, setCompanyLoading] = useState(true);
-
-  // Conexão WhatsApp (mesmo check de /leads/[id]): null = verificando.
-  const [waOk, setWaOk] = useState<boolean | null>(null);
-  const [waConnectOpen, setWaConnectOpen] = useState(false);
-
-  // E-mail de apresentação (preview/send já existentes no card de vendas).
-  const [emailReady, setEmailReady] = useState<boolean | null>(null);
-  const [emailPreview, setEmailPreview] = useState<{ subject: string; text: string; to: string } | null>(null);
-  const [emailBusy, setEmailBusy] = useState(false);
-  const [emailMsg, setEmailMsg] = useState<string | null>(null);
-
-  // Financeiro — extrato do cliente. cpId pode nascer do card ou da resposta
-  // do gerar-cobranca (que cria/associa o CustomerProfile).
-  const [cpId, setCpId] = useState<string | null>(lead.customerProfileId || null);
-  const [extrato, setExtrato] = useState<Extrato>(null);
-  const [extratoError, setExtratoError] = useState(false);
-  const [finBusyId, setFinBusyId] = useState<string | null>(null);
-  const [finMsg, setFinMsg] = useState<string | null>(null);
-
-  // Copiar (header + template de mensagem)
-  const [cnpjCopied, setCnpjCopied] = useState(false);
-  const [tplCopied, setTplCopied] = useState(false);
-
-  // Copiloto do lead (ADENDO LEAD-COCKPIT) — flag do backend (fail-closed: erro/
-  // ausente/false → o painel nem monta, igual /leads/[id]).
-  const [copilotoEnabled, setCopilotoEnabled] = useState(false);
-  // Rascunho do Copiloto → campo de digitação do ConversationPanel (só PREENCHE,
-  // nunca envia). `seq` muda a cada rascunho pra re-disparar o efeito no painel.
-  const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
-  // Anotações salvas nesta sessão (resumo/próxima ação do Copiloto). O modal é
-  // remontado por lead (key={sel.id} no board) → começa vazio e nunca vaza entre
-  // cards; a timeline exibida = as novas + as que vieram no card.
-  const [addedNotes, setAddedNotes] = useState<NonNullable<VendasLead["timeline"]>>([]);
-
-  // Esc fecha (veil e ✕ também fecham — padrão do overlay central).
   useEffect(() => {
     if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (agendaOpen) setAgendaOpen(false);
+        else onClose();
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [agendaOpen, onClose, open]);
 
-  // Extras do cockpit — todos fail-soft; setState só nos callbacks async.
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    apiFetch<{ company?: CockpitCompany }>(`/vendas/lead/${encodeURIComponent(lead.id)}/cockpit`)
-      .then(res => { if (alive) { setCompany(res?.company ?? null); setCompanyLoading(false); } })
-      .catch(() => { if (alive) { setCompany(null); setCompanyLoading(false); } });
-    apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
-      .then(res => { if (alive) setWaOk(res?.whatsappSession?.accessible === true); })
-      .catch(() => { if (alive) setWaOk(false); });
-    apiFetch<{ enabled?: boolean; ready?: boolean }>("/company-email/status")
-      .then(res => { if (alive) setEmailReady(res?.ready === true); })
-      .catch(() => { if (alive) setEmailReady(false); });
-    // Flag do Copiloto (fail-closed: erro/ausente → painel some).
-    apiFetch<{ ok?: boolean; enabled?: boolean }>("/assistente/copiloto")
-      .then(res => { if (alive) setCopilotoEnabled(res?.enabled === true); })
-      .catch(() => { if (alive) setCopilotoEnabled(false); });
-    return () => { alive = false; };
-  }, [open, lead.id]);
 
-  const loadExtrato = useCallback(async (clienteId: string) => {
+    apiFetch<{ company?: CockpitCompany }>(`/vendas/lead/${encodeURIComponent(lead.id)}/cockpit`)
+      .then((response) => {
+        if (!alive) return;
+        setCompany(response?.company ?? null);
+        setCompanyLoading(false);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setCompany(null);
+        setCompanyLoading(false);
+      });
+
+    apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
+      .then((response) => { if (alive) setWaOk(response?.whatsappSession?.accessible === true); })
+      .catch(() => { if (alive) setWaOk(false); });
+
+    apiFetch<{ ready?: boolean }>("/company-email/status")
+      .then((response) => { if (alive) setEmailReady(response?.ready === true); })
+      .catch(() => { if (alive) setEmailReady(false); });
+
+    apiFetch<{ enabled?: boolean }>("/assistente/copiloto")
+      .then((response) => { if (alive) setCopilotoEnabled(response?.enabled === true); })
+      .catch(() => { if (alive) setCopilotoEnabled(false); });
+
+    return () => { alive = false; };
+  }, [lead.id, open]);
+
+  const loadExtrato = useCallback(async (id: string) => {
     try {
-      const res = await apiFetch<Extrato>(`/financeiro-tenant/clientes/${encodeURIComponent(clienteId)}/extrato`);
-      setExtrato(res ?? null);
-      setExtratoError(res == null);
+      const response = await apiFetch<Extrato>(`/financeiro-tenant/clientes/${encodeURIComponent(id)}/extrato`);
+      setExtrato(response ?? null);
+      setExtratoError(response == null);
     } catch {
       setExtrato(null);
       setExtratoError(true);
     }
   }, []);
 
-  // LEI DO VENDEDOR: o front NUNCA chama o financeiro sem canViewValues.
   useEffect(() => {
-    if (!open || !canViewValues || !cpId) return;
-    void (async () => { await loadExtrato(cpId); })();
-  }, [open, canViewValues, cpId, loadExtrato]);
+    if (!open || !canViewValues || !customerProfileId) return;
+    void loadExtrato(customerProfileId);
+  }, [canViewValues, customerProfileId, loadExtrato, open]);
 
-  // ── Ações ─────────────────────────────────────────────────────────────────
+  const cityState = lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—";
+  const cnpj = (company?.found && company.cnpj) || lead.cnpj || null;
+  const intelligence = lead.leadIntelligence;
+  const templateText = typeof intelligence?.messageTemplate === "string"
+    ? intelligence.messageTemplate
+    : String((intelligence?.messageTemplate as { text?: string } | null | undefined)?.text || "");
+  const opportunityScore = Math.max(0, Math.min(100, Math.round(Number(lead.opportunityScore) || 0)));
+  const hasConversation = Boolean(lead.conversation?.id || lead.conversation?.exists);
+  const phones = [lead.phone, ...(Array.isArray(lead.phones) ? lead.phones : [])]
+    .filter((item): item is string => Boolean(item))
+    .filter((item, index, all) => all.findIndex((other) => onlyDigits(other) === onlyDigits(item)) === index);
+  const emails = [lead.email, ...(Array.isArray(lead.emails) ? lead.emails : [])]
+    .filter((item): item is string => Boolean(item))
+    .filter((item, index, all) => all.indexOf(item) === index);
+  const whatsappMap = lead.phonesWhatsapp || {};
+  const history = [...addedNotes, ...(lead.timeline || [])].slice(0, 6);
+  const primaryPartner = company?.partners?.[0];
+  const keyPersonName = primaryPartner?.name || lead.ownerName || lead.ownerNames?.[0] || "—";
+  const keyPersonRole = primaryPartner?.qualification || (keyPersonName !== "—" ? "Pessoa-chave" : "Não identificada");
 
-  async function gerarPrevia() {
+  const registrationValues = [
+    lead.phone,
+    lead.email,
+    cnpj,
+    company?.razaoSocial || lead.razaoSocial,
+    company?.cnae || lead.cnae,
+    lead.city,
+    lead.state,
+    keyPersonName !== "—" ? keyPersonName : null,
+    lead.address,
+    lead.website,
+  ];
+  const registrationQuality = Math.round((registrationValues.filter(Boolean).length / registrationValues.length) * 100);
+
+  const recommendedChannel = intelligence?.recommendedChannel ? humanize(intelligence.recommendedChannel) : (lead.email ? "E-mail" : "WhatsApp");
+  const pain = intelligence?.painType ? humanize(intelligence.painType) : (lead.website ? "Atendimento" : "Sem site");
+  const smartTitle = recommendedChannel.toLowerCase().includes("mail")
+    ? "Próxima melhor ação: e-mail curto, WhatsApp no retorno"
+    : `Próxima melhor ação: iniciar por ${recommendedChannel}`;
+  const smartReason = intelligence?.painPitch
+    || intelligence?.opportunityReason
+    || "Use o contato confirmado e uma mensagem curta para abrir a conversa sem parecer invasivo.";
+  const approachReason = intelligence?.opportunityReason
+    || "Contato confirmado e sinais comerciais suficientes para uma abordagem consultiva e objetiva.";
+
+  const copilotoFicha: CopilotoFicha = {
+    nome: lead.name,
+    razaoSocial: (company?.found && company.razaoSocial) || lead.razaoSocial || null,
+    cnpj: (company?.found && company.cnpj) || lead.cnpj || null,
+    cnae: (company?.found && company.cnae) || lead.cnae || null,
+    segmento: lead.segment,
+    cidade: lead.city,
+    uf: lead.state,
+    situacao: (company?.found && company.situacao) || lead.companySituation || null,
+  };
+
+  function handleCopilotoDraft(text: string) {
+    setDraftSignal((current) => ({ text, seq: current.seq + 1 }));
+    setChannel("whatsapp");
+  }
+
+  async function saveCopilotoNote(text: string) {
+    const response = await apiFetch<{ event?: NonNullable<VendasLead["timeline"]>[number] }>(
+      `/vendas/lead/${encodeURIComponent(lead.id)}/note`,
+      { method: "POST", body: JSON.stringify({ note: text }) },
+    );
+    if (response?.event?.id) setAddedNotes((current) => [response.event as NonNullable<VendasLead["timeline"]>[number], ...current]);
+  }
+
+  async function generateEmailPreview() {
     if (emailBusy) return;
     setEmailBusy(true);
     setEmailMsg(null);
     try {
-      const res = await apiFetch<{ subject?: string; text?: string; recipientEmail?: string }>(
+      const response = await apiFetch<{ subject?: string; text?: string; recipientEmail?: string }>(
         `/vendas/leads/${encodeURIComponent(lead.id)}/email/presentation/preview`,
         { method: "POST", body: JSON.stringify({}) },
       );
       setEmailPreview({
-        subject: res?.subject || "",
-        text: res?.text || "",
-        to: res?.recipientEmail || lead.email || "",
+        subject: response?.subject || "",
+        text: response?.text || "",
+        to: response?.recipientEmail || lead.email || "",
       });
-    } catch (err) {
-      setEmailMsg(err instanceof Error ? err.message : "Não foi possível gerar a prévia.");
+    } catch (error) {
+      setEmailMsg(error instanceof Error ? error.message : "Não foi possível gerar a prévia.");
     } finally {
       setEmailBusy(false);
     }
   }
 
-  async function enviarEmail() {
+  async function sendEmail() {
     if (!emailPreview || emailBusy) return;
     setEmailBusy(true);
     setEmailMsg(null);
@@ -340,449 +482,361 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
       });
       setEmailMsg(`✓ E-mail enviado${emailPreview.to ? ` para ${emailPreview.to}` : ""}.`);
       setEmailPreview(null);
-    } catch (err) {
-      setEmailMsg(err instanceof Error ? err.message : "Não foi possível enviar o e-mail.");
+    } catch (error) {
+      setEmailMsg(error instanceof Error ? error.message : "Não foi possível enviar o e-mail.");
     } finally {
       setEmailBusy(false);
     }
   }
 
-  async function marcarPago(chargeId: string) {
-    if (finBusyId || !cpId) return;
-    setFinBusyId(chargeId);
-    setFinMsg(null);
-    try {
-      await apiFetch(`/financeiro-tenant/charges/${encodeURIComponent(chargeId)}/quitar`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setFinMsg("✓ Título marcado como pago.");
-      await loadExtrato(cpId);
-    } catch (err) {
-      setFinMsg(err instanceof Error ? err.message : "Não foi possível dar baixa no título.");
-    } finally {
-      setFinBusyId(null);
-    }
+  function copyCnpj() {
+    if (!cnpj) return;
+    navigator.clipboard?.writeText(cnpj).then(
+      () => {
+        setCnpjCopied(true);
+        window.setTimeout(() => setCnpjCopied(false), 1500);
+      },
+      () => undefined,
+    );
   }
 
-  async function gerarCobranca() {
-    if (finBusyId) return;
-    setFinBusyId("gerar");
-    setFinMsg(null);
-    try {
-      const res = await apiFetch<{ customerProfileId?: string; alreadyExists?: boolean }>(
-        `/vendas/lead/${encodeURIComponent(lead.id)}/gerar-cobranca`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
-      setFinMsg(res?.alreadyExists ? "✓ Cobrança já existia — extrato atualizado." : "✓ Cobrança gerada.");
-      if (res?.customerProfileId) setCpId(res.customerProfileId); // o efeito recarrega o extrato
-      else if (cpId) await loadExtrato(cpId);
-    } catch (err) {
-      setFinMsg(err instanceof Error ? err.message : "Não foi possível gerar a cobrança.");
-    } finally {
-      setFinBusyId(null);
-    }
+  function copyTemplate() {
+    if (!templateText) return;
+    navigator.clipboard?.writeText(templateText).then(
+      () => {
+        setTemplateCopied(true);
+        window.setTimeout(() => setTemplateCopied(false), 1500);
+      },
+      () => undefined,
+    );
   }
 
-  // Copiloto → rascunho: preenche o campo de digitação do WhatsApp (o painel já
-  // está na guia Atendimento em vista). NUNCA envia — o humano aperta enviar.
-  const handleCopilotoDraft = useCallback((text: string) => {
-    setDraftSignal((cur) => ({ text, seq: cur.seq + 1 }));
-  }, []);
-
-  // Copiloto → salvar resumo / próxima ação como anotação neutra (W3).
-  // POST /vendas/lead/:leadId/note → { ok, event }; prepende o evento na timeline
-  // local (a guia Cadastro mostra na hora, sem refetch do card). Erro sobe pro
-  // CopilotoPanel, que exibe "Não consegui salvar." (fail-soft).
-  const handleSaveNote = useCallback(async (text: string) => {
-    const res = await apiFetch<{ ok?: boolean; event?: {
-      id: string; eventType?: string | null; title?: string | null; description?: string | null; createdAt?: string | null;
-    } }>(`/vendas/lead/${encodeURIComponent(lead.id)}/note`, {
-      method: "POST",
-      body: JSON.stringify({ note: text }),
-    });
-    const ev = res?.event;
-    if (ev?.id) {
-      setAddedNotes((cur) => [{
-        id: ev.id,
-        eventType: ev.eventType ?? "note",
-        title: ev.title ?? "Anotação",
-        description: ev.description ?? text,
-        createdAt: ev.createdAt ?? new Date().toISOString(),
-      }, ...cur]);
-    }
-  }, [lead.id]);
-
-  // Atalho Concierge — semeia o segmento/cidade do lead e leva pra /concierge.
-  // Só grava a semente + navega; a busca só dispara no Confirmar do Concierge.
-  const buscarParecidos = useCallback(() => {
+  function searchSimilar() {
     try {
       sessionStorage.setItem("hbx:concierge-seed", JSON.stringify({
         targetSegment: lead.segment || "",
         city: lead.city || "",
         state: lead.state || "",
       }));
-    } catch { /* sem storage — segue pra tela mesmo assim */ }
+    } catch { /* segue sem storage */ }
     router.push("/concierge");
-  }, [lead.segment, lead.city, lead.state, router]);
+  }
 
-  // ── Dados derivados ───────────────────────────────────────────────────────
+  async function markPaid(chargeId: string) {
+    if (!customerProfileId || financeBusy) return;
+    setFinanceBusy(chargeId);
+    setFinanceMessage(null);
+    try {
+      await apiFetch(`/financeiro-tenant/charges/${encodeURIComponent(chargeId)}/quitar`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setFinanceMessage("✓ Título marcado como pago.");
+      await loadExtrato(customerProfileId);
+    } catch (error) {
+      setFinanceMessage(error instanceof Error ? error.message : "Não foi possível dar baixa no título.");
+    } finally {
+      setFinanceBusy(null);
+    }
+  }
 
-  const cityUf = lead.city ? `${lead.city}${lead.state ? "/" + lead.state : ""}` : null;
-  const cnpjShown = (company?.found && company?.cnpj) || lead.cnpj || null;
+  async function createCharge() {
+    if (financeBusy) return;
+    setFinanceBusy("create");
+    setFinanceMessage(null);
+    try {
+      const response = await apiFetch<{ customerProfileId?: string; alreadyExists?: boolean }>(
+        `/vendas/lead/${encodeURIComponent(lead.id)}/gerar-cobranca`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      setFinanceMessage(response?.alreadyExists ? "✓ Cobrança já existia — extrato atualizado." : "✓ Cobrança gerada.");
+      if (response?.customerProfileId) setCustomerProfileId(response.customerProfileId);
+      else if (customerProfileId) await loadExtrato(customerProfileId);
+    } catch (error) {
+      setFinanceMessage(error instanceof Error ? error.message : "Não foi possível gerar a cobrança.");
+    } finally {
+      setFinanceBusy(null);
+    }
+  }
 
-  function copiarCnpj() {
-    if (!cnpjShown) return;
-    navigator.clipboard?.writeText(cnpjShown).then(
-      () => { setCnpjCopied(true); setTimeout(() => setCnpjCopied(false), 1500); },
-      () => undefined,
+  function renderWhatsapp() {
+    if (!lead.phone) return <div className="lead-cockpit__empty-state">Lead sem telefone.</div>;
+    if (waOk === false && !hasConversation) {
+      return (
+        <div className="lead-cockpit__empty-state">
+          <strong>WhatsApp ainda não conectado</strong>
+          <span>Conecte a sessão da empresa para conversar sem sair do funil.</span>
+          <button type="button" className="btn-teal btn-xs" onClick={() => setWaConnectOpen(true)}>
+            <WhatsAppMark size={13} /> Conectar WhatsApp
+          </button>
+        </div>
+      );
+    }
+    if (waOk == null && !hasConversation) return <div className="lead-cockpit__empty-state">Verificando conexão…</div>;
+    return (
+      <ConversationPanel
+        key={lead.id}
+        phone={lead.phone}
+        name={lead.name}
+        draftSignal={draftSignal}
+        leadId={lead.id}
+        conversationId={lead.conversation?.id}
+        conversationSnapshot={{ conversation: lead.conversation, engagement: lead.engagement }}
+        onConversationChanged={onConversationChanged}
+      />
     );
   }
 
-  const li = lead.leadIntelligence;
-  // `messageTemplate` pode vir string OU objeto {id,context,tone,text} (o board
-  // expõe templates[0] do enrichment). Só o texto vira React child — renderizar
-  // o objeto cru estoura React #31. Extrai o texto dos dois formatos.
-  const templateText =
-    typeof li?.messageTemplate === "string"
-      ? li.messageTemplate
-      : String((li?.messageTemplate as { text?: string } | null | undefined)?.text || "");
-  const temAbordagem = Boolean(
-    li && (li.recommendedChannel || li.painType || li.painPitch || templateText || li.opportunityReason),
-  );
-
-  function copiarTemplate() {
-    const text = templateText;
-    if (!text) return;
-    navigator.clipboard?.writeText(text).then(
-      () => { setTplCopied(true); setTimeout(() => setTplCopied(false), 1500); },
-      () => undefined,
+  function renderEmail() {
+    if (!lead.email) return <div className="lead-cockpit__empty-state">Lead sem e-mail.</div>;
+    if (emailReady === false) {
+      return (
+        <div className="lead-cockpit__empty-state">
+          <strong>E-mail da empresa não configurado</strong>
+          <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/configuracoes")}>Configurar e-mail</button>
+        </div>
+      );
+    }
+    if (emailReady == null) return <div className="lead-cockpit__empty-state">Verificando configuração…</div>;
+    return (
+      <div className="lead-cockpit__email-workspace">
+        <InfoRow label="Para">{lead.email}</InfoRow>
+        {emailPreview ? (
+          <div className="lead-cockpit__email-preview">
+            <strong>{emailPreview.subject || "Sem assunto"}</strong>
+            <TypewriterText key={emailPreview.text} text={emailPreview.text || "—"} className="lead-cockpit__email-preview-text" />
+            <div className="lead-cockpit__inline-actions">
+              <button type="button" className="btn-ghost btn-xs" onClick={generateEmailPreview} disabled={emailBusy}>Gerar de novo</button>
+              <button type="button" className="btn-teal btn-xs" onClick={sendEmail} disabled={emailBusy}>
+                <I d={ICONS.send} size={11} /> {emailBusy ? "Enviando…" : "Enviar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="lead-cockpit__email-generate" onClick={generateEmailPreview} disabled={emailBusy}>
+            <I d={ICONS.mail} size={13} /> {emailBusy ? "Gerando…" : "Gerar prévia de apresentação"}
+          </button>
+        )}
+        {emailMsg && <span className={`ctx-msg ${emailMsg.startsWith("✓") ? "ok" : "err"}`}>{emailMsg}</span>}
+      </div>
     );
   }
-
-  // Telefones/e-mails: principal + extras, dedup (badge WhatsApp ✓ pelo mapa).
-  const phones = [lead.phone, ...(Array.isArray(lead.phones) ? lead.phones : [])]
-    .filter((p): p is string => Boolean(p))
-    .filter((p, i, a) => a.findIndex(x => onlyDigits(x) === onlyDigits(p)) === i);
-  const emails = [lead.email, ...(Array.isArray(lead.emails) ? lead.emails : [])]
-    .filter((e): e is string => Boolean(e))
-    .filter((e, i, a) => a.indexOf(e) === i);
-  const waMap = lead.phonesWhatsapp || {};
-  const hasExistingConversation = Boolean(lead.conversation?.id || lead.conversation?.exists);
-
-  const historico = [...addedNotes, ...(lead.timeline || [])].slice(0, 8);
-
-  // Ficha do Copiloto: preferir a RFB rica (endpoint /cockpit) quando houver
-  // match; senão, cair no que o card já traz. Segmento/cidade/UF são sempre do
-  // lead (o endpoint não os devolve).
-  const copilotoFicha: CopilotoFicha = {
-    nome: lead.name,
-    razaoSocial: (company?.found && company?.razaoSocial) || lead.razaoSocial || null,
-    cnpj: (company?.found && company?.cnpj) || lead.cnpj || null,
-    cnae: (company?.found && company?.cnae) || lead.cnae || null,
-    segmento: lead.segment,
-    cidade: lead.city,
-    uf: lead.state,
-    situacao: (company?.found && company?.situacao) || lead.companySituation || null,
-  };
-
-  if (!open) return null;
-
-  // ── Guias ─────────────────────────────────────────────────────────────────
 
   function renderAtendimento() {
     return (
-      <div className="lead-cockpit__grid">
-        <div className="lead-cockpit__col">
-          <section className="lead-cockpit__box">
-            {copilotoEnabled && (
-              <CopilotoPanel
-                leadId={lead.id}
-                ficha={copilotoFicha}
-                onDraft={handleCopilotoDraft}
-                onSaveNote={handleSaveNote}
-              />
-            )}
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.msg} size={12} /> WhatsApp</h4>
-            {!lead.phone ? (
-              <p className="muted-note">Lead sem telefone.</p>
-            ) : waOk === false && !hasExistingConversation ? (
-              <div className="lead-cockpit__noconn">
-                <p className="hint">Conecte o WhatsApp da empresa pra conversar com este lead sem sair do funil.</p>
-                <button type="button" className="btn-teal" onClick={() => setWaConnectOpen(true)}>
-                  <WhatsAppMark size={14} /> Conectar WhatsApp
-                </button>
-              </div>
-            ) : waOk === true || hasExistingConversation ? (
-              <ConversationPanel
-                key={lead.id}
-                phone={lead.phone}
-                name={lead.name}
-                draftSignal={draftSignal}
-                leadId={lead.id}
-                conversationId={lead.conversation?.id}
-                conversationSnapshot={{ conversation: lead.conversation, engagement: lead.engagement }}
-                onConversationChanged={onConversationChanged}
-              />
-            ) : (
-              <p className="muted-note">Verificando conexão…</p>
-            )}
+      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--service">
+        <div className="lead-cockpit__service-left">
+          <section className="lead-cockpit__smart-card">
+            <span className="lead-cockpit__smart-icon"><I d={ICONS.bolt} size={17} /></span>
+            <span className="lead-cockpit__smart-copy">
+              <strong>{smartTitle}</strong>
+              <TypewriterText key={`${lead.id}-smart`} text={smartReason} />
+            </span>
+            <span className="lead-cockpit__smart-actions">
+              {copilotoEnabled ? (
+                <CopilotoPanel
+                  leadId={lead.id}
+                  ficha={copilotoFicha}
+                  onDraft={handleCopilotoDraft}
+                  onSaveNote={saveCopilotoNote}
+                />
+              ) : (
+                <span className="muted-note">Copiloto indisponível</span>
+              )}
+            </span>
+          </section>
+
+          <section className="lead-cockpit__chat-card">
+            <div className="lead-cockpit__channel-tabs">
+              <button type="button" className={channel === "whatsapp" ? "is-active" : ""} onClick={() => setChannel("whatsapp")}>
+                <WhatsAppMark size={13} /> WhatsApp
+              </button>
+              <button type="button" className={channel === "email" ? "is-active" : ""} onClick={() => setChannel("email")}>
+                <I d={ICONS.mail} size={12} /> E-mail
+              </button>
+              <span className="lead-cockpit__channel-status">
+                {channel === "whatsapp" ? (hasConversation ? "Conversa existente" : "Sem mensagens") : (lead.email ? "E-mail disponível" : "Sem e-mail")}
+              </span>
+            </div>
+            <div className="lead-cockpit__channel-body">
+              {channel === "whatsapp" ? renderWhatsapp() : renderEmail()}
+            </div>
           </section>
         </div>
 
-        <div className="lead-cockpit__col">
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.mail} size={12} /> E-mail</h4>
-            {!lead.email ? (
-              <p className="muted-note">Lead sem e-mail.</p>
-            ) : emailReady === false ? (
-              <div className="lead-cockpit__noconn">
-                <p className="hint">O e-mail da empresa ainda não está configurado.</p>
-                <button type="button" className="btn-ghost" onClick={() => router.push("/configuracoes")}>
-                  Configurar e-mail
+        <div className="lead-cockpit__service-right">
+          <div className="lead-cockpit__service-top-two">
+            <section className="lead-cockpit__compact-card">
+              <CardTitle icon={ICONS.phone} title="Contato rápido" action={lead.phone ? <span className="tag teal">WhatsApp ✓</span> : undefined} />
+              <InfoRow label="Telefone" mono>{lead.phone ? formatPhoneDisplay(lead.phone) : "—"}</InfoRow>
+              <InfoRow label="E-mail">{lead.email || "—"}</InfoRow>
+            </section>
+
+            <section className="lead-cockpit__compact-card lead-cockpit__agenda-summary">
+              <CardTitle
+                icon={ICONS.clock}
+                title="Agenda"
+                action={<button type="button" className="lead-cockpit__micro-button" onClick={() => setAgendaOpen(true)}>Agendar</button>}
+              />
+              <InfoRow label="Próximo passo">{lead.nextAction || "Primeiro contato"}</InfoRow>
+              <InfoRow label="Prazo">{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</InfoRow>
+            </section>
+          </div>
+
+          <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
+            <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
+              <CardTitle icon={ICONS.scrape} title="Inteligência do lead" action={<span className="tag">Enriquecido</span>} />
+              <div className="lead-cockpit__intelligence-main">
+                <AnimatedScore score={opportunityScore} />
+                <span>
+                  <strong>Boa oportunidade de abordagem</strong>
+                  <TypewriterText key={`${lead.id}-reason`} text={approachReason} delay={130} />
+                </span>
+              </div>
+              <div className="lead-cockpit__signals">
+                <span><small>Canal</small><strong>{recommendedChannel}</strong></span>
+                <span><small>Dor</small><strong>{pain}</strong></span>
+                <span><small>Contato</small><strong>{lead.phone || lead.email ? "Confirmado" : "Parcial"}</strong></span>
+                <span><small>Temperatura</small><strong>{lead.leadTemperature ? humanize(lead.leadTemperature) : "Morno"}</strong></span>
+              </div>
+            </section>
+          </LockGate>
+
+          <section className="lead-cockpit__compact-card lead-cockpit__template-card">
+            <CardTitle
+              icon={ICONS.mail}
+              title="Mensagem sugerida"
+              action={templateText ? (
+                <button type="button" className="lead-cockpit__micro-button" onClick={copyTemplate}>
+                  <I d={templateCopied ? ICONS.check : ICONS.doc} size={10} /> {templateCopied ? "Copiado" : "Copiar"}
                 </button>
-              </div>
-            ) : emailReady === true ? (
-              <React.Fragment>
-                <div className="kv">
-                  <KvRow label="Para">{lead.email}</KvRow>
-                </div>
-                {emailPreview ? (
-                  <div className="lead-cockpit__preview">
-                    <span className="lead-cockpit__preview-subj">{emailPreview.subject || "—"}</span>
-                    <p className="lead-cockpit__txt">{emailPreview.text || "—"}</p>
-                    <div className="lead-cockpit__row-acts">
-                      <button type="button" className="btn-ghost btn-xs" onClick={gerarPrevia} disabled={emailBusy}>
-                        Gerar de novo
-                      </button>
-                      <button type="button" className="btn-teal btn-xs" onClick={enviarEmail} disabled={emailBusy}>
-                        <I d={ICONS.send} size={12} /> {emailBusy ? "Enviando…" : "Enviar"}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <button type="button" className="btn-ghost" onClick={gerarPrevia} disabled={emailBusy}>
-                    <I d={ICONS.mail} size={13} /> {emailBusy ? "Gerando…" : "Gerar prévia de apresentação"}
-                  </button>
-                )}
-                {emailMsg && <span className={"ctx-msg " + (emailMsg.startsWith("✓") ? "ok" : "err")}>{emailMsg}</span>}
-              </React.Fragment>
-            ) : (
-              <p className="muted-note">Verificando configuração…</p>
-            )}
-          </section>
-
-          {temAbordagem && (
-            <LockGate locked={!canIntel} ctaText="Disponível no HBX Lead+/Pro">
-              <section className="lead-cockpit__box">
-                <h4 className="lead-cockpit__box-title"><I d={ICONS.bolt} size={12} /> Abordagem</h4>
-                {(li?.recommendedChannel || li?.painType) && (
-                  <div className="kv">
-                    {li?.recommendedChannel && <KvRow label="Canal recomendado">{humanize(li.recommendedChannel)}</KvRow>}
-                    {li?.painType && <KvRow label="Dor">{humanize(li.painType)}</KvRow>}
-                  </div>
-                )}
-                {li?.painPitch && <p className="lead-cockpit__txt">{li.painPitch}</p>}
-                {li?.opportunityReason && (
-                  <div className="lead-cockpit__block">
-                    <span className="dn-section-head">Por que é oportunidade</span>
-                    <p className="lead-cockpit__txt">{li.opportunityReason}</p>
-                  </div>
-                )}
-                {templateText && (
-                  <div className="lead-cockpit__block">
-                    <span className="dn-section-head">Modelo de mensagem</span>
-                    <p className="lead-cockpit__txt">{templateText}</p>
-                    <button type="button" className="btn-ghost btn-xs" onClick={copiarTemplate}>
-                      <I d={tplCopied ? ICONS.check : ICONS.doc} size={12} /> {tplCopied ? "Copiado" : "Copiar mensagem"}
-                    </button>
-                  </div>
-                )}
-              </section>
-            </LockGate>
-          )}
-
-          <section className="lead-cockpit__box">
-            {lead.returnAt && (
-              <div className="kv">
-                <KvRow label="Próximo retorno"><span className="tag warn">{fmtDate(lead.returnAt)}</span></KvRow>
-              </div>
-            )}
-            <AgendaLeadPanel key={lead.id} leadId={lead.id} />
+              ) : undefined}
+            />
+            <blockquote>
+              <TypewriterText
+                key={`${lead.id}-template`}
+                text={templateText || "Use uma mensagem curta, personalizada e consultiva para validar a dor antes de apresentar a solução."}
+                delay={180}
+              />
+            </blockquote>
+            <div className="lead-cockpit__chips">
+              <span className="tag teal">Curta</span>
+              <span className="tag teal">Personalizada</span>
+              <span className="tag">Tom consultivo</span>
+            </div>
           </section>
         </div>
       </div>
     );
   }
 
-  function renderEmpresa() {
-    if (companyLoading) {
-      return (
-        <div className="kv">
-          {["CNPJ", "Razão social", "Capital social"].map(k => (
-            <div className="row dn-kv-row" key={k}>
-              <span className="k">{k}</span>
-              <span className="v"><span className="dn-skel dn-skel-sm dn-skel-w45" /></span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    const c = company;
-    // Fallback: sem endpoint/sem match na RFB → só o que o card já tem.
-    const fallbackRows = (
-      <div className="kv">
-        <CopyRow label="CNPJ" value={formatBrCnpj(c?.cnpj || lead.cnpj)} />
-        <CopyRow label="Razão social" value={c?.razaoSocial || lead.razaoSocial} mono={false} />
-        <KvRow label="CNAE">{formatBrCnae(lead.cnae) || "—"}</KvRow>
-        <KvRow label="Situação">{lead.companySituation ? humanize(lead.companySituation) : "—"}</KvRow>
-      </div>
-    );
-    if (c?.locked) {
-      return (
-        <LockGate locked ctaText="Disponível no HBX Pro">
-          {fallbackRows}
-        </LockGate>
-      );
-    }
-    if (!c?.found) {
-      return (
-        <React.Fragment>
-          {fallbackRows}
-          <p className="hint">Sem ficha completa da Receita pra este card{lead.cnpj ? "" : " — lead sem CNPJ"}.</p>
-        </React.Fragment>
-      );
-    }
-    const idade = yearsSince(c.openedAt);
+  function renderCompanyRows() {
+    if (companyLoading) return <div className="lead-cockpit__empty-state">Carregando Receita Federal…</div>;
+    const source = company?.found ? company : null;
+    const age = yearsSince(source?.openedAt);
     return (
-      <React.Fragment>
-        <div className="kv">
-          <CopyRow label="CNPJ" value={formatBrCnpj(c.cnpj || lead.cnpj)} />
-          <CopyRow label="Razão social" value={c.razaoSocial || lead.razaoSocial} mono={false} />
-          <KvRow label="Nome fantasia">{c.nomeFantasia || "—"}</KvRow>
-          <KvRow label="Situação">
-            {c.situacao
-              ? <span className={"tag" + (String(c.situacao).toLowerCase().includes("ativa") ? " teal" : " warn")}>{humanize(c.situacao)}</span>
-              : "—"}
-          </KvRow>
-          <KvRow label="CNAE">{c.cnae ? `${formatBrCnae(c.cnae)}${c.cnaeDescription ? ` — ${c.cnaeDescription}` : ""}` : (formatBrCnae(lead.cnae) || "—")}</KvRow>
-          <KvRow label="Porte">{c.porte || "—"}</KvRow>
-          <KvRow label="Capital social">{c.capitalSocial != null ? fmtMoney(c.capitalSocial) : "—"}</KvRow>
-          <KvRow label="Natureza jurídica">{c.naturezaJuridica || "—"}</KvRow>
-          <KvRow label="Abertura">
-            {c.openedAt ? `${fmtDate(c.openedAt)}${idade != null ? ` · ${idade} ano${idade === 1 ? "" : "s"}` : ""}` : "—"}
-          </KvRow>
-          <KvRow label="Simples Nacional">{c.simples == null ? "—" : c.simples ? "Sim" : "Não"}</KvRow>
-          <KvRow label="MEI">{c.mei == null ? "—" : c.mei ? "Sim" : "Não"}</KvRow>
-          <KvRow label="Unidade">{c.matrizFilial ? humanize(c.matrizFilial) : "—"}</KvRow>
-        </div>
-        {Array.isArray(c.partners) && c.partners.length > 0 && (
-          <div className="lead-cockpit__block">
-            <span className="dn-section-head"><I d={ICONS.users} size={11} /> Quadro societário</span>
-            <div className="kv">
-              {c.partners.map((p, i) => (
-                <div className="row dn-kv-row" key={`p-${i}`}>
-                  <span className="k">{p.qualification ? humanize(p.qualification) : "Sócio"}</span>
-                  <span className="v" title={p.name || undefined}>{p.name || "—"}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </React.Fragment>
+      <>
+        <CopyRow label="Razão social" value={source?.razaoSocial || lead.razaoSocial} mono={false} />
+        <CopyRow label="CNPJ" value={formatBrCnpj(source?.cnpj || lead.cnpj)} />
+        <InfoRow label="Nome fantasia">{source?.nomeFantasia || "—"}</InfoRow>
+        <InfoRow label="Situação">
+          {(source?.situacao || lead.companySituation)
+            ? <span className={`tag${String(source?.situacao || lead.companySituation).toLowerCase().includes("ativa") ? " teal" : " warn"}`}>{humanize(source?.situacao || lead.companySituation)}</span>
+            : "—"}
+        </InfoRow>
+        <InfoRow label="CNAE">{source?.cnae ? `${formatBrCnae(source.cnae)}${source.cnaeDescription ? ` — ${source.cnaeDescription}` : ""}` : (formatBrCnae(lead.cnae) || "—")}</InfoRow>
+        <InfoRow label="Natureza">{source?.naturezaJuridica || "—"}</InfoRow>
+        <InfoRow label="Porte">{source?.porte || "—"}</InfoRow>
+        <InfoRow label="Capital social">{source?.capitalSocial != null ? fmtMoney(source.capitalSocial) : "—"}</InfoRow>
+        <InfoRow label="Abertura">{source?.openedAt ? `${fmtDate(source.openedAt)}${age != null ? ` · ${age} ano${age === 1 ? "" : "s"}` : ""}` : "—"}</InfoRow>
+        <InfoRow label="Simples Nacional">{source?.simples == null ? "—" : source.simples ? "Sim" : "Não"}</InfoRow>
+        <InfoRow label="MEI">{source?.mei == null ? "—" : source.mei ? "Sim" : "Não"}</InfoRow>
+        <InfoRow label="Unidade">{source?.matrizFilial ? humanize(source.matrizFilial) : "—"}</InfoRow>
+      </>
     );
   }
 
   function renderCadastro() {
     return (
-      <div className="lead-cockpit__grid">
-        <div className="lead-cockpit__col">
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.phone} size={12} /> Contato</h4>
-            <div className="kv">
-              {phones.length === 0 && <KvRow label="Telefone"><span className="muted-note">—</span></KvRow>}
-              {phones.map((p, i) => (
-                <CopyRow
-                  key={`ph-${i}`}
-                  label={i === 0 ? "Telefone" : `Telefone ${i + 1}`}
-                  value={formatPhoneDisplay(p)}
-                  badge={waMap[onlyDigits(p)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
-                />
-              ))}
-              {emails.length === 0 && <KvRow label="E-mail"><span className="muted-note">—</span></KvRow>}
-              {emails.map((em, i) => (
-                <CopyRow key={`em-${i}`} label={i === 0 ? "E-mail" : `E-mail ${i + 1}`} value={em} mono={false} />
-              ))}
-              <KvRow label="Site">
-                {lead.website ? (
-                  <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" title={lead.website}>
-                    {lead.website}
-                  </a>
-                ) : "—"}
-              </KvRow>
-              <KvRow label="Endereço">{lead.address || "—"}</KvRow>
-              <KvRow label="Cidade/UF">{cityUf || "—"}</KvRow>
-            </div>
+      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--registration">
+        <div className="lead-cockpit__registration-left">
+          <section className="lead-cockpit__compact-card">
+            <CardTitle icon={ICONS.phone} title="Contatos" />
+            {phones.length ? phones.slice(0, 2).map((phone, index) => (
+              <CopyRow
+                key={phone}
+                label={index === 0 ? "Telefone" : `Telefone ${index + 1}`}
+                value={formatPhoneDisplay(phone)}
+                badge={whatsappMap[onlyDigits(phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
+              />
+            )) : <InfoRow label="Telefone">—</InfoRow>}
+            {emails.length ? emails.slice(0, 2).map((email, index) => (
+              <CopyRow key={email} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`} value={email} mono={false} />
+            )) : <InfoRow label="E-mail">—</InfoRow>}
+            <InfoRow label="Cidade/UF">{cityState}</InfoRow>
+            <InfoRow label="Site">{lead.website || "Não encontrado"}</InfoRow>
           </section>
 
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.scrape} size={12} /> Origem &amp; sinais</h4>
-            <div className="kv">
-              <KvRow label="Fonte">{(lead.primarySource || lead.sourceType) ? humanize(lead.primarySource || lead.sourceType) : "—"}</KvRow>
-              {lead.timesSeen != null && lead.timesSeen > 1 && <KvRow label="Visto">{`${lead.timesSeen}×`}</KvRow>}
-              {lead.rating != null && (
-                <KvRow label="Avaliação">{`★ ${lead.rating.toFixed(1)}${lead.reviews ? ` · ${lead.reviews} avaliações` : ""}`}</KvRow>
-              )}
-              {lead.isFreshCompany && (
-                <KvRow label="Recém-aberta">
-                  <span className="tag teal">
-                    {lead.daysSinceOpened != null
-                      ? `🐣 Aberta há ${Math.max(0, Math.trunc(lead.daysSinceOpened))} dia${Math.max(0, Math.trunc(lead.daysSinceOpened)) === 1 ? "" : "s"}`
-                      : "🐣 Aberta há pouco"}
-                  </span>
-                </KvRow>
-              )}
-              {lead.createdAt && <KvRow label="Criado em">{fmtDateTime(lead.createdAt)}</KvRow>}
-              {lead.updatedAt && <KvRow label="Atualizado em">{fmtDateTime(lead.updatedAt)}</KvRow>}
+          <section className="lead-cockpit__compact-card">
+            <CardTitle icon={ICONS.users} title="Pessoa-chave" />
+            <div className="lead-cockpit__person">
+              <Av name={keyPersonName} size={30} />
+              <span><strong>{keyPersonName}</strong><small>{humanize(keyPersonRole)}</small></span>
             </div>
+            <InfoRow label="Telefone" mono>{lead.ownerPhone ? formatPhoneDisplay(lead.ownerPhone) : (lead.phone ? formatPhoneDisplay(lead.phone) : "—")}</InfoRow>
+            <InfoRow label="Instagram">{lead.ownerInstagram || "Não localizado"}</InfoRow>
+            <InfoRow label="Facebook">{lead.ownerFacebook || "Não localizado"}</InfoRow>
           </section>
 
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.users} size={12} /> Responsável &amp; histórico</h4>
-            <div className="kv">
-              <KvRow label="Responsável">
-                {lead.owner?.name ? (
-                  <span className="lead-cockpit__owner"><Av name={lead.owner.name} size={18} /> {lead.owner.name}</span>
-                ) : "—"}
-              </KvRow>
+          <section className="lead-cockpit__compact-card lead-cockpit__origin-card">
+            <CardTitle icon={ICONS.scrape} title="Origem" action={<span className="tag">Radar</span>} />
+            <div className="lead-cockpit__chips">
+              {lead.phone && <span className="tag teal">Telefone confirmado</span>}
+              {lead.email && <span className="tag teal">E-mail confirmado</span>}
+              {!lead.website && <span className="tag">Sem site</span>}
+              {lead.timesSeen != null && lead.timesSeen > 1 && <span className="tag">Visto {lead.timesSeen}×</span>}
             </div>
-            {historico.length === 0 ? (
-              <p className="muted-note">Sem histórico ainda.</p>
-            ) : (
-              <ul className="ctx-timeline">
-                {historico.map(ev => (
-                  <li className="ctx-tl-item" key={ev.id}>
-                    <span className="ctx-tl-dot" aria-hidden="true" />
-                    <div className="ctx-tl-body">
-                      <span className="ctx-tl-title" title={ev.title || undefined}>{ev.title || "Atualização"}</span>
-                      {ev.description && <span className="ctx-tl-desc" title={ev.description}>{ev.description}</span>}
-                      <div className="ctx-tl-foot">
-                        {ev.resultLabel && <span className="tag teal">{ev.resultLabel}</span>}
-                        {ev.returnAt && <span className="tag warn">Retorno {fmtDate(ev.returnAt)}</span>}
-                        <span className="ctx-tl-when">{fmtDate(ev.createdAt)}</span>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
           </section>
         </div>
 
-        <div className="lead-cockpit__col">
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.empresas} size={12} /> Empresa</h4>
-            {renderEmpresa()}
+        <section className="lead-cockpit__compact-card lead-cockpit__company-card">
+          <CardTitle icon={ICONS.empresas} title="Empresa" action={<span className="tag">Receita Federal</span>} />
+          <div className="lead-cockpit__company-kv">{renderCompanyRows()}</div>
+          <div className="lead-cockpit__company-partners">
+            <CardTitle icon={ICONS.users} title="Quadro societário" action={<span className="tag">{company?.partners?.length || 0} pessoa(s)</span>} />
+            {company?.partners?.length ? company.partners.slice(0, 3).map((partner, index) => (
+              <div className="lead-cockpit__person" key={`${partner.name || "partner"}-${index}`}>
+                <Av name={partner.name || "—"} size={28} />
+                <span><strong>{partner.name || "—"}</strong><small>{partner.qualification ? humanize(partner.qualification) : "Sócio"}</small></span>
+              </div>
+            )) : <span className="muted-note">Sem quadro societário disponível.</span>}
+          </div>
+        </section>
+
+        <div className="lead-cockpit__registration-right">
+          <section className="lead-cockpit__compact-card lead-cockpit__quality-card">
+            <CardTitle icon={ICONS.check} title="Qualidade" action={<span className="tag">{registrationQuality}% completo</span>} />
+            <div className="lead-cockpit__quality-main">
+              <AnimatedScore score={registrationQuality} suffix="%" />
+              <span><strong>Cadastro utilizável</strong><small>Contato, Receita e pessoa-chave organizados para o primeiro contato.</small></span>
+            </div>
+          </section>
+
+          <section className="lead-cockpit__compact-card lead-cockpit__history-card">
+            <CardTitle icon={ICONS.relat} title="Responsável e histórico" />
+            <div className="lead-cockpit__person">
+              <Av name={lead.owner?.name || "Sem responsável"} size={28} />
+              <span><strong>{lead.owner?.name || "Sem responsável"}</strong><small>Responsável pelo lead</small></span>
+            </div>
+            <div className="lead-cockpit__compact-timeline">
+              {history.length ? history.map((event) => (
+                <span key={event.id}>
+                  <i aria-hidden="true" />
+                  <strong>{event.title || "Atualização"}</strong>
+                  <small>{event.description || event.resultLabel || fmtDateTime(event.createdAt)}</small>
+                </span>
+              )) : <span className="muted-note">Sem histórico ainda.</span>}
+            </div>
           </section>
         </div>
       </div>
@@ -791,182 +845,164 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
 
   function renderFinanceiro() {
     return (
-      <div className="lead-cockpit__grid">
-        <div className="lead-cockpit__col">
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.money} size={12} /> Venda do card</h4>
-            <div className="kv">
-              <KvRow label="Status">
-                {lead.saleStatusLabel
-                  ? <span className={"tag" + (lead.saleStatus === "sale_confirmed" ? " teal" : "")}>{lead.saleStatusLabel}</span>
-                  : "—"}
-              </KvRow>
-              <KvRow label="Valor fechado">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "—"}</KvRow>
-              <KvRow label="Produto">{lead.product?.name || "—"}</KvRow>
-              <KvRow label="Comissão">
-                {lead.commissionAmount != null || lead.commissionStatusLabel
-                  ? `${lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : ""}${lead.commissionAmount != null && lead.commissionStatusLabel ? " · " : ""}${lead.commissionStatusLabel || ""}`
-                  : "—"}
-              </KvRow>
-              {lead.commissionDueAt && <KvRow label="Vence">{fmtDate(lead.commissionDueAt)}</KvRow>}
-              {lead.commissionRecurring != null && <KvRow label="Recorrente">{lead.commissionRecurring ? "Sim" : "Não"}</KvRow>}
-              {lead.setupValue != null && lead.setupValue > 0 && <KvRow label="Implantação">{fmtMoney(lead.setupValue)}</KvRow>}
-              {lead.setupCommissionAmount != null && (
-                <KvRow label="Comissão implantação">
-                  {`${fmtMoney(lead.setupCommissionAmount)}${lead.setupCommissionStatusLabel ? ` · ${lead.setupCommissionStatusLabel}` : ""}`}
-                </KvRow>
-              )}
+      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--finance">
+        <div className="lead-cockpit__finance-left">
+          <section className="lead-cockpit__compact-card lead-cockpit__commercial-summary">
+            <CardTitle icon={ICONS.money} title="Resumo comercial" action={<span className={`tag${lead.saleStatus === "sale_confirmed" ? " teal" : " warn"}`}>{lead.saleStatusLabel || "Sem venda"}</span>} />
+            <strong className="lead-cockpit__money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0"}</strong>
+            <small>Valor fechado neste card</small>
+            <div className="lead-cockpit__metrics">
+              <span><small>Produto</small><strong>{lead.product?.name || "Não definido"}</strong></span>
+              <span><small>Etapa</small><strong>{lead.statusLabel || "Prospecção"}</strong></span>
+              <span><small>Comissão</small><strong>{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</strong></span>
+              <span><small>Recorrência</small><strong>{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</strong></span>
             </div>
+          </section>
+
+          <section className="lead-cockpit__compact-card lead-cockpit__proposal-card">
+            <CardTitle icon={ICONS.doc} title="Proposta" />
+            <InfoRow label="Produto sugerido">{lead.product?.name || "HBX Atendimento + Vendas"}</InfoRow>
+            <InfoRow label="Implantação">{lead.setupValue != null ? fmtMoney(lead.setupValue) : "Não definida"}</InfoRow>
+            <InfoRow label="Mensalidade">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "Não definida"}</InfoRow>
+            <InfoRow label="Responsável">{lead.owner?.name || "—"}</InfoRow>
           </section>
         </div>
 
-        <div className="lead-cockpit__col">
-          <section className="lead-cockpit__box">
-            <h4 className="lead-cockpit__box-title"><I d={ICONS.relat} size={12} /> Extrato do cliente</h4>
-            {finMsg && <span className={"ctx-msg " + (finMsg.startsWith("✓") ? "ok" : "err")}>{finMsg}</span>}
-            {!cpId ? (
-              <div className="lead-cockpit__noconn">
-                <p className="muted-note">Sem movimentações — este card ainda não tem cliente no financeiro.</p>
-                {(lead.saleValue ?? 0) > 0 ? (
-                  <button type="button" className="btn-teal" onClick={gerarCobranca} disabled={finBusyId != null}>
-                    {finBusyId === "gerar" ? "Gerando…" : "Gerar cobrança da venda"}
-                  </button>
-                ) : (
-                  <p className="hint">Defina o valor da venda no card pra gerar a primeira cobrança.</p>
-                )}
-              </div>
-            ) : extratoError ? (
-              <p className="muted-note">Não foi possível carregar o extrato.</p>
-            ) : extrato == null ? (
-              <p className="muted-note">Carregando extrato…</p>
-            ) : (
-              <React.Fragment>
-                <div className="lead-cockpit__saldo">
-                  <span className="lead-cockpit__saldo-lbl">Saldo em aberto</span>
-                  <span className="lead-cockpit__saldo-val">{fmtMoney(extrato.saldoAberto)}</span>
+        <section className="lead-cockpit__compact-card lead-cockpit__statement-card">
+          <CardTitle icon={ICONS.relat} title="Extrato do cliente" action={<span className="tag">{extrato?.charges.length || 0} títulos</span>} />
+          {financeMessage && <span className={`ctx-msg ${financeMessage.startsWith("✓") ? "ok" : "err"}`}>{financeMessage}</span>}
+          {!customerProfileId ? (
+            <div className="lead-cockpit__finance-empty">
+              <span className="lead-cockpit__coin">$</span>
+              <strong>Ainda não há movimentação financeira</strong>
+              <small>O extrato nasce quando a venda é confirmada e o primeiro título é gerado.</small>
+              {(lead.saleValue ?? 0) > 0 && (
+                <button type="button" className="btn-teal btn-xs" onClick={createCharge} disabled={financeBusy != null}>
+                  {financeBusy === "create" ? "Gerando…" : "Gerar cobrança"}
+                </button>
+              )}
+            </div>
+          ) : extratoError ? (
+            <div className="lead-cockpit__empty-state">Não foi possível carregar o extrato.</div>
+          ) : extrato == null ? (
+            <div className="lead-cockpit__empty-state">Carregando extrato…</div>
+          ) : extrato.charges.length === 0 ? (
+            <div className="lead-cockpit__finance-empty"><strong>Nenhum título ainda</strong><small>O cliente já existe no financeiro, mas não possui cobranças.</small></div>
+          ) : (
+            <div className="lead-cockpit__charges">
+              <div className="lead-cockpit__balance"><span>Saldo em aberto</span><strong>{fmtMoney(extrato.saldoAberto)}</strong></div>
+              {extrato.charges.slice(0, 6).map((charge) => (
+                <div className="lead-cockpit__charge-row" key={charge.id}>
+                  <span><strong>{charge.description || "Título"}</strong><small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small></span>
+                  <span className={chargeTagClass(charge.status)}>{chargeStatusLabel(charge.status)}</span>
+                  <strong className="hbx-mono">{fmtMoney(charge.amount)}</strong>
+                  {String(charge.status || "").toLowerCase() === "pending" && (
+                    <button type="button" className="lead-cockpit__micro-button" onClick={() => markPaid(charge.id)} disabled={financeBusy != null}>
+                      {financeBusy === charge.id ? "Baixando…" : "Marcar pago"}
+                    </button>
+                  )}
                 </div>
-                {extrato.charges.length === 0 ? (
-                  <p className="muted-note">Nenhum título ainda.</p>
-                ) : (
-                  <div className="tbl-wrap">
-                    <table className="tbl">
-                      <thead>
-                        <tr><th>Título</th><th>Origem</th><th>Status</th><th>Valor</th><th>Vencimento</th><th /></tr>
-                      </thead>
-                      <tbody>
-                        {extrato.charges.map(ch => (
-                          <tr key={ch.id}>
-                            <td>{ch.description || "—"}</td>
-                            <td>{sourceModuleLabel(ch.sourceModule)}</td>
-                            <td>
-                              <span className={chargeTagCls(ch.status)} title={ch.paidAt ? `Pago em ${fmtDate(ch.paidAt)}` : undefined}>
-                                {chargeStatusLabel(ch.status)}
-                              </span>
-                            </td>
-                            <td className="hbx-mono">{fmtMoney(ch.amount)}</td>
-                            <td className="hbx-mono">{fmtDate(ch.dueDate)}</td>
-                            <td>
-                              {String(ch.status || "").toLowerCase() === "pending" && (
-                                <button type="button" className="btn-ghost btn-xs" onClick={() => marcarPago(ch.id)} disabled={finBusyId != null}>
-                                  {finBusyId === ch.id ? "Baixando…" : "Marcar pago"}
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {(lead.saleValue ?? 0) > 0 && (
-                  <button
-                    type="button"
-                    className="btn-ghost btn-xs"
-                    onClick={gerarCobranca}
-                    disabled={finBusyId != null}
-                    title="Gera o título da venda deste card (idempotente)"
-                  >
-                    <I d={ICONS.plus} size={12} /> {finBusyId === "gerar" ? "Gerando…" : "Gerar cobrança da venda"}
-                  </button>
-                )}
-              </React.Fragment>
-            )}
+              ))}
+            </div>
+          )}
+        </section>
+
+        <div className="lead-cockpit__finance-right">
+          <section className="lead-cockpit__compact-card">
+            <CardTitle icon={ICONS.check} title="Próximos passos" />
+            <div className="lead-cockpit__steps">
+              <span><i>1</i><b>Qualificar interesse</b><small>Registrar resposta e dor real.</small></span>
+              <span><i>2</i><b>Definir produto e valor</b><small>Plano, implantação e condição comercial.</small></span>
+              <span><i>3</i><b>Confirmar a venda</b><small>Gerar cobrança e vincular o cliente.</small></span>
+            </div>
+          </section>
+
+          <section className="lead-cockpit__compact-card">
+            <CardTitle icon={ICONS.money} title="Comissão" action={<span className="tag">{lead.commissionStatusLabel || "Pendente"}</span>} />
+            <InfoRow label="Valor">{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</InfoRow>
+            <InfoRow label="Vencimento">{lead.commissionDueAt ? fmtDate(lead.commissionDueAt) : "—"}</InfoRow>
+            <InfoRow label="Recorrente">{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</InfoRow>
+            <InfoRow label="Implantação">{lead.setupCommissionAmount != null ? fmtMoney(lead.setupCommissionAmount) : "—"}</InfoRow>
           </section>
         </div>
       </div>
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  if (!open) return null;
 
   return (
-    <React.Fragment>
-      <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-        <div className="hbx-modal lead-cockpit" role="dialog" aria-modal="true" aria-label={`Cockpit do lead ${lead.name || ""}`}>
-          <div className="lead-cockpit__head">
-            <Av name={lead.name || "—"} size={46} />
-            <div className="lead-cockpit__id">
-              <h3 className="lead-cockpit__name" title={lead.name || undefined}>{lead.name || "—"}</h3>
-              <span className="lead-cockpit__sub" title={[lead.razaoSocial, lead.segment, cityUf].filter(Boolean).join(" • ") || undefined}>
-                {[lead.razaoSocial, lead.segment, cityUf].filter(Boolean).join(" • ") || "—"}
+    <>
+      <div className="hbx-veil lead-cockpit__veil" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <section className="hbx-modal lead-cockpit lead-cockpit--approved" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
+          <header className="lead-cockpit__approved-head">
+            <Av name={lead.name || "—"} size={44} />
+            <div className="lead-cockpit__approved-id">
+              <span className="lead-cockpit__approved-title-row">
+                <h2>{lead.name || "—"}</h2>
+                <span className="lead-cockpit__approved-badges">
+                  <RadarAiBadge status={aiStatus} />
+                  {lead.statusLabel && <span className="tag warn">{lead.statusLabel}</span>}
+                  {lead.leadTemperature && <span className="tag">{humanize(lead.leadTemperature)}</span>}
+                  {opportunityScore > 0 && <AnimatedScore score={opportunityScore} compact />}
+                </span>
               </span>
-              <div className="lead-cockpit__badges">
-                <RadarAiBadge status={aiStatus} />
-                {lead.statusLabel && <span className="tag">{lead.statusLabel}</span>}
-                {lead.leadTemperature && (
-                  <span className={"tag" + (lead.leadTemperature === "quente" ? " red" : lead.leadTemperature === "morno" ? " warn" : "")}>
-                    {humanize(lead.leadTemperature)}
-                  </span>
-                )}
-                {lead.opportunityScore != null && lead.opportunityScore > 0 && (
-                  <span className="lead-cockpit__score" title="Score de oportunidade">Score {lead.opportunityScore}/100</span>
-                )}
-              </div>
+              <p title={[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ")}>
+                {[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ") || "—"}
+              </p>
             </div>
-            <div className="lead-cockpit__acts">
-              {lead.phone && (
-                <a className="btn-ghost btn-xs" href={`tel:${onlyDigits(lead.phone)}`}>
-                  <I d={ICONS.phone} size={13} /> Ligar
-                </a>
-              )}
-              {cnpjShown && (
-                <button type="button" className="btn-ghost btn-xs" onClick={copiarCnpj}>
-                  <I d={cnpjCopied ? ICONS.check : ICONS.doc} size={13} /> {cnpjCopied ? "Copiado" : "Copiar CNPJ"}
-                </button>
-              )}
-              {conciergeVisible && (
-                <button type="button" className="btn-ghost btn-xs" onClick={buscarParecidos} title="Achar mais empresas parecidas com o Concierge IA">
-                  <I d={ICONS.concierge} size={13} /> Buscar parecidos
-                </button>
-              )}
-              <button type="button" className="lead-cockpit__close" onClick={onClose} aria-label="Fechar cockpit">✕</button>
+            <div className="lead-cockpit__approved-actions">
+              {lead.phone && <a className="btn-ghost btn-xs" href={`tel:${onlyDigits(lead.phone)}`}><I d={ICONS.phone} size={12} /> <span>Ligar</span></a>}
+              {cnpj && <button type="button" className="btn-ghost btn-xs" onClick={copyCnpj}><I d={cnpjCopied ? ICONS.check : ICONS.doc} size={12} /> <span>{cnpjCopied ? "Copiado" : "Copiar CNPJ"}</span></button>}
+              {conciergeVisible && <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}><I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span></button>}
+              <button type="button" className="lead-cockpit__approved-close" onClick={onClose} aria-label="Fechar">×</button>
             </div>
-          </div>
+          </header>
 
-          <div className="glass-pill-track lead-cockpit__tabs" role="tablist" aria-label="Guias do cockpit">
-            <GlassPill {...pill} />
-            {guias.map(g => (
+          <nav className="glass-pill-track lead-cockpit__approved-tabs" role="tablist" aria-label="Guias dos detalhes">
+            <GlassPill {...tabPill} />
+            {guides.map((guide) => (
               <button
-                key={g.key}
+                key={guide.key}
                 type="button"
-                ref={pill.itemRef(g.key)}
+                ref={tabPill.itemRef(guide.key)}
                 role="tab"
-                aria-selected={tab === g.key}
-                className={"glass-pill-item lead-cockpit__tab" + (tab === g.key ? " active" : "")}
-                onClick={() => setTab(g.key)}
+                aria-selected={tab === guide.key}
+                className={`glass-pill-item lead-cockpit__approved-tab${tab === guide.key ? " is-active" : ""}`}
+                onClick={() => setTab(guide.key)}
               >
-                <I d={g.icon} size={14} /> {g.label}
+                <I d={guide.icon} size={13} /> {guide.label}
               </button>
             ))}
-          </div>
+          </nav>
 
-          <div className="lead-cockpit__body">
-            {tab === "atendimento" && renderAtendimento()}
-            {tab === "cadastro" && renderCadastro()}
-            {tab === "financeiro" && canViewValues && renderFinanceiro()}
+          <div className="lead-cockpit__approved-body">
+            <div className={`lead-cockpit__approved-panel${tab === "atendimento" ? " is-active" : ""}`} aria-hidden={tab !== "atendimento"}>
+              {tab === "atendimento" && renderAtendimento()}
+            </div>
+            <div className={`lead-cockpit__approved-panel${tab === "cadastro" ? " is-active" : ""}`} aria-hidden={tab !== "cadastro"}>
+              {tab === "cadastro" && renderCadastro()}
+            </div>
+            {canViewValues && (
+              <div className={`lead-cockpit__approved-panel${tab === "financeiro" ? " is-active" : ""}`} aria-hidden={tab !== "financeiro"}>
+                {tab === "financeiro" && renderFinanceiro()}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {agendaOpen && (
+        <div className="lead-cockpit__agenda-popover" role="dialog" aria-modal="true" aria-label="Agenda do lead">
+          <div className="lead-cockpit__agenda-popover-head">
+            <strong>Agenda · {lead.name}</strong>
+            <button type="button" onClick={() => setAgendaOpen(false)} aria-label="Fechar agenda">×</button>
+          </div>
+          <div className="lead-cockpit__agenda-popover-body">
+            <AgendaLeadPanel key={lead.id} leadId={lead.id} />
           </div>
         </div>
-      </div>
+      )}
 
       {waConnectOpen && (
         <WhatsAppConnectModal
@@ -976,6 +1012,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           onDisconnected={() => setWaOk(false)}
         />
       )}
-    </React.Fragment>
+    </>
   );
 }
