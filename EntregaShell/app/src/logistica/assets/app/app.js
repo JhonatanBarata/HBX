@@ -34,6 +34,7 @@
     dayPreview: [],
     dayPreviewEnteringIds: [],
     dayPreviewLeavingIds: [],
+    daySourceDates: {},
     dayPreviewLoading: false,
     dayPreviewError: null,
     dayMode: "start",
@@ -84,6 +85,7 @@
   let routeMap = null;
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
+  let lastRouteTransmuxState = null;
   const roadGeometryCache = new Map();
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
@@ -207,14 +209,19 @@
   }
   async function mountMap(hostId, points, interactive) {
     const host = document.getElementById(hostId);
-    if (!host || !points.length) return;
+    if (!host) return;
     try {
+      const pendingPosition = !points.length && interactive ? currentPosition() : Promise.resolve(null);
+      const center = points[0] || { lat: -14.235, lng: -51.9253 };
       if (!interactive) points = await roadOptimizedPoints(points);
       const maplibregl = await loadRouteMapLibrary();
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
       disposeRouteMap(); routeMapHost = host;
-      const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [points[0].lng, points[0].lat], zoom: 12, attributionControl: { compact: true }, cooperativeGestures: false });
+      const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [center.lng, center.lat], zoom: points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
       routeMap = map;
+      if (!points.length) void pendingPosition.then(position => {
+        if (position && routeMap === map && routeMapHost === host) map.easeTo({ center: [position.lng, position.lat], zoom: 14, duration: 500 });
+      });
       map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
         points.forEach(point => { const pin = document.createElement(interactive ? "button" : "span"); if (interactive) pin.type = "button"; pin.className = "route-map-pin"; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`); if (interactive) pin.addEventListener("click", () => showSheet(point.item)); new maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map); });
@@ -260,7 +267,7 @@
   function operationalScheduledAt() { return `${operationalDate()}T12:00:00.000Z`; }
   function todayIso() { return new Date(`${operationalDate()}T12:00:00`).getDay() || 7; }
   function workDays() { const raw = String(state.config && state.config.diasTrabalho || ""); const chosen = raw.split(",").map(Number).filter(n => n >= 1 && n <= 7); return chosen.length ? [...new Set(chosen)] : weekDays.map(day => day.n); }
-  function dateForIsoDay(isoDay) { const date = new Date(`${operationalDate()}T12:00:00`); date.setDate(date.getDate() + isoDay - todayIso()); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+  function dateForIsoDay(isoDay, extraWeeks) { const date = new Date(`${operationalDate()}T12:00:00`); const delta = (isoDay - todayIso() + 7) % 7 + Math.max(0, Number(extraWeeks || 0)) * 7; date.setDate(date.getDate() + delta); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
   function mergeDayPreview(previews) {
     const merged = new Map();
     previews.forEach(preview => (preview && preview.clientes || []).forEach(client => {
@@ -293,14 +300,24 @@
   }
   async function refreshDayPreview() {
     const requestId = ++dayPreviewRequestId;
-    const dates = state.daySelection.map(dateForIsoDay);
     const previous = state.dayPreview || [];
     const previousIds = new Set(previous.map(dayPreviewKey));
     state.dayPreviewLoading = true; state.dayPreviewError = null; state.dayPreviewLeavingIds = [];
     try {
-      const previews = await Promise.all(dates.map(date => H.api(`/logistica/dia-preview?date=${encodeURIComponent(date)}`)));
+      const previewRows = await Promise.all(state.daySelection.map(async day => {
+        const primaryDate = dateForIsoDay(day);
+        let preview = await H.api(`/logistica/dia-preview?date=${encodeURIComponent(primaryDate)}`);
+        let sourceDate = primaryDate;
+        if (day === todayIso() && !(preview && Array.isArray(preview.clientes) && preview.clientes.length)) {
+          const fallbackDate = dateForIsoDay(day, 1);
+          const fallback = await H.api(`/logistica/dia-preview?date=${encodeURIComponent(fallbackDate)}`);
+          if (fallback && Array.isArray(fallback.clientes) && fallback.clientes.length) { preview = fallback; sourceDate = fallbackDate; }
+        }
+        return { day, sourceDate, preview };
+      }));
       if (requestId !== dayPreviewRequestId) return;
-      const next = mergeDayPreview(previews);
+      state.daySourceDates = Object.fromEntries(previewRows.map(row => [row.day, row.sourceDate]));
+      const next = mergeDayPreview(previewRows.map(row => row.preview));
       const nextIds = new Set(next.map(dayPreviewKey));
       const leavingIds = previous.filter(client => !nextIds.has(dayPreviewKey(client))).map(dayPreviewKey);
       if (leavingIds.length) {
@@ -334,7 +351,7 @@
     // uma escolha posterior (ex.: quinta) somar a quarta sem o operador pedir.
     // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
     state.daySelection = [];
-    state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
+    state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
     refreshDayPreview();
   }
   function toggleManagedRouteDay(day) {
@@ -563,14 +580,35 @@
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
     const progress = total ? Math.round(done.length / total * 100) : 0;
-    const hasMapPoints = routeMapPoints().length > 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
-    const cancelRouteButton = isAdmin() && open.length && (planned || serverRouteActive()) ? `<button class="btn btn-danger" data-action="cancel-route">Cancelar</button>` : "";
-    return shell(`<section class="hero">${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : ""}${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}<div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Pausar</button>${cancelRouteButton}` : paused ? `<button class="btn btn-primary" data-action="resume-route">${icon("route", 17)} Retomar rota</button>${cancelRouteButton}` : planned ? `<button class="btn btn-primary" data-action="start-planned-route" ${state.dayStarting ? "disabled" : ""}>${icon("route", 17)} ${state.dayStarting ? "Iniciando…" : "Iniciar rota"}</button>${cancelRouteButton}` : `<button class="btn btn-primary" data-action="plan-route">Planejar</button>`}</div></section>
+    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong></div></div>` : ""}
       ${next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
       ${items().length ? `<div class="list">${orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : ""}`, `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+  }
+  function routeTransmuxControl(planned, paused) {
+    const active = routeActive();
+    const current = active ? "stop" : planned && !paused ? "gps" : "play";
+    const initial = lastRouteTransmuxState && lastRouteTransmuxState !== current ? lastRouteTransmuxState : current;
+    const action = active ? "stop-route" : current === "gps" ? "start-planned-route" : "plan-route";
+    const label = active ? "Parar rota" : current === "gps" ? "Iniciar rota" : "Planejar rota";
+    lastRouteTransmuxState = current;
+    return `<div class="route-transmux-wrap"><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
+      <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
+        <linearGradient id="routePlayGradient" x1="25" y1="12" x2="92" y2="112" gradientUnits="userSpaceOnUse"><stop stop-color="#38e95e"/><stop offset="1" stop-color="#07a93f"/></linearGradient>
+        <linearGradient id="routeGpsGradient" x1="18" y1="10" x2="101" y2="111" gradientUnits="userSpaceOnUse"><stop stop-color="#23c9f5"/><stop offset="1" stop-color="#0865df"/></linearGradient>
+        <linearGradient id="routeStopGradient" x1="24" y1="12" x2="95" y2="110" gradientUnits="userSpaceOnUse"><stop stop-color="#ff5a62"/><stop offset="1" stop-color="#df071a"/></linearGradient>
+        <filter id="routeSoftShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity=".22"/></filter>
+      </defs>
+      <circle class="transmux-disc play" cx="60" cy="60" r="54" fill="url(#routePlayGradient)"/><circle class="transmux-disc gps" cx="60" cy="60" r="54" fill="url(#routeGpsGradient)"/><circle class="transmux-disc stop" cx="60" cy="60" r="54" fill="url(#routeStopGradient)"/>
+      <circle class="transmux-inner-ring" cx="60" cy="60" r="50.5"/><circle class="transmux-ring" cx="60" cy="60" r="54"/><path class="transmux-shine" d="M29 28a43 43 0 0 1 57-5"/><circle class="transmux-pulse" cx="60" cy="60" r="51"/>
+      <path class="transmux-route" d="M26 79c10 16 26 20 43 14 12-4 16-14 24-22"/><circle class="transmux-route" cx="26" cy="79" r="4.2" fill="#fff" stroke="none"/>
+      <g class="transmux-symbol play-symbol" filter="url(#routeSoftShadow)"><path d="M45 35.5c0-3.5 3.8-5.7 6.8-3.8l31.4 20.2c2.8 1.8 2.8 6 0 7.8L51.8 79.9c-3 1.9-6.8-.3-6.8-3.8z" fill="#fff"/></g>
+      <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><path d="M60 27 79 77.5c1.1 3-2.2 5.7-4.9 4L60 73.4l-14.1 8.1c-2.7 1.6-6-1-4.9-4z" fill="#fff"/><path d="M60 34 68 67l-8-4.7L52 67z" fill="rgba(8,101,223,.22)"/></g>
+      <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z" fill="#fff"/><circle cx="88" cy="42" r="5.2" fill="#168be8"/></g>
+      <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><path d="M44 28h32l16 16v32L76 92H44L28 76V44z" fill="#fff"/><path d="M47 35h26l12 12v26L73 85H47L35 73V47z" fill="rgba(223,7,26,.14)"/><rect x="41" y="55" width="38" height="10" rx="5" fill="#e10a1d"/></g></svg>
+    </button>${planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : ""}</div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -743,6 +781,12 @@
     const sheet = app.querySelector(".sheet");
     if (modal && modalScroll) modal.scrollTop = modalScroll;
     if (sheet && sheetScroll) sheet.scrollTop = sheetScroll;
+    const transmux = app.querySelector(".route-transmux[data-next-state]");
+    if (transmux && transmux.dataset.state !== transmux.dataset.nextState) requestAnimationFrame(() => {
+      if (!transmux.isConnected) return;
+      transmux.dataset.state = transmux.dataset.nextState;
+      transmux.classList.add("clicked");
+    });
     if (state.screen === "route" && !state.dayReview) void mountRouteMap();
     if (state.modal === "manage-day" && state.dayReview) void mountDayReviewMap();
     H.revealActiveNav();
@@ -885,7 +929,7 @@
     try {
       if (isAdmin()) {
         const today = operationalDate();
-        const sourceDates = state.daySelection.map(dateForIsoDay);
+        const sourceDates = state.daySelection.map(day => state.daySourceDates[day] || dateForIsoDay(day));
         const position = await currentPosition();
         const adjustments = await H.api(`/logistica/admin-route/adjustments?date=${encodeURIComponent(today)}`);
         const pendingDeliveryIds = (Array.isArray(adjustments && adjustments.pending) ? adjustments.pending : [])
@@ -895,6 +939,8 @@
         const body = { operationalDate: today, sourceDates, pendingDeliveryIds };
         if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
         await H.api("/logistica/admin-route/prepare", { method: "POST", body });
+        state.routePaused = false;
+        H.cache.remove("logistica-route-paused");
         clearRouteSelection();
         await closeOverlay("modal");
         if (state.dayMode === "plan") {
@@ -909,7 +955,7 @@
         abrirNavegacao(openItems()[0]);
         return;
       }
-      const generatedDays = await Promise.all(state.daySelection.map(day => H.api("/logistica/gerar-dia", { method: "POST", body: { date: dateForIsoDay(day) } })));
+      const generatedDays = await Promise.all(state.daySelection.map(day => H.api("/logistica/gerar-dia", { method: "POST", body: { date: state.daySourceDates[day] || dateForIsoDay(day) } })));
       await refresh(true);
       const deliveryIds = [...new Set(generatedDays.flatMap(day => Array.isArray(day && day.deliveryIds) ? day.deliveryIds.map(String) : []))];
       if (!deliveryIds.length) deliveryIds.push(...selectedPreviewDeliveryIds());
@@ -1146,7 +1192,7 @@
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
-    if (action === "finish-route") { pauseRouteOnDevice(); render(); toast("Rota pausada."); }
+    if (action === "stop-route" || action === "finish-route") { pauseRouteOnDevice(); render(); toast("Rota parada."); }
     if (action === "resume-route") { await resumeRouteOnDevice(); }
     if (action === "show-map") abrirNavegacao(openItems()[0]);
     if (action === "maps" && state.selected) abrirNavegacao(state.selected);
