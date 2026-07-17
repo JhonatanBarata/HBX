@@ -169,9 +169,12 @@ function loadConfig() {
 
 function buildAndroidApk() {
   if (process.platform === 'win32') {
+    // gradlew.bat pelo CAMINHO ABSOLUTO: ambientes com NoDefaultCurrentDirectoryInExePath=1
+    // (sandbox/hardening) fazem o cmd.exe ignorar o diretório atual, então o nome puro
+    // "gradlew.bat" não é encontrado mesmo com cwd correto. Caminho absoluto resolve sempre.
     runStep(
       process.env.comspec || 'cmd.exe',
-      ['/d', '/s', '/c', 'gradlew.bat', ':app:assembleLogisticaRelease', '--stacktrace'],
+      ['/d', '/s', '/c', path.join(androidProjectDir, 'gradlew.bat'), ':app:assembleLogisticaRelease', '--stacktrace'],
       { cwd: androidProjectDir },
     );
   } else {
