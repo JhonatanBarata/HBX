@@ -359,7 +359,12 @@
     state.daySelection = state.daySelection.includes(day)
       ? state.daySelection.filter(value => value !== day)
       : [...state.daySelection, day].sort((a, b) => a - b);
-    refreshDayPreview();
+    // O toque precisa responder na hora. A lista pode carregar depois, mas o
+    // chip selecionado nao pode parecer travado enquanto aguarda a API.
+    state.dayPreviewLoading = true;
+    state.dayPreviewError = null;
+    render();
+    void refreshDayPreview();
   }
   function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "" }; }
   function resetClientProductEditor() {
@@ -774,7 +779,8 @@
     // destes chips ao listener delegado do shell. O listener direto mantém a
     // montagem da rota operável sem duplicar o clique no listener global.
     app.querySelectorAll("[data-day]").forEach(button => button.addEventListener("click", event => {
-      event.stopPropagation();
+      event.preventDefault();
+      event.stopImmediatePropagation();
       toggleManagedRouteDay(Number(button.dataset.day));
     }));
     const modal = app.querySelector(".modal");
