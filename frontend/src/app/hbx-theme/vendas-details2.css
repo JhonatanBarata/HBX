@@ -1,10 +1,4 @@
-/* ============================================================
-   VENDAS — pipeline em tela cheia + Detalhes 2 como ficha única.
-   O antigo detalhe lateral sai do fluxo visual. A informação continua
-   inteira no LeadCockpitModal, distribuída nas 3 guias existentes.
-   ============================================================ */
-
-/* ── Pipeline ocupa toda a largura ───────────────────────────────────────── */
+/* VENDAS — pipeline em tela cheia + Detalhes 2 compacto e animado. */
 #vendas-panel-funil .content,
 #vendas-panel-funil .content.vnd-content--detail-open {
   width: 100% !important;
@@ -14,219 +8,188 @@
   grid-template-columns: minmax(0, 1fr) !important;
   gap: 0 !important;
 }
-
 #vendas-panel-funil .content > .work {
   grid-column: 1 / -1 !important;
   width: 100% !important;
-  max-width: none !important;
   min-width: 0 !important;
 }
-
 #vendas-panel-funil .content > .ctx.ctx--vendas-detail {
   display: none !important;
 }
-
 #vendas-panel-funil .work > .panel,
 #vendas-panel-funil .tbl-wrap,
 #vendas-panel-funil .tbl {
   width: 100%;
   max-width: none;
 }
-
-/* Clique simples agora é a ação principal do lead. Mantém botões, links,
-   checkbox e drag com os próprios handlers. */
 #vendas-panel-funil tr[id^="vnd-row-"][data-cockpit-open="single-click"],
 #vendas-panel-funil .vnd-card[data-cockpit-open="single-click"] {
   cursor: pointer;
 }
-
-#vendas-panel-funil tr[id^="vnd-row-"][data-cockpit-open="single-click"]:focus-visible,
-#vendas-panel-funil .vnd-card[data-cockpit-open="single-click"]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--hbx-brand) 56%, transparent);
-  outline-offset: -2px;
-}
-
 #vendas-panel-funil tr.is-cockpit-opening > td,
 #vendas-panel-funil .vnd-card.is-cockpit-opening {
   animation: vnd-details2-open 0.48s var(--ease-out-quint) both;
 }
-
 @keyframes vnd-details2-open {
-  0% { filter: brightness(1); transform: translateZ(0); }
+  0% { filter: brightness(1); }
   38% { filter: brightness(1.06); transform: translateY(-1px); }
-  100% { filter: brightness(1); transform: translateZ(0); }
+  100% { filter: brightness(1); transform: none; }
 }
 
-/* ── Detalhes 2: uma superfície de trabalho, sem rolagem da página ───────── */
-.hbx-modal.lead-cockpit {
-  width: min(1440px, calc(100vw - 14px));
-  height: calc(100dvh - 14px);
+.hbx-modal.lead-cockpit.vnd-d2-live {
+  width: calc(100vw - 10px);
+  height: calc(100dvh - 10px);
   max-width: none;
-  max-height: calc(100dvh - 14px);
-  border-radius: 22px;
-}
-
-.lead-cockpit__head {
-  gap: 10px;
-  padding: 10px 13px 9px;
-}
-
-.lead-cockpit__head > .avatar,
-.lead-cockpit__head > [class*="av"] {
-  transform: scale(.94);
-}
-
-.lead-cockpit__id {
-  gap: 2px;
-}
-
-.lead-cockpit__name {
-  font-size: 1rem;
-}
-
-.lead-cockpit__sub {
-  font-size: 0.66rem;
-}
-
-.lead-cockpit__badges,
-.lead-cockpit__acts {
-  gap: 5px;
-}
-
-.lead-cockpit__acts .btn-ghost,
-.lead-cockpit__close {
-  min-height: 29px;
-  height: 29px;
-}
-
-.lead-cockpit__tabs {
-  min-height: 44px;
-  padding: 4px 13px;
-}
-
-.lead-cockpit__tab {
-  min-height: 34px;
-  padding-inline: 15px;
-}
-
-.lead-cockpit__body {
-  min-height: 0;
-  height: 100%;
-  padding: 9px 11px 11px;
+  max-height: none;
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
-  scrollbar-gutter: auto;
+  border-radius: 22px;
+  animation: vnd-d2-modal-in 0.38s var(--ease-out-quint) both;
+}
+@keyframes vnd-d2-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.988); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
 
-.lead-cockpit__grid {
+.vnd-d2-live .lead-cockpit__head { min-height: 58px; gap: 9px; padding: 7px 11px 6px; }
+.vnd-d2-live .lead-cockpit__name { font-size: 0.94rem; }
+.vnd-d2-live .lead-cockpit__sub { font-size: 0.59rem; }
+.vnd-d2-live .lead-cockpit__badges,
+.vnd-d2-live .lead-cockpit__acts { gap: 4px; }
+.vnd-d2-live .lead-cockpit__acts .btn-ghost,
+.vnd-d2-live .lead-cockpit__close { min-height: 28px; height: 28px; padding-inline: 8px; font-size: 0.56rem; }
+.vnd-d2-live .lead-cockpit__tabs { min-height: 39px; padding: 3px 11px; }
+.vnd-d2-live .lead-cockpit__tab { min-height: 31px; padding-inline: 13px; font-size: 0.63rem; }
+.vnd-d2-live .lead-cockpit__body { min-height: 0; height: 100%; padding: 6px 7px 7px; overflow: hidden; scrollbar-gutter: auto; }
+
+.vnd-d2-live .lead-cockpit__score {
+  --vnd-d2-score: 0%;
+  width: 39px;
+  height: 39px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--hbx-surface) 0 57%, transparent 58%),
+    conic-gradient(var(--hbx-brand) var(--vnd-d2-score), color-mix(in srgb, var(--hbx-brand) 12%, var(--hbx-surface-soft)) 0);
+  color: var(--hbx-brand-strong);
+  box-shadow: 0 7px 16px -10px var(--hbx-brand), inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 15%, transparent);
+  font-family: var(--font-mono);
+  line-height: 0.9;
+}
+.vnd-d2-live .lead-cockpit__score strong { font-size: 0.67rem; }
+.vnd-d2-live .lead-cockpit__score small { display: block; font-size: 0.38rem; color: var(--text-muted); }
+
+.vnd-d2-live .lead-cockpit__grid { width: 100%; height: 100%; min-height: 0; display: grid; gap: 6px; align-items: stretch; }
+.vnd-d2-live .lead-cockpit__col { min-width: 0; min-height: 0; gap: 6px; }
+.vnd-d2-live .lead-cockpit__box { min-width: 0; min-height: 0; padding: 8px 9px; gap: 6px; border-radius: 14px; overflow: hidden; }
+.vnd-d2-live .lead-cockpit__box-title { min-height: 19px; padding-bottom: 5px; font-size: 0.64rem; }
+.vnd-d2-live .lead-cockpit__box .kv .row { grid-template-columns: minmax(88px, 0.62fr) minmax(0, 1.38fr); gap: 7px; padding: 4px 0; }
+.vnd-d2-live .lead-cockpit__box .kv .k { font-size: 0.52rem; }
+.vnd-d2-live .lead-cockpit__box .kv .v { font-size: 0.57rem; }
+.vnd-d2-live .lead-cockpit__txt { margin: 0; font-size: 0.58rem; line-height: 1.38; }
+.vnd-d2-live .lead-cockpit__block { gap: 4px; padding-top: 5px; }
+.vnd-d2-live .lead-cockpit__noconn,
+.vnd-d2-live .lead-cockpit__preview { gap: 5px; padding: 7px; border-radius: 10px; }
+
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid {
+  grid-template-columns: minmax(0, 1.16fr) minmax(0, 0.88fr) minmax(235px, 0.68fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid > .lead-cockpit__col:first-child {
+  grid-column: 1;
+  grid-row: 1 / 3;
   height: 100%;
-  min-height: 0;
-  align-items: stretch;
-  gap: 10px;
-}
-
-.lead-cockpit__col {
-  min-height: 0;
-  align-content: start;
-  gap: 9px;
-}
-
-.lead-cockpit__box {
-  min-height: 0;
-  padding: 10px 11px;
-  gap: 8px;
-  border-radius: 15px;
-}
-
-.lead-cockpit__box-title {
-  min-height: 20px;
-  padding-bottom: 6px;
-  font-size: 0.69rem;
-}
-
-.lead-cockpit__box .kv .row {
-  grid-template-columns: minmax(96px, .62fr) minmax(0, 1.38fr);
-  gap: 9px;
-  padding: 5px 0;
-}
-
-.lead-cockpit__txt {
-  font-size: 0.69rem;
-  line-height: 1.43;
-}
-
-.lead-cockpit__block {
-  gap: 5px;
-  padding-top: 6px;
-}
-
-.lead-cockpit__noconn,
-.lead-cockpit__preview {
-  gap: 7px;
-  padding: 9px;
-}
-
-/* Atendimento: conversa e copiloto ficam numa coluna contínua; e-mail,
-   abordagem e agenda usam a altura restante sem empurrar o modal. */
-.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:first-child {
   grid-template-rows: minmax(0, 1fr);
 }
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid > .lead-cockpit__col:first-child > .lead-cockpit__box { height: 100%; overflow: hidden; }
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid > .lead-cockpit__col:nth-child(2) { display: contents; }
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid > .lead-cockpit__col:nth-child(2) > .lead-cockpit__box:nth-child(1) { grid-column: 2; grid-row: 1; }
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid > .lead-cockpit__col:nth-child(2) > .lead-cockpit__box:nth-child(2) { grid-column: 2; grid-row: 2; overflow: auto; }
+.vnd-d2-live[data-vnd-tab="atendimento"] .lead-cockpit__grid > .lead-cockpit__col:nth-child(2) > .lead-cockpit__box:nth-child(3) { grid-column: 3; grid-row: 1 / 3; overflow: auto; }
 
-.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:first-child > .lead-cockpit__box {
-  height: 100%;
-  overflow: hidden;
+.vnd-d2-live[data-vnd-tab="cadastro"] .lead-cockpit__grid {
+  grid-template-columns: minmax(250px, 0.78fr) minmax(0, 1.18fr) minmax(245px, 0.74fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
+.vnd-d2-live[data-vnd-tab="cadastro"] .lead-cockpit__grid > .lead-cockpit__col { display: contents; }
+.vnd-d2-live[data-vnd-tab="cadastro"] .lead-cockpit__grid > .lead-cockpit__col:first-child > .lead-cockpit__box:nth-child(1) { grid-column: 1; grid-row: 1; }
+.vnd-d2-live[data-vnd-tab="cadastro"] .lead-cockpit__grid > .lead-cockpit__col:first-child > .lead-cockpit__box:nth-child(2) { grid-column: 1; grid-row: 2; overflow: auto; }
+.vnd-d2-live[data-vnd-tab="cadastro"] .lead-cockpit__grid > .lead-cockpit__col:first-child > .lead-cockpit__box:nth-child(3) { grid-column: 3; grid-row: 1 / 3; overflow: auto; }
+.vnd-d2-live[data-vnd-tab="cadastro"] .lead-cockpit__grid > .lead-cockpit__col:nth-child(2) > .lead-cockpit__box { grid-column: 2; grid-row: 1 / 3; overflow: auto; }
 
-.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:nth-child(2) {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+.vnd-d2-live[data-vnd-tab="financeiro"] .lead-cockpit__grid { grid-template-columns: minmax(260px, 0.78fr) minmax(0, 1.22fr); }
+.vnd-d2-live[data-vnd-tab="financeiro"] .lead-cockpit__col { height: 100%; }
+.vnd-d2-live[data-vnd-tab="financeiro"] .lead-cockpit__box { height: 100%; overflow: auto; }
+
+.vnd-d2-live .copiloto { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.vnd-d2-live .copiloto__head { min-height: 25px; gap: 5px; }
+.vnd-d2-live .copiloto__spark { width: 23px; height: 23px; }
+.vnd-d2-live .copiloto__title { font-size: 0.61rem; }
+.vnd-d2-live .copiloto__toggle { min-height: 22px; padding-inline: 6px; font-size: 0.48rem; }
+.vnd-d2-live .copiloto__body { gap: 4px; padding-top: 3px; }
+.vnd-d2-live .copiloto__actions { gap: 4px; }
+.vnd-d2-live .copiloto__actions .btn-ghost { min-height: 24px; padding-inline: 6px; font-size: 0.47rem; }
+.vnd-d2-live .copiloto__hint { margin: 0; font-size: 0.47rem; }
+.vnd-d2-live .copiloto__result { max-height: 90px; padding: 5px; overflow: auto; }
+
+.vnd-d2-live .dn-convo { min-height: 0; height: 100%; }
+.vnd-d2-live .dn-convo__body { min-height: 0; height: 100%; max-height: none; }
+.vnd-d2-live .msgs { min-height: 0; max-height: none; }
+.vnd-d2-live .ctx-timeline { max-height: none; min-height: 0; overflow: auto; }
+.vnd-d2-live .lead-cockpit__body .tbl-wrap { max-height: none; overflow: auto; }
+
+.vnd-d2-typing::after {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: -0.08em;
+  background: currentColor;
+  animation: vnd-d2-caret 0.72s steps(1, end) infinite;
 }
+@keyframes vnd-d2-caret { 50% { opacity: 0; } }
 
-.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:nth-child(2) > .lead-cockpit__box:nth-child(2) {
-  overflow: auto;
-  overscroll-behavior: contain;
+@media (max-height: 740px) {
+  .vnd-d2-live .lead-cockpit__head { min-height: 52px; padding-block: 5px; }
+  .vnd-d2-live .lead-cockpit__tabs { min-height: 35px; }
+  .vnd-d2-live .lead-cockpit__tab { min-height: 28px; }
+  .vnd-d2-live .lead-cockpit__body { padding: 4px 5px 5px; }
+  .vnd-d2-live .lead-cockpit__grid,
+  .vnd-d2-live .lead-cockpit__col { gap: 4px; }
+  .vnd-d2-live .lead-cockpit__box { padding: 6px 7px; gap: 4px; }
+  .vnd-d2-live .lead-cockpit__box .kv .row { padding: 3px 0; }
+  .vnd-d2-live .copiloto__hint { display: none; }
 }
-
-.lead-cockpit__body .dn-convo__body {
-  max-height: min(30dvh, 260px);
-}
-
-.lead-cockpit__body .msgs {
-  max-height: min(23dvh, 205px);
-}
-
-/* Cadastro: listas potencialmente extensas ficam contidas no próprio bloco.
-   Em dados normais não aparece barra; ela só surge para histórico/sócios longos. */
-.lead-cockpit__col > .lead-cockpit__box:has(.ctx-timeline),
-.lead-cockpit__col > .lead-cockpit__box:has(.dn-section-head),
-.lead-cockpit__col:nth-child(2) > .lead-cockpit__box:has(.kv) {
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.lead-cockpit__box .ctx-timeline {
-  max-height: 180px;
-  overflow: auto;
-}
-
-/* Financeiro mantém a tabela inteira na guia e rola apenas o extrato quando
-   a quantidade de títulos ultrapassar a altura útil. */
-.lead-cockpit__body .tbl-wrap {
-  max-height: 310px;
-  overflow: auto;
-}
-
-@media (max-height: 720px), (max-width: 980px) {
-  .hbx-modal.lead-cockpit {
-    width: min(1180px, calc(100vw - 10px));
-    height: calc(100dvh - 10px);
-    max-height: calc(100dvh - 10px);
-    border-radius: 18px;
+@media (max-width: 1050px) {
+  .vnd-d2-live .lead-cockpit__body { overflow: auto; }
+  .vnd-d2-live .lead-cockpit__grid {
+    height: auto !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: none !important;
   }
-
-  .lead-cockpit__body {
-    overflow-y: auto;
+  .vnd-d2-live .lead-cockpit__grid > .lead-cockpit__col {
+    display: grid !important;
+    grid-column: auto !important;
+    grid-row: auto !important;
+    height: auto !important;
   }
-
-  .lead-cockpit__grid {
-    height: auto;
+  .vnd-d2-live .lead-cockpit__grid .lead-cockpit__box {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    height: auto !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vnd-d2-live,
+  .vnd-d2-live * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
