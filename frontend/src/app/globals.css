@@ -107,3 +107,4 @@
 /* VENDAS LIVE — sempre por último: fluxo único, cards coloridos, cockpit e
    Detalhes rolável sem alterar os handlers existentes. */
 @import "./hbx-theme/vendas-live.css";
+@import "./hbx-theme/vendas-live-polish.css";
