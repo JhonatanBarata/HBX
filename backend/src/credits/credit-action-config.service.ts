@@ -9,6 +9,7 @@ import {
   getCreditActionBaseDefinition,
   getCreditActionDefinition,
   getCreditActionOverride,
+  isCreditActionOverrideLocked,
   listCreditActionKeys,
   normalizeCreditActionKey,
   normalizeCreditCost,
@@ -60,7 +61,9 @@ export class CreditActionConfigService implements OnModuleInit {
     applyCreditActionOverrides(
       rows.map((row: { actionKey: string; configJson: string | null }) => ({
         actionKey: row.actionKey,
-        override: this.parseOverride(row.configJson),
+        // Overrides antigos da criação de entrega são conscientemente ignorados:
+        // o preço canônico agora pertence apenas à rota Essencial/Rastreada.
+        override: isCreditActionOverrideLocked(row.actionKey) ? null : this.parseOverride(row.configJson),
       })),
     );
   }
@@ -89,6 +92,9 @@ export class CreditActionConfigService implements OnModuleInit {
     const key = normalizeCreditActionKey(actionKeyInput);
     if (!key) return null;
     const base = getCreditActionBaseDefinition(key)!;
+    // A chave legada continua reconhecida para callers/ledger, porém é sempre
+    // grátis: um override antigo no banco não pode somar 0,2 ao preço da rota.
+    if (isCreditActionOverrideLocked(key)) return base;
     const row = await (this.prisma as any).creditActionConfig.findUnique({
       where: { actionKey: key },
       select: { configJson: true },
@@ -104,6 +110,9 @@ export class CreditActionConfigService implements OnModuleInit {
   async setOverride(actionKeyInput: unknown, patch: { mode?: unknown; cost?: unknown }): Promise<CreditActionCatalogItem> {
     const key = normalizeCreditActionKey(actionKeyInput);
     if (!key) throw new BadRequestException('actionKey desconhecida');
+    if (isCreditActionOverrideLocked(key)) {
+      throw new BadRequestException('A entrega avulsa é absorvida pela cobrança da rota e não aceita débito próprio.');
+    }
     if (typeof patch?.mode !== 'string' || !VALID_MODES.has(patch.mode as CreditActionMode)) {
       throw new BadRequestException('mode deve ser free ou debit');
     }
