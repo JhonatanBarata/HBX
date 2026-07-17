@@ -103,3 +103,7 @@
 /* FINANCEIRO-UNIVERSAL — tela /financeiro do tenant (casca central). Só classes
    de layout; reusa .panel/.tbl/.kpi do tema. Ver financeiro-tenant.css. */
 @import "./hbx-theme/financeiro-tenant.css";
+
+/* VENDAS LIVE — sempre por último: fluxo único, cards coloridos, cockpit e
+   Detalhes rolável sem alterar os handlers existentes. */
+@import "./hbx-theme/vendas-live.css";
