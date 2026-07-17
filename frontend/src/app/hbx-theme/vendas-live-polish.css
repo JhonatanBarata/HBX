@@ -1,0 +1,69 @@
+/* Ajuste final do fluxo de enriquecimento em /vendas.
+   Mantém o gráfico vivo no cabeçalho e elimina a guia/tela redundante. */
+
+/* A guia dedicada ficou redundante: os estados já vivem no topo da tela. */
+#vendas-tab-enriquecimento,
+#vendas-panel-enriquecimento,
+.vnd-layer--enriquecimento,
+.vnd-m__enrichment-preview {
+  display: none !important;
+}
+
+/* Leva o tronco para a margem útil da tabela e faz a ponta encostar no lead,
+   sem cobrir checkbox ou controles de seleção. */
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe {
+  left: -18px;
+  right: auto;
+  width: calc(100% + 18px);
+  filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--text-strong) 7%, transparent));
+}
+
+/* Cano de vidro mais premium: profundidade, brilho interno e pulso contínuo. */
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__shadow {
+  stroke: color-mix(in srgb, var(--text-strong) 13%, transparent);
+  stroke-width: 18;
+  filter: blur(6px);
+  opacity: 0.72;
+}
+
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__glass {
+  stroke: color-mix(in srgb, var(--hbx-surface) 84%, transparent);
+  stroke-width: 12;
+  filter:
+    drop-shadow(0 1px 0 color-mix(in srgb, white 70%, transparent))
+    drop-shadow(0 3px 5px color-mix(in srgb, var(--text-strong) 10%, transparent));
+  opacity: 0.94;
+}
+
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__light {
+  stroke: color-mix(in srgb, var(--flow-color) 72%, white 8%);
+  stroke-width: 2.6;
+  stroke-dasharray: 1 8;
+  filter:
+    drop-shadow(0 0 3px color-mix(in srgb, var(--flow-color) 72%, transparent))
+    drop-shadow(0 0 8px color-mix(in srgb, var(--flow-color) 34%, transparent));
+  animation: vnd-live-pipe-premium-flow 0.72s linear infinite;
+}
+
+@keyframes vnd-live-pipe-premium-flow {
+  to { stroke-dashoffset: -27; }
+}
+
+/* A cápsula que percorre o cano ganha acabamento de peça iluminada. */
+.vnd-live-token {
+  border-color: color-mix(in srgb, var(--flow-color) 78%, white 12%);
+  background:
+    linear-gradient(155deg, color-mix(in srgb, white 58%, transparent), transparent 42%),
+    linear-gradient(180deg, color-mix(in srgb, var(--flow-color) 82%, white 8%), var(--flow-color));
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--flow-color) 13%, transparent),
+    0 0 14px color-mix(in srgb, var(--flow-color) 42%, transparent),
+    0 10px 20px -9px var(--flow-color);
+}
+
+@media (max-width: 900px) {
+  .vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe {
+    left: -10px;
+    width: calc(100% + 10px);
+  }
+}
