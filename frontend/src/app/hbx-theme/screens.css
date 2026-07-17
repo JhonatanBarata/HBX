@@ -5595,6 +5595,317 @@ html, body { height: 100%; }
   .leads-headrow__end { justify-content: stretch; }
 }
 
+/* Preview local dos estados de enriquecimento no Radar. A terceira guia fica
+   isolada do Radar real e nunca injeta dados ilustrativos na busca. */
+.vnd-modehost--status-preview-enabled .vnd-segbtns { flex: 3; gap: 6px; }
+.vnd-modehost--status-preview-enabled .vnd-segbtn { padding-inline: 10px; font-size: 0.76rem; }
+.vnd-modehost--status-preview-enabled .vnd-segbtn svg { flex: 0 0 auto; }
+.vnd-modehost--status-preview-enabled .vnd-stats { flex: 2; }
+.vnd-modehost--status-preview-enabled[data-mode="enriquecimento"] .vnd-funhead { right: 0; }
+.vnd-modehost--status-preview-enabled[data-mode="enriquecimento"] .vnd-segbtns { flex: 0 1 540px; }
+.vnd-modehost--status-preview-enabled[data-mode="enriquecimento"] .vnd-stats { display: none; }
+
+.vnd-layer--enriquecimento.is-on {
+  box-sizing: border-box;
+  padding: 74px 16px 16px;
+  overflow-y: auto;
+  background:
+    radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--hbx-brand) 7%, transparent), transparent 65%),
+    var(--hbx-surface-soft);
+}
+
+.radar-status-preview {
+  /* Quatro cores semânticas exigidas pelo dono, com par dark abaixo. */
+  /* pele-allow */
+  --preview-waiting: #D97706;
+  --preview-working: #2563EB;
+  --preview-success: #16A34A;
+  --preview-danger: #DC2626;
+  /* pele-allow-end */
+  --preview-tone: var(--preview-working);
+  width: min(1080px, 100%);
+  min-width: 0;
+  margin: 0 auto;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  color: var(--text-body);
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+.radar-status-preview--waiting { --preview-tone: var(--preview-waiting); }
+.radar-status-preview--working { --preview-tone: var(--preview-working); }
+.radar-status-preview--success { --preview-tone: var(--preview-success); }
+.radar-status-preview--danger { --preview-tone: var(--preview-danger); }
+
+[data-theme-mode="dark"] .radar-status-preview {
+  /* Pares dark das quatro cores semânticas do preview. */
+  /* pele-allow */
+  --preview-waiting: #FBBF24;
+  --preview-working: #60A5FA;
+  --preview-success: #4ADE80;
+  --preview-danger: #F87171;
+  /* pele-allow-end */
+}
+
+.radar-status-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--hbx-brand) 7%, transparent), transparent 48%),
+    var(--hbx-surface);
+  box-shadow: var(--shadow-xs);
+}
+.radar-status-preview__heading { display: grid; gap: 4px; min-width: 0; }
+.radar-status-preview__eyebrow {
+  color: var(--hbx-brand-strong);
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.radar-status-preview__heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display, var(--font-body));
+  font-size: clamp(1.05rem, 2vw, 1.34rem);
+  font-weight: 780;
+  letter-spacing: 0;
+}
+.radar-status-preview__sample-label {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--control-radius);
+  color: var(--text-muted);
+  background: var(--hbx-surface-soft);
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.radar-status-preview__step-button:focus-visible { outline: 3px solid var(--ring-brand); outline-offset: 2px; }
+
+.radar-status-preview__journey {
+  padding: 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-xs);
+}
+.radar-status-preview__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.radar-status-preview__step { --step-tone: var(--text-muted); min-width: 0; }
+.radar-status-preview__step--waiting { --step-tone: var(--preview-waiting); }
+.radar-status-preview__step--working { --step-tone: var(--preview-working); }
+.radar-status-preview__step--success { --step-tone: var(--preview-success); }
+.radar-status-preview__step--danger { --step-tone: var(--preview-danger); }
+.radar-status-preview__step-button {
+  width: 100%;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  color: var(--text-body);
+  background: var(--hbx-surface-soft);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+.radar-status-preview__step-button:hover {
+  border-color: color-mix(in srgb, var(--step-tone) 45%, var(--border-hairline));
+  background: color-mix(in srgb, var(--step-tone) 7%, var(--hbx-surface));
+  transform: translateY(-1px);
+}
+.radar-status-preview__step[data-active="true"] .radar-status-preview__step-button {
+  border-color: color-mix(in srgb, var(--step-tone) 62%, transparent);
+  background: color-mix(in srgb, var(--step-tone) 10%, var(--hbx-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--step-tone) 12%, transparent);
+}
+.radar-status-preview__step-marker {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--step-tone);
+  background: color-mix(in srgb, var(--step-tone) 12%, transparent);
+}
+.radar-status-preview__step-button > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.radar-status-preview__lead-card {
+  min-width: 0;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--preview-tone) 30%, var(--border-hairline));
+  border-radius: 20px;
+  background:
+    radial-gradient(75% 115% at 100% 0%, color-mix(in srgb, var(--preview-tone) 10%, transparent), transparent 62%),
+    var(--hbx-surface);
+  box-shadow: var(--shadow-md);
+}
+.radar-status-preview__lead-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.radar-status-preview__company { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.radar-status-preview__company-copy { min-width: 0; display: grid; gap: 2px; }
+.radar-status-preview__company-copy > span {
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.radar-status-preview__company-copy h3 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-family: var(--font-display, var(--font-body));
+  font-size: 1.05rem;
+  font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.radar-status-preview__company-copy p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.radar-status-preview__status {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 108px;
+  padding: 18px 20px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--preview-tone) 36%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--preview-tone) 9%, var(--hbx-surface-soft));
+}
+.radar-status-preview__status-icon {
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  color: var(--preview-tone);
+  background: color-mix(in srgb, var(--preview-tone) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--preview-tone) 18%, transparent);
+}
+.radar-status-preview__status > strong {
+  min-width: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display, var(--font-body));
+  font-size: clamp(1.12rem, 2.5vw, 1.55rem);
+  font-weight: 780;
+  line-height: 1.22;
+}
+.radar-status-preview__status-pulse {
+  width: 10px;
+  height: 10px;
+  margin-inline: 8px;
+  border-radius: 999px;
+  background: var(--preview-tone);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--preview-tone) 13%, transparent);
+}
+.radar-status-preview--working .radar-status-preview__status-pulse { animation: radar-status-preview-pulse 1.7s ease-in-out infinite; }
+@keyframes radar-status-preview-pulse {
+  0%, 100% { transform: scale(0.82); opacity: 0.64; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+@media (max-width: 980px) {
+  .vnd-modehost--status-preview-enabled .vnd-segbtns { flex: 1; }
+  .vnd-modehost--status-preview-enabled .vnd-stats { display: none; }
+  .vnd-modehost--status-preview-enabled .vnd-funhead { right: 0; }
+  .radar-status-preview__header { align-items: flex-start; }
+}
+
+@media (max-width: 720px) {
+  .vnd-modehost--status-preview-enabled .vnd-segbtn { padding-inline: 8px; font-size: 0.7rem; }
+  .vnd-layer--enriquecimento.is-on { padding: 74px 10px 12px; }
+  .radar-status-preview__header { flex-direction: column; padding: 14px; }
+  .radar-status-preview__steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .radar-status-preview__lead-card { padding: 14px; }
+  .radar-status-preview__status { grid-template-columns: 44px minmax(0, 1fr); padding: 13px; }
+  .radar-status-preview__status-icon { width: 42px; height: 42px; border-radius: 13px; }
+  .radar-status-preview__status-pulse { display: none; }
+}
+
+@media (max-width: 520px) {
+  .vnd-modehost--status-preview-enabled .vnd-segbtn span { display: none; }
+  .vnd-modehost--status-preview-enabled .vnd-segbtn { min-width: 48px; }
+  .radar-status-preview__sample-label { display: none; }
+  .radar-status-preview__company-copy p span[aria-hidden="true"],
+  .radar-status-preview__company-copy p span[aria-hidden="true"] ~ * { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-status-preview__step-button { transition: none; }
+  .radar-status-preview__step-button:hover { transform: none; }
+  .radar-status-preview--working .radar-status-preview__status-pulse { animation: none; }
+}
+
+/* Preview dentro da casca mobile: mantém o mesmo painel compacto de Funil/Buscar. */
+.vnd-m__segment:has(> .casca-segment__item:nth-of-type(3)) { width: 168px; }
+.vnd-m__enrichment-preview { padding-bottom: var(--space-4); }
+.vnd-m__enrichment-preview > .radar-status-preview {
+  width: auto;
+  margin: 0 var(--space-3);
+  gap: var(--space-2);
+}
+.vnd-m__enrichment-preview .radar-status-preview__header { padding: 12px 14px; }
+.vnd-m__enrichment-preview .radar-status-preview__heading h2 { font-size: 0.95rem; }
+.vnd-m__enrichment-preview .radar-status-preview__journey { padding: 8px; }
+.vnd-m__enrichment-preview .radar-status-preview__steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.vnd-m__enrichment-preview .radar-status-preview__step-button { min-height: 48px; }
+.vnd-m__enrichment-preview .radar-status-preview__lead-card { padding: 14px; }
+.vnd-m__enrichment-preview .radar-status-preview__status {
+  grid-template-columns: 44px minmax(0, 1fr);
+  min-height: 82px;
+  padding: 13px;
+}
+.vnd-m__enrichment-preview .radar-status-preview__status-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+}
+.vnd-m__enrichment-preview .radar-status-preview__status-pulse { display: none; }
+
 
 /* ── VENDAS DETAIL POLISH — preview aprovado, sem tocar nas transições (15/07/2026) ── */
 .dn-root--vendas {

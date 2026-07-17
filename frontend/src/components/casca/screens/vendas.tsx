@@ -6,7 +6,7 @@
 // dois modos). Em /leads abre direto no modo Buscar (lê o pathname) — cobre o
 // alias /webscraping → /leads e links internos sem cair no fallback, mesmo
 // antes do redirect client-side (leads/redirect.client.tsx) resolver.
-// Uma tela, dois modos por segmented compacto 28px: Funil | Buscar. Consome os
+// Uma tela, com Funil | Buscar e um preview local de Status durante aprovação. Consome os
 // MESMOS endpoints que vendas/page.client.tsx e leads/page.client.tsx já usam
 // no desktop (GET /vendas/board, GET/POST /webscraping/radar/*, GET
 // /night-factory/leads-bank, GET /vendas/usage) — zero backend novo, zero
@@ -21,14 +21,29 @@
 // barra superior (Buscar: ao lado do campo; Funil: ao lado da toolbar).
 
 import { usePathname } from "next/navigation";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 
+import { RadarStatusPreview } from "@/app/(app)/leads/radar-status-preview";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 
 import { VendasBuscarMobile } from "./vendas-buscar";
 import { VendasFunilMobile } from "./vendas-funil";
 
-export type Modo = "funil" | "buscar";
+export type Modo = "funil" | "buscar" | "enriquecimento";
+
+function useStatusPreviewAvailable() {
+  const [available, setAvailable] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const hostname = window.location.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+      setAvailable(hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return available;
+}
 
 function readInitialModo(pathname: string): Modo {
   // /leads = a MESMA tela aberta direto no modo Buscar (registry aponta as
@@ -50,7 +65,8 @@ function readInitialModo(pathname: string): Modo {
 // "parece planilha do excel"). Container pill-shaped: --glass-pill-radius
 // herda --radius-pill do .casca-segment (não seta nada — já é a forma padrão).
 export function ModoSegment({ modo, onChange }: { modo: Modo; onChange: (m: Modo) => void }) {
-  const gp = useGlassPill<HTMLButtonElement>(modo);
+  const statusPreviewAvailable = useStatusPreviewAvailable();
+  const gp = useGlassPill<HTMLButtonElement>(modo, statusPreviewAvailable);
   return (
     <div className="casca-segment vnd-m__segment glass-pill-track" role="tablist" aria-label="Modo">
       <GlassPill {...gp} />
@@ -74,6 +90,18 @@ export function ModoSegment({ modo, onChange }: { modo: Modo; onChange: (m: Modo
       >
         Buscar
       </button>
+      {statusPreviewAvailable && (
+        <button
+          type="button"
+          role="tab"
+          ref={gp.itemRef("enriquecimento")}
+          aria-selected={modo === "enriquecimento"}
+          className={"casca-segment__item glass-pill-item" + (modo === "enriquecimento" ? " is-on" : "")}
+          onClick={() => onChange("enriquecimento")}
+        >
+          Status
+        </button>
+      )}
     </div>
   );
 }
@@ -81,13 +109,24 @@ export function ModoSegment({ modo, onChange }: { modo: Modo; onChange: (m: Modo
 export function VendasMobile() {
   const pathname = usePathname() || "";
   const [modo, setModo] = useState<Modo>(() => readInitialModo(pathname));
+  const statusPreviewAvailable = useStatusPreviewAvailable();
+  const visibleModo = modo === "enriquecimento" && !statusPreviewAvailable ? "funil" : modo;
 
   return (
     <div className="casca-screen">
-      {modo === "funil" ? (
-        <VendasFunilMobile modo={modo} onModoChange={setModo} />
+      {visibleModo === "enriquecimento" ? (
+        <div className="vnd-m__body vnd-m__enrichment-preview">
+          <div className="casca-command">
+            <div className="vnd-m__toolbar">
+              <ModoSegment modo={visibleModo} onChange={setModo} />
+            </div>
+          </div>
+          <RadarStatusPreview embedTitle="Estados do enriquecimento" />
+        </div>
+      ) : visibleModo === "funil" ? (
+        <VendasFunilMobile modo={visibleModo} onModoChange={setModo} />
       ) : (
-        <VendasBuscarMobile modo={modo} onModoChange={setModo} />
+        <VendasBuscarMobile modo={visibleModo} onModoChange={setModo} />
       )}
     </div>
   );
