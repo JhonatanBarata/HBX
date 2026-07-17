@@ -57,12 +57,13 @@ jobs:
           path: backend-build.log
           if-no-files-found: error
           retention-days: 3
-      - name: Admin route and occurrence contracts
+      - name: Admin route, occurrence and APK contracts
         run: >-
           node --test
           dist/logistica/logistica-occurrence.service.test.js
           dist/logistica/logistica-admin-route.service.test.js
           dist/logistica/logistica-operacao.service.test.js
+          dist/logistica/logistica-mobile.service.test.js
       - name: Offline grant tests
         run: node --test dist/logistica/logistica-offline-grant.test.js
       - name: Existing logistics billing tests
@@ -76,6 +77,7 @@ jobs:
         working-directory: EntregaShell
         run: |
           node --check app/src/main/assets/app/native.js
+          node --check app/src/logistica/assets/app/mobile-contract.js
           node --check app/src/logistica/assets/app/app.js
           node --check app/src/logistica/assets/app/offline-controls.js
 
