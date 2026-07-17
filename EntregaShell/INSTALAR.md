@@ -30,3 +30,9 @@ As interfaces ficam em `app/src/vendas/assets/app` e
 `/logistica`, `/cadastros`, `/products` e aos endpoints canônicos exatos
 `/nucleo/clientes` e `/nucleo/contas`; a credencial do aparelho e o JWT nunca
 são expostos ao JavaScript.
+
+## Publicação
+
+`npm run publish` e `npm run new` sempre geram o APK `LogisticaRelease`
+assinado, publicam em `/download/android-logistica` por troca atômica e validam
+o SHA-256 baixado pela URL pública antes de concluir.
