@@ -22,7 +22,7 @@ test("Detalhes 2 mantém o modal compacto aprovado", () => {
 
 test("guias, dados e ações reais permanecem no componente", () => {
   for (const guide of ["atendimento", "cadastro", "financeiro"]) {
-    assert.match(modal, new RegExp(`key: \"${guide}\"`));
+    assert.match(modal, new RegExp(`key: "${guide}"`));
   }
   assert.match(modal, /<ConversationPanel/);
   assert.match(modal, /<AgendaLeadPanel/);
@@ -46,8 +46,8 @@ test("efeito escrevendo e score progressivo são nativos do modal", () => {
 
 test("pipeline continua em tela cheia e abre o cockpit com um clique", () => {
   assert.match(page, /<VendasFullscreenBridge \/>/);
-  assert.match(bridge, /data\.cockpitOpen = \"single-click\"/);
-  assert.match(bridge, /dispatchEvent\(new MouseEvent\(\"dblclick\"/);
+  assert.match(bridge, /dataset\.cockpitOpen = "single-click"/);
+  assert.match(bridge, /dispatchEvent\(new MouseEvent\("dblclick"/);
   assert.match(css, /#vendas-panel-funil \.content > \.ctx\.ctx--vendas-detail[\s\S]*?display:\s*none/);
   assert.match(globals, /@import "\.\/hbx-theme\/vendas-details2\.css";/);
 });
