@@ -563,6 +563,11 @@ function createLocalDeepEnrichWorker(deps = {}) {
   const labTimeoutMs = envInt(env, "HBX_LOCAL_DEEP_LAB_TIMEOUT_MS", 20 * 60_000, 1000, 60 * 60_000);
   const modelTimeoutMs = envInt(env, "HBX_LOCAL_DEEP_MODEL_TIMEOUT_MS", 8 * 60_000, 1000, 20 * 60_000);
   const maxFailures = envInt(env, "HBX_LOCAL_DEEP_MAX_FAILURES", 5, 1, 20);
+  const ramThrottlePct = envInt(env, "HBX_LOCAL_DEEP_RAM_THROTTLE_PCT", 94, 80, 99);
+  const cpuThrottlePct = envInt(env, "HBX_LOCAL_DEEP_CPU_THROTTLE_PCT", 95, 80, 100);
+  const resourceHysteresisPct = envInt(env, "HBX_LOCAL_DEEP_RESOURCE_HYSTERESIS_PCT", 3, 1, 15);
+  const ramResumePct = Math.max(0, ramThrottlePct - resourceHysteresisPct);
+  const cpuResumePct = Math.max(0, cpuThrottlePct - resourceHysteresisPct);
   const enabled = envBool(env, "HBX_LOCAL_DEEP_ENABLED", true);
 
   const state = {
@@ -579,6 +584,15 @@ function createLocalDeepEnrichWorker(deps = {}) {
     circuit: { state: "closed", failures: 0, openUntil: null },
     target: { configured: false, connected: false, status: "awaiting_configuration", expected: "production", backendUrl: visibleTargetUrl(backendUrl), database: null, contractVersion: null },
     dependencies: { localLab: "unknown", ollama: "unknown", model: "cold" },
+    resourceGate: {
+      throttled: false,
+      ramUsedPct: null,
+      cpuUsedPct: null,
+      ramThrottlePct,
+      cpuThrottlePct,
+      ramResumePct,
+      cpuResumePct,
+    },
     lag: null,
     metrics: {
       received: 0, completedWithData: 0, completedNoNewData: 0, retries: 0, failedFinal: 0,
@@ -665,10 +679,30 @@ function createLocalDeepEnrichWorker(deps = {}) {
 
   async function resourcesAllowLease() {
     const snapshot = await readResources().catch(() => null);
-    const ram = Number(snapshot?.pressure?.ram?.usedPct || 0);
-    const cpu = Number(snapshot?.pressure?.cpu?.usedPct || 0);
-    if (ram >= 90 || cpu >= 95) {
+    const rawRam = Number(snapshot?.pressure?.ram?.usedPct);
+    const rawCpu = Number(snapshot?.pressure?.cpu?.usedPct);
+    const ram = Number.isFinite(rawRam) ? Math.max(0, Math.min(100, rawRam)) : null;
+    const cpu = Number.isFinite(rawCpu) ? Math.max(0, Math.min(100, rawCpu)) : null;
+    state.resourceGate.ramUsedPct = ram;
+    state.resourceGate.cpuUsedPct = cpu;
+
+    const hasReading = ram !== null || cpu !== null;
+    const overLimit = (ram !== null && ram >= ramThrottlePct) || (cpu !== null && cpu >= cpuThrottlePct);
+    if (!state.resourceGate.throttled && overLimit) {
+      state.resourceGate.throttled = true;
       state.metrics.resourceThrottles += 1;
+    } else if (
+      state.resourceGate.throttled
+      && hasReading
+      && (ram === null || ram <= ramResumePct)
+      && (cpu === null || cpu <= cpuResumePct)
+    ) {
+      state.resourceGate.throttled = false;
+    } else if (!hasReading) {
+      state.resourceGate.throttled = false;
+    }
+
+    if (state.resourceGate.throttled) {
       state.phase = "resource_throttle";
       return false;
     }
@@ -697,8 +731,10 @@ function createLocalDeepEnrichWorker(deps = {}) {
     return { ok: true };
   }
 
-  async function callModel(mission, batch) {
+  async function callModel(mission, batch, leaseGuard = null) {
+    if (leaseGuard) assertLeaseGuard(leaseGuard);
     const warm = await ensureModelWarm();
+    if (leaseGuard) assertLeaseGuard(leaseGuard);
     if (!warm.ok) return warm;
     const response = await ollamaRequest("POST", "/api/chat", {
       model,
@@ -712,6 +748,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
         { role: "user", content: buildModelPrompt(mission, batch) },
       ],
     }, modelTimeoutMs);
+    if (leaseGuard) assertLeaseGuard(leaseGuard);
     if (!response?.ok) return { ok: false, reason: response?.error || "ollama_indisponivel" };
     const parsed = safeParseJson(response?.data?.message?.content);
     if (!parsed) return { ok: false, reason: "json_30b_invalido" };
@@ -719,25 +756,107 @@ function createLocalDeepEnrichWorker(deps = {}) {
   }
 
   async function startHeartbeat(mission) {
-    const response = await backendRequest("POST", `/modules/owner/missions/${encodeURIComponent(mission.id)}/heartbeat`, {
-      leaseId: mission.leaseId,
-      leaseTtlSeconds,
-    });
-    if (response?.ok) state.lastHeartbeatAt = new Date(now()).toISOString();
-    return response;
+    let response;
+    try {
+      response = await backendRequest("POST", `/modules/owner/missions/${encodeURIComponent(mission.id)}/heartbeat`, {
+        leaseId: mission.leaseId,
+        leaseTtlSeconds,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        transient: true,
+        reason: compactText(error?.message || error || "heartbeat_transporte_indisponivel", 160),
+      };
+    }
+    if (!response?.ok) {
+      return {
+        ok: false,
+        transient: true,
+        reason: compactText(response?.error || `heartbeat_http_${response?.statusCode || "?"}`, 160),
+      };
+    }
+
+    // HTTP 2xx só confirma transporte. O lease continua válido apenas quando o backend aceita
+    // semanticamente o heartbeat; `ok:false` nunca pode virar telemetria de sucesso.
+    if (response?.data?.ok !== true) {
+      const backendReason = compactText(
+        response?.data?.reason || response?.data?.error || "resposta_sem_aceite",
+        120,
+      );
+      return {
+        ok: false,
+        rejected: true,
+        stale: backendReason === "stale_lease",
+        reason: `heartbeat_rejeitado:${backendReason}`,
+      };
+    }
+
+    state.lastHeartbeatAt = new Date(now()).toISOString();
+    return { ok: true };
   }
 
-  function heartbeatLoop(mission) {
+  function leaseHeartbeatError(outcome) {
+    return Object.assign(new Error(outcome?.reason || "heartbeat_rejeitado"), {
+      retryable: true,
+      leaseLost: true,
+    });
+  }
+
+  function assertLeaseGuard(guard) {
+    if (guard.rejected) throw leaseHeartbeatError(guard);
+  }
+
+  function markLeaseRejected(guard, outcome) {
+    if (!outcome?.rejected) return false;
+    guard.rejected = true;
+    guard.stale = outcome.stale === true;
+    guard.reason = outcome.reason || "heartbeat_rejeitado";
+    return true;
+  }
+
+  async function observeHeartbeat(mission, guard) {
+    assertLeaseGuard(guard);
+    const outcome = await startHeartbeat(mission);
+    if (markLeaseRejected(guard, outcome)) throw leaseHeartbeatError(guard);
+    return outcome;
+  }
+
+  async function requireHeartbeatBeforeCommit(mission, guard) {
+    let lastOutcome = null;
+    // Uma falha de transporte isolada não descarta o trabalho; antes da escrita tentamos de novo.
+    // Sem aceite semântico, porém, o contrato do banco não é chamado.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      lastOutcome = await observeHeartbeat(mission, guard);
+      if (lastOutcome.ok) return true;
+      if (attempt === 0) await sleep(Math.min(1000, pollBaseMs));
+    }
+    throw Object.assign(new Error(lastOutcome?.reason || "heartbeat_indisponivel_antes_commit"), {
+      retryable: true,
+    });
+  }
+
+  function heartbeatLoop(mission, guard) {
     const everyMs = computeHeartbeatIntervalMs(mission, leaseTtlSeconds);
-    const id = setInterval(() => { void startHeartbeat(mission).catch(() => null); }, everyMs);
+    let inFlight = false;
+    const id = setInterval(() => {
+      if (inFlight || guard.rejected) return;
+      inFlight = true;
+      void startHeartbeat(mission)
+        .then((outcome) => { markLeaseRejected(guard, outcome); })
+        .catch(() => null)
+        .finally(() => { inFlight = false; });
+    }, everyMs);
     if (id.unref) id.unref();
     return () => clearInterval(id);
   }
 
-  async function waitForLabJob(jobId, mission) {
+  async function waitForLabJob(jobId, mission, leaseGuard) {
     const deadline = now() + labTimeoutMs;
     while (now() < deadline) {
+      assertLeaseGuard(leaseGuard);
       const response = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(jobId)}`, null, 15_000);
+      assertLeaseGuard(leaseGuard);
       if (response?.ok && response.data) {
         const status = String(response.data.status || "");
         if (status === "completed") return { ok: true, job: response.data };
@@ -746,7 +865,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
         return { ok: false, reason: "lab_job_perdido", lost: true };
       }
       await sleep(1000);
-      await startHeartbeat(mission).catch(() => null);
+      await observeHeartbeat(mission, leaseGuard);
     }
     return { ok: false, reason: "lab_timeout" };
   }
@@ -768,10 +887,14 @@ function createLocalDeepEnrichWorker(deps = {}) {
 
   async function processJournal(record) {
     const mission = record.mission;
-    const stopHeartbeat = heartbeatLoop(mission);
+    const leaseGuard = { rejected: false, stale: false, reason: null };
+    const stopHeartbeat = heartbeatLoop(mission, leaseGuard);
     const startedMs = Number(record.startedMs || now());
     try {
-      await startHeartbeat(mission).catch(() => null);
+      // Transporte indisponível aqui é tolerado: o lease acabou de ser obtido ou veio do journal
+      // e o loop tentará novamente. Rejeição semântica interrompe imediatamente.
+      await observeHeartbeat(mission, leaseGuard);
+      assertLeaseGuard(leaseGuard);
       if (!record.batch) {
         state.phase = "starting_lab";
         state.dependencies.localLab = "starting";
@@ -779,9 +902,11 @@ function createLocalDeepEnrichWorker(deps = {}) {
           state.dependencies.localLab = "down";
           throw Object.assign(new Error("local_lab_indisponivel"), { retryable: true });
         }
+        assertLeaseGuard(leaseGuard);
         state.dependencies.localLab = "up";
         if (!record.labJobId) {
           const created = await localLabRequest("POST", "/local-lab/jobs", buildLabJobInput(mission), 30_000);
+          assertLeaseGuard(leaseGuard);
           const jobId = created?.data?.id;
           if (!created?.ok || !jobId) throw Object.assign(new Error(created?.error || "local_lab_recusou_job"), { retryable: true });
           record = { ...record, phase: "crawling", labJobId: jobId, savedAt: now() };
@@ -789,17 +914,20 @@ function createLocalDeepEnrichWorker(deps = {}) {
         }
         state.phase = "crawling";
         state.currentLabJobId = record.labJobId;
-        let waited = await waitForLabJob(record.labJobId, mission);
+        let waited = await waitForLabJob(record.labJobId, mission, leaseGuard);
         if (!waited.ok && waited.lost) {
           const created = await localLabRequest("POST", "/local-lab/jobs", buildLabJobInput(mission), 30_000);
+          assertLeaseGuard(leaseGuard);
           const jobId = created?.data?.id;
           if (!created?.ok || !jobId) throw Object.assign(new Error("local_lab_nao_recuperou_job"), { retryable: true });
           record = { ...record, labJobId: jobId, savedAt: now() };
           saveJournal(record);
-          waited = await waitForLabJob(jobId, mission);
+          waited = await waitForLabJob(jobId, mission, leaseGuard);
         }
         if (!waited.ok) throw Object.assign(new Error(waited.reason), { retryable: true });
+        assertLeaseGuard(leaseGuard);
         const exported = await localLabRequest("GET", `/local-lab/jobs/${encodeURIComponent(record.labJobId)}/export?file=batch`, null, 30_000, 8_000_000);
+        assertLeaseGuard(leaseGuard);
         const batch = exported?.data?.batch || exported?.data;
         if (!exported?.ok || !batch) throw Object.assign(new Error("export_local_lab_invalido"), { retryable: true });
         record = { ...record, phase: "lab_completed", batch, savedAt: now() };
@@ -807,8 +935,10 @@ function createLocalDeepEnrichWorker(deps = {}) {
       }
 
       if (!record.normalized) {
+        assertLeaseGuard(leaseGuard);
         state.phase = "analyzing_30b";
-        const analyzed = await callModel(mission, record.batch);
+        const analyzed = await callModel(mission, record.batch, leaseGuard);
+        assertLeaseGuard(leaseGuard);
         if (!analyzed.ok) throw Object.assign(new Error(analyzed.reason), { retryable: true });
         const normalized = normalizeModelResult(analyzed.parsed, record.batch, mission);
         if (!normalized.ok) throw Object.assign(new Error(normalized.reason), { retryable: true });
@@ -817,6 +947,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
       }
 
       if (!record.commitPayload) {
+        assertLeaseGuard(leaseGuard);
         const startedAt = new Date(startedMs).toISOString();
         const completedAt = new Date(now()).toISOString();
         const commitPayload = buildCommitPayload(mission, record.normalized, record.workerId || workerId, model, startedAt, completedAt);
@@ -824,10 +955,12 @@ function createLocalDeepEnrichWorker(deps = {}) {
         saveJournal(record);
       }
 
+      await requireHeartbeatBeforeCommit(mission, leaseGuard);
+      assertLeaseGuard(leaseGuard);
       state.phase = "committing";
       const committed = await writer.commit(record.commitPayload);
       if (!committed?.ok) {
-        const error = Object.assign(new Error(committed?.reason || committed?.error || "commit_falhou"), {
+        const error = Object.assign(new Error(committed?.error || committed?.reason || "commit_falhou"), {
           retryable: committed?.retryable !== false,
           outcomeUnknown: committed?.outcomeUnknown === true,
         });
@@ -874,6 +1007,8 @@ function createLocalDeepEnrichWorker(deps = {}) {
       }
     }
 
+    if (!(await resourcesAllowLease())) return { throttled: true };
+
     const leased = await backendRequest("POST", "/modules/owner/missions/lease", {
       workerId,
       stages: [STAGE],
@@ -913,8 +1048,8 @@ function createLocalDeepEnrichWorker(deps = {}) {
       }
       const ready = await preflight();
       if (!ready.ok) return registerInfraFailure(ready.reason);
-      if (!(await resourcesAllowLease())) return pollBaseMs;
       const next = await recoverOrLease();
+      if (next.throttled) return pollBaseMs;
       if (next.error) return registerInfraFailure(next.error);
       if (next.retryableValidationError) return registerInfraFailure(next.retryableValidationError);
       if (next.idle || next.invalid) {
@@ -938,7 +1073,13 @@ function createLocalDeepEnrichWorker(deps = {}) {
         state.lastError = reason;
         pushJob({ id: next.mission.id, radarLeadId: next.mission.payload.radarLeadId, ok: false, reason });
         if (!error?.outcomeUnknown) {
-          await failMission(next.mission, reason, error?.retryable !== false);
+          if (error?.leaseLost) {
+            // O backend já informou que este lease não nos pertence. Não enviar `/fail` com o
+            // token antigo evita tocar a tentativa substituta; o próximo tick obtém um lease novo.
+            state.metrics.retries += 1;
+          } else {
+            await failMission(next.mission, reason, error?.retryable !== false);
+          }
           clearJournal();
         }
         state.currentMissionId = null;
@@ -1001,6 +1142,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
         circuit: { ...state.circuit },
         target: { ...state.target },
         dependencies: { ...state.dependencies },
+        resourceGate: { ...state.resourceGate },
         lag: state.lag,
       },
       metrics: {

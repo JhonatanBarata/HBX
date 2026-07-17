@@ -97,6 +97,7 @@ function memoryJournal(initial = null) {
 function makeHarness(options = {}) {
   const calls = { backend: [], lab: [], ollama: [], commits: [] };
   const queue = Array.isArray(options.leases) ? [...options.leases] : [mission()];
+  const heartbeatResponses = Array.isArray(options.heartbeatResponses) ? [...options.heartbeatResponses] : [];
   const journal = options.journal || memoryJournal();
   const writer = {
     configuration: () => ({ ready: true, expectedDatabase: "hbx_production" }),
@@ -121,6 +122,12 @@ function makeHarness(options = {}) {
       if (leaseShouldFail) return { ok: false, error: "backend_offline" };
       const next = queue.length ? queue.shift() : null;
       return { ok: true, data: { supported: true, paused: false, missions: next ? [next] : [], lag: { queuedDue: queue.length, oldestQueuedAgeMs: 10 } } };
+    }
+    if (route.endsWith("/heartbeat") && heartbeatResponses.length) {
+      const response = heartbeatResponses.shift();
+      return typeof response === "function"
+        ? response({ method, route, payload, callNumber: calls.backend.length })
+        : response;
     }
     return { ok: true, data: { ok: true, status: "queued" } };
   };
@@ -150,7 +157,7 @@ function makeHarness(options = {}) {
     ollamaRequest,
     writer,
     journalStore: journal,
-    readResources: async () => ({ pressure: { ram: { usedPct: 30 }, cpu: { usedPct: 10 } } }),
+    readResources: options.readResources || (async () => ({ pressure: { ram: { usedPct: 30 }, cpu: { usedPct: 10 } } })),
     backendUrl: "https://app.hbx.test",
     machineIdentity: options.machineIdentity || "maquina-owner-teste",
     env: {
@@ -159,6 +166,7 @@ function makeHarness(options = {}) {
       HBX_OWNER_BACKEND_URL: "https://app.hbx.test",
       HBX_LOCAL_ENRICH_EXPECTED_DATABASE: "hbx_production",
       HBX_LOCAL_DEEP_POLL_BASE_MS: "100",
+      ...(options.env || {}),
     },
     sleep: async () => {},
     now: options.now || (() => Date.parse("2026-07-16T20:00:00.000Z")),
@@ -198,6 +206,127 @@ test("worker executa Lab + 30B + commit direto sem endpoint complete", async () 
   assert.equal(computeHeartbeatIntervalMs({ heartbeatSeconds: 20 }, 60), 20_000);
 });
 
+test("heartbeat HTTP 2xx rejeitado não avança a missão e o próximo tick reobtém lease seguro", async () => {
+  const firstClock = Date.parse("2026-07-16T20:00:00.000Z");
+  let clock = firstClock;
+  const staleAt = firstClock + 60_000;
+  const acceptedAt = firstClock + 120_000;
+  const beforeCommitAt = firstClock + 180_000;
+  const harness = makeHarness({
+    leases: [
+      mission({ leaseId: "lease-antigo" }),
+      mission({ leaseId: "lease-novo" }),
+    ],
+    now: () => clock,
+    heartbeatResponses: [
+      () => {
+        clock = staleAt;
+        return { ok: true, data: { ok: false, reason: "stale_lease" } };
+      },
+      () => {
+        clock = acceptedAt;
+        return { ok: true, data: { ok: true } };
+      },
+      () => {
+        clock = beforeCommitAt;
+        return { ok: true, data: { ok: true } };
+      },
+    ],
+  });
+
+  await harness.worker.tick();
+
+  assert.equal(harness.calls.lab.length, 0);
+  assert.equal(harness.calls.commits.length, 0);
+  assert.equal(harness.calls.backend.some((call) => call.route.endsWith("/fail")), false);
+  assert.equal(harness.journal.read(), null);
+  assert.equal(harness.worker.status().telemetry.lastHeartbeatAt, new Date(firstClock).toISOString());
+  assert.equal(harness.worker.status().telemetry.lastError, "heartbeat_rejeitado:stale_lease");
+  assert.equal(harness.worker.status().metrics.retries, 1);
+
+  await harness.worker.tick();
+
+  assert.equal(harness.calls.commits.length, 1);
+  assert.equal(harness.calls.commits[0].mission.leaseId, "lease-novo");
+  assert.equal(harness.journal.read(), null);
+  assert.equal(harness.worker.status().telemetry.lastHeartbeatAt, new Date(beforeCommitAt).toISOString());
+  assert.equal(harness.worker.status().metrics.completedWithData, 1);
+});
+
+test("stale detectado durante crawl ou antes do commit impede qualquer escrita", async () => {
+  let crawlPolls = 0;
+  const duringCrawl = makeHarness({
+    heartbeatResponses: [
+      { ok: true, data: { ok: true } },
+      { ok: true, data: { ok: false, reason: "stale_lease" } },
+    ],
+    localLabRequest: async (method, route) => {
+      if (method === "POST" && route === "/local-lab/jobs") return { ok: true, data: { id: "lab-stale" } };
+      if (method === "GET" && route.includes("/local-lab/jobs/lab-stale")) {
+        crawlPolls += 1;
+        return { ok: true, data: { id: "lab-stale", status: "running" } };
+      }
+      return { ok: false, statusCode: 404 };
+    },
+  });
+
+  await duringCrawl.worker.tick();
+
+  assert.equal(crawlPolls, 1);
+  assert.equal(duringCrawl.calls.commits.length, 0);
+  assert.equal(duringCrawl.calls.ollama.some((call) => call.route === "/api/chat"), false);
+  assert.equal(duringCrawl.calls.backend.some((call) => call.route.endsWith("/fail")), false);
+  assert.equal(duringCrawl.journal.read(), null);
+
+  const beforeCommit = makeHarness({
+    heartbeatResponses: [
+      { ok: true, data: { ok: true } },
+      { ok: true, data: { ok: false, reason: "stale_lease" } },
+    ],
+  });
+
+  await beforeCommit.worker.tick();
+
+  assert.equal(beforeCommit.calls.ollama.some((call) => call.route === "/api/chat"), true);
+  assert.equal(beforeCommit.calls.commits.length, 0);
+  assert.equal(beforeCommit.calls.backend.some((call) => call.route.endsWith("/fail")), false);
+  assert.equal(beforeCommit.journal.read(), null);
+  assert.equal(beforeCommit.worker.status().telemetry.lastError, "heartbeat_rejeitado:stale_lease");
+});
+
+test("falha transitória de heartbeat não vira sucesso falso e recupera antes do commit", async () => {
+  const leaseAt = Date.parse("2026-07-16T20:00:00.000Z");
+  let clock = leaseAt;
+  const initialTransportFailureAt = leaseAt + 30_000;
+  const preCommitTransportFailureAt = leaseAt + 60_000;
+  const acceptedAt = leaseAt + 90_000;
+  const harness = makeHarness({
+    now: () => clock,
+    heartbeatResponses: [
+      () => {
+        clock = initialTransportFailureAt;
+        return { ok: false, statusCode: 503, error: "timeout" };
+      },
+      () => {
+        clock = preCommitTransportFailureAt;
+        return { ok: false, statusCode: 503, error: "timeout" };
+      },
+      () => {
+        clock = acceptedAt;
+        return { ok: true, data: { ok: true } };
+      },
+    ],
+  });
+
+  await harness.worker.tick();
+
+  assert.equal(harness.calls.commits.length, 1);
+  assert.equal(harness.calls.backend.some((call) => call.route.endsWith("/fail")), false);
+  assert.equal(harness.journal.read(), null);
+  assert.equal(harness.worker.status().telemetry.lastHeartbeatAt, new Date(acceptedAt).toISOString());
+  assert.equal(harness.worker.status().metrics.completedWithData, 1);
+});
+
 test("JSON inválido do 30B devolve missão para retry e limpa journal local", async () => {
   const { worker, calls, journal } = makeHarness({ invalidJson: true });
   await worker.tick();
@@ -208,6 +337,83 @@ test("JSON inválido do 30B devolve missão para retry e limpa journal local", a
   assert.equal(failed.payload.retryable, true);
   assert.equal(journal.read(), null);
   assert.equal(worker.status().metrics.retries, 1);
+});
+
+test("modelo 30B aquecido com RAM em 90% permanece abaixo do limite seguro padrão", async () => {
+  const harness = makeHarness({
+    readResources: async () => ({ pressure: { ram: { usedPct: 90 }, cpu: { usedPct: 11 } } }),
+  });
+
+  await harness.worker.tick();
+
+  assert.equal(harness.calls.commits.length, 1);
+  assert.equal(harness.worker.status().metrics.resourceThrottles, 0);
+  assert.deepEqual(harness.worker.status().telemetry.resourceGate, {
+    throttled: false,
+    ramUsedPct: 90,
+    cpuUsedPct: 11,
+    ramThrottlePct: 94,
+    cpuThrottlePct: 95,
+    ramResumePct: 91,
+    cpuResumePct: 92,
+  });
+});
+
+test("limite configurável aplica histerese e retoma novas missões sem intervenção", async () => {
+  const snapshots = [
+    { pressure: { ram: { usedPct: 94 }, cpu: { usedPct: 11 } } },
+    { pressure: { ram: { usedPct: 92 }, cpu: { usedPct: 11 } } },
+    { pressure: { ram: { usedPct: 90 }, cpu: { usedPct: 11 } } },
+  ];
+  const harness = makeHarness({
+    readResources: async () => snapshots.shift(),
+    env: {
+      HBX_LOCAL_DEEP_RAM_THROTTLE_PCT: "94",
+      HBX_LOCAL_DEEP_RESOURCE_HYSTERESIS_PCT: "3",
+    },
+  });
+
+  await harness.worker.tick();
+  assert.equal(harness.calls.backend.some((call) => call.route.endsWith("/lease")), false);
+  assert.equal(harness.worker.status().telemetry.phase, "resource_throttle");
+  assert.equal(harness.worker.status().metrics.resourceThrottles, 1);
+
+  await harness.worker.tick();
+  assert.equal(harness.calls.backend.some((call) => call.route.endsWith("/lease")), false);
+  assert.equal(harness.worker.status().metrics.resourceThrottles, 1);
+
+  await harness.worker.tick();
+  assert.equal(harness.calls.commits.length, 1);
+  assert.equal(harness.worker.status().telemetry.resourceGate.throttled, false);
+  assert.equal(harness.worker.status().metrics.resourceThrottles, 1);
+});
+
+test("pressão de recursos não abandona journal já iniciado", async () => {
+  let resourceReads = 0;
+  const journal = memoryJournal({
+    version: 1,
+    contractVersion: "local_deep_enrich_v1",
+    phase: "lab_completed",
+    workerId: "owner-local-journal",
+    mission: mission(),
+    batch: batch(),
+    startedMs: Date.parse("2026-07-16T19:59:00.000Z"),
+    savedAt: Date.parse("2026-07-16T20:00:00.000Z"),
+  });
+  const harness = makeHarness({
+    journal,
+    leases: [],
+    readResources: async () => {
+      resourceReads += 1;
+      return { pressure: { ram: { usedPct: 99 }, cpu: { usedPct: 99 } } };
+    },
+  });
+
+  await harness.worker.tick();
+
+  assert.equal(resourceReads, 0);
+  assert.equal(harness.calls.commits.length, 1);
+  assert.equal(journal.read(), null);
 });
 
 test("resultado de commit incerto permanece no journal e é reexecutado idempotentemente", async () => {
@@ -223,6 +429,28 @@ test("resultado de commit incerto permanece no journal e é reexecutado idempote
   assert.equal(harness.calls.commits.length, 2);
   assert.equal(harness.journal.read(), null);
   assert.equal(harness.worker.status().metrics.completedNoNewData, 1);
+});
+
+test("rejeição conhecida propaga erro técnico sanitizado do writer", async () => {
+  const harness = makeHarness({
+    leases: [mission()],
+    commit: async () => ({
+      ok: false,
+      reason: "commit_rejeitado",
+      error: "P0001:hbx_local_enrichment:lease_expired",
+      retryable: true,
+      outcomeUnknown: false,
+    }),
+  });
+
+  await harness.worker.tick();
+
+  const failed = harness.calls.backend.find((call) => call.route.endsWith("/fail"));
+  assert.ok(failed);
+  assert.equal(failed.payload.error, "P0001:hbx_local_enrichment:lease_expired");
+  assert.equal(failed.payload.retryable, true);
+  assert.equal(harness.worker.status().telemetry.lastError, "P0001:hbx_local_enrichment:lease_expired");
+  assert.equal(harness.journal.read(), null);
 });
 
 test("validação, estados públicos e job social permanecem determinísticos", () => {

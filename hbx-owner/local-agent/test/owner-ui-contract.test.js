@@ -45,6 +45,8 @@ test("autostart do Windows retoma oculto no logon, wake e restart sem abrir nave
   assert.match(installer, /-WakeToRun/);
   assert.match(installer, /-RestartCount\s+10/);
   assert.match(installer, /-RestartInterval\s+\(New-TimeSpan -Minutes 1\)/);
+  assert.match(installer, /HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run/);
+  assert.match(installer, /Set-ItemProperty[^\n]*\$runKey/);
   assert.doesNotMatch(installer, /Start-Process\s+["']https?:\/\//i);
   assert.match(supervisor, /while \(\$true\)/);
   assert.match(supervisor, /start-owner\.ps1/);
@@ -53,4 +55,28 @@ test("autostart do Windows retoma oculto no logon, wake e restart sem abrir nave
   assert.match(tunnel, /ServerAliveInterval=20/);
   assert.match(tunnel, /HBXLocalEnrichmentTunnelSupervisor/);
   assert.doesNotMatch(tunnel, /PASSWORD\s*=|senha\s*=/i);
+});
+
+test("configurador de producao grava somente tunel local e exige segredo efemero", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "configure-production-worker.ps1"), "utf8");
+  assert.match(source, /HBX_LOCAL_ENRICH_DATABASE_PASSWORD/);
+  assert.match(source, /Remove-Item Env:HBX_LOCAL_ENRICH_DATABASE_PASSWORD/);
+  assert.match(source, /127\.0\.0\.1:\$LocalPort\/hbx_prod/);
+  assert.match(source, /HBX_LOCAL_ENRICH_PRIVATE_CHANNEL_CONFIRMED\s*=\s*"true"/);
+  assert.match(source, /HBX_LOCAL_DEEP_TARGET\s*=\s*"production"/);
+  assert.match(source, /state\\secure-config/);
+  assert.match(source, /dotenv-\{0\}\.tmp/);
+  assert.match(source, /S-1-5-18/);
+  assert.match(source, /S-1-5-32-544/);
+  assert.match(source, /\/inheritance:r/);
+  assert.match(source, /finally\s*\{[\s\S]*?Remove-Item -LiteralPath \$temp/);
+  assert.doesNotMatch(source, /\.env\.local\.tmp|\$Path\.tmp/);
+  assert.doesNotMatch(source, /Write-Host[^\n]*\$password/);
+});
+
+test("supervisor permite configurar os limites de recursos do worker local", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "start-owner-supervised.ps1"), "utf8");
+  assert.match(source, /"HBX_LOCAL_DEEP_RAM_THROTTLE_PCT"/);
+  assert.match(source, /"HBX_LOCAL_DEEP_CPU_THROTTLE_PCT"/);
+  assert.match(source, /"HBX_LOCAL_DEEP_RESOURCE_HYSTERESIS_PCT"/);
 });
