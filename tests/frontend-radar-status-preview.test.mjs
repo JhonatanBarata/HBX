@@ -66,44 +66,44 @@ test("preview não reintroduz descrição, clarity, autoplay, API ou ação come
   assert.match(previewSource, /Empresa Aurora/);
 });
 
-test("desktop preserva Meu funil e Buscar e acrescenta Enriquecimento apenas no localhost", () => {
-  assert.match(vendasPageSource, /statusPreviewAvailable = hostname === "localhost" \|\| hostname === "127\.0\.0\.1" \|\| hostname === "::1"/);
-  assert.doesNotMatch(vendasPageSource, /searchParams|params\.preview|previewRequested/);
-  assert.match(vendasPageSource, /<VendasClient statusPreviewAvailable=\{statusPreviewAvailable\} \/>/);
+test("desktop disponibiliza Enriquecimento em produção e preserva o gate comercial do Radar", () => {
+  assert.doesNotMatch(vendasPageSource, /headers\(\)|hostname|localhost|127\.0\.0\.1|::1|statusPreviewAvailable/);
+  assert.match(vendasPageSource, /<VendasClient \/>/);
   assert.match(vendasPageSource, /<LeadPullProgressOverlay \/>/);
-  assert.doesNotMatch(vendasPageSource, /statusPreviewAvailable[^\n]*&&[^\n]*LeadPullProgressOverlay/);
 
-  assert.match(vendasClientSource, /statusPreviewAvailable\?: boolean/);
+  assert.doesNotMatch(vendasClientSource, /statusPreviewAvailable|localhost|127\.0\.0\.1|::1/);
   assert.match(vendasClientSource, /useState<"funil" \| "buscar" \| "enriquecimento">\("funil"\)/);
-  assert.doesNotMatch(vendasClientSource, /if \(statusPreviewAvailable\)\s*return/);
   assert.match(vendasClientSource, /<span>Meu funil<\/span>/);
   assert.match(vendasClientSource, /<span>Buscar empresas<\/span>/);
   assert.match(
     vendasClientSource,
-    /\{statusPreviewAvailable && podeBuscarLeads && \([\s\S]*?<span>Enriquecimento<\/span>[\s\S]*?\)\}/,
-    "a terceira guia deve existir somente no localhost e manter o gate comercial do Radar",
+    /\{podeBuscarLeads && \(\s*<button[\s\S]{0,240}?id="vendas-tab-enriquecimento"[\s\S]{0,420}?<span>Enriquecimento<\/span>/,
+    "a terceira guia deve permanecer disponível em produção apenas para quem pode acessar o Radar",
   );
+  assert.match(vendasClientSource, /vnd-modehost--enrichment-status-enabled/);
   assert.match(vendasClientSource, /id="vendas-panel-funil"/);
   assert.match(vendasClientSource, /id="vendas-panel-buscar"/);
   assert.match(
     vendasClientSource,
-    /\{statusPreviewAvailable && podeBuscarLeads && \([\s\S]*?id="vendas-panel-enriquecimento"[\s\S]*?<RadarStatusPreview/,
+    /\{podeBuscarLeads && \(\s*<div id="vendas-panel-enriquecimento"[\s\S]*?<RadarStatusPreview/,
   );
 });
 
-test("mobile preserva Funil e Buscar e acrescenta Status local com o mesmo preview", () => {
+test("mobile disponibiliza Status em produção sem furar o gate comercial do Radar", () => {
   assert.match(vendasMobileSource, /import \{ RadarStatusPreview \} from "@\/app\/\(app\)\/leads\/radar-status-preview"/);
   assert.match(vendasMobileSource, /export type Modo = "funil" \| "buscar" \| "enriquecimento"/);
-  assert.match(vendasMobileSource, /hostname === "localhost" \|\| hostname === "127\.0\.0\.1" \|\| hostname === "::1"/);
+  assert.doesNotMatch(vendasMobileSource, /useStatusPreviewAvailable|hostname|localhost|127\.0\.0\.1|::1|statusPreviewAvailable/);
+  assert.match(vendasMobileSource, /return isModuleVisible\("leads", entitlements, user, modules\)/);
+  assert.match(vendasMobileSource, /\{canSearchLeads && \([\s\S]*?onChange\("buscar"\)[\s\S]*?onChange\("enriquecimento"\)[\s\S]*?\)\}/);
+  assert.match(vendasMobileSource, /const visibleModo: Modo = canSearchLeads \? modo : "funil"/);
 
   assert.match(vendasMobileSource, /onClick=\{\(\) => onChange\("funil"\)\}[\s\S]*?>\s*Funil\s*<\/button>/);
   assert.match(vendasMobileSource, /onClick=\{\(\) => onChange\("buscar"\)\}[\s\S]*?>\s*Buscar\s*<\/button>/);
   assert.match(
     vendasMobileSource,
-    /\{statusPreviewAvailable && \([\s\S]*?onClick=\{\(\) => onChange\("enriquecimento"\)\}[\s\S]*?>\s*Status\s*<\/button>[\s\S]*?\)\}/,
-    "o botão Status não pode aparecer fora do localhost",
+    /onClick=\{\(\) => onChange\("enriquecimento"\)\}[\s\S]*?>\s*Status\s*<\/button>/,
+    "o botão Status deve permanecer disponível também em produção",
   );
-  assert.match(vendasMobileSource, /visibleModo = modo === "enriquecimento" && !statusPreviewAvailable \? "funil" : modo/);
   assert.match(vendasMobileSource, /visibleModo === "enriquecimento"[\s\S]*?<RadarStatusPreview/);
   assert.match(vendasMobileSource, /<VendasFunilMobile modo=\{visibleModo\}/);
   assert.match(vendasMobileSource, /<VendasBuscarMobile modo=\{visibleModo\}/);

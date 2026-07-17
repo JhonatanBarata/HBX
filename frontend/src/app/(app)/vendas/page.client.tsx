@@ -411,11 +411,7 @@ function TypedText({ text, speed = 42 }: { text: string; speed?: number }) {
   return <TypedTextCore key={text} text={text} speed={speed} />;
 }
 
-type VendasClientProps = {
-  statusPreviewAvailable?: boolean;
-};
-
-export function VendasClient({ statusPreviewAvailable = false }: VendasClientProps = {}) {
+export function VendasClient() {
   const router = useRouter();
   // Gate do botão "Buscar empresas" (boca do funil): mesmo veredito da navegação —
   // sem acesso ao Radar, o botão SOME (não mostrar-e-barrar; FRONTEND.md).
@@ -1130,7 +1126,7 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
           <I d={ICONS.scrape} size={16} /> <span>Buscar empresas</span>
         </button>
       )}
-      {statusPreviewAvailable && podeBuscarLeads && (
+      {podeBuscarLeads && (
         <button ref={segPill.itemRef("enriquecimento")} id="vendas-tab-enriquecimento" type="button" role="tab"
           aria-selected={modo === "enriquecimento"} aria-controls="vendas-panel-enriquecimento"
           className={"vnd-segbtn glass-pill-item" + (modo === "enriquecimento" ? " is-on" : "")} onClick={irEnriquecimento}>
@@ -1142,10 +1138,10 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
 
   return (
     <React.Fragment>
-        <div className={"vnd-modehost" + (statusPreviewAvailable ? " vnd-modehost--status-preview-enabled" : "")} data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
+        <div className="vnd-modehost vnd-modehost--enrichment-status-enabled" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
 
           {/* TOPO — UMA casca: toggle + cards. Os NÚMEROS trocam por modo
-              (funil ↔ Radar ↔ preview) em crossfade no MESMO lugar. */}
+              (funil ↔ Radar ↔ status) em crossfade no MESMO lugar. */}
           <div className="vnd-funhead">
             {segToggle}
             <div className="vnd-stats">
@@ -1492,7 +1488,7 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
               ) : null}
             </div>{/* /vnd-layer buscar */}
 
-            {statusPreviewAvailable && podeBuscarLeads && (
+            {podeBuscarLeads && (
               <div id="vendas-panel-enriquecimento" role="tabpanel" aria-labelledby="vendas-tab-enriquecimento"
                 className={"vnd-layer vnd-layer--buscar vnd-layer--enriquecimento" + (modo === "enriquecimento" ? " is-on" : "")}
                 aria-hidden={modo !== "enriquecimento"}>
