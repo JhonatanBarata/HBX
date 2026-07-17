@@ -168,8 +168,15 @@ function loadConfig() {
 }
 
 function buildAndroidApk() {
-  const gradleCommand = process.platform === 'win32' ? 'gradlew.bat' : './gradlew';
-  runStep(gradleCommand, [':app:assembleLogisticaRelease', '--stacktrace'], { cwd: androidProjectDir });
+  if (process.platform === 'win32') {
+    runStep(
+      process.env.comspec || 'cmd.exe',
+      ['/d', '/s', '/c', 'gradlew.bat', ':app:assembleLogisticaRelease', '--stacktrace'],
+      { cwd: androidProjectDir },
+    );
+  } else {
+    runStep('./gradlew', [':app:assembleLogisticaRelease', '--stacktrace'], { cwd: androidProjectDir });
+  }
 
   if (!fs.existsSync(androidApkPath)) {
     throw new Error(`APK Android não foi gerado em ${androidApkPath}.`);
