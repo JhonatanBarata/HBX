@@ -18,6 +18,21 @@ const migration = readFileSync(
   ),
   'utf8',
 );
+const repairMigration = readFileSync(
+  join(
+    __dirname,
+    '..',
+    'prisma',
+    'migrations',
+    '20260716235900_reapply_local_deep_enrichment_contract_v1',
+    'migration.sql',
+  ),
+  'utf8',
+);
+const productionAclBeforeRepair = String.raw`
+REVOKE SELECT ON public."RadarLeadEvent" FROM hbx_local_enrichment_owner;
+REVOKE SELECT ON public."VendasLeadTimelineEvent" FROM hbx_local_enrichment_owner;
+`;
 
 const fixtureSql = String.raw`
 CREATE TABLE "Company" ("id" integer PRIMARY KEY);
@@ -482,6 +497,8 @@ test(
       Atomics.wait(sleepSignal, 0, 0, 500);
       psql(fixtureSql, 'fixture SQL');
       psql(migration, 'migration SQL');
+      psql(productionAclBeforeRepair, 'ACL anterior à reparação');
+      psql(repairMigration, 'migration corretiva SQL');
       const output = psql(scenarioSql, 'cenários SQL');
       assert.match(output, /LOCAL_DEEP_ENRICHMENT_POSTGRES_OK/);
     } finally {

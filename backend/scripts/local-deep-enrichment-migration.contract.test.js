@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const backendRoot = join(__dirname, '..');
 const schema = readFileSync(join(backendRoot, 'prisma', 'schema.prisma'), 'utf8');
-const migration = readFileSync(
+const baseMigration = readFileSync(
   join(
     backendRoot,
     'prisma',
@@ -15,6 +15,37 @@ const migration = readFileSync(
   ),
   'utf8',
 );
+const repairMigration = readFileSync(
+  join(
+    backendRoot,
+    'prisma',
+    'migrations',
+    '20260716235900_reapply_local_deep_enrichment_contract_v1',
+    'migration.sql',
+  ),
+  'utf8',
+);
+
+function withoutSupersededFunction(sql, functionName) {
+  const startMarker =
+    `CREATE OR REPLACE FUNCTION hbx_local_enrichment.${functionName}(`;
+  const revokeMarker =
+    `REVOKE ALL ON FUNCTION hbx_local_enrichment.${functionName}(`;
+  const start = sql.indexOf(startMarker);
+  assert.notEqual(start, -1, `CREATE histórico ausente para ${functionName}`);
+  const revoke = sql.indexOf(revokeMarker, start);
+  assert.notEqual(revoke, -1, `REVOKE histórico ausente para ${functionName}`);
+  const end = sql.indexOf(';', revoke);
+  assert.notEqual(end, -1, `fim histórico ausente para ${functionName}`);
+  return sql.slice(0, start) + sql.slice(end + 1);
+}
+
+const migration =
+  [
+    'assert_literal_evidence_v1',
+    'hbx_commit_local_enrichment_v1',
+    'hbx_revert_local_enrichment_v1',
+  ].reduce(withoutSupersededFunction, baseMigration) + repairMigration;
 
 test('materializa a missão local e a chave idempotente no Prisma', () => {
   const mission = schema.match(/model RadarMission \{[\s\S]*?\n\}/)?.[0] ?? '';
