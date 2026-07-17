@@ -72,7 +72,7 @@ services:
       HBX_RADAR_CLIENT_FALLBACK_TO_POOL: ${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}
       HBX_RADAR_WHATSAPP_CHECK_MODE: ${HBX_RADAR_WHATSAPP_CHECK_MODE:-enrich}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./backend/public/uploads:/app/public/uploads
       # P1.3 (PR10072026 W4) — mídia PRIVADA do inbox vive em /app/storage/inbox; sem este

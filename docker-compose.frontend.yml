@@ -1,0 +1,30 @@
+services:
+  frontend:
+    container_name: hbx-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+        NEXT_PUBLIC_ANDROID_APK_URL: ${NEXT_PUBLIC_ANDROID_APK_URL:-}
+        NEXT_PUBLIC_PAYMENTS_PROVIDER: ${NEXT_PUBLIC_PAYMENTS_PROVIDER:-mercadopago}
+        NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY: ${NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY:-}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
+      NEXT_PUBLIC_ANDROID_APK_URL: ${NEXT_PUBLIC_ANDROID_APK_URL:-}
+      NEXT_PUBLIC_PAYMENTS_PROVIDER: ${NEXT_PUBLIC_PAYMENTS_PROVIDER:-mercadopago}
+      NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY: ${NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY:-}
+    ports:
+      - "127.0.0.1:3001:3001"
+    networks:
+      - hbx_net
+
+networks:
+  hbx_net:
+    name: ${HBX_DOCKER_NETWORK:-hbx_net}
+    external: true

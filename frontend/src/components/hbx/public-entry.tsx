@@ -12,6 +12,7 @@ import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-previ
 import { getToken } from "@/lib/api";
 
 const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
+const CONTACT_WHATSAPP_URL = "https://wa.me/5519997024884?text=Ol%C3%A1%2C%20quero%20conhecer%20o%20HBX.";
 
 type StageKey = "radar" | "vendas" | "whatsapp" | "entrega" | "cobranca";
 type IconName =
@@ -273,10 +274,16 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
   function openLogin() {
     setScreen("login");
+    try {
+      window.history.replaceState(null, "", "/");
+    } catch {}
   }
 
   function closeCard() {
     setScreen("home");
+    try {
+      window.history.replaceState(null, "", "/");
+    } catch {}
   }
 
   // Alternância Entrar ↔ Criar Conta SEM navegar: troca o card e mantém a URL
@@ -331,7 +338,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
             <a className="f1-primary-cta" href="#produto">
               Conhecer a HBX <Icon name="arrow" />
             </a>
-            <a className="f1-secondary-cta" href="mailto:jhonatan@hbxsystem.com.br?subject=Quero%20conhecer%20o%20HBX">Fale conosco</a>
+            <a className="f1-secondary-cta" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer">Fale conosco</a>
           </div>
         </div>
 
@@ -375,7 +382,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               </button>
             ))}
           </div>
-          <a className="f1-whatsapp-mini" href="https://wa.me/5519997024884?text=Ol%C3%A1%2C%20quero%20conhecer%20o%20HBX." target="_blank" rel="noreferrer" aria-label="Falar no WhatsApp">
+          <a className="f1-whatsapp-mini" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer" aria-label="Falar no WhatsApp">
             <Icon name="whatsapp" />
           </a>
         </div>
@@ -390,28 +397,30 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         )}
       </section>
 
-      <section className="f1-mobile-apps" aria-label="Aplicativos móveis HBX">
-        <article className="f1-mobile-app f1-mobile-app--apple">
-          <div className="f1-mobile-app__art-wrap">
-            <img src="/hbx-theme/assets/mobile-apps/apple-coming.png" alt="Ilustração de uma maçã tecnológica" />
-            <span className="f1-mobile-app__ribbon">Em breve</span>
-          </div>
-          <div className="f1-mobile-app__copy">
-            <small>HBX para iPhone</small>
-            <strong>Seu negócio também<br />no iOS.</strong>
-          </div>
-        </article>
-        <article className="f1-mobile-app f1-mobile-app--android">
-          <div className="f1-mobile-app__copy">
-            <small>HBX para Android</small>
-            <strong>A operação na<br />palma da mão.</strong>
-            <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar para Android <Icon name="arrow" /></a>
-          </div>
-          <div className="f1-mobile-app__art-wrap">
-            <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do aplicativo HBX" />
-          </div>
-        </article>
-      </section>
+      {screen === "home" && (
+        <section className="f1-mobile-apps" aria-label="Aplicativos móveis HBX">
+          <article className="f1-mobile-app f1-mobile-app--apple">
+            <div className="f1-mobile-app__art-wrap">
+              <img src="/hbx-theme/assets/mobile-apps/apple-coming.png" alt="Ilustração de uma maçã tecnológica" />
+              <span className="f1-mobile-app__ribbon">Em breve</span>
+            </div>
+            <div className="f1-mobile-app__copy">
+              <small>HBX para iPhone</small>
+              <strong>Seu negócio também<br />no iOS.</strong>
+            </div>
+          </article>
+          <article className="f1-mobile-app f1-mobile-app--android">
+            <div className="f1-mobile-app__copy">
+              <small>HBX para Android</small>
+              <strong>A operação na<br />palma da mão.</strong>
+              <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar para Android <Icon name="arrow" /></a>
+            </div>
+            <div className="f1-mobile-app__art-wrap">
+              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do aplicativo HBX" />
+            </div>
+          </article>
+        </section>
+      )}
 
       <footer className="f1-footer">
         <span>© 2026 HBX</span>

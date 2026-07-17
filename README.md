@@ -5,14 +5,14 @@ Aplicação SaaS multi-tenant com backend NestJS, frontend Next.js, Prisma e Pos
 ## Fluxo oficial
 
 - Ambiente local: `npm run up` / `npm run down`
-- Deploy normal Hostinger: `npm run publish`
+- Deploy completo Hostinger: `npm run publish`
 - Deploy seletivo do que mudou: `npm run new`
 - Rebuild/restart completo com backup: `npm run force`
 - Verificacao completa de producao: `npm run verify:prod`
 
-`npm run publish` detecta mudancas, mostra diff resumido, cria commit automatico quando necessario e executa o deploy Hostinger normal. O build local e o push ficam concentrados no deploy para evitar trabalho duplicado.
+`npm run publish` trabalha somente no `master`, remove branches locais e remotas fora dele, atualiza o `master`, commita tudo, envia ao GitHub e força a VPS para esse mesmo commit. Em seguida recria frontend, backend, scraping, motores, Webwhats e Nginx.
 
-`npm run new` cria commit automatico quando necessario, detecta os arquivos alterados contra `origin/master`, faz push e atualiza na VPS apenas os servicos afetados.
+`npm run new` atualiza o `master`, commita e envia as mudanças. Na VPS, reconstrói somente os serviços afetados pelos arquivos alterados.
 
 `npm run force` cria backup antes de qualquer acao destrutiva, cria commit/push quando necessario, para containers/processos HBX, sobe tudo novamente, roda migrations Prisma dentro do container `hbx-backend`, verifica Docker/backend/frontend/banco/logs e termina com o servidor em uso.
 
