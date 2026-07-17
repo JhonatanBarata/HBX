@@ -74,13 +74,20 @@ test("fluxo vivo congela somente os quatro estados e tons aprovados", () => {
   assert.match(previewSource, /Radar de enriquecimento/);
 });
 
-test("fluxo observa os badges existentes, usa um único cano e preserva as ações dos leads", () => {
+test("encanamento é uma rede fixa com quatro entradas e um braço por lead", () => {
   assert.equal(
     (previewSource.match(/document\.createElementNS\(svgNamespace, "svg"\)/g) || []).length,
     1,
     "a tela deve montar um único SVG de encanamento",
   );
+  assert.match(previewSource, /const buildLayout = \(entries: Map<string, FlowEntry>\)/);
+  assert.match(previewSource, /network\.replaceChildren\(\)/);
+  assert.match(previewSource, /layout\.sources\.forEach/);
+  assert.match(previewSource, /layout\.targets\.forEach/);
+  assert.match(previewSource, /appendSegment\(`M \$\{layout\.trunkX\} \$\{target\.y\} L \$\{target\.x\} \$\{target\.y\}`/);
+  assert.match(previewSource, /x:\s*rect\.left - rootRect\.left \+ 1/);
   assert.match(previewSource, /const pathFor = \(source: HTMLElement, target: HTMLElement\)/);
+  assert.match(previewSource, /source\.classList\.add\("is-discharging"\)/);
   assert.match(previewSource, /\.radar-ai-badge\[data-local-enrichment-state\]/);
   assert.match(previewSource, /target\.dataset\.enrichmentState = status/);
   assert.match(previewSource, /target\.classList\.add\("vnd-enrichment-target"\)/);
@@ -88,6 +95,7 @@ test("fluxo observa os badges existentes, usa um único cano e preserva as açõ
   assert.match(previewSource, /\.vnd-card/);
   assert.match(previewSource, /prefers-reduced-motion/);
 
+  assert.doesNotMatch(previewSource, /drawIdlePipe|pipeLight|vnd-live-pipe__light/);
   assert.doesNotMatch(previewSource, /\bapiFetch\b|\bfetch\s*\(|\bXMLHttpRequest\b|\baxios\b/);
   assert.doesNotMatch(previewSource, /send-to-vendas|pull-to-vendas|method:\s*["'](?:POST|PATCH|PUT|DELETE)["']/i);
 });
@@ -117,11 +125,17 @@ test("um clique no lead abre o cockpit real sem duplicar regra comercial", () =>
   assert.match(vendasClientSource, /onDoubleClick=\{\(\) => \{ setSel\(card\); setCockpitOpen\(true\); \}\}/);
 });
 
-test("gráfico fica no topo e a guia de enriquecimento duplicada permanece escondida", () => {
+test("gráfico fica no topo e o encanamento não atravessa a planilha", () => {
   assert.match(vendasLiveSource, /\.vnd-enrichment-rail-slot__states\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4,/);
   assert.match(vendasLiveSource, /\.vnd-live-pipe\s*\{/);
   assert.match(vendasPolishSource, /#vendas-tab-enriquecimento,[\s\S]*?#vendas-panel-enriquecimento,[\s\S]*?display:\s*none\s*!important/);
-  assert.match(vendasPolishSource, /left:\s*-18px/);
+  assert.match(vendasPolishSource, /\.vnd-live-pipe\s*\{[\s\S]*?left:\s*0;[\s\S]*?z-index:\s*0;[\s\S]*?width:\s*100%/);
+  assert.match(vendasPolishSource, /\.vnd-live-pipe__rim/);
+  assert.match(vendasPolishSource, /\.vnd-live-pipe__core/);
+  assert.match(vendasPolishSource, /\.vnd-live-pipe__shine/);
+  assert.match(vendasPolishSource, /stroke-dasharray:\s*none/);
+  assert.match(vendasPolishSource, /animation:\s*none/);
+  assert.doesNotMatch(vendasPolishSource, /left:\s*-18px|vnd-live-pipe-premium-flow/);
   assert.match(globalsSource, /@import "\.\/hbx-theme\/vendas-live\.css";[\s\S]*?@import "\.\/hbx-theme\/vendas-live-polish\.css";[\s\S]*?@import "\.\/hbx-theme\/vendas-details2\.css";\s*$/);
 });
 
