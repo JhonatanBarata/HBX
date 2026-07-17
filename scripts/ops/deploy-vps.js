@@ -205,7 +205,7 @@ function buildRemoteScript(config, fullDeploy, services) {
     'git reset --hard origin/master',
     'wait_backend() { for attempt in $(seq 1 40); do if curl -fsS http://127.0.0.1:3000/health >/dev/null; then return 0; fi; sleep 3; done; docker logs --tail 120 hbx-backend 2>&1 || true; return 1; }',
     'wait_frontend() { for attempt in $(seq 1 40); do if curl -fsS http://127.0.0.1:3001/ >/dev/null; then return 0; fi; sleep 2; done; docker logs --tail 120 hbx-frontend 2>&1 || true; return 1; }',
-    'deploy_webwhats() { if [ -f "$APP_DIR/Webwhats/package.json" ]; then cd "$APP_DIR/Webwhats"; npm ci --no-audit --no-fund --loglevel=error; npm run build -- --silent; npm run db:deploy; cd "$APP_DIR"; fi; systemctl restart webwhats; systemctl is-active --quiet webwhats; }',
+    'deploy_webwhats() { if [ -f "$APP_DIR/Webwhats/package.json" ]; then cd "$APP_DIR/Webwhats"; npm ci --no-audit --no-fund --loglevel=error; npm run build -- --silent; node runWithProvider.js "npx prisma generate --schema ./prisma/DATABASE_PROVIDER-schema.prisma --no-hints"; npm run db:deploy; cd "$APP_DIR"; fi; systemctl restart webwhats; systemctl is-active --quiet webwhats; }',
   ];
 
   if (fullDeploy) {
