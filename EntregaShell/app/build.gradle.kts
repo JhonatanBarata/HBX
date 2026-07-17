@@ -97,8 +97,8 @@ android {
         create("logistica") {
             dimension = "experience"
             applicationId = "br.com.hbxsystem.logistica"
-            versionCode = 4
-            versionName = "1.2.0"
+            versionCode = 5
+            versionName = "1.2.1"
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
             manifestPlaceholders["hbxAppLabel"] = "HBX Mobile"
         }

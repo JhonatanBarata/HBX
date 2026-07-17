@@ -16,8 +16,8 @@ export const CREDIT_ACTION_KEYS = {
   WHATSAPP_AUTO_SEND: 'whatsapp_auto_send',
   AI_REALTIME: 'ai_realtime',
   AI_BATCH: 'ai_batch',
-  // Cobrança canônica ao iniciar uma entrega. As duas chaves seguintes
-  // preservam os contratos dos modos de rota publicados em paralelo.
+  // Chave legada mantida para compatibilidade de ledger/callers. O custo da
+  // logística vive exclusivamente nos modos Essencial e Rastreado abaixo.
   LOGISTICA_DELIVERY: 'logistica_delivery',
   LOGISTICA_ESSENTIAL_BLOCK: 'logistica_essential_block',
   LOGISTICA_TRACKED_DELIVERY: 'logistica_tracked_delivery',
@@ -52,9 +52,9 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
   ai_batch: { key: 'ai_batch', mode: 'free', cost: 0, label: 'Chamada de IA em lote (enriquecimento)' },
   logistica_delivery: {
     key: 'logistica_delivery',
-    mode: 'debit',
-    cost: 0.2,
-    label: 'Entrega iniciada — Logística',
+    mode: 'free',
+    cost: 0,
+    label: 'Entrega avulsa — absorvida pela rota',
   },
   [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
@@ -80,6 +80,15 @@ const ACTION_KEYS: CreditActionKey[] = [
   'logistica_tracked_delivery',
 ];
 
+/**
+ * A ação legada de criação da entrega é imutavelmente grátis. Mesmo que exista
+ * override antigo no banco, ele não pode reativar o débito de 0,2 e somar com a
+ * cobrança canônica da rota Essencial/Rastreada.
+ */
+const OVERRIDE_LOCKED_ACTIONS = new Set<CreditActionKey>([
+  CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
+]);
+
 export function normalizeCreditActionKey(value: unknown): CreditActionKey | null {
   const normalized = String(value || '').trim().toLowerCase();
   return ACTION_KEYS.includes(normalized as CreditActionKey) ? (normalized as CreditActionKey) : null;
@@ -87,6 +96,11 @@ export function normalizeCreditActionKey(value: unknown): CreditActionKey | null
 
 export function listCreditActionKeys(): CreditActionKey[] {
   return [...ACTION_KEYS];
+}
+
+export function isCreditActionOverrideLocked(actionKey: unknown): boolean {
+  const key = normalizeCreditActionKey(actionKey);
+  return !!key && OVERRIDE_LOCKED_ACTIONS.has(key);
 }
 
 export function getCreditActionBaseDefinition(actionKey: unknown): CreditActionDefinition | null {
@@ -115,7 +129,7 @@ export function applyCreditActionOverrides(
   for (const entry of entries || []) {
     const key = normalizeCreditActionKey(entry?.actionKey);
     const override = entry?.override;
-    if (!key || !override || typeof override !== 'object') continue;
+    if (!key || isCreditActionOverrideLocked(key) || !override || typeof override !== 'object') continue;
     const clean: CreditActionOverride = {};
     if (override.mode === 'free' || override.mode === 'debit') clean.mode = override.mode;
     const cost = normalizeCreditCost(override.cost);
@@ -130,13 +144,15 @@ export function clearCreditActionOverrides() {
 
 export function getCreditActionOverride(actionKey: unknown): CreditActionOverride | null {
   const key = normalizeCreditActionKey(actionKey);
-  return key ? CREDIT_ACTION_OVERRIDES.get(key) || null : null;
+  if (!key || isCreditActionOverrideLocked(key)) return null;
+  return CREDIT_ACTION_OVERRIDES.get(key) || null;
 }
 
 export function getCreditActionDefinition(actionKey: unknown): CreditActionDefinition | null {
   const key = normalizeCreditActionKey(actionKey);
   if (!key) return null;
   const base = CREDIT_ACTION_BASE[key];
+  if (isCreditActionOverrideLocked(key)) return { ...base };
   const override = CREDIT_ACTION_OVERRIDES.get(key);
   return override
     ? { ...base, mode: override.mode ?? base.mode, cost: override.cost ?? base.cost }
