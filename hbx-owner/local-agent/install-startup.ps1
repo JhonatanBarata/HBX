@@ -2,7 +2,7 @@ param([switch]$Remove)
 
 $ErrorActionPreference = "Stop"
 $taskName = "HBX Owner Local Agent"
-$launcher = Join-Path $PSScriptRoot "start-owner.ps1"
+$launcher = Join-Path $PSScriptRoot "start-owner-supervised.ps1"
 
 if ($Remove) {
   $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -41,4 +41,4 @@ Register-ScheduledTask `
   -Force | Out-Null
 
 Write-Host "Tarefa '$taskName' instalada para o logon."
-Write-Host "O worker so consome local_deep_enrich_v1 depois de confirmar target production, backend explicito e handshake do banco."
+Write-Host "O supervisor mantem Owner e tunel privado ativos; o worker so consome depois do handshake do banco."

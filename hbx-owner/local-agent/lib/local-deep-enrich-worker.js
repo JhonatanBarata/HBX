@@ -1,6 +1,7 @@
 "use strict";
 
 const { createHash } = require("node:crypto");
+const { hostname } = require("node:os");
 
 const CONTRACT_VERSION = "local_deep_enrich_v1";
 const STAGE = "local_deep_enrich_v1";
@@ -27,6 +28,7 @@ const SYSTEM_PROMPT = [
   "- Use exclusivamente os trechos e evidenceId fornecidos.",
   "- Cada contato e pessoa precisa estar literalmente sustentado pelo trecho referenciado.",
   "- Não invente, deduza ou complete telefone, email, nome, cargo ou identidade.",
+  "- Nunca declare ou confirme WhatsApp; essa confirmação pertence exclusivamente ao crawler determinístico.",
   "- Diretório ou terceiro não prova site oficial.",
   "- CNPJ divergente é apenas sinal; nunca proponha substituir identidade, nome ou CNPJ.",
   "- Não proponha status comercial, negativos, posse, crédito, histórico ou campos manuais.",
@@ -61,6 +63,28 @@ function normalizeUrl(value) {
 
 function normalizeDomain(value) {
   try { return new URL(normalizeUrl(value)).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+}
+
+function normalizeLookup(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function websiteOrigin(value) {
+  const target = normalizeUrl(value);
+  if (!target) return "";
+  try {
+    const parsed = new URL(target);
+    parsed.pathname = "/";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch { return ""; }
 }
 
 function visibleTargetUrl(value) {
@@ -108,9 +132,34 @@ function sha256(value) {
   return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
+function buildDefaultWorkerId(machineIdentity = hostname()) {
+  const stableMachineKey = String(machineIdentity || "hbx-owner-local").trim().toLowerCase();
+  return `owner-local-${sha256(stableMachineKey).slice(0, 20)}`;
+}
+
+function md5(value) {
+  return createHash("md5").update(String(value), "utf8").digest("hex");
+}
+
+function slugKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 110);
+}
+
 function computeBackoffMs(failures, baseMs, capMs) {
   const n = Math.max(1, Math.trunc(Number(failures) || 1));
   return Math.min(capMs, baseMs * Math.pow(2, Math.min(12, n - 1)));
+}
+
+function computeHeartbeatIntervalMs(mission, leaseTtlSeconds) {
+  const advertisedMs = Number(mission?.heartbeatSeconds || 0) > 0 ? Number(mission.heartbeatSeconds) * 1000 : Number.POSITIVE_INFINITY;
+  const ttlSeconds = Number(leaseTtlSeconds) > 0 ? Number(leaseTtlSeconds) : 900;
+  return Math.max(15_000, Math.min(45_000, advertisedMs, (ttlSeconds * 1000) / 3));
 }
 
 function percentile(values, ratio) {
@@ -132,10 +181,18 @@ function validateMission(mission) {
   if (!mission || mission.stage !== STAGE) return { ok: false, reason: "stage_invalido" };
   if (!mission.id || !mission.leaseId) return { ok: false, reason: "lease_invalido" };
   if (!payload || payload.contractVersion !== CONTRACT_VERSION || payload.consumerKind !== CONSUMER_KIND) return { ok: false, reason: "contrato_invalido" };
+  if (payload.promptVersion !== PROMPT_VERSION) return { ok: false, reason: "prompt_version_invalida" };
   if (!payload.radarLeadId || !Number.isInteger(Number(payload.workVersion)) || Number(payload.workVersion) < 1) return { ok: false, reason: "identidade_da_missao_invalida" };
+  if (!compactText(payload.correlationId, 200)) return { ok: false, reason: "correlation_id_invalido" };
   if (!/^[a-f0-9]{64}$/.test(String(payload.workHash || ""))) return { ok: false, reason: "work_hash_invalido" };
   if (!lead || !compactText(lead.name, 300)) return { ok: false, reason: "lead_invalido" };
   return { ok: true, payload, lead };
+}
+
+function isMissionValidationRetryable(reason) {
+  // Conteúdo sem identidade mínima é inválido. Versão/contrato/shape incompatível é falha técnica:
+  // permanece em backoff até o worker compatível chegar e nunca bloqueia uma versão nova do lead.
+  return String(reason || "") !== "lead_invalido";
 }
 
 function classifySourceUrl(value) {
@@ -167,8 +224,11 @@ function buildLabJobInput(mission) {
     workVersion: Number(payload.workVersion),
     requestedBy: "hbx-owner-local-deep-enrich",
     mode: "enrich_missing_email",
+    city: candidate.city,
+    state: candidate.state,
+    segment: candidate.segment,
     providers,
-    candidates: candidate.website ? [candidate] : [],
+    candidates: candidate.website || fallbackType === "none" ? [candidate] : [],
     socialUrls: fallbackType === "social" ? [sourceUrl] : [],
     directoryUrls: fallbackType === "directory" ? [sourceUrl] : [],
     maxCandidates: 1,
@@ -186,20 +246,40 @@ function normalizeEvidence(batch) {
     const id = compactText(item && item.id, 80);
     const sourceUrl = normalizeUrl(item && item.sourceUrl);
     const contentHash = String(item && item.contentHash || "").toLowerCase();
-    if (!id || seen.has(id) || !sourceUrl || !/^[a-f0-9]{64}$/.test(contentHash)) continue;
+    const capturedMs = Date.parse(String(item && item.capturedAt || ""));
+    if (!id || seen.has(id) || !sourceUrl || !/^[a-f0-9]{64}$/.test(contentHash) || !Number.isFinite(capturedMs)) continue;
     seen.add(id);
+    const allowedPageType = ["home", "contact", "about", "social", "directory", "search", "legal", "other"].includes(String(item.pageType || ""))
+      ? String(item.pageType)
+      : "other";
     output.push({
       id,
       sourceUrl,
       provider: compactText(item.provider || "site_crawl", 80),
-      pageType: compactText(item.pageType || "other", 40),
-      capturedAt: item.capturedAt || null,
+      pageType: allowedPageType,
+      capturedAt: new Date(capturedMs).toISOString(),
       contentHash,
       excerpt: compactText(item.excerpt, 480),
     });
     if (output.length >= 48) break;
   }
   return output;
+}
+
+function verifiedWebsiteFromBatch(batch, mission, evidence) {
+  if (normalizeUrl(mission?.payload?.lead?.website)) return null;
+  const lead = (Array.isArray(batch?.leads) ? batch.leads : []).find((item) => (
+    item?.sourceProvider === "web_query_verified"
+    && item?.raw?.discovery?.identityConfirmed === true
+    && normalizeUrl(item?.website)
+  ));
+  if (!lead) return null;
+  const value = websiteOrigin(lead.website);
+  const supportingEvidence = (Array.isArray(evidence) ? evidence : [])
+    .filter((item) => websiteOrigin(item.sourceUrl) === value && item.provider === "site_crawl")
+    .sort((left, right) => Number(right.pageType === "home") - Number(left.pageType === "home"))[0];
+  if (!value || !supportingEvidence) return null;
+  return { value, evidenceId: supportingEvidence.id };
 }
 
 function evidenceContains(evidence, value, kind) {
@@ -212,41 +292,93 @@ function evidenceContains(evidence, value, kind) {
   return excerpt.toLocaleLowerCase("pt-BR").includes(String(value || "").trim().toLocaleLowerCase("pt-BR"));
 }
 
-function normalizeContact(raw, evidenceById, officialDomain) {
+function normalizeContact(raw, evidenceById, officialDomain, forbiddenNumberSources = [], options = {}) {
   const kind = String(raw && raw.kind || "").trim().toLowerCase();
   if (!["email", "phone", "whatsapp", "instagram", "facebook"].includes(kind)) return null;
   const value = kind === "email" ? normalizeEmail(raw.value) : (kind === "phone" || kind === "whatsapp") ? normalizePhone(raw.value) : normalizeUrl(raw.value);
   const evidenceId = compactText(raw && raw.evidenceId, 80);
   const evidence = evidenceById.get(evidenceId);
   if (!value || !evidence || !evidenceContains(evidence, value, kind)) return null;
+  if ((kind === "phone" || kind === "whatsapp") && forbiddenNumberSources.some((digits) => String(digits).includes(value))) return null;
   const sourceDomain = normalizeDomain(evidence.sourceUrl);
   const emailDomain = kind === "email" ? String(value.split("@")[1] || "").replace(/^www\./, "") : "";
   const compatibleSource = Boolean(officialDomain && (sourceDomain === officialDomain || sourceDomain.endsWith(`.${officialDomain}`)));
+  const deterministicWhatsapp = kind === "whatsapp"
+    && options.allowWhatsappConfirmation === true
+    && raw.whatsappConfirmed === true
+    && raw.verification === "official_whatsapp_link"
+    && evidence.provider === "site_crawl"
+    && compatibleSource;
+  if (kind === "whatsapp" && !deterministicWhatsapp) return null;
   const officialDomainMatch = Boolean(compatibleSource && kind === "email" && emailDomain === officialDomain);
   return {
     kind,
     value,
     valueNormalized: value,
-    rank: Math.max(1, Math.min(10, Number(raw.rank || 1))),
+    rank: Math.max(1, Math.min(10, Math.trunc(Number(raw.rank || 1)))),
     source: evidence.provider === "site_crawl" ? "website_crawl" : "local_lab",
     confidence: Math.max(0, Math.min(100, Math.round(Number(raw.confidence || 0)))),
     evidenceId,
     sourceUrl: evidence.sourceUrl,
     officialDomainMatch,
+    ...(deterministicWhatsapp ? { whatsappConfirmed: true, verification: "official_whatsapp_link" } : {}),
   };
+}
+
+const PERSON_ROLE_RULES = [
+  { request: /propriet/, evidence: "propriet[aá]ri[oa]" },
+  { request: /(^| )soci[oa]( |$)/, evidence: "s[oó]ci[oa]" },
+  { request: /responsavel/, evidence: "respons[aá]vel" },
+  { request: /diretor/, evidence: "diretor(?:a)?" },
+  { request: /fundador/, evidence: "fundador(?:a)?" },
+];
+
+function escapeRegex(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function literalRoleNearName(rule, evidenceText, personName) {
+  const excerpt = String(evidenceText || "");
+  const name = compactText(personName, 180);
+  if (!excerpt || !name) return null;
+  const namePattern = escapeRegex(name).replace(/\s+/g, "\\s+");
+  const roles = Array.from(excerpt.matchAll(new RegExp(rule.evidence, "giu")));
+  const names = Array.from(excerpt.matchAll(new RegExp(namePattern, "giu")));
+  for (const role of roles) {
+    for (const person of names) {
+      const roleStart = Number(role.index);
+      const roleEnd = roleStart + role[0].length;
+      const nameStart = Number(person.index);
+      const nameEnd = nameStart + person[0].length;
+      const between = roleEnd <= nameStart
+        ? excerpt.slice(roleEnd, nameStart)
+        : nameEnd <= roleStart
+          ? excerpt.slice(nameEnd, roleStart)
+          : "";
+      if (between.length <= 40 && !/[.;\n]/.test(between)) return role[0];
+    }
+  }
+  return null;
+}
+
+function normalizePersonRole(rawRole, evidenceText, personName) {
+  const requested = normalizeLookup(rawRole);
+  const match = PERSON_ROLE_RULES.find((item) => item.request.test(requested));
+  return match ? literalRoleNearName(match, evidenceText, personName) : null;
 }
 
 function normalizePerson(raw, evidenceById) {
   const name = compactText(raw && raw.name, 180);
-  const role = compactText(raw && raw.role, 80).toLowerCase();
   const evidenceId = compactText(raw && raw.evidenceId, 80);
   const evidence = evidenceById.get(evidenceId);
   if (!name || !evidence || !evidenceContains(evidence, name, "person")) return null;
-  if (!/propriet|s[oó]ci|respons[aá]vel|diretor|fundador/.test(evidence.excerpt.toLowerCase())) return null;
+  if (!PERSON_ROLE_RULES.some((rule) => literalRoleNearName(rule, evidence.excerpt, name))) return null;
+  const role = normalizePersonRole(raw && raw.role, evidence.excerpt, name);
   return {
     name,
     role: role || null,
     source: "ia_30b",
+    personKey: `person:${slugKey(name) || sha256(name).slice(0, 20)}`,
     rank: 1,
     confidence: Math.max(0, Math.min(100, Math.round(Number(raw.confidence || 0)))),
     evidenceId,
@@ -254,7 +386,7 @@ function normalizePerson(raw, evidenceById) {
   };
 }
 
-function deterministicContacts(batch, evidenceById, officialDomain) {
+function deterministicContacts(batch, evidenceById, officialDomain, forbiddenNumberSources = []) {
   const rows = [];
   for (const lead of Array.isArray(batch && batch.leads) ? batch.leads : []) {
     if (Array.isArray(lead.contacts)) rows.push(...lead.contacts);
@@ -268,17 +400,23 @@ function deterministicContacts(batch, evidenceById, officialDomain) {
       rank: 1,
     });
   }
-  return rows.map((row) => normalizeContact(row, evidenceById, officialDomain)).filter(Boolean);
+  return rows
+    .map((row) => normalizeContact(row, evidenceById, officialDomain, forbiddenNumberSources, { allowWhatsappConfirmation: true }))
+    .filter(Boolean);
 }
 
 function normalizeModelResult(raw, batch, mission) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, reason: "json_30b_invalido" };
   const evidence = normalizeEvidence(batch);
   const evidenceById = new Map(evidence.map((item) => [item.id, item]));
-  const officialDomain = normalizeDomain(mission?.payload?.lead?.website);
+  const officialWebsite = verifiedWebsiteFromBatch(batch, mission, evidence);
+  const officialDomain = normalizeDomain(mission?.payload?.lead?.website || officialWebsite?.value);
+  const forbiddenNumberSources = (Array.isArray(batch?.leads) ? batch.leads : [])
+    .map((lead) => String(lead?.cnpj || "").replace(/\D/g, ""))
+    .filter((value) => value.length === 14);
   const contacts = [
-    ...deterministicContacts(batch, evidenceById, officialDomain),
-    ...(Array.isArray(raw.contacts) ? raw.contacts.slice(0, 20).map((item) => normalizeContact(item, evidenceById, officialDomain)).filter(Boolean) : []),
+    ...deterministicContacts(batch, evidenceById, officialDomain, forbiddenNumberSources),
+    ...(Array.isArray(raw.contacts) ? raw.contacts.slice(0, 20).map((item) => normalizeContact(item, evidenceById, officialDomain, forbiddenNumberSources)).filter(Boolean) : []),
   ];
   const dedupedContacts = [];
   const contactKeys = new Set();
@@ -302,12 +440,15 @@ function normalizeModelResult(raw, batch, mission) {
     qualification: compactText(raw.assessment.qualification, 300) || null,
     signals: Array.isArray(raw.assessment.signals) ? raw.assessment.signals.map((item) => compactText(item, 180)).filter(Boolean).slice(0, 12) : [],
   } : { summary: null, qualification: null, signals: [] };
-  return { ok: true, evidence, contacts: dedupedContacts, people, assessment };
+  return { ok: true, evidence, contacts: dedupedContacts, people, assessment, officialWebsite };
 }
 
 function buildModelPrompt(mission, batch) {
   const evidence = normalizeEvidence(batch);
-  const deterministic = deterministicContacts(batch, new Map(evidence.map((item) => [item.id, item])), normalizeDomain(mission?.payload?.lead?.website));
+  const forbiddenNumberSources = (Array.isArray(batch?.leads) ? batch.leads : [])
+    .map((lead) => String(lead?.cnpj || "").replace(/\D/g, ""))
+    .filter((value) => value.length === 14);
+  const deterministic = deterministicContacts(batch, new Map(evidence.map((item) => [item.id, item])), normalizeDomain(mission?.payload?.lead?.website), forbiddenNumberSources);
   return JSON.stringify({
     promptVersion: PROMPT_VERSION,
     company: {
@@ -317,9 +458,7 @@ function buildModelPrompt(mission, batch) {
       segment: compactText(mission?.payload?.lead?.segment, 180),
       website: normalizeUrl(mission?.payload?.lead?.website) || null,
       identityKey: compactText(mission?.payload?.lead?.identityKey, 180) || null,
-      observedCnpjs: Array.from(new Set((Array.isArray(batch?.leads) ? batch.leads : [])
-        .map((lead) => String(lead?.cnpj || "").replace(/\D/g, ""))
-        .filter((value) => value.length === 14))).slice(0, 3),
+      observedCnpjs: Array.from(new Set(forbiddenNumberSources)).slice(0, 3),
     },
     deterministicContacts: deterministic,
     evidence,
@@ -329,12 +468,37 @@ function buildModelPrompt(mission, batch) {
 function buildCommitPayload(mission, normalized, workerId, model, startedAt, completedAt) {
   const payload = mission.payload || {};
   const bestEmail = normalized.contacts.find((item) => item.kind === "email" && item.officialDomainMatch) || null;
+  const bestWhatsapp = normalized.contacts.find((item) => item.kind === "whatsapp" && item.whatsappConfirmed === true) || null;
   const assessmentHasData = Boolean(normalized.assessment.summary || normalized.assessment.qualification || normalized.assessment.signals.length);
+  const websitePatch = normalized.officialWebsite ? {
+    website: {
+      value: normalized.officialWebsite.value,
+      evidenceId: normalized.officialWebsite.evidenceId,
+      officialSite: true,
+      sameCompany: true,
+      sourceIdentified: true,
+    },
+  } : {};
+  const phonePatch = bestWhatsapp ? {
+    phone: {
+      value: bestWhatsapp.value,
+      evidenceId: bestWhatsapp.evidenceId,
+      whatsappConfirmed: true,
+    },
+  } : {};
   const delta = {
-    contacts: normalized.contacts.map(({ officialDomainMatch, ...item }) => item),
-    people: normalized.people,
-    radarPatch: bestEmail ? { email: bestEmail.value, emailStatus: "found_on_site", emailSource: "website", emailConfidence: bestEmail.confidence } : {},
-    vendasPatch: bestEmail ? { email: bestEmail.value } : {},
+    contacts: normalized.contacts.map(({ officialDomainMatch, sourceUrl, verification, ...item }) => item),
+    people: normalized.people.map(({ sourceUrl, confidence, ...item }) => item),
+    radarPatch: {
+      ...websitePatch,
+      ...phonePatch,
+      ...(bestEmail ? { email: { value: bestEmail.value, evidenceId: bestEmail.evidenceId, domainCompatible: true } } : {}),
+    },
+    vendasPatch: {
+      ...websitePatch,
+      ...phonePatch,
+      ...(bestEmail ? { email: { value: bestEmail.value, evidenceId: bestEmail.evidenceId, domainCompatible: true } } : {}),
+    },
     metadataBlock: assessmentHasData ? {
       model,
       promptVersion: PROMPT_VERSION,
@@ -355,9 +519,27 @@ function buildCommitPayload(mission, normalized, workerId, model, startedAt, com
     workVersion: Number(payload.workVersion),
     correlationId: payload.correlationId || null,
   };
-  const hashBody = { contractVersion: CONTRACT_VERSION, mission: missionBlock, evidence: normalized.evidence, delta, noNewData };
+  const contractEvidence = normalized.evidence.map(({ provider, ...item }) => item);
+  const hashBody = { contractVersion: CONTRACT_VERSION, mission: missionBlock, evidence: contractEvidence, delta, noNewData };
   const requestHash = sha256(canonicalJson(hashBody));
   return { ...hashBody, mission: { ...missionBlock, requestHash } };
+}
+
+function receiptDeltaCounts(receipt, commitPayload) {
+  const contactIds = new Set(Array.isArray(receipt?.createdContactIds) ? receipt.createdContactIds.map(String) : []);
+  const personIds = new Set(Array.isArray(receipt?.createdPersonIds) ? receipt.createdPersonIds.map(String) : []);
+  const counts = { emailsAdded: 0, phonesAdded: 0, ownersAdded: 0 };
+  for (const contact of Array.isArray(commitPayload?.delta?.contacts) ? commitPayload.delta.contacts : []) {
+    const id = `hbx_lc_${md5(`${commitPayload.mission.id}:${contact.kind}:${contact.valueNormalized}`)}`;
+    if (!contactIds.has(id)) continue;
+    if (contact.kind === "email") counts.emailsAdded += 1;
+    if (contact.kind === "phone" || contact.kind === "whatsapp") counts.phonesAdded += 1;
+  }
+  for (const person of Array.isArray(commitPayload?.delta?.people) ? commitPayload.delta.people : []) {
+    const id = `hbx_lp_${md5(`${commitPayload.mission.id}:${person.personKey}`)}`;
+    if (personIds.has(id)) counts.ownersAdded += 1;
+  }
+  return counts;
 }
 
 function createLocalDeepEnrichWorker(deps = {}) {
@@ -373,7 +555,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
   const journalStore = deps.journalStore;
   const readResources = deps.readResources || (async () => null);
   const backendUrl = String(deps.backendUrl || env.HBX_OWNER_BACKEND_URL || "").trim();
-  const workerId = String(env.HBX_LOCAL_DEEP_WORKER_ID || `owner-local-${process.pid || "x"}`);
+  const workerId = String(env.HBX_LOCAL_DEEP_WORKER_ID || buildDefaultWorkerId(deps.machineIdentity));
   const model = String(env.HBX_LOCAL_DEEP_MODEL || MODEL_30B);
   const pollBaseMs = envInt(env, "HBX_LOCAL_DEEP_POLL_BASE_MS", 5000, 100, 60_000);
   const pollCapMs = envInt(env, "HBX_LOCAL_DEEP_POLL_CAP_MS", 300_000, pollBaseMs, 900_000);
@@ -395,7 +577,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
     lastError: null,
     nextAttemptAt: null,
     circuit: { state: "closed", failures: 0, openUntil: null },
-    target: { configured: false, connected: false, expected: "production", backendUrl: visibleTargetUrl(backendUrl), database: null, contractVersion: null },
+    target: { configured: false, connected: false, status: "awaiting_configuration", expected: "production", backendUrl: visibleTargetUrl(backendUrl), database: null, contractVersion: null },
     dependencies: { localLab: "unknown", ollama: "unknown", model: "cold" },
     lag: null,
     metrics: {
@@ -464,15 +646,18 @@ function createLocalDeepEnrichWorker(deps = {}) {
     if (!explicitBackend || (loopbackBackend && !allowLoopback)) return { ok: false, reason: "backend_producao_explicito_obrigatorio" };
     const config = writer && writer.configuration ? writer.configuration() : { ready: false, reason: "writer_ausente" };
     state.target.configured = Boolean(config.ready);
+    state.target.status = config.ready ? "connecting" : "awaiting_configuration";
     state.target.database = config.expectedDatabase || null;
     if (!config.ready) return { ok: false, reason: config.reason || "writer_nao_configurado" };
     if (cachedHandshakeAt && now() - cachedHandshakeAt < 60_000 && state.target.connected) return { ok: true };
     const checked = await writer.handshake();
     if (!checked || !checked.ok) {
       state.target.connected = false;
+      state.target.status = checked?.reason === "contrato_ou_banco_incompativel" ? "wrong_environment" : "unavailable";
       return { ok: false, reason: checked?.reason || checked?.error || "handshake_falhou" };
     }
     state.target.connected = true;
+    state.target.status = "connected";
     state.target.contractVersion = checked.contract.contractVersion;
     cachedHandshakeAt = now();
     return { ok: true };
@@ -534,13 +719,16 @@ function createLocalDeepEnrichWorker(deps = {}) {
   }
 
   async function startHeartbeat(mission) {
-    const response = await backendRequest("POST", `/modules/owner/missions/${encodeURIComponent(mission.id)}/heartbeat`, { leaseId: mission.leaseId });
+    const response = await backendRequest("POST", `/modules/owner/missions/${encodeURIComponent(mission.id)}/heartbeat`, {
+      leaseId: mission.leaseId,
+      leaseTtlSeconds,
+    });
     if (response?.ok) state.lastHeartbeatAt = new Date(now()).toISOString();
     return response;
   }
 
   function heartbeatLoop(mission) {
-    const everyMs = Math.max(15_000, Math.min(120_000, Number(mission.heartbeatSeconds || leaseTtlSeconds / 3) * 1000));
+    const everyMs = computeHeartbeatIntervalMs(mission, leaseTtlSeconds);
     const id = setInterval(() => { void startHeartbeat(mission).catch(() => null); }, everyMs);
     if (id.unref) id.unref();
     return () => clearInterval(id);
@@ -569,7 +757,8 @@ function createLocalDeepEnrichWorker(deps = {}) {
       error: compactText(reason, 300),
       retryable,
     }).catch(() => null);
-    if (retryable) state.metrics.retries += 1;
+    const terminal = !retryable || ["dead", "canceled"].includes(String(response?.data?.status || response?.data?.mission?.status || ""));
+    if (!terminal) state.metrics.retries += 1;
     else {
       state.metrics.failedFinal += 1;
       state.terminalState = "invalidated";
@@ -582,10 +771,14 @@ function createLocalDeepEnrichWorker(deps = {}) {
     const stopHeartbeat = heartbeatLoop(mission);
     const startedMs = Number(record.startedMs || now());
     try {
+      await startHeartbeat(mission).catch(() => null);
       if (!record.batch) {
         state.phase = "starting_lab";
         state.dependencies.localLab = "starting";
-        if (!(await ensureLocalLabUp())) throw Object.assign(new Error("local_lab_indisponivel"), { retryable: true });
+        if (!(await ensureLocalLabUp())) {
+          state.dependencies.localLab = "down";
+          throw Object.assign(new Error("local_lab_indisponivel"), { retryable: true });
+        }
         state.dependencies.localLab = "up";
         if (!record.labJobId) {
           const created = await localLabRequest("POST", "/local-lab/jobs", buildLabJobInput(mission), 30_000);
@@ -626,7 +819,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
       if (!record.commitPayload) {
         const startedAt = new Date(startedMs).toISOString();
         const completedAt = new Date(now()).toISOString();
-        const commitPayload = buildCommitPayload(mission, record.normalized, workerId, model, startedAt, completedAt);
+        const commitPayload = buildCommitPayload(mission, record.normalized, record.workerId || workerId, model, startedAt, completedAt);
         record = { ...record, phase: "ready_to_commit", commitPayload, savedAt: now() };
         saveJournal(record);
       }
@@ -649,7 +842,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
       const noNewData = Boolean(receipt.noNewData);
       if (noNewData) state.metrics.completedNoNewData += 1;
       else state.metrics.completedWithData += 1;
-      const summary = receipt.summary || {};
+      const summary = receipt.summary || receiptDeltaCounts(receipt, record.commitPayload);
       state.metrics.emailsAdded += Math.max(0, Number(summary.emailsAdded || 0));
       state.metrics.phonesAdded += Math.max(0, Number(summary.phonesAdded || 0));
       state.metrics.ownersAdded += Math.max(0, Number(summary.ownersAdded || 0));
@@ -688,17 +881,21 @@ function createLocalDeepEnrichWorker(deps = {}) {
       leaseTtlSeconds,
     });
     if (!leased?.ok || !leased.data) return { error: leased?.error || `lease_http_${leased?.statusCode || "?"}` };
+    state.lastHeartbeatAt = new Date(now()).toISOString();
     state.lag = leased.data.lag || null;
     const mission = Array.isArray(leased.data.missions) ? leased.data.missions[0] : null;
     if (!mission) return { idle: true };
     const checked = validateMission(mission);
     if (!checked.ok) {
-      await failMission(mission, checked.reason, false);
-      return { invalid: true };
+      const retryable = isMissionValidationRetryable(checked.reason);
+      await failMission(mission, checked.reason, retryable);
+      return retryable
+        ? { retryableValidationError: checked.reason }
+        : { invalid: true };
     }
     state.metrics.received += 1;
     state.terminalState = null;
-    const record = { version: 1, contractVersion: CONTRACT_VERSION, phase: "leased", mission, startedMs: now(), savedAt: now() };
+    const record = { version: 1, contractVersion: CONTRACT_VERSION, phase: "leased", workerId, mission, startedMs: now(), savedAt: now() };
     saveJournal(record);
     return { mission, record, recovered: false };
   }
@@ -719,6 +916,7 @@ function createLocalDeepEnrichWorker(deps = {}) {
       if (!(await resourcesAllowLease())) return pollBaseMs;
       const next = await recoverOrLease();
       if (next.error) return registerInfraFailure(next.error);
+      if (next.retryableValidationError) return registerInfraFailure(next.retryableValidationError);
       if (next.idle || next.invalid) {
         state.phase = next.invalid ? "invalidated" : "idle";
         if (!next.invalid) registerSuccess();
@@ -827,12 +1025,15 @@ module.exports = {
   STAGE,
   SYSTEM_PROMPT,
   buildCommitPayload,
+  buildDefaultWorkerId,
   buildLabJobInput,
   buildModelPrompt,
   canonicalJson,
   computeBackoffMs,
+  computeHeartbeatIntervalMs,
   createLocalDeepEnrichWorker,
   mapPublicState,
+  receiptDeltaCounts,
   normalizeModelResult,
   safeParseJson,
   sha256,

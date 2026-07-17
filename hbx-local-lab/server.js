@@ -320,6 +320,15 @@ async function createJob(body) {
     error.statusCode = 400;
     throw error;
   }
+  if (input.missionId) {
+    const existing = Array.from(jobs.values()).find((job) => (
+      job.contractVersion === input.contractVersion
+      && job.missionId === input.missionId
+      && Number(job.workVersion) === Number(input.workVersion)
+      && !['failed', 'canceled'].includes(job.status)
+    ));
+    if (existing) return serializeJob(existing);
+  }
   const id = randomUUID();
   const job = {
     id,

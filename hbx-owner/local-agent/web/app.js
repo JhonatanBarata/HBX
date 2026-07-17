@@ -1639,10 +1639,37 @@ function ponteFmtAgo(iso) {
   if (!iso) return "—";
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "—";
-  const deltaS = Math.max(0, Math.round((Date.now() - t) / 1000));
+  const rawDeltaS = Math.round((Date.now() - t) / 1000);
+  if (rawDeltaS < 0) {
+    const futureS = Math.abs(rawDeltaS);
+    if (futureS < 60) return `em ${futureS}s`;
+    if (futureS < 3600) return `em ${Math.round(futureS / 60)}min`;
+    return `em ${Math.round(futureS / 3600)}h`;
+  }
+  const deltaS = rawDeltaS;
   if (deltaS < 60) return `${deltaS}s atrás`;
   if (deltaS < 3600) return `${Math.round(deltaS / 60)}min atrás`;
   return `${Math.round(deltaS / 3600)}h atrás`;
+}
+
+const LOCAL_DEEP_PHASE_LABEL = {
+  startup: "iniciando",
+  idle: "aguardando",
+  leased: "missão recebida",
+  starting_lab: "ligando Lab",
+  crawling: "pesquisando",
+  lab_completed: "evidência pronta",
+  analyzing_30b: "IA 30B analisando",
+  model_completed: "delta pronto",
+  ready_to_commit: "pronto para gravar",
+  committing: "gravando",
+  backoff: "nova tentativa",
+  resource_throttle: "ritmo reduzido",
+  invalidated: "invalidado",
+};
+
+function pontePhaseLabel(phase) {
+  return LOCAL_DEEP_PHASE_LABEL[String(phase || "")] || String(phase || "—");
 }
 
 /** Throughput informativo: leads/hora extrapolado da latência média dos últimos jobs OK (não é
@@ -1659,11 +1686,10 @@ function ponteThroughputLabel(lastJobs) {
 function ponteRenderCircuit(p) {
   const alert = $("#ponte-circuit-alert");
   const reason = $("#ponte-circuit-reason");
-  const resetBtn = $("#btn-ponte-reset");
-  const open = Boolean(p.circuitOpen);
+  const circuit = p && p.telemetry && p.telemetry.circuit || {};
+  const open = circuit.state === "open" || circuit.state === "half_open";
   if (alert) alert.classList.toggle("hidden", !open);
-  if (reason) reason.textContent = open ? (p.circuitReason || `${p.consecutiveFailures}/${p.maxConsecutiveFailures} falhas consecutivas`) : "";
-  if (resetBtn) resetBtn.classList.toggle("hidden", !open);
+  if (reason) reason.textContent = open ? (p.telemetry.nextAttemptAt ? `próxima ${ponteFmtAgo(p.telemetry.nextAttemptAt)}` : "automática") : "";
 }
 
 function ponteRenderJobs(lastJobs) {
@@ -1678,10 +1704,10 @@ function ponteRenderJobs(lastJobs) {
     const resultPill = j.ok ? '<span class="pill pill-ok">ok</span>' : '<span class="pill pill-bad">fail</span>';
     return `<tr>
       <td>${esc(ponteFmtAgo(j.at))}</td>
-      <td>${esc(j.stage || "—")}</td>
+      <td>${esc(j.radarLeadId || "—")}</td>
       <td>${resultPill}</td>
-      <td>${esc(ponteFmtMs(j.latencyMs))}</td>
-      <td style="font-size:11px;">${esc(j.note || "—")}</td>
+      <td>${esc(ponteFmtMs(j.durationMs))}</td>
+      <td style="font-size:11px;">${esc(j.noNewData === true ? "sem novidade" : (j.reason || "—"))}</td>
     </tr>`;
   }).join("");
 }
@@ -1689,98 +1715,78 @@ function ponteRenderJobs(lastJobs) {
 async function ponteRender() {
   const pill = $("#ponte-status");
   const toggleBtn = $("#btn-ponte-toggle");
-  const modelBtn = $("#btn-ai-warm");
   let r;
-  try { r = await api("GET", "/owner/ponte/status"); }
+  try { r = await api("GET", "/owner/local-deep-enrich/status"); }
   catch (err) { r = { ok: false, reason: err.message }; }
 
-  if (!r || !r.ok || !r.ponte) {
-    // Falha de leitura não trava o restante do painel e nunca libera o controle por suposição.
+  if (!r || !r.ok || !r.localDeepEnrich) {
     if (pill) { pill.textContent = "sem leitura"; pill.className = "pill pill-muted"; }
     if (toggleBtn) toggleBtn.disabled = true;
-    if (modelBtn) { modelBtn.disabled = true; delete modelBtn.dataset.warm; }
     const verdictTitle = $("#ponte-verdict-title");
     const verdictDetail = $("#ponte-verdict-detail");
-    if (verdictTitle) verdictTitle.textContent = "Sem leitura da ponte";
-    if (verdictDetail) verdictDetail.textContent = (r && r.reason) || "O local-agent não informou o estado da ponte.";
+    if (verdictTitle) verdictTitle.textContent = "sem leitura";
+    if (verdictDetail) verdictDetail.textContent = "";
     ponteRenderJobs([]);
     return;
   }
-  const p = r.ponte;
-
-  // O endpoint respondeu. O botão principal reflete somente o controle real do worker;
-  // quente/frio pertence ao Ollama e fica na ação secundária de aquecimento.
-  const manualEnabled = p.manualEnabled;
+  const p = r.localDeepEnrich;
+  const telemetry = p.telemetry || {};
+  const metrics = p.metrics || {};
+  const publicState = p.publicState || "aguardando liberação";
   if (pill) {
-    const known = typeof manualEnabled === "boolean";
-    pill.textContent = known ? (manualEnabled ? "ponte ligada" : "ponte desligada") : "controle sem leitura";
-    pill.className = `pill ${known ? (manualEnabled ? "pill-ok" : "pill-amber") : "pill-muted"}`;
+    pill.textContent = publicState;
+    pill.className = `pill ${publicState === "liberado" ? "pill-ok" : publicState === "invalidado" ? "pill-bad" : publicState === "em processo de liberação" ? "pill-amber" : "pill-muted"}`;
   }
   if (toggleBtn) {
-    const known = typeof manualEnabled === "boolean";
-    if (known) toggleBtn.dataset.enabled = manualEnabled ? "true" : "false";
-    else delete toggleBtn.dataset.enabled;
-    toggleBtn.setAttribute("aria-pressed", manualEnabled === true ? "true" : "false");
-    toggleBtn.textContent = known ? (manualEnabled ? "Desativar agora" : "Ativar novamente") : "Controle indisponível";
-    toggleBtn.className = `btn ${manualEnabled === true ? "btn-red" : "btn-green"}`;
-    toggleBtn.title = manualEnabled === true
-      ? "Emergência: impede esta máquina de buscar novos trabalhos no VPS"
-      : "Reativa a ponte depois do freio de emergência e volta a buscar trabalhos no VPS";
-    if (toggleBtn.dataset.busy !== "true") toggleBtn.disabled = !known;
-  }
-  if (modelBtn) {
-    const warm = Boolean(p.warm);
-    modelBtn.dataset.warm = warm ? "true" : "false";
-    modelBtn.setAttribute("aria-pressed", warm ? "true" : "false");
-    modelBtn.textContent = warm ? "Liberar 30B da memória" : "Aquecer 30B";
-    modelBtn.title = warm
-      ? "Descarrega o 30B da memória; isso não muda o liga/desliga da ponte"
-      : "Carrega o 30B na memória; isso não liga nem desliga a ponte";
-    if (modelBtn.dataset.busy !== "true") modelBtn.disabled = false;
+    toggleBtn.textContent = p.running ? "Ligado" : "Ligar";
+    toggleBtn.className = "btn btn-green";
+    toggleBtn.title = "Recebe leads do VPS, processa no seu computador e grava o enriquecimento de volta no VPS.";
+    if (toggleBtn.dataset.busy !== "true") toggleBtn.disabled = Boolean(p.running);
   }
 
   ponteRenderCircuit(p);
 
   const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "—" : String(v); };
   set("#ponte-model", p.model);
-  const lag = p.lag || {};
+  const lag = telemetry.lag || {};
   set("#ponte-lag", lag.queuedDue != null ? lag.queuedDue : "—");
-  const activity = p.activity || {};
-  set("#ponte-activity", activity.activeUsers != null ? `${activity.activeUsers} (janela ${activity.windowMinutes ?? 5}min)` : "—");
-  set("#ponte-throughput", ponteThroughputLabel(p.lastJobs));
-  const totals = p.totals || {};
-  set("#ponte-leased", totals.leased);
-  set("#ponte-completed", totals.completed);
-  set("#ponte-failed", totals.failed);
-  set("#ponte-coldloads", totals.coldLoads);
+  set("#ponte-oldest", lag.oldestQueuedAgeMs != null ? ponteFmtMs(lag.oldestQueuedAgeMs) : "—");
+  set("#ponte-phase", pontePhaseLabel(telemetry.phase));
+  set("#ponte-heartbeat", ponteFmtAgo(telemetry.lastHeartbeatAt));
+  set("#ponte-leased", metrics.received);
+  set("#ponte-completed", metrics.completedWithData);
+  set("#ponte-no-data", metrics.completedNoNewData);
+  set("#ponte-retries", metrics.retries);
+  set("#ponte-failed", metrics.failedFinal);
+  set("#ponte-emails", metrics.emailsAdded);
+  set("#ponte-phones", metrics.phonesAdded);
+  set("#ponte-owners", metrics.ownersAdded);
+  set("#ponte-average", ponteFmtMs(metrics.averageMs));
+  set("#ponte-p95", ponteFmtMs(metrics.p95Ms));
+  set("#ponte-last-write", ponteFmtAgo(telemetry.lastSuccessfulWriteAt));
+  set("#ponte-next-attempt", ponteFmtAgo(telemetry.nextAttemptAt));
+  const targetLabel = telemetry.target && telemetry.target.status === "connected" ? "produção conectada"
+    : telemetry.target && telemetry.target.status === "wrong_environment" ? "ambiente errado"
+      : telemetry.target && telemetry.target.configured ? "produção indisponível" : "aguardando produção";
+  set("#ponte-target", targetLabel);
+  const targetPill = $("#ponte-target");
+  if (targetPill) targetPill.className = `pill ${telemetry.target && telemetry.target.connected ? "pill-ok" : telemetry.target && telemetry.target.status === "wrong_environment" ? "pill-bad" : telemetry.target && telemetry.target.configured ? "pill-amber" : "pill-muted"}`;
+  const labPill = $("#ponte-lab-status");
+  if (labPill) {
+    const labState = telemetry.dependencies && telemetry.dependencies.localLab;
+    labPill.textContent = labState === "up" ? "Lab ligado" : labState === "starting" ? "Lab ligando" : "Lab aguardando";
+    labPill.className = `pill ${telemetry.dependencies && telemetry.dependencies.localLab === "up" ? "pill-ok" : "pill-muted"}`;
+  }
 
-  // Explica por que a ponte está em cada estado sem misturar isso com o estado do modelo.
   const verdictEl = $("#ponte-verdict");
   const verdictIcon = $("#ponte-verdict-icon");
   const verdictTitle = $("#ponte-verdict-title");
   const verdictDetail = $("#ponte-verdict-detail");
-  const action = manualEnabled === true ? (p.lastAction || (p.circuitOpen ? "circuit_open" : null)) : null;
-  const vClass = action ? (PONTE_ACTION_VERDICT_CLASS[action] || "") : "";
-  if (verdictEl) verdictEl.className = `verdict-line${vClass ? ` ${vClass}` : ""}`;
-  if (verdictIcon) verdictIcon.textContent = action === "work" ? "✓" : (action === "circuit_open" ? "✕" : "•");
-  if (manualEnabled === false) {
-    if (verdictTitle) verdictTitle.textContent = "Ponte desligada pelo dono";
-    if (verdictDetail) verdictDetail.textContent = "Os trabalhos continuam aguardando no VPS até a ponte local voltar.";
-  } else if (typeof manualEnabled !== "boolean") {
-    if (verdictTitle) verdictTitle.textContent = "Controle da ponte sem leitura";
-    if (verdictDetail) verdictDetail.textContent = "O botão permanece bloqueado até o backend informar o estado manual real.";
-  } else if (!action) {
-    if (verdictTitle) verdictTitle.textContent = "Aguardando 1º ciclo…";
-    if (verdictDetail) verdictDetail.textContent = "";
-  } else {
-    if (verdictTitle) verdictTitle.textContent = PONTE_ACTION_LABEL[action] || action;
-    if (verdictDetail) verdictDetail.textContent = p.lastReason || "";
-  }
-
-  // Interlock informativo: ponte desativada = "fila espera no VPS" como ESTADO, nunca erro —
-  // coberto pelo ramo `manualEnabled === false` acima e pelo próprio backoff de rede
-  // (lastError de rede não vira alarme vermelho, só aparece no rodapé).
-  ponteFeedback(p.lastError ? `Último aviso: ${p.lastError}` : "", p.lastError ? "error" : "");
+  if (verdictEl) verdictEl.className = `verdict-line${publicState === "liberado" ? " ok" : publicState === "invalidado" ? " buy" : ""}`;
+  if (verdictIcon) verdictIcon.textContent = publicState === "liberado" ? "✓" : publicState === "invalidado" ? "✕" : "•";
+  if (verdictTitle) verdictTitle.textContent = publicState;
+  if (verdictDetail) verdictDetail.textContent = pontePhaseLabel(telemetry.phase);
+  ponteFeedback(telemetry.lastError || "", telemetry.lastError ? "error" : "");
 
   ponteRenderJobs(p.lastJobs);
   return p;
@@ -1795,48 +1801,23 @@ function ponteFeedback(message, state = "") {
 
 async function ponteToggleClick() {
   const btn = $("#btn-ponte-toggle");
-  if (!btn || (btn.dataset.enabled !== "true" && btn.dataset.enabled !== "false")) return;
-  const targetEnabled = btn.dataset.enabled !== "true";
-  let outcome = null;
+  if (!btn || btn.disabled) return;
   if (btn) btn.dataset.busy = "true";
   if (btn) btn.disabled = true;
-  btn.textContent = "Confirmando…";
-  ponteFeedback(targetEnabled ? "Solicitando ativação da ponte…" : "Solicitando parada da ponte…");
+  btn.textContent = "Ligando…";
   try {
-    const r = await api("POST", "/owner/ponte/control", { enabled: targetEnabled });
-    if (!r || !r.ok) throw new Error((r && (r.reason || r.error)) || "o backend não confirmou o comando");
-    const confirmed = await ponteRender();
-    if (!confirmed || confirmed.manualEnabled !== targetEnabled) {
-      throw new Error("o estado reconsultado não confirmou a mudança");
-    }
-    outcome = { message: targetEnabled ? "Ponte ligada e confirmada." : "Ponte desligada e confirmada.", state: "success" };
-  } catch (err) {
-    outcome = { message: `A ponte não mudou: ${err.message}.`, state: "error" };
-  }
+    await api("POST", "/owner/local-deep-enrich/start", {});
+  } catch (err) { ponteFeedback(err.message, "error"); }
   finally {
     delete btn.dataset.busy;
     await ponteRender();
-    if (outcome) ponteFeedback(outcome.message, outcome.state);
   }
-}
-
-async function ponteResetClick() {
-  const fb = $("#ponte-feedback");
-  const btn = $("#btn-ponte-reset");
-  if (btn) btn.disabled = true;
-  if (fb) fb.textContent = "rearmando o disjuntor…";
-  try {
-    await api("POST", "/owner/ponte/reset");
-    if (fb) fb.textContent = "disjuntor rearmado — worker volta a processar no próximo ciclo.";
-  } catch (err) { if (fb) fb.textContent = `erro: ${err.message}`; }
-  finally { if (btn) btn.disabled = false; ponteRender(); }
 }
 
 { const b = $("#btn-fab-start"); if (b) b.addEventListener("click", fabStart); }
 { const b = $("#btn-fab-stop"); if (b) b.addEventListener("click", fabStop); }
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
 { const b = $("#btn-ponte-toggle"); if (b) b.addEventListener("click", ponteToggleClick); }
-{ const b = $("#btn-ponte-reset"); if (b) b.addEventListener("click", ponteResetClick); }
 
 /* ================= HOT-02 + HOT-03 (fundidos) — Base Receita ================= */
 /* Pesquisa avançada em cima do dump local da RFB (CnpjPublicCompany) + anti-contador.

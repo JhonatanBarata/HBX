@@ -26,6 +26,34 @@ function safeError(error) {
   return code ? `${code}:${message}` : message;
 }
 
+const RETRYABLE_SQL_STATES = new Set([
+  "40001", // serialization_failure
+  "40P01", // deadlock_detected
+  "55P03", // lock_not_available / lock_timeout
+  "57014", // query_canceled / statement_timeout
+  "53300", // too_many_connections
+  "53400", // configuration_limit_exceeded
+  "57P01", // admin_shutdown
+  "57P02", // crash_shutdown
+  "57P03", // cannot_connect_now
+]);
+
+function isTerminalContractRejection(error) {
+  const sqlState = String(error && error.code || "").toUpperCase();
+  if (!/^[0-9A-Z]{5}$/.test(sqlState) || RETRYABLE_SQL_STATES.has(sqlState)) return false;
+  const message = String(error && error.message || "").toLowerCase();
+  // O lease pode ser renovado/reobtido e o mesmo journal reaplicado com segurança. Não invalida
+  // conteúdo por uma disputa ou expiração puramente operacional.
+  if (/hbx_local_enrichment:(?:lease_expired|lease_mismatch)\b/.test(message)) return false;
+  // Toda rejeição nomeada pelo contrato v1 é determinística para este payload/lead. Repetir crawl
+  // e 30B não corrige evidência ausente, WhatsApp não confirmado, delta contraditório, conflito de
+  // identidade/telefone ou tenant divergente; esses casos devem chegar ao estado Invalidado.
+  if (/hbx_local_enrichment:[a-z0-9_%.-]+/.test(message)) return true;
+  // Erros de dados/constraints produzidos pelo PostgreSQL também são determinísticos. Falhas
+  // operacionais genéricas (rede, lock, timeout, shutdown) permanecem fora desta classificação.
+  return sqlState.startsWith("22") || sqlState.startsWith("23");
+}
+
 function buildPoolOptions(env) {
   const connectionString = String(env.HBX_LOCAL_ENRICH_DATABASE_URL || "").trim();
   const sslMode = String(env.HBX_LOCAL_ENRICH_DB_SSL || "").trim().toLowerCase();
@@ -69,7 +97,7 @@ function createLocalEnrichmentDbWriter(options = {}) {
     if (target !== "production") reason = "target_production_obrigatorio";
     else if (!poolOptions.connectionString) reason = "database_url_ausente";
     else if (!expectedDatabase) reason = "expected_database_ausente";
-    else if (poolOptions.ssl === false && !poolOptions._loopback && !envBool(env, "HBX_LOCAL_ENRICH_PRIVATE_CHANNEL_CONFIRMED", false)) reason = "canal_privado_nao_confirmado";
+    else if (!poolOptions._loopback && !envBool(env, "HBX_LOCAL_ENRICH_PRIVATE_CHANNEL_CONFIRMED", false)) reason = "canal_privado_nao_confirmado";
     return {
       ready: !reason,
       reason,
@@ -143,7 +171,18 @@ function createLocalEnrichmentDbWriter(options = {}) {
       if (!receipt || !receipt.missionId) return { ok: false, reason: "recibo_invalido", retryable: true };
       return { ok: true, receipt };
     } catch (error) {
-      return { ok: false, reason: "commit_indisponivel", error: safeError(error), retryable: true, outcomeUnknown: true };
+      const sqlState = String(error && error.code || "");
+      const serverRejected = /^[0-9A-Z]{5}$/.test(sqlState);
+      const terminalContractError = isTerminalContractRejection(error);
+      return {
+        ok: false,
+        reason: serverRejected ? "commit_rejeitado" : "commit_indisponivel",
+        error: safeError(error),
+        retryable: !terminalContractError,
+        // Só falha de transporte/timeout pode ter ocorrido depois do COMMIT sem a resposta chegar.
+        // SQLSTATE significa que o PostgreSQL respondeu com erro e a transação foi desfeita.
+        outcomeUnknown: !serverRejected,
+      };
     }
   }
 
@@ -166,6 +205,7 @@ module.exports = {
   STAGE,
   buildPoolOptions,
   createLocalEnrichmentDbWriter,
+  isTerminalContractRejection,
   parseJsonValue,
   safeError,
 };

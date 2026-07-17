@@ -50,16 +50,29 @@ function buildCompactEvidence(page, provider = 'site_crawl') {
   const literalTokens = Array.from(new Set([
     ...Array.from(String(page.html || '').matchAll(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi), (match) => String(match[0]).toLowerCase()),
     ...Array.from(String(page.html || '').matchAll(/(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?\d{4,5}[\s.-]?\d{4}/g), (match) => compactText(match[0], 40)),
+    ...Array.from(
+      String(page.html || '').matchAll(/(?:https?:)?\/\/(?:wa\.me\/\d+|(?:api|web)\.whatsapp\.com\/send\?[^\s"'<>]*)/gi),
+      (match) => compactText(match[0].replace(/&amp;/gi, '&'), 300),
+    ),
+    ...Array.from(String(page.html || '').matchAll(/https?:\/\/[^\s"'<>]*(?:instagram\.com|facebook\.com)[^\s"'<>]*/gi), (match) => compactText(match[0], 300)),
   ].filter(Boolean))).slice(0, 12);
   const normalizedText = compactText(`${visibleText} ${literalTokens.join(' ')}`, 100_000);
   if (!normalizedText) return null;
   const contentHash = createHash('sha256').update(normalizedText, 'utf8').digest('hex');
   const id = `ev_${createHash('sha256').update(`${sourceUrl}\n${contentHash}`, 'utf8').digest('hex').slice(0, 24)}`;
+  const normalizedProvider = compactText(provider, 80) || 'site_crawl';
+  const pageType = normalizedProvider === 'directory_probe'
+    ? 'directory'
+    : normalizedProvider === 'social_probe'
+      ? 'social'
+      : normalizedProvider === 'web_query'
+        ? 'search'
+        : pageTypeFromUrl(sourceUrl);
   return {
     id,
     sourceUrl,
-    provider: compactText(provider, 80) || 'site_crawl',
-    pageType: pageTypeFromUrl(sourceUrl),
+    provider: normalizedProvider,
+    pageType,
     capturedAt: page.capturedAt || new Date().toISOString(),
     contentHash,
     excerpt: compactText(`${literalTokens.join(' ')} ${compactRelevantExcerpt(visibleText, 320)}`, MAX_EXCERPT_CHARS),

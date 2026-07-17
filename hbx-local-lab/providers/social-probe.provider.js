@@ -18,7 +18,7 @@ async function runSocialProbeProvider(job, context = {}) {
 
   for (const url of socialUrls) {
     if (context.isCanceled && context.isCanceled()) break;
-    const page = await fetchPublicPage(url, context.signal, context.fetcher);
+    const page = await fetchPublicPage(url, context.signal, context.fetcher, context.resolveHostname);
     if (!page.ok) continue;
     const compactEvidence = buildCompactEvidence(page, 'social_probe');
     if (compactEvidence) evidence.push(compactEvidence);

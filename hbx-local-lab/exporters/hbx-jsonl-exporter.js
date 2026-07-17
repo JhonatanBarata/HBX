@@ -16,13 +16,14 @@ function normalizeEvidence(item) {
   const id = compactText(item && item.id, 80);
   const sourceUrl = normalizeUrl(item && item.sourceUrl);
   const contentHash = String(item && item.contentHash || '').trim().toLowerCase();
-  if (!id || !sourceUrl || !/^[a-f0-9]{64}$/.test(contentHash)) return null;
+  const capturedMs = Date.parse(String(item && item.capturedAt || ''));
+  if (!id || !sourceUrl || !/^[a-f0-9]{64}$/.test(contentHash) || !Number.isFinite(capturedMs)) return null;
   return {
     id,
     sourceUrl,
     provider: compactText(item.provider || 'site_crawl', 80),
     pageType: compactText(item.pageType || 'other', 40),
-    capturedAt: item.capturedAt ? new Date(item.capturedAt).toISOString() : null,
+    capturedAt: new Date(capturedMs).toISOString(),
     contentHash,
     excerpt: compactText(item.excerpt, 480),
   };
@@ -45,6 +46,9 @@ function normalizeLeadContact(contact) {
     evidenceId: compactText(contact.evidenceId, 80) || null,
     confidence: Number.isFinite(Number(contact.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(contact.confidence)))) : 0,
     officialDomainMatch: Boolean(contact.officialDomainMatch),
+    ...(kind === 'whatsapp' && contact.whatsappConfirmed === true && contact.verification === 'official_whatsapp_link'
+      ? { whatsappConfirmed: true, verification: 'official_whatsapp_link' }
+      : {}),
   };
 }
 

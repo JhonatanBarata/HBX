@@ -25,25 +25,38 @@ test('server cria job local, consulta status e exporta JSONL', async () => {
   const address = await listen(server);
   const baseUrl = `http://127.0.0.1:${address.port}`;
   try {
+    const jobPayload = {
+      contractVersion: 'local_deep_enrich_v1',
+      missionId: 'mission-server-test',
+      radarLeadId: 'radar-server-test',
+      workVersion: 1,
+      city: 'Rio Claro',
+      state: 'SP',
+      segment: 'clinicas',
+      targetEmails: 2,
+      providers: ['web_query'],
+      candidates: [{
+        name: 'Clinica Real',
+        website: 'https://clinicareal.com.br',
+        sourceUrl: 'https://clinicareal.com.br',
+      }],
+    };
     const createdResponse = await fetch(`${baseUrl}/local-lab/jobs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        city: 'Rio Claro',
-        state: 'SP',
-        segment: 'clinicas',
-        targetEmails: 2,
-        providers: ['web_query'],
-        candidates: [{
-          name: 'Clinica Real',
-          website: 'https://clinicareal.com.br',
-          sourceUrl: 'https://clinicareal.com.br',
-        }],
-      }),
+      body: JSON.stringify(jobPayload),
     });
     assert.equal(createdResponse.status, 202);
     const created = await createdResponse.json();
     assert.equal(created.status, 'queued');
+
+    const replayResponse = await fetch(`${baseUrl}/local-lab/jobs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(jobPayload),
+    });
+    const replay = await replayResponse.json();
+    assert.equal(replay.id, created.id);
 
     const completed = await waitForCompleted(baseUrl, created.id);
     assert.equal(completed.status, 'completed');

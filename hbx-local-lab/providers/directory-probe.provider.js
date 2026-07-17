@@ -18,7 +18,7 @@ async function runDirectoryProbeProvider(job, context = {}) {
 
   for (const url of directoryUrls) {
     if (context.isCanceled && context.isCanceled()) break;
-    const page = await fetchPublicPage(url, context.signal, context.fetcher);
+    const page = await fetchPublicPage(url, context.signal, context.fetcher, context.resolveHostname);
     if (!page.ok) continue;
     const compactEvidence = buildCompactEvidence(page, 'directory_probe');
     if (compactEvidence) evidence.push(compactEvidence);
