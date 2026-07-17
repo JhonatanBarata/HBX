@@ -8,6 +8,7 @@ import { I, ICONS } from "@/components/hbx/shell";
 type PreviewState = "queued" | "processing" | "released" | "invalidated";
 type PreviewTone = "waiting" | "working" | "success" | "danger";
 type RadarMode = "active" | "idle" | "error";
+type Point = [number, number];
 
 type PreviewStateMeta = {
   label: string;
@@ -19,6 +20,24 @@ type PreviewStateMeta = {
 type StateCounts = Record<PreviewState, number>;
 type FlowEntry = { state: PreviewState; target: HTMLElement };
 type FlowFlight = FlowEntry & { key: string };
+type FlowTargetGeometry = FlowEntry & {
+  key: string;
+  x: number;
+  y: number;
+};
+type FlowSourceGeometry = {
+  element: HTMLElement;
+  point: Point;
+};
+type FlowNetworkLayout = {
+  width: number;
+  height: number;
+  collectorY: number;
+  trunkX: number;
+  trunkBottomY: number;
+  sources: Map<PreviewState, FlowSourceGeometry>;
+  targets: FlowTargetGeometry[];
+};
 
 const PREVIEW_STATE_ORDER: PreviewState[] = ["queued", "processing", "released", "invalidated"];
 
@@ -223,16 +242,13 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
 
     const svgNamespace = "http://www.w3.org/2000/svg";
     const pipe = document.createElementNS(svgNamespace, "svg");
-    const pipeShadow = document.createElementNS(svgNamespace, "path");
-    const pipeGlass = document.createElementNS(svgNamespace, "path");
-    const pipeLight = document.createElementNS(svgNamespace, "path");
+    const network = document.createElementNS(svgNamespace, "g");
     pipe.classList.add("vnd-live-pipe");
     pipe.setAttribute("aria-hidden", "true");
-    pipeShadow.classList.add("vnd-live-pipe__shadow");
-    pipeGlass.classList.add("vnd-live-pipe__glass");
-    pipeLight.classList.add("vnd-live-pipe__light");
-    pipe.append(pipeShadow, pipeGlass, pipeLight);
-    root.append(pipe);
+    pipe.setAttribute("preserveAspectRatio", "none");
+    network.classList.add("vnd-live-pipe__network");
+    pipe.append(network);
+    root.prepend(pipe);
 
     let disposed = false;
     let scanFrame = 0;
@@ -263,58 +279,165 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
 
     const layerKey = (scope: HTMLElement): string => scope.id || scope.className || "vendas";
 
-    const pathFor = (source: HTMLElement, target: HTMLElement) => {
+    const buildLayout = (entries: Map<string, FlowEntry>): FlowNetworkLayout | null => {
       const rootRect = root.getBoundingClientRect();
-      const sourceRect = source.getBoundingClientRect();
-      const targetRect = target.getBoundingClientRect();
-      if (!rootRect.width || !targetRect.width || !targetRect.height) return null;
+      if (!rootRect.width || !rootRect.height) return null;
 
-      const sx = sourceRect.left - rootRect.left + sourceRect.width / 2;
-      const sy = sourceRect.bottom - rootRect.top - 1;
-      const targetX = targetRect.left - rootRect.left + Math.min(28, Math.max(16, targetRect.width * 0.07));
-      const targetY = targetRect.top - rootRect.top + targetRect.height / 2;
-      const stageRect = root.querySelector<HTMLElement>(".vnd-stage")?.getBoundingClientRect();
-      const trunkX = Math.max(18, (stageRect?.left ?? rootRect.left) - rootRect.left + 22);
-      const railBottom = header.getBoundingClientRect().bottom - rootRect.top;
-      const collectorY = Math.max(sy + 12, railBottom + 7);
-      const entryY = Math.max(targetY, collectorY + 36);
-      const radius = 12;
-      const direction = sx >= trunkX ? -1 : 1;
-      const sourceTurnX = sx + direction * radius;
+      const sources = new Map<PreviewState, FlowSourceGeometry>();
+      PREVIEW_STATE_ORDER.forEach((sourceState) => {
+        const element = header.querySelector<HTMLElement>(`[data-enrichment-source="${sourceState}"]`);
+        if (!element || !visible(element)) return;
+        const rect = element.getBoundingClientRect();
+        sources.set(sourceState, {
+          element,
+          point: [
+            rect.left - rootRect.left + rect.width / 2,
+            rect.bottom - rootRect.top - 1,
+          ],
+        });
+      });
 
-      const pathData = [
-        `M ${sx} ${sy}`,
-        `L ${sx} ${collectorY - radius}`,
-        `Q ${sx} ${collectorY} ${sourceTurnX} ${collectorY}`,
-        `L ${trunkX + radius} ${collectorY}`,
-        `Q ${trunkX} ${collectorY} ${trunkX} ${collectorY + radius}`,
-        `L ${trunkX} ${entryY - radius}`,
-        `Q ${trunkX} ${entryY} ${trunkX + radius} ${entryY}`,
-        `L ${targetX} ${entryY}`,
-      ].join(" ");
+      const targets: FlowTargetGeometry[] = [];
+      entries.forEach((entry, key) => {
+        if (!root.contains(entry.target) || !visible(entry.target)) return;
+        const rect = entry.target.getBoundingClientRect();
+        targets.push({
+          key,
+          ...entry,
+          x: rect.left - rootRect.left + 1,
+          y: rect.top - rootRect.top + rect.height / 2,
+        });
+      });
+      targets.sort((left, right) => left.y - right.y);
+
+      if (sources.size === 0 || targets.length === 0) return null;
+
+      const sourcePoints = Array.from(sources.values(), ({ point }) => point);
+      const headerBottom = header.getBoundingClientRect().bottom - rootRect.top;
+      const collectorY = Math.max(
+        headerBottom + 15,
+        Math.max(...sourcePoints.map((point) => point[1])) + 14,
+      );
+      const firstTargetX = Math.min(...targets.map((target) => target.x));
+      const stageLeft = (root.querySelector<HTMLElement>(".vnd-stage")?.getBoundingClientRect().left ?? rootRect.left) - rootRect.left;
+      const trunkX = Math.max(8, Math.min(firstTargetX - 18, stageLeft - 12));
+      const trunkBottomY = Math.max(collectorY + 30, ...targets.map((target) => target.y));
 
       return {
-        pathData,
-        points: [
-          [sx, sy],
-          [sx, collectorY],
-          [trunkX, collectorY],
-          [trunkX, entryY],
-          [targetX, entryY],
-        ] as Array<[number, number]>,
+        width: rootRect.width,
+        height: rootRect.height,
+        collectorY,
+        trunkX,
+        trunkBottomY,
+        sources,
+        targets,
       };
     };
 
-    const drawPipe = (stateToDraw: PreviewState, target: HTMLElement) => {
-      const source = header.querySelector<HTMLElement>(`[data-enrichment-source="${stateToDraw}"]`);
-      if (!source || !visible(source) || !visible(target)) return null;
-      const geometry = pathFor(source, target);
-      if (!geometry) return null;
-      pipe.dataset.flowState = stateToDraw;
-      pipeShadow.setAttribute("d", geometry.pathData);
-      pipeGlass.setAttribute("d", geometry.pathData);
-      pipeLight.setAttribute("d", geometry.pathData);
-      return geometry;
+    const createPath = (className: string, pathData: string) => {
+      const path = document.createElementNS(svgNamespace, "path");
+      path.classList.add(className);
+      path.setAttribute("d", pathData);
+      return path;
+    };
+
+    const appendSegment = (
+      pathData: string,
+      kind: "inlet" | "main" | "branch",
+      flowState?: PreviewState,
+    ) => {
+      const group = document.createElementNS(svgNamespace, "g");
+      group.classList.add("vnd-live-pipe__segment", `is-${kind}`);
+      if (flowState) group.dataset.flowState = flowState;
+      group.append(
+        createPath("vnd-live-pipe__shadow", pathData),
+        createPath("vnd-live-pipe__rim", pathData),
+        createPath("vnd-live-pipe__glass", pathData),
+        createPath("vnd-live-pipe__core", pathData),
+        createPath("vnd-live-pipe__shine", pathData),
+      );
+      network.append(group);
+    };
+
+    const appendCoupler = (x: number, y: number, flowState?: PreviewState) => {
+      const group = document.createElementNS(svgNamespace, "g");
+      group.classList.add("vnd-live-pipe__coupler");
+      if (flowState) group.dataset.flowState = flowState;
+      const ring = document.createElementNS(svgNamespace, "circle");
+      const core = document.createElementNS(svgNamespace, "circle");
+      ring.classList.add("vnd-live-pipe__coupler-ring");
+      core.classList.add("vnd-live-pipe__coupler-core");
+      ring.setAttribute("cx", String(x));
+      ring.setAttribute("cy", String(y));
+      ring.setAttribute("r", "6.2");
+      core.setAttribute("cx", String(x));
+      core.setAttribute("cy", String(y));
+      core.setAttribute("r", "3.1");
+      group.append(ring, core);
+      network.append(group);
+    };
+
+    const renderNetwork = (entries: Map<string, FlowEntry>) => {
+      const layout = buildLayout(entries);
+      network.replaceChildren();
+      root.classList.toggle("vnd-live-pipe-ready", Boolean(layout));
+      if (!layout) {
+        delete pipe.dataset.branchCount;
+        return null;
+      }
+
+      pipe.setAttribute("viewBox", `0 0 ${Math.ceil(layout.width)} ${Math.ceil(layout.height)}`);
+      pipe.dataset.branchCount = String(layout.targets.length);
+
+      const sourcePoints = Array.from(layout.sources.values(), ({ point }) => point);
+      const rightmostSourceX = Math.max(...sourcePoints.map((point) => point[0]));
+      const corner = Math.min(16, Math.max(9, (layout.trunkBottomY - layout.collectorY) * 0.06));
+
+      layout.sources.forEach(({ point }, sourceState) => {
+        appendSegment(
+          `M ${point[0]} ${point[1]} L ${point[0]} ${layout.collectorY}`,
+          "inlet",
+          sourceState,
+        );
+        appendCoupler(point[0], layout.collectorY, sourceState);
+      });
+
+      appendSegment([
+        `M ${rightmostSourceX} ${layout.collectorY}`,
+        `L ${layout.trunkX + corner} ${layout.collectorY}`,
+        `Q ${layout.trunkX} ${layout.collectorY} ${layout.trunkX} ${layout.collectorY + corner}`,
+        `L ${layout.trunkX} ${layout.trunkBottomY}`,
+      ].join(" "), "main");
+
+      layout.targets.forEach((target) => {
+        appendSegment(`M ${layout.trunkX} ${target.y} L ${target.x} ${target.y}`, "branch");
+        appendCoupler(target.x, target.y, target.state);
+      });
+
+      return layout;
+    };
+
+    const pathFor = (source: HTMLElement, target: HTMLElement) => {
+      const layout = buildLayout(latest);
+      if (!layout) return null;
+      const rootRect = root.getBoundingClientRect();
+      const sourceRect = source.getBoundingClientRect();
+      const destination = layout.targets.find((item) => item.target === target);
+      if (!destination) return null;
+
+      const start: Point = [
+        sourceRect.left - rootRect.left + sourceRect.width / 2,
+        sourceRect.bottom - rootRect.top - 1,
+      ];
+      return {
+        points: [
+          start,
+          [start[0], layout.collectorY] as Point,
+          [layout.trunkX, layout.collectorY] as Point,
+          [layout.trunkX, destination.y] as Point,
+          [destination.x, destination.y] as Point,
+        ],
+      };
     };
 
     const markArrival = (target: HTMLElement, arrivalState: PreviewState) => {
@@ -328,34 +451,23 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
       }, arrivalState === "released" ? 2600 : 1800);
     };
 
-    const drawIdlePipe = () => {
-      if (disposed || flying) return;
-      const preferred = ["processing", "queued", "released", "invalidated"]
-        .flatMap((preferredState) => Array.from(latest.values()).filter((item) => item.state === preferredState))
-        .find((item) => root.contains(item.target) && visible(item.target));
-      if (!preferred) {
-        pipeShadow.removeAttribute("d");
-        pipeGlass.removeAttribute("d");
-        pipeLight.removeAttribute("d");
-        return;
-      }
-      drawPipe(preferred.state, preferred.target);
-    };
-
     const runNext = () => {
       if (disposed || flying) return;
       const next = queue.shift();
-      if (!next) {
-        drawIdlePipe();
-        return;
-      }
+      if (!next) return;
       if (!root.contains(next.target) || !visible(next.target)) {
         runNext();
         return;
       }
 
-      const geometry = drawPipe(next.state, next.target);
+      const source = header.querySelector<HTMLElement>(`[data-enrichment-source="${next.state}"]`);
+      if (!source || !visible(source)) {
+        runNext();
+        return;
+      }
+      const geometry = pathFor(source, next.target);
       if (!geometry) {
+        renderNetwork(latest);
         runNext();
         return;
       }
@@ -364,6 +476,10 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         if (!disposed) setState(next.state);
       });
       flying = true;
+      source.classList.remove("is-discharging");
+      void source.offsetWidth;
+      source.classList.add("is-discharging");
+      setTimer(() => source.classList.remove("is-discharging"), 760);
       next.target.classList.add("is-enrichment-receiving");
       next.target.dataset.enrichmentArrival = next.state;
 
@@ -383,15 +499,19 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
       root.append(token);
 
       const [start, collector, trunkTop, trunkBottom, destination] = geometry.points;
-      const duration = next.state === "released" ? 1850 : 1420;
+      const halfX = 19;
+      const halfY = 10;
+      const duration = next.state === "released" ? 1580 : 1320;
+      const at = (point: Point, scale = 1) =>
+        `translate3d(${point[0] - halfX}px, ${point[1] - halfY}px, 0) scale(${scale})`;
       const animation = token.animate([
-        { transform: `translate3d(${start[0] - 13}px, ${start[1] - 9}px, 0) scale(.72)`, opacity: 0 },
-        { transform: `translate3d(${start[0] - 13}px, ${start[1] - 9}px, 0) scale(1)`, opacity: 1, offset: 0.08 },
-        { transform: `translate3d(${collector[0] - 13}px, ${collector[1] - 9}px, 0) scale(1)`, opacity: 1, offset: 0.23 },
-        { transform: `translate3d(${trunkTop[0] - 13}px, ${trunkTop[1] - 9}px, 0) scale(.9)`, opacity: 1, offset: 0.43 },
-        { transform: `translate3d(${trunkBottom[0] - 13}px, ${trunkBottom[1] - 9}px, 0) scale(.9)`, opacity: 1, offset: next.state === "released" ? 0.7 : 0.76 },
-        { transform: `translate3d(${destination[0] - 13}px, ${destination[1] - 9}px, 0) scale(1.08)`, opacity: 1, offset: 0.94 },
-        { transform: `translate3d(${destination[0] - 13}px, ${destination[1] - 9}px, 0) scale(.4)`, opacity: 0 },
+        { transform: at(start, 0.66), opacity: 0 },
+        { transform: at(start, 1), opacity: 1, offset: 0.08 },
+        { transform: at(collector, 1), opacity: 1, offset: 0.25 },
+        { transform: at(trunkTop, 0.94), opacity: 1, offset: 0.47 },
+        { transform: at(trunkBottom, 0.94), opacity: 1, offset: next.state === "released" ? 0.76 : 0.8 },
+        { transform: at(destination, 1.08), opacity: 1, offset: 0.95 },
+        { transform: at(destination, 0.38), opacity: 0 },
       ], {
         duration,
         easing: "cubic-bezier(.2,.78,.2,1)",
@@ -403,7 +523,7 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         next.target.classList.remove("is-enrichment-receiving");
         markArrival(next.target, next.state);
         flying = false;
-        setTimer(runNext, next.state === "released" ? 520 : 150);
+        setTimer(runNext, next.state === "released" ? 420 : 140);
       }).catch(() => {
         token.remove();
         next.target.classList.remove("is-enrichment-receiving");
@@ -450,6 +570,7 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
       setCounts((current) => sameCounts(current, nextCounts) ? current : nextCounts);
       setCountsReady(true);
       latest = nextEntries;
+      renderNetwork(latest);
 
       const nextLayer = layerKey(scope);
       if (firstScan || nextLayer !== currentLayer) {
@@ -459,11 +580,7 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         const firstLive = ["processing", "queued", "released", "invalidated"]
           .flatMap((preferredState) => Array.from(nextEntries.entries()).filter(([, entry]) => entry.state === preferredState))
           .find(([, entry]) => visible(entry.target));
-        if (firstLive) {
-          setTimer(() => enqueue({ key: firstLive[0], ...firstLive[1] }), 620);
-        } else {
-          drawIdlePipe();
-        }
+        if (firstLive) setTimer(() => enqueue({ key: firstLive[0], ...firstLive[1] }), 680);
         return;
       }
 
@@ -476,7 +593,6 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         }
       });
       previous = nextEntries;
-      drawIdlePipe();
     };
 
     const scheduleScan = () => {
@@ -487,11 +603,14 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
       if (geometryFrame || disposed) return;
       geometryFrame = window.requestAnimationFrame(() => {
         geometryFrame = 0;
-        drawIdlePipe();
+        renderNetwork(latest);
       });
     };
 
-    const observer = new MutationObserver(scheduleScan);
+    const observer = new MutationObserver((mutations) => {
+      const onlyPipeMutations = mutations.every((mutation) => pipe.contains(mutation.target));
+      if (!onlyPipeMutations) scheduleScan();
+    });
     observer.observe(root, {
       childList: true,
       subtree: true,
@@ -525,7 +644,11 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         delete target.dataset.enrichmentArrival;
         delete target.dataset.enrichmentKey;
       });
+      header.querySelectorAll<HTMLElement>(".vnd-enrichment-state.is-discharging").forEach((source) => {
+        source.classList.remove("is-discharging");
+      });
       root.querySelectorAll(".vnd-live-token").forEach((token) => token.remove());
+      root.classList.remove("vnd-live-pipe-ready");
       pipe.remove();
     };
   }, [portalHost]);
@@ -581,7 +704,7 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
           <div className="radar-status-preview__heading">
             <span className="radar-status-preview__eyebrow">Fluxo vivo</span>
             <h2 id="radar-status-preview-title">{embedTitle ?? "Enriquecimento"}</h2>
-            <p>Um único cano transparente entrega cada resultado ao lead certo, sem tirar você do Vendas.</p>
+            <p>Quatro entradas fixas viram um único encanamento de vidro, com um braço dedicado para cada lead.</p>
           </div>
           <RadarActivator mode={radarMode} activeCount={activeCount} onActivate={activateRadar} />
         </header>
@@ -611,7 +734,7 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
               <small>Resultado aplicado no card</small>
               <strong>{PREVIEW_STATES[state].label}</strong>
             </span>
-            <em>O card recebe cor, brilho de chegada e mantém todos os cliques existentes.</em>
+            <em>O cartão de status percorre o braço fixo, toca a lateral do lead e aplica a nova cor.</em>
           </div>
         </div>
       </section>
