@@ -1303,7 +1303,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         }
         actions={
           <div style={{ display: "grid", gap: 8 }}>
-            {tab === "shelf" && hasSearched && (
+            {tab === "shelf" && (
               <button className="btn-teal"
                 onClick={() => puxar(lead.id)}
                 disabled={pullBusyId === lead.id || bulkBusy || meterBlocked}>
@@ -1516,14 +1516,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const optionalCount = activeChips().length;
     const cityIsKnown = cityOptions.some(o => o.label === city);
     return (
-      <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros" onInputCapture={markFiltersDirty} onChangeCapture={markFiltersDirty}>
+      <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
         <div className="be-search be-required-segment" data-tut="leads-busca-criativa" ref={segBoxRef}>
           <I d={ICONS.search} size={16} />
           <input
             className="be-search__input"
             placeholder="Segmento ou tipo de empresa"
             value={segment}
-            onChange={e => { setSegment(e.target.value); if (segOptions.length) setSegMenuOpen(true); }}
+            onChange={e => {
+              markFiltersDirty();
+              setSegment(e.target.value);
+              if (segOptions.length) setSegMenuOpen(true);
+            }}
             onKeyDown={e => {
               if (e.key === "Enter" && canSearch && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
               else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
@@ -1596,7 +1600,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <select
             id="cb-uf-inline"
             value={uf}
-            onChange={e => { setCity(""); setAlcance(""); setUf(e.target.value); }}
+            onChange={e => {
+              markFiltersDirty();
+              setCity("");
+              setAlcance("");
+              setUf(e.target.value);
+            }}
             aria-label="Estado"
             aria-required="true"
           >
@@ -1607,7 +1616,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             id="cb-city-inline"
             value={city}
             disabled={!uf.trim()}
-            onChange={e => { setAlcance(""); setCity(e.target.value); }}
+            onChange={e => {
+              markFiltersDirty();
+              setAlcance("");
+              setCity(e.target.value);
+            }}
             aria-label="Cidade obrigatória"
             aria-required="true"
           >
@@ -1774,7 +1787,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   }}
                 >
                   <span className="row-dense__id">
-                    {tab === "shelf" && hasSearched && (
+                    {tab === "shelf" && (
                       <label className="row-dense__pick" onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
@@ -1819,7 +1832,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                         <I d={ICONS.msg} size={13} />
                       </button>
                     )}
-                    {tab === "shelf" && hasSearched ? (
+                    {tab === "shelf" ? (
                       <button
                         type="button"
                         className="btn-teal btn-xs"
@@ -1910,8 +1923,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                     <button
                       type="button"
                       className="btn-ghost btn-xs leads-bulk-select"
-                      disabled={!hasSearched || items.length === 0}
-                      aria-pressed={hasSearched && items.length > 0 && selected.size === items.length}
+                      disabled={items.length === 0}
+                      aria-pressed={items.length > 0 && selected.size === items.length}
                       onClick={() => {
                         if (selected.size === items.length && items.length > 0) {
                           setSelected(new Set());
@@ -1952,27 +1965,29 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 </div>
 
                 <div className="leads-headrow__end">
-                  {tab === "shelf" && (hasSearched ? (
-                    <button
-                      type="button"
-                      className="btn-teal radar2-pull-btn leads-bulk-pull"
-                      data-tut="leads-puxar"
-                      onClick={puxarSelecionados}
-                      disabled={selected.size === 0 || meterBlocked || bulkBusy}
-                    >
-                      {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-xs leads-history-clear"
-                      onClick={() => { setHistoryHidden(true); setSelected(new Set()); setSelLead(null); }}
-                      disabled={!hasHistory}
-                      title={hasHistory ? "Remover o histórico exibido" : "Nenhum histórico para excluir"}
-                    >
-                      <I d={ICONS.x} size={13} /> Excluir histórico
-                    </button>
-                  ))}
+                  {tab === "shelf" && (
+                    <>
+                      {hasHistory && (
+                        <button
+                          type="button"
+                          className="btn-ghost btn-xs leads-history-clear"
+                          onClick={() => { setHistoryHidden(true); setSelected(new Set()); setSelLead(null); }}
+                          title="Remover o histórico exibido"
+                        >
+                          <I d={ICONS.x} size={13} /> Excluir histórico
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn-teal radar2-pull-btn leads-bulk-pull"
+                        data-tut="leads-puxar"
+                        onClick={puxarSelecionados}
+                        disabled={selected.size === 0 || meterBlocked || bulkBusy}
+                      >
+                        {bulkBusy ? "Puxando…" : `Puxar selecionados${selected.size ? ` (${selected.size})` : ""}`}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               {hasHistory && <div className="leads-history-note">Histórico recente</div>}
@@ -2016,7 +2031,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                               className={"be-card" + (isSel ? " be-card--sel" : "") + (checked ? " be-card--checked" : "")}
                               onClick={() => setSelLead(isSel ? null : row)}
                             >
-                              {tab === "shelf" && hasSearched && (
+                              {tab === "shelf" && (
                                 <label className="be-card__pick" onClick={e => e.stopPropagation()}>
                                   <input
                                     type="checkbox"
@@ -2066,7 +2081,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                                     : <span>{row.phone || row.email || "—"}</span>}
                                 </div>
                                 <div onClick={e => e.stopPropagation()}>
-                                  {tab === "shelf" && hasSearched
+                                  {tab === "shelf"
                                     ? <button className="btn-teal btn-xs" onClick={() => puxar(row.id)} disabled={pullBusyId === row.id || bulkBusy || meterBlocked}>{pullBusyId === row.id ? "Puxando…" : "Puxar"}</button>
                                     : tab === "carteira"
                                       ? <button className="btn-ghost btn-xs" onClick={() => router.push("/vendas")}>Abrir</button>
