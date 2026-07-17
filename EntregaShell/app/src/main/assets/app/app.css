@@ -292,7 +292,7 @@ h3 { font-size: .95rem; }
 .loading { position: relative; overflow: hidden; min-height: 58px; background: var(--surface-2); }
 .loading::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); animation: shimmer 1.25s infinite; }
 @keyframes shimmer { to { transform: translateX(100%); } }
-.fab { position: fixed; z-index: 35; right: 12px; bottom: 66px; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--brand-strong) 14%, transparent); border-radius: 14px; color: #142000; background: color-mix(in srgb, var(--brand) 38%, transparent); box-shadow: 0 3px 10px rgba(79,148,0,.08); backdrop-filter: blur(9px); font-size: 1.2rem; font-weight: 900; }
+.fab { position: fixed; z-index: 35; right: 16px; bottom: 66px; left: auto; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--brand-strong) 14%, transparent); border-radius: 14px; color: #142000; background: color-mix(in srgb, var(--brand) 38%, transparent); box-shadow: 0 3px 10px rgba(79,148,0,.08); backdrop-filter: blur(9px); font-size: 1.2rem; font-weight: 900; }
 .route-live-map { position: relative; height: 178px; overflow: hidden; margin-top: 13px; border: 1px solid rgba(255,255,255,.15); border-radius: 16px; background: #e5ece1; }
 .route-map-loading, .route-map-unavailable, .route-map-empty { display: grid; place-items: center; min-height: 100%; padding: 14px; color: #cbd5c6; font-size: .72rem; font-weight: 700; text-align: center; }
 .route-map-empty { min-height: 94px; margin-top: 13px; border: 1px dashed rgba(255,255,255,.25); border-radius: 16px; }
@@ -337,7 +337,7 @@ h3 { font-size: .95rem; }
   .nav-water { display: none; }
   .nav-btn { width: 100%; min-width: 0; min-height: 58px; }
   .nav-btn.active { background: var(--brand-soft); }
-  .fab { right: 28px; bottom: 28px; }
+  .fab { right: 28px; bottom: 28px; left: auto; }
   .kpis { gap: 12px; }
 }
 

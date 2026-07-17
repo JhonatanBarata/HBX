@@ -8,6 +8,7 @@
   <script>
     const openingParams = new URLSearchParams(location.search);
     document.documentElement.dataset.phase = openingParams.get('phase') === 'loading' ? 'loading' : 'entry';
+    document.documentElement.dataset.mode = openingParams.get('mode') === 'exit' ? 'exit' : 'entry';
     document.documentElement.dataset.native = openingParams.get('native') === '1' ? 'true' : 'false';
     document.documentElement.dataset.fastLogin = openingParams.get('fastLogin') === '1' ? 'true' : 'false';
   </script>
@@ -88,8 +89,9 @@
     .hub::after { animation-delay:.94s; }
     .hub-ring { position:absolute;inset:12px;border-radius:50%;opacity:0;transform:scale(.86);overflow:visible;animation:ringOn .44s .23s var(--spring) forwards; }
     .hub-ring-live { fill:none;stroke:url(#hubRingColors);stroke-width:4;stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:100;transform-origin:50% 50%;will-change:transform,stroke-dashoffset;animation:ringFill 5s .23s linear forwards,ringSpin 6.24s .23s linear infinite; }
-    .hub-mark { position:relative;z-index:2;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 8px rgba(0,229,255,.7)); }
-    @keyframes hubEnergize { 42%{transform:scale(1.08);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 42px rgba(0,229,255,.30),0 18px 70px rgba(0,0,0,.42)} 68%{transform:scale(.97)} 100%{transform:scale(1)} }
+    .hub-mark { position:relative;z-index:2;width:100%;height:100%;overflow:visible;filter:drop-shadow(0 0 8px rgba(0,229,255,.7));animation:markReveal .76s .33s var(--spring) forwards; }
+    @keyframes hubEnergize { 0%{opacity:0;transform:scale(.28);filter:brightness(.45)} 42%{opacity:1;transform:scale(1.08);filter:brightness(1.28);box-shadow:inset 0 0 0 9px rgba(4,8,20,.66),0 0 42px rgba(0,229,255,.30),0 18px 70px rgba(0,0,0,.42)} 68%{transform:scale(.97);filter:brightness(1.06)} 100%{opacity:1;transform:scale(1);filter:brightness(1)} }
+    @keyframes markReveal { 0%{opacity:0;transform:scale(.42);filter:drop-shadow(0 0 1px rgba(0,229,255,0))} 48%{opacity:1;transform:scale(1.18);filter:drop-shadow(0 0 16px rgba(0,229,255,.95))} 72%{transform:scale(.93)} 100%{opacity:1;transform:scale(1);filter:drop-shadow(0 0 8px rgba(0,229,255,.7))} }
     @keyframes ringOn { to { opacity:1;transform:scale(1); } }
     @keyframes ringFill { to { stroke-dashoffset:0; } }
     @keyframes shockwave { 0%{opacity:0;transform:scale(.72)} 22%{opacity:.76} 100%{opacity:0;transform:scale(1.58)} }
@@ -159,10 +161,61 @@
     html[data-phase="loading"] .hub::before,html[data-phase="loading"] .hub::after { display:none; }
     html[data-phase="loading"] .hub-ring { opacity:1;transform:scale(1);animation:none; }
     html[data-phase="loading"] .hub-ring-live { stroke-dashoffset:0;animation:ringSpin 6.24s linear infinite; }
+    html[data-phase="loading"] .hub-mark { opacity:1;transform:scale(1);animation:none; }
     html[data-phase="loading"] .vehicle { opacity:1;transform:scale(1);filter:none;animation:none; }
     html[data-phase="loading"] .vehicle::before,html[data-phase="loading"] .vehicle svg { animation:none; }
     html[data-phase="loading"] .copy,html[data-phase="loading"] .copy * { opacity:1;transform:none;animation:none; }
     html[data-phase="loading"] .systems { opacity:1;transform:none;animation:none; }
+
+    /* Fechamento: a própria linha do tempo de entrada é reproduzida ao contrário. */
+    html[data-mode="exit"] .topbar { opacity:1;transform:none;animation:none; }
+    html[data-mode="exit"] .route-live { opacity:.92;stroke-dashoffset:0;animation:none; }
+    html[data-mode="exit"] .route-pulse { opacity:0;stroke-dashoffset:-1;animation:none; }
+    html[data-mode="exit"] .hub-wrap,html[data-mode="exit"] .hub { opacity:1;filter:none;animation:none; }
+    html[data-mode="exit"] .hub-ring { opacity:1;transform:scale(1);animation:none; }
+    html[data-mode="exit"] .hub-ring-live { stroke-dashoffset:0;animation:none; }
+    html[data-mode="exit"] .hub::before,html[data-mode="exit"] .hub::after { opacity:0;animation:none; }
+    html[data-mode="exit"] .hub-mark { opacity:1;transform:scale(1);animation:none; }
+    html[data-mode="exit"] .vehicle { display:grid;visibility:visible;opacity:1;transform:scale(1);filter:none;animation:none; }
+    html[data-mode="exit"] .vehicle::before { opacity:0;animation:none; }
+    html[data-mode="exit"] .vehicle svg { opacity:1;transform:scale(1);filter:drop-shadow(0 0 3px rgba(var(--rgb),.38));animation:none; }
+    html[data-mode="exit"] .copy,html[data-mode="exit"] .copy * { opacity:1;transform:none;animation:none; }
+    html[data-mode="exit"] .systems { opacity:1;transform:none;animation:none; }
+
+    html[data-mode="exit"].exiting .systems { animation:systemsIn .68s 0s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .eyebrow { animation:copyIn .85s .74s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .copy h1 { animation:copyIn .85s .55s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .copy p { animation:copyIn .85s .37s var(--spring) reverse both; }
+
+    html[data-mode="exit"].exiting .vehicle.package { animation:nodeOn .86s 1.07s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.bike { animation:nodeOn .86s 1.69s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.car { animation:nodeOn .86s 2.31s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.truck { animation:nodeOn .86s 2.93s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.package svg { animation:iconIgnite .86s 1.07s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.bike svg { animation:iconIgnite .86s 1.69s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.car svg { animation:iconIgnite .86s 2.31s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.truck svg { animation:iconIgnite .86s 2.93s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .vehicle.package::before { animation:arrivalPulse 1.55s .38s ease-out reverse both; }
+    html[data-mode="exit"].exiting .vehicle.bike::before { animation:arrivalPulse 1.55s 1s ease-out reverse both; }
+    html[data-mode="exit"].exiting .vehicle.car::before { animation:arrivalPulse 1.55s 1.62s ease-out reverse both; }
+    html[data-mode="exit"].exiting .vehicle.truck::before { animation:arrivalPulse 1.55s 2.24s ease-out reverse both; }
+
+    html[data-mode="exit"].exiting .route-live.r4 { animation:routeWake 1.25s 1.93s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .route-live.r3 { animation:routeWake 1.25s 2.55s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .route-live.r2 { animation:routeWake 1.25s 3.17s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .route-live.r1 { animation:routeWake 1.25s 3.79s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .route-pulse.p4 { animation:pulseRun 1.25s 1.93s linear reverse both; }
+    html[data-mode="exit"].exiting .route-pulse.p3 { animation:pulseRun 1.25s 2.55s linear reverse both; }
+    html[data-mode="exit"].exiting .route-pulse.p2 { animation:pulseRun 1.25s 3.17s linear reverse both; }
+    html[data-mode="exit"].exiting .route-pulse.p1 { animation:pulseRun 1.25s 3.79s linear reverse both; }
+
+    html[data-mode="exit"].exiting .hub::after { animation:shockwave 1.5s 3.54s ease-out reverse both; }
+    html[data-mode="exit"].exiting .hub::before { animation:shockwave 1.5s 4.09s ease-out reverse both; }
+    html[data-mode="exit"].exiting .hub { animation:hubEnergize 1.17s 4.68s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .hub-ring { animation:ringOn .44s 5.31s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .hub-ring-live { animation:ringFill 5s .75s linear reverse both,ringSpin 5s .75s linear reverse both; }
+    html[data-mode="exit"].exiting .hub-mark { animation:markReveal .76s 4.89s var(--spring) reverse both; }
+    html[data-mode="exit"].exiting .topbar { animation:topIn .75s 5s var(--spring) reverse both; }
 
     @media (max-height:700px) {
       .hub-wrap { top:29.5%;transform:translate(-50%,-50%) scale(.88); }
@@ -239,6 +292,7 @@
       let sequenceSent = false;
       let geometryFrame = 0;
       let currentProgress = Math.max(0,Math.min(100,Number(openingParams.get('progress') || 0)));
+      if (root.dataset.mode === 'exit') currentProgress = 100;
 
       function borderContact(target,startX,startY) {
         const centerX = target.offsetLeft + target.offsetWidth / 2;
@@ -344,13 +398,21 @@
         root.classList.add(kind === 'app' ? 'to-app' : 'to-login');
         applyFastLoginRate();
       }
+      function startExit() {
+        if (root.dataset.mode !== 'exit' || root.classList.contains('exiting')) return false;
+        root.classList.add('exiting');
+        return true;
+      }
       window.HBXOpening = { start,setProgress,complete };
+      window.HBXStartExit = startExit;
       syncNetworkGeometry();
       if ('ResizeObserver' in window) new ResizeObserver(scheduleGeometrySync).observe(stage);
       addEventListener('resize',scheduleGeometrySync,{ passive:true });
       setProgress(currentProgress);
       applyFastLoginRate();
-      if (root.dataset.phase === 'loading') {
+      if (root.dataset.mode === 'exit') {
+        root.classList.add('started');
+      } else if (root.dataset.phase === 'loading') {
         root.classList.add('started');
       } else if (root.dataset.native !== 'true') {
         start();

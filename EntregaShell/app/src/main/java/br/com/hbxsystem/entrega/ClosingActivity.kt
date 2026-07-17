@@ -85,7 +85,7 @@ class ClosingActivity : AppCompatActivity() {
         webView.evaluateJavascript("window.HBXStartExit && window.HBXStartExit()") {
             root.animate().alpha(1f).setDuration(180L).start()
         }
-        handler.postDelayed(::completeClosing, 3_600L)
+        handler.postDelayed(::completeClosing, 6_100L)
     }
 
     private fun completeClosing() {
