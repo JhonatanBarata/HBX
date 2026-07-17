@@ -111,3 +111,6 @@ tools/hbx-video-studio/audio/*
 !tools/hbx-video-studio/audio/README.md
 tools/hbx-video-studio/native/*
 !tools/hbx-video-studio/native/README.md
+
+# Configuracao local de agentes
+.claude/settings.local.json
