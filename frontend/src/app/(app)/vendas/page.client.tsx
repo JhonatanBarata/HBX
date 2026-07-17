@@ -1565,6 +1565,7 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
         <LeadCockpitModal
           key={sel.id}
           lead={sel}
+          aiStatus={aiStatusMap[sel.radarLeadId || ""]}
           canViewValues={Boolean(board?.canViewValues)}
           open={cockpitOpen}
           onClose={() => setCockpitOpen(false)}

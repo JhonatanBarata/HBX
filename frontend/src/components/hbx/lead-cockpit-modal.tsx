@@ -28,11 +28,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Av, I, ICONS, WhatsAppMark, useCurrentUser, useEntitlements, useMyModules, isModuleVisible } from "@/components/hbx/shell";
 import { AgendaLeadPanel, ConversationPanel, LockGate, formatPhoneDisplay, humanize } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
 import { apiFetch } from "@/lib/api";
 import { onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
+import type { RadarAiLeadStatus } from "@/lib/radar-ai-status";
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
 
 // ── Contratos dos extras (fail-soft: erro → "—"/estado vazio) ────────────────
@@ -188,8 +190,9 @@ function CopyRow({ label, value, mono = true, badge }: {
 
 // ── Componente ────────────────────────────────────────────────────────────────
 
-export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConversationChanged }: {
+export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose, onConversationChanged }: {
   lead: VendasLead;
+  aiStatus?: RadarAiLeadStatus | null;
   canViewValues: boolean;
   open: boolean;
   onClose: () => void;
@@ -908,6 +911,7 @@ export function LeadCockpitModal({ lead, canViewValues, open, onClose, onConvers
                 {[lead.razaoSocial, lead.segment, cityUf].filter(Boolean).join(" • ") || "—"}
               </span>
               <div className="lead-cockpit__badges">
+                <RadarAiBadge status={aiStatus} />
                 {lead.statusLabel && <span className="tag">{lead.statusLabel}</span>}
                 {lead.leadTemperature && (
                   <span className={"tag" + (lead.leadTemperature === "quente" ? " red" : lead.leadTemperature === "morno" ? " warn" : "")}>

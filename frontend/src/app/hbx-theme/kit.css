@@ -1543,20 +1543,60 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 /* Status público do enriquecimento local. Fases técnicas permanecem no Owner. */
 .radar-ai-badge {
-  --radar-ai-status-tone: var(--hbx-warning);
+  --radar-ai-status-fg: #704500;
+  --radar-ai-status-bg: #fff4d6;
+  --radar-ai-status-border: #c58a19;
   flex: 0 0 auto;
   max-width: 100%;
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 9px; border-radius: 999px; align-self: flex-start;
   font-size: 0.64rem; font-weight: 800; white-space: nowrap; line-height: 1.3;
-  border: 1px solid color-mix(in srgb, var(--radar-ai-status-tone) 38%, transparent);
-  background: color-mix(in srgb, var(--radar-ai-status-tone) 12%, transparent);
-  color: var(--radar-ai-status-tone);
+  border: 1px solid var(--radar-ai-status-border);
+  background: var(--radar-ai-status-bg);
+  color: var(--radar-ai-status-fg);
 }
-.radar-ai-badge--queued { --radar-ai-status-tone: var(--hbx-warning); }
-.radar-ai-badge--processing { --radar-ai-status-tone: var(--hbx-info); animation: dn-enriching-pulse 1.7s ease-in-out infinite; }
-.radar-ai-badge--released { --radar-ai-status-tone: var(--hbx-success); }
-.radar-ai-badge--invalidated { --radar-ai-status-tone: var(--hbx-danger); }
+.radar-ai-badge--queued {
+  --radar-ai-status-fg: #704500;
+  --radar-ai-status-bg: #fff4d6;
+  --radar-ai-status-border: #c58a19;
+}
+.radar-ai-badge--processing {
+  --radar-ai-status-fg: #0756a8;
+  --radar-ai-status-bg: #e7f2ff;
+  --radar-ai-status-border: #6da9e8;
+  animation: dn-enriching-pulse 1.7s ease-in-out infinite;
+}
+.radar-ai-badge--released {
+  --radar-ai-status-fg: #176b35;
+  --radar-ai-status-bg: #e6f7ec;
+  --radar-ai-status-border: #68b77f;
+}
+.radar-ai-badge--invalidated {
+  --radar-ai-status-fg: #a1192d;
+  --radar-ai-status-bg: #ffebee;
+  --radar-ai-status-border: #dd7d8a;
+}
+
+[data-theme-mode="dark"] .radar-ai-badge--queued {
+  --radar-ai-status-fg: #ffd166;
+  --radar-ai-status-bg: #342500;
+  --radar-ai-status-border: #8b681a;
+}
+[data-theme-mode="dark"] .radar-ai-badge--processing {
+  --radar-ai-status-fg: #8ec5ff;
+  --radar-ai-status-bg: #112a44;
+  --radar-ai-status-border: #376f9f;
+}
+[data-theme-mode="dark"] .radar-ai-badge--released {
+  --radar-ai-status-fg: #72db91;
+  --radar-ai-status-bg: #113321;
+  --radar-ai-status-border: #33764b;
+}
+[data-theme-mode="dark"] .radar-ai-badge--invalidated {
+  --radar-ai-status-fg: #ff9aa7;
+  --radar-ai-status-bg: #43161e;
+  --radar-ai-status-border: #8e3e4a;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .radar-ai-badge--processing { animation: none; }

@@ -126,7 +126,16 @@ export function isRadarAiTerminal(
 }
 
 const POLL_MS = 6000;
+export const RADAR_AI_STATUS_BATCH_SIZE = 200;
 const EMPTY_STATUS_MAP: RadarAiStatusMap = {};
+
+export function chunkRadarAiStatusLeadIds(ids: string[]): string[][] {
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += RADAR_AI_STATUS_BATCH_SIZE) {
+    chunks.push(ids.slice(index, index + RADAR_AI_STATUS_BATCH_SIZE));
+  }
+  return chunks;
+}
 
 type RadarAiStatusPollOptions = {
   onTerminal?: (radarLeadId: string, status: Extract<RadarAiLeadStatus, { state: "released" | "invalidated" }>) => void;
@@ -162,13 +171,21 @@ export function useRadarAiStatusPoll(
       if (cancelled || inFlight) return;
       inFlight = true;
       try {
-        const response = await apiFetch<{ items?: Record<string, unknown> }>("/webscraping/radar/ai-status", {
-          method: "POST",
-          body: JSON.stringify({ leadIds: ids }),
-        });
+        const batches = chunkRadarAiStatusLeadIds(ids);
+        const responses = await Promise.allSettled(
+          batches.map((batch) => apiFetch<{ items?: Record<string, unknown> }>("/webscraping/radar/ai-status", {
+            method: "POST",
+            body: JSON.stringify({ leadIds: batch }),
+          })),
+        );
         if (cancelled) return;
 
-        const rawItems = response?.items || {};
+        const rawItems: Record<string, unknown> = {};
+        for (const response of responses) {
+          if (response.status === "fulfilled" && response.value?.items) {
+            Object.assign(rawItems, response.value.items);
+          }
+        }
         const previous = statusRef.current;
         const next: RadarAiStatusMap = {};
 

@@ -1253,6 +1253,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   function renderLeadDetail(lead: RadarLead, opts?: { title?: string; onClose?: () => void }) {
     const detail = buildNegocioDetail(lead);
     const revealed = tab === "carteira" && Boolean(lead.phone);
+    const localEnrichmentStatus = aiStatusMap[lead.id];
+    const hasLocalEnrichmentStatus = Boolean(localEnrichmentStatus && localEnrichmentStatus.state !== "none");
     // "Enriquecendo agora" = pipeline em pending/partial e ainda não enriquecido.
     // FIX-ENRICHMENT-STATUS-SHELF (05/07): sinal agora vem do GET /webscraping/radar/leads
     // (e do detalhe :id), já normalizado pending|completed|failed — queued/running da fila
@@ -1264,9 +1266,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         key={lead.id}
         detail={detail}
         title={opts?.title ?? "Detalhes"}
-        enriching={enriching}
+        enriching={hasLocalEnrichmentStatus ? false : enriching}
         onClose={opts?.onClose}
-        crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
+        crownSlot={<RadarAiBadge status={localEnrichmentStatus} />}
         heroAction={revealed ? <BotStatusIcon accessible={canBot} /> : null}
         onWaOpenExternal={revealed ? () => abrirWhatsAppExterno(lead.phone, buildWaMessage({ name: lead.name, segment: lead.segment, city: lead.city })) : undefined}
         onWaOpenInternal={revealed ? () => abrirWhatsAppInterno({ phone: lead.phone, name: lead.name }) : undefined}
@@ -1746,7 +1748,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               <span>Cidade/UF</span>
               <span>Contato</span>
               <span style={{ textAlign: "center" }}>Score</span>
-              <span>Responsável</span>
+              <span>Status</span>
               <span />
             </div>
             {items.map(row => {
@@ -1802,9 +1804,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       </span>
                     ) : "—"}
                   </span>
-                  {/* Responsável: sem contrato de nome resolvido na listagem hoje
-                      (assignedUserId sem nome) — "—" em vez de inventar dado. */}
-                  <span className="row-dense__owner">—</span>
+                  <span className="row-dense__owner">
+                    <RadarAiBadge status={aiStatusMap[row.id]} />
+                    {(!aiStatusMap[row.id] || aiStatusMap[row.id]?.state === "none") && "—"}
+                  </span>
                   <span className="row-dense__actions" onClick={e => e.stopPropagation()}>
                     {revealed && (
                       <button

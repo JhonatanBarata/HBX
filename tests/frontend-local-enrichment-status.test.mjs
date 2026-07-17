@@ -10,9 +10,31 @@ const vendasSource = read("frontend/src/app/(app)/vendas/page.client.tsx");
 const vendasBackendSource = read("backend/src/vendas/vendas.service.ts");
 const vendasControllerSource = read("backend/src/vendas/vendas.controller.ts");
 const radarDesktopSource = read("frontend/src/app/(app)/leads/page.client.tsx");
+const radarDetailSource = read("frontend/src/app/(app)/leads/[id]/page.client.tsx");
 const vendasMobileSource = read("frontend/src/components/casca/screens/vendas-funil.tsx");
 const radarMobileSource = read("frontend/src/components/casca/screens/vendas-buscar.tsx");
+const leadCockpitSource = read("frontend/src/components/hbx/lead-cockpit-modal.tsx");
 const kitSource = read("frontend/src/app/hbx-theme/kit.css");
+
+function statusToken(state, theme, token) {
+  const prefix = theme === "dark" ? String.raw`\[data-theme-mode="dark"\]\s+` : "";
+  const block = kitSource.match(new RegExp(`${prefix}\\.radar-ai-badge--${state}\\s*\\{([^}]+)\\}`));
+  assert.ok(block, `bloco ${theme} de ${state} deve existir`);
+  const value = block[1].match(new RegExp(`--radar-ai-status-${token}:\\s*(#[0-9a-fA-F]{6})`));
+  assert.ok(value, `token ${token} de ${state}/${theme} deve existir`);
+  return value[1].toLowerCase();
+}
+
+function luminance(hex) {
+  const channels = hex.slice(1).match(/.{2}/g).map(part => Number.parseInt(part, 16) / 255);
+  const linear = channels.map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function contrast(foreground, background) {
+  const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
 
 test("cliente recebe somente os quatro estados aprovados", () => {
   assert.match(statusSource, /type RadarAiPublicState = "none" \| "queued" \| "processing" \| "released" \| "invalidated"/);
@@ -31,10 +53,23 @@ test("fases internas convergem para as quatro cores públicas", () => {
   for (const state of ["queued", "processing", "released", "invalidated"]) {
     assert.match(kitSource, new RegExp(`\\.radar-ai-badge--${state}`));
   }
-  assert.match(kitSource, /queued[^\n]*--hbx-warning/);
-  assert.match(kitSource, /processing[^\n]*--hbx-info/);
-  assert.match(kitSource, /released[^\n]*--hbx-success/);
-  assert.match(kitSource, /invalidated[^\n]*--hbx-danger/);
+});
+
+test("quatro cores locais são distintas e legíveis nos temas claro e escuro", () => {
+  const states = ["queued", "processing", "released", "invalidated"];
+  for (const theme of ["light", "dark"]) {
+    const foregrounds = states.map(state => statusToken(state, theme, "fg"));
+    const backgrounds = states.map(state => statusToken(state, theme, "bg"));
+    assert.equal(new Set(foregrounds).size, 4, `${theme} deve ter quatro cores de texto distintas`);
+    assert.equal(new Set(backgrounds).size, 4, `${theme} deve ter quatro fundos distintos`);
+    states.forEach((state, index) => {
+      assert.ok(
+        contrast(foregrounds[index], backgrounds[index]) >= 4.5,
+        `${state}/${theme} deve cumprir contraste WCAG AA`,
+      );
+    });
+  }
+  assert.doesNotMatch(kitSource, /radar-ai-badge--(?:queued|processing|released|invalidated)[^{]*\{[^}]*--hbx-(?:warning|info|success|danger)/s);
 });
 
 test("polling não encerra em none ou resposta vazia", () => {
@@ -43,6 +78,27 @@ test("polling não encerra em none ou resposta vazia", () => {
   assert.doesNotMatch(statusSource, /stillActive|!Object\.keys\(rawItems\)\.length/);
   assert.match(statusSource, /before && !isRadarAiTerminal\(before\)/);
   assert.match(statusSource, /onTerminalRef\.current\?\.\(id, current\)/);
+});
+
+test("polling divide listas grandes em lotes de no máximo 200 e preserva o último estado", () => {
+  assert.match(statusSource, /RADAR_AI_STATUS_BATCH_SIZE = 200/);
+  assert.match(statusSource, /ids\.slice\(index, index \+ RADAR_AI_STATUS_BATCH_SIZE\)/);
+  assert.match(statusSource, /Promise\.allSettled/);
+  assert.match(statusSource, /JSON\.stringify\(\{ leadIds: batch \}\)/);
+  assert.match(statusSource, /Object\.assign\(rawItems, response\.value\.items\)/);
+  assert.match(statusSource, /previous\[id\] \|\| \{ state: "none" \}/);
+});
+
+test("lista densa do Radar mostra o badge sem aumentar a altura da linha", () => {
+  assert.match(radarDesktopSource, /<span>Status<\/span>/);
+  assert.match(radarDesktopSource, /className="row-dense__owner"[\s\S]*?<RadarAiBadge status=\{aiStatusMap\[row\.id\]\}/);
+  assert.match(kitSource, /\.row-dense\s*\{[^}]*height:\s*var\(--row-height\)/s);
+});
+
+test("status local substitui a quinta mensagem legada enquanto estiver visível", () => {
+  assert.match(radarDesktopSource, /hasLocalEnrichmentStatus = Boolean\(localEnrichmentStatus && localEnrichmentStatus\.state !== "none"\)/);
+  assert.match(radarDesktopSource, /enriching=\{hasLocalEnrichmentStatus \? false : enriching\}/);
+  assert.match(radarDesktopSource, /crownSlot=\{<RadarAiBadge status=\{localEnrichmentStatus\}/);
 });
 
 test("Vendas consulta a missão pelo radarLeadId real", () => {
@@ -62,6 +118,19 @@ test("Radar e Vendas mobile reutilizam o mesmo badge e atualizam ao concluir", (
   }
   assert.match(vendasMobileSource, /card\.radarLeadId \|\| ""/);
   assert.match(radarMobileSource, /items\.map\(item => item\.id\)/);
+});
+
+test("detalhe do Radar e cockpit de Vendas exibem o mesmo status sem polling duplicado", () => {
+  assert.match(radarDetailSource, /useRadarAiStatusPoll\(\[leadId\]/);
+  assert.equal(
+    (radarDetailSource.match(/crownSlot=\{<RadarAiBadge status=\{aiStatusMap\[lead\.id\]\} \/>\}/g) || []).length,
+    2,
+    "os dois DetalhesNegocio devem mostrar o status",
+  );
+  assert.match(leadCockpitSource, /aiStatus\?: RadarAiLeadStatus \| null/);
+  assert.match(leadCockpitSource, /<RadarAiBadge status=\{aiStatus\} \/>/);
+  assert.doesNotMatch(leadCockpitSource, /useRadarAiStatusPoll/);
+  assert.match(vendasSource, /aiStatus=\{aiStatusMap\[sel\.radarLeadId \|\| ""\]\}/);
 });
 
 test("conclusão recarrega somente o card afetado", () => {

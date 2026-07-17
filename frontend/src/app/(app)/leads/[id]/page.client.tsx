@@ -23,8 +23,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Av, I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
 import { ConversationPanel, DetalhesNegocio } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch } from "@/lib/api";
+import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { CopilotoPanel } from "./copiloto-panel";
 import { EmailPanel } from "./email-panel";
@@ -160,6 +162,10 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
   // (react-hooks/set-state-in-effect); load só faz setState após o await.
   useEffect(() => { void (async () => { await load(); })(); }, [load]);
 
+  const aiStatusMap = useRadarAiStatusPoll([leadId], {
+    onTerminal: () => { void load(); },
+  });
+
   useEffect(() => {
     apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
       .then(res => setWaQrActive(res?.whatsappSession?.accessible === true))
@@ -274,6 +280,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
             detail={detail}
             title="Detalhes"
             showConversation={false}
+            crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
             actions={
               <div style={{ display: "grid", gap: 8 }}>
                 <button className="btn-teal" onClick={puxar} disabled={pullBusy}>
@@ -294,6 +301,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
               detail={detail}
               title="Detalhes"
               showConversation={false}
+              crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
               waQrActive={waQrActive}
               waCanInternal={canAtendimento}
               actions={
