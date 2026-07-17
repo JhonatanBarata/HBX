@@ -9,6 +9,11 @@ export type MaterializeMobileOccurrencesInput = {
   sourceDates?: string[];
 };
 
+type MobilePaymentInstruction = {
+  formaPagamento: string;
+  metodoPadrao: string | null;
+};
+
 function positiveInt(value: unknown): number | null {
   const parsed = Math.trunc(Number(value || 0));
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -66,8 +71,8 @@ export class LogisticaMobileService {
       }),
     ]);
 
-    const paymentByCustomer = new Map(
-      profiles.map((profile) => [
+    const paymentByCustomer = new Map<string, MobilePaymentInstruction>(
+      profiles.map((profile): [string, MobilePaymentInstruction] => [
         profile.id,
         {
           formaPagamento: profile.formaPagamento ?? 'aberto',
