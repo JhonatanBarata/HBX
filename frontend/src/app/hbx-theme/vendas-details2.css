@@ -1,0 +1,232 @@
+/* ============================================================
+   VENDAS — pipeline em tela cheia + Detalhes 2 como ficha única.
+   O antigo detalhe lateral sai do fluxo visual. A informação continua
+   inteira no LeadCockpitModal, distribuída nas 3 guias existentes.
+   ============================================================ */
+
+/* ── Pipeline ocupa toda a largura ───────────────────────────────────────── */
+#vendas-panel-funil .content,
+#vendas-panel-funil .content.vnd-content--detail-open {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+}
+
+#vendas-panel-funil .content > .work {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+}
+
+#vendas-panel-funil .content > .ctx.ctx--vendas-detail {
+  display: none !important;
+}
+
+#vendas-panel-funil .work > .panel,
+#vendas-panel-funil .tbl-wrap,
+#vendas-panel-funil .tbl {
+  width: 100%;
+  max-width: none;
+}
+
+/* Clique simples agora é a ação principal do lead. Mantém botões, links,
+   checkbox e drag com os próprios handlers. */
+#vendas-panel-funil tr[id^="vnd-row-"][data-cockpit-open="single-click"],
+#vendas-panel-funil .vnd-card[data-cockpit-open="single-click"] {
+  cursor: pointer;
+}
+
+#vendas-panel-funil tr[id^="vnd-row-"][data-cockpit-open="single-click"]:focus-visible,
+#vendas-panel-funil .vnd-card[data-cockpit-open="single-click"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hbx-brand) 56%, transparent);
+  outline-offset: -2px;
+}
+
+#vendas-panel-funil tr.is-cockpit-opening > td,
+#vendas-panel-funil .vnd-card.is-cockpit-opening {
+  animation: vnd-details2-open 0.48s var(--ease-out-quint) both;
+}
+
+@keyframes vnd-details2-open {
+  0% { filter: brightness(1); transform: translateZ(0); }
+  38% { filter: brightness(1.06); transform: translateY(-1px); }
+  100% { filter: brightness(1); transform: translateZ(0); }
+}
+
+/* ── Detalhes 2: uma superfície de trabalho, sem rolagem da página ───────── */
+.hbx-modal.lead-cockpit {
+  width: min(1440px, calc(100vw - 14px));
+  height: calc(100dvh - 14px);
+  max-width: none;
+  max-height: calc(100dvh - 14px);
+  border-radius: 22px;
+}
+
+.lead-cockpit__head {
+  gap: 10px;
+  padding: 10px 13px 9px;
+}
+
+.lead-cockpit__head > .avatar,
+.lead-cockpit__head > [class*="av"] {
+  transform: scale(.94);
+}
+
+.lead-cockpit__id {
+  gap: 2px;
+}
+
+.lead-cockpit__name {
+  font-size: 1rem;
+}
+
+.lead-cockpit__sub {
+  font-size: 0.66rem;
+}
+
+.lead-cockpit__badges,
+.lead-cockpit__acts {
+  gap: 5px;
+}
+
+.lead-cockpit__acts .btn-ghost,
+.lead-cockpit__close {
+  min-height: 29px;
+  height: 29px;
+}
+
+.lead-cockpit__tabs {
+  min-height: 44px;
+  padding: 4px 13px;
+}
+
+.lead-cockpit__tab {
+  min-height: 34px;
+  padding-inline: 15px;
+}
+
+.lead-cockpit__body {
+  min-height: 0;
+  height: 100%;
+  padding: 9px 11px 11px;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.lead-cockpit__grid {
+  height: 100%;
+  min-height: 0;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.lead-cockpit__col {
+  min-height: 0;
+  align-content: start;
+  gap: 9px;
+}
+
+.lead-cockpit__box {
+  min-height: 0;
+  padding: 10px 11px;
+  gap: 8px;
+  border-radius: 15px;
+}
+
+.lead-cockpit__box-title {
+  min-height: 20px;
+  padding-bottom: 6px;
+  font-size: 0.69rem;
+}
+
+.lead-cockpit__box .kv .row {
+  grid-template-columns: minmax(96px, .62fr) minmax(0, 1.38fr);
+  gap: 9px;
+  padding: 5px 0;
+}
+
+.lead-cockpit__txt {
+  font-size: 0.69rem;
+  line-height: 1.43;
+}
+
+.lead-cockpit__block {
+  gap: 5px;
+  padding-top: 6px;
+}
+
+.lead-cockpit__noconn,
+.lead-cockpit__preview {
+  gap: 7px;
+  padding: 9px;
+}
+
+/* Atendimento: conversa e copiloto ficam numa coluna contínua; e-mail,
+   abordagem e agenda usam a altura restante sem empurrar o modal. */
+.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:first-child {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:first-child > .lead-cockpit__box {
+  height: 100%;
+  overflow: hidden;
+}
+
+.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:nth-child(2) {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.lead-cockpit__grid:has(.dn-convo) > .lead-cockpit__col:nth-child(2) > .lead-cockpit__box:nth-child(2) {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.lead-cockpit__body .dn-convo__body {
+  max-height: min(30dvh, 260px);
+}
+
+.lead-cockpit__body .msgs {
+  max-height: min(23dvh, 205px);
+}
+
+/* Cadastro: listas potencialmente extensas ficam contidas no próprio bloco.
+   Em dados normais não aparece barra; ela só surge para histórico/sócios longos. */
+.lead-cockpit__col > .lead-cockpit__box:has(.ctx-timeline),
+.lead-cockpit__col > .lead-cockpit__box:has(.dn-section-head),
+.lead-cockpit__col:nth-child(2) > .lead-cockpit__box:has(.kv) {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.lead-cockpit__box .ctx-timeline {
+  max-height: 180px;
+  overflow: auto;
+}
+
+/* Financeiro mantém a tabela inteira na guia e rola apenas o extrato quando
+   a quantidade de títulos ultrapassar a altura útil. */
+.lead-cockpit__body .tbl-wrap {
+  max-height: 310px;
+  overflow: auto;
+}
+
+@media (max-height: 720px), (max-width: 980px) {
+  .hbx-modal.lead-cockpit {
+    width: min(1180px, calc(100vw - 10px));
+    height: calc(100dvh - 10px);
+    max-height: calc(100dvh - 10px);
+    border-radius: 18px;
+  }
+
+  .lead-cockpit__body {
+    overflow-y: auto;
+  }
+
+  .lead-cockpit__grid {
+    height: auto;
+  }
+}
