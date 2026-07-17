@@ -21,6 +21,7 @@ function activeTab(root: HTMLElement): string {
 function animateScore(root: HTMLElement) {
   const badge = root.querySelector<HTMLElement>(".lead-cockpit__score");
   if (!badge || badge.dataset.vndScoreReady === "1") return;
+
   const target = Math.max(0, Math.min(100, Number(badge.textContent?.match(/\d+/)?.[0] || 0)));
   badge.dataset.vndScoreReady = "1";
   badge.setAttribute("aria-label", `Score de oportunidade ${target} de 100`);
@@ -35,7 +36,6 @@ function animateScore(root: HTMLElement) {
   }
 
   let started = 0;
-  let frame = 0;
   const duration = 1550;
   const tick = (time: number) => {
     if (!started) started = time;
@@ -44,18 +44,17 @@ function animateScore(root: HTMLElement) {
     const value = Math.round(target * eased);
     if (number) number.textContent = String(value);
     badge.style.setProperty("--vnd-d2-score", `${value}%`);
-    if (progress < 1) frame = window.requestAnimationFrame(tick);
+    if (progress < 1) window.requestAnimationFrame(tick);
   };
-  frame = window.requestAnimationFrame(tick);
-  badge.dataset.vndScoreFrame = String(frame);
+  window.requestAnimationFrame(tick);
 }
 
 function animateText(element: HTMLElement, order: number) {
   if (element.dataset.vndTyped || element.children.length > 0) return;
   const text = element.textContent?.trim() || "";
   if (text.length < 12 || text.length > 520) return;
+
   element.dataset.vndTyped = "running";
-  element.dataset.vndTypedText = text;
   element.textContent = "";
   element.classList.add("vnd-d2-typing");
 
@@ -68,8 +67,8 @@ function animateText(element: HTMLElement, order: number) {
   }
 
   let index = 0;
-  const delay = Math.min(360, 70 + order * 55);
-  const timeout = window.setTimeout(() => {
+  const delay = Math.min(300, 55 + order * 42);
+  window.setTimeout(() => {
     const interval = window.setInterval(() => {
       index += 1;
       element.textContent = text.slice(0, index);
@@ -79,9 +78,7 @@ function animateText(element: HTMLElement, order: number) {
         element.classList.remove("vnd-d2-typing");
       }
     }, 18);
-    element.dataset.vndTypeInterval = String(interval);
   }, delay);
-  element.dataset.vndTypeTimeout = String(timeout);
 }
 
 function decorate(root: HTMLElement) {
@@ -102,7 +99,12 @@ export function VendasDetails2Transitions() {
     };
 
     const observer = new MutationObserver(locate);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-selected"],
+    });
     document.addEventListener("click", locate, true);
     locate();
 
