@@ -99,60 +99,68 @@
         </details>
       </section>
 
-      <!-- Uma operação, duas responsabilidades: Ollama hospeda o modelo; a ponte atende o VPS. -->
+      <!-- Operação contínua do stage local_deep_enrich_v1. -->
       <section class="card ai-bridge-card" id="cerebro-30b">
         <div class="ai-bridge-head">
           <div class="ai-bridge-intro">
             <div class="hero-title">
-              <span class="label">IA local para o VPS</span>
-              <span id="ponte-status" class="pill pill-muted" title="A ponte busca trabalhos no VPS e devolve os resultados">ponte…</span>
-              <span id="ai-local-status" class="pill pill-muted" title="O Ollama mantém o modelo disponível nesta máquina">Ollama…</span>
+              <span class="label">Enriquecimento local</span>
+              <span id="ponte-status" class="pill pill-muted">aguardando liberação</span>
+              <span id="ponte-target" class="pill pill-muted">ambiente…</span>
+              <span id="ai-local-status" class="pill pill-muted">Ollama…</span>
+              <span id="ponte-lab-status" class="pill pill-muted">Lab…</span>
             </div>
-            <p>O Ollama fornece o modelo nesta máquina. A ponte busca os trabalhos no VPS e devolve os resultados.</p>
           </div>
           <div class="cockpit-actions ai-bridge-actions">
-            <button id="btn-ponte-toggle" class="btn btn-red" title="Freio manual: liga ou desliga a ponte que recebe trabalhos do VPS" aria-pressed="false" disabled>Lendo ponte…</button>
-            <button id="btn-ponte-reset" class="btn btn-sm btn-red hidden" title="Rearma a ponte depois de falhas consecutivas">⟲ Rearmar</button>
+            <button id="btn-ponte-toggle" class="btn btn-green" title="Recebe leads do VPS, processa no seu computador e grava o enriquecimento de volta no VPS." aria-label="Ligar" disabled>Ligar</button>
           </div>
         </div>
 
         <div id="ponte-circuit-alert" class="verdict-line buy hidden" style="margin-top:8px;">
-          <span class="vdot">✕</span><strong>DISJUNTOR ABERTO</strong>
+          <span class="vdot">•</span><strong>Nova tentativa automática</strong>
           <span id="ponte-circuit-reason" class="verdict-detail"></span>
         </div>
 
         <div class="ai-bridge-summary">
-          <div class="metric"><span class="label">Trabalhos esperando</span><strong id="ponte-lag">—</strong></div>
-          <div class="metric"><span class="label">Uso local</span><strong id="ponte-activity">—</strong></div>
-          <div class="metric"><span class="label">Concluídos</span><strong id="ponte-completed">—</strong></div>
+          <div class="metric"><span class="label">Na fila</span><strong id="ponte-lag">—</strong></div>
+          <div class="metric"><span class="label">Mais antigo</span><strong id="ponte-oldest">—</strong></div>
+          <div class="metric"><span class="label">Fase atual</span><strong id="ponte-phase">—</strong></div>
+          <div class="metric"><span class="label">Heartbeat</span><strong id="ponte-heartbeat">—</strong></div>
         </div>
 
         <div id="ponte-verdict" class="verdict-line" style="margin-top:12px;">
-          <span id="ponte-verdict-icon" class="vdot">•</span><strong id="ponte-verdict-title">Lendo…</strong>
+          <span id="ponte-verdict-icon" class="vdot">•</span><strong id="ponte-verdict-title">aguardando liberação</strong>
           <span id="ponte-verdict-detail" class="verdict-detail"></span>
         </div>
         <p id="ponte-feedback" class="operation-feedback" role="status" aria-live="polite"></p>
 
         <details id="ponte-jobs-details" class="motor-details ai-bridge-details">
-          <summary class="label">Detalhes e últimos trabalhos</summary>
+          <summary class="label">Métricas e últimos trabalhos</summary>
           <div class="ai-bridge-model">
             <div>
-              <span class="label">Modelo da ponte</span>
+              <span class="label">Modelo 30B</span>
               <strong id="ponte-model">—</strong>
             </div>
-            <button id="btn-ai-warm" class="btn btn-sm btn-secondary" title="Carrega o 30B na memória do Ollama; não liga nem desliga a ponte" aria-pressed="false" disabled>Aquecer 30B</button>
           </div>
           <p id="ai-local-models" class="delta">—</p>
           <p id="ai-local-feedback" class="operation-feedback" role="status" aria-live="polite"></p>
-          <div class="grid-4 ai-bridge-metrics">
-            <div class="metric"><span class="label">Velocidade estimada</span><strong id="ponte-throughput">—</strong></div>
+          <div class="ai-bridge-metrics">
             <div class="metric"><span class="label">Recebidos</span><strong id="ponte-leased">—</strong></div>
-            <div class="metric"><span class="label">Falhados</span><strong id="ponte-failed">—</strong></div>
-            <div class="metric"><span class="label">Carregamentos</span><strong id="ponte-coldloads">—</strong></div>
+            <div class="metric"><span class="label">Com dados</span><strong id="ponte-completed">—</strong></div>
+            <div class="metric"><span class="label">Sem novidade</span><strong id="ponte-no-data">—</strong></div>
+            <div class="metric"><span class="label">Novas tentativas</span><strong id="ponte-retries">—</strong></div>
+            <div class="metric"><span class="label">Falhas definitivas</span><strong id="ponte-failed">—</strong></div>
+            <div class="metric"><span class="label">E-mails</span><strong id="ponte-emails">—</strong></div>
+            <div class="metric"><span class="label">Telefones</span><strong id="ponte-phones">—</strong></div>
+            <div class="metric"><span class="label">Donos</span><strong id="ponte-owners">—</strong></div>
+            <div class="metric"><span class="label">Tempo médio</span><strong id="ponte-average">—</strong></div>
+            <div class="metric"><span class="label">p95</span><strong id="ponte-p95">—</strong></div>
+            <div class="metric"><span class="label">Última escrita</span><strong id="ponte-last-write">—</strong></div>
+            <div class="metric"><span class="label">Próxima tentativa</span><strong id="ponte-next-attempt">—</strong></div>
           </div>
           <div style="overflow-x:auto;">
             <table class="cockpit-table" id="ponte-jobs-table" style="font-size:12px;">
-              <thead><tr><th>Quando</th><th>Tipo</th><th>Resultado</th><th>Tempo</th><th>Nota</th></tr></thead>
+              <thead><tr><th>Quando</th><th>Lead</th><th>Resultado</th><th>Tempo</th><th>Nota</th></tr></thead>
               <tbody id="ponte-jobs-tbody"><tr><td colspan="5" class="delta">lendo…</td></tr></tbody>
             </table>
           </div>
@@ -180,7 +188,7 @@
           </div>
           <div class="enr-lab">
             <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
-            <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Liga/desliga o Lab (motor do Tipo 2)">Lab</button>
+            <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Só liga o motor local do scraping. Sozinho, não recebe leads do VPS." aria-label="Ligar Lab">Lab</button>
           </div>
         </div>
 

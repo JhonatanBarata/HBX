@@ -2,169 +2,158 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RadarPonteStatusService } from './radar-ponte-status.service';
 
-// Fake prisma mínimo: radarMission (fila) + leadContact (resumo).
-function createFakePrisma(input: { missions?: any[]; contacts?: any[] } = {}) {
+function createFakePrisma(input: { missions?: any[]; hasMissionTable?: boolean } = {}) {
   const missions = input.missions || [];
-  const contacts = input.contacts || [];
-  const tableSet = new Set(['RadarMission', 'LeadContact']);
   return {
-    hasTable: async (name: string) => tableSet.has(name),
+    hasTable: async (name: string) => name === 'RadarMission' && input.hasMissionTable !== false,
     radarMission: {
       findMany: async ({ where }: any) => {
-        const stages: string[] = where?.stage?.in || [];
         const statuses: string[] = where?.status?.in || [];
         return missions
-          .filter((m) => (!stages.length || stages.includes(m.stage)) && (!statuses.length || statuses.includes(m.status)))
+          .filter((mission) => mission.stage === where?.stage && statuses.includes(mission.status))
           .sort((a, b) => (a.createdAt?.getTime?.() || 0) - (b.createdAt?.getTime?.() || 0));
-      },
-    },
-    leadContact: {
-      findMany: async ({ where }: any) => {
-        const ids: string[] = where?.radarLeadId?.in || [];
-        return contacts.filter((c) => ids.includes(c.radarLeadId) && (!where?.source || c.source === where.source));
       },
     },
   };
 }
 
-function withMissionQueueFlag<T>(value: string, fn: () => T): T {
-  const prev = process.env.HBX_MISSION_QUEUE_ENABLED;
-  process.env.HBX_MISSION_QUEUE_ENABLED = value;
-  try {
-    return fn();
-  } finally {
-    if (prev === undefined) delete process.env.HBX_MISSION_QUEUE_ENABLED;
-    else process.env.HBX_MISSION_QUEUE_ENABLED = prev;
-  }
+function withStatusFlags(enabled: boolean, run: () => Promise<void>) {
+  const previousQueue = process.env.HBX_MISSION_QUEUE_ENABLED;
+  const previousLocal = process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED;
+  process.env.HBX_MISSION_QUEUE_ENABLED = enabled ? 'true' : 'false';
+  process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED = enabled ? 'true' : 'false';
+  return run().finally(() => {
+    if (previousQueue === undefined) delete process.env.HBX_MISSION_QUEUE_ENABLED;
+    else process.env.HBX_MISSION_QUEUE_ENABLED = previousQueue;
+    if (previousLocal === undefined) delete process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED;
+    else process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED = previousLocal;
+  });
 }
 
-test('E3 status: flag da fila OFF devolve none pra tudo (degrade invisível)', async () => {
-  await withMissionQueueFlag('false', async () => {
-    const prisma = createFakePrisma({ missions: [{ id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date() }] });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
+const localMission = (overrides: Record<string, any> = {}) => ({
+  id: 'mission-local-1',
+  stage: 'local_deep_enrich_v1',
+  status: 'queued',
+  payloadJson: { radarLeadId: 'lead-1' },
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  ...overrides,
+});
+
+test('status local: flags OFF devolvem none sem consultar a fila', async () => {
+  await withStatusFlags(false, async () => {
+    const prisma = createFakePrisma({ missions: [localMission()] });
+    let queried = false;
+    prisma.radarMission.findMany = async () => { queried = true; return []; };
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
     assert.deepEqual(status, { 'lead-1': { state: 'none' } });
+    assert.equal(queried, false);
   });
 });
 
-test('E3 status: lead sem nenhuma missão vira none', async () => {
-  await withMissionQueueFlag('true', async () => {
-    const prisma = createFakePrisma({ missions: [] });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
-    assert.deepEqual(status, { 'lead-1': { state: 'none' } });
-  });
-});
-
-test('E3 status: missão queued vira "na fila" com posição ordinal', async () => {
-  await withMissionQueueFlag('true', async () => {
+test('status local: somente local_deep_enrich_v1 entra; queued preserva posição', async () => {
+  await withStatusFlags(true, async () => {
     const now = new Date();
     const prisma = createFakePrisma({
       missions: [
-        { id: 'm0', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-outro' }, createdAt: new Date(now.getTime() - 5000) },
-        { id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-1' }, createdAt: now },
+        localMission({ id: 'm0', payloadJson: { radarLeadId: 'outro' }, createdAt: new Date(now.getTime() - 5_000) }),
+        localMission({ id: 'm1', payloadJson: { radarLeadId: 'lead-1' }, createdAt: now }),
+        { id: 'legado', stage: 'enrich_lead', status: 'leased', payloadJson: { radarLeadId: 'lead-1' }, createdAt: now },
       ],
     });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
     assert.equal(status['lead-1'].state, 'queued');
-    assert.equal((status['lead-1'] as any).position, 2); // 2ª da fila (lead-outro veio antes)
-    assert.equal((status['lead-1'] as any).stale, false);
+    assert.equal((status['lead-1'] as any).position, 2);
+    assert.equal((status['lead-1'] as any).stage, 'local_deep_enrich_v1');
   });
 });
 
-test('E3 status: missão queued PARADA além do TTL de honestidade vira stale=true (anti-spinner-eterno)', async () => {
-  await withMissionQueueFlag('true', async () => {
-    const old = new Date(Date.now() - 20 * 60_000); // 20min > 15min TTL
-    const prisma = createFakePrisma({
-      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-1' }, createdAt: old }],
+test('status local: leased vira processing', async () => {
+  await withStatusFlags(true, async () => {
+    const heartbeatAt = new Date();
+    const prisma = createFakePrisma({ missions: [localMission({ status: 'leased', heartbeatAt })] });
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
+    assert.deepEqual(status['lead-1'], {
+      state: 'processing',
+      stage: 'local_deep_enrich_v1',
+      startedAt: heartbeatAt.toISOString(),
     });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
-    assert.equal(status['lead-1'].state, 'queued');
-    assert.equal((status['lead-1'] as any).stale, true);
   });
 });
 
-test('E3 status: missão leased (em voo) vira "processing"', async () => {
-  await withMissionQueueFlag('true', async () => {
+test('status local: completed vira released e conta somente o receiptJson da missão', async () => {
+  await withStatusFlags(true, async () => {
+    const completedAt = new Date();
     const prisma = createFakePrisma({
-      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'leased', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date(), heartbeatAt: new Date() }],
+      missions: [localMission({
+        status: 'completed',
+        completedAt,
+        receiptJson: {
+          noNewData: false,
+          createdContacts: [{ kind: 'phone' }, { kind: 'phone' }, { kind: 'email' }],
+          createdPersonIds: ['person-1'],
+        },
+      })],
     });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
-    assert.equal(status['lead-1'].state, 'processing');
-    assert.equal((status['lead-1'] as any).stage, 'enrich_lead');
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
+    assert.deepEqual(status['lead-1'], {
+      state: 'released',
+      stage: 'local_deep_enrich_v1',
+      releasedAt: completedAt.toISOString(),
+      noNewData: false,
+      receipt: { missionId: 'mission-local-1' },
+      delta: { phonesAdded: 2, emailsAdded: 1, peopleAdded: 1 },
+    });
   });
 });
 
-test('E3 status: missão completed vira "done" com resumo (+telefones/+emails)', async () => {
-  await withMissionQueueFlag('true', async () => {
-    const prisma = createFakePrisma({
-      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'completed', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date(), completedAt: new Date() }],
-      contacts: [
-        { radarLeadId: 'lead-1', kind: 'phone', source: 'ai_extraction' },
-        { radarLeadId: 'lead-1', kind: 'phone', source: 'ai_extraction' },
-        { radarLeadId: 'lead-1', kind: 'email', source: 'ai_extraction' },
-      ],
-    });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
-    assert.equal(status['lead-1'].state, 'done');
-    const summary = (status['lead-1'] as any).summary;
-    assert.equal(summary.phonesAdded, 2);
-    assert.equal(summary.emailsAdded, 1);
+test('status local: completed sem delta continua released com noNewData=true', async () => {
+  await withStatusFlags(true, async () => {
+    const prisma = createFakePrisma({ missions: [localMission({ status: 'completed', completedAt: new Date(), receiptJson: { noNewData: true } })] });
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
+    assert.equal(status['lead-1'].state, 'released');
+    assert.equal((status['lead-1'] as any).noNewData, true);
+    assert.deepEqual((status['lead-1'] as any).delta, { phonesAdded: 0, emailsAdded: 0, peopleAdded: 0 });
   });
 });
 
-test('E3 status: done é permanente mesmo sem contato (worker degradou) — nunca volta a "queued"', async () => {
-  await withMissionQueueFlag('true', async () => {
-    const prisma = createFakePrisma({
-      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'completed', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date(), completedAt: new Date() }],
-    });
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
-    assert.equal(status['lead-1'].state, 'done');
-    const summary = (status['lead-1'] as any).summary;
-    assert.equal(summary.phonesAdded, 0);
-  });
-});
-
-test('E3 status: lote (2 leads) resolve em 1 chamada só, sem N+1', async () => {
-  await withMissionQueueFlag('true', async () => {
+test('status local: dead/canceled viram invalidated e terminal mais recente vence', async () => {
+  await withStatusFlags(true, async () => {
+    const old = new Date(Date.now() - 60_000);
+    const current = new Date();
     const prisma = createFakePrisma({
       missions: [
-        { id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-1' }, createdAt: new Date() },
-        { id: 'm2', stage: 'enrich_lead', status: 'leased', payloadJson: { radarLeadId: 'lead-2' }, createdAt: new Date() },
+        localMission({ id: 'released-old', status: 'completed', completedAt: old, updatedAt: old }),
+        localMission({ id: 'dead-new', status: 'dead', updatedAt: current }),
       ],
     });
-    let findManyCalls = 0;
-    const originalFindMany = prisma.radarMission.findMany;
-    prisma.radarMission.findMany = async (arg: any) => { findManyCalls++; return originalFindMany(arg); };
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1', 'lead-2', 'lead-3']);
-    assert.equal(findManyCalls, 1);
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
+    assert.deepEqual(status['lead-1'], {
+      state: 'invalidated',
+      stage: 'local_deep_enrich_v1',
+      invalidatedAt: current.toISOString(),
+    });
+  });
+});
+
+test('status local: lote consulta missões uma vez, sem N+1, e mantém none', async () => {
+  await withStatusFlags(true, async () => {
+    const prisma = createFakePrisma({ missions: [localMission()] });
+    let calls = 0;
+    const original = prisma.radarMission.findMany;
+    prisma.radarMission.findMany = async (input: any) => { calls += 1; return original(input); };
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1', 'lead-2']);
+    assert.equal(calls, 1);
     assert.equal(status['lead-1'].state, 'queued');
-    assert.equal(status['lead-2'].state, 'processing');
-    assert.equal(status['lead-3'].state, 'none');
+    assert.equal(status['lead-2'].state, 'none');
   });
 });
 
-test('E3 status: sem tabela RadarMission (ambiente sem migration) degrada pra none, nunca lança', async () => {
-  await withMissionQueueFlag('true', async () => {
-    const prisma = { hasTable: async () => false };
-    const svc = new RadarPonteStatusService(prisma as any);
-    const status = await svc.getStatusForLeads(['lead-1']);
-    assert.deepEqual(status, { 'lead-1': { state: 'none' } });
+test('status local: sem tabela ou lote vazio degrada sem lançar', async () => {
+  await withStatusFlags(true, async () => {
+    const noTable = new RadarPonteStatusService(createFakePrisma({ hasMissionTable: false }) as any);
+    assert.deepEqual(await noTable.getStatusForLeads(['lead-1']), { 'lead-1': { state: 'none' } });
+    const empty = new RadarPonteStatusService(createFakePrisma() as any);
+    assert.deepEqual(await empty.getStatusForLeads([]), {});
   });
-});
-
-test('E3 status: leadIds vazio devolve mapa vazio sem tocar o banco', async () => {
-  const prisma = createFakePrisma();
-  let called = false;
-  prisma.radarMission.findMany = async () => { called = true; return []; };
-  const svc = new RadarPonteStatusService(prisma as any);
-  const status = await svc.getStatusForLeads([]);
-  assert.deepEqual(status, {});
-  assert.equal(called, false);
 });

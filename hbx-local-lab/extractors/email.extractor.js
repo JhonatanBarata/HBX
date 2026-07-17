@@ -218,6 +218,11 @@ function extractEmailsFromText(text, context = {}) {
           method: mailto ? 'mailto' : 'html_text',
           officialDomainMatch: Boolean(officialDomainMatch),
           sourceUrl,
+          ...(context.evidence && typeof context.evidence === 'object' ? {
+            evidenceId: context.evidence.id || null,
+            contentHash: context.evidence.contentHash || null,
+            pageType: context.evidence.pageType || null,
+          } : {}),
         },
       };
     })

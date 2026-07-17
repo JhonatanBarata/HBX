@@ -3185,7 +3185,6 @@ export class RadarCorePresentationMixin {
     if (!requested.length) return { items: {} };
     if (!(await this.supportsRadarPersistence())) return { items: {} };
 
-    const ownershipEnabled = await this.supportsRadarOwnershipPersistence();
     const rows = await (this.prisma as any).radarLeadPool.findMany({
       where: { id: { in: requested } },
       select: {
@@ -3200,9 +3199,12 @@ export class RadarCorePresentationMixin {
     const allowedIds = (Array.isArray(rows) ? rows : [])
       .filter((row: any) => {
         const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
-        if (ownershipEnabled && ownerCompanyId && ownerCompanyId !== context.companyId) return false;
-        if (ownerCompanyId === context.companyId) return true;
-        return Array.isArray(row?.companyStates) && row.companyStates.length > 0;
+        const hasTenantState = Array.isArray(row?.companyStates) && row.companyStates.length > 0;
+        // Pool global (ainda não puxado) é a vitrine comum do Radar e precisa mostrar o status.
+        // Assim que houver dono explícito, outro tenant permanece negado mesmo conhecendo o ID.
+        if (ownerCompanyId && ownerCompanyId !== context.companyId) return false;
+        if (ownerCompanyId === context.companyId || hasTenantState) return true;
+        return !ownerCompanyId;
       })
       .map((row: any) => String(row.id));
 

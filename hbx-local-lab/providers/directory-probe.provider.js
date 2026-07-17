@@ -2,11 +2,13 @@
 
 const { extractEmailsFromText, normalizeUrl } = require('../extractors/email.extractor');
 const { fetchPublicPage } = require('./site-crawl.provider');
+const { buildCompactEvidence } = require('../extractors/evidence.extractor');
 
 async function runDirectoryProbeProvider(job, context = {}) {
   const maxDirectoryUrls = Math.max(0, Math.min(5000, Number(job.maxDirectoryUrls || 300) || 300));
   const directoryUrls = Array.isArray(job.directoryUrls) ? job.directoryUrls.map(normalizeUrl).filter(Boolean).slice(0, maxDirectoryUrls) : [];
   const emails = [];
+  const evidence = [];
   const warnings = [];
   const stats = {
     provider: 'directory_probe',
@@ -18,11 +20,14 @@ async function runDirectoryProbeProvider(job, context = {}) {
     if (context.isCanceled && context.isCanceled()) break;
     const page = await fetchPublicPage(url, context.signal, context.fetcher);
     if (!page.ok) continue;
+    const compactEvidence = buildCompactEvidence(page, 'directory_probe');
+    if (compactEvidence) evidence.push(compactEvidence);
     stats.pagesVisited += 1;
     const found = extractEmailsFromText(page.html, {
       sourceUrl: page.url,
       website: page.url,
       provider: 'directory_probe',
+      evidence: compactEvidence,
     }).map((email) => ({
       ...email,
       status: email.status === 'public_found' ? 'probable' : email.status,
@@ -37,7 +42,7 @@ async function runDirectoryProbeProvider(job, context = {}) {
   }
 
   if (!directoryUrls.length) warnings.push('directory_probe requer directoryUrls explicitas no MVP.');
-  return { provider: 'directory_probe', leads: [], emails, stats, warnings };
+  return { provider: 'directory_probe', leads: [], emails, evidence, stats, warnings };
 }
 
 module.exports = {

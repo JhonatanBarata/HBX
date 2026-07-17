@@ -7,14 +7,16 @@
 // "Modo foco" nasce DE NOVO como takeover da casca (CascaView) — o
 // VendasModoFoco velho foi deletado no W0; PROIBIDO ressuscitar.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CanalIcon, type Canal } from "@/components/hbx/canal-icon";
 import { vendasEngagementMeta } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { showCascaToast } from "@/lib/casca-toast";
+import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 
 import { CascaLoading } from "../loading";
 import { CascaSheet } from "../transitions";
@@ -33,6 +35,15 @@ import {
 } from "./vendas-types";
 
 type Vista = "lista" | "quadro";
+
+function replaceMobileBoardLead(board: VendasBoardResponse, updated: VendasLeadMobile): VendasBoardResponse {
+  if (!board) return board;
+  const blocks = { ...board.blocks };
+  for (const { key } of BLOCK_ORDER_MOBILE) {
+    blocks[key] = (blocks[key] || []).map(card => card.id === updated.id ? updated : card);
+  }
+  return { ...board, blocks };
+}
 
 // Fileira compacta dos 6 canais dentro do lead da lista — MESMA tri-cor do
 // DetalhesNegocio (getCanalState): acende só quando o dado foi de fato achado
@@ -134,6 +145,10 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
     try {
       const res = await apiFetch<VendasBoardResponse>("/vendas/board");
       setBoard(res);
+      setSel(current => {
+        if (!current || !res) return current;
+        return BLOCK_ORDER_MOBILE.flatMap(block => res.blocks?.[block.key] || []).find(card => card.id === current.id) || current;
+      });
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Falha ao carregar o funil.");
@@ -146,8 +161,26 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   // (react-hooks/set-state-in-effect); load só faz setState após o await.
   useEffect(() => { void (async () => { await load(); })(); }, [load]);
 
-  const todos = board ? BLOCK_ORDER_MOBILE.flatMap(b => board.blocks?.[b.key] || []) : [];
+  const todos = useMemo(
+    () => board ? BLOCK_ORDER_MOBILE.flatMap(b => board.blocks?.[b.key] || []) : [],
+    [board],
+  );
   const canViewValues = board?.canViewValues !== false;
+  const refreshLead = useCallback(async (radarLeadId: string) => {
+    const current = todos.find(card => card.radarLeadId === radarLeadId);
+    if (!current) return;
+    try {
+      const response = await apiFetch<{ lead?: VendasLeadMobile }>(`/vendas/lead/${encodeURIComponent(current.id)}/card`);
+      if (!response?.lead) return;
+      setBoard(previous => replaceMobileBoardLead(previous, response.lead!));
+      setSel(previous => previous?.id === response.lead!.id ? response.lead! : previous);
+    } catch {
+      await load();
+    }
+  }, [load, todos]);
+  const aiStatusMap = useRadarAiStatusPoll(todos.map(card => card.radarLeadId || ""), {
+    onTerminal: (radarLeadId) => { void refreshLead(radarLeadId); },
+  });
 
   async function criarLead() {
     const name = novoForm.name.trim();
@@ -245,6 +278,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                       <span className="vnd-m__row-sub">
                         {card.statusLabel} · {vendasEngagementMeta(card.engagement, card.conversation).label} · {fmtWhenMobile(card.returnAt)}
                       </span>
+                      <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
                       <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
@@ -271,6 +305,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
                       <span className="vnd-m__row-sub">
                         {vendasEngagementMeta(card.engagement, card.conversation).label} · {card.city || "—"}{card.state ? `/${card.state}` : ""}
                       </span>
+                      <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
                       <CanaisMiniRow card={card} />
                     </span>
                     <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
@@ -288,6 +323,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
         detail={sel ? vendasLeadToDetail(sel) : null}
         conversationLeadId={sel?.id ?? null}
         onConversationChanged={load}
+        crownSlot={sel ? <RadarAiBadge status={aiStatusMap[sel.radarLeadId || ""]} /> : null}
         onClose={() => setSel(null)}
       />
 

@@ -1541,33 +1541,25 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   animation: dn-shimmer 1.4s ease-in-out infinite;
 }
 
-/* ── Badge de status de IA por CARD (CHIP E3, 05/07) — vitrine de leads + estoque de Vendas ──────
-   Mesma família visual do .dn-enriching-badge do detalhe (selo pulsante âmbar), num tamanho que
-   cabe na fileira de um card fechado (be-card / vnd-card). Estados: queued (âmbar, "na fila")
-   processing (âmbar pulsante, "enriquecendo agora") done (verde/teal, selo PERMANENTE — nunca
-   pulsa, nunca some). Texto vem de radar-ai-status.ts (RADAR_AI_STATUS_COPY) — token central,
-   nunca string solta na tela. */
+/* Status público do enriquecimento local. Fases técnicas permanecem no Owner. */
 .radar-ai-badge {
+  --radar-ai-status-tone: var(--hbx-warning);
+  flex: 0 0 auto;
+  max-width: 100%;
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 9px; border-radius: 999px; align-self: flex-start;
   font-size: 0.64rem; font-weight: 800; white-space: nowrap; line-height: 1.3;
-  border: 1px solid color-mix(in srgb, var(--hbx-warning) 32%, transparent);
-  background: color-mix(in srgb, var(--hbx-warning) 12%, transparent);
-  color: var(--hbx-warning);
+  border: 1px solid color-mix(in srgb, var(--radar-ai-status-tone) 38%, transparent);
+  background: color-mix(in srgb, var(--radar-ai-status-tone) 12%, transparent);
+  color: var(--radar-ai-status-tone);
 }
-.radar-ai-badge--processing {
-  animation: dn-enriching-pulse 1.7s ease-in-out infinite;
-}
-.radar-ai-badge--done {
-  border-color: color-mix(in srgb, var(--hbx-success) 32%, transparent);
-  background: color-mix(in srgb, var(--hbx-success) 12%, transparent);
-  color: var(--hbx-success);
-  animation: none;
-}
-.radar-ai-badge__summary {
-  display: block; margin-top: 2px;
-  font-size: 0.62rem; font-weight: 600; color: var(--text-muted);
-  white-space: normal; line-height: 1.35;
+.radar-ai-badge--queued { --radar-ai-status-tone: var(--hbx-warning); }
+.radar-ai-badge--processing { --radar-ai-status-tone: var(--hbx-info); animation: dn-enriching-pulse 1.7s ease-in-out infinite; }
+.radar-ai-badge--released { --radar-ai-status-tone: var(--hbx-success); }
+.radar-ai-badge--invalidated { --radar-ai-status-tone: var(--hbx-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-ai-badge--processing { animation: none; }
 }
 
 /* ============================================================

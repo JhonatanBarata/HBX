@@ -36,6 +36,7 @@ import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 // JÁ carregado (sem refetch) — `import type` (apagado no build, sem ciclo real).
 export type VendasLead = {
   id: string;
+  radarLeadId?: string | null;
   customerProfileId?: string | null;
   name: string | null;
   phone: string | null;
@@ -202,6 +203,15 @@ const BLOCK_ORDER: { key: keyof NonNullable<BoardResponse>["blocks"]; label: str
   { key: "scheduled", label: "Agendados" },
   { key: "closed", label: "Fechados" },
 ];
+
+function replaceBoardLead(board: BoardResponse, updated: VendasLead): BoardResponse {
+  if (!board) return board;
+  const blocks = { ...board.blocks };
+  for (const { key } of BLOCK_ORDER) {
+    blocks[key] = (blocks[key] || []).map(card => card.id === updated.id ? updated : card);
+  }
+  return { ...board, blocks };
+}
 
 
 function fmtMoney(value: number | null | undefined) {
@@ -530,6 +540,27 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o board de Vendas.");
       });
   }, [teamFilter, applyTeamFilter]);
+
+  const refreshBoardLead = useCallback(async (radarLeadId: string) => {
+    const current = BLOCK_ORDER
+      .flatMap(({ key }) => boardRef.current?.blocks?.[key] || [])
+      .find(card => card.radarLeadId === radarLeadId);
+    if (!current) return;
+
+    try {
+      const response = await apiFetch<{ lead?: VendasLead }>(`/vendas/lead/${encodeURIComponent(current.id)}/card`);
+      if (!response?.lead) return;
+      const updated = response.lead;
+      setBoard(previous => {
+        const next = replaceBoardLead(previous, updated);
+        boardRef.current = next;
+        return next;
+      });
+      setSel(previous => previous?.id === updated.id ? updated : previous);
+    } catch {
+      await loadBoard();
+    }
+  }, [loadBoard]);
 
   useEffect(() => { loadBoard(); }, [loadBoard]);
 
@@ -1041,10 +1072,10 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
     return list;
   })();
 
-  // CHIP E3 (05/07) — status de IA por lote no ESTOQUE de Vendas (mesma fonte da vitrine de
-  // leads): "na fila"/"enriquecendo agora"/"enriquecido", ligado por leadId (id do VendasLead ==
-  // radarLeadId). Flag da fila OFF no backend → tudo 'none', badge some sozinho.
-  const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.id));
+  // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
+  const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
+    onTerminal: (radarLeadId) => { void refreshBoardLead(radarLeadId); },
+  });
 
   // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
   const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
@@ -1289,7 +1320,7 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
                                 <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
                                   aria-label={`Selecionar ${card.name || "card"}`} />
                               </td>
-                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}<RadarAiBadge status={aiStatusMap[card.id]} /></div></td>
+                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}<RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} /></div></td>
                               <td>{card.segment || "—"}</td>
                               <td>
                                 <span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>
@@ -1369,7 +1400,7 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
                                     {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
                                   </div>
                                   <span className="vnd-card__sub">{card.segment || card.city || card.phone || "—"}</span>
-                                  <RadarAiBadge status={aiStatusMap[card.id]} />
+                                  <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
                                   <div className="vnd-card__row">
                                     <Termometro score={therm.score} why={therm.why} />
                                     {canViewValues && <span className="vnd-card__val">{leadValueLabel(card)}</span>}
@@ -1404,7 +1435,7 @@ export function VendasClient({ statusPreviewAvailable = false }: VendasClientPro
                 showAgenda
                 conversationLeadId={deal?.id ?? null}
                 onConversationChanged={loadBoard}
-                crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.id]} /> : undefined}
+                crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.radarLeadId || ""]} /> : undefined}
                 onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
                 onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno(deal) : undefined}
                 waQrActive={waQrActive}

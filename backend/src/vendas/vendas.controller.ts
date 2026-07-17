@@ -309,6 +309,11 @@ export class VendasController {
     });
   }
 
+  @Get('lead/:leadId/card')
+  getLeadCard(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasService.getLeadCardForUser(req.user, leadId);
+  }
+
   @Get('lead/:leadId/conversation-snapshot')
   getLeadConversationSnapshot(@Req() req: any, @Param('leadId') leadId: string, @Query('eventId') eventId?: string) {
     return this.vendasService.getLeadConversationSnapshotForUser(req.user, leadId, eventId || null);

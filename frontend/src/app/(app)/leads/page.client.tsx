@@ -713,6 +713,21 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       });
   }, [segment, city, uf, alcance, siteFiltro, zapFiltro]);
 
+  const refreshRadarLead = useCallback(async (radarLeadId: string) => {
+    try {
+      const response = await apiFetch<{ item?: RadarLead }>(`/webscraping/radar/leads/${encodeURIComponent(radarLeadId)}`);
+      if (!response?.item) return;
+      const updated = response.item;
+      setData(previous => previous
+        ? { ...previous, items: (previous.items || []).map(item => item.id === radarLeadId ? updated : item) }
+        : previous);
+      setLiveRunItems(previous => previous?.map(item => item.id === radarLeadId ? updated : item) ?? previous);
+      setSelLead(previous => previous?.id === radarLeadId ? updated : previous);
+    } catch {
+      await loadList(tab, { page });
+    }
+  }, [loadList, page, tab]);
+
   useEffect(() => {
     loadBank();
     loadUsage();
@@ -1121,10 +1136,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const items = showingLiveRun ? (liveRunItems ?? []) : (hideHistory ? [] : historyItems);
   const hasHistory = tab === "shelf" && !hasSearched && !historyHidden && historyItems.length > 0;
 
-  // CHIP E3 (05/07) — status de IA por lote (fila da PONTE 30B): "na fila"/"enriquecendo agora"/
-  // "enriquecido", ligado por leadId. Polling leve só dos leads da página atual (nunca N chamadas
-  // por card); flag da fila OFF no backend → tudo 'none' e o badge simplesmente não aparece.
-  const aiStatusMap = useRadarAiStatusPoll(items.map(row => row.id));
+  const aiStatusMap = useRadarAiStatusPoll(items.map(row => row.id), {
+    onTerminal: (radarLeadId) => { void refreshRadarLead(radarLeadId); },
+  });
 
   const limit = data?.meta?.limit || pageSize;
   const filters = data?.meta?.availableFilters;

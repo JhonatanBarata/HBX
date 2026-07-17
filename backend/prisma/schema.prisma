@@ -2883,11 +2883,16 @@ model LeadContact {
   source              String?  // de onde veio: 'website_crawl' | 'cnpj_l4' | 'owner_social' | 'metadataJson_backfill' | etc
   confidence          Int?     @default(0)
   claimedByCompanyId  Int?     // null = não reivindicado por nenhuma empresa ainda (chave do #15)
+  createdByMissionId  String?
+  evidenceId          String?
+  evidenceUrl         String?
+  evidenceHash        String?
   createdAt           DateTime @default(now())
 
   @@index([radarLeadId, kind, rank])
   @@index([kind, valueNormalized])
   @@index([claimedByCompanyId])
+  @@index([createdByMissionId])
   @@unique([radarLeadId, kind, valueNormalized])
 }
 
@@ -2914,10 +2919,15 @@ model LeadPerson {
   // chave de idempotência dentro do lead: source + nome normalizado (sem acento/caixa).
   personKey    String
   rank         Int      @default(1)
+  createdByMissionId String?
+  evidenceId   String?
+  evidenceUrl  String?
+  evidenceHash String?
   createdAt    DateTime @default(now())
 
   @@unique([radarLeadId, personKey])
   @@index([radarLeadId, rank])
+  @@index([createdByMissionId])
 }
 
 // DISJUNTOR MENSAL do Brave (30/06 — incidente "estourou 1000"): contador persistente de chamadas
@@ -3306,6 +3316,12 @@ model RadarMission {
   payloadJson    Json
   dedupeKey      String?
   correlationId  String?
+  companyId      Int?
+  radarLeadId    String?
+  requestedByUserId Int?
+  runId          String?
+  workVersion    Int?
+  consumerKind   String    @default("vps")
   attempts       Int       @default(0)
   maxAttempts    Int       @default(3)
   nextAttemptAt  DateTime  @default(now())
@@ -3313,16 +3329,72 @@ model RadarMission {
   leasedBy       String?
   leaseExpiresAt DateTime?
   heartbeatAt    DateTime?
+  startedAt      DateTime?
+  lastPhase      String?
   lastError      String?
   resultJson     Json?
+  receiptJson    Json?
   completedAt    DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@unique([stage, dedupeKey])
+  @@unique([stage, radarLeadId, workVersion])
   @@index([stage, status, nextAttemptAt])
+  @@index([consumerKind, status, nextAttemptAt, priority])
+  @@index([radarLeadId, createdAt])
+  @@index([companyId, status, createdAt])
+  @@index([runId, status])
   @@index([status, leaseExpiresAt])
   @@index([correlationId, status])
+}
+
+// Trilha WORM do contrato local_deep_enrich_v1. A migration instala gatilhos
+// que recusam UPDATE/DELETE; o Prisma apenas materializa a leitura operacional.
+model RadarLocalEnrichmentAudit {
+  id                     String   @id
+  missionId              String   @unique
+  radarLeadId            String
+  companyId              Int?
+  workerId               String
+  contractVersion        String
+  workVersion            Int
+  requestHash            String
+  requestBodyFingerprint String
+  resultHash             String
+  beforeJson             Json
+  deltaJson              Json
+  createdContactIds      Json
+  createdPersonIds       Json
+  vendasLeadIds          Json
+  evidenceJson           Json
+  receiptJson            Json
+  startedAt              DateTime
+  committedAt            DateTime @default(now())
+  durationMs             Int
+
+  @@index([radarLeadId, committedAt])
+  @@index([companyId, committedAt])
+  @@index([workerId, committedAt])
+}
+
+// Cada reversão também é append-only. A função de reversão nunca é concedida
+// ao worker; o Gate D vincula seu papel NOLOGIN apenas ao System Master.
+model RadarLocalEnrichmentReversal {
+  id                String   @id
+  missionId         String   @unique
+  auditId           String
+  requestedBy       String
+  reason            String
+  removedContactIds Json
+  removedPersonIds  Json
+  restoredJson      Json
+  skippedJson       Json
+  receiptJson       Json
+  createdAt         DateTime @default(now())
+
+  @@index([auditId])
+  @@index([createdAt])
 }
 
 // Estado durável da corrida da fábrica de enriquecimento. O backend e o card do Owner

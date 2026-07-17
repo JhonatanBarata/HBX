@@ -10,10 +10,12 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
+import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { buildNegocioDetailFromLead, type RadarLead } from "@/app/(app)/leads/page.client";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS } from "@/lib/brazil-cities";
+import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
 
 import { CascaLoading } from "../loading";
@@ -110,6 +112,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
     try {
       const res = await apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`);
       setItems(res?.items || []);
+      setSel(current => current ? (res?.items || []).find(item => item.id === current.id) || current : current);
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
@@ -124,6 +127,17 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
   const loadUsage = useCallback(() => {
     apiFetch<UsageResponse>("/vendas/usage").then(setUsage).catch(() => setUsage(null));
   }, []);
+
+  const refreshLead = useCallback(async (radarLeadId: string) => {
+    try {
+      const response = await apiFetch<{ item?: RadarLead }>(`/webscraping/radar/leads/${encodeURIComponent(radarLeadId)}`);
+      if (!response?.item) return;
+      setItems(previous => previous.map(item => item.id === radarLeadId ? response.item! : item));
+      setSel(previous => previous?.id === radarLeadId ? response.item! : previous);
+    } catch {
+      await loadList();
+    }
+  }, [loadList]);
 
   useEffect(() => {
     // IIFE async: mantém loadList() FORA do corpo síncrono do efeito
@@ -231,6 +245,9 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
       ? `${fmtInt(usage.cards.used)}/${fmtInt(usage.cards.limit)}`
       : "—";
   const totalBrasil = bank?.baseAvailable ? (bank?.baseTotal ?? null) : (bank?.total ?? null);
+  const aiStatusMap = useRadarAiStatusPoll(items.map(item => item.id), {
+    onTerminal: (radarLeadId) => { void refreshLead(radarLeadId); },
+  });
 
   if (loading) return <CascaLoading caption="Carregando Radar…" />;
 
@@ -307,10 +324,11 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
               <Av name={lead.name || "?"} size={30} />
               <span className="vnd-m__row-main">
                 <span className="vnd-m__row-name">
-                  {lead.name || "Sem nome"}
+                  <span className="vnd-m__row-name-txt">{lead.name || "Sem nome"}</span>
                   {newIds.has(lead.id) ? <span className="vnd-m__row-tag">novo</span> : null}
                 </span>
                 <span className="vnd-m__row-sub">{lead.segment || "—"} · {lead.city || "—"}{lead.state ? `/${lead.state}` : ""}</span>
+                <RadarAiBadge status={aiStatusMap[lead.id]} />
               </span>
               <I d={ICONS.arrow} size={16} />
             </button>
@@ -323,6 +341,7 @@ export function VendasBuscarMobile({ modo, onModoChange }: { modo: Modo; onModoC
         detail={sel ? buildNegocioDetailFromLead(sel, { revealed: Boolean(sel.ownershipStatus ? sel.ownershipStatus === "mine" : sel.phone) }) : null}
         onClose={() => setSel(null)}
         showPuxar={Boolean(sel && sel.ownershipStatus !== "mine")}
+        crownSlot={sel ? <RadarAiBadge status={aiStatusMap[sel.id]} /> : null}
         onPulled={() => { setSel(null); void loadList(); }}
       />
 

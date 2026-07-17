@@ -5,6 +5,7 @@ import {
   RadarMissionQueueService,
   RadarMissionStage,
   PONTE_MISSION_STAGES,
+  LOCAL_DEEP_ENRICH_STAGE,
 } from './radar-mission-queue.service';
 import { MissionResultApplyService } from './mission-result-apply.service';
 
@@ -66,6 +67,11 @@ export class RadarMissionsController {
   async complete(@Param('id') id: string, @Body() body: { leaseId?: string; result?: Record<string, unknown> }) {
     const leaseId = String(body?.leaseId || '');
     const ctx = await this.missionQueue.getLeasedContext(id, leaseId);
+    if (ctx.ok && ctx.stage === LOCAL_DEEP_ENRICH_STAGE) {
+      // Este stage termina exclusivamente na função transacional privada do PostgreSQL. Aceitar
+      // resultado HTTP aqui recriaria a segunda aplicação no backend proibida pelo contrato.
+      return { ok: false, reason: 'direct_db_commit_required', retryable: false };
+    }
     if (ctx.ok && !ctx.alreadyCompleted) {
       const outcome = await this.resultApply.apply({ stage: ctx.stage, payload: ctx.payload, result: body?.result || null });
       if (!outcome.applied) {

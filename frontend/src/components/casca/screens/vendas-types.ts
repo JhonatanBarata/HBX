@@ -15,6 +15,7 @@ export type VendasBlockKey = "today" | "overdue" | "scheduled" | "closed";
 
 export type VendasLeadMobile = {
   id: string;
+  radarLeadId?: string | null;
   customerProfileId?: string | null;
   name: string | null;
   phone: string | null;

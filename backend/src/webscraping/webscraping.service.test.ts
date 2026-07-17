@@ -6271,9 +6271,8 @@ function createRadarAiStatusPrisma(input: { leads: any[]; missions?: any[] }) {
     },
     radarMission: {
       findMany: async ({ where }: any) => {
-        const stages: string[] = where?.stage?.in || [];
         const statuses: string[] = where?.status?.in || [];
-        return missions.filter((m) => (!stages.length || stages.includes(m.stage)) && (!statuses.length || statuses.includes(m.status)));
+        return missions.filter((m) => (!where?.stage || m.stage === where.stage) && (!statuses.length || statuses.includes(m.status)));
       },
     },
   });
@@ -6281,7 +6280,9 @@ function createRadarAiStatusPrisma(input: { leads: any[]; missions?: any[] }) {
 
 test('E3 getRadarAiStatusForUser: card de OUTRA empresa (ownerCompanyId diferente) nao aparece no lote', async () => {
   const prevFlag = process.env.HBX_MISSION_QUEUE_ENABLED;
+  const prevLocalFlag = process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED;
   process.env.HBX_MISSION_QUEUE_ENABLED = 'true';
+  process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED = 'true';
   try {
     const prisma = createRadarAiStatusPrisma({
       leads: [
@@ -6289,8 +6290,8 @@ test('E3 getRadarAiStatusForUser: card de OUTRA empresa (ownerCompanyId diferent
         { id: 'lead-de-outra-empresa', ownerCompanyId: 999, companyStates: [] },
       ],
       missions: [
-        { id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-minha' }, createdAt: new Date() },
-        { id: 'm2', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-de-outra-empresa' }, createdAt: new Date() },
+        { id: 'm1', stage: 'local_deep_enrich_v1', status: 'queued', payloadJson: { radarLeadId: 'lead-minha' }, createdAt: new Date() },
+        { id: 'm2', stage: 'local_deep_enrich_v1', status: 'queued', payloadJson: { radarLeadId: 'lead-de-outra-empresa' }, createdAt: new Date() },
       ],
     });
     const service = new WebscrapingService(prisma) as any;
@@ -6301,6 +6302,8 @@ test('E3 getRadarAiStatusForUser: card de OUTRA empresa (ownerCompanyId diferent
   } finally {
     if (prevFlag === undefined) delete process.env.HBX_MISSION_QUEUE_ENABLED;
     else process.env.HBX_MISSION_QUEUE_ENABLED = prevFlag;
+    if (prevLocalFlag === undefined) delete process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED;
+    else process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED = prevLocalFlag;
   }
 });
 
@@ -6310,7 +6313,7 @@ test('E3 getRadarAiStatusForUser: flag da fila OFF devolve status none pros lead
   try {
     const prisma = createRadarAiStatusPrisma({
       leads: [{ id: 'lead-minha', ownerCompanyId: 7, companyStates: [] }],
-      missions: [{ id: 'm1', stage: 'enrich_lead', status: 'queued', payloadJson: { radarLeadId: 'lead-minha' }, createdAt: new Date() }],
+      missions: [{ id: 'm1', stage: 'local_deep_enrich_v1', status: 'queued', payloadJson: { radarLeadId: 'lead-minha' }, createdAt: new Date() }],
     });
     const service = new WebscrapingService(prisma) as any;
     const res = await service.getRadarAiStatusForUser(createUser(), ['lead-minha']);

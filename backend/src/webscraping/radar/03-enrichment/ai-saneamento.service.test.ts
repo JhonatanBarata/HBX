@@ -48,6 +48,27 @@ test('saneiaComNota clampa nota fora do range 0-10', async () => {
   });
 });
 
+test('saneiaComNota usa sempre qwen3:4b-instruct mesmo se a env legada apontar outro modelo', async () => {
+  const previous = process.env.HBX_AI_SANEAMENTO_MODEL;
+  process.env.HBX_AI_SANEAMENTO_MODEL = 'modelo-legado-nao-permitido';
+  let requestedModel = '';
+  try {
+    await withFetch(async (_url, init) => {
+      requestedModel = JSON.parse(String(init?.body || '{}')).model;
+      return createResponse(200, {
+        message: { content: JSON.stringify({ nome_limpo: 'Empresa', segmento: 'Serviços', nota: 8, razao: 'ok' }) },
+      }) as any;
+    }, async () => {
+      const result = await new AiSaneamentoService().saneiaComNota({ name: 'Empresa' });
+      assert.equal(result.ok, true);
+    });
+    assert.equal(requestedModel, 'qwen3:4b-instruct');
+  } finally {
+    if (previous === undefined) delete process.env.HBX_AI_SANEAMENTO_MODEL;
+    else process.env.HBX_AI_SANEAMENTO_MODEL = previous;
+  }
+});
+
 test('saneiaComNota degrada gracioso quando Ollama responde HTTP nao-ok (nunca lanca)', async () => {
   await withFetch(async () => createResponse(500, {}) as any, async () => {
     const service = new AiSaneamentoService();

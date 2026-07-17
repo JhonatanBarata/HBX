@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 // ─── SPRINT 4 MOTOR-RFB-FILA (02/07) — fila de missões real ─────────────────────────────────────
@@ -9,15 +9,30 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // A família de bugs caros (pump moendo cidade esgotada, lease órfão → deadlock todos-busy, Parar que
 // não para, demanda falsa religando motor) era toda sintoma da fila improvisada.
 
-// `enrich_lead` (F2, 02/07): missão da FÁBRICA DE ENRIQUECIMENTO. Diferente das etapas da lane de
-// pesquisa (alvo→…→card), ela pega um lead JÁ existente na base (materializado da lista RFB local) e
-// completa contato/site/social/sócio — SEMPRE grátis no local (trava Lei nº1), sempre via
-// LeadContactWriteService (gate anti-alucinação). Ver RadarFabricaService.
-export const RADAR_MISSION_STAGES = ['alvo', 'receita', 'base_rica', 'cerebro', 'validacao_zap', 'card', 'enrich_lead', 'enrich_search_item'] as const;
+// `enrich_lead` permanece legado da fábrica até o cutover autorizado. O worker residencial novo
+// recebe exclusivamente `local_deep_enrich_v1`; o saneamento rápido do VPS usa
+// `ai_saneamento_4b_v1`. Os três contratos não disputam consumidor.
+export const LOCAL_DEEP_ENRICH_STAGE = 'local_deep_enrich_v1' as const;
+export const AI_SANEAMENTO_4B_STAGE = 'ai_saneamento_4b_v1' as const;
+export const RADAR_MISSION_STAGES = [
+  'alvo',
+  'receita',
+  'base_rica',
+  'cerebro',
+  'validacao_zap',
+  'card',
+  'enrich_lead',
+  'enrich_search_item',
+  AI_SANEAMENTO_4B_STAGE,
+  LOCAL_DEEP_ENRICH_STAGE,
+] as const;
 export type RadarMissionStage = (typeof RADAR_MISSION_STAGES)[number];
 
-/** Estágios que a PONTE (worker local do 30B) processa por lease/HTTP. Os demais são da fábrica in-process. */
-export const PONTE_MISSION_STAGES: readonly RadarMissionStage[] = ['enrich_lead'];
+/** Contrato público do Owner: o worker residencial nunca recebe stages internos/legados do VPS. */
+export const PONTE_MISSION_STAGES: readonly RadarMissionStage[] = [LOCAL_DEEP_ENRICH_STAGE];
+
+/** Consumidores do VPS também trabalham somente com allowlist explícita. */
+export const VPS_MISSION_STAGES: readonly RadarMissionStage[] = ['enrich_search_item', AI_SANEAMENTO_4B_STAGE];
 
 export const RADAR_MISSION_PAYLOAD_VERSION = 1;
 
@@ -54,8 +69,87 @@ export type RadarMissionQueueLag = {
   oldestQueuedAgeMs: number;
 };
 
+export type LocalDeepEnrichmentEnqueueInput = {
+  radarLeadId: string;
+  name: string;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  website?: string | null;
+  sourceUrl?: string | null;
+  identityKey?: string | null;
+  companyId?: number | null;
+  requestedByUserId?: number | null;
+  runId?: string | null;
+  correlationId?: string | null;
+  priority?: number | null;
+  priorityReason?: 'new_lead' | 'reconciled' | 'delivered';
+};
+
+export type AiSaneamento4bEnqueueInput = {
+  radarLeadId: string;
+  name: string;
+  city?: string | null;
+  state?: string | null;
+  segment?: string | null;
+  companyId?: number | null;
+  correlationId?: string | null;
+  priority?: number | null;
+};
+
+export const LOCAL_DEEP_ENRICH_CONSUMER_KIND = 'owner_local' as const;
+export const AI_SANEAMENTO_4B_CONSUMER_KIND = 'vps' as const;
+const LOCAL_DEEP_ENRICH_EXCLUDED_STATUSES = new Set([
+  'denied',
+  'complaint',
+  'duplicate',
+  'hidden',
+  'invalidated',
+  'negative',
+  'rejected',
+]);
+
 export function isMissionQueueEnabled(env: NodeJS.ProcessEnv = process.env) {
   return ['1', 'true', 'yes', 'sim', 'on'].includes(String(env.HBX_MISSION_QUEUE_ENABLED || '').trim().toLowerCase());
+}
+
+export function isLocalDeepEnrichmentQueueEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return isMissionQueueEnabled(env)
+    && ['1', 'true', 'yes', 'sim', 'on'].includes(String(env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED || '').trim().toLowerCase());
+}
+
+export function isRadarAiSaneamentoEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return isMissionQueueEnabled(env)
+    && ['1', 'true', 'yes', 'sim', 'on'].includes(String(env.HBX_RADAR_AI_SANEAMENTO_ENABLED || '').trim().toLowerCase());
+}
+
+function compactMissionText(value: unknown, max = 500) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+function normalizedWorkValue(value: unknown) {
+  return compactMissionText(value, 2_000).toLocaleLowerCase('pt-BR').replace(/\/+$/, '');
+}
+
+export function buildLocalDeepEnrichmentWorkIdentity(input: LocalDeepEnrichmentEnqueueInput) {
+  const radarLeadId = compactMissionText(input.radarLeadId, 200);
+  const material = [
+    LOCAL_DEEP_ENRICH_STAGE,
+    normalizedWorkValue(input.identityKey),
+    normalizedWorkValue(input.name),
+    normalizedWorkValue(input.website),
+    normalizedWorkValue(input.sourceUrl),
+    normalizedWorkValue(input.city),
+    normalizedWorkValue(input.state),
+  ].join('\n');
+  const workHash = createHash('sha256').update(material).digest('hex');
+  const workVersion = (Number.parseInt(workHash.slice(0, 8), 16) & 0x7fffffff) || 1;
+  return {
+    radarLeadId,
+    workHash,
+    workVersion,
+    dedupeKey: `radar:${radarLeadId}:work:${workVersion}`,
+  };
 }
 
 export function resolveMissionLeaseTtlMs(env: NodeJS.ProcessEnv = process.env) {
@@ -115,6 +209,14 @@ type EnqueueInput = {
   correlationId?: string | null;
   maxAttempts?: number | null;
   priority?: number | null;
+  companyId?: number | null;
+  radarLeadId?: string | null;
+  requestedByUserId?: number | null;
+  runId?: string | null;
+  workVersion?: number | null;
+  consumerKind?: string | null;
+  /** Legado rearma terminal; contratos versionados novos mantêm terminal imutável. */
+  rearmTerminal?: boolean;
 };
 
 @Injectable()
@@ -122,6 +224,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RadarMissionQueueService.name);
   private supportsCache: { at: number; value: boolean } | null = null;
   private sweeperTimer: ReturnType<typeof setInterval> | null = null;
+  private reconcilerTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -133,11 +236,28 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       void this.reviveExpiredLeases().catch(() => 0);
     }, 60_000);
     this.sweeperTimer.unref?.();
+
+    const reconcileEveryMs = Math.min(
+      Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_INTERVAL_MS) || 120_000, 30_000),
+      30 * 60_000,
+    );
+    this.reconcilerTimer = setInterval(() => {
+      if (!isLocalDeepEnrichmentQueueEnabled()) return;
+      void this.reconcileLocalDeepEnrichmentMissions().catch((error: any) => {
+        this.logger.warn(`[local-deep-enrich] reconciliador falhou sem afetar Radar: ${String(error?.message || error)}`);
+      });
+    }, reconcileEveryMs);
+    this.reconcilerTimer.unref?.();
+    if (isLocalDeepEnrichmentQueueEnabled()) {
+      void this.reconcileLocalDeepEnrichmentMissions().catch(() => ({ scanned: 0, enqueued: 0 }));
+    }
   }
 
   onModuleDestroy() {
     if (this.sweeperTimer) clearInterval(this.sweeperTimer);
     this.sweeperTimer = null;
+    if (this.reconcilerTimer) clearInterval(this.reconcilerTimer);
+    this.reconcilerTimer = null;
   }
 
   enabled() {
@@ -161,7 +281,12 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const requestedStages = (stages || []).filter((stage) =>
       (RADAR_MISSION_STAGES as readonly string[]).includes(stage),
     );
-    if (requestedStages.length > 0 && requestedStages.every((stage) => stage === 'enrich_search_item')) {
+    const independentStages: readonly RadarMissionStage[] = [
+      'enrich_search_item',
+      AI_SANEAMENTO_4B_STAGE,
+      LOCAL_DEEP_ENRICH_STAGE,
+    ];
+    if (requestedStages.length > 0 && requestedStages.every((stage) => independentStages.includes(stage))) {
       return false;
     }
     const hasCursor = await this.prisma.hasTable('RadarFactoryCursor').catch(() => false);
@@ -179,7 +304,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     return !cursor || cursor.enabled !== true;
   }
 
-  /** Emissão idempotente: dedupeKey vivo (queued/leased) não duplica; terminal (completed/dead/canceled) re-arma. */
+  /** Emissão idempotente. Contratos novos passam `rearmTerminal:false`; retry nunca cria outra missão. */
   async enqueue(input: EnqueueInput): Promise<{ created: boolean; missionId: string | null }> {
     if (!(await this.supportsMissionPersistence())) return { created: false, missionId: null };
     const db = this.prisma as any;
@@ -202,14 +327,36 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       lastError: null,
       resultJson: null,
       completedAt: null,
+      ...(input.companyId !== undefined ? { companyId: input.companyId } : {}),
+      ...(input.radarLeadId !== undefined ? { radarLeadId: input.radarLeadId } : {}),
+      ...(input.requestedByUserId !== undefined ? { requestedByUserId: input.requestedByUserId } : {}),
+      ...(input.runId !== undefined ? { runId: input.runId } : {}),
+      ...(input.workVersion !== undefined ? { workVersion: input.workVersion } : {}),
+      ...(input.consumerKind !== undefined ? { consumerKind: input.consumerKind } : {}),
     };
     if (input.dedupeKey) {
       const existing = await db.radarMission.findUnique({
         where: { stage_dedupeKey: { stage: input.stage, dedupeKey: input.dedupeKey } },
-        select: { id: true, status: true },
+        select: { id: true, status: true, priority: true },
       }).catch(() => null);
       if (existing) {
-        if (['queued', 'leased'].includes(String(existing.status))) return { created: false, missionId: existing.id };
+        if (['queued', 'leased'].includes(String(existing.status))) {
+          if (String(existing.status) === 'queued' && Math.trunc(Number(input.priority) || 0) >= Number(existing.priority || 0)) {
+            await db.radarMission.updateMany({
+              where: { id: existing.id, status: 'queued' },
+              data: {
+                priority: Math.trunc(Number(input.priority) || 0),
+                payloadJson: input.payload as any,
+                correlationId: input.correlationId || null,
+                ...(input.companyId !== undefined ? { companyId: input.companyId } : {}),
+                ...(input.requestedByUserId !== undefined ? { requestedByUserId: input.requestedByUserId } : {}),
+                ...(input.runId !== undefined ? { runId: input.runId } : {}),
+              },
+            }).catch(() => ({ count: 0 }));
+          }
+          return { created: false, missionId: existing.id };
+        }
+        if (input.rearmTerminal === false) return { created: false, missionId: existing.id };
         await db.radarMission.update({ where: { id: existing.id }, data }).catch(() => null);
         return { created: true, missionId: existing.id };
       }
@@ -230,6 +377,138 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async enqueueLocalDeepEnrichment(input: LocalDeepEnrichmentEnqueueInput): Promise<{ created: boolean; missionId: string | null }> {
+    if (!isLocalDeepEnrichmentQueueEnabled()) return { created: false, missionId: null };
+    const identity = buildLocalDeepEnrichmentWorkIdentity(input);
+    const name = compactMissionText(input.name, 300);
+    if (!identity.radarLeadId || !name) return { created: false, missionId: null };
+    const companyId = Math.trunc(Number(input.companyId) || 0) || null;
+    const requestedByUserId = Math.trunc(Number(input.requestedByUserId) || 0) || null;
+    const runId = compactMissionText(input.runId, 200) || null;
+    const correlationId = compactMissionText(input.correlationId, 200)
+      || `local-deep:${identity.radarLeadId}:${identity.workVersion}`;
+    const priorityReason = input.priorityReason || 'new_lead';
+    const priority = Math.trunc(Number(input.priority) || (priorityReason === 'delivered' ? 100 : 0));
+    return this.enqueue({
+      stage: LOCAL_DEEP_ENRICH_STAGE,
+      dedupeKey: identity.dedupeKey,
+      correlationId,
+      priority,
+      rearmTerminal: false,
+      companyId,
+      radarLeadId: identity.radarLeadId,
+      requestedByUserId,
+      runId,
+      workVersion: identity.workVersion,
+      consumerKind: LOCAL_DEEP_ENRICH_CONSUMER_KIND,
+      payload: {
+        contractVersion: LOCAL_DEEP_ENRICH_STAGE,
+        consumerKind: LOCAL_DEEP_ENRICH_CONSUMER_KIND,
+        radarLeadId: identity.radarLeadId,
+        companyId,
+        requestedByUserId,
+        runId,
+        correlationId,
+        workVersion: identity.workVersion,
+        workHash: identity.workHash,
+        priorityReason,
+        lead: {
+          name,
+          city: compactMissionText(input.city, 160) || null,
+          state: compactMissionText(input.state, 8).toUpperCase() || null,
+          segment: compactMissionText(input.segment, 200) || null,
+          website: compactMissionText(input.website, 1_000) || null,
+          sourceUrl: compactMissionText(input.sourceUrl, 1_000) || null,
+          identityKey: compactMissionText(input.identityKey, 500) || null,
+        },
+      },
+    });
+  }
+
+  async enqueueAiSaneamento4b(input: AiSaneamento4bEnqueueInput): Promise<{ created: boolean; missionId: string | null }> {
+    if (!isRadarAiSaneamentoEnabled()) return { created: false, missionId: null };
+    const radarLeadId = compactMissionText(input.radarLeadId, 200);
+    const name = compactMissionText(input.name, 300);
+    if (!radarLeadId || !name) return { created: false, missionId: null };
+    const promptVersion = 1;
+    return this.enqueue({
+      stage: AI_SANEAMENTO_4B_STAGE,
+      dedupeKey: `radar:${radarLeadId}:prompt:${promptVersion}`,
+      correlationId: compactMissionText(input.correlationId, 200) || `ai-4b:${radarLeadId}:${promptVersion}`,
+      priority: Math.trunc(Number(input.priority) || 100),
+      rearmTerminal: false,
+      companyId: Math.trunc(Number(input.companyId) || 0) || null,
+      radarLeadId,
+      workVersion: promptVersion,
+      consumerKind: AI_SANEAMENTO_4B_CONSUMER_KIND,
+      payload: {
+        contractVersion: AI_SANEAMENTO_4B_STAGE,
+        promptVersion,
+        model: 'qwen3:4b-instruct',
+        radarLeadId,
+        name,
+        city: compactMissionText(input.city, 160) || null,
+        state: compactMissionText(input.state, 8).toUpperCase() || null,
+        segment: compactMissionText(input.segment, 200) || null,
+        companyId: Math.trunc(Number(input.companyId) || 0) || null,
+      },
+    });
+  }
+
+  async reconcileLocalDeepEnrichmentMissions(): Promise<{ scanned: number; enqueued: number }> {
+    if (!isLocalDeepEnrichmentQueueEnabled()) return { scanned: 0, enqueued: 0 };
+    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return { scanned: 0, enqueued: 0 };
+    const db = this.prisma as any;
+    const lookbackHours = Math.min(
+      Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_LOOKBACK_HOURS) || 168, 1),
+      24 * 30,
+    );
+    const batchSize = Math.min(
+      Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_BATCH_SIZE) || 500, 1),
+      2_000,
+    );
+    const rows = await db.radarLeadPool.findMany({
+      where: { updatedAt: { gte: new Date(Date.now() - lookbackHours * 60 * 60_000) } },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      take: batchSize,
+      select: {
+        id: true,
+        name: true,
+        city: true,
+        state: true,
+        segment: true,
+        website: true,
+        sourceUrl: true,
+        placeId: true,
+        phoneDigits: true,
+        ownerCompanyId: true,
+        campaignId: true,
+        status: true,
+      },
+    }).catch(() => []);
+    let enqueued = 0;
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const status = compactMissionText(row?.status, 80).toLowerCase();
+      if (LOCAL_DEEP_ENRICH_EXCLUDED_STATUSES.has(status)) continue;
+      const outcome = await this.enqueueLocalDeepEnrichment({
+        radarLeadId: row?.id,
+        name: row?.name,
+        city: row?.city,
+        state: row?.state,
+        segment: row?.segment,
+        website: row?.website,
+        sourceUrl: row?.sourceUrl,
+        identityKey: row?.placeId || row?.phoneDigits || null,
+        companyId: row?.ownerCompanyId || null,
+        runId: row?.campaignId || null,
+        priority: status === 'sent_to_vendas' ? 100 : 0,
+        priorityReason: status === 'sent_to_vendas' ? 'delivered' : 'reconciled',
+      });
+      if (outcome.created) enqueued += 1;
+    }
+    return { scanned: Array.isArray(rows) ? rows.length : 0, enqueued };
+  }
+
   /**
    * Lease em LOTE com claim otimista (updateMany status 'queued' → 'leased'): quem atualizar primeiro
    * leva; perdedor pula pro próximo candidato. attempts incrementa NO lease (tentativa = vez em que
@@ -243,9 +522,12 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     leaseTtlMs?: number | null;
   }): Promise<RadarMissionLeaseResult> {
     if (!(await this.supportsMissionPersistence())) return { supported: false, paused: false, missions: [] };
-    const stages = (input.stages || []).filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage));
+    const stages = Array.from(new Set((input.stages || [])
+      .filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage))));
+    // Nunca interpretar lista vazia como "todos": cada consumidor declara sua allowlist.
+    if (!stages.length) return { supported: true, paused: false, missions: [] };
     // Sinal elástico sempre acompanha o lease (mesmo pausado/vazio) — é como o worker decide o freio.
-    const [activity, lag] = await Promise.all([this.getActivitySnapshot(), this.getQueueLagSnapshot()]);
+    const [activity, lag] = await Promise.all([this.getActivitySnapshot(), this.getQueueLagSnapshot(stages)]);
     if (await this.isQueuePaused(stages)) return { supported: true, paused: true, missions: [], activity, lag };
     await this.reviveExpiredLeases().catch(() => 0);
 
@@ -254,7 +536,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const batchSize = Math.min(Math.max(1, Math.trunc(Number(input.batchSize) || 1)), 20);
     const ttlMs = Math.min(Math.max(Number(input.leaseTtlMs) || resolveMissionLeaseTtlMs(), 30_000), 900_000);
     const where: any = { status: 'queued', nextAttemptAt: { lte: now } };
-    if (stages.length) where.stage = { in: stages };
+    where.stage = { in: stages };
     if (input.correlationId) where.correlationId = input.correlationId;
 
     const isPostSaveEnrichment = stages.length === 1 && stages[0] === 'enrich_search_item';
@@ -283,6 +565,9 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
           leaseExpiresAt,
           heartbeatAt: new Date(),
           attempts: { increment: 1 },
+          ...([AI_SANEAMENTO_4B_STAGE, LOCAL_DEEP_ENRICH_STAGE].includes(candidate.stage)
+            ? { startedAt: new Date(), lastPhase: 'leased' }
+            : {}),
         },
       }).catch(() => ({ count: 0 }));
       if (!claimed.count) continue;
@@ -447,36 +732,84 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   async stats() {
-    if (!(await this.supportsMissionPersistence())) return { supported: false, paused: true, byStageStatus: [], lag: { queuedDue: 0, oldestQueuedAgeMs: 0 } };
+    if (!(await this.supportsMissionPersistence())) {
+      return {
+        supported: false,
+        paused: true,
+        byStageStatus: [],
+        lag: { queuedDue: 0, oldestQueuedAgeMs: 0 },
+        ai4b: this.emptyAi4bMetrics(),
+      };
+    }
     const db = this.prisma as any;
-    const [grouped, paused, lag, activity] = await Promise.all([
+    const [grouped, paused, lag, activity, ai4bNoResult] = await Promise.all([
       db.radarMission.groupBy({ by: ['stage', 'status'], _count: { _all: true } }).catch(() => []),
       this.isQueuePaused(),
       this.getQueueLagSnapshot(),
       this.getActivitySnapshot(),
+      db.radarMission.count({
+        where: {
+          stage: AI_SANEAMENTO_4B_STAGE,
+          status: 'completed',
+          OR: [
+            { resultJson: { path: ['outcome'], equals: 'no_result' } },
+            { resultJson: { path: ['outcome'], equals: 'skipped' } },
+          ],
+        },
+      }).catch(() => 0),
     ]);
+    const normalizedGroups = (grouped as any[]).map((row) => ({
+      stage: String(row.stage),
+      status: String(row.status),
+      count: Number(row?._count?._all || 0),
+    }));
+    const countAi4b = (status: string) => normalizedGroups
+      .filter((row) => row.stage === AI_SANEAMENTO_4B_STAGE && row.status === status)
+      .reduce((sum, row) => sum + row.count, 0);
+    const ai4bCompleted = countAi4b('completed');
+    const ai4bDead = countAi4b('dead');
     return {
       supported: true,
       paused,
-      byStageStatus: (grouped as any[]).map((row) => ({
-        stage: String(row.stage),
-        status: String(row.status),
-        count: Number(row?._count?._all || 0),
-      })),
+      byStageStatus: normalizedGroups,
       lag,
       activity,
+      ai4b: {
+        model: 'qwen3:4b-instruct',
+        processed: ai4bCompleted + ai4bDead,
+        completed: Math.max(0, ai4bCompleted - (Number(ai4bNoResult) || 0)),
+        noResult: Number(ai4bNoResult) || 0,
+        failures: ai4bDead,
+        queued: countAi4b('queued'),
+        processing: countAi4b('leased'),
+      },
+    };
+  }
+
+  private emptyAi4bMetrics() {
+    return {
+      model: 'qwen3:4b-instruct',
+      processed: 0,
+      completed: 0,
+      noResult: 0,
+      failures: 0,
+      queued: 0,
+      processing: 0,
     };
   }
 
   /** Lag da fila (profundidade × idade) — insumo da escala da frota no lugar da demanda sintética. */
-  async getQueueLagSnapshot(): Promise<RadarMissionQueueLag> {
+  async getQueueLagSnapshot(stages?: RadarMissionStage[] | null): Promise<RadarMissionQueueLag> {
     if (!(await this.supportsMissionPersistence())) return { queuedDue: 0, oldestQueuedAgeMs: 0 };
     const db = this.prisma as any;
     const now = new Date();
+    const where: any = { status: 'queued', nextAttemptAt: { lte: now } };
+    const requestedStages = (stages || []).filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage));
+    if (requestedStages.length) where.stage = { in: requestedStages };
     const [queuedDue, oldest] = await Promise.all([
-      db.radarMission.count({ where: { status: 'queued', nextAttemptAt: { lte: now } } }).catch(() => 0),
+      db.radarMission.count({ where }).catch(() => 0),
       db.radarMission.findFirst({
-        where: { status: 'queued', nextAttemptAt: { lte: now } },
+        where,
         orderBy: { nextAttemptAt: 'asc' },
         select: { nextAttemptAt: true, createdAt: true },
       }).catch(() => null),

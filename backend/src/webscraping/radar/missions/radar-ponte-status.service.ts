@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { isMissionQueueEnabled, PONTE_MISSION_STAGES, type RadarMissionStage } from './radar-mission-queue.service';
+import {
+  isLocalDeepEnrichmentQueueEnabled,
+  LOCAL_DEEP_ENRICH_STAGE,
+  type RadarMissionStage,
+} from './radar-mission-queue.service';
 
 /**
  * STATUS DE IA POR LOTE DE LEADS (CHIP E3, 05/07) — a exigência central do dono: o cliente
@@ -8,8 +12,8 @@ import { isMissionQueueEnabled, PONTE_MISSION_STAGES, type RadarMissionStage } f
  * ÚNICA e LEVE que a vitrine (leads/page.client.tsx) e o estoque de Vendas consultam por lote
  * de leadIds — nunca 1 request por card.
  *
- * Fonte: RadarMission (stage `enrich_lead` da PONTE, CHIP E1) casada por
- * `payloadJson.radarLeadId` (dedupeKey é `lead:<id>`, mas o lookup usa o
+ * Fonte: RadarMission (stage exclusivo `local_deep_enrich_v1`) casada por
+ * `payloadJson.radarLeadId` (o lookup usa o
  * payload puro pra não acoplar ao formato da dedupeKey). NÃO confundir com o
  * `RadarLeadEnrichment`/`enrichmentStatus` do pipeline genérico (night-factory) que a vitrine já
  * expõe — são fontes DIFERENTES; este endpoint é o estado da fila da PONTE 30B especificamente.
@@ -23,10 +27,14 @@ export type RadarPonteLeadStatus =
   | { state: 'queued'; position: number; stage: RadarMissionStage; queuedAt: string; stale: boolean }
   | { state: 'processing'; stage: RadarMissionStage; startedAt: string | null }
   | {
-      state: 'done';
-      completedAt: string | null;
-      summary: { phonesAdded: number; emailsAdded: number };
-    };
+      state: 'released';
+      stage: RadarMissionStage;
+      releasedAt: string | null;
+      noNewData: boolean;
+      receipt?: { missionId: string | null };
+      delta?: { phonesAdded: number; emailsAdded: number; peopleAdded: number };
+    }
+  | { state: 'invalidated'; stage: RadarMissionStage; invalidatedAt: string | null };
 
 export type RadarPonteStatusMap = Record<string, RadarPonteLeadStatus>;
 
@@ -43,7 +51,7 @@ export class RadarPonteStatusService {
   }
 
   enabled(): boolean {
-    return isMissionQueueEnabled();
+    return isLocalDeepEnrichmentQueueEnabled();
   }
 
   /**
@@ -61,15 +69,15 @@ export class RadarPonteStatusService {
     if (!(await this.prisma.hasTable('RadarMission').catch(() => false))) return result;
 
     const db = this.db();
-    // Só as missões da PONTE (enrich_lead) — as demais são in-process (fábrica de busca).
+    // Só a missão residencial exclusiva; stages do VPS e o enrich_lead legado nunca vazam aqui.
     const rows = await db.radarMission.findMany({
       where: {
-        stage: { in: PONTE_MISSION_STAGES as unknown as string[] },
-        status: { in: ['queued', 'leased', 'completed'] },
+        stage: LOCAL_DEEP_ENRICH_STAGE,
+        status: { in: ['queued', 'leased', 'completed', 'dead', 'canceled'] },
       },
       select: {
-        id: true, stage: true, status: true, payloadJson: true, resultJson: true,
-        createdAt: true, heartbeatAt: true, completedAt: true, nextAttemptAt: true,
+        id: true, stage: true, status: true, payloadJson: true, resultJson: true, receiptJson: true,
+        createdAt: true, updatedAt: true, heartbeatAt: true, completedAt: true, nextAttemptAt: true,
       },
       orderBy: [{ priority: 'desc' }, { nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
       take: 5000,
@@ -78,7 +86,7 @@ export class RadarPonteStatusService {
     // Posição ordinal: ordem entre as missões `queued` (aproxima o "lugar na fila" sem contar
     // exatamente quantos workers existem — o pedido do plano é "posição aproximada").
     let queuedOrdinal = 0;
-    const byLead = new Map<string, { queued?: any; leased?: any; completed?: any }>();
+    const byLead = new Map<string, { queued?: any; leased?: any; completed?: any; invalidated?: any }>();
     for (const row of rows as any[]) {
       const payload = this.parseJson(row?.payloadJson);
       const leadId = String(payload?.radarLeadId || '').trim();
@@ -95,15 +103,18 @@ export class RadarPonteStatusService {
       } else if (row.status === 'leased') {
         if (!bucket.leased) bucket.leased = row;
       } else if (row.status === 'completed') {
-        // guarda o completed mais recente da ponte para o lead
+        // guarda o completed mais recente da missão local para o lead
         if (!bucket.completed || (row.completedAt && row.completedAt > bucket.completed.completedAt)) {
           bucket.completed = row;
+        }
+      } else if (row.status === 'dead' || row.status === 'canceled') {
+        if (!bucket.invalidated || (row.updatedAt && row.updatedAt > bucket.invalidated.updatedAt)) {
+          bucket.invalidated = row;
         }
       }
     }
 
     const now = Date.now();
-    const completedLeadIds: string[] = [];
     for (const id of ids) {
       const bucket = byLead.get(id);
       if (!bucket) continue; // permanece 'none'
@@ -128,55 +139,45 @@ export class RadarPonteStatusService {
         };
         continue;
       }
-      if (bucket.completed) {
-        completedLeadIds.push(id);
+      const completedAtMs = bucket.completed?.completedAt instanceof Date ? bucket.completed.completedAt.getTime() : 0;
+      const invalidatedAtMs = bucket.invalidated?.updatedAt instanceof Date ? bucket.invalidated.updatedAt.getTime() : 0;
+      if (bucket.completed && completedAtMs >= invalidatedAtMs) {
+        const detail = this.readMissionDelta(bucket.completed);
         result[id] = {
-          state: 'done',
-          completedAt: bucket.completed.completedAt instanceof Date ? bucket.completed.completedAt.toISOString() : null,
-          summary: { phonesAdded: 0, emailsAdded: 0 },
+          state: 'released',
+          stage: bucket.completed.stage,
+          releasedAt: bucket.completed.completedAt instanceof Date ? bucket.completed.completedAt.toISOString() : null,
+          noNewData: detail.noNewData,
+          receipt: { missionId: String(bucket.completed.id || '') || null },
+          delta: detail.delta,
+        };
+        continue;
+      }
+      if (bucket.invalidated) {
+        result[id] = {
+          state: 'invalidated',
+          stage: bucket.invalidated.stage,
+          invalidatedAt: bucket.invalidated.updatedAt instanceof Date ? bucket.invalidated.updatedAt.toISOString() : null,
         };
       }
     }
-
-    if (completedLeadIds.length) await this.fillDoneSummaries(result, completedLeadIds);
     return result;
   }
 
-  /** Resumo do que chegou pros leads `done`: +N telefones/e-mails (LeadContact source
-   * ai_extraction), gravados pelo MissionResultApplyService (caminho único — ver E1).
-   * Falha aqui nunca derruba o status geral. */
-  private async fillDoneSummaries(result: RadarPonteStatusMap, leadIds: string[]): Promise<void> {
-    const db = this.db();
-    try {
-      const contactRows = (await this.prisma.hasTable('LeadContact').catch(() => false))
-        ? await db.leadContact.findMany({
-            where: { radarLeadId: { in: leadIds }, source: 'ai_extraction' },
-            select: { radarLeadId: true, kind: true },
-          }).catch(() => [])
-        : [];
-
-      const contactCounts = new Map<string, { phones: number; emails: number }>();
-      for (const row of Array.isArray(contactRows) ? contactRows : []) {
-        const leadId = String(row?.radarLeadId || '');
-        if (!leadId) continue;
-        const bucket = contactCounts.get(leadId) || { phones: 0, emails: 0 };
-        if (row.kind === 'phone') bucket.phones++;
-        else if (row.kind === 'email') bucket.emails++;
-        contactCounts.set(leadId, bucket);
-      }
-
-      for (const leadId of leadIds) {
-        const current = result[leadId];
-        if (!current || current.state !== 'done') continue;
-        const counts = contactCounts.get(leadId) || { phones: 0, emails: 0 };
-        current.summary = {
-          phonesAdded: counts.phones,
-          emailsAdded: counts.emails,
-        };
-      }
-    } catch {
-      // Falha no resumo NUNCA derruba o status "done" — o badge some sem o detalhe (+N), não trava.
-    }
+  /** Conta apenas o recibo/delta DESTA missão. Nunca consulta contatos históricos do lead. */
+  private readMissionDelta(row: any) {
+    const result = this.parseJson(row?.resultJson);
+    const materialReceipt = this.parseJson(row?.receiptJson);
+    const receipt = Object.keys(materialReceipt).length ? materialReceipt : this.parseJson(result?.receipt || result);
+    const summary = this.parseJson(result?.delta || result?.summary || receipt?.delta || receipt?.summary);
+    const createdContacts = Array.isArray(receipt?.createdContacts) ? receipt.createdContacts : [];
+    const createdPeople = Array.isArray(receipt?.createdPersonIds) ? receipt.createdPersonIds : [];
+    const countKind = (kind: string) => createdContacts.filter((contact: any) => String(contact?.kind || '') === kind).length;
+    const phonesAdded = Math.max(0, Number(summary?.phonesAdded) || countKind('phone'));
+    const emailsAdded = Math.max(0, Number(summary?.emailsAdded) || countKind('email'));
+    const peopleAdded = Math.max(0, Number(summary?.peopleAdded) || createdPeople.length);
+    const noNewData = Boolean(result?.noNewData ?? receipt?.noNewData ?? (phonesAdded + emailsAdded + peopleAdded === 0));
+    return { noNewData, delta: { phonesAdded, emailsAdded, peopleAdded } };
   }
 
   private parseJson(value: unknown): Record<string, any> {

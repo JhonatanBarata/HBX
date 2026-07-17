@@ -692,12 +692,12 @@ body {
 .ai-bridge-intro { min-width: 0; }
 .ai-bridge-intro p { margin: 7px 0 0; color: var(--text-muted); font-size: .82rem; line-height: 1.45; }
 .ai-bridge-actions { flex: none; }
-.ai-bridge-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.ai-bridge-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .ai-bridge-summary .metric { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
 .ai-bridge-summary .metric strong { font-size: 1.35rem; }
 .ai-bridge-model { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 10px; }
 .ai-bridge-model strong { display: block; font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-bridge-metrics { margin: 12px 0; }
+.ai-bridge-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
 .ai-bridge-metrics .metric strong { font-size: 1.1rem; }
 @media (max-width: 760px) {
   .ai-bridge-head, .ai-bridge-model { align-items: stretch; flex-direction: column; }

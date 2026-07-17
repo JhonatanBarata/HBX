@@ -12,6 +12,42 @@ function normalizeState(value) {
   return compactText(value, 2).toUpperCase() || null;
 }
 
+function normalizeEvidence(item) {
+  const id = compactText(item && item.id, 80);
+  const sourceUrl = normalizeUrl(item && item.sourceUrl);
+  const contentHash = String(item && item.contentHash || '').trim().toLowerCase();
+  if (!id || !sourceUrl || !/^[a-f0-9]{64}$/.test(contentHash)) return null;
+  return {
+    id,
+    sourceUrl,
+    provider: compactText(item.provider || 'site_crawl', 80),
+    pageType: compactText(item.pageType || 'other', 40),
+    capturedAt: item.capturedAt ? new Date(item.capturedAt).toISOString() : null,
+    contentHash,
+    excerpt: compactText(item.excerpt, 480),
+  };
+}
+
+function normalizeLeadContact(contact) {
+  const kind = String(contact && contact.kind || '').trim().toLowerCase();
+  if (!['email', 'phone', 'whatsapp', 'instagram', 'facebook'].includes(kind)) return null;
+  const value = kind === 'email'
+    ? normalizeEmail(contact.value)
+    : (kind === 'phone' || kind === 'whatsapp')
+      ? normalizePhoneDigits(contact.value)
+      : normalizeUrl(contact.value);
+  if (!value) return null;
+  return {
+    kind,
+    value,
+    valueNormalized: value,
+    sourceUrl: normalizeUrl(contact.sourceUrl) || null,
+    evidenceId: compactText(contact.evidenceId, 80) || null,
+    confidence: Number.isFinite(Number(contact.confidence)) ? Math.max(0, Math.min(100, Math.round(Number(contact.confidence)))) : 0,
+    officialDomainMatch: Boolean(contact.officialDomainMatch),
+  };
+}
+
 function normalizeLead(lead, batchId, job) {
   const name = compactText(lead.name || lead.companyName, 300);
   const sourceUrl = normalizeUrl(lead.sourceUrl || lead.website);
@@ -47,7 +83,11 @@ function normalizeLead(lead, batchId, job) {
     sourceProvider: compactText(lead.sourceProvider || 'local_lab', 120),
     sourceMode: 'local_lab',
     sourceRisk: 'experimental',
-    evidence: lead.evidence && typeof lead.evidence === 'object' ? lead.evidence : {},
+    evidence: {
+      items: Array.isArray(lead?.evidence?.items) ? lead.evidence.items.map(normalizeEvidence).filter(Boolean) : [],
+      emailsFound: Math.max(0, Math.trunc(Number(lead?.evidence?.emailsFound || 0))),
+    },
+    contacts: Array.isArray(lead.contacts) ? lead.contacts.map(normalizeLeadContact).filter(Boolean) : [],
     raw: lead.raw && typeof lead.raw === 'object' ? lead.raw : {},
   };
 }
@@ -99,10 +139,23 @@ function dedupeEmails(emails) {
   });
 }
 
+function dedupeEvidence(evidence) {
+  const seen = new Set();
+  return evidence.filter((item) => {
+    if (!item || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
 function buildBatchExport(job, input = {}) {
   const batchId = job.batchId || `local-lab-${job.id}`;
   const leads = dedupeLeads((input.leads || []).map((lead) => normalizeLead(lead, batchId, job)).filter(Boolean));
   const emails = dedupeEmails((input.emails || []).map((email) => normalizeEmailCandidate(email, batchId)).filter(Boolean));
+  const evidence = dedupeEvidence([
+    ...(Array.isArray(input.evidence) ? input.evidence : []),
+    ...(Array.isArray(input.leads) ? input.leads.flatMap((lead) => Array.isArray(lead?.evidence?.items) ? lead.evidence.items : []) : []),
+  ].map(normalizeEvidence).filter(Boolean));
   const providers = Array.from(new Set([
     ...(Array.isArray(job.providers) ? job.providers : []),
     ...leads.map((lead) => lead.sourceProvider),
@@ -132,11 +185,14 @@ function buildBatchExport(job, input = {}) {
       ...manifest,
       leads,
       emails,
+      evidence,
     },
     leads,
     emails,
+    evidence,
     leadsJsonl: leads.map(jsonLine).join(''),
     emailsJsonl: emails.map(jsonLine).join(''),
+    evidenceJsonl: evidence.map(jsonLine).join(''),
   };
 }
 
@@ -146,12 +202,14 @@ async function writeBatchExport(job, input, outputDir) {
   await fs.writeFile(path.join(outputDir, 'batch-manifest.json'), JSON.stringify(exported.manifest, null, 2));
   await fs.writeFile(path.join(outputDir, 'leads.jsonl'), exported.leadsJsonl);
   await fs.writeFile(path.join(outputDir, 'emails.jsonl'), exported.emailsJsonl);
+  await fs.writeFile(path.join(outputDir, 'evidence.jsonl'), exported.evidenceJsonl);
   return {
     ...exported,
     files: {
       manifest: path.join(outputDir, 'batch-manifest.json'),
       leads: path.join(outputDir, 'leads.jsonl'),
       emails: path.join(outputDir, 'emails.jsonl'),
+      evidence: path.join(outputDir, 'evidence.jsonl'),
     },
   };
 }

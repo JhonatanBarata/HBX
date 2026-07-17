@@ -700,6 +700,39 @@ test('buildLeadPayload exposes negative timeline conversation reference without 
   assert.equal(payload.timeline[0].description.startsWith('{'), false);
 });
 
+test('buildLeadPayload exposes the real Radar id without reusing the Vendas id', () => {
+  const { service } = createService();
+  const payload = (service as any).buildLeadPayload({
+    id: 'vendas-1',
+    companyId: 7,
+    sourceHistoryId: 'radar:radar-1',
+    name: 'Lead vindo do Radar',
+    status: 'novo',
+    timelineEvents: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  assert.equal(payload.id, 'vendas-1');
+  assert.equal(payload.radarLeadId, 'radar-1');
+  assert.notEqual(payload.radarLeadId, payload.id);
+});
+
+test('getLeadCardForUser returns only the affected card from the tenant board', async () => {
+  const { service } = createService();
+  (service as any).getBoardForUser = async () => ({
+    blocks: {
+      today: [{ id: 'vendas-1', radarLeadId: 'radar-1' }],
+      overdue: [],
+      scheduled: [],
+      closed: [],
+    },
+  });
+
+  const result = await service.getLeadCardForUser({ companyId: 7, id: 99 }, 'vendas-1');
+  assert.deepEqual(result, { lead: { id: 'vendas-1', radarLeadId: 'radar-1' } });
+});
+
 test('buildLeadPayload hides product catalog price when access context is missing', () => {
   const { service } = createService();
   const payload = (service as any).buildLeadPayload({

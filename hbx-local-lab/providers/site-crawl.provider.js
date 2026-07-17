@@ -2,6 +2,7 @@
 
 const { extractCnpjFromText, extractEmailsFromText, extractPhonesFromText, normalizeDomain, normalizePhoneDigits, normalizeUrl, compactText } = require('../extractors/email.extractor');
 const { buildContactUrls, extractLikelyCompanyName, extractPublicLinks, extractSocialUrls } = require('../extractors/contact-page.extractor');
+const { buildCompactEvidence, evidenceContainsValue } = require('../extractors/evidence.extractor');
 
 const MAX_PAGE_BYTES = 350_000;
 
@@ -119,18 +120,18 @@ async function fetchPublicPage(url, signal, fetcher = globalThis.fetch) {
       },
     });
     if (!response.ok) {
-      page = { ok: false, error: `http_${response.status}`, status: response.status, url: target };
+        page = { ok: false, error: `http_${response.status}`, status: response.status, url: target, capturedAt: new Date().toISOString() };
     } else {
       const contentType = String(response.headers.get('content-type') || '').toLowerCase();
       if (contentType && !/text\/html|text\/plain|text\/xml|application\/xml|application\/xhtml\+xml/.test(contentType)) {
-        page = { ok: false, error: 'unsupported_content_type', status: response.status, url: target };
+        page = { ok: false, error: 'unsupported_content_type', status: response.status, url: target, capturedAt: new Date().toISOString() };
       } else {
         const raw = await response.text();
-        page = { ok: true, url: target, status: response.status, html: raw.slice(0, MAX_PAGE_BYTES) };
+        page = { ok: true, url: target, status: response.status, html: raw.slice(0, MAX_PAGE_BYTES), capturedAt: new Date().toISOString() };
       }
     }
   } catch (error) {
-    page = { ok: false, error: String(error && error.name === 'AbortError' ? 'aborted' : error?.message || error), url: target };
+    page = { ok: false, error: String(error && error.name === 'AbortError' ? 'aborted' : error?.message || error), url: target, capturedAt: new Date().toISOString() };
   }
 
   lastFetchAt = Date.now();
@@ -151,7 +152,7 @@ async function fetchPublicPage(url, signal, fetcher = globalThis.fetch) {
   return page;
 }
 
-function buildLeadFromCandidate(candidate, emails, pages, job, phonesFound = []) {
+function buildLeadFromCandidate(candidate, emails, pages, job, phonesFound = [], evidence = []) {
   const firstPage = pages.find((page) => page.ok);
   // Multi e-mail: o dono quer 1/2/3 — o crawl achava vários e eu só guardava o 1º.
   // Ordena por confiança (mailto/domínio oficial primeiro), dedup, teto 3.
@@ -169,6 +170,32 @@ function buildLeadFromCandidate(candidate, emails, pages, job, phonesFound = [])
   const firstEmail = emails[0] || null;
   const name = compactText(candidate.name || extractLikelyCompanyName(firstPage?.html || '', ''), 300);
   if (!name) return null;
+  const contacts = [];
+  for (const item of emailsList) {
+    const emailRow = emails.find((entry) => entry && entry.email === item);
+    const evidenceId = emailRow?.evidence?.evidenceId || null;
+    contacts.push({
+      kind: 'email',
+      value: item,
+      valueNormalized: item,
+      sourceUrl: emailRow?.sourceUrl || null,
+      evidenceId,
+      confidence: Number(emailRow?.confidence || 0),
+      officialDomainMatch: Boolean(emailRow?.evidence?.officialDomainMatch),
+    });
+  }
+  for (const item of phonesList) {
+    const sourceEvidence = evidence.find((entry) => evidenceContainsValue(entry, item, 'phone')) || null;
+    contacts.push({
+      kind: 'phone',
+      value: item,
+      valueNormalized: item,
+      sourceUrl: sourceEvidence?.sourceUrl || null,
+      evidenceId: sourceEvidence?.id || null,
+      confidence: sourceEvidence ? 60 : 0,
+      officialDomainMatch: false,
+    });
+  }
   return {
     externalId: `lead:${normalizeDomain(candidate.website) || name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
     name,
@@ -191,9 +218,10 @@ function buildLeadFromCandidate(candidate, emails, pages, job, phonesFound = [])
     sourceMode: 'local_lab',
     sourceRisk: 'experimental',
     evidence: {
-      pagesVisited: pages.map((page) => page.url).filter(Boolean),
+      items: evidence,
       emailsFound: emails.length,
     },
+    contacts,
     raw: {
       pageErrors: pages.filter((page) => !page.ok).map((page) => ({ url: page.url, error: page.error })).slice(0, 20),
     },
@@ -210,6 +238,7 @@ async function runSiteCrawlProvider(job, context = {}) {
   };
   const leads = [];
   const emails = [];
+  const evidence = [];
   const warnings = [];
 
   for (const candidate of candidates) {
@@ -231,6 +260,8 @@ async function runSiteCrawlProvider(job, context = {}) {
       const page = await fetchPublicPage(url, context.signal, context.fetcher);
       pages.push(page);
       if (!page.ok) continue;
+      const compactEvidence = buildCompactEvidence(page, 'site_crawl');
+      if (compactEvidence && !evidence.some((item) => item.id === compactEvidence.id)) evidence.push(compactEvidence);
       stats.pagesVisited += 1;
       if (typeof context.onProgress === 'function') context.onProgress({ pagesVisited: stats.pagesVisited, emailsFound: stats.emailsFound });
       extractPublicLinks(page.html, page.url).slice(0, maxDiscoveredLinks).forEach((link) => discoveredLinks.add(link));
@@ -244,6 +275,7 @@ async function runSiteCrawlProvider(job, context = {}) {
         website: candidate.website,
         companyName: candidate.name,
         provider: 'site_crawl',
+        evidence: compactEvidence,
       });
       emails.push(...found);
       stats.emailsFound += found.length;
@@ -255,6 +287,8 @@ async function runSiteCrawlProvider(job, context = {}) {
       const page = await fetchPublicPage(link, context.signal, context.fetcher);
       pages.push(page);
       if (!page.ok) continue;
+      const compactEvidence = buildCompactEvidence(page, 'site_crawl');
+      if (compactEvidence && !evidence.some((item) => item.id === compactEvidence.id)) evidence.push(compactEvidence);
       stats.pagesVisited += 1;
       if (typeof context.onProgress === 'function') context.onProgress({ pagesVisited: stats.pagesVisited, emailsFound: stats.emailsFound });
       if (!candidate.cnpj) candidate.cnpj = extractCnpjFromText(page.html);
@@ -264,18 +298,20 @@ async function runSiteCrawlProvider(job, context = {}) {
         website: candidate.website,
         companyName: candidate.name,
         provider: 'site_crawl',
+        evidence: compactEvidence,
       });
       emails.push(...found);
       stats.emailsFound += found.length;
     }
 
     const leadEmails = emails.filter((email) => normalizeDomain(email.website || email.email) === normalizeDomain(candidate.website));
-    const lead = buildLeadFromCandidate(candidate, leadEmails, pages, job, candidatePhones);
+    const candidateEvidence = evidence.filter((item) => normalizeDomain(item.sourceUrl) === normalizeDomain(candidate.website));
+    const lead = buildLeadFromCandidate(candidate, leadEmails, pages, job, candidatePhones, candidateEvidence);
     if (lead) leads.push(lead);
   }
 
   if (!candidates.length) warnings.push('site_crawl requer seedUrls, websites ou candidates no MVP.');
-  return { provider: 'site_crawl', leads, emails, stats, warnings };
+  return { provider: 'site_crawl', leads, emails, evidence, stats, warnings };
 }
 
 module.exports = {

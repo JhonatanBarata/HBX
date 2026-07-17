@@ -1573,6 +1573,7 @@ export class VendasService {
       : null;
     return {
       id: String(row?.id || ''),
+      radarLeadId: this.extractRadarLeadId(row?.sourceHistoryId),
       customerProfileId: row?.customerProfileId ? String(row.customerProfileId) : null,
       sourceType: String(row?.sourceType || 'manual'),
       primarySource,
@@ -7982,6 +7983,19 @@ export class VendasService {
         });
       }),
     };
+  }
+
+  async getLeadCardForUser(user: any, leadIdRaw: string) {
+    const leadId = this.normalizeText(leadIdRaw);
+    if (!leadId) throw new BadRequestException('Lead nao informado.');
+
+    const board = await this.getBoardForUser(user);
+    const blocks = board?.blocks || {};
+    const lead = ['today', 'overdue', 'scheduled', 'closed']
+      .flatMap((key) => Array.isArray(blocks[key]) ? blocks[key] : [])
+      .find((item: any) => String(item?.id || '') === leadId);
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+    return { lead };
   }
 
   async getBoardForUser(user: any, sellerIdRaw?: string | number | null) {

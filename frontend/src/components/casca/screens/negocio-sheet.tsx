@@ -32,6 +32,7 @@ export function NegocioSheet({
   showConversation = true,
   conversationLeadId,
   onConversationChanged,
+  crownSlot,
 }: {
   detail: NegocioDetail | null;
   open: boolean;
@@ -45,6 +46,7 @@ export function NegocioSheet({
   /** Opt-in de Vendas; Radar/Leads sem esta prop preservam o fluxo legado. */
   conversationLeadId?: string | null;
   onConversationChanged?: (snapshot?: VendasConversationSnapshot) => void | Promise<void>;
+  crownSlot?: React.ReactNode;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -146,6 +148,7 @@ export function NegocioSheet({
             conversationLeadId={conversationLeadId}
             onConversationChanged={onConversationChanged}
             onWaOpenExternal={waLink ? () => setWaChoice(true) : undefined}
+            crownSlot={crownSlot}
           />
 
           <div className="vnd-m__sheet-acts">

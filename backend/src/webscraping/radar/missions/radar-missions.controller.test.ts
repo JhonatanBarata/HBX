@@ -24,5 +24,20 @@ test('lease HTTP sem stages usa somente os stages publicos da PONTE', async () =
 
   await controller.lease({ workerId: 'ponte', batchSize: 5 });
 
-  assert.deepEqual(captured.stages, ['enrich_lead']);
+  assert.deepEqual(captured.stages, ['local_deep_enrich_v1']);
+});
+
+test('complete HTTP recusa local_deep_enrich_v1: conclusão pertence à função transacional do banco', async () => {
+  let completeCalled = false;
+  const queue = {
+    getLeasedContext: async () => ({ ok: true, stage: 'local_deep_enrich_v1', payload: {} }),
+    complete: async () => { completeCalled = true; return { ok: true }; },
+  };
+  const resultApply = { apply: async () => { throw new Error('não deve aplicar no backend'); } };
+  const controller = new RadarMissionsController(queue as any, resultApply as any);
+
+  const result = await controller.complete('m-local', { leaseId: 'lease-local', result: { qualquer: true } });
+
+  assert.deepEqual(result, { ok: false, reason: 'direct_db_commit_required', retryable: false });
+  assert.equal(completeCalled, false);
 });

@@ -2564,6 +2564,26 @@ export class RadarCoreDeliveryMixin {
           this.getLeadContactWrite().writeContacts(this.prisma, savedId, contactCandidates).catch(() => null);
         }
       }
+      // Faixa B (Plano 16072026): missão local nasce SOMENTE depois de existir RadarLeadPool.id.
+      // A escrita é curta, idempotente e fire-and-forget; falha/restart é coberto pelo reconciliador
+      // durável da fila. Negativos/rejeitados nunca são enviados de volta para pesquisa.
+      if (savedId && nextStatus !== 'rejected' && !this.isRadarProtectedStatus(nextStatus)) {
+        void this.getMissionQueue().enqueueLocalDeepEnrichment({
+          radarLeadId: savedId,
+          name: String((data as any).name || result?.name || ''),
+          city: (data as any).city || null,
+          state: (data as any).state || null,
+          segment: (data as any).segment || null,
+          website: (data as any).website || null,
+          sourceUrl: (data as any).sourceUrl || null,
+          identityKey: (data as any).placeId || (data as any).phoneDigits || null,
+          runId: options.campaignId || null,
+          priority: 0,
+          priorityReason: 'new_lead',
+        }).catch((error: any) => {
+          this.logger.warn(`[local-deep-enrich] enqueue pós-persistência falhou sem afetar o Radar lead=${savedId}: ${String(error?.message || error)}`);
+        });
+      }
       counts.savedCount += 1;
     }
     return counts;
@@ -3556,11 +3576,26 @@ export class RadarCoreDeliveryMixin {
     if (!assignedUserId && leadRow?.segment) {
       this._bumpSegmentAffinity(context.userId, String(leadRow.segment)).catch(() => null);
     }
-    // Etapa 7 da árvore mestra: dispara DEPOIS que a entrega já respondeu (fire-and-forget,
-    // igual ao padrão L4/web-enrichment desta mesma função) — nunca atrasa nem falha a
-    // entrega. No-op silencioso se `HBX_RADAR_AI_SANEAMENTO_ENABLED` estiver OFF (default).
-    // companyId REAL da importação (context.companyId, validado por resolveContext) — vira
-    // autorização da ação ai_batch.
+    // O mesmo trabalho local já existente ganha prioridade depois da entrega; a dedupe por
+    // lead+workVersion impede uma segunda missão. Nunca participa da transação de débito/entrega.
+    void this.getMissionQueue().enqueueLocalDeepEnrichment({
+      radarLeadId: leadRow.id,
+      name: leadRow.name,
+      city: leadRow.city || null,
+      state: leadRow.state || null,
+      segment: leadRow.segment || null,
+      website: leadRow.website || null,
+      sourceUrl: leadRow.sourceUrl || null,
+      identityKey: leadRow.placeId || leadRow.phoneDigits || null,
+      companyId: context.companyId,
+      requestedByUserId: context.userId,
+      priority: 100,
+      priorityReason: 'delivered',
+    }).catch((error: any) => {
+      this.logger.warn(`[local-deep-enrich] prioridade pós-entrega falhou sem afetar Vendas lead=${leadRow.id}: ${String(error?.message || error)}`);
+    });
+    // 4B: dispara DEPOIS da entrega e agora materializa missão durável; nunca atrasa nem falha
+    // a resposta. companyId já foi validado por resolveContext e só autoriza a ação ai_batch.
     this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
     // NÚCLEO-CRM N2 — materializa Conta(PJ)+Contato(dono) na espinha a partir do CNPJ do lead
     // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`

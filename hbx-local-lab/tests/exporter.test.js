@@ -15,6 +15,15 @@ test('exporter gera contrato JSONL do passo 13', () => {
     providers: ['web_query', 'site_crawl'],
     createdAt: '2026-06-08T12:00:00.000Z',
   }, {
+    evidence: [{
+      id: 'ev_123456789012345678901234',
+      sourceUrl: 'https://clinicareal.com.br/contato',
+      provider: 'site_crawl',
+      pageType: 'contact',
+      capturedAt: '2026-06-08T12:00:00.000Z',
+      contentHash: 'a'.repeat(64),
+      excerpt: 'Contato contato@clinicareal.com.br',
+    }],
     leads: [{
       externalId: 'lead-1',
       name: 'Clinica Real',
@@ -42,8 +51,10 @@ test('exporter gera contrato JSONL do passo 13', () => {
   assert.equal(exported.manifest.sourceMode, 'local_lab');
   assert.equal(exported.batch.leads.length, 1);
   assert.equal(exported.batch.emails.length, 1);
+  assert.equal(exported.batch.evidence.length, 1);
   assert.equal(exported.batch.leads[0].sourceRisk, 'experimental');
   assert.equal(exported.batch.leads[0].phone, '19999990001');
   assert.match(exported.leadsJsonl, /"sourceMode":"local_lab"/);
   assert.match(exported.emailsJsonl, /"status":"public_found"/);
+  assert.match(exported.evidenceJsonl, /"pageType":"contact"/);
 });

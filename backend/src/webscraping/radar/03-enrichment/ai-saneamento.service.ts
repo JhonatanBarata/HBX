@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as dns from 'node:dns';
 import { AiGatewayService } from '../../../ai-gateway/ai-gateway.service';
 
+/** Modelo do saneamento rápido do VPS. Não herda modelo do 30B/local nem fallback legado. */
+export const AI_SANEAMENTO_4B_MODEL = 'qwen3:4b-instruct' as const;
+export const AI_SANEAMENTO_4B_CONTRACT_VERSION = 'ai_saneamento_4b_v1' as const;
+
 /**
  * PR4a (30/06, docs/PLANEJAMENTOS/PR30062026/arvore-final-owner-enriquecimento.md)
  * "Worker de saneamento IA" — LIMPA nome + deduz SEGMENTO de leads crus via Ollama LOCAL.
@@ -180,7 +184,13 @@ export class AiSaneamentoService {
     const name = String(input?.name || '').trim();
     if (!name) return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
 
-    const parsed = await this.callOllama(name, SYSTEM_PROMPT_COM_NOTA, buildUserPrompt(input), input.companyId);
+    const parsed = await this.callOllama(
+      name,
+      SYSTEM_PROMPT_COM_NOTA,
+      buildUserPrompt(input),
+      input.companyId,
+      AI_SANEAMENTO_4B_MODEL,
+    );
     if (!parsed) return { ok: false, nomeLimpo: null, segmento: null, nota: null, razao: null };
 
     const nomeLimpo = String((parsed as any).nome_limpo || '').trim() || null;
@@ -205,9 +215,10 @@ export class AiSaneamentoService {
     systemPrompt: string,
     userPrompt: string,
     companyId?: number | null,
+    modelOverride?: string | null,
   ): Promise<Record<string, unknown> | null> {
     const baseUrl = await resolvePreferIPv4BaseUrl(ollamaBaseUrl());
-    const model = envStr('HBX_AI_SANEAMENTO_MODEL', 'qwen2.5:7b');
+    const model = String(modelOverride || '').trim() || envStr('HBX_AI_SANEAMENTO_MODEL', 'qwen2.5:7b');
     const timeoutMs = envInt('HBX_AI_SANEAMENTO_TIMEOUT_MS', 20000);
 
     // Retry único com pequeno backoff: o Node/undici embutido tem um connect-timeout interno

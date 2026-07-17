@@ -26,6 +26,8 @@ const { normalizeFabricaResponse } = require("./lib/fabrica-proxy");
 const { DEFAULT_BATCH_SIZE, createAutoTransferWorker, validateAutoBatchCompletion } = require("./lib/auto-transfer");
 // Worker local da PONTE (CHIP E1) — puxa missão do backend e executa no 30B local. Ver lib/ponte-worker.js.
 const { createPonteWorker } = require("./lib/ponte-worker");
+const { createLocalDeepEnrichWorker } = require("./lib/local-deep-enrich-worker");
+const { createLocalEnrichmentDbWriter } = require("./lib/local-enrichment-db-writer");
 
 // Limiares de aviso (alinhados aos soft limits da Night Factory).
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
@@ -954,6 +956,29 @@ async function ensureLocalLabUp(maxWaitMs = 6000) {
   }
   return false;
 }
+
+// Worker consolidado do stage local_deep_enrich_v1. Diferente da ponte legada, ele não possui
+// pause/stop operacional: nasce com o Owner, falha fechado até confirmar produção+contrato e se
+// recupera sozinho. O papel do banco só executa as duas funções versionadas; nenhuma credencial é
+// lida, persistida ou devolvida por este módulo.
+const localEnrichmentDbWriter = createLocalEnrichmentDbWriter({ env: process.env });
+const localDeepEnrichWorker = createLocalDeepEnrichWorker({
+  backendRequest: (method, route, payload, options) => backendRequest(method, route, payload, options || {}),
+  ensureLocalLabUp,
+  localLabRequest,
+  ollamaRequest,
+  writer: localEnrichmentDbWriter,
+  journalStore: {
+    load: () => stateStore.load("local-deep-enrich"),
+    inspect: () => stateStore.inspect("local-deep-enrich"),
+    save: (data) => stateStore.save("local-deep-enrich", data),
+    clear: () => stateStore.clear("local-deep-enrich"),
+  },
+  readResources: () => readSystemSnapshot(),
+  backendUrl,
+  log: (message) => console.log(message),
+  env: process.env,
+});
 
 // cardDomain → lib/util.js (Sprint 5).
 
@@ -3187,6 +3212,7 @@ async function route(req, res) {
       // D4: drift da imagem do Ops Control (cacheado; recalculado no boot, no heal e a cada snapshot com
       // throttle de 5min). drift:true → pílula ops âmbar "ops desatualizado". null quando sem token.
       opsDrift: opsToken ? { drift: opsDrift.drift, checked: opsDrift.checked, buildHash: opsDrift.buildHash, localHash: opsDrift.localHash } : null,
+      localDeepEnrich: localDeepEnrichWorker.status(),
       now: nowIso(),
     });
     return;
@@ -3593,6 +3619,15 @@ async function route(req, res) {
   }
 
   // ── PONTE (CHIP E1): status vermelho/verde + controles p/ o cockpit :3107 (E2) ──────────────────
+  if (req.method === "GET" && url.pathname === "/owner/local-deep-enrich/status") {
+    sendJson(res, 200, { ok: true, localDeepEnrich: localDeepEnrichWorker.status() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/local-deep-enrich/start") {
+    localDeepEnrichWorker.start();
+    sendJson(res, 202, { ok: true, localDeepEnrich: localDeepEnrichWorker.status() });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/owner/ponte/status") {
     sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
     return;
@@ -3660,10 +3695,14 @@ if (require.main === module) {
     console.log(`HBX Owner Local Agent em http://${HOST}:${PORT}`);
     // Worker da PONTE: só arranca se HBX_PONTE_WORKER_ENABLED=on (default OFF). start() é no-op se OFF.
     try { ponteWorker.start(); } catch (error) { console.log(`[ponte] falha ao iniciar: ${error.message}`); }
+    try { localDeepEnrichWorker.start(); } catch (error) { console.log(`[local-deep-enrich] falha ao iniciar: ${error.message}`); }
     // D4: 1ª checagem de drift no boot (força o throttle). Best-effort — nunca derruba a subida do agent.
     refreshOpsDrift(true).catch(() => {});
   });
-  server.once("close", () => autoTransferWorker.stop());
+  server.once("close", () => {
+    autoTransferWorker.stop();
+    void localDeepEnrichWorker.stop();
+  });
 }
 
 module.exports.__testing = {
@@ -3672,4 +3711,5 @@ module.exports.__testing = {
   invalidateDockerReadCache,
   startTransferJob,
   autoTransferWorker,
+  localDeepEnrichWorker,
 };
