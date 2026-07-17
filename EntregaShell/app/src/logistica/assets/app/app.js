@@ -118,6 +118,7 @@
   function storedRouteOrder(item) { const raw = item && item.rotaOrdem; return raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : null; }
   function orderedItems() { return items().map((item, index) => ({ item, index, order: storedRouteOrder(item) })).sort((a, b) => a.order === null && b.order === null ? a.index - b.index : a.order === null ? 1 : b.order === null ? -1 : a.order - b.order).map(row => row.item); }
   function openItems() { return orderedItems().filter(item => item.status === "agendada" || item.status === "em_rota"); }
+  function routePlanned() { const open = openItems(); return open.length > 0 && open.every(item => storedRouteOrder(item) !== null); }
   function deliveredItems() { return items().filter(item => item.status === "entregue"); }
   function isAdmin() { return !!state.config && Object.prototype.hasOwnProperty.call(state.config, "modoRotaPadrao"); }
   function serverRouteActive() { return !!(state.route && state.route.routeStatus === "ACTIVE"); }
@@ -558,19 +559,18 @@
   }
 
   function routeScreen() {
-    if (state.loading) return shell(`<div class="screen-head"><div><h1>Rota de hoje</h1></div></div>${loading()}`);
+    if (state.loading) return shell(loading());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
     const progress = total ? Math.round(done.length / total * 100) : 0;
-    const mode = routeTracked() ? "Rastreada" : "Essencial";
     const hasMapPoints = routeMapPoints().length > 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
-    const cancelRouteButton = isAdmin() && open.length ? `<button class="btn btn-danger" data-action="cancel-route">Cancelar</button>` : "";
-    return shell(`<div class="screen-head"><div><h1>Rota de hoje</h1><p class="subtitle">${new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })}</p></div>${isAdmin() && !routeActive() ? `<button class="link-btn" data-action="route-mode">Modo</button>` : ""}</div>
-      <section class="hero"><div style="display:flex;justify-content:space-between;gap:12px"><div><span class="hero-kicker">● ${routeActive() ? "Rota ativa" : paused ? "Rota pausada" : total ? "Rota pronta" : "Sem rota"}</span><h2>${total} parada(s) · ${mode}</h2></div><span class="badge success">${mode}</span></div>${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : `<div class="route-map-empty">${total ? "Sem localização no mapa." : "Sem rota hoje."}</div>`}<div class="progress"><i style="width:${progress}%"></i></div><div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Pausar</button>${cancelRouteButton}` : paused ? `<button class="btn btn-primary" data-action="resume-route">${icon("route", 17)} Retomar rota</button>${cancelRouteButton}` : `<button class="btn btn-primary" data-action="start-route" ${open.length ? "" : "disabled"}>${icon("route", 17)} Iniciar rota</button><button class="btn btn-dark" data-action="plan-route">Planejar</button>${cancelRouteButton}`}</div></section>
-      <div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong></div></div>
-      <div class="section-title"><strong>${next ? "Próxima parada" : "Situação"}</strong><span>${next && next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${next ? stopCard(next, true) : empty(total ? "Rota concluída" : "Nenhuma entrega hoje", "")}
-      <div class="section-title"><strong>Sequência da rota</strong><span>${total} parada(s)</span></div><div class="list">${items().length ? orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("") : ""}</div><button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+    const planned = routePlanned();
+    const cancelRouteButton = isAdmin() && open.length && (planned || serverRouteActive()) ? `<button class="btn btn-danger" data-action="cancel-route">Cancelar</button>` : "";
+    return shell(`<section class="hero">${hasMapPoints ? `<div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>` : ""}${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}<div class="hero-actions">${routeActive() ? `<button class="btn btn-dark" data-action="show-map">${icon("map", 17)} Abrir mapa</button><button class="btn btn-dark" data-action="finish-route">Pausar</button>${cancelRouteButton}` : paused ? `<button class="btn btn-primary" data-action="resume-route">${icon("route", 17)} Retomar rota</button>${cancelRouteButton}` : planned ? `<button class="btn btn-primary" data-action="start-planned-route" ${state.dayStarting ? "disabled" : ""}>${icon("route", 17)} ${state.dayStarting ? "Iniciando…" : "Iniciar rota"}</button>${cancelRouteButton}` : `<button class="btn btn-primary" data-action="plan-route">Planejar</button>`}</div></section>
+      ${total ? `<div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong></div></div>` : ""}
+      ${next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
+      ${items().length ? `<div class="list">${orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : ""}<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -844,6 +844,24 @@
     H.stopRoute();
   }
   async function resumeRouteOnDevice() { await startRoute(false, false); }
+  async function startPlannedRoute() {
+    if (!routePlanned() || state.dayStarting) return;
+    if (!isAdmin()) { await startRoute(false, false); return; }
+    state.dayStarting = true; render();
+    try {
+      const position = await currentPosition();
+      const body = { operationalDate: operationalDate() };
+      if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
+      const started = await H.api("/logistica/admin-route/start", { method: "POST", body });
+      state.routePaused = false;
+      H.cache.remove("logistica-route-paused");
+      activateNativeRoute(started);
+      await refresh(true);
+      toast("Rota iniciada.");
+      abrirNavegacao(openItems()[0]);
+    } catch (error) { toast(err(error), true); }
+    finally { state.dayStarting = false; }
+  }
   function startDayReview() {
     if (!state.daySelection.length || state.dayStarting || (state.dayPreviewLoading && !state.dayPreview.length)) return;
     clearInterval(dayReviewTimer);
@@ -1123,6 +1141,7 @@
     if (action === "route-mode") { if (!isAdmin()) return; showModal("route-mode"); }
     if (action === "start-route") openDayManager("start");
     if (action === "plan-route") openDayManager("plan");
+    if (action === "start-planned-route") await startPlannedRoute();
     if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar rota?", message: `${openItems().length} paradas sairão de hoje. Clientes não serão excluídos.`, confirmLabel: "Cancelar rota", danger: true, icon: "route" }; render(); }
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
