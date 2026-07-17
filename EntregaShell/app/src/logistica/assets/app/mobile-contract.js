@@ -49,26 +49,40 @@
     );
   }
 
+  function addressOf(client) {
+    return [client && client.endereco, [client && client.cidade, client && client.uf].filter(Boolean).join(" - ")]
+      .filter(Boolean)
+      .join(", ");
+  }
+
   function inferDeliveryId(sheet) {
-    if (currentDeliveryId && routeItem(currentDeliveryId)) return currentDeliveryId;
     const title = String(sheet.querySelector("h2")?.textContent || "").trim();
     const address = String(sheet.querySelector(".sheet-head .subtitle")?.textContent || "").trim();
+    const current = currentDeliveryId ? routeItem(currentDeliveryId) : null;
+    if (current) {
+      const client = current.cliente || {};
+      const sameName = !title || String(client.nome || "").trim() === title;
+      const sameAddress = !address || !addressOf(client) || addressOf(client) === address;
+      if (sameName && sameAddress) return String(current.id);
+    }
+
     const route = routeSnapshot();
     const items = route && Array.isArray(route.items) ? route.items : [];
     const matches = items.filter((item) => {
       const client = item && item.cliente || {};
       const sameName = String(client.nome || "").trim() === title;
       if (!sameName) return false;
-      if (!address) return true;
-      const candidate = [client.endereco, [client.cidade, client.uf].filter(Boolean).join(" - ")]
-        .filter(Boolean)
-        .join(", ");
-      return candidate === address;
+      return !address || !addressOf(client) || addressOf(client) === address;
     });
     const open = matches.find((item) => item.status === "agendada" || item.status === "em_rota");
     const selected = open || (matches.length === 1 ? matches[0] : null);
     if (selected) currentDeliveryId = String(selected.id);
     return selected ? String(selected.id) : null;
+  }
+
+  function escapeHtml(value) {
+    const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" };
+    return String(value || "").replace(/[&<>"']/g, (char) => entities[char]);
   }
 
   function addStyles() {
@@ -108,20 +122,24 @@
     const route = routeSnapshot();
     const pixKey = route && route.pix && route.pix.chave ? String(route.pix.chave) : "";
     const panel = existing || document.createElement("div");
+    const signature = `${deliveryId}\u0000${selected}\u0000${pixKey}`;
     panel.className = "hbx-receipt-panel";
     panel.dataset.hbxDeliveryId = deliveryId;
-    panel.innerHTML = `
-      <div class="hbx-receipt-head">
-        <strong>Como recebeu?</strong>
-        <span>Obrigatório para fechar o financeiro</span>
-      </div>
-      <div class="hbx-receipt-options">
-        ${[["pix", "Pix"], ["dinheiro", "Dinheiro"], ["fiado", "Fiado"]]
-          .map(([value, label]) => `<button type="button" class="hbx-receipt-option ${selected === value ? "active" : ""}" data-hbx-receipt="${value}">${label}</button>`)
-          .join("")}
-      </div>
-      ${selected === "pix" && pixKey ? `<div class="hbx-pix-key"><code>${String(pixKey).replace(/[&<>"']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[char])}</code><button type="button" class="hbx-pix-copy" data-hbx-copy-pix>Copiar chave</button></div>` : ""}
-    `;
+    if (panel.dataset.hbxSignature !== signature) {
+      panel.dataset.hbxSignature = signature;
+      panel.innerHTML = `
+        <div class="hbx-receipt-head">
+          <strong>Como recebeu?</strong>
+          <span>Obrigatório para fechar o financeiro</span>
+        </div>
+        <div class="hbx-receipt-options">
+          ${[["pix", "Pix"], ["dinheiro", "Dinheiro"], ["fiado", "Fiado"]]
+            .map(([value, label]) => `<button type="button" class="hbx-receipt-option ${selected === value ? "active" : ""}" data-hbx-receipt="${value}">${label}</button>`)
+            .join("")}
+        </div>
+        ${selected === "pix" && pixKey ? `<div class="hbx-pix-key"><code>${escapeHtml(pixKey)}</code><button type="button" class="hbx-pix-copy" data-hbx-copy-pix>Copiar chave</button></div>` : ""}
+      `;
+    }
 
     if (!existing) {
       const anchor = sheet.querySelector(".delivery-tools") || confirm;
