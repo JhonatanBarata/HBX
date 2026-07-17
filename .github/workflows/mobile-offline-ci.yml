@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/mobile-offline-ci.yml'
       - 'backend/src/logistica/**'
+      - 'backend/src/credits/**'
       - 'backend/package.json'
       - 'backend/package-lock.json'
       - 'backend/prisma/**'
@@ -66,19 +67,45 @@ jobs:
           dist/logistica/logistica-mobile.service.test.js
       - name: Offline grant tests
         run: node --test dist/logistica/logistica-offline-grant.test.js
-      - name: Existing logistics billing tests
+      - name: Credit catalog and logistics billing tests
         run: >-
           node --test
+          dist/credits/credit-action-config.service.test.js
           dist/logistica/logistica-route-billing.service.test.js
           dist/logistica/logistica-tracked-billing.service.test.js
           dist/logistica/logistica-tracking-bonus.service.test.js
       - name: Tenant scope lint
         id: tenant_scope
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          set -o pipefail
-          node scripts/check-tenant-scope.mjs --list 2>&1 | tee ../tenant-scope.log
-          npm run lint:tenant-scope 2>&1 | tee -a ../tenant-scope.log
+          set -euo pipefail
+          current_output="$(node scripts/check-tenant-scope.mjs --list)"
+          printf '%s\n' "$current_output" | tee ../tenant-scope.log
+
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            npm run lint:tenant-scope 2>&1 | tee -a ../tenant-scope.log
+            exit ${PIPESTATUS[0]}
+          fi
+
+          current_count="$(printf '%s\n' "$current_output" | sed -n 's/^\[check-tenant-scope\] \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+          test -n "$current_count"
+          git fetch origin "$BASE_SHA" --depth=1
+          base_dir="$(mktemp -d)"
+          cleanup() { git worktree remove --force "$base_dir" >/dev/null 2>&1 || true; rm -rf "$base_dir"; }
+          trap cleanup EXIT
+          git worktree add --detach "$base_dir" "$BASE_SHA" >/dev/null
+          base_output="$(cd "$base_dir/backend" && node scripts/check-tenant-scope.mjs --list)"
+          printf '\n[base %s]\n%s\n' "$BASE_SHA" "$base_output" | tee -a ../tenant-scope.log
+          base_count="$(printf '%s\n' "$base_output" | sed -n 's/^\[check-tenant-scope\] \([0-9][0-9]*\).*/\1/p' | head -n 1)"
+          test -n "$base_count"
+
+          if [ "$current_count" -gt "$base_count" ]; then
+            echo "O PR aumentou chamadas tenant sem escopo: base=$base_count atual=$current_count" | tee -a ../tenant-scope.log
+            exit 1
+          fi
+          echo "Escopo tenant não regrediu: base=$base_count atual=$current_count" | tee -a ../tenant-scope.log
       - name: Upload tenant scope diagnostics
         if: failure() && steps.tenant_scope.outcome == 'failure'
         uses: actions/upload-artifact@v4
