@@ -21,6 +21,8 @@ import { LogisticaController } from './logistica.controller';
 import { LogisticaAdminRouteController } from './logistica-admin-route.controller';
 import { LogisticaAdminRouteService } from './logistica-admin-route.service';
 import { LogisticaAdminRouteViewService } from './logistica-admin-route-view.service';
+import { LogisticaMobileController } from './logistica-mobile.controller';
+import { LogisticaMobileService } from './logistica-mobile.service';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
@@ -77,12 +79,18 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
  * CRUD antigo, mas direciona preview/gerar-dia para o motor determinístico de
  * ocorrências. O novo controller expõe Ajustar → Traçar → Começar exclusivamente
  * ao administrador, sem antecipar a futura árvore de roles.
+ *
+ * CONTRATO APK (17/07): LogisticaMobileController mantém a rota actor-scoped e
+ * entrega ao motorista apenas as instruções de recebimento necessárias. A mesma
+ * superfície materializa datas de origem na data operacional escolhida, sem
+ * reabrir histórico nem duplicar ocorrência.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
   controllers: [
     LogisticaController,
     LogisticaAdminRouteController,
+    LogisticaMobileController,
     LogisticaPedidoPublicoController,
     LogisticaTrackingMobileController,
     LogisticaOfflineController,
@@ -97,6 +105,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     },
     LogisticaAdminRouteService,
     LogisticaAdminRouteViewService,
+    LogisticaMobileService,
     LogisticaRotaService,
     LogisticaConfigService,
     LogisticaRecoveryService,
@@ -119,6 +128,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaService,
     LogisticaRecorrenciaService,
     LogisticaOccurrenceService,
+    LogisticaMobileService,
     LogisticaRotaService,
     LogisticaConfigService,
     LogisticaOperacaoService,
