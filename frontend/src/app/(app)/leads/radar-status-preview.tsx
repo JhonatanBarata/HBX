@@ -360,6 +360,9 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         return;
       }
 
+      window.requestAnimationFrame(() => {
+        if (!disposed) setState(next.state);
+      });
       flying = true;
       next.target.classList.add("is-enrichment-receiving");
       next.target.dataset.enrichmentArrival = next.state;
