@@ -625,6 +625,8 @@ export class LogisticaOccurrenceService {
 
   private async lockOperationalDate(tx: any, companyId: number, operationalDate: string): Promise<void> {
     const dateNumber = Number(operationalDate.replace(/-/g, ''));
-    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1::int, $2::int)', companyId, dateNumber);
+    // pg_advisory_xact_lock retorna void. $queryRaw tenta desserializar esse
+    // retorno e falha em produção antes de materializar as entregas do dia.
+    await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock($1::int, $2::int)', companyId, dateNumber);
   }
 }

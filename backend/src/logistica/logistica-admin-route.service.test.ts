@@ -84,7 +84,7 @@ function buildOccurrenceHarness(input: RecurrenceSeed[], validDriverId = 42) {
   };
 
   const tx: any = {
-    $queryRawUnsafe: async () => undefined,
+    $executeRawUnsafe: async () => 0,
     contato: { findFirst: async () => null },
     clienteProduto: {
       findMany: async ({ where }: any) => recurrences.filter((row) => row.companyId === where.companyId),

@@ -52,7 +52,7 @@ test('quarta selecionada na quinta vira ocorrência da quinta sem duplicar nem m
   });
 
   const tx: any = {
-    $queryRawUnsafe: async () => [],
+    $executeRawUnsafe: async () => 0,
     contato: { findFirst: async () => null },
     entregaItem: {
       findMany: async (args: any) => {

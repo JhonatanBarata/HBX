@@ -324,7 +324,9 @@ export class LogisticaAdminRouteService {
     const dateToken = operationalDate.replace(/-/g, '');
 
     return this.prisma.$transaction(async (tx: any) => {
-      await tx.$queryRawUnsafe(
+      // A trava é executada apenas pelo efeito: o retorno void do PostgreSQL
+      // não pode passar por $queryRaw, que tenta desserializá-lo no Prisma.
+      await tx.$executeRawUnsafe(
         'SELECT pg_advisory_xact_lock($1::int, $2::int)',
         companyId,
         Number(dateToken),
