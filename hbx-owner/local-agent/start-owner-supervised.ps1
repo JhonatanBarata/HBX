@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $agentDir = $PSScriptRoot
 $launcher = Join-Path $agentDir "start-owner.ps1"
 $tunnelSupervisor = Join-Path $agentDir "ensure-local-enrichment-tunnel.ps1"
+$unclogSupervisor = Join-Path $agentDir "local-deep-unclog-supervisor.js"
 
 function Read-DotenvValue {
   param([string]$Path, [string]$Key)
@@ -22,6 +23,7 @@ function Import-LocalAgentEnvironment {
   $path = Join-Path $agentDir ".env.local"
   $allowed = @(
     "HBX_OWNER_BACKEND_URL", "HBX_OWNER_BACKEND_TOKEN", "HBX_OWNER_OLLAMA_URL",
+    "HBX_OWNER_LOCAL_AGENT_PORT", "HBX_LOCAL_LAB_PORT",
     "HBX_LOCAL_DEEP_ENABLED", "HBX_LOCAL_DEEP_TARGET", "HBX_LOCAL_DEEP_PRIVATE_TUNNEL",
     "HBX_LOCAL_DEEP_WORKER_ID", "HBX_LOCAL_DEEP_MODEL", "HBX_LOCAL_DEEP_POLL_BASE_MS",
     "HBX_LOCAL_DEEP_POLL_CAP_MS", "HBX_LOCAL_DEEP_LEASE_TTL_SECONDS",
@@ -30,7 +32,12 @@ function Import-LocalAgentEnvironment {
     "HBX_LOCAL_DEEP_CPU_THROTTLE_PCT", "HBX_LOCAL_DEEP_RESOURCE_HYSTERESIS_PCT",
     "HBX_LOCAL_ENRICH_DATABASE_URL",
     "HBX_LOCAL_ENRICH_EXPECTED_DATABASE", "HBX_LOCAL_ENRICH_DB_SSL",
-    "HBX_LOCAL_ENRICH_DB_ALLOW_SELF_SIGNED", "HBX_LOCAL_ENRICH_PRIVATE_CHANNEL_CONFIRMED"
+    "HBX_LOCAL_ENRICH_DB_ALLOW_SELF_SIGNED", "HBX_LOCAL_ENRICH_PRIVATE_CHANNEL_CONFIRMED",
+    "HBX_LOCAL_LAB_WATCHDOG_INTERVAL_MS", "HBX_LOCAL_LAB_RUNNING_STALE_MS",
+    "HBX_LOCAL_LAB_QUEUED_STALE_MS", "HBX_LOCAL_LAB_QUARANTINE_AGE_MS",
+    "HBX_LOCAL_DEEP_RECOVERY_SUPERVISOR_PORT", "HBX_LOCAL_DEEP_RECOVERY_POLL_MS",
+    "HBX_LOCAL_DEEP_RECOVERY_STALE_MS", "HBX_LOCAL_DEEP_RECOVERY_WINDOW_MS",
+    "HBX_LOCAL_DEEP_RECOVERY_MAX"
   )
   foreach ($key in $allowed) {
     if (Test-Path "Env:$key") { continue }
@@ -47,6 +54,30 @@ function Start-TunnelSupervisor {
   $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
   Start-Process -WindowStyle Hidden -FilePath $powershell -ArgumentList @(
     "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $tunnelSupervisor
+  ) | Out-Null
+}
+
+function Test-PortAlive {
+  param([int]$Port)
+  try {
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1
+    return $null -ne $connection
+  } catch {
+    return $false
+  }
+}
+
+function Start-UnclogSupervisor {
+  if (-not (Test-Path -LiteralPath $unclogSupervisor)) { return }
+  $port = if ($env:HBX_LOCAL_DEEP_RECOVERY_SUPERVISOR_PORT) {
+    [int]$env:HBX_LOCAL_DEEP_RECOVERY_SUPERVISOR_PORT
+  } else {
+    3110
+  }
+  if (Test-PortAlive -Port $port) { return }
+  $node = (Get-Command node.exe -ErrorAction Stop).Source
+  Start-Process -WindowStyle Hidden -FilePath $node -WorkingDirectory $agentDir -ArgumentList @(
+    $unclogSupervisor
   ) | Out-Null
 }
 
@@ -74,6 +105,7 @@ try {
     if (-not (Test-OwnerAlive)) {
       & $launcher -NoBrowser
     }
+    Start-UnclogSupervisor
     $cycle += 1
     Start-Sleep -Seconds 15
   }
