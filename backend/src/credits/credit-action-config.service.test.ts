@@ -32,7 +32,7 @@ function createFakePrisma() {
 
 test.beforeEach(clearCreditActionOverrides);
 
-test('todas as ações são editáveis em modo grátis ou débito decimal', async () => {
+test('ações públicas são editáveis em modo grátis ou débito decimal', async () => {
   const fake = createFakePrisma();
   const service = new CreditActionConfigService(fake as any);
   const costs = new Map([
@@ -40,7 +40,6 @@ test('todas as ações são editáveis em modo grátis ou débito decimal', asyn
     [CREDIT_ACTION_KEYS.AUTOMATION, 0.1],
     [CREDIT_ACTION_KEYS.AI_REALTIME, 0.125],
     [CREDIT_ACTION_KEYS.AI_BATCH, 0.5],
-    [CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY, 0.2],
     [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, 1],
     [CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY, 2],
   ]);
@@ -48,7 +47,7 @@ test('todas as ações são editáveis em modo grátis ou débito decimal', asyn
     const result = await service.setOverride(key, { mode: 'debit', cost });
     assert.equal(result.effective.cost, cost);
   }
-  assert.equal(fake.rows.length, 7);
+  assert.equal(fake.rows.length, 6);
 
   const free = await service.setOverride(CREDIT_ACTION_KEYS.AI_BATCH, { mode: 'free', cost: 999 });
   assert.deepEqual(free.effective, { mode: 'free', cost: 0 });
@@ -63,9 +62,31 @@ test('listagem relê o banco e mostra defaults pedidos', async () => {
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AUTOMATION)?.effective, { mode: 'debit', cost: 0.1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_REALTIME)?.effective, { mode: 'debit', cost: 0.1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_BATCH)?.effective, { mode: 'free', cost: 0 });
-  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY)?.effective, { mode: 'debit', cost: 0.2 });
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY)?.effective, { mode: 'free', cost: 0 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK)?.effective, { mode: 'debit', cost: 1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY)?.effective, { mode: 'debit', cost: 2 });
+});
+
+test('entrega avulsa legada é sempre grátis e não aceita override de débito', async () => {
+  const fake = createFakePrisma();
+  fake.rows.push({
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
+    configJson: JSON.stringify({ mode: 'debit', cost: 0.2 }),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const service = new CreditActionConfigService(fake as any);
+
+  const effective = await service.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY);
+  assert.deepEqual({ mode: effective?.mode, cost: effective?.cost }, { mode: 'free', cost: 0 });
+  const listed = await service.listForMaster();
+  const legacy = listed.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY);
+  assert.deepEqual(legacy?.effective, { mode: 'free', cost: 0 });
+  assert.equal(legacy?.override, null);
+  await assert.rejects(
+    service.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY, { mode: 'debit', cost: 0.2 }),
+    /absorvida pela cobrança da rota/,
+  );
 });
 
 test('rejeita modo inválido, débito zero e custo negativo', async () => {
@@ -76,12 +97,18 @@ test('rejeita modo inválido, débito zero e custo negativo', async () => {
   await assert.rejects(service.setOverride('acao_inventada', { mode: 'debit', cost: 1 }));
 });
 
-test('clearOverride volta ao default e é idempotente', async () => {
+test('clearOverride remove configuração antiga da entrega e mantém default grátis', async () => {
   const fake = createFakePrisma();
+  fake.rows.push({
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
+    configJson: JSON.stringify({ mode: 'debit', cost: 0.7 }),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
   const service = new CreditActionConfigService(fake as any);
-  await service.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY, { mode: 'debit', cost: 0.7 });
   const cleared = await service.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY);
-  assert.deepEqual(cleared.effective, { mode: 'debit', cost: 0.2 });
+  assert.deepEqual(cleared.effective, { mode: 'free', cost: 0 });
+  assert.equal(fake.rows.length, 0);
   await assert.doesNotReject(() => service.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY));
 });
 
