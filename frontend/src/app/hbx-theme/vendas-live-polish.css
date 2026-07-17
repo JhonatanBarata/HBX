@@ -1,5 +1,6 @@
-/* Ajuste final do fluxo de enriquecimento em /vendas.
-   Mantém o gráfico vivo no cabeçalho e elimina a guia/tela redundante. */
+/* Encanamento fixo do enriquecimento em /vendas.
+   Quatro entradas transparentes se unem em um tronco único; cada lead visível
+   recebe somente um braço lateral. Apenas o cartão de status se movimenta. */
 
 /* A guia dedicada ficou redundante: os estados já vivem no topo da tela. */
 #vendas-tab-enriquecimento,
@@ -9,51 +10,156 @@
   display: none !important;
 }
 
-/* Leva o tronco para a margem útil da tabela e faz a ponta encostar no lead,
-   sem cobrir checkbox ou controles de seleção. */
+/* O SVG fica atrás da casca e nunca rouba clique nem cobre a planilha. */
 .vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe {
-  left: -18px;
+  inset: 0;
+  left: 0;
   right: auto;
-  width: calc(100% + 18px);
-  filter: drop-shadow(0 10px 18px color-mix(in srgb, var(--text-strong) 7%, transparent));
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+  filter: drop-shadow(0 9px 17px color-mix(in srgb, var(--text-strong) 7%, transparent));
+  transition: opacity var(--motion-base);
 }
 
-/* Cano de vidro mais premium: profundidade, brilho interno e pulso contínuo. */
+.vnd-modehost.vnd-has-live-enrichment.vnd-live-pipe-ready .vnd-live-pipe {
+  opacity: 1;
+}
+
+.vnd-modehost.vnd-has-live-enrichment .vnd-funhead,
+.vnd-modehost.vnd-has-live-enrichment .vnd-stage {
+  position: relative;
+  z-index: 2;
+}
+
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-token {
+  z-index: 4;
+}
+
+.vnd-live-pipe__network,
+.vnd-live-pipe__segment,
+.vnd-live-pipe__coupler {
+  pointer-events: none;
+}
+
+.vnd-live-pipe__segment {
+  --pipe-glass: color-mix(in srgb, var(--hbx-surface) 84%, transparent);
+  --pipe-core: color-mix(in srgb, var(--hbx-info) 10%, transparent);
+}
+
+.vnd-live-pipe__segment.is-inlet {
+  --pipe-glass: color-mix(in srgb, var(--flow-color) 11%, var(--hbx-surface) 89%);
+  --pipe-core: color-mix(in srgb, var(--flow-color) 22%, transparent);
+}
+
+.vnd-live-pipe__segment.is-branch {
+  --pipe-core: color-mix(in srgb, var(--hbx-info) 8%, transparent);
+}
+
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Profundidade externa do tubo. */
 .vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__shadow {
-  stroke: color-mix(in srgb, var(--text-strong) 13%, transparent);
-  stroke-width: 18;
+  stroke: color-mix(in srgb, var(--text-strong) 12%, transparent);
+  stroke-width: 20;
   filter: blur(6px);
+  opacity: 0.46;
+}
+
+/* Aro de acrílico: define a espessura sem parecer uma linha desenhada. */
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__rim {
+  stroke: color-mix(in srgb, var(--border-strong) 28%, var(--hbx-surface) 72%);
+  stroke-width: 16;
   opacity: 0.72;
+  filter: drop-shadow(0 2px 3px color-mix(in srgb, var(--text-strong) 9%, transparent));
 }
 
+/* Corpo translúcido do cano. */
 .vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__glass {
-  stroke: color-mix(in srgb, var(--hbx-surface) 84%, transparent);
-  stroke-width: 12;
+  stroke: var(--pipe-glass);
+  stroke-width: 12.5;
+  opacity: 0.9;
   filter:
-    drop-shadow(0 1px 0 color-mix(in srgb, white 70%, transparent))
-    drop-shadow(0 3px 5px color-mix(in srgb, var(--text-strong) 10%, transparent));
-  opacity: 0.94;
+    drop-shadow(0 1px 0 color-mix(in srgb, white 76%, transparent))
+    drop-shadow(0 3px 5px color-mix(in srgb, var(--text-strong) 8%, transparent));
 }
 
-.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__light {
-  stroke: color-mix(in srgb, var(--flow-color) 72%, white 8%);
-  stroke-width: 2.6;
-  stroke-dasharray: 1 8;
-  filter:
-    drop-shadow(0 0 3px color-mix(in srgb, var(--flow-color) 72%, transparent))
-    drop-shadow(0 0 8px color-mix(in srgb, var(--flow-color) 34%, transparent));
-  animation: vnd-live-pipe-premium-flow 0.72s linear infinite;
+/* Interior parado: não há pontilhado correndo e o encanamento não alterna. */
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__core {
+  stroke: var(--pipe-core);
+  stroke-width: 5.2;
+  opacity: 0.82;
 }
 
-@keyframes vnd-live-pipe-premium-flow {
-  to { stroke-dashoffset: -27; }
+/* Reflexo contínuo de vidro, fixo. */
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__shine {
+  stroke: color-mix(in srgb, white 76%, transparent);
+  stroke-width: 2.1;
+  stroke-dasharray: none;
+  opacity: 0.76;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, white 55%, transparent));
+  animation: none;
 }
 
-/* A cápsula que percorre o cano ganha acabamento de peça iluminada. */
+/* Luvas nas quatro entradas e na ponta que encosta na lateral do lead. */
+.vnd-live-pipe__coupler-ring {
+  fill: color-mix(in srgb, var(--hbx-surface) 74%, transparent);
+  stroke: color-mix(in srgb, var(--flow-color, var(--hbx-info)) 24%, var(--border-strong));
+  stroke-width: 2.4;
+  filter: drop-shadow(0 2px 4px color-mix(in srgb, var(--text-strong) 12%, transparent));
+}
+
+.vnd-live-pipe__coupler-core {
+  fill: color-mix(in srgb, var(--flow-color, var(--hbx-info)) 16%, var(--hbx-surface));
+  stroke: color-mix(in srgb, white 72%, transparent);
+  stroke-width: 1.2;
+}
+
+/* O botão pulsa somente quando um cartão sai dele. */
+.vnd-enrichment-state.is-discharging {
+  animation: vnd-enrichment-source-discharge 0.76s var(--ease-out-quint) both;
+}
+
+.vnd-enrichment-state.is-discharging .vnd-enrichment-state__icon,
+.vnd-enrichment-state.is-discharging .vnd-enrichment-state__count {
+  animation: vnd-enrichment-source-core 0.76s var(--ease-out-quint) both;
+}
+
+@keyframes vnd-enrichment-source-discharge {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+    box-shadow: var(--shadow-xs);
+  }
+  34% {
+    transform: translateY(-1px) scale(1.035);
+    box-shadow:
+      0 0 0 4px color-mix(in srgb, var(--flow-color) 13%, transparent),
+      0 0 22px color-mix(in srgb, var(--flow-color) 34%, transparent),
+      var(--shadow-sm);
+  }
+}
+
+@keyframes vnd-enrichment-source-core {
+  0%, 100% { filter: none; }
+  38% { filter: brightness(1.12) drop-shadow(0 0 7px color-mix(in srgb, var(--flow-color) 44%, transparent)); }
+}
+
+/* Cartão de status: é a única peça que percorre o encanamento fixo. */
 .vnd-live-token {
+  width: 38px;
+  height: 20px;
+  border-width: 1.5px;
   border-color: color-mix(in srgb, var(--flow-color) 78%, white 12%);
+  border-radius: 8px;
   background:
-    linear-gradient(155deg, color-mix(in srgb, white 58%, transparent), transparent 42%),
+    linear-gradient(155deg, color-mix(in srgb, white 62%, transparent), transparent 43%),
     linear-gradient(180deg, color-mix(in srgb, var(--flow-color) 82%, white 8%), var(--flow-color));
   box-shadow:
     0 0 0 4px color-mix(in srgb, var(--flow-color) 13%, transparent),
@@ -61,9 +167,36 @@
     0 10px 20px -9px var(--flow-color);
 }
 
+.vnd-live-token i {
+  width: 13px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hbx-action-ink) 88%, transparent);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--hbx-action-ink) 72%, transparent);
+}
+
+/* A ponta fica exatamente na primeira célula/linha lateral; o conteúdo permanece acima. */
+tr.vnd-enrichment-target > td,
+.vnd-enrichment-target.vnd-card,
+.vnd-enrichment-target.row-dense,
+.vnd-enrichment-target.be-card,
+.vnd-enrichment-target.vnd-m__row,
+.vnd-enrichment-target.radar2-card {
+  position: relative;
+  z-index: 1;
+}
+
 @media (max-width: 900px) {
   .vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe {
-    left: -10px;
-    width: calc(100% + 10px);
+    left: 0;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vnd-enrichment-state.is-discharging,
+  .vnd-enrichment-state.is-discharging .vnd-enrichment-state__icon,
+  .vnd-enrichment-state.is-discharging .vnd-enrichment-state__count {
+    animation: none;
   }
 }
