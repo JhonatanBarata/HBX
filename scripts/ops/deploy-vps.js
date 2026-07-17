@@ -158,8 +158,12 @@ function buildRemoteScript(config, fullDeploy, services) {
 
   if (fullDeploy) {
     lines.push(
-      `${compose} up -d --build --force-recreate`,
-      `${frontendCompose} up -d --build --force-recreate frontend`,
+      `${compose} build`,
+      `docker rm -f hbx-backend webscraping hbx-scraping-engine ${engineServices.join(' ')} 2>/dev/null || true`,
+      `${compose} up -d --force-recreate`,
+      `${frontendCompose} build frontend`,
+      'docker rm -f hbx-frontend frontend 2>/dev/null || true',
+      `${frontendCompose} up -d --force-recreate frontend`,
       'deploy_webwhats',
       'systemctl restart nginx',
       'wait_backend',
