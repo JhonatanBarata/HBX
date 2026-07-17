@@ -241,7 +241,7 @@
     const overlays = `${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próximo cliente</p><h2>${H.escape(client.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(client))}</p><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small><button class="btn btn-primary btn-block next-stop-button" data-action="next-stop">Próximo cliente</button></section></div>`; }
+  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><p class="subtitle" data-countdown-message>em ${count}…</p><small>${H.escape(address(client))}</small><div class="actions" style="width:100%"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
   function confirmationOverlay() {
     const confirmation = state.confirmation;
     if (!confirmation) return "";
@@ -823,6 +823,7 @@
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
       if (!planOnly) activateNativeRoute(result);
       await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
+      if (!planOnly) abrirNavegacao(openItems()[0]);
     } catch (error) { toast(err(error), true); }
   }
   function pauseRouteOnDevice() {
@@ -968,7 +969,8 @@
   function showModal(name) { state.openingOverlay = "modal"; state.modal = name; render(); }
   function makeDeliveryDraft(item) { const existing = (item.itens || []).map(x => ({ key: `item-${x.id}`, id: x.id, productId: x.produto && x.produto.id || x.produtoId || null, nome: x.produto && x.produto.nome || "Produto", qtd: Math.max(0, Number(x.qtdEntregue ?? x.qtdPrevista ?? 1)), novo: false })); if (existing.length) return { deliveryId: item.id, items: existing }; return { deliveryId: item.id, items: [{ key: `legacy-${item.id}`, id: item.id, productId: item.produto && item.produto.id || item.produtoId || null, nome: item.produto && item.produto.nome || "Entrega", qtd: Math.max(1, Number(item.quantidade || 1)), novo: false }] }; }
   function deliveryDraftFor(item) { if (!state.deliveryDraft || state.deliveryDraft.deliveryId !== item.id) state.deliveryDraft = makeDeliveryDraft(item); return state.deliveryDraft; }
-  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); const next = state.nextStop; showSheet(next); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); }, 1000); }
+  function abrirNavegacao(item) { if (!item) return; const client = item.cliente || {}; if (!validCoordinates(client.lat, client.lng) && !String(client.endereco || "").trim()) { toast("Destino sem coordenadas ou endereço cadastrado.", true); return; } H.maps(client.lat, client.lng, address(client)); }
+  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); const next = state.nextStop; state.nextStop = null; render(); abrirNavegacao(next); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const message = document.querySelector("[data-countdown-message]"); if (message) message.textContent = `em ${state.nextCountdown}…`; }, 1000); }
   function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; render(); }
 
   app.addEventListener("click", async event => {
@@ -1028,7 +1030,8 @@
     if (action === "delivery-reason") { state.deliveryReason = target.dataset.reason || ""; render(); return; }
     if (action === "delivery-back") { state.deliveryNotDelivered = false; state.deliveryReason = ""; render(); return; }
     if (action === "confirm-not-delivered" && state.selected) { markNotDelivered(state.selected); return; }
-    if (action === "next-stop" && state.nextStop) { const next = state.nextStop; clearInterval(nextStopTimer); state.nextStop = null; showSheet(next); return; }
+    if (action === "next-stop" && state.nextStop) { const next = state.nextStop; clearInterval(nextStopTimer); state.nextStop = null; render(); abrirNavegacao(next); return; }
+    if (action === "cancel-next-stop") { clearInterval(nextStopTimer); state.nextStop = null; render(); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
     if (action === "load-more-clients") loadClients(false);
@@ -1066,8 +1069,8 @@
     if (action === "begin-managed-route") await beginManagedRoute();
     if (action === "finish-route") { pauseRouteOnDevice(); render(); toast("Rota encerrada neste aparelho."); }
     if (action === "resume-route") { await resumeRouteOnDevice(); }
-    if (action === "show-map") { const next = openItems()[0]; next && H.maps(next.cliente.lat, next.cliente.lng, address(next.cliente)); }
-    if (action === "maps" && state.selected) H.maps(state.selected.cliente.lat, state.selected.cliente.lng, address(state.selected.cliente));
+    if (action === "show-map") abrirNavegacao(openItems()[0]);
+    if (action === "maps" && state.selected) abrirNavegacao(state.selected);
     if (action === "call" && state.selected) H.call(state.selected.cliente.phone || state.selected.contato && state.selected.contato.phone);
     if (action === "whatsapp" && state.selected) H.whatsapp(state.selected.cliente.phone || state.selected.contato && (state.selected.contato.whatsapp || state.selected.contato.phone), `Olá, ${state.selected.cliente.nome || "tudo bem"}? Sua entrega está a caminho.`);
     if (action === "photo") document.getElementById("proof-photo")?.click();

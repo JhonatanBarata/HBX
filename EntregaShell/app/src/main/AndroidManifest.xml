@@ -19,6 +19,8 @@
         </intent>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.waze" />
     </queries>
 
     <!-- Backup/transfer DESLIGADOS: a credencial pareada, a sessão do WebView e

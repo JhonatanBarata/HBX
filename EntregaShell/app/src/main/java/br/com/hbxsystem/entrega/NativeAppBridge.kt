@@ -30,6 +30,7 @@ class NativeAppBridge(
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val api = NativeApiClient(activity, ticket)
     private val operational = OperationalStore(activity)
+    private val navigation = NavigationLauncher(activity)
     private val logoutEmAndamento = AtomicBoolean(false)
     private val appReadyEnviado = AtomicBoolean(false)
 
@@ -216,8 +217,13 @@ class NativeAppBridge(
     fun openMaps(latitude: String?, longitude: String?, address: String?) {
         val lat = latitude?.toDoubleOrNull()?.takeIf { it in -90.0..90.0 }
         val lng = longitude?.toDoubleOrNull()?.takeIf { it in -180.0..180.0 }
-        val destination = if (lat != null && lng != null) "$lat,$lng" else address.orEmpty().trim().take(500)
+        val safeAddress = address.orEmpty().trim().take(500)
+        val destination = if (lat != null && lng != null) "$lat,$lng" else safeAddress
         if (destination.isBlank()) return
+        if (BuildConfig.APP_MODE == "logistica") {
+            navigation.open(lat, lng, safeAddress)
+            return
+        }
         val url = "https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(destination)}"
         open(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
