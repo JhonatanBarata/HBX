@@ -261,6 +261,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "produtos"),
             listOf("logistica", "config"),
             listOf("logistica", "creditos", "extrato"),
+            listOf("logistica", "admin-route", "route"),
+            listOf("logistica", "admin-route", "adjustments"),
             listOf("nucleo", "clientes"),
         ) -> true
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
@@ -270,6 +272,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "rota", "iniciar"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "entregas"),
+            listOf("logistica", "admin-route", "prepare"),
+            listOf("logistica", "admin-route", "start"),
             listOf("nucleo", "contas"),
             listOf("products"),
         ) -> true

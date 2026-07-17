@@ -318,6 +318,12 @@
       "[data-delivery]",
       "[data-client]",
       "[data-mode]",
+      "[data-day]",
+      "[data-client-day]",
+      "[data-client-product-mode]",
+      "[data-client-product-id]",
+      "[data-payment-form]",
+      "[data-payment-method]",
     ].join(",");
     appRoot.addEventListener("click", event => {
       const destination = event.target.closest?.("[data-destination]");
