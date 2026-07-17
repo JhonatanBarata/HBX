@@ -256,6 +256,7 @@ model Company {
   hbxEngineLocks HbxEngineLock[]
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadPools RadarLeadPool[]
+  radarMissions RadarMission[] @relation("RadarMissionCompany")
   radarLeadCompanyStates RadarLeadCompanyState[]
   radarLeadEvents RadarLeadEvent[]
   radarAutoDistributionRules RadarAutoDistributionRule[]
@@ -2033,6 +2034,7 @@ model User {
   webscrapingSearchRuns WebscrapingSearchRun[]
   webscrapingCampaigns WebscrapingCampaign[]
   radarLeadProcessRuns RadarLeadProcessRun[]
+  requestedRadarMissions RadarMission[] @relation("RadarMissionRequestedBy")
   webscrapingUsageLogs WebscrapingUsageLog[]
   radarLeadEventsCreated RadarLeadEvent[] @relation("RadarLeadEventCreatedBy")
   nightFactoryRewardClaims NightFactoryRewardClaim[]
@@ -2856,6 +2858,7 @@ model RadarLeadPool {
   contacts             LeadContact[]
   people               LeadPerson[]
   processRuns          RadarLeadProcessRun[]
+  missions             RadarMission[] @relation("RadarMissionRadarLead")
 
   @@index([companyId, status])
   @@index([campaignId])
@@ -3316,8 +3319,11 @@ model RadarMission {
   payloadJson    Json
   dedupeKey      String?
   correlationId  String?
+  company        Company?  @relation("RadarMissionCompany", fields: [companyId], references: [id], onDelete: SetNull)
   companyId      Int?
+  radarLead      RadarLeadPool? @relation("RadarMissionRadarLead", fields: [radarLeadId], references: [id], onDelete: SetNull)
   radarLeadId    String?
+  requestedBy    User?     @relation("RadarMissionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
   requestedByUserId Int?
   runId          String?
   workVersion    Int?

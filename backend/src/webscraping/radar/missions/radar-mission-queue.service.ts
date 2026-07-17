@@ -12,7 +12,9 @@ import { PrismaService } from '../../../prisma/prisma.service';
 // `enrich_lead` permanece legado da fábrica até o cutover autorizado. O worker residencial novo
 // recebe exclusivamente `local_deep_enrich_v1`; o saneamento rápido do VPS usa
 // `ai_saneamento_4b_v1`. Os três contratos não disputam consumidor.
-export const LOCAL_DEEP_ENRICH_STAGE = 'local_deep_enrich_v1' as const;
+export const LOCAL_DEEP_ENRICH_CONTRACT_VERSION = 'local_deep_enrich_v1' as const;
+export const LOCAL_DEEP_ENRICH_PROMPT_VERSION = 'local_deep_enrich_30b_prompt_v1' as const;
+export const LOCAL_DEEP_ENRICH_STAGE = LOCAL_DEEP_ENRICH_CONTRACT_VERSION;
 export const AI_SANEAMENTO_4B_STAGE = 'ai_saneamento_4b_v1' as const;
 export const RADAR_MISSION_STAGES = [
   'alvo',
@@ -106,6 +108,10 @@ const LOCAL_DEEP_ENRICH_EXCLUDED_STATUSES = new Set([
   'hidden',
   'invalidated',
   'negative',
+  'no_answer',
+  'blocked',
+  'discarded',
+  'do_not_contact',
   'rejected',
 ]);
 
@@ -127,14 +133,44 @@ function compactMissionText(value: unknown, max = 500) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+/**
+ * `null` significa rollout amplo. Set vazio significa gate explicitamente definido sem nenhum lead
+ * autorizado (fail-closed). IDs permanecem opacos: o serviço só compara/hash e nunca os registra.
+ */
+export function resolveLocalDeepEnrichmentCanaryLeadIds(
+  env: NodeJS.ProcessEnv = process.env,
+): ReadonlySet<string> | null {
+  if (env.HBX_LOCAL_DEEP_ENRICH_CANARY_LEAD_IDS === undefined) return null;
+  return new Set(
+    String(env.HBX_LOCAL_DEEP_ENRICH_CANARY_LEAD_IDS || '')
+      .split(',')
+      .map((value) => compactMissionText(value, 200))
+      .filter(Boolean),
+  );
+}
+
+export function isLocalDeepEnrichmentCanaryLeadAllowed(
+  radarLeadId: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const allowedIds = resolveLocalDeepEnrichmentCanaryLeadIds(env);
+  return allowedIds === null || allowedIds.has(compactMissionText(radarLeadId, 200));
+}
+
 function normalizedWorkValue(value: unknown) {
   return compactMissionText(value, 2_000).toLocaleLowerCase('pt-BR').replace(/\/+$/, '');
 }
 
-export function buildLocalDeepEnrichmentWorkIdentity(input: LocalDeepEnrichmentEnqueueInput) {
+export function buildLocalDeepEnrichmentWorkIdentity(
+  input: LocalDeepEnrichmentEnqueueInput,
+  versions: { contractVersion?: string; promptVersion?: string } = {},
+) {
   const radarLeadId = compactMissionText(input.radarLeadId, 200);
+  const contractVersion = compactMissionText(versions.contractVersion, 120) || LOCAL_DEEP_ENRICH_CONTRACT_VERSION;
+  const promptVersion = compactMissionText(versions.promptVersion, 120) || LOCAL_DEEP_ENRICH_PROMPT_VERSION;
   const material = [
-    LOCAL_DEEP_ENRICH_STAGE,
+    `contract:${contractVersion}`,
+    `prompt:${promptVersion}`,
     normalizedWorkValue(input.identityKey),
     normalizedWorkValue(input.name),
     normalizedWorkValue(input.website),
@@ -149,7 +185,65 @@ export function buildLocalDeepEnrichmentWorkIdentity(input: LocalDeepEnrichmentE
     workHash,
     workVersion,
     dedupeKey: `radar:${radarLeadId}:work:${workVersion}`,
+    contractVersion,
+    promptVersion,
   };
+}
+
+export const LOCAL_DEEP_ENRICH_RECONCILER_CURSOR_VERSION = 2 as const;
+export type LocalDeepEnrichmentReconcilerCursor = {
+  version: typeof LOCAL_DEEP_ENRICH_RECONCILER_CURSOR_VERSION;
+  phase: 'backfill' | 'incremental';
+  afterId: string | null;
+  watermarkAt: string;
+};
+
+export function initialLocalDeepEnrichmentReconcilerCursor(now = new Date()): LocalDeepEnrichmentReconcilerCursor {
+  return {
+    version: LOCAL_DEEP_ENRICH_RECONCILER_CURSOR_VERSION,
+    phase: 'backfill',
+    afterId: null,
+    // O incremental volta até o início do backfill para capturar alterações concorrentes.
+    watermarkAt: now.toISOString(),
+  };
+}
+
+export function parseLocalDeepEnrichmentReconcilerCursor(
+  value: unknown,
+  now = new Date(),
+): LocalDeepEnrichmentReconcilerCursor {
+  try {
+    const parsed = JSON.parse(String(value || ''));
+    const watermarkMs = Date.parse(String(parsed?.watermarkAt || ''));
+    if (
+      Number(parsed?.version) === LOCAL_DEEP_ENRICH_RECONCILER_CURSOR_VERSION
+      && ['backfill', 'incremental'].includes(String(parsed?.phase || ''))
+      && Number.isFinite(watermarkMs)
+    ) {
+      return {
+        version: LOCAL_DEEP_ENRICH_RECONCILER_CURSOR_VERSION,
+        phase: parsed.phase,
+        afterId: compactMissionText(parsed.afterId, 200) || null,
+        watermarkAt: new Date(watermarkMs).toISOString(),
+      };
+    }
+  } catch {
+    // Cursor ausente/legado/corrompido reinicia o backfill completo; nunca pula leads.
+  }
+  return initialLocalDeepEnrichmentReconcilerCursor(now);
+}
+
+export function encodeLocalDeepEnrichmentReconcilerCursor(cursor: LocalDeepEnrichmentReconcilerCursor) {
+  return JSON.stringify(cursor);
+}
+
+function buildLocalDeepEnrichmentReconcilerCursorKey(canaryLeadIds: ReadonlySet<string> | null) {
+  if (canaryLeadIds === null) return 'local_deep_enrich_reconciler_v2';
+  const scopeHash = createHash('sha256')
+    .update([...canaryLeadIds].sort().join('\n'))
+    .digest('hex')
+    .slice(0, 16);
+  return `local_deep_enrich_reconciler_v2_canary_${scopeHash}`;
 }
 
 export function resolveMissionLeaseTtlMs(env: NodeJS.ProcessEnv = process.env) {
@@ -382,6 +476,33 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const identity = buildLocalDeepEnrichmentWorkIdentity(input);
     const name = compactMissionText(input.name, 300);
     if (!identity.radarLeadId || !name) return { created: false, missionId: null };
+    if (!isLocalDeepEnrichmentCanaryLeadAllowed(identity.radarLeadId)) {
+      return { created: false, missionId: null };
+    }
+    // Decisão visual/produto aprovada: invalidado é terminal e não volta para pesquisa nem com
+    // novo workVersion. Uma correção futura exige ação contratual explícita, não redrive genérico.
+    const db = (this.prisma as any).radarMission;
+    const [invalidated, canceled] = await Promise.all([
+      db.findFirst({
+        where: {
+          stage: LOCAL_DEEP_ENRICH_STAGE,
+          radarLeadId: identity.radarLeadId,
+          status: 'dead',
+          lastPhase: 'invalidated',
+        },
+        select: { id: true },
+      }).catch(() => null),
+      db.findFirst({
+        where: {
+          stage: LOCAL_DEEP_ENRICH_STAGE,
+          radarLeadId: identity.radarLeadId,
+          status: 'canceled',
+        },
+        select: { id: true },
+      }).catch(() => null),
+    ]);
+    const priorInvalidation = invalidated || canceled;
+    if (priorInvalidation?.id) return { created: false, missionId: String(priorInvalidation.id) };
     const companyId = Math.trunc(Number(input.companyId) || 0) || null;
     const requestedByUserId = Math.trunc(Number(input.requestedByUserId) || 0) || null;
     const runId = compactMissionText(input.runId, 200) || null;
@@ -402,7 +523,8 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       workVersion: identity.workVersion,
       consumerKind: LOCAL_DEEP_ENRICH_CONSUMER_KIND,
       payload: {
-        contractVersion: LOCAL_DEEP_ENRICH_STAGE,
+        contractVersion: identity.contractVersion,
+        promptVersion: identity.promptVersion,
         consumerKind: LOCAL_DEEP_ENRICH_CONSUMER_KIND,
         radarLeadId: identity.radarLeadId,
         companyId,
@@ -455,37 +577,111 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private async redriveRetryableLocalFailures(limit = 200): Promise<number> {
+    const db = this.prisma as any;
+    const rows = await db.radarMission.findMany({
+      where: { stage: LOCAL_DEEP_ENRICH_STAGE, status: 'dead' },
+      select: { id: true, attempts: true, lastPhase: true },
+      take: Math.min(Math.max(1, Math.trunc(Number(limit) || 200)), 2_000),
+    });
+    let redriven = 0;
+    for (const row of Array.isArray(rows) ? rows : []) {
+      // Só `fail(..., retryable:false)` marca invalidated. Dead legado sem esse marcador era técnico.
+      if (String(row?.lastPhase || '') === 'invalidated') continue;
+      const attempts = Math.max(1, Number(row?.attempts) || 1);
+      const updated = await db.radarMission.updateMany({
+        where: { id: row.id, status: 'dead' },
+        data: {
+          status: 'queued',
+          nextAttemptAt: new Date(Date.now() + computeMissionBackoffMs(attempts)),
+          leaseId: null,
+          leasedBy: null,
+          leaseExpiresAt: null,
+          lastPhase: 'retry_backoff',
+        },
+      });
+      redriven += Number(updated?.count || 0);
+    }
+    return redriven;
+  }
+
   async reconcileLocalDeepEnrichmentMissions(): Promise<{ scanned: number; enqueued: number }> {
     if (!isLocalDeepEnrichmentQueueEnabled()) return { scanned: 0, enqueued: 0 };
-    if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return { scanned: 0, enqueued: 0 };
+    const canaryLeadIds = resolveLocalDeepEnrichmentCanaryLeadIds();
+    const [hasLeadPool, hasCursorTable] = await Promise.all([
+      this.prisma.hasTable('RadarLeadPool').catch(() => false),
+      this.prisma.hasTable('RadarFactoryCursor').catch(() => false),
+    ]);
+    if (!hasLeadPool) return { scanned: 0, enqueued: 0 };
+    if (!hasCursorTable) throw new Error('local_deep_enrich_reconciler_cursor_table_missing');
+
     const db = this.prisma as any;
-    const lookbackHours = Math.min(
-      Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_LOOKBACK_HOURS) || 168, 1),
-      24 * 30,
-    );
+    const cursorDelegate = db.radarFactoryCursor;
+    if (!cursorDelegate?.upsert || !cursorDelegate?.update) {
+      throw new Error('local_deep_enrich_reconciler_cursor_delegate_missing');
+    }
     const batchSize = Math.min(
       Math.max(Number(process.env.HBX_LOCAL_DEEP_ENRICH_RECONCILE_BATCH_SIZE) || 500, 1),
       2_000,
     );
-    const rows = await db.radarLeadPool.findMany({
-      where: { updatedAt: { gte: new Date(Date.now() - lookbackHours * 60 * 60_000) } },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      take: batchSize,
-      select: {
-        id: true,
-        name: true,
-        city: true,
-        state: true,
-        segment: true,
-        website: true,
-        sourceUrl: true,
-        placeId: true,
-        phoneDigits: true,
-        ownerCompanyId: true,
-        campaignId: true,
-        status: true,
+    const startedAt = new Date();
+    const initialCursor = initialLocalDeepEnrichmentReconcilerCursor(startedAt);
+    // Cada escopo tem cursor próprio. Alterar/remover o canário inicia/retoma o backfill correto,
+    // sem gravar os IDs do gate no banco ou em logs.
+    const cursorKey = buildLocalDeepEnrichmentReconcilerCursorKey(canaryLeadIds);
+    const cursorRow = await cursorDelegate.upsert({
+      where: { key: cursorKey },
+      create: {
+        key: cursorKey,
+        status: 'local-backfill',
+        lastRunId: encodeLocalDeepEnrichmentReconcilerCursor(initialCursor),
       },
-    }).catch(() => []);
+      update: {},
+      select: { lastRunId: true },
+    });
+    const cursor = parseLocalDeepEnrichmentReconcilerCursor(cursorRow?.lastRunId, startedAt);
+    const select = {
+      id: true,
+      name: true,
+      city: true,
+      state: true,
+      segment: true,
+      website: true,
+      sourceUrl: true,
+      placeId: true,
+      phoneDigits: true,
+      ownerCompanyId: true,
+      campaignId: true,
+      status: true,
+      updatedAt: true,
+    };
+    const canaryIds = canaryLeadIds === null ? null : [...canaryLeadIds];
+    const rows = cursor.phase === 'backfill'
+      ? await db.radarLeadPool.findMany({
+          where: canaryIds === null
+            ? (cursor.afterId ? { id: { gt: cursor.afterId } } : {})
+            : { id: { in: canaryIds, ...(cursor.afterId ? { gt: cursor.afterId } : {}) } },
+          orderBy: { id: 'asc' },
+          take: batchSize,
+          select,
+        })
+      : await db.radarLeadPool.findMany({
+          where: {
+            ...(canaryIds === null ? {} : { id: { in: canaryIds } }),
+            OR: [
+              { updatedAt: { gt: new Date(cursor.watermarkAt) } },
+              {
+                updatedAt: new Date(cursor.watermarkAt),
+                id: { gt: cursor.afterId || '' },
+              },
+            ],
+          },
+          orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+          take: batchSize,
+          select,
+        });
+
+    await this.redriveRetryableLocalFailures();
     let enqueued = 0;
     for (const row of Array.isArray(rows) ? rows : []) {
       const status = compactMissionText(row?.status, 80).toLowerCase();
@@ -506,6 +702,30 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
       });
       if (outcome.created) enqueued += 1;
     }
+
+    const lastRow = rows[rows.length - 1] || null;
+    let nextCursor: LocalDeepEnrichmentReconcilerCursor;
+    if (cursor.phase === 'backfill') {
+      nextCursor = rows.length < batchSize
+        ? { ...cursor, phase: 'incremental', afterId: null }
+        : { ...cursor, afterId: compactMissionText(lastRow?.id, 200) || cursor.afterId };
+    } else if (lastRow?.updatedAt instanceof Date) {
+      nextCursor = {
+        ...cursor,
+        afterId: compactMissionText(lastRow.id, 200) || null,
+        watermarkAt: lastRow.updatedAt.toISOString(),
+      };
+    } else {
+      nextCursor = cursor;
+    }
+    await cursorDelegate.update({
+      where: { key: cursorKey },
+      data: {
+        lastRunId: encodeLocalDeepEnrichmentReconcilerCursor(nextCursor),
+        lastWorkedAt: new Date(),
+        status: nextCursor.phase === 'backfill' ? 'local-backfill' : 'local-incremental',
+      },
+    });
     return { scanned: Array.isArray(rows) ? rows.length : 0, enqueued };
   }
 
@@ -523,7 +743,12 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   }): Promise<RadarMissionLeaseResult> {
     if (!(await this.supportsMissionPersistence())) return { supported: false, paused: false, missions: [] };
     const stages = Array.from(new Set((input.stages || [])
-      .filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage))));
+      .filter((stage) => (RADAR_MISSION_STAGES as readonly string[]).includes(stage))))
+      .filter((stage) => stage === LOCAL_DEEP_ENRICH_STAGE
+        ? isLocalDeepEnrichmentQueueEnabled()
+        : stage === AI_SANEAMENTO_4B_STAGE
+          ? isRadarAiSaneamentoEnabled()
+          : true);
     // Nunca interpretar lista vazia como "todos": cada consumidor declara sua allowlist.
     if (!stages.length) return { supported: true, paused: false, missions: [] };
     // Sinal elástico sempre acompanha o lease (mesmo pausado/vazio) — é como o worker decide o freio.
@@ -587,11 +812,22 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Heartbeat estende o lease (+TTL). Só o dono do lease vivo consegue — leaseId é a prova. */
-  async heartbeat(missionId: string, leaseId: string): Promise<{ ok: boolean; reason?: string }> {
+  async heartbeat(
+    missionId: string,
+    leaseId: string,
+    requestedTtlMs?: number | null,
+  ): Promise<{ ok: boolean; reason?: string }> {
     if (!(await this.supportsMissionPersistence())) return { ok: false, reason: 'unsupported' };
+    // O consumidor renova pelo mesmo TTL que pediu no lease. Sem isso, o worker local recebia
+    // 15 minutos no primeiro claim, mas o primeiro heartbeat encurtava a missão para 2 minutos.
+    // O clamp preserva o limite absoluto da fila e chamadas antigas continuam no TTL padrão.
+    const ttlMs = Math.min(
+      Math.max(Number(requestedTtlMs) || resolveMissionLeaseTtlMs(), 30_000),
+      900_000,
+    );
     const updated = await (this.prisma as any).radarMission.updateMany({
       where: { id: String(missionId || ''), leaseId: String(leaseId || ''), status: 'leased' },
-      data: { heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + resolveMissionLeaseTtlMs()) },
+      data: { heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + ttlMs) },
     }).catch(() => ({ count: 0 }));
     return updated.count > 0 ? { ok: true } : { ok: false, reason: 'stale_lease' };
   }
@@ -645,7 +881,10 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     return { ok: false, reason: 'stale_lease' };
   }
 
-  /** retryable=true re-enfileira com backoff; retryable=false OU tentativas esgotadas → dead-letter. */
+  /**
+   * retryable=true re-enfileira com backoff. No stage local, falha técnica nunca vira terminal por
+   * contagem de tentativas; apenas retryable=false (conteúdo/contrato inválido) marca invalidated.
+   */
   async fail(missionId: string, leaseId: string, error?: string | null, retryable = true): Promise<{ ok: boolean; status?: string; idempotent?: boolean; reason?: string }> {
     if (!(await this.supportsMissionPersistence())) return { ok: false, reason: 'unsupported' };
     const db = this.prisma as any;
@@ -653,7 +892,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const lease = String(leaseId || '');
     const row = await db.radarMission.findFirst({
       where: { id, leaseId: lease, status: 'leased' },
-      select: { attempts: true, maxAttempts: true },
+      select: { attempts: true, maxAttempts: true, stage: true },
     }).catch(() => null);
     if (!row) {
       const current = await db.radarMission.findUnique({ where: { id }, select: { status: true, leaseId: true } }).catch(() => null);
@@ -665,17 +904,24 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     }
     const attempts = Math.max(1, Number(row.attempts) || 1);
     const maxAttempts = Math.max(1, Number(row.maxAttempts) || resolveMissionMaxAttempts());
-    const exhausted = !retryable || attempts >= maxAttempts;
+    const isLocalDeepEnrichment = row.stage === LOCAL_DEEP_ENRICH_STAGE;
+    const exhausted = !retryable || (!isLocalDeepEnrichment && attempts >= maxAttempts);
     const message = String(error || 'falha sem mensagem').slice(0, 500);
     const updated = await db.radarMission.updateMany({
       where: { id, leaseId: lease, status: 'leased' },
       data: exhausted
-        ? { status: 'dead', lastError: message, leaseExpiresAt: null }
+        ? {
+            status: 'dead',
+            lastError: message,
+            leaseExpiresAt: null,
+            ...(isLocalDeepEnrichment ? { lastPhase: 'invalidated' } : {}),
+          }
         : {
             status: 'queued',
             lastError: message,
             nextAttemptAt: new Date(Date.now() + computeMissionBackoffMs(attempts)),
             leaseExpiresAt: null,
+            ...(isLocalDeepEnrichment ? { lastPhase: 'retry_backoff' } : {}),
           },
     }).catch(() => ({ count: 0 }));
     if (!updated.count) return { ok: false, reason: 'stale_lease' };
@@ -683,7 +929,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Lease vencido volta pra fila SOZINHO (ou vira dead se esgotou tentativas). Guarda pelo
+   * Lease vencido volta pra fila SOZINHO (stage local nunca morre por falha técnica). Guarda pelo
    * leaseExpiresAt lido: heartbeat concorrente muda o campo → o updateMany deste sweep não casa
    * e a missão viva NÃO é derrubada.
    */
@@ -693,14 +939,15 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const expired = await db.radarMission.findMany({
       where: { status: 'leased', leaseExpiresAt: { lt: now } },
-      select: { id: true, attempts: true, maxAttempts: true, leaseExpiresAt: true },
+      select: { id: true, stage: true, attempts: true, maxAttempts: true, leaseExpiresAt: true },
       take: 200,
     }).catch(() => []);
     let revived = 0;
     for (const row of expired) {
       const attempts = Math.max(1, Number(row.attempts) || 1);
       const maxAttempts = Math.max(1, Number(row.maxAttempts) || resolveMissionMaxAttempts());
-      const exhausted = attempts >= maxAttempts;
+      const isLocalDeepEnrichment = row.stage === LOCAL_DEEP_ENRICH_STAGE;
+      const exhausted = !isLocalDeepEnrichment && attempts >= maxAttempts;
       const updated = await db.radarMission.updateMany({
         where: { id: row.id, status: 'leased', leaseExpiresAt: row.leaseExpiresAt },
         data: exhausted
@@ -710,6 +957,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
               lastError: 'lease expirado sem heartbeat; missão devolvida pra fila.',
               nextAttemptAt: new Date(Date.now() + computeMissionBackoffMs(attempts)),
               leaseExpiresAt: null,
+              ...(isLocalDeepEnrichment ? { lastPhase: 'retry_backoff' } : {}),
             },
       }).catch(() => ({ count: 0 }));
       revived += Number(updated?.count || 0);
@@ -721,8 +969,8 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
   /** Redrive do dead-letter: volta missões 'dead' pra fila com tentativas zeradas. */
   async redriveDead(input: { stage?: RadarMissionStage | null; ids?: string[] | null } = {}): Promise<{ redriven: number }> {
     if (!(await this.supportsMissionPersistence())) return { redriven: 0 };
-    const where: any = { status: 'dead' };
-    if (input.stage) where.stage = input.stage;
+    if (input.stage === LOCAL_DEEP_ENRICH_STAGE) return { redriven: 0 };
+    const where: any = { status: 'dead', stage: input.stage || { not: LOCAL_DEEP_ENRICH_STAGE } };
     if (input.ids?.length) where.id = { in: input.ids.slice(0, 200) };
     const updated = await (this.prisma as any).radarMission.updateMany({
       where,

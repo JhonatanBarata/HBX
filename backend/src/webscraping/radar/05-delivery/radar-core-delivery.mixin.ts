@@ -3303,6 +3303,204 @@ export class RadarCoreDeliveryMixin {
     );
   }
 
+  /**
+   * Consolida os blobs de entrega sem apagar uma gravação local que tenha vencido a corrida
+   * entre a leitura inicial do card e a criação do vínculo com Vendas. O compare-and-swap usa
+   * exatamente os dois blobs lidos; se outro escritor mudar qualquer um deles, relê e recompõe
+   * somente os patches de delivery. Repetir a operação é seguro e não dispara nenhum motor.
+   */
+  private async persistRadarDeliveredStateAfterLink(input: {
+    context: SearchExecutionContext;
+    radarLeadId: string;
+    vendasLeadId: string;
+    imported: any;
+    now: Date;
+  }) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const freshRow = await (this.prisma as any).radarLeadPool.findUnique({
+        where: { id: input.radarLeadId },
+        include: {
+          companyStates: {
+            where: { companyId: input.context.companyId },
+            take: 1,
+          },
+        },
+      });
+      if (!freshRow) {
+        throw new ServiceUnavailableException('Card do Radar desapareceu durante a consolidação da entrega.');
+      }
+      const linkedState = Array.isArray(freshRow.companyStates) ? freshRow.companyStates[0] : null;
+      if (String(linkedState?.vendasLeadId || '') !== input.vendasLeadId) {
+        throw new ServiceUnavailableException('Vínculo explícito entre Radar e Vendas não foi consolidado.');
+      }
+
+      const metadata = this.parseMaybeJsonObject(freshRow.metadataJson);
+      const enrichment = this.parseMaybeJsonObject(freshRow.enrichmentJson);
+      const deliveredState = this.getRadarDeliveryOrchestrator().buildDeliveredState({
+        lead: freshRow,
+        imported: input.imported,
+        vendasLeadId: input.vendasLeadId,
+        metadata,
+        enrichment,
+        now: input.now,
+      });
+      const nextMetadataJson = JSON.stringify({
+        ...metadata,
+        ...deliveredState.metadataPatch,
+      });
+      const nextEnrichmentJson = JSON.stringify({
+        ...enrichment,
+        ...deliveredState.enrichmentPatch,
+      });
+      const updated = await (this.prisma as any).radarLeadPool.updateMany({
+        where: {
+          id: input.radarLeadId,
+          metadataJson: freshRow.metadataJson ?? null,
+          enrichmentJson: freshRow.enrichmentJson ?? null,
+        },
+        data: {
+          metadataJson: nextMetadataJson,
+          enrichmentJson: nextEnrichmentJson,
+        },
+      });
+      if (Number(updated?.count || 0) > 0) {
+        return {
+          row: {
+            ...freshRow,
+            metadataJson: nextMetadataJson,
+            enrichmentJson: nextEnrichmentJson,
+          },
+          deliveredState,
+        };
+      }
+    }
+
+    throw new ServiceUnavailableException('Card do Radar mudou durante a consolidação; tente novamente.');
+  }
+
+  /**
+   * Fecha a janela em que o commit local termina antes de o RadarLeadCompanyState existir:
+   * depois do vínculo tenant-safe, relê o Radar e preenche no card de Vendas somente campos
+   * vazios (ou métricas menores). Cada UPDATE repete companyId + id explícito e revalida a
+   * condição no banco, então uma gravação local concorrente sempre vence. Telefone e
+   * sourceHistoryId nunca são usados para localizar o card.
+   */
+  private async convergeFreshRadarLeadToLinkedVendas(input: {
+    context: SearchExecutionContext;
+    radarLeadId: string;
+    vendasLeadId: string;
+  }) {
+    const freshRow = await (this.prisma as any).radarLeadPool.findUnique({
+      where: { id: input.radarLeadId },
+      include: {
+        companyStates: {
+          where: { companyId: input.context.companyId },
+          take: 1,
+        },
+      },
+    });
+    const linkedState = Array.isArray(freshRow?.companyStates) ? freshRow.companyStates[0] : null;
+    if (!freshRow || String(linkedState?.vendasLeadId || '') !== input.vendasLeadId) {
+      throw new ServiceUnavailableException('Vínculo explícito entre Radar e Vendas não foi encontrado para convergência.');
+    }
+
+    const linkedVendas = await (this.prisma as any).vendasLead.findFirst({
+      where: {
+        id: input.vendasLeadId,
+        companyId: input.context.companyId,
+      },
+      select: { id: true },
+    });
+    if (!linkedVendas) {
+      throw new ServiceUnavailableException('Card de Vendas vinculado não pertence à empresa da entrega.');
+    }
+
+    const fillTextIfEmpty = async (field: 'email' | 'website' | 'address', rawValue: unknown) => {
+      const value = String(rawValue || '').trim();
+      if (!value) return;
+      await (this.prisma as any).vendasLead.updateMany({
+        where: {
+          id: input.vendasLeadId,
+          companyId: input.context.companyId,
+          OR: [{ [field]: null }, { [field]: '' }],
+        },
+        data: { [field]: value },
+      });
+    };
+
+    await fillTextIfEmpty('email', freshRow.email);
+    await fillTextIfEmpty('website', freshRow.website);
+    await fillTextIfEmpty('address', freshRow.address);
+
+    const phone = String(freshRow.phone || '').trim();
+    const phoneNormalized = normalizePhoneDigits(freshRow.phoneDigits || phone);
+    const metadata = this.parseMaybeJsonObject(freshRow.metadataJson);
+    const localMissionId = String(metadata?.localDeepEnrich?.missionId || '').trim();
+    const phoneVariants = Array.from(new Set([
+      String(freshRow.phoneDigits || '').trim(),
+      phoneNormalized,
+    ].filter(Boolean)));
+    // O número só sobe como principal se o próprio commit local deixou a prova materializada
+    // de WhatsApp confirmado. A consulta valida o valor; não resolve o card de Vendas por ele.
+    const confirmedLocalWhatsapp = phone && localMissionId && phoneVariants.length
+      && typeof (this.prisma as any).leadContact?.findFirst === 'function'
+      ? await (this.prisma as any).leadContact.findFirst({
+          where: {
+            radarLeadId: input.radarLeadId,
+            kind: 'whatsapp',
+            valueNormalized: { in: phoneVariants },
+            createdByMissionId: localMissionId,
+          },
+          select: { id: true },
+        }).catch(() => null)
+      : null;
+    if (confirmedLocalWhatsapp && isLikelyValidBrPhone(phoneNormalized)) {
+      try {
+        await (this.prisma as any).vendasLead.updateMany({
+          where: {
+            id: input.vendasLeadId,
+            companyId: input.context.companyId,
+            AND: [
+              { OR: [{ phone: null }, { phone: '' }] },
+              { OR: [{ phoneNormalized: null }, { phoneNormalized: '' }] },
+            ],
+          },
+          data: { phone, phoneNormalized },
+        });
+      } catch (error) {
+        // Conflito de unicidade significa que o contato continua no LeadContact, como definido
+        // no contrato local; qualquer outra falha é operacional e precisa subir para retry.
+        if (String((error as any)?.code || '') !== 'P2002') throw error;
+        this.logger.warn(`[radar-delivery] telefone local não promovido por conflito no Vendas lead=${input.radarLeadId}`);
+      }
+    }
+
+    const rating = freshRow.rating == null || freshRow.rating === '' ? null : Number(freshRow.rating);
+    if (rating != null && Number.isFinite(rating)) {
+      await (this.prisma as any).vendasLead.updateMany({
+        where: {
+          id: input.vendasLeadId,
+          companyId: input.context.companyId,
+          OR: [{ rating: null }, { rating: { lt: rating } }],
+        },
+        data: { rating },
+      });
+    }
+    const reviews = safeInteger(freshRow.reviews);
+    if (reviews > 0) {
+      await (this.prisma as any).vendasLead.updateMany({
+        where: {
+          id: input.vendasLeadId,
+          companyId: input.context.companyId,
+          reviews: { lt: reviews },
+        },
+        data: { reviews },
+      });
+    }
+
+    return freshRow;
+  }
+
   async importRadarLeadToVendasForUser(
     user: any,
     radarLeadId: string,
@@ -3499,27 +3697,26 @@ export class RadarCoreDeliveryMixin {
       }
       throw error;
     }
-    const vendasLeadId = imported?.leads?.[0]?.id || null;
+    const vendasLeadId = String(imported?.leads?.[0]?.id || '').trim();
+    if (!vendasLeadId) {
+      // A importação já passou pelo débito e pode ter criado o card. Sem o id explícito não há
+      // como consolidar com segurança nem como procurar por telefone/sourceHistoryId.
+      throw new ServiceUnavailableException('Vendas não devolveu o identificador necessário para consolidar a entrega.');
+    }
     const now = new Date();
-    const existingMetadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
-    const existingEnrichment = this.parseMaybeJsonObject(leadRow?.enrichmentJson);
-    const deliveredState = this.getRadarDeliveryOrchestrator().buildDeliveredState({
-      lead: leadRow,
-      imported,
-      vendasLeadId,
-      metadata: existingMetadata,
-      enrichment: existingEnrichment,
-      now,
-    });
-    let nextDeliveryMetadata = {
-      ...existingMetadata,
-      ...deliveredState.metadataPatch,
-    };
-    let nextDeliveryEnrichment = {
-      ...existingEnrichment,
-      ...deliveredState.enrichmentPatch,
-    };
+    // Mesma ordem de lock do commit local (RadarLeadPool -> RadarLeadCompanyState), evitando
+    // deadlock. Falha aqui NÃO pode ser engolida: o card/uso já existe e o retry idempotente
+    // precisa enxergar o erro para concluir o vínculo.
     await (this.prisma as any).$transaction([
+      (this.prisma as any).radarLeadPool.update({
+        where: { id: leadRow.id },
+        data: {
+          ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
+          status: 'sent_to_vendas',
+          globalImportedCount: { increment: 1 },
+          lastSeenAt: now,
+        },
+      }),
       (this.prisma as any).radarLeadCompanyState.upsert({
         where: {
           companyId_radarLeadId: {
@@ -3546,22 +3743,24 @@ export class RadarCoreDeliveryMixin {
           lastActionAt: now,
         },
       }),
-      (this.prisma as any).radarLeadPool.update({
-        where: { id: leadRow.id },
-        data: {
-          ...(await this.supportsRadarOwnershipPersistence() ? { ownerCompanyId: context.companyId, claimedAt: now } : {}),
-          status: 'sent_to_vendas',
-          globalImportedCount: { increment: 1 },
-          lastSeenAt: now,
-          metadataJson: JSON.stringify(nextDeliveryMetadata),
-          enrichmentJson: JSON.stringify(nextDeliveryEnrichment),
-        },
-      }),
-    ]).catch(() => null);
+    ]);
+    const consolidated = await this.persistRadarDeliveredStateAfterLink({
+      context,
+      radarLeadId: leadRow.id,
+      vendasLeadId,
+      imported,
+      now,
+    });
+    const deliveredState = consolidated.deliveredState;
+    const freshLeadRow = await this.convergeFreshRadarLeadToLinkedVendas({
+      context,
+      radarLeadId: leadRow.id,
+      vendasLeadId,
+    });
     await this.getRadarPostDeliveryVendasUpdate().recordEnrichmentJobStates({
       prisma: this.prisma,
       context,
-      row: leadRow,
+      row: freshLeadRow,
       vendasLeadId,
       jobs: deliveredState.jobs,
     }).catch(() => null);
@@ -3579,28 +3778,28 @@ export class RadarCoreDeliveryMixin {
     // O mesmo trabalho local já existente ganha prioridade depois da entrega; a dedupe por
     // lead+workVersion impede uma segunda missão. Nunca participa da transação de débito/entrega.
     void this.getMissionQueue().enqueueLocalDeepEnrichment({
-      radarLeadId: leadRow.id,
-      name: leadRow.name,
-      city: leadRow.city || null,
-      state: leadRow.state || null,
-      segment: leadRow.segment || null,
-      website: leadRow.website || null,
-      sourceUrl: leadRow.sourceUrl || null,
-      identityKey: leadRow.placeId || leadRow.phoneDigits || null,
+      radarLeadId: freshLeadRow.id,
+      name: freshLeadRow.name,
+      city: freshLeadRow.city || null,
+      state: freshLeadRow.state || null,
+      segment: freshLeadRow.segment || null,
+      website: freshLeadRow.website || null,
+      sourceUrl: freshLeadRow.sourceUrl || null,
+      identityKey: freshLeadRow.placeId || freshLeadRow.phoneDigits || null,
       companyId: context.companyId,
       requestedByUserId: context.userId,
       priority: 100,
       priorityReason: 'delivered',
     }).catch((error: any) => {
-      this.logger.warn(`[local-deep-enrich] prioridade pós-entrega falhou sem afetar Vendas lead=${leadRow.id}: ${String(error?.message || error)}`);
+      this.logger.warn(`[local-deep-enrich] prioridade pós-entrega falhou sem afetar Vendas lead=${freshLeadRow.id}: ${String(error?.message || error)}`);
     });
     // 4B: dispara DEPOIS da entrega e agora materializa missão durável; nunca atrasa nem falha
     // a resposta. companyId já foi validado por resolveContext e só autoriza a ação ai_batch.
-    this.enqueueRadarPostDeliveryAiSaneamento(leadRow, context.companyId);
+    this.enqueueRadarPostDeliveryAiSaneamento(freshLeadRow, context.companyId);
     // NÚCLEO-CRM N2 — materializa Conta(PJ)+Contato(dono) na espinha a partir do CNPJ do lead
     // puxado da base 28M. Fire-and-forget, DEPOIS da entrega, atrás de `HBX_NUCLEO_INGESTAO_ENABLED`
     // (default OFF → no-op total). NUNCA quebra o pull (a função engole o próprio erro).
-    void this.materializeNucleoFromRadarLead(context.companyId, leadRow);
+    void this.materializeNucleoFromRadarLead(context.companyId, freshLeadRow);
     return {
       ok: true,
       radarLeadId: leadRow.id,

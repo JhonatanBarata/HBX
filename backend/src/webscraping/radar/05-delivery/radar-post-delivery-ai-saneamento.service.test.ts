@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isRadarAiSaneamentoCanaryAllowed,
   RadarPostDeliveryAiSaneamentoService,
   type RadarPostDeliveryAiSaneamentoHost,
 } from './radar-post-delivery-ai-saneamento.service';
@@ -123,6 +124,55 @@ test('enqueue materializa job durável sem bloquear o caller', async () => {
   });
 });
 
+test('canário 4B limita emissão ao RadarLeadPool explicitamente autorizado', async () => {
+  await withEnv('HBX_RADAR_AI_SANEAMENTO_ENABLED', 'true', async () => {
+    await withEnv('HBX_RADAR_AI_SANEAMENTO_CANARY_LEAD_IDS', 'lead-permitido, lead-outro', async () => {
+      const calls: any[] = [];
+      const queue = { enqueueAiSaneamento4b: async (input: any) => { calls.push(input); return { created: true, missionId: 'm1' }; } };
+      const service = new RadarPostDeliveryAiSaneamentoService(undefined, queue as any);
+      const { host } = buildHost();
+
+      assert.equal(isRadarAiSaneamentoCanaryAllowed('lead-permitido'), true);
+      assert.equal(isRadarAiSaneamentoCanaryAllowed('lead-bloqueado'), false);
+      service.enqueue({ radarLeadId: 'lead-bloqueado', name: 'Bloqueada' }, host);
+      service.enqueue({ radarLeadId: 'lead-permitido', name: 'Permitida' }, host);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.deepEqual(calls.map((input) => input.radarLeadId), ['lead-permitido']);
+    });
+  });
+});
+
+test('canário 4B definido vazio bloqueia todos os cards (fail-closed)', async () => {
+  await withEnv('HBX_RADAR_AI_SANEAMENTO_ENABLED', 'true', async () => {
+    await withEnv('HBX_RADAR_AI_SANEAMENTO_CANARY_LEAD_IDS', '', async () => {
+      const calls: any[] = [];
+      const queue = { enqueueAiSaneamento4b: async (input: any) => { calls.push(input); return { created: true, missionId: 'm1' }; } };
+      const prisma = {
+        hasTable: async () => true,
+        radarFactoryCursor: {
+          upsert: async () => ({ lastRunId: null }),
+          update: async () => ({ lastRunId: null }),
+        },
+        radarLeadPool: {
+          findMany: async ({ where }: any) => {
+            assert.deepEqual(where.id, { in: [] });
+            return [];
+          },
+        },
+      };
+      const service = new RadarPostDeliveryAiSaneamentoService(undefined, queue as any, prisma as any);
+      const { host } = buildHost();
+
+      assert.equal(isRadarAiSaneamentoCanaryAllowed('lead-qualquer'), false);
+      service.enqueue({ radarLeadId: 'lead-qualquer', name: 'Qualquer' }, host);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepEqual(await service.reconcileDurableJobs(), { scanned: 0, enqueued: 0 });
+      assert.equal(calls.length, 0);
+    });
+  });
+});
+
 test('enqueue e no-op quando a flag esta OFF — nunca enfileira', async () => {
   await withEnv('HBX_RADAR_AI_SANEAMENTO_ENABLED', undefined, async () => {
     const service = new RadarPostDeliveryAiSaneamentoService(fakeAiSaneamento({ ok: true, nomeLimpo: 'A', segmento: 'B', nota: 9, razao: 'r' }));
@@ -173,8 +223,13 @@ test('worker 4B durável leaseia allowlist explícita, pulsa heartbeat e complet
       const prisma = {
         hasTable: async () => true,
         radarLeadPool: {
-          findUnique: async ({ where }: any) => rows[where.id] || null,
-          update: async ({ where, data }: any) => { rows[where.id] = { ...rows[where.id], ...data }; return rows[where.id]; },
+          findFirst: async ({ where }: any) => rows[where.id] || null,
+          updateMany: async ({ where, data }: any) => {
+            const row = rows[where.id];
+            if (!row || (row.metadataJson ?? null) !== (where.metadataJson ?? null)) return { count: 0 };
+            rows[where.id] = { ...row, ...data };
+            return { count: 1 };
+          },
         },
       };
       const service = new RadarPostDeliveryAiSaneamentoService(
@@ -194,6 +249,61 @@ test('worker 4B durável leaseia allowlist explícita, pulsa heartbeat e complet
       assert.equal(saved.aiSaneamento.model, 'qwen3:4b-instruct');
     });
   });
+});
+
+test('CAS do 4B preserva localDeepEnrich gravado entre a releitura e o update', async () => {
+  const rows: Record<string, any> = {
+    'lead-1': {
+      id: 'lead-1',
+      ownerCompanyId: 7,
+      metadataJson: JSON.stringify({ targetType: 'pj' }),
+    },
+  };
+  let updateAttempts = 0;
+  const tenantWheres: any[] = [];
+  const prisma = {
+    radarLeadPool: {
+      findFirst: async ({ where }: any) => {
+        tenantWheres.push(where);
+        const row = rows[where.id];
+        return row?.ownerCompanyId === 7 ? { metadataJson: row.metadataJson } : null;
+      },
+      updateMany: async ({ where, data }: any) => {
+        tenantWheres.push(where);
+        updateAttempts += 1;
+        if (updateAttempts === 1) {
+          // Reproduz a janela crítica: o commit SQL local vence depois da leitura do 4B.
+          rows['lead-1'].metadataJson = JSON.stringify({
+            targetType: 'pj',
+            localDeepEnrich: { missionId: 'mission-30b', keep: true },
+          });
+        }
+        if ((rows[where.id]?.metadataJson ?? null) !== (where.metadataJson ?? null)) return { count: 0 };
+        rows[where.id] = { ...rows[where.id], ...data };
+        return { count: 1 };
+      },
+    },
+  };
+  const service = new RadarPostDeliveryAiSaneamentoService(undefined, undefined, prisma as any);
+
+  await (service as any).persistAiSaneamentoMetadataCas({
+    radarLeadId: 'lead-1',
+    companyId: 7,
+    desiredMetadataJson: JSON.stringify({
+      targetType: 'snapshot-antigo',
+      aiSaneamento: { saneadoAt: 123, model: 'qwen3:4b-instruct' },
+    }),
+  });
+
+  const saved = JSON.parse(rows['lead-1'].metadataJson);
+  assert.equal(updateAttempts, 2, 'a colisão precisa forçar releitura e novo CAS');
+  assert.equal(saved.targetType, 'pj', 'o 4B não reaplica irmãos do snapshot antigo');
+  assert.deepEqual(saved.localDeepEnrich, { missionId: 'mission-30b', keep: true });
+  assert.deepEqual(saved.aiSaneamento, { saneadoAt: 123, model: 'qwen3:4b-instruct' });
+  assert.ok(tenantWheres.every((where) => (
+    where.OR?.some((entry: any) => entry.ownerCompanyId === 7)
+    && where.OR?.some((entry: any) => entry.companyStates?.some?.companyId === 7)
+  )));
 });
 
 test('worker 4B manda indisponibilidade para retry/dead-letter sem completar', async () => {
@@ -220,8 +330,8 @@ test('worker 4B manda indisponibilidade para retry/dead-letter sem completar', a
       const prisma = {
         hasTable: async () => true,
         radarLeadPool: {
-          findUnique: async () => ({ id: 'lead-1', metadataJson: '{}' }),
-          update: async () => { throw new Error('não deve gravar'); },
+          findFirst: async () => ({ id: 'lead-1', metadataJson: '{}' }),
+          updateMany: async () => { throw new Error('não deve gravar'); },
         },
       };
       const service = new RadarPostDeliveryAiSaneamentoService(
@@ -235,6 +345,53 @@ test('worker 4B manda indisponibilidade para retry/dead-letter sem completar', a
       assert.equal(failures.length, 1);
       assert.equal(failures[0][3], true);
       assert.match(failures[0][2], /model=qwen3:4b-instruct/);
+    });
+  });
+});
+
+test('reconciliador 4B persiste cursor e avança além do primeiro lote', async () => {
+  await withEnv('HBX_MISSION_QUEUE_ENABLED', 'true', async () => {
+    await withEnv('HBX_RADAR_AI_SANEAMENTO_ENABLED', 'true', async () => {
+      const previousBatch = process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_BATCH_SIZE;
+      process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_BATCH_SIZE = '2';
+      try {
+        const allRows = ['lead-a', 'lead-b', 'lead-c'].map((id) => ({
+          id,
+          name: `Empresa ${id}`,
+          status: 'sent_to_vendas',
+          updatedAt: new Date(),
+          metadataJson: '{}',
+        }));
+        let lastRunId: string | null = null;
+        const enqueued: string[] = [];
+        const queue = {
+          enqueueAiSaneamento4b: async (input: any) => { enqueued.push(input.radarLeadId); return { created: true, missionId: input.radarLeadId }; },
+        };
+        const prisma = {
+          hasTable: async () => true,
+          radarFactoryCursor: {
+            upsert: async () => ({ lastRunId }),
+            update: async ({ data }: any) => { lastRunId = data.lastRunId; return { lastRunId }; },
+          },
+          radarLeadPool: {
+            findMany: async ({ where, take }: any) => allRows
+              .filter((row) => !where?.id?.gt || row.id > where.id.gt)
+              .slice(0, take),
+          },
+        };
+        const service = new RadarPostDeliveryAiSaneamentoService(undefined, queue as any, prisma as any);
+
+        const first = await service.reconcileDurableJobs();
+        const second = await service.reconcileDurableJobs();
+
+        assert.deepEqual(first, { scanned: 2, enqueued: 2 });
+        assert.deepEqual(second, { scanned: 1, enqueued: 1 });
+        assert.deepEqual(enqueued, ['lead-a', 'lead-b', 'lead-c']);
+        assert.equal(lastRunId, 'lead-c');
+      } finally {
+        if (previousBatch === undefined) delete process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_BATCH_SIZE;
+        else process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_BATCH_SIZE = previousBatch;
+      }
     });
   });
 });

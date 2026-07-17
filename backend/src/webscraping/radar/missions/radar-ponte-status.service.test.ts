@@ -90,8 +90,19 @@ test('status local: completed vira released e conta somente o receiptJson da mis
         completedAt,
         receiptJson: {
           noNewData: false,
-          createdContacts: [{ kind: 'phone' }, { kind: 'phone' }, { kind: 'email' }],
+          createdContactIds: ['phone-1', 'whatsapp-1', 'email-1'],
+          createdContacts: [
+            { id: 'phone-1', kind: 'phone' },
+            { id: 'whatsapp-1', kind: 'whatsapp' },
+            { id: 'email-1', kind: 'email' },
+          ],
           createdPersonIds: ['person-1'],
+          summary: {
+            phonesAdded: 2,
+            emailsAdded: 1,
+            peopleAdded: 1,
+            metadataUpdated: true,
+          },
         },
       })],
     });
@@ -104,6 +115,31 @@ test('status local: completed vira released e conta somente o receiptJson da mis
       receipt: { missionId: 'mission-local-1' },
       delta: { phonesAdded: 2, emailsAdded: 1, peopleAdded: 1 },
     });
+  });
+});
+
+test('status local: summary do recibo preserva zero exato e reconhece metadata como novidade', async () => {
+  await withStatusFlags(true, async () => {
+    const prisma = createFakePrisma({ missions: [localMission({
+      status: 'completed',
+      completedAt: new Date(),
+      resultJson: { delta: { phonesAdded: 99, emailsAdded: 99, peopleAdded: 99 } },
+      receiptJson: {
+        createdContactIds: ['legacy-id-sem-kind'],
+        createdContacts: [{ id: 'legacy-id-sem-kind', kind: 'phone' }],
+        createdPersonIds: [],
+        summary: {
+          phonesAdded: 0,
+          emailsAdded: 0,
+          peopleAdded: 0,
+          metadataUpdated: true,
+        },
+      },
+    })] });
+    const status = await new RadarPonteStatusService(prisma as any).getStatusForLeads(['lead-1']);
+    assert.equal(status['lead-1'].state, 'released');
+    assert.equal((status['lead-1'] as any).noNewData, false);
+    assert.deepEqual((status['lead-1'] as any).delta, { phonesAdded: 0, emailsAdded: 0, peopleAdded: 0 });
   });
 });
 

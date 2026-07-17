@@ -400,7 +400,13 @@ BEGIN
       OR position(candidate_digits IN evidence_digits) = 0 THEN
       RAISE EXCEPTION 'hbx_local_enrichment:literal_evidence_missing:%', candidate_kind;
     END IF;
-  ELSIF candidate_kind IN ('instagram', 'facebook', 'website') THEN
+  ELSIF candidate_kind = 'website' THEN
+    IF position(lower(candidate_value) IN lower(evidence_text)) = 0
+      AND lower(rtrim(COALESCE(evidence->>'sourceUrl', ''), '/')) <> lower(rtrim(candidate_value, '/'))
+      AND lower(COALESCE(evidence->>'sourceUrl', '')) NOT LIKE lower(rtrim(candidate_value, '/')) || '/%' THEN
+      RAISE EXCEPTION 'hbx_local_enrichment:literal_evidence_missing:%', candidate_kind;
+    END IF;
+  ELSIF candidate_kind IN ('instagram', 'facebook') THEN
     IF position(lower(candidate_value) IN lower(evidence_text)) = 0
       AND lower(COALESCE(evidence->>'sourceUrl', '')) <> lower(candidate_value) THEN
       RAISE EXCEPTION 'hbx_local_enrichment:literal_evidence_missing:%', candidate_kind;
@@ -528,7 +534,7 @@ CREATE OR REPLACE FUNCTION hbx_local_enrichment.hbx_commit_local_enrichment_v1(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog
 AS $function$
 DECLARE
   mission_payload JSONB;
@@ -558,6 +564,8 @@ DECLARE
   created_person_ids JSONB := '[]'::jsonb;
   created_contacts_delta JSONB := '{}'::jsonb;
   created_people_delta JSONB := '{}'::jsonb;
+  created_contacts_receipt JSONB := '[]'::jsonb;
+  receipt_summary JSONB := '{}'::jsonb;
   vendas_lead_ids JSONB := '[]'::jsonb;
   radar_before JSONB := '{}'::jsonb;
   radar_delta JSONB := '{}'::jsonb;
@@ -582,10 +590,10 @@ DECLARE
   mission_started_at TIMESTAMP(3);
   duration_ms INTEGER;
   business_write_count INTEGER := 0;
+  metadata_business_changed BOOLEAN := false;
   radar_fields_updated TEXT[] := ARRAY[]::TEXT[];
   all_vendas_fields_updated TEXT[] := ARRAY[]::TEXT[];
   vendas_record RECORD;
-  event_description TEXT;
 BEGIN
   PERFORM set_config('lock_timeout', '3000ms', true);
   PERFORM set_config('statement_timeout', '15000ms', true);
@@ -616,7 +624,11 @@ BEGIN
     ARRAY['id', 'leaseId', 'workerId', 'radarLeadId', 'companyId', 'workVersion', 'correlationId', 'requestHash'],
     'mission'
   );
-  IF COALESCE(mission_payload->>'id', '') = ''
+  IF NOT (mission_payload ?& ARRAY[
+      'id', 'leaseId', 'workerId', 'radarLeadId', 'companyId',
+      'workVersion', 'correlationId', 'requestHash'
+    ])
+    OR COALESCE(mission_payload->>'id', '') = ''
     OR COALESCE(mission_payload->>'leaseId', '') = ''
     OR COALESCE(mission_payload->>'workerId', '') = ''
     OR COALESCE(mission_payload->>'radarLeadId', '') = ''
@@ -671,7 +683,12 @@ BEGIN
       ARRAY['id', 'sourceUrl', 'pageType', 'capturedAt', 'contentHash', 'excerpt'],
       'evidence[]'
     );
-    IF COALESCE(item->>'id', '') = '' OR length(item->>'id') > 160 THEN
+    IF NOT (item ?& ARRAY[
+        'id', 'sourceUrl', 'pageType', 'capturedAt', 'contentHash', 'excerpt'
+      ])
+      OR jsonb_typeof(item->'capturedAt') <> 'string'
+      OR jsonb_typeof(item->'excerpt') <> 'string'
+      OR COALESCE(item->>'id', '') = '' OR length(item->>'id') > 160 THEN
       RAISE EXCEPTION 'hbx_local_enrichment:invalid_evidence_id';
     END IF;
     IF COALESCE(item->>'sourceUrl', '') !~* '^https?://'
@@ -733,6 +750,7 @@ BEGIN
     OR jsonb_array_length(people_payload) > 0
     OR radar_patch <> '{}'::jsonb
     OR vendas_patch <> '{}'::jsonb
+    OR metadata_block <> '{}'::jsonb
   ) THEN
     RAISE EXCEPTION 'hbx_local_enrichment:no_new_data_has_business_delta';
   END IF;
@@ -749,7 +767,7 @@ BEGIN
     OR mission_row."radarLeadId" IS DISTINCT FROM mission_payload->>'radarLeadId'
     OR mission_row."companyId" IS DISTINCT FROM payload_company_id
     OR mission_row."workVersion" IS DISTINCT FROM payload_work_version
-    OR COALESCE(mission_row."runId", mission_row."correlationId") IS DISTINCT FROM mission_payload->>'correlationId' THEN
+    OR mission_row."correlationId" IS DISTINCT FROM mission_payload->>'correlationId' THEN
     RAISE EXCEPTION 'hbx_local_enrichment:mission_contract_mismatch';
   END IF;
 
@@ -791,21 +809,20 @@ BEGIN
     RAISE EXCEPTION 'hbx_local_enrichment:mission_company_state_missing';
   END IF;
 
-  -- Valida todas as aquisicoes antes da primeira escrita. O worker nunca
-  -- escolhe vendasLeadId; qualquer vinculo cruzado aborta tudo.
+  -- Valida todos os vínculos explícitos antes da primeira escrita. O contrato
+  -- aprovado deste estágio usa exclusivamente RadarLeadCompanyState -> vendasLeadId
+  -- e igualdade de tenant. O worker nunca escolhe esse ID e não interpreta ledger,
+  -- crédito ou a futura saga de aquisição.
   IF EXISTS (
     SELECT 1
     FROM public."RadarLeadCompanyState" state
     JOIN public."VendasLead" vendas ON vendas."id" = state."vendasLeadId"
     WHERE state."radarLeadId" = mission_row."radarLeadId"
       AND state."vendasLeadId" IS NOT NULL
-      AND state."acquiredAt" IS NOT NULL
-      AND state."paidClaimOperationId" IS NOT NULL
       AND vendas."companyId" <> state."companyId"
   ) THEN
     RAISE EXCEPTION 'hbx_local_enrichment:tenant_mismatch';
   END IF;
-
   -- Contatos: append-only, literal, deduplicado pela chave fisica canonica.
   FOR item IN SELECT value FROM jsonb_array_elements(contacts_payload)
   LOOP
@@ -904,7 +921,10 @@ BEGIN
     END IF;
     evidence_item := hbx_local_enrichment.evidence_by_id_v1(evidence_payload, item->>'evidenceId');
     PERFORM hbx_local_enrichment.assert_literal_evidence_v1(evidence_item, item->>'name', 'person');
-    created_id := 'hbx_lp_' || md5(mission_row."id" || ':' || item->>'personKey');
+    IF COALESCE(btrim(item->>'role'), '') <> '' THEN
+      PERFORM hbx_local_enrichment.assert_literal_evidence_v1(evidence_item, item->>'role', 'person_role');
+    END IF;
+    created_id := 'hbx_lp_' || md5(mission_row."id" || ':' || (item->>'personKey'));
     INSERT INTO public."LeadPerson" (
       "id", "radarLeadId", "name", "role", "source", "personKey", "rank",
       "createdByMissionId", "evidenceId", "evidenceUrl", "evidenceHash", "createdAt"
@@ -944,6 +964,8 @@ BEGIN
     RAISE EXCEPTION 'hbx_local_enrichment:invalid_existing_metadata_shape';
   END IF;
   metadata_before := metadata_root->'localDeepEnrich';
+  metadata_business_changed := metadata_block <> '{}'::jsonb
+    AND NOT COALESCE(metadata_before, '{}'::jsonb) @> metadata_block;
   metadata_after := COALESCE(metadata_before, '{}'::jsonb)
     || metadata_block
     || jsonb_build_object(
@@ -951,7 +973,6 @@ BEGIN
       'contractVersion', 'local_deep_enrich_v1',
       'workVersion', mission_row."workVersion",
       'requestHash', request_hash,
-      'noNewData', payload_no_new_data,
       'committedAt', to_jsonb(clock_timestamp())
     );
   UPDATE public."RadarLeadPool"
@@ -966,6 +987,10 @@ BEGIN
       'after', metadata_after
     )
   );
+  IF metadata_business_changed THEN
+    radar_fields_updated := radar_fields_updated || ARRAY['metadata.localDeepEnrich'];
+    business_write_count := business_write_count + 1;
+  END IF;
 
   -- Merge Radar estritamente aditivo: vazios apenas, ou maior para rating/reviews.
   IF radar_patch ? 'email' AND COALESCE(btrim(radar_row."email"), '') = '' THEN
@@ -1073,7 +1098,8 @@ BEGIN
     business_write_count := business_write_count + 1;
   END IF;
 
-  -- Cards adquiridos sao resolvidos exclusivamente pelo vinculo tenant-safe.
+  -- Cards adquiridos são resolvidos exclusivamente pelo vínculo tenant-safe e
+  -- explícito; telefone/sourceHistoryId nunca entram na resolução.
   FOR vendas_record IN
     SELECT
       vendas."id",
@@ -1090,15 +1116,12 @@ BEGIN
     JOIN public."VendasLead" vendas ON vendas."id" = state."vendasLeadId"
     WHERE state."radarLeadId" = mission_row."radarLeadId"
       AND state."vendasLeadId" IS NOT NULL
-      AND state."acquiredAt" IS NOT NULL
-      AND state."paidClaimOperationId" IS NOT NULL
     ORDER BY vendas."id"
     FOR UPDATE OF vendas
   LOOP
     IF vendas_record."companyId" <> vendas_record."stateCompanyId" THEN
       RAISE EXCEPTION 'hbx_local_enrichment:tenant_mismatch';
     END IF;
-
     vendas_field_delta := '{}'::jsonb;
     vendas_field_before := '{}'::jsonb;
 
@@ -1191,8 +1214,8 @@ BEGIN
       business_write_count := business_write_count + 1;
     END IF;
 
-    vendas_lead_ids := vendas_lead_ids || jsonb_build_array(vendas_record."id");
     IF vendas_field_delta <> '{}'::jsonb THEN
+      vendas_lead_ids := vendas_lead_ids || jsonb_build_array(vendas_record."id");
       vendas_before := vendas_before || jsonb_build_object(vendas_record."id", vendas_field_before);
       vendas_delta := vendas_delta || jsonb_build_object(
         vendas_record."id",
@@ -1221,6 +1244,31 @@ BEGIN
     'vendas', vendas_delta
   );
   result_hash := md5(effective_delta::text);
+  created_contacts_receipt := COALESCE((
+    SELECT jsonb_agg(
+      jsonb_build_object('id', contact_id, 'kind', contact_delta->>'kind')
+      ORDER BY contact_id
+    )
+    FROM jsonb_each(created_contacts_delta) AS created_contact(contact_id, contact_delta)
+  ), '[]'::jsonb);
+  receipt_summary := jsonb_build_object(
+    'emailsAdded', (
+      SELECT count(*)
+      FROM jsonb_each(created_contacts_delta) AS contact_delta
+      WHERE contact_delta.value->>'kind' = 'email'
+    ),
+    'phonesAdded', (
+      SELECT count(*)
+      FROM jsonb_each(created_contacts_delta) AS contact_delta
+      WHERE contact_delta.value->>'kind' IN ('phone', 'whatsapp')
+    ),
+    'peopleAdded', jsonb_array_length(created_person_ids),
+    -- Alias preservado para o painel local já publicado; peopleAdded é o nome canônico.
+    'ownersAdded', jsonb_array_length(created_person_ids),
+    'metadataUpdated', metadata_business_changed,
+    'radarFieldsUpdated', cardinality(radar_fields_updated),
+    'vendasLeadsUpdated', (SELECT count(*) FROM jsonb_object_keys(vendas_delta))
+  );
 
   receipt := jsonb_build_object(
     'missionId', mission_row."id",
@@ -1228,7 +1276,9 @@ BEGIN
     'radarLeadId', mission_row."radarLeadId",
     'companyId', mission_row."companyId",
     'createdContactIds', created_contact_ids,
+    'createdContacts', created_contacts_receipt,
     'createdPersonIds', created_person_ids,
+    'summary', receipt_summary,
     'radarFieldsUpdated', to_jsonb(radar_fields_updated),
     'vendasLeadIds', vendas_lead_ids,
     'vendasFieldsUpdated', to_jsonb(ARRAY(
@@ -1274,29 +1324,31 @@ BEGIN
     commit_at
   );
 
-  event_description := jsonb_build_object(
-    'missionId', mission_row."id",
-    'createdContactCount', jsonb_array_length(created_contact_ids),
-    'createdPersonCount', jsonb_array_length(created_person_ids),
-    'fields', to_jsonb(ARRAY(
-      SELECT DISTINCT value FROM unnest(all_vendas_fields_updated) AS value ORDER BY value
-    ))
-  )::text;
+  -- Cada card de Vendas recebe timeline somente quando ele próprio mudou. O delta
+  -- gravado no evento é o before/after exato daquele card, sem resumo global.
   INSERT INTO public."VendasLeadTimelineEvent" (
     "id", "leadId", "eventType", "title", "description", "sourceType",
     "resultLabel", "idempotencyKey", "createdAt"
   )
   SELECT
-    'hbx_vte_' || md5(mission_row."id" || ':' || lead_id),
-    lead_id,
+    'hbx_vte_' || md5(mission_row."id" || ':' || changed_vendas.lead_id),
+    changed_vendas.lead_id,
     'local_deep_enrich',
     'Enriquecimento local concluido',
-    event_description,
+    jsonb_build_object(
+      'missionId', mission_row."id",
+      'fields', to_jsonb(ARRAY(
+        SELECT changed_field.name
+        FROM jsonb_object_keys(changed_vendas.lead_delta->'fields') AS changed_field(name)
+        ORDER BY changed_field.name
+      )),
+      'delta', changed_vendas.lead_delta->'fields'
+    )::text,
     'local_deep_enrich_v1',
-    CASE WHEN business_write_count = 0 THEN 'no_new_data' ELSE 'enriched' END,
+    'enriched',
     'local_deep_enrich_v1:' || mission_row."id",
     commit_at
-  FROM jsonb_array_elements_text(vendas_lead_ids) AS lead_id
+  FROM jsonb_each(vendas_delta) AS changed_vendas(lead_id, lead_delta)
   ON CONFLICT ("leadId", "idempotencyKey") DO NOTHING;
 
   UPDATE public."RadarMission"
@@ -1322,7 +1374,7 @@ CREATE OR REPLACE FUNCTION hbx_local_enrichment.hbx_revert_local_enrichment_v1(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog
 AS $function$
 DECLARE
   audit_row public."RadarLocalEnrichmentAudit"%ROWTYPE;
@@ -1349,6 +1401,11 @@ DECLARE
   receipt JSONB;
   reversal_id TEXT;
   reverted_at TIMESTAMP(3) := clock_timestamp();
+  skip_radar_email_group BOOLEAN := false;
+  skip_radar_phone_group BOOLEAN := false;
+  skip_radar_website_group BOOLEAN := false;
+  skip_radar_social_status BOOLEAN := false;
+  skip_vendas_phone_group BOOLEAN;
 BEGIN
   PERFORM set_config('lock_timeout', '3000ms', true);
   PERFORM set_config('statement_timeout', '15000ms', true);
@@ -1367,8 +1424,7 @@ BEGIN
 
   SELECT * INTO audit_row
   FROM public."RadarLocalEnrichmentAudit"
-  WHERE "missionId" = request->>'missionId'
-  FOR SHARE;
+  WHERE "missionId" = request->>'missionId';
   IF NOT FOUND THEN
     RAISE EXCEPTION 'hbx_local_enrichment:audit_not_found';
   END IF;
@@ -1394,6 +1450,20 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'hbx_local_enrichment:radar_lead_not_found';
   END IF;
+
+  skip_radar_email_group := audit_row."deltaJson"->'radar' ? 'email'
+    AND to_jsonb(radar_row."email") IS DISTINCT FROM audit_row."deltaJson"#>'{radar,email,after}';
+  skip_radar_phone_group := audit_row."deltaJson"->'radar' ? 'phone'
+    AND to_jsonb(radar_row."phone") IS DISTINCT FROM audit_row."deltaJson"#>'{radar,phone,after}';
+  skip_radar_website_group := audit_row."deltaJson"->'radar' ? 'website'
+    AND to_jsonb(radar_row."website") IS DISTINCT FROM audit_row."deltaJson"#>'{radar,website,after}';
+  skip_radar_social_status := (
+      audit_row."deltaJson"->'radar' ? 'instagramUrl'
+      AND to_jsonb(radar_row."instagramUrl") IS DISTINCT FROM audit_row."deltaJson"#>'{radar,instagramUrl,after}'
+    ) OR (
+      audit_row."deltaJson"->'radar' ? 'facebookUrl'
+      AND to_jsonb(radar_row."facebookUrl") IS DISTINCT FROM audit_row."deltaJson"#>'{radar,facebookUrl,after}'
+    );
 
   -- Contato/pessoa so e removido se todos os valores ainda forem exatamente
   -- aqueles inseridos pela missao. Qualquer edicao posterior e preservada.
@@ -1452,6 +1522,17 @@ BEGIN
     before_value := field_delta->'before';
     after_value := field_delta->'after';
     current_value := NULL;
+
+    IF (skip_radar_email_group AND field_name IN ('email', 'emailStatus', 'emailSource'))
+      OR (skip_radar_phone_group AND field_name IN ('phone', 'phoneDigits'))
+      OR (skip_radar_website_group AND field_name IN ('website', 'websiteStatus'))
+      OR (skip_radar_social_status AND field_name = 'socialStatus') THEN
+      skipped_radar := skipped_radar || jsonb_build_object(
+        field_name,
+        jsonb_build_object('expected', after_value, 'reason', 'related_field_changed_later')
+      );
+      CONTINUE;
+    END IF;
 
     CASE field_name
       WHEN 'email' THEN current_value := to_jsonb(radar_row."email");
@@ -1522,12 +1603,21 @@ BEGIN
     IF vendas_row."companyId" IS DISTINCT FROM (vendas_entry->>'companyId')::integer THEN
       RAISE EXCEPTION 'hbx_local_enrichment:tenant_mismatch';
     END IF;
+    skip_vendas_phone_group := vendas_entry->'fields' ? 'phone'
+      AND to_jsonb(vendas_row."phone") IS DISTINCT FROM vendas_entry#>'{fields,phone,after}';
 
     FOR field_name, field_delta IN
       SELECT key, value FROM jsonb_each(vendas_entry->'fields')
     LOOP
       before_value := field_delta->'before';
       after_value := field_delta->'after';
+      IF skip_vendas_phone_group AND field_name IN ('phone', 'phoneNormalized') THEN
+        skipped_vendas := skipped_vendas || jsonb_build_object(
+          entity_id || ':' || field_name,
+          jsonb_build_object('expected', after_value, 'reason', 'related_field_changed_later')
+        );
+        CONTINUE;
+      END IF;
       CASE field_name
         WHEN 'email' THEN current_value := to_jsonb(vendas_row."email");
         WHEN 'phone' THEN current_value := to_jsonb(vendas_row."phone");
@@ -1607,8 +1697,8 @@ GRANT SELECT ON public."RadarLeadCompanyState" TO hbx_local_enrichment_owner;
 GRANT SELECT, UPDATE ON public."VendasLead" TO hbx_local_enrichment_owner;
 GRANT SELECT, INSERT, DELETE ON public."LeadContact" TO hbx_local_enrichment_owner;
 GRANT SELECT, INSERT, DELETE ON public."LeadPerson" TO hbx_local_enrichment_owner;
-GRANT INSERT ON public."RadarLeadEvent" TO hbx_local_enrichment_owner;
-GRANT INSERT ON public."VendasLeadTimelineEvent" TO hbx_local_enrichment_owner;
+GRANT SELECT, INSERT ON public."RadarLeadEvent" TO hbx_local_enrichment_owner;
+GRANT SELECT, INSERT ON public."VendasLeadTimelineEvent" TO hbx_local_enrichment_owner;
 GRANT SELECT, INSERT ON public."RadarLocalEnrichmentAudit" TO hbx_local_enrichment_owner;
 GRANT SELECT, INSERT ON public."RadarLocalEnrichmentReversal" TO hbx_local_enrichment_owner;
 

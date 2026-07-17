@@ -596,8 +596,14 @@ export class WebscrapingController {
   }
 
   @Post('radar/leads/:id/send-to-vendas')
-  radarLeadSendToVendas(@Req() req: any, @Param('id') id: string, @Body() body?: { skipWhatsappValidation?: boolean }) {
-    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, { ...(body || {}), debitOnImport: (body as any)?.debitOnImport !== false });
+  radarLeadSendToVendas(@Req() req: any, @Param('id') id: string, @Body() _body?: unknown) {
+    return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, {
+      // Endpoint público é sempre uma aquisição comercial. Nunca aceite do cliente campos
+      // internos nem permita pular cobrança ou validação. Callers internos continuam usando
+      // diretamente o service tipado quando já fizeram a reserva comercial.
+      skipWhatsappValidation: false,
+      debitOnImport: true,
+    });
   }
 
   @Post('radar/leads/:id/enrich')

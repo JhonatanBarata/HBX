@@ -15,7 +15,7 @@ import { MissionResultApplyService } from './mission-result-apply.service';
 // como cnpj-backfill: cockpit → owner agent → ops-control → backend.
 //
 // POST /modules/owner/missions/lease            { workerId, stages?, batchSize?, leaseTtlSeconds? }
-// POST /modules/owner/missions/:id/heartbeat    { leaseId }
+// POST /modules/owner/missions/:id/heartbeat    { leaseId, leaseTtlSeconds? }
 // POST /modules/owner/missions/:id/complete     { leaseId, result? }         (idempotente)
 // POST /modules/owner/missions/:id/fail         { leaseId, error?, retryable? } (idempotente)
 // GET  /modules/owner/missions/stats
@@ -56,8 +56,13 @@ export class RadarMissionsController {
   }
 
   @Post(':id/heartbeat')
-  heartbeat(@Param('id') id: string, @Body() body: { leaseId?: string }) {
-    return this.missionQueue.heartbeat(id, String(body?.leaseId || ''));
+  heartbeat(@Param('id') id: string, @Body() body: { leaseId?: string; leaseTtlSeconds?: number }) {
+    const leaseTtlSeconds = Number(body?.leaseTtlSeconds);
+    return this.missionQueue.heartbeat(
+      id,
+      String(body?.leaseId || ''),
+      Number.isFinite(leaseTtlSeconds) && leaseTtlSeconds > 0 ? leaseTtlSeconds * 1000 : null,
+    );
   }
 
   // Complete da PONTE: o resultado do 30B flui pelo CAMINHO ÚNICO de escrita ANTES de marcar completa.

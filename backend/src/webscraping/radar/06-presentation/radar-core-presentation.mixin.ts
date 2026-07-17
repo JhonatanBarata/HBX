@@ -3194,17 +3194,14 @@ export class RadarCorePresentationMixin {
       },
     }).catch(() => []);
 
-    // Card é da EMPRESA (LIMPEZA-DESTRUTIVA L3): pertence ao tenant quando ownerCompanyId casa OU
-    // quando existe um RadarLeadCompanyState do tenant (mesma regra de posse do resto do Radar).
+    // A vitrine global já expõe estes IDs e precisa mostrar honestamente que o card ainda
+    // está em liberação. Cards possuídos continuam limitados ao dono ou a um vínculo
+    // RadarLeadCompanyState explícito do tenant.
     const allowedIds = (Array.isArray(rows) ? rows : [])
       .filter((row: any) => {
         const ownerCompanyId = Math.trunc(Number(row?.ownerCompanyId || 0)) || 0;
         const hasTenantState = Array.isArray(row?.companyStates) && row.companyStates.length > 0;
-        // Pool global (ainda não puxado) é a vitrine comum do Radar e precisa mostrar o status.
-        // Assim que houver dono explícito, outro tenant permanece negado mesmo conhecendo o ID.
-        if (ownerCompanyId && ownerCompanyId !== context.companyId) return false;
-        if (ownerCompanyId === context.companyId || hasTenantState) return true;
-        return !ownerCompanyId;
+        return !ownerCompanyId || ownerCompanyId === context.companyId || hasTenantState;
       })
       .map((row: any) => String(row.id));
 

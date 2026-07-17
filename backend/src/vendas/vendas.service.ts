@@ -8430,6 +8430,88 @@ export class VendasService {
     };
   }
 
+  /**
+   * Fronteira HTTP de `/vendas/import/webscraping`.
+   *
+   * O DTO interno também é usado pelos fluxos confiáveis do Radar/automação, que podem chegar
+   * aqui depois de reservar crédito ou calcular qualidade no servidor. A rota pública nunca pode
+   * controlar esses sinais: força cobrança + validação, remove marcadores de billable/qualidade
+   * e rejeita vínculo `radar:<id>` fabricado pelo cliente.
+   */
+  async importPublicWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
+    const input = (dto || {}) as any;
+    const leads = Array.isArray(input.leads) ? input.leads : [];
+    const isRadarSource = (value: unknown) => /^radar:/i.test(String(value || '').trim());
+    if (isRadarSource(input.sourceHistoryId) || leads.some((lead: any) => isRadarSource(lead?.sourceHistoryId))) {
+      throw new BadRequestException('Vínculo com o Radar só pode ser criado pela rota oficial de aquisição.');
+    }
+
+    const stripServerQualitySignals = (value: unknown): unknown => {
+      const wasJson = typeof value === 'string';
+      let parsed = value;
+      if (wasJson) {
+        try {
+          parsed = JSON.parse(String(value));
+        } catch {
+          return value;
+        }
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return value;
+      const source = parsed as Record<string, any>;
+      const {
+        quality: _quality,
+        qualityV2: _qualityV2,
+        billable: _billable,
+        debitEligible: _debitEligible,
+        signals: rawSignals,
+        ...safe
+      } = source;
+      if (rawSignals && typeof rawSignals === 'object' && !Array.isArray(rawSignals)) {
+        const {
+          quality: _signalQuality,
+          qualityV2: _signalQualityV2,
+          billable: _signalBillable,
+          debitEligible: _signalDebitEligible,
+          ...safeSignals
+        } = rawSignals as Record<string, any>;
+        safe.signals = safeSignals;
+      } else if (rawSignals !== undefined) {
+        safe.signals = rawSignals;
+      }
+      return wasJson ? JSON.stringify(safe) : safe;
+    };
+
+    const sanitizedLeads = leads.map((rawLead: any) => {
+      const lead = rawLead && typeof rawLead === 'object' && !Array.isArray(rawLead) ? rawLead : {};
+      const {
+        billable: _billable,
+        debitEligible: _debitEligible,
+        quality: _quality,
+        qualityV2: _qualityV2,
+        signals: rawSignals,
+        rawJson,
+        enrichmentJson,
+        ...safeLead
+      } = lead;
+      if (rawSignals !== undefined) safeLead.signals = stripServerQualitySignals(rawSignals);
+      if (rawJson !== undefined) safeLead.rawJson = stripServerQualitySignals(rawJson);
+      if (enrichmentJson !== undefined) safeLead.enrichmentJson = stripServerQualitySignals(enrichmentJson);
+      return safeLead;
+    });
+
+    return this.importWebscrapingLeadsForUser(user, {
+      ...(input.sourceHistoryId ? { sourceHistoryId: input.sourceHistoryId } : {}),
+      ...(input.assignedUserId ? { assignedUserId: input.assignedUserId } : {}),
+      debitOnImport: true,
+      skipWhatsappValidation: false,
+      leads: sanitizedLeads,
+    } as ImportWebscrapingLeadsDto);
+  }
+
+  /**
+   * Entrada interna confiável. Radar e automações podem definir os sinais técnicos porque os
+   * calcularam no servidor; controllers públicos não devem chamar este método diretamente.
+   */
   async importWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanImportRadarToVendas(context);

@@ -6307,6 +6307,37 @@ test('E3 getRadarAiStatusForUser: card de OUTRA empresa (ownerCompanyId diferent
   }
 });
 
+test('getRadarAiStatusForUser: mostra vitrine global e exige dono/state para card possuído', async () => {
+  const prevFlag = process.env.HBX_MISSION_QUEUE_ENABLED;
+  const prevLocalFlag = process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED;
+  process.env.HBX_MISSION_QUEUE_ENABLED = 'true';
+  process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED = 'true';
+  try {
+    const prisma = createRadarAiStatusPrisma({
+      leads: [
+        { id: 'lead-global', ownerCompanyId: null, companyStates: [] },
+        { id: 'lead-com-state', ownerCompanyId: 999, companyStates: [{ id: 'state-tenant-7' }] },
+        { id: 'lead-alheio', ownerCompanyId: 999, companyStates: [] },
+      ],
+      missions: [
+        { id: 'm-global', stage: 'local_deep_enrich_v1', status: 'queued', payloadJson: { radarLeadId: 'lead-global' }, createdAt: new Date() },
+        { id: 'm-state', stage: 'local_deep_enrich_v1', status: 'queued', payloadJson: { radarLeadId: 'lead-com-state' }, createdAt: new Date() },
+        { id: 'm-alheio', stage: 'local_deep_enrich_v1', status: 'queued', payloadJson: { radarLeadId: 'lead-alheio' }, createdAt: new Date() },
+      ],
+    });
+    const service = new WebscrapingService(prisma) as any;
+    const res = await service.getRadarAiStatusForUser(createUser(), ['lead-global', 'lead-com-state', 'lead-alheio']);
+    assert.equal(res.items['lead-global']?.state, 'queued');
+    assert.equal(res.items['lead-com-state'].state, 'queued');
+    assert.equal(res.items['lead-alheio'], undefined);
+  } finally {
+    if (prevFlag === undefined) delete process.env.HBX_MISSION_QUEUE_ENABLED;
+    else process.env.HBX_MISSION_QUEUE_ENABLED = prevFlag;
+    if (prevLocalFlag === undefined) delete process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED;
+    else process.env.HBX_LOCAL_DEEP_ENRICH_QUEUE_ENABLED = prevLocalFlag;
+  }
+});
+
 test('E3 getRadarAiStatusForUser: flag da fila OFF devolve status none pros leads do proprio tenant (degrade invisivel)', async () => {
   const prevFlag = process.env.HBX_MISSION_QUEUE_ENABLED;
   delete process.env.HBX_MISSION_QUEUE_ENABLED;

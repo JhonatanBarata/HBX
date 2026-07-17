@@ -29,3 +29,41 @@ test('lead harvest official routes stay under webscraping guards', () => {
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.getLeadHarvestImport), 'lead-harvest/imports/:id');
   assert.equal(Reflect.getMetadata(PATH_METADATA, prototype.enrichmentCostSummary), 'enrichment-cost/summary');
 });
+
+test('send-to-vendas ignora debitOnImport do cliente e repassa somente opcoes publicas permitidas', async () => {
+  const calls: any[] = [];
+  const service = {
+    importRadarLeadToVendasForUser: async (...args: any[]) => {
+      calls.push(args);
+      return { ok: true };
+    },
+  };
+  const controller = new WebscrapingController(
+    service as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  );
+  const user = { id: 9, companyId: 7 };
+
+  await controller.radarLeadSendToVendas(
+    { user },
+    'radar-1',
+    {
+      skipWhatsappValidation: true,
+      debitOnImport: false,
+      assignedUserId: 999,
+      companyId: 999,
+    } as any,
+  );
+
+  assert.deepEqual(calls, [[
+    user,
+    'radar-1',
+    {
+      skipWhatsappValidation: false,
+      debitOnImport: true,
+    },
+  ]]);
+});

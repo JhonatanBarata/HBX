@@ -87,11 +87,28 @@ function compact(value: unknown) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+export function radarAiSaneamentoCanaryLeadIds(): string[] | null {
+  if (process.env.HBX_RADAR_AI_SANEAMENTO_CANARY_LEAD_IDS === undefined) return null;
+  return Array.from(new Set(
+    String(process.env.HBX_RADAR_AI_SANEAMENTO_CANARY_LEAD_IDS)
+      .split(',')
+      .map((value) => compact(value))
+      .filter(Boolean),
+  ));
+}
+
+export function isRadarAiSaneamentoCanaryAllowed(radarLeadId: unknown): boolean {
+  const allowlist = radarAiSaneamentoCanaryLeadIds();
+  return allowlist === null || allowlist.includes(compact(radarLeadId));
+}
+
 @Injectable()
 export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RadarPostDeliveryAiSaneamentoService.name);
   private workerTimer: ReturnType<typeof setInterval> | null = null;
   private active = false;
+  private tickActive = false;
+  private lastReconcileAt = 0;
   private readonly workerId = `vps-ai-saneamento-4b:${process.pid}`;
 
   constructor(
@@ -107,13 +124,13 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
     );
     this.workerTimer = setInterval(() => {
       if (!isRadarAiSaneamentoEnabled()) return;
-      void this.drain().catch((error: any) => {
+      void this.tickDurableWorker().catch((error: any) => {
         this.logger.warn(`[radar-ai-saneamento] worker durável falhou: ${String(error?.message || error)}`);
       });
     }, everyMs);
     this.workerTimer.unref?.();
     if (isRadarAiSaneamentoEnabled()) {
-      void this.reconcileDurableJobs().then(() => this.drain()).catch(() => null);
+      void this.tickDurableWorker(true).catch(() => null);
     }
   }
 
@@ -138,7 +155,7 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
     if (!this.isEnabled()) return;
     const radarLeadId = compact(input?.radarLeadId);
     const name = compact(input?.name);
-    if (!radarLeadId || !name || !this.missionQueue) return;
+    if (!radarLeadId || !name || !this.missionQueue || !isRadarAiSaneamentoCanaryAllowed(radarLeadId)) return;
     // Não aguarda a escrita curta: entrega já concluiu. Restart entre persistência e enqueue é
     // coberto por reconcileDurableJobs(), portanto nenhum trabalho depende de memória/setTimeout.
     void this.missionQueue.enqueueAiSaneamento4b({
@@ -173,6 +190,24 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
     }
   }
 
+  private async tickDurableWorker(forceReconcile = false) {
+    if (this.tickActive) return;
+    this.tickActive = true;
+    const reconcileEveryMs = Math.min(
+      Math.max(Number(process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_INTERVAL_MS) || 120_000, 30_000),
+      30 * 60_000,
+    );
+    try {
+      if (forceReconcile || Date.now() - this.lastReconcileAt >= reconcileEveryMs) {
+        this.lastReconcileAt = Date.now();
+        await this.reconcileDurableJobs();
+      }
+      await this.drain();
+    } finally {
+      this.tickActive = false;
+    }
+  }
+
   private async processDurableMission(mission: RadarMissionLeaseDto) {
     if (!this.missionQueue || !this.prisma) return;
     const payload = (mission.payload || {}) as Record<string, any>;
@@ -202,21 +237,15 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
         segment: payload.segment || null,
         companyId: payload.companyId ?? null,
       }, {
-        loadRadarLeadPoolRow: (id: string) => prisma.radarLeadPool.findUnique({
-          where: { id },
+        loadRadarLeadPoolRow: (id: string) => prisma.radarLeadPool.findFirst({
+          where: this.buildAiSaneamentoTenantWhere(id, payload.companyId),
           select: { id: true, metadataJson: true },
         }).catch(() => null),
         updateRadarLeadPoolMetadata: async (id: string, metadataJson: string) => {
-          // Releitura curta antes do update: preserva blocos gravados enquanto a inferência rodava.
-          const desired = parseMaybeJsonObject(metadataJson);
-          const latest = await prisma.radarLeadPool.findUnique({
-            where: { id },
-            select: { metadataJson: true },
-          }).catch(() => null);
-          const current = parseMaybeJsonObject(latest?.metadataJson);
-          await prisma.radarLeadPool.update({
-            where: { id },
-            data: { metadataJson: JSON.stringify({ ...current, aiSaneamento: desired.aiSaneamento }) },
+          await this.persistAiSaneamentoMetadataCas({
+            radarLeadId: id,
+            companyId: payload.companyId,
+            desiredMetadataJson: metadataJson,
           });
         },
         logger: this.logger,
@@ -252,6 +281,73 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
     }
   }
 
+  /**
+   * O 4B só pode tocar o pool global sem tenant ou um card ligado explicitamente à empresa da
+   * missão. O vínculo por RadarLeadCompanyState também cobre cards compartilhados de forma
+   * legítima; nenhum identificador de Vendas, telefone ou sourceHistoryId participa da resolução.
+   */
+  private buildAiSaneamentoTenantWhere(radarLeadId: string, rawCompanyId?: unknown) {
+    const companyId = Math.trunc(Number(rawCompanyId) || 0) || null;
+    return {
+      id: radarLeadId,
+      ...(companyId
+        ? {
+            OR: [
+              { ownerCompanyId: companyId },
+              { companyStates: { some: { companyId } } },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  /**
+   * Merge de metadata do 4B com compare-and-swap. Uma releitura seguida de UPDATE simples ainda
+   * permite que o commit local grave `localDeepEnrich` entre as duas operações e seja apagado pelo
+   * snapshot antigo. O CAS compara o metadataJson exato e recompõe somente `aiSaneamento` após
+   * qualquer corrida; os demais blocos sempre vêm da leitura vencedora mais recente.
+   */
+  private async persistAiSaneamentoMetadataCas(input: {
+    radarLeadId: string;
+    companyId?: unknown;
+    desiredMetadataJson: string;
+  }) {
+    if (!this.prisma) throw new Error('radar_ai_saneamento_prisma_indisponivel');
+    const prisma = this.prisma as any;
+    const desired = parseMaybeJsonObject(input.desiredMetadataJson);
+    if (!desired.aiSaneamento || typeof desired.aiSaneamento !== 'object' || Array.isArray(desired.aiSaneamento)) {
+      throw new Error('radar_ai_saneamento_metadata_invalido');
+    }
+    const tenantWhere = this.buildAiSaneamentoTenantWhere(input.radarLeadId, input.companyId);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const latest = await prisma.radarLeadPool.findFirst({
+        where: tenantWhere,
+        select: { metadataJson: true },
+      });
+      if (!latest) throw new Error('radar_ai_saneamento_tenant_ou_card_invalido');
+
+      const current = parseMaybeJsonObject(latest.metadataJson);
+      // Outro worker 4B venceu a mesma missão enquanto este inferia. Preserva o primeiro resultado
+      // materializado e trata a repetição como convergida, sem apagar qualquer bloco irmão.
+      if (current?.aiSaneamento?.saneadoAt) return;
+      const nextMetadataJson = JSON.stringify({
+        ...current,
+        aiSaneamento: desired.aiSaneamento,
+      });
+      const updated = await prisma.radarLeadPool.updateMany({
+        where: {
+          ...tenantWhere,
+          metadataJson: latest.metadataJson ?? null,
+        },
+        data: { metadataJson: nextMetadataJson },
+      });
+      if (Number(updated?.count || 0) > 0) return;
+    }
+
+    throw new Error('radar_ai_saneamento_metadata_em_contencao');
+  }
+
   async reconcileDurableJobs(): Promise<{ scanned: number; enqueued: number }> {
     if (!isRadarAiSaneamentoEnabled() || !this.missionQueue || !this.prisma) return { scanned: 0, enqueued: 0 };
     if (!(await this.prisma.hasTable('RadarLeadPool').catch(() => false))) return { scanned: 0, enqueued: 0 };
@@ -260,13 +356,31 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
       Math.max(Number(process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_LOOKBACK_HOURS) || 168, 1),
       24 * 30,
     );
-    const rows = await prisma.radarLeadPool.findMany({
+    const batchSize = Math.min(
+      Math.max(Number(process.env.HBX_RADAR_AI_SANEAMENTO_RECONCILE_BATCH_SIZE) || 500, 1),
+      2_000,
+    );
+    const canaryLeadIds = radarAiSaneamentoCanaryLeadIds();
+    const cursorKey = 'ai_saneamento_4b_reconciler_v1';
+    const cursorDelegate = prisma.radarFactoryCursor;
+    const cursor = cursorDelegate?.upsert
+      ? await cursorDelegate.upsert({
+          where: { key: cursorKey },
+          create: { key: cursorKey, status: 'idle' },
+          update: {},
+          select: { lastRunId: true },
+        }).catch(() => null)
+      : null;
+    const lastLeadId = canaryLeadIds !== null ? null : compact(cursor?.lastRunId) || null;
+    const updatedAt = { gte: new Date(Date.now() - lookbackHours * 60 * 60_000) };
+    const readBatch = (afterId?: string | null) => prisma.radarLeadPool.findMany({
       where: {
         status: 'sent_to_vendas',
-        updatedAt: { gte: new Date(Date.now() - lookbackHours * 60 * 60_000) },
+        ...(canaryLeadIds !== null ? { id: { in: canaryLeadIds } } : { updatedAt }),
+        ...(afterId ? { id: { gt: afterId } } : {}),
       },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
-      take: 500,
+      orderBy: { id: 'asc' },
+      take: batchSize,
       select: {
         id: true,
         name: true,
@@ -277,6 +391,8 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
         metadataJson: true,
       },
     }).catch(() => []);
+    let rows = await readBatch(lastLeadId);
+    if (!rows.length && lastLeadId) rows = await readBatch(null);
     let enqueued = 0;
     for (const row of Array.isArray(rows) ? rows : []) {
       if (parseMaybeJsonObject(row?.metadataJson)?.aiSaneamento?.saneadoAt) continue;
@@ -290,6 +406,13 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
         priority: 100,
       });
       if (queued.created) enqueued += 1;
+    }
+    const lastScannedId = compact(rows[rows.length - 1]?.id) || null;
+    if (lastScannedId && cursorDelegate?.update) {
+      await cursorDelegate.update({
+        where: { key: cursorKey },
+        data: { lastRunId: lastScannedId, lastWorkedAt: new Date(), status: 'idle' },
+      }).catch(() => null);
     }
     return { scanned: Array.isArray(rows) ? rows.length : 0, enqueued };
   }

@@ -27,6 +27,18 @@ test('lease HTTP sem stages usa somente os stages publicos da PONTE', async () =
   assert.deepEqual(captured.stages, ['local_deep_enrich_v1']);
 });
 
+test('heartbeat HTTP repassa o TTL do lease local em milissegundos', async () => {
+  let captured: any[] | null = null;
+  const queue = {
+    heartbeat: async (...input: any[]) => { captured = input; return { ok: true }; },
+  };
+  const controller = new RadarMissionsController(queue as any, {} as any);
+
+  await controller.heartbeat('mission-1', { leaseId: 'lease-1', leaseTtlSeconds: 900 });
+
+  assert.deepEqual(captured, ['mission-1', 'lease-1', 900_000]);
+});
+
 test('complete HTTP recusa local_deep_enrich_v1: conclusão pertence à função transacional do banco', async () => {
   let completeCalled = false;
   const queue = {

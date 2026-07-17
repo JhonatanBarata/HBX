@@ -272,7 +272,7 @@ export class VendasController {
 
   @Post('import/webscraping')
   importWebscrapingLeads(@Req() req: any, @Body() dto: ImportWebscrapingLeadsDto) {
-    return this.vendasService.importWebscrapingLeadsForUser(req.user, dto);
+    return this.vendasService.importPublicWebscrapingLeadsForUser(req.user, dto);
   }
 
   @Post('import/webscraping/preview')

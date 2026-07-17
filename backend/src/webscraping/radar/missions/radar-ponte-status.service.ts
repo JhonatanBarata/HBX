@@ -73,10 +73,11 @@ export class RadarPonteStatusService {
     const rows = await db.radarMission.findMany({
       where: {
         stage: LOCAL_DEEP_ENRICH_STAGE,
+        radarLeadId: { in: ids },
         status: { in: ['queued', 'leased', 'completed', 'dead', 'canceled'] },
       },
       select: {
-        id: true, stage: true, status: true, payloadJson: true, resultJson: true, receiptJson: true,
+        id: true, stage: true, status: true, radarLeadId: true, payloadJson: true, resultJson: true, receiptJson: true,
         createdAt: true, updatedAt: true, heartbeatAt: true, completedAt: true, nextAttemptAt: true,
       },
       orderBy: [{ priority: 'desc' }, { nextAttemptAt: 'asc' }, { createdAt: 'asc' }],
@@ -89,7 +90,7 @@ export class RadarPonteStatusService {
     const byLead = new Map<string, { queued?: any; leased?: any; completed?: any; invalidated?: any }>();
     for (const row of rows as any[]) {
       const payload = this.parseJson(row?.payloadJson);
-      const leadId = String(payload?.radarLeadId || '').trim();
+      const leadId = String(row?.radarLeadId || payload?.radarLeadId || '').trim();
       if (!leadId || !ids.includes(leadId)) {
         if (String(row?.status) === 'queued') queuedOrdinal++; // conta pra posição mesmo se não for um dos IDs pedidos
         continue;
@@ -169,14 +170,29 @@ export class RadarPonteStatusService {
     const result = this.parseJson(row?.resultJson);
     const materialReceipt = this.parseJson(row?.receiptJson);
     const receipt = Object.keys(materialReceipt).length ? materialReceipt : this.parseJson(result?.receipt || result);
-    const summary = this.parseJson(result?.delta || result?.summary || receipt?.delta || receipt?.summary);
+    const summary = this.parseJson(receipt?.summary || result?.summary || receipt?.delta || result?.delta);
     const createdContacts = Array.isArray(receipt?.createdContacts) ? receipt.createdContacts : [];
     const createdPeople = Array.isArray(receipt?.createdPersonIds) ? receipt.createdPersonIds : [];
     const countKind = (kind: string) => createdContacts.filter((contact: any) => String(contact?.kind || '') === kind).length;
-    const phonesAdded = Math.max(0, Number(summary?.phonesAdded) || countKind('phone'));
-    const emailsAdded = Math.max(0, Number(summary?.emailsAdded) || countKind('email'));
-    const peopleAdded = Math.max(0, Number(summary?.peopleAdded) || createdPeople.length);
-    const noNewData = Boolean(result?.noNewData ?? receipt?.noNewData ?? (phonesAdded + emailsAdded + peopleAdded === 0));
+    const readExactCount = (key: string, fallback: number) => {
+      if (!Object.prototype.hasOwnProperty.call(summary, key)) return fallback;
+      const value = Number(summary[key]);
+      return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : fallback;
+    };
+    const phonesAdded = readExactCount('phonesAdded', countKind('phone') + countKind('whatsapp'));
+    const emailsAdded = readExactCount('emailsAdded', countKind('email'));
+    const peopleAdded = readExactCount(
+      'peopleAdded',
+      readExactCount('ownersAdded', createdPeople.length),
+    );
+    const hasOtherMaterialDelta = summary?.metadataUpdated === true
+      || Number(summary?.radarFieldsUpdated || 0) > 0
+      || Number(summary?.vendasLeadsUpdated || 0) > 0;
+    const materialCount = phonesAdded + emailsAdded + peopleAdded;
+    const declaredNoNewData = result?.noNewData ?? receipt?.noNewData;
+    const noNewData = typeof declaredNoNewData === 'boolean'
+      ? declaredNoNewData
+      : materialCount === 0 && !hasOtherMaterialDelta;
     return { noNewData, delta: { phonesAdded, emailsAdded, peopleAdded } };
   }
 
