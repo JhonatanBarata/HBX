@@ -1,0 +1,120 @@
+name: HBX Vendas Detalhes 2 approved
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - .github/workflows/agent-vendas-details2-v2.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-vendas-details2-v2
+  cancel-in-progress: true
+
+jobs:
+  apply-validate-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Apply approved Detalhes 2
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, gzip
+
+          root = Path.cwd()
+          assets = root / ".github/agent-assets/vendas-details2"
+
+          def decode(parts, target):
+              encoded = "".join((assets / part).read_text(encoding="utf-8").strip() for part in parts)
+              path = root / target
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(gzip.decompress(base64.b64decode(encoded)))
+
+          decode(["tsx.1.b64", "tsx.2.b64", "tsx.3.b64"], "frontend/src/components/hbx/lead-cockpit-modal-v2.tsx")
+          decode(["css.1.b64", "css.2.b64"], "frontend/src/app/hbx-theme/vendas-details2-v2.css")
+
+          (root / "frontend/src/components/hbx/lead-cockpit-modal.tsx").write_text(
+              '"use client";\n\n'
+              '// Detalhes 2 aprovado: implementação real em arquivo dedicado.\n'
+              'export { LeadCockpitModal } from "./lead-cockpit-modal-v2";\n',
+              encoding="utf-8",
+          )
+
+          globals_path = root / "frontend/src/app/globals.css"
+          globals_source = globals_path.read_text(encoding="utf-8")
+          import_line = '@import "./hbx-theme/vendas-details2-v2.css";'
+          if import_line not in globals_source:
+              globals_path.write_text(globals_source.rstrip() + "\n" + import_line + "\n", encoding="utf-8")
+
+          test_path = root / "tests/frontend-local-enrichment-status.test.mjs"
+          test_source = test_path.read_text(encoding="utf-8").replace(
+              'const leadCockpitSource = read("frontend/src/components/hbx/lead-cockpit-modal.tsx");',
+              'const leadCockpitSource = read("frontend/src/components/hbx/lead-cockpit-modal-v2.tsx");',
+          )
+          test_path.write_text(test_source, encoding="utf-8")
+
+          contract = root / "tests/frontend-vendas-details2-v2.test.mjs"
+          contract.write_text('''import test from "node:test";
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+
+          const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+          const source = read("frontend/src/components/hbx/lead-cockpit-modal-v2.tsx");
+          const css = read("frontend/src/app/hbx-theme/vendas-details2-v2.css");
+
+          test("Detalhes 2 preserva guias, efeito escrevendo e score animado", () => {
+            for (const tab of ["atendimento", "cadastro", "financeiro"]) assert.match(source, new RegExp(`key: "${tab}"`));
+            assert.match(source, /function TypewriterText/);
+            assert.match(source, /text\\.slice\\(0, index\\)/);
+            assert.match(source, /function AnimatedScore/);
+            assert.match(source, /const duration = 1550/);
+            assert.match(css, /height: calc\\(100dvh - 10px\\)/);
+            assert.match(css, /\\.vnd-d2-type:not\\(\\.is-done\\)::after/);
+            assert.match(css, /conic-gradient\\(var\\(--hbx-brand\\) var\\(--vnd-d2-score\\)/);
+          });
+          ''', encoding="utf-8")
+          PY
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Run focused contracts
+        run: node --test tests/frontend-vendas-details2-v2.test.mjs tests/frontend-local-enrichment-status.test.mjs
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Publish approved implementation
+        shell: bash
+        run: |
+          rm -rf .github/agent-assets/vendas-details2
+          rm .github/workflows/agent-vendas-details2-v2.yml
+          git config user.name "OpenAI"
+          git config user.email "noreply@openai.com"
+          git add -A
+          git commit -m "feat(vendas): aplicar Detalhes 2 compacto com transições"
+          git push origin master
