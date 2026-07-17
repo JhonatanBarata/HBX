@@ -72,7 +72,21 @@ jobs:
           dist/logistica/logistica-route-billing.service.test.js
           dist/logistica/logistica-tracked-billing.service.test.js
           dist/logistica/logistica-tracking-bonus.service.test.js
-      - run: npm run lint:tenant-scope
+      - name: Tenant scope lint
+        id: tenant_scope
+        shell: bash
+        run: |
+          set -o pipefail
+          node scripts/check-tenant-scope.mjs --list 2>&1 | tee ../tenant-scope.log
+          npm run lint:tenant-scope 2>&1 | tee -a ../tenant-scope.log
+      - name: Upload tenant scope diagnostics
+        if: failure() && steps.tenant_scope.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenant-scope-log
+          path: tenant-scope.log
+          if-no-files-found: error
+          retention-days: 3
       - name: Packaged JavaScript syntax
         working-directory: EntregaShell
         run: |
