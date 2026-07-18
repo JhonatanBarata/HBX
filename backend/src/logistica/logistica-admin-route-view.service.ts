@@ -41,6 +41,7 @@ export class LogisticaAdminRouteViewService {
           id: true,
           mode: true,
           status: true,
+          operationalEndedAt: true,
           trackingSession: { select: { id: true, status: true } },
         },
       }),
@@ -50,12 +51,17 @@ export class LogisticaAdminRouteViewService {
       ? (payload as any).items.filter((item: any) => !item?.entregador || Number(item.entregador.id) === userId)
       : [];
     const mode = route?.mode === 'TRACKED' ? 'TRACKED' : route?.mode === 'ESSENTIAL' ? 'ESSENTIAL' : null;
+    // PR17072026 — rota encerrada OPERACIONALMENTE (decoupled da cobrança): o
+    // `status` segue ACTIVE, mas o app deve vê-la como encerrada. Quando marcada,
+    // NÃO promovemos a próxima parada pra em_rota (senão a rota reviveria sozinha)
+    // e reportamos routeStatus='ENCERRADA'. Zerado ao (re)iniciar (2ª leva do dia).
+    const ended = (route as any)?.operationalEndedAt != null;
 
     // O banco marca somente a primeira parada como `em_rota`. Depois que ela é
     // concluída, as demais continuam `agendada`, embora o agregado permaneça
     // ACTIVE. Para a interface não oferecer "Começar" outra vez, projetamos a
     // primeira parada aberta como atual sem reescrever o histórico no banco.
-    if (route?.status === 'ACTIVE' && !items.some((item: any) => item.status === 'em_rota')) {
+    if (route?.status === 'ACTIVE' && !ended && !items.some((item: any) => item.status === 'em_rota')) {
       const nextIndex = items.findIndex((item: any) => item.status === 'agendada');
       if (nextIndex >= 0) {
         items = items.map((item: any, index: number) => index === nextIndex ? { ...item, status: 'em_rota' } : item);
@@ -68,8 +74,8 @@ export class LogisticaAdminRouteViewService {
       total: items.length,
       items,
       routeId: route?.id ?? (payload as any)?.routeId ?? null,
-      routeStatus: route?.status ?? (payload as any)?.routeStatus ?? null,
-      trackingRequired: mode ? mode === 'TRACKED' : Boolean((payload as any)?.trackingRequired),
+      routeStatus: ended ? 'ENCERRADA' : (route?.status ?? (payload as any)?.routeStatus ?? null),
+      trackingRequired: ended ? false : (mode ? mode === 'TRACKED' : Boolean((payload as any)?.trackingRequired)),
       trackingSessionId: route?.trackingSession?.id ?? (payload as any)?.trackingSessionId ?? null,
       trackingStatus: route?.trackingSession?.status ?? (payload as any)?.trackingStatus ?? null,
       ...(isBillingOwnerActor(actor) ? { routeMode: mode ?? (payload as any)?.routeMode ?? null } : {}),

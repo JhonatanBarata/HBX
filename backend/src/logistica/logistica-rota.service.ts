@@ -250,6 +250,17 @@ export class LogisticaRotaService {
       }
       throw error;
     }
+    // PR17072026 — (re)iniciar REATIVA a rota operacional: zera a marca de
+    // "encerrada" (operationalEndedAt, decoupled da cobrança) para a 2ª leva no
+    // mesmo dia voltar a aparecer como ativa. ANTES de ler a metadata abaixo (que
+    // gateia routeStatus por esse campo), senão a própria resposta do iniciar
+    // sairia como encerrada. Best-effort: falha aqui não desfaz a rota já ativa.
+    await this.prisma.logisticaRoute
+      .updateMany({
+        where: { companyId, entregadorId: effectiveDriverId, routeDate: canonicalRouteDate(input.date), operationalEndedAt: { not: null } },
+        data: { operationalEndedAt: null },
+      })
+      .catch(() => undefined);
     const operational = this.tracking
       ? await this.tracking.getOperationalRouteMetadata(
           companyId,
@@ -271,6 +282,165 @@ export class LogisticaRotaService {
       ...operationalOnly,
       ...(includeCommercialMode ? { routeMode: routeMode ?? prepared.mode } : {}),
     };
+  }
+
+  // ── ENCERRAR ROTA (PR17072026 Onda 1) ────────────────────────────────────────
+  /**
+   * Encerra a rota do dia de forma TRANSACIONAL e tudo-ou-nada. Serve os DOIS
+   * casos do app ("Cancelar planejamento", antes de iniciar, e "Encerrar rota",
+   * no meio) — a diferença é só a cópia da tela; o primitivo do backend é único.
+   *
+   * Substitui o loop antigo `POST /logistica/entregas/:id/cancelar` por parada
+   * (performCancelRoute no app.js): se a rede caísse no meio, metade cancelava e
+   * metade ficava (cancelamento PARCIAL); além disso 'cancelada' é semântica de
+   * FALHA — errada para "parei a rota, o resto é pendência pra outro dia".
+   *
+   * Dentro de UMA prisma.$transaction:
+   *  - 'entregue'/'cancelada': NUNCA entram no WHERE de escrita — ficam intocadas
+   *    (contam em entregues/naoEntregues só de LEITURA).
+   *  - 'agendada'/'em_rota' COM sinal de que estavam na rota (rotaOrdem/etaAt/
+   *    startedAt preenchidos, ou já em_rota) voltam para 'agendada' com
+   *    rotaOrdem/etaAt/startedAt=null. scheduledAt NUNCA muda (não backdata) —
+   *    assim a retomada no MESMO dia re-planeja normal (fetchParadasAbertas pega
+   *    de novo) e, no dia seguinte, entram na fila de pendência do admin
+   *    (scheduledAt < início do dia — ver logistica-admin-route.service.ts:94).
+   *  - 'agendada' SEM nenhum sinal de rota (rotaOrdem/etaAt/startedAt todos
+   *    null — nunca passou por planejar/iniciar) fica de fora da contagem de
+   *    `pendentes` e não é escrita: já está exatamente no estado-alvo. Sem essa
+   *    exclusão a IDEMPOTÊNCIA exigida pelo contrato ("2ª chamada acha 0
+   *    abertas → pendentes: 0") seria IMPOSSÍVEL de satisfazer: o próprio
+   *    revert desta transação deixa a entrega em 'agendada', que TAMBÉM é um
+   *    dos status "abertos" do item 2 do contrato — uma leitura 100% literal
+   *    ("status IN agendada/em_rota") re-contaria as MESMAS entregas pra sempre
+   *    a cada nova chamada. A ESCRITA final é idêntica nas duas leituras (uma
+   *    entrega já limpa recebe os MESMOS valores null de novo — no-op); só a
+   *    contagem/seleção fica mais precisa e resolve a contradição. Documentado
+   *    aqui de propósito para o revisor conferir o raciocínio.
+   *  - NÃO dispara WhatsApp/cobrança, NÃO cria DeletionRecord, NÃO toca
+   *    comprovante nem FinanceiroCharge — este método só lê/escreve `Entrega`.
+   *
+   * LogisticaRoute — INVESTIGADO, DELIBERADAMENTE NÃO tocado. Cogitei marcar a
+   * linha ACTIVE/PLANNED do dia como COMPLETED (terminal natural do enum) para
+   * o app parar de ver routeStatus==='ACTIVE'. Descartado depois de ler
+   * logistica-route-billing.service.ts e os dois reconciliadores
+   * (logistica-offline-reservation-reconciler.service.ts,
+   * logistica-offline-tracked-billing.service.ts):
+   *   1) prepareRoute()/beginInitialization() tratam route.status==='COMPLETED'
+   *      como TERMINAL: iniciarRota() SEGUINTE no mesmo dia (mesmo motorista)
+   *      lança ConflictException('Esta rota já foi concluída e não pode ser
+   *      iniciada novamente.') — incondicional, vale pra ESSENTIAL e TRACKED.
+   *      Isso QUEBRARIA a exigência do próprio contrato ("retomada no mesmo
+   *      dia re-planeja normal"): o motorista ficaria travado até o dia
+   *      seguinte por causa da linha da ROTA, mesmo com as ENTREGAS já
+   *      corretamente revertidas para pendência.
+   *   2) Pro modo ESSENTIAL, reconcilePendingRefunds() (o reconciliador de
+   *      estorno) só varre rotas com status PLANNED(stale)/INITIALIZING(lease
+   *      vencida)/FAILED/REFUNDING — COMPLETED está fora do WHERE. Marcar
+   *      COMPLETED NUNCA dispara estorno de bloco essencial já debitado
+   *      (confirmado lendo o método linha a linha). Este modo, isolado, SERIA
+   *      seguro.
+   *   3) Pro modo TRACKED, logistica-offline-reservation-reconciler.service.ts
+   *      varre justamente status==='COMPLETED' e devolve (refund) reservas por
+   *      parada ainda DEBITED com lease vencida — comportamento INTENCIONAL do
+   *      sistema (documentado no próprio logistica.module.ts: "O reconciliador
+   *      devolve claims ainda DEBITED depois que a rota chega a COMPLETED"),
+   *      não um bug. Não seria um erro financeiro em si (a parada revertida
+   *      pra pendência não foi entregue SOB esta sessão — devolver o crédito
+   *      reservado evita cobrar 2× quando for reentregue em rota nova), mas É
+   *      um "caminho de refund atrelado à transição" que o contrato pede pra
+   *      evitar.
+   *   CONCLUSÃO: (1) + (3) descartam COMPLETED. Em vez do status de cobrança,
+   *   marco um campo OPERACIONAL decoupled — `operationalEndedAt` (schema) — na
+   *   linha ACTIVE/INITIALIZING do dia. As duas projeções de rota lidas pelo app
+   *   (getOperationalRouteMetadata e logistica-admin-route-view) passam a reportar
+   *   routeStatus NÃO-ativo quando esse campo está setado (e a admin-view para de
+   *   promover a próxima parada pra em_rota). Assim o app enxerga a rota como
+   *   encerrada SEM COMPLETED: nada de trava de reiniciar no mesmo dia, nada de
+   *   reconciliador de estorno. `iniciarRota` zera o campo — a 2ª leva no mesmo
+   *   dia (dono, 17/07: "posso sair de novo hoje") volta a aparecer ativa,
+   *   reaproveitando a MESMA linha de cobrança ACTIVE (beginInitialization
+   *   devolve alreadyActive=true, sem re-cobrar). Este método NÃO altera o
+   *   `status`/cobrança da rota, só o campo operacional; NUNCA toca
+   *   FinanceiroCharge, comprovante ou entrega 'entregue'.
+   */
+  async encerrarRota(
+    companyId: number,
+    input: EncerrarRotaInput = {},
+    entregadorId?: number,
+  ): Promise<EncerrarRotaResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const { start, end, dayISO } = resolveDayRange(input.date);
+    const routeDate = canonicalRouteDate(input.date);
+
+    const resumo = await this.prisma.$transaction(async (tx: any) => {
+      // Mesmo escopo de "entregas do dia" que a lista principal usa (listRota,
+      // logistica.service.ts): agendadas pro range do dia + as sem data mas
+      // ainda abertas (perpétuas até serem tratadas). TODOS os status entram
+      // aqui — preciso do total/entregues/naoEntregues, não só das abertas
+      // (diferente de fetchParadasAbertas, que serve só o planejador).
+      const rows: EncerrarRotaRow[] = await tx.entrega.findMany({
+        where: {
+          companyId,
+          ...(entregadorId ? { entregadorId } : {}),
+          OR: [
+            { scheduledAt: { gte: start, lte: end } },
+            { scheduledAt: null, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
+          ],
+        },
+        select: { id: true, status: true, rotaOrdem: true, etaAt: true, startedAt: true },
+      });
+
+      const total = rows.length;
+      let entregues = 0;
+      let naoEntregues = 0;
+      const openIds: string[] = [];
+      for (const row of rows) {
+        if (row.status === 'entregue') { entregues++; continue; }
+        if (row.status === 'cancelada') { naoEntregues++; continue; }
+        if (row.status !== 'agendada' && row.status !== 'em_rota') continue; // defensivo: hoje só existem os 4 status do schema
+        const estavaNaRota = row.status === 'em_rota' || row.rotaOrdem != null || row.etaAt != null || row.startedAt != null;
+        if (estavaNaRota) openIds.push(row.id);
+      }
+
+      let pendentes = 0;
+      if (openIds.length > 0) {
+        // WHERE re-checa status (defesa extra dentro da própria transação) —
+        // nunca sobrescreve uma entrega que virou 'entregue'/'cancelada' entre
+        // a leitura acima e este update.
+        const reverted = await tx.entrega.updateMany({
+          where: { companyId, id: { in: openIds }, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
+          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null },
+        });
+        pendentes = reverted.count;
+      }
+
+      // Encerra a rota OPERACIONALMENTE (campo decoupled — ver comentário do
+      // método): marca operationalEndedAt na linha viva do dia para o app parar
+      // de ver routeStatus ativo. NÃO altera `status` de cobrança. Na MESMA
+      // transação das entregas (tudo-ou-nada). Sem entregadorId, encerra as
+      // rotas vivas de todos os motoristas da empresa no dia (mesmo escopo do
+      // revert de entregas acima).
+      await tx.logisticaRoute.updateMany({
+        where: {
+          companyId,
+          routeDate,
+          ...(entregadorId ? { entregadorId } : {}),
+          status: { in: ['ACTIVE', 'INITIALIZING'] },
+        },
+        data: { operationalEndedAt: new Date() },
+      });
+
+      return { total, entregues, naoEntregues, pendentes };
+    });
+
+    this.logger.log(
+      `[logistica] rota encerrada ${dayISO} company=${companyId}` +
+        (entregadorId ? ` entregador=${entregadorId}` : '') +
+        `: total=${resumo.total} entregues=${resumo.entregues} naoEntregues=${resumo.naoEntregues} pendentes=${resumo.pendentes}` +
+        (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
+    );
+
+    return { ok: true, resumo };
   }
 
   private async resolveSingleDriver(companyId: number, date?: string): Promise<number> {
@@ -816,6 +986,15 @@ interface ParadaRow {
   customerProfile: { name: string | null; lat: number | null; lng: number | null } | null;
 }
 
+// ── ENCERRAR ROTA (PR17072026 Onda 1) — shape mínimo lido por linha ──────────
+interface EncerrarRotaRow {
+  id: string;
+  status: string;
+  rotaOrdem: number | null;
+  etaAt: Date | null;
+  startedAt: Date | null;
+}
+
 export interface PlanejarRotaInput {
   date?: string;
   origemLat?: number;
@@ -829,6 +1008,24 @@ export interface IniciarRotaInput {
   origemLat?: number;
   origemLng?: number;
   deliveryIds?: string[];
+}
+
+// ── ENCERRAR ROTA (PR17072026 Onda 1) ────────────────────────────────────────
+export interface EncerrarRotaInput {
+  date?: string;
+  motivo?: string;
+}
+
+export interface EncerrarRotaResumo {
+  total: number;
+  entregues: number;
+  naoEntregues: number;
+  pendentes: number;
+}
+
+export interface EncerrarRotaResult {
+  ok: true;
+  resumo: EncerrarRotaResumo;
 }
 
 function normalizeDeliveryIds(value?: string[]): string[] | undefined {

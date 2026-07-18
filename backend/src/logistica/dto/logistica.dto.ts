@@ -364,6 +364,23 @@ export class IniciarRotaDto {
   deliveryIds?: string[];
 }
 
+// ── PR17072026 Onda 1 — encerrar rota (transacional, tudo-ou-nada) ───────────
+// Substitui o loop `cancelar` por parada: abertas (agendada/em_rota) voltam
+// para PENDÊNCIA (nunca cancelamento); entregues/canceladas ficam intocadas.
+// Ver docs/PLANEJAMENTOS/PR17072026/01-backend-encerrar-rota.md (contrato
+// congelado). motivo é só para log/auditoria — não persiste em nenhuma tabela.
+export class EncerrarRotaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  motivo?: string;
+}
+
 // ── LOGÍSTICA-MOBILE M5 — regras do admin (LogisticaConfig) ───────────────────
 // PATCH parcial da config da empresa: template do aviso + toggles + params de rota.
 // Só campos declarados passam (whitelist). companyId NUNCA vem do body (JWT).

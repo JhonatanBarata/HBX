@@ -61,6 +61,7 @@
     deliveryProductPicker: false,
     nextStop: null,
     nextCountdown: 5,
+    nextStopOpening: false,
     routePaused: H.cache.get("logistica-route-paused", false) === true,
     distanceWarning: null,
     distanceOverrideDeliveryId: null,
@@ -249,7 +250,7 @@
     const overlays = `${floatingAction || ""}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><p class="subtitle" data-countdown-message>em ${count}…</p><small>${H.escape(address(client))}</small><div class="actions" style="width:100%"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
+  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions" style="width:100%"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
   function confirmationOverlay() {
     const confirmation = state.confirmation;
     if (!confirmation) return "";
@@ -587,14 +588,20 @@
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
-    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong></div></div>` : ""}
       ${next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
       ${items().length ? `<div class="list">${orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : ""}`, `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
   }
-  function routeTransmuxControl(planned, paused) {
+  function routePausedBanner() {
+    return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">Encerrar rota</button></div></div>`;
+  }
+  function routeTransmuxControl(planned) {
+    // Chamada só quando a rota NÃO está pausada (routeScreen troca pra
+    // routePausedBanner() nesse caso) — então esta seta nunca pode calcular um
+    // estado "verde/planejar" fantasma com rota viva pausada no servidor.
     const active = routeActive();
-    const current = active ? "stop" : planned && !paused ? "gps" : "play";
+    const current = active ? "stop" : planned ? "gps" : "play";
     const initial = lastRouteTransmuxState && lastRouteTransmuxState !== current ? lastRouteTransmuxState : current;
     const action = active ? "stop-route" : current === "gps" ? "start-planned-route" : "plan-route";
     const label = active ? "Parar rota" : current === "gps" ? "Iniciar rota" : "Planejar rota";
@@ -613,7 +620,7 @@
       <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><path d="M60 27 79 77.5c1.1 3-2.2 5.7-4.9 4L60 73.4l-14.1 8.1c-2.7 1.6-6-1-4.9-4z" fill="#fff"/><path d="M60 34 68 67l-8-4.7L52 67z" fill="rgba(8,101,223,.22)"/></g>
       <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z" fill="#fff"/><circle cx="88" cy="42" r="5.2" fill="#168be8"/></g>
       <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><path d="M44 28h32l16 16v32L76 92H44L28 76V44z" fill="#fff"/><path d="M47 35h26l12 12v26L73 85H47L35 73V47z" fill="rgba(223,7,26,.14)"/><rect x="41" y="55" width="38" height="10" rx="5" fill="#e10a1d"/></g></svg>
-    </button>${planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : ""}</div>`;
+    </button>${planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : ""}${active ? `<button class="route-cancel-icon" type="button" data-action="finish-route" aria-label="Encerrar rota"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeFinishGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#5b6472"/><stop offset="1" stop-color="#20242b"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeFinishGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><rect x="16" y="16" width="16" height="16" rx="3" fill="#fff"/></svg></button>` : ""}</div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -703,7 +710,7 @@
         const located = dayPreviewMapPoints().length;
         const count = Math.max(0, Number(state.dayReviewCountdown || 0));
         const mapContent = located ? `<div id="route-plan-preview-map" class="route-plan-preview-map"><span class="route-map-loading">Desenhando rota…</span></div>` : `<div class="route-plan-preview-map route-plan-map-empty"><span>Os endereços desta rota ainda não têm GPS para desenhar o mapa.</span></div>`;
-        return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet route-plan-review"><div class="route-plan-review-copy"><span class="hero-kicker">Prévia</span><h2>${preview.length || selected.length} ${preview.length === 1 ? "parada" : "paradas"}</h2></div>${mapContent}<div class="route-plan-confirm"><div class="route-plan-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="route-plan-count-track" cx="35" cy="35" r="30"/><circle class="route-plan-count-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p>Gerar em ${count || "agora"}</p></div><button class="btn btn-primary btn-block route-plan-confirm-button" data-action="confirm-managed-route">Gerar agora</button></section></div>`;
+        return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet route-plan-review"><div class="route-plan-review-copy"><span class="hero-kicker">Prévia</span><h2>${preview.length || selected.length} ${preview.length === 1 ? "parada" : "paradas"}</h2></div>${mapContent}<div class="route-plan-confirm"><div class="route-plan-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="route-plan-count-track" cx="35" cy="35" r="30"/><circle class="route-plan-count-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p>Gerando rota…</p></div><button class="btn btn-primary btn-block route-plan-confirm-button" data-action="confirm-managed-route" ${state.dayStarting ? "disabled" : ""}>Gerar agora</button></section></div>`;
       }
       const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
       const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => { const key = dayPreviewKey(client); const missingLocation = !dayPreviewCoordinates(client); return `<div class="row-card${missingLocation ? " day-preview-location-invalid" : ""}${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div>${missingLocation ? `<b class="day-preview-location-warning">Localização</b>` : ""}</div>`; }).join("")}</div>` : "";
@@ -921,9 +928,7 @@
       if (!state.dayReview || state.modal !== "manage-day" || state.dayStarting) { clearInterval(dayReviewTimer); return; }
       state.dayReviewCountdown = Math.max(0, state.dayReviewCountdown - 1);
       const count = document.querySelector(".route-plan-count i");
-      const message = document.querySelector(".route-plan-confirm p");
       if (count) count.textContent = state.dayReviewCountdown ? String(state.dayReviewCountdown) : "✓";
-      if (message) message.textContent = state.dayReviewCountdown ? `Gerar em ${state.dayReviewCountdown}` : "Gerando…";
       if (state.dayReviewCountdown === 0) { clearInterval(dayReviewTimer); void beginManagedRoute(); }
     }, 1000);
   }
@@ -1018,18 +1023,14 @@
       toast("Entrega retirada somente da rota de hoje.");
     } catch (error) { toast(err(error), true); }
   }
-  async function performCancelRoute() {
-    const open = [...openItems()];
-    if (!open.length) return;
-    let cancelled = 0;
+  async function performEncerrarRota(motivo) {
+    // Substitui o loop antigo (cancelava entrega por entrega — cancelamento
+    // parcial se a rede caísse no meio). Uma chamada só, transacional no
+    // backend. Em erro, NÃO mexe em nenhum estado local: o backend é atômico,
+    // então "meio encerrado" não existe — ou some tudo, ou nada muda aqui.
     try {
-      for (const item of open) {
-        await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, {
-          method: "POST",
-          body: { motivo: "Rota cancelada pelo administrador." },
-        });
-        cancelled++;
-      }
+      const response = await H.api("/logistica/rota/encerrar", { method: "POST", body: { date: operationalDate(), motivo: motivo || "Rota encerrada." } });
+      const resumo = (response && response.resumo) || {};
       clearInterval(nextStopTimer);
       state.nextStop = null;
       state.routePaused = false;
@@ -1037,10 +1038,9 @@
       clearRouteSelection();
       H.stopRoute();
       await refresh(true);
-      toast("Rota cancelada.");
+      toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`);
     } catch (error) {
-      await refresh(true);
-      toast(`Canceladas ${cancelled} de ${open.length}. ${err(error)}`, true);
+      toast(err(error), true);
     }
   }
   async function markNotDelivered(item) {
@@ -1098,7 +1098,21 @@
   function makeDeliveryDraft(item) { const existing = (item.itens || []).map(x => ({ key: `item-${x.id}`, id: x.id, productId: x.produto && x.produto.id || x.produtoId || null, nome: x.produto && x.produto.nome || "Produto", qtd: Math.max(0, Number(x.qtdEntregue ?? x.qtdPrevista ?? 1)), novo: false })); if (existing.length) return { deliveryId: item.id, items: existing }; return { deliveryId: item.id, items: [{ key: `legacy-${item.id}`, id: item.id, productId: item.produto && item.produto.id || item.produtoId || null, nome: item.produto && item.produto.nome || "Entrega", qtd: Math.max(1, Number(item.quantidade || 1)), novo: false }] }; }
   function deliveryDraftFor(item) { if (!state.deliveryDraft || state.deliveryDraft.deliveryId !== item.id) state.deliveryDraft = makeDeliveryDraft(item); return state.deliveryDraft; }
   function abrirNavegacao(item) { if (!item) return; const client = item.cliente || {}; if (!validCoordinates(client.lat, client.lng) && !String(client.endereco || "").trim()) { toast("Destino sem coordenadas ou endereço cadastrado.", true); return; } H.maps(client.lat, client.lng, address(client)); }
-  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); const next = state.nextStop; state.nextStop = null; render(); abrirNavegacao(next); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const message = document.querySelector("[data-countdown-message]"); if (message) message.textContent = `em ${state.nextCountdown}…`; }, 1000); }
+  function openNextStop() {
+    // Ponto único de abertura: o timer (countdown chega a 0) e o toque em "Abrir
+    // agora" caem os dois aqui. O guard evita abrir o Maps 2x se ambos disparam
+    // perto um do outro; nextStop é limpo ANTES de navegar, então uma segunda
+    // chamada encontra state.nextStop nulo e não faz nada.
+    if (!state.nextStop || state.nextStopOpening) return;
+    state.nextStopOpening = true;
+    clearInterval(nextStopTimer);
+    const next = state.nextStop;
+    state.nextStop = null;
+    render();
+    abrirNavegacao(next);
+    state.nextStopOpening = false;
+  }
+  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); }, 1000); }
   function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; render(); }
 
   app.addEventListener("click", async event => {
@@ -1158,7 +1172,7 @@
     if (action === "delivery-reason") { state.deliveryReason = target.dataset.reason || ""; render(); return; }
     if (action === "delivery-back") { state.deliveryNotDelivered = false; state.deliveryReason = ""; render(); return; }
     if (action === "confirm-not-delivered" && state.selected) { markNotDelivered(state.selected); return; }
-    if (action === "next-stop" && state.nextStop) { const next = state.nextStop; clearInterval(nextStopTimer); state.nextStop = null; render(); abrirNavegacao(next); return; }
+    if (action === "next-stop") { openNextStop(); return; }
     if (action === "cancel-next-stop") { clearInterval(nextStopTimer); state.nextStop = null; render(); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
@@ -1174,7 +1188,7 @@
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
       if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
-      if (confirmation.type === "cancel-route") await performCancelRoute();
+      if (confirmation.type === "cancel-route" || confirmation.type === "finish-route") await performEncerrarRota(confirmation.type === "cancel-route" ? "Planejamento cancelado pelo administrador." : "Rota encerrada pelo motorista.");
       if (confirmation.type === "logout") H.logout();
       return;
     }
@@ -1194,11 +1208,12 @@
     if (action === "start-route") openDayManager("start");
     if (action === "plan-route") openDayManager("plan");
     if (action === "start-planned-route") await startPlannedRoute();
-    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar rota?", message: `${openItems().length} paradas sairão de hoje. Clientes não serão excluídos.`, confirmLabel: "Cancelar rota", danger: true, icon: "route" }; render(); }
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar planejamento?", message: "Remove só a ordem e a previsão. As entregas e o financeiro continuam.", confirmLabel: "Cancelar planejamento", danger: true, icon: "route" }; render(); }
+    if (action === "finish-route") { state.confirmation = { type: "finish-route", title: "Encerrar rota?", message: `${deliveredItems().length} entregas concluídas serão preservadas. ${openItems().length} continuarão pendentes. Nenhuma cobrança concluída é removida.`, confirmLabel: "Encerrar e manter pendências", danger: true, icon: "route" }; render(); }
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
-    if (action === "stop-route" || action === "finish-route") { pauseRouteOnDevice(); render(); toast("Rota parada."); }
+    if (action === "stop-route") { pauseRouteOnDevice(); render(); toast("Rota parada."); }
     if (action === "resume-route") { await resumeRouteOnDevice(); }
     if (action === "show-map") abrirNavegacao(openItems()[0]);
     if (action === "maps" && state.selected) abrirNavegacao(state.selected);

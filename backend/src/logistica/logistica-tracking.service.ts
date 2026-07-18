@@ -795,6 +795,7 @@ export class LogisticaTrackingService {
         id: true,
         mode: true,
         status: true,
+        operationalEndedAt: true,
         trackingSession: { select: { id: true, status: true } },
       },
     });
@@ -808,13 +809,18 @@ export class LogisticaTrackingService {
         ...(includeCommercialMode ? { routeMode: null } : {}),
       };
     }
+    // PR17072026 — rota encerrada OPERACIONALMENTE (decoupled da cobrança): o
+    // `status` comercial segue ACTIVE, mas o app precisa ver a rota como não-ativa.
+    // Reporta routeStatus='ENCERRADA' (qualquer coisa != 'ACTIVE' basta) e desliga
+    // trackingRequired. Zerado ao (re)iniciar — a 2ª leva do dia volta a ACTIVE.
+    const ended = (route as any).operationalEndedAt != null;
     return {
       routeId: route.id,
       // Contrato operacional: o app só precisa saber se deve rastrear agora.
       // O modo comercial congelado é omitido por padrão e só pode ser pedido
       // explicitamente por um fluxo administrativo autorizado.
-      trackingRequired: route.mode === 'TRACKED' && route.status === 'ACTIVE',
-      routeStatus: route.status,
+      trackingRequired: route.mode === 'TRACKED' && route.status === 'ACTIVE' && !ended,
+      routeStatus: ended ? 'ENCERRADA' : route.status,
       trackingSessionId: route.trackingSession?.id ?? null,
       trackingStatus: route.trackingSession?.status ?? null,
       ...(includeCommercialMode ? { routeMode: route.mode } : {}),

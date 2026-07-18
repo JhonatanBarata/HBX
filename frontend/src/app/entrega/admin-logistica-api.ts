@@ -2,7 +2,9 @@ import { apiFetch } from '@/lib/api';
 import { getRota, type PlanejarRotaResult, type RotaResult } from './entrega-api';
 
 export type AdminRouteResult = RotaResult & {
-  routeStatus?: 'PLANNED' | 'INITIALIZING' | 'ACTIVE' | 'COMPLETED' | 'REFUNDING' | 'FAILED' | null;
+  // 'ENCERRADA' é status OPERACIONAL (PR17072026): rota encerrada pelo motorista,
+  // decoupled do ciclo de cobrança. O app só precisa lê-lo como "não ativo".
+  routeStatus?: 'PLANNED' | 'INITIALIZING' | 'ACTIVE' | 'COMPLETED' | 'REFUNDING' | 'FAILED' | 'ENCERRADA' | null;
   routeMode?: 'ESSENTIAL' | 'TRACKED' | null;
 };
 

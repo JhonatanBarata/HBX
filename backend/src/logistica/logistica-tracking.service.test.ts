@@ -362,6 +362,9 @@ test('POST rota/iniciar cria a sessão TRACKED antes de ativar a rota e expõe s
         return { count: 1 };
       },
     },
+    // PR17072026 — iniciarRota zera operationalEndedAt (marca de rota encerrada,
+    // decoupled da cobrança) ao (re)iniciar. Mock no-op: sem rota encerrada aqui.
+    logisticaRoute: { updateMany: async () => ({ count: 0 }) },
   };
   const routeBilling: any = {
     prepareRoute: async () => ({

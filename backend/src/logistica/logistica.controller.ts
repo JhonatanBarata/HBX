@@ -41,6 +41,7 @@ import {
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
+  EncerrarRotaDto,
   FecharMesDto,
   GerarDiaDto,
   IniciarRotaDto,
@@ -563,6 +564,23 @@ export class LogisticaController {
       origemLng: dto?.origemLng,
       deliveryIds: dto?.deliveryIds,
     }, entregadorId, Number(req.user?.id) || null, isBillingOwnerActor(req.user));
+  }
+
+  /**
+   * PR17072026 Onda 1 — encerra a rota do dia de forma TRANSACIONAL (tudo-ou-
+   * -nada): abertas (agendada/em_rota) voltam para PENDÊNCIA (nunca
+   * cancelamento); entregues e canceladas ficam intocadas. Substitui o loop
+   * antigo `POST /logistica/entregas/:id/cancelar` por parada do app (gerava
+   * cancelamento parcial se a rede caísse no meio). Mesmo guard/escopo do
+   * rota/iniciar — NÃO admin-only (o entregador também encerra a própria
+   * rota); actorWhere aplica o mesmo recorte por motorista.
+   */
+  @Post('rota/encerrar')
+  async encerrarRota(@Req() req: any, @Body() dto: EncerrarRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    return this.rota.encerrarRota(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
   }
 
   // ── ROTA RASTREADA PR2 — cockpit administrativo ao vivo ───────────────────

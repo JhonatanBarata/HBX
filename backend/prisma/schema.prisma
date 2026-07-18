@@ -1289,6 +1289,12 @@ model LogisticaRoute {
   startedAt           DateTime?
   completedAt         DateTime?
   failedAt            DateTime?
+  // PR17072026 Onda 1 — "encerrada" OPERACIONAL, decoupled do `status` de
+  // cobrança. Encerrar a rota do dia marca isto (o app para de ver a rota como
+  // ativa) SEM mexer no ciclo comercial: não vira COMPLETED (que travaria
+  // reiniciar no mesmo dia e dispararia o reconciliador de estorno TRACKED).
+  // Zerado ao (re)iniciar a rota — 2ª leva no mesmo dia volta a aparecer ativa.
+  operationalEndedAt  DateTime?
   lastError           String?  @db.VarChar(500)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

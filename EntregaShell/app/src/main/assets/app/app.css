@@ -343,6 +343,10 @@ h3 { font-size: .95rem; }
 .route-cancel-icon { position: absolute; top: 23px; left: -74px; width: 66px; height: 66px; padding: 0; border: 0; border-radius: 50%; background: transparent; filter: drop-shadow(0 7px 11px rgba(0,0,0,.32)); pointer-events: auto; transition: transform .27s ease, filter .27s ease; }
 .route-cancel-icon:active { transform: scale(.92); }
 .route-cancel-icon svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.route-paused-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--line)); border-radius: 18px; background: color-mix(in srgb, var(--warning) 12%, var(--surface)); }
+.route-paused-title { color: var(--ink); font-size: .86rem; }
+.route-paused-actions { display: flex; gap: 8px; }
+.route-paused-actions .btn { min-height: 40px; padding: 0 12px; font-size: .74rem; white-space: nowrap; }
 .progress { height: 6px; overflow: hidden; margin-top: 12px; border-radius: 99px; background: rgba(255,255,255,.12); }
 .progress i { display: block; height: 100%; border-radius: inherit; background: var(--brand); }
 .stop-card { display: grid; gap: 9px; transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease, opacity .16s ease; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
