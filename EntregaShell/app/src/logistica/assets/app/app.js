@@ -1037,8 +1037,20 @@
     if (boot) H.boot.begin("logistica", bootTotal);
     const tracked = boot ? requests.map(request => Promise.resolve(request).finally(() => H.boot.step("logistica"))) : requests;
     const results = await Promise.allSettled(tracked);
-    if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; }
-    else state.error = humanApiError(results[0].reason);
+    if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; state.routeBootRetries = 0; }
+    else {
+      state.error = humanApiError(results[0].reason);
+      // Primeiro login: a sessão nativa pode não estar pronta quando o boot já
+      // dispara — em vez de mostrar "Rota indisponível" e obrigar o motorista a
+      // apertar Atualizar, mantém o "carregando" e tenta sozinho algumas vezes.
+      if (!state.route && (state.routeBootRetries || 0) < 5) {
+        state.routeBootRetries = (state.routeBootRetries || 0) + 1;
+        state.loading = true; state.refreshing = false; render();
+        if (boot) H.boot.ready("logistica");
+        setTimeout(() => refresh(true), 1200);
+        return;
+      }
+    }
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
     if (state.screen === "clients") {
@@ -1870,5 +1882,5 @@
     moduleActive = false;
     window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
   }
-  else { render(); refresh(true, true); state.screenMotion = ""; }
+  else { render(); refresh(false, true); state.screenMotion = ""; }
 })();
