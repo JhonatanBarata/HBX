@@ -32,7 +32,7 @@ object OperationalPolicy {
 
     fun isRouteRead(methodInput: String, pathInput: String): Boolean =
         methodInput.equals("GET", ignoreCase = true) &&
-            pathInput.substringBefore('?') in setOf("/logistica/rota", "/logistica/entregas")
+            pathInput.substringBefore('?') in setOf("/logistica/rota", "/logistica/mobile/route", "/logistica/entregas")
 
     fun proofUploadAllowed(wifiOnly: Boolean, validated: Boolean, unmetered: Boolean): Boolean =
         validated && (!wifiOnly || unmetered)

@@ -36,6 +36,8 @@ class NativeApiClientPathPolicyTest {
     @Test
     fun logisticaEndpointsAlsoUseAnExactMethodPolicy() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/mobile/route"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/mobile/materialize"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/iniciar"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/admin-route/route"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/admin-route/adjustments"))

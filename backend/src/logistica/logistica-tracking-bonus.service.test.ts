@@ -23,13 +23,25 @@ function setup(eligibleCredits: number) {
   ];
   const bonuses: any[] = [];
   const grantCalls: any[] = [];
+  // Claims da Rota Essencial (1 crédito por bloco DEBITED) para exercitar `usage`.
+  const essentialClaims: any[] = [
+    { companyId: 4, status: 'DEBITED', routeDate: '2026-06-20' },
+    { companyId: 4, status: 'DEBITED', routeDate: '2026-06-21' },
+    { companyId: 4, status: 'DEBITED', routeDate: '2026-06-21' },
+  ];
 
   const match = (row: any, where: any): boolean => Object.entries(where || {}).every(([key, expected]: any) => {
-    if (expected?.not !== undefined && expected?.lt !== undefined) {
-      return row[key] !== expected.not && row[key] < expected.lt;
+    if (expected && typeof expected === 'object' && !(expected instanceof Date)) {
+      if (expected.in !== undefined) return expected.in.includes(row[key]);
+      let ok = true;
+      if (expected.not !== undefined) ok = ok && row[key] !== expected.not;
+      if (expected.lt !== undefined) ok = ok && row[key] < expected.lt;
+      if (expected.lte !== undefined) ok = ok && row[key] <= expected.lte;
+      if (expected.gt !== undefined) ok = ok && row[key] > expected.gt;
+      if (expected.gte !== undefined) ok = ok && row[key] >= expected.gte;
+      if (expected.startsWith !== undefined) ok = ok && String(row[key] ?? '').startsWith(expected.startsWith);
+      return ok;
     }
-    if (expected?.not !== undefined) return row[key] !== expected.not;
-    if (expected?.lt !== undefined) return row[key] < expected.lt;
     return row[key] === expected;
   });
 
@@ -51,7 +63,7 @@ function setup(eligibleCredits: number) {
       },
     },
     logisticaEssentialCreditClaim: {
-      count: async ({ where }: any) => where.companyId === 4 && where.routeDate.startsWith === '2026-06' ? 3 : 0,
+      count: async ({ where }: any) => essentialClaims.filter((row) => match(row, where)).length,
     },
     logisticaTrackingBonusGrant: {
       findUnique: async ({ where }: any) => {
@@ -133,7 +145,8 @@ test('competência atual não recebe bônus antecipado', async () => {
 test('extrato é company-scoped e consolida os dois modos sem preço em reais', async () => {
   const h = setup(10);
   await h.service.processCompanyMonth(4, '2026-06', new Date('2026-07-01T12:00:00.000Z'));
-  const statement = await h.service.getAdminStatement(4, '2026-06');
+  // `now` fixo em 21/06 (SP) torna as janelas hoje/semana/mês determinísticas.
+  const statement = await h.service.getAdminStatement(4, '2026-06', new Date('2026-06-21T21:00:00.000Z'));
 
   assert.equal(statement.balanceCredits, 37);
   assert.equal(statement.totals.essentialCredits, 3);
@@ -143,4 +156,12 @@ test('extrato é company-scoped e consolida os dois modos sem preço em reais', 
   assert.equal(statement.totals.bonusCredits, 2);
   assert.equal(statement.trackedDeliveries.some((row: any) => row.deliveryId === 'delivery-x'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(statement, 'price'), false);
+
+  // Uso combinado (essencial 1 crédito/bloco + rastreada paidCreditsConsumed).
+  // hoje: essencial 2 blocos em 21/06 + rastreada 0 (paga foi 20/06, promo=0).
+  assert.equal(statement.usage.hoje, 2);
+  // semana: essencial 3 (20+21+21) + rastreada 10 (paga de 20/06 dentro da janela).
+  assert.equal(statement.usage.semana, 13);
+  // mês: essencial 3 + rastreada 10.
+  assert.equal(statement.usage.mes, 13);
 });

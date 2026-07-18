@@ -18,6 +18,8 @@
     config: H.cache.get("logistica-config", null),
     companyName: H.cache.get("logistica-company-name", ""),
     statement: null,
+    // PR — os 3 KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue/Avulsos).
+    routeFilter: "fila",
     filter: "Todos",
     query: "",
     selected: null,
@@ -99,6 +101,8 @@
   let ignoredClientProductClickId = null;
   let routeStopHold = null;
   let ignoredRouteStopClickId = null;
+  let productHold = null;
+  let ignoredProductClickId = null;
   let dayPreviewRequestId = 0;
   let dayReviewTimer = null;
   let navMotionTimer = null;
@@ -557,6 +561,21 @@
       toast("Cliente excluído.");
     } catch (error) { toast(humanApiError(error), true); }
   }
+  function archiveProductByHold(product) {
+    if (!product) return;
+    const active = product.ativo !== false;
+    if (!active) { toast("Este produto já está arquivado."); return; }
+    state.confirmation = { type: "archive-product", itemId: product.id, title: "Arquivar produto?", message: `${product.nome || product.name || "Produto"} sai do catálogo ativo. Você pode reativar depois.`, confirmLabel: "Arquivar", danger: true, icon: "box" };
+    render();
+  }
+  async function performArchiveProduct(product) {
+    if (!product) return;
+    try {
+      await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body: { ativo: false } });
+      await refresh(true);
+      toast("Produto arquivado.");
+    } catch (error) { toast(humanApiError(error), true); }
+  }
   async function deleteClientProduct(item) {
     if (!item || !item.id) return;
     const name = item.produto && item.produto.nome || "este produto";
@@ -598,7 +617,7 @@
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
   function clientAddressFields(fields, status, mode) {
     const isNew = mode === "new";
-    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="subtitle ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Localizar este Endereço</button>${isNew ? `<button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps" ${state.newClientGpsLoading ? "disabled" : ""}>${icon("gps", 17)} ${state.newClientGpsLoading ? "Lendo GPS…" : "Puxar Local Atual"}</button>` : ""}</div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
+    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="subtitle ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
   }
   function separateAddress(value, numberValue, districtValue) {
     let endereco = String(value || "").trim(); const numero = String(numberValue || "").trim(); const bairro = String(districtValue || "").trim();
@@ -669,7 +688,7 @@
     if (!point) return setClientCepStatus("Não foi possível localizar este endereço.");
     Object.assign(state.clientPaymentDraft, point, { geoFonte: "geocode" });
     setClientCepStatus("Endereço localizado. Salve o cliente para confirmar.");
-    if (navigator.vibrate) navigator.vibrate(12);
+    H.vibrate(12);
   }
   async function locateNewClientAddress() {
     const draft = state.newClientDraft;
@@ -685,7 +704,7 @@
     if (!point) { state.newClientCepStatus = "Não foi possível localizar este endereço."; render(); return; }
     Object.assign(state.newClientDraft, point, { geoFonte: "geocode" });
     state.newClientCepStatus = "Endereço localizado. Salve o cliente para confirmar."; render();
-    if (navigator.vibrate) navigator.vibrate(12);
+    H.vibrate(12);
   }
   async function useCurrentLocationForNewClient(permissionReady) {
     if (!navigator.geolocation) return toast("GPS indisponível neste aparelho.", true);
@@ -712,13 +731,21 @@
     if (state.loading) return shell(loading());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
+    // Avulsos = entregas avulsas (têm scheduledAt); recorrentes materializadas vêm com scheduledAt null.
+    const avulsos = items().filter(i => !!i.scheduledAt);
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
+    // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
+    const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => !!i.scheduledAt) : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
     return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
-      ${total ? `<div class="kpis"><div class="kpi"><span>Entregues</span><strong>${done.length}</strong></div><div class="kpi"><span>Restantes</span><strong>${open.length}</strong></div><div class="kpi"><span>Sem sinal</span><strong>${state.error ? "1" : "0"}</strong></div></div>` : ""}
-      ${next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${items().length ? `<div class="list">${orderedItems().map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : ""}`, `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+      ${total ? `<div class="route-filter" role="tablist">
+        <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
+        <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
+        <button type="button" class="route-filter-btn ${state.routeFilter === "avulsos" ? "active" : ""}" data-action="route-filter" data-filter="avulsos">Avulsos <b>${avulsos.length}</b></button>
+      </div>` : ""}
+      ${state.routeFilter === "fila" && next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : empty("Nada aqui", "")) : ""}`, `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
   }
   function routePausedBanner() {
     return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">Encerrar rota</button></div></div>`;
@@ -732,7 +759,11 @@
     const initial = lastRouteTransmuxState && lastRouteTransmuxState !== current ? lastRouteTransmuxState : current;
     const action = active ? "stop-route" : current === "gps" ? "start-planned-route" : "plan-route";
     const label = active ? "Parar rota" : current === "gps" ? "Iniciar rota" : "Planejar rota";
-    lastRouteTransmuxState = current;
+    // Commit de lastRouteTransmuxState foi movido pro render() (depois que a
+    // morfagem realmente dispara no rAF) — commitar aqui, na hora de montar o
+    // HTML, matava a transmorfagem no rebuild do botão (o .content é recriado a
+    // cada render, então o rAF pendente apontava pro elemento antigo e o botão
+    // novo já nascia com data-state === data-next-state, sem morfar).
     const clearDayVisible = !active && isAdmin() && openItems().length > 0;
     return `<div class="route-transmux-wrap"><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
       <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
@@ -760,7 +791,7 @@
     const total = Number(state.clientsTotal || 0);
     const firstLoad = state.clientsLoading && state.clientsPage === 0;
     const emptyText = state.clientsError || (state.query.trim() ? "Nenhum resultado." : "");
-    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card ${clientPendingKeys(c).length ? "has-pending" : ""}" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><div class="client-balance"><small>Saldo ${H.money(Number(c.debitoAtual || 0))}</small>${clientMissingLabels(c)}</div></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${state.clientsPage < state.clientsTotalPages ? `<button class="btn btn-secondary btn-block" data-action="load-more-clients" ${state.clientsLoading ? "disabled" : ""}>${state.clientsLoading ? "Carregando…" : "Carregar mais"}</button>` : ""}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
+    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card ${clientPendingKeys(c).length ? "has-pending" : ""}" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><div class="client-balance">${configFlag("moduloFinanceiroAtivo") ? `<small>Saldo ${H.money(Number(c.debitoAtual || 0))}</small>` : ""}${clientMissingLabels(c)}</div></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${state.clientsPage < state.clientsTotalPages ? `<button class="btn btn-secondary btn-block" data-action="load-more-clients" ${state.clientsLoading ? "disabled" : ""}>${state.clientsLoading ? "Carregando…" : "Carregar mais"}</button>` : ""}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
   }
   function productsScreen() {
     const all = state.products || [];
@@ -866,13 +897,13 @@
       products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}${editorForm}`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
-    const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
+    const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""} ${pending.includes("Dup") ? "client-address-duplicate" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
     const productPart = `<section class="client-editor-part client-editor-products ${pending.includes("Dia") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>2</span><strong>Produto${pending.includes("Dia") ? " · dia pendente" : ""}</strong></div>${products}</section>`;
     // PR18072026 Módulo Financeiro — seção 3 inteira some quando o módulo está
     // desligado (nada de saldo/forma de pagamento pra quem não usa financeiro).
     const finance = configFlag("moduloFinanceiroAtivo") ? `<section class="client-editor-part client-editor-finance ${pending.includes("Pag") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>3</span><strong>Financeiro${pending.includes("Pag") ? " · pagamento pendente" : ""}</strong></div><div class="client-financial-fields"></div></section>` : "";
     const customerForm = `<form id="${formId}">${registration}${isNew ? productPart : ""}${finance}${actions}</form>`;
-    return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pending.length ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${pending.includes("Dup") ? `<div class="client-duplicate-warning">Endereço duplicado: confira antes de salvar.</div>` : ""}<div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
+    return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pending.length ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
   }
   function modal() {
     if (state.modal === "client-product") return clientEditorModal(false);
@@ -926,8 +957,12 @@
     if (state.modal === "arrival-radius") { const radius = Math.max(20, Number(state.config && state.config.raioChegadaM || 60)); return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Avisar chegada</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="arrival-radius-form"><div class="field"><label>Metros</label><input name="raioChegadaM" type="number" min="20" max="1000" step="10" inputmode="numeric" value="${radius}" required></div><button class="btn btn-primary btn-block" type="submit">Salvar</button></form></section></div>`; }
     if (state.modal === "distance-warning") { const warning = state.distanceWarning || {}; return `<div class="sheet-wrap"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Você está longe do endereço</h2><p class="subtitle">Confira a entrega antes de continuar</p></div></div><div class="card flat" style="padding:16px"><strong style="font-size:1.7rem;color:var(--danger)">${Math.round(Number(warning.distance || 0))} m</strong><p class="subtitle" style="margin:7px 0 0">do endereço de ${H.escape(warning.clientName || "este cliente")}</p></div><p class="subtitle">A entrega só deve ser confirmada de longe se você tiver certeza de que está no local correto.</p><div class="actions"><button class="btn btn-secondary" data-action="cancel-distance-confirm">Voltar</button><button class="btn btn-primary" data-action="confirm-distance-delivery">Confirmar mesmo assim</button></div></section></div>`; }
     if (state.modal === "statement") {
-      const s = state.statement || {}; const entries = s.entries || s.items || [];
-      return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Consumido</span><strong>${Number(s.trackedPaidCreditsConsumed || s.consumed || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(s.bonusGranted || s.bonus || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(s.trackedDeliveries || s.deliveries || 0)}</strong></div></div><div class="list">${entries.length ? entries.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>${H.escape(e.description || e.type || "Movimento")}</strong><span>${H.date(e.createdAt || e.date)}</span></div><strong>${Number(e.amount || e.credits || 0)}</strong></div>`).join("") : empty("Sem movimentos", "")}</div></section></div>`;
+      // PR18072026 — o extrato real do backend (getAdminStatement) devolve saldo,
+      // totals.{bonusCredits,trackedDeliveries}, usage.{hoje,semana,mes} e a lista
+      // trackedDeliveries[]. Créditos são NÚMEROS inteiros, nunca moeda.
+      const s = state.statement || {}; const totals = s.totals || {}; const usage = s.usage || {};
+      const moves = Array.isArray(s.trackedDeliveries) ? s.trackedDeliveries : [];
+      return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Saldo</span><strong>${Number(s.balanceCredits || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(totals.bonusCredits || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(totals.trackedDeliveries || 0)}</strong></div></div><div class="kpis"><div class="kpi"><span>Hoje</span><strong>${Number(usage.hoje || 0)}</strong></div><div class="kpi"><span>Semana</span><strong>${Number(usage.semana || 0)}</strong></div><div class="kpi"><span>Mês</span><strong>${Number(usage.mes || 0)}</strong></div></div><div class="list">${moves.length ? moves.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>Entrega rastreada</strong><span>${H.date(e.completedAt)}</span></div><strong>${Number(e.paidCredits || e.credits || 0)}</strong></div>`).join("") : empty("Sem entregas rastreadas", "")}</div></section></div>`;
     }
     if (state.modal === "route-modelos") return routeModelosModal();
     if (state.modal === "financeiro") return financeiroModal();
@@ -1004,9 +1039,10 @@
     if (pending.includes("whatsapp") || !(client.phone || client.phoneNormalized || client.whatsapp)) missing.push("Tel");
     if (pending.some(item => ["endereco", "numero", "gps"].includes(item))) missing.push("End");
     if (pending.includes("dia") || !(client.diasEntrega || []).length) missing.push("Dia");
-    if (!client.formaPagamento || (client.formaPagamento === "mensal" && !client.diaFechamento)) missing.push("Pag");
-    const addressKey = clientAddressKey(client);
-    if (client.duplicataDe || (addressKey && state.clients.some(other => String(other.id) !== String(client.id) && clientAddressKey(other) === addressKey))) missing.push("Dup");
+    if (configFlag("moduloFinanceiroAtivo") && (!client.formaPagamento || (client.formaPagamento === "mensal" && !client.diaFechamento))) missing.push("Pag");
+    // PR18072026 item 8 — confiar SÓ no backend (marca duplicataDe por nome OU
+    // endereço+número). A checagem extra no app gerava falso-positivo grosseiro.
+    if (client.duplicataDe) missing.push("Dup");
     return missing;
   }
   function clientMissingLabels(client) {
@@ -1049,11 +1085,19 @@
     if (modal && modalScroll) modal.scrollTop = modalScroll;
     if (sheet && sheetScroll) sheet.scrollTop = sheetScroll;
     const transmux = app.querySelector(".route-transmux[data-next-state]");
-    if (transmux && transmux.dataset.state !== transmux.dataset.nextState) requestAnimationFrame(() => {
-      if (!transmux.isConnected) return;
-      transmux.dataset.state = transmux.dataset.nextState;
-      transmux.classList.add("clicked");
-    });
+    if (transmux) {
+      const nextTransmuxState = transmux.dataset.nextState;
+      if (transmux.dataset.state !== nextTransmuxState) {
+        requestAnimationFrame(() => {
+          if (!transmux.isConnected) return;
+          transmux.dataset.state = nextTransmuxState;
+          transmux.classList.add("clicked");
+          lastRouteTransmuxState = nextTransmuxState;
+        });
+      } else {
+        lastRouteTransmuxState = nextTransmuxState;
+      }
+    }
     if (state.screen === "route" && !state.dayReview) void mountRouteMap();
     if (state.modal === "manage-day" && state.dayReview) void mountDayReviewMap();
     H.revealActiveNav();
@@ -1107,6 +1151,11 @@
     if (boot) H.boot.begin("logistica", bootTotal);
     const tracked = boot ? requests.map(request => Promise.resolve(request).finally(() => H.boot.step("logistica"))) : requests;
     const results = await Promise.allSettled(tracked);
+    // Aplica produtos/config ANTES de tratar a rota: no primeiro login a rota pode
+    // falhar, mas o config precisa entrar mesmo assim — isAdmin() depende dele, e
+    // sem ele a retry escolheria a rota errada e repetiria o mesmo erro pra sempre.
+    if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
+    if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
     if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; state.routeBootRetries = 0; }
     else {
       state.error = humanApiError(results[0].reason);
@@ -1121,8 +1170,6 @@
         return;
       }
     }
-    if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
-    if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
     if (state.screen === "clients") {
       await loadClients(true, true);
       if (boot) H.boot.step("logistica");
@@ -1571,10 +1618,10 @@
       } catch (error) { toast(humanApiError(error), true); }
       return;
     }
-    if (action === "delivery-qty" && state.selected) { const draft = deliveryDraftFor(state.selected); const row = draft.items.find(x => x.key === target.dataset.draftItem); if (row) { row.qtd = Math.max(0, Number(row.qtd || 0) + Number(target.dataset.delta || 0)); if (navigator.vibrate) navigator.vibrate(8); render(); } return; }
+    if (action === "delivery-qty" && state.selected) { const draft = deliveryDraftFor(state.selected); const row = draft.items.find(x => x.key === target.dataset.draftItem); if (row) { row.qtd = Math.max(0, Number(row.qtd || 0) + Number(target.dataset.delta || 0)); H.vibrate(8); render(); } return; }
     if (action === "delivery-add-product") { state.deliveryProductPicker = true; render(); return; }
     if (action === "delivery-close-picker") { state.deliveryProductPicker = false; render(); return; }
-    if (action === "delivery-product" && state.selected) { const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId)); const draft = deliveryDraftFor(state.selected); if (product) { draft.items.push({ key: `novo-${product.id}`, id: null, productId: product.id, nome: product.nome || product.name || "Produto", qtd: 1, novo: true }); state.deliveryProductPicker = false; if (navigator.vibrate) navigator.vibrate(10); render(); } return; }
+    if (action === "delivery-product" && state.selected) { const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId)); const draft = deliveryDraftFor(state.selected); if (product) { draft.items.push({ key: `novo-${product.id}`, id: null, productId: product.id, nome: product.nome || product.name || "Produto", qtd: 1, novo: true }); state.deliveryProductPicker = false; H.vibrate(10); render(); } return; }
     if (action === "delivery-not-delivered") { state.deliveryNotDelivered = true; state.deliveryReason = ""; render(); return; }
     if (action === "delivery-reason") { state.deliveryReason = target.dataset.reason || ""; render(); return; }
     if (action === "delivery-back") { state.deliveryNotDelivered = false; state.deliveryReason = ""; render(); return; }
@@ -1589,6 +1636,7 @@
     if (action === "confirm-nao-atendeu" && state.selected) { performOfflineNotDelivered(state.selected); return; }
     if (action === "next-stop") { openNextStop(); return; }
     if (action === "cancel-next-stop") { clearInterval(nextStopTimer); state.nextStop = null; render(); return; }
+    if (action === "route-filter") { state.routeFilter = target.dataset.filter || "fila"; render(); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
     if (action === "load-more-clients") loadClients(false);
@@ -1602,6 +1650,7 @@
       if (!confirmation) return;
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
+      if (confirmation.type === "archive-product") await performArchiveProduct((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
       if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
       if (confirmation.type === "cancel-route" || confirmation.type === "finish-route") await performEncerrarRota(confirmation.type === "cancel-route" ? "Planejamento cancelado pelo administrador." : "Rota encerrada pelo motorista.", confirmation.type === "finish-route");
       if (confirmation.type === "limpar-dia") await performLimparDia();
@@ -1616,6 +1665,7 @@
     if (action === "locate-client-address") await locateClientAddress();
     if (action === "new-product") showModal("new-product");
     if (action === "edit-product") {
+      if (ignoredProductClickId === target.dataset.productId) { ignoredProductClickId = null; return; }
       if (!isAdmin()) return;
       const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
       if (product) { state.modalProduct = product; showModal("edit-product"); }
@@ -1736,7 +1786,7 @@
     if (clientCard && event.touches.length === 1 && state.screen === "clients" && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: clientCard.dataset.client, el: clientCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
       hold.el.classList.add("is-hold-arming");
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); if (navigator.vibrate) navigator.vibrate(18); }, 950);
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(18); }, 950);
       clientHold = hold;
     }
     const productCard = event.target.closest("[data-client-product-id]");
@@ -1744,15 +1794,23 @@
       const touch = event.touches[0]; const hold = { id: productCard.dataset.clientProductId, el: productCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
       // Primeiro arma visualmente (vermelho + vibração); só ao soltar abre a
       // confirmação. Assim o toque longo nunca parece um clique que não fez nada.
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); if (navigator.vibrate) navigator.vibrate(14); }, 480);
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); H.vibrate(14); }, 480);
       clientProductHold = hold;
     }
     const target = event.target;
     const routeStop = target.closest("[data-route-stop]");
     if (routeStop && event.touches.length === 1 && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: routeStop.dataset.routeStop, el: routeStop, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); if (navigator.vibrate) navigator.vibrate(14); }, 520);
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); H.vibrate(14); }, 520);
       routeStopHold = hold;
+    }
+    // Segurar pressionado no card de Produtos (só admin) arma o vermelho e vibra;
+    // ao soltar abre a confirmação de arquivar. Espelha o padrão de Clientes/Rota.
+    const catalogCard = target.closest("[data-product-id]");
+    if (catalogCard && event.touches.length === 1 && state.screen === "products" && isAdmin() && !state.modal && !state.selected) {
+      const touch = event.touches[0]; const hold = { id: catalogCard.dataset.productId, el: catalogCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); H.vibrate(14); }, 520);
+      productHold = hold;
     }
     if (event.touches.length !== 1 || state.modal || state.selected || !target.closest("[data-route-current]")) { touchStart = null; return; }
     const touch = event.touches[0];
@@ -1764,6 +1822,7 @@
     if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); clientHold = null; }
     if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); clientProductHold = null; }
     if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); routeStopHold = null; }
+    if (productHold && (Math.abs(touch.clientX - productHold.x) > 12 || Math.abs(touch.clientY - productHold.y) > 12)) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-holding"); productHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
       current?.classList.toggle("is-swiping-skip", touch.clientX - touchStart.x < -24 && Math.abs(touch.clientX - touchStart.x) > Math.abs(touch.clientY - touchStart.y));
@@ -1790,6 +1849,11 @@
         return;
       }
     }
+    if (productHold) {
+      clearTimeout(productHold.timer);
+      const hold = productHold; productHold = null; hold.el.classList.remove("is-holding");
+      if (hold.triggered) { ignoredProductClickId = hold.id; archiveProductByHold((state.products || []).find(p => String(p.id) === String(hold.id))); return; }
+    }
     if (!touchStart || state.modal || state.selected || event.changedTouches.length !== 1) { touchStart = null; return; }
     const touch = event.changedTouches[0];
     const dx = touch.clientX - touchStart.x;
@@ -1803,8 +1867,8 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); } routeStopHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
-  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop]")) event.preventDefault(); });
+  app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "new-client-form" && ["productId", "qtdPadrao", "proximaData", "frequenciaDias", "scheduledAt", "precoAcordado"].includes(event.target.name)) { state.clientProductDraft[event.target.name] = event.target.value; return; }
@@ -1914,7 +1978,7 @@
           const localBody = { ...addressBody, endereco }; delete localBody.observacoes;
           if (d.localId) await H.api(`/nucleo/locais/${encodeURIComponent(d.localId)}`, { method: "PATCH", body: localBody });
           else if (endereco || addressBody.cep) await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/locais`, { method: "POST", body: { ...localBody, isPrincipal: true } });
-        } catch (_) { /* A conta já foi atualizada; o local principal é best-effort. */ }
+        } catch (localError) { toast("O endereço do mapa não atualizou: " + humanApiError(localError), true); }
         if (phone) {
           const principalId = state.clientDetail && state.clientDetail.contatoPrincipalId;
           if (principalId) await H.api(`/nucleo/telefones/${encodeURIComponent(principalId)}`, { method: "PATCH", body: { whatsapp: phone, phone, isPrincipal: true } });

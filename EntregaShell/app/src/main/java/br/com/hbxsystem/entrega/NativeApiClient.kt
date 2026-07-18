@@ -258,6 +258,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "dia-preview"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "rota"),
+            listOf("logistica", "mobile", "route"),
             listOf("logistica", "produtos"),
             listOf("logistica", "config"),
             listOf("logistica", "creditos", "extrato"),
@@ -269,6 +270,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
         method == "POST" && segments in listOf(
             listOf("logistica", "gerar-dia"),
+            listOf("logistica", "mobile", "materialize"),
             listOf("logistica", "rota", "planejar"),
             listOf("logistica", "rota", "iniciar"),
             listOf("logistica", "rota", "encerrar"),

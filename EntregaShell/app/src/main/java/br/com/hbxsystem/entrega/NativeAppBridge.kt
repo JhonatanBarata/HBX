@@ -2,8 +2,13 @@ package br.com.hbxsystem.entrega
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
@@ -226,6 +231,27 @@ class NativeAppBridge(
         }
         val url = "https://www.google.com/maps/dir/?api=1&destination=${Uri.encode(destination)}"
         open(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    // Vibração nativa: o WebView do Android trata navigator.vibrate como NO-OP,
+    // então o long-press só "carrega o vermelho" com feedback tátil por aqui.
+    @JavascriptInterface
+    fun vibrate(durationMs: Int) {
+        val ms = durationMs.coerceIn(1, 200).toLong()
+        val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (activity.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            activity.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(ms)
+            }
+        } catch (_: Throwable) {}
     }
 
     @JavascriptInterface

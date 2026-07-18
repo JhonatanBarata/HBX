@@ -196,11 +196,33 @@ export class LogisticaTrackingBonusService implements OnModuleInit, OnModuleDest
   }
 
   /** Extrato comercial: endpoint ADMIN-only; nunca usado por payload operacional. */
-  async getAdminStatement(companyId: number, monthInput?: string | null) {
-    const month = String(monthInput || saoPauloMonth()).trim();
+  async getAdminStatement(companyId: number, monthInput?: string | null, now = new Date()) {
+    const month = String(monthInput || saoPauloMonth(now)).trim();
     if (!isMonth(month)) throw new BadRequestException('Competência inválida. Use YYYY-MM.');
 
-    const [balanceCredits, trackedClaims, essentialCredits, bonusRows] = await Promise.all([
+    // Janelas de CONSUMO no fuso America/Sao_Paulo (créditos gastos, não saldo).
+    // Essencial usa a string routeDate (YYYY-MM-DD); rastreada usa completedAt.
+    const todayStr = saoPauloDate(now);
+    const startOfTodaySp = saoPauloDayStart(todayStr);
+    const weekStartStr = saoPauloDate(new Date(startOfTodaySp.getTime() - 6 * 24 * 60 * 60 * 1000));
+    const startOfWeekSp = saoPauloDayStart(weekStartStr);
+    const startOfMonthSp = saoPauloDayStart(`${month}-01`);
+    const startOfNextMonthSp = saoPauloDayStart(nextMonthFirstDay(month));
+    // DEBITED debita na entrega; COMPLETED é o estado final da saga — ambos já
+    // consumiram crédito, então os dois entram na conta de uso rastreado.
+    const trackedUsageWhere = { companyId, status: { in: ['DEBITED', 'COMPLETED'] } };
+
+    const [
+      balanceCredits,
+      trackedClaims,
+      essentialCredits,
+      bonusRows,
+      essentialToday,
+      essentialWeek,
+      trackedToday,
+      trackedWeek,
+      trackedMonth,
+    ] = await Promise.all([
       this.wallet.getBalance(companyId),
       (this.prisma as any).logisticaTrackedCreditClaim.findMany({
         where: { companyId, sourceMonth: month, status: 'COMPLETED' },
@@ -231,6 +253,26 @@ export class LogisticaTrackingBonusService implements OnModuleInit, OnModuleDest
         orderBy: { sourceMonth: 'desc' },
         take: 12,
       }),
+      // Essencial = 1 crédito por bloco (claim DEBITED); janela por routeDate.
+      (this.prisma as any).logisticaEssentialCreditClaim.count({
+        where: { companyId, routeDate: todayStr, status: 'DEBITED' },
+      }),
+      (this.prisma as any).logisticaEssentialCreditClaim.count({
+        where: { companyId, routeDate: { gte: weekStartStr, lte: todayStr }, status: 'DEBITED' },
+      }),
+      // Rastreada = créditos pagos consumidos; janela por completedAt.
+      (this.prisma as any).logisticaTrackedCreditClaim.aggregate({
+        where: { ...trackedUsageWhere, completedAt: { gte: startOfTodaySp } },
+        _sum: { paidCreditsConsumed: true },
+      }),
+      (this.prisma as any).logisticaTrackedCreditClaim.aggregate({
+        where: { ...trackedUsageWhere, completedAt: { gte: startOfWeekSp } },
+        _sum: { paidCreditsConsumed: true },
+      }),
+      (this.prisma as any).logisticaTrackedCreditClaim.aggregate({
+        where: { ...trackedUsageWhere, completedAt: { gte: startOfMonthSp, lt: startOfNextMonthSp } },
+        _sum: { paidCreditsConsumed: true },
+      }),
     ]);
 
     const tracked = trackedClaims as Array<{
@@ -245,9 +287,18 @@ export class LogisticaTrackingBonusService implements OnModuleInit, OnModuleDest
     const paidTrackedCredits = tracked.reduce((sum, row) => sum + Number(row.paidCreditsConsumed || 0), 0);
     const bonusForMonth = (bonusRows as BonusRow[]).find((row) => row.sourceMonth === month);
 
+    // Consumo combinado (essencial + rastreada) por janela; sempre >= 0.
+    const trackedSum = (agg: any) => Math.max(0, Number(agg?._sum?.paidCreditsConsumed || 0));
+    const usage = {
+      hoje: Number(essentialToday || 0) + trackedSum(trackedToday),
+      semana: Number(essentialWeek || 0) + trackedSum(trackedWeek),
+      mes: Number(essentialCredits || 0) + trackedSum(trackedMonth),
+    };
+
     return {
       month,
       balanceCredits,
+      usage,
       totals: {
         essentialCredits: Number(essentialCredits || 0),
         trackedDeliveries: tracked.length,
@@ -305,6 +356,34 @@ export function trackingBonusUsageKey(companyId: number, sourceMonth: string): s
 
 function isMonth(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+/** Data de hoje no fuso America/Sao_Paulo como string 'YYYY-MM-DD'. */
+function saoPauloDate(value = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/**
+ * Instante UTC do início do dia em São Paulo. O fuso é UTC-3 fixo (o Brasil
+ * abandonou o horário de verão em 2019), então o offset literal é seguro.
+ */
+function saoPauloDayStart(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00-03:00`);
+}
+
+/** Primeiro dia do mês seguinte a 'YYYY-MM' como 'YYYY-MM-DD'. */
+function nextMonthFirstDay(month: string): string {
+  const [year, mon] = month.split('-').map(Number);
+  const nextYear = mon >= 12 ? year + 1 : year;
+  const nextMon = mon >= 12 ? 1 : mon + 1;
+  return `${nextYear}-${String(nextMon).padStart(2, '0')}-01`;
 }
 
 function isUniqueError(error: unknown): boolean {

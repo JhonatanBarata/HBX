@@ -62,6 +62,7 @@
       });
     },
     call(phone) { bridge && bridge.openCall && bridge.openCall(String(phone || "")); },
+    vibrate(ms) { const d = Math.max(1, Math.min(200, Number(ms) || 12)); try { if (bridge && bridge.vibrate) { bridge.vibrate(d); return; } } catch (_) {} try { if (navigator.vibrate) navigator.vibrate(d); } catch (_) {} },
     whatsapp(phone, message) { bridge && bridge.openWhatsapp && bridge.openWhatsapp(String(phone || ""), String(message || "")); },
     maps(lat, lng, address) { bridge && bridge.openMaps && bridge.openMaps(lat == null ? null : String(lat), lng == null ? null : String(lng), String(address || "")); },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },

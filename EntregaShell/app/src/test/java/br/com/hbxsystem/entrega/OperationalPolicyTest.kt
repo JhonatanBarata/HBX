@@ -31,6 +31,14 @@ class OperationalPolicyTest {
     }
 
     @Test
+    fun `a rota antiga e a rota mobile contam como leitura de rota`() {
+        assertTrue(OperationalPolicy.isRouteRead("GET", "/logistica/rota"))
+        assertTrue(OperationalPolicy.isRouteRead("GET", "/logistica/mobile/route"))
+        assertTrue(OperationalPolicy.isRouteRead("GET", "/logistica/mobile/route?date=2026-07-18"))
+        assertFalse(OperationalPolicy.isRouteRead("POST", "/logistica/mobile/route"))
+    }
+
+    @Test
     fun `wifi only exige rede validada e nao tarifada`() {
         assertFalse(OperationalPolicy.proofUploadAllowed(wifiOnly = true, validated = true, unmetered = false))
         assertTrue(OperationalPolicy.proofUploadAllowed(wifiOnly = true, validated = true, unmetered = true))
