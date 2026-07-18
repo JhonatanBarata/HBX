@@ -238,7 +238,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
           where: { companyId: current.companyId, routeId: current.id },
         });
         const billableDeliveries = await tx.logisticaRouteStop.count({
-          where: { companyId: current.companyId, routeId: current.id, billingExempt: false },
+          where: { companyId: current.companyId, routeId: current.id, billingExempt: false, delivery: { status: { not: 'cancelada' } } },
         });
         return { route: current, totalUniqueDeliveries, billableDeliveries };
       }
@@ -311,8 +311,13 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       const totalUniqueDeliveries = await tx.logisticaRouteStop.count({
         where: { companyId: current.companyId, routeId: current.id },
       });
+      // FIX 18/07 (cobrança fantasma): o snapshot é append-only e o limpar-dia
+      // CANCELA as entregas sem tirar o stop — contar stop de entrega cancelada
+      // inflava os blocos (caso real: 94 vivas + 30 canceladas = 25 blocos em vez
+      // de 19). Bloco cobrável = stop não-exempt de entrega NÃO cancelada; o
+      // status da Entrega é a verdade (reabrir volta a contar sozinho).
       const billableDeliveries = await tx.logisticaRouteStop.count({
-        where: { companyId: current.companyId, routeId: current.id, billingExempt: false },
+        where: { companyId: current.companyId, routeId: current.id, billingExempt: false, delivery: { status: { not: 'cancelada' } } },
       });
       return { route: current, totalUniqueDeliveries, billableDeliveries };
     });
@@ -698,13 +703,15 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       if (route.status !== 'ACTIVE') throw commercialUnavailable();
       // Migrada de rota anterior: o bloco dela foi pago lá — liberada aqui.
       if (stop.billingExempt === true) return;
-      // Posição COBRÁVEL (ignora migradas intercaladas): snapshotOrder cru
-      // apontaria para bloco inexistente quando há exempt antes deste stop.
+      // Posição COBRÁVEL (ignora migradas intercaladas E canceladas): snapshotOrder
+      // cru apontaria para bloco inexistente quando há exempt/cancelada antes deste
+      // stop — mesma régua do billableDeliveries do snapshot (FIX 18/07).
       const billablePosition = await (this.prisma as any).logisticaRouteStop.count({
         where: {
           companyId,
           routeId: route.id,
           billingExempt: false,
+          delivery: { status: { not: 'cancelada' } },
           snapshotOrder: { lte: Number(stop.snapshotOrder) },
         },
       });

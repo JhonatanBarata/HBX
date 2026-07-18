@@ -1116,7 +1116,9 @@ function buildAuthServiceForNeutralSignup() {
   const prisma = {
     $transaction: async (input: any) => (typeof input === 'function' ? input(tx) : Promise.all(input)),
     // ensureUserTeamPolicyForUser: user não encontrado → early-return (fora do foco).
-    user: { findUnique: async () => null },
+    // findMany: usado por ensureGoogleAccount (byEmail); [] = "ninguém achado", o
+    // cenário que os testes de signup Google/e-mail deste harness exercitam.
+    user: { findUnique: async () => null, findMany: async () => [] },
     company: {
       findUnique: async () => ({
         companyKind: 'tenant',
@@ -1230,6 +1232,31 @@ test('signup Google: empresa nasce NEUTRA e estruturalmente IGUAL à do e-mail (
   assert.equal(google.systemModuleFinds.length, 0);
   // Google já entra logado (identidade confirmada pelo token).
   assert.equal(res.access_token, 'signed-token');
+});
+
+// PR18072026 L4-G — ensureGoogleAccount é o find-or-create extraído de
+// googleLoginOrSignup pra ser reaproveitado pelo pareamento do APK
+// (mobile-device.service.ts googlePairDevice, coberto em
+// mobile-device-google-pair.service.test.ts com um double). Este teste exercita
+// a implementação REAL do cadastro (byGoogleId/byEmail ambos vazios → cria),
+// provando que o mesmo miolo neutro do site também nasce a partir do pareamento
+// móvel — e que, ao contrário de signupWithGoogle, devolve o USER cru (quem loga
+// é o callsite, não o método).
+test('ensureGoogleAccount: sem googleId nem e-mail cadastra empresa neutra e devolve o USER, sem logar', async () => {
+  const { service, companyCreates, companyModuleWrites } = buildAuthServiceForNeutralSignup();
+
+  const user: any = await service.ensureGoogleAccount({
+    sub: 'google-sub-mobile-1',
+    email: 'motorista@cliente.test',
+    name: 'Motorista Novo',
+  });
+
+  assert.equal(companyCreates.length, 1);
+  assert.equal(companyCreates[0].status, 'pending_checkout'); // chavinha de créditos OFF no beforeEach
+  assert.equal(companyModuleWrites.length, 0); // empresa nasce sem post-it (kill-switch decide via default)
+  assert.equal(user.googleId, 'google-sub-mobile-1');
+  assert.equal(user.email, 'motorista@cliente.test');
+  assert.equal('access_token' in user, false);
 });
 
 test('confirmação legada com plano NULL não ressuscita hbx_padrao: sem gravação de plano, sem post-it, sem entitlement', async () => {

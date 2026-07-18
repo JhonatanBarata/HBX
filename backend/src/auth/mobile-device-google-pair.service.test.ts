@@ -50,6 +50,13 @@ function buildGooglePairHarness(options?: {
   refreshed?: any;
   linkedCount?: number;
   verifyError?: Error;
+  // PR18072026 L4-G: quando byGoogleId/byEmail não acham ninguém, o
+  // AuthService (real) cadastraria uma conta nova via ensureGoogleAccount.
+  // O double abaixo devolve isto no lugar do cadastro real — a prova de que a
+  // criação em si funciona (empresa neutra, módulos, créditos) já mora em
+  // auth.service.test.ts; aqui o que se testa é que MobileDeviceService CHAMA
+  // ensureGoogleAccount antes do pareamento e usa o resultado corretamente.
+  createdUser?: any;
 }) {
   const calls = {
     verifiedToken: '',
@@ -58,6 +65,7 @@ function buildGooglePairHarness(options?: {
     transactionCount: 0,
     passwordGateUpdates: 0,
     installationLocks: 0,
+    ensureGoogleAccountCalls: 0,
   };
 
   const tx: any = {
@@ -95,7 +103,39 @@ function buildGooglePairHarness(options?: {
       return identity;
     },
   };
-  const service = new MobileDeviceService(prisma, { sign: () => 'jwt' } as any, verifier);
+  // Double do AuthService real (auth.service.ts ensureGoogleAccount): mesma
+  // régua — byGoogleId → byEmail (único, sem Google divergente) → cadastro
+  // novo — usando os MESMOS `options` do cenário de pareamento, pra manter as
+  // duas metades (o que ensureGoogleAccount acharia/criaria e o que a
+  // transação de pareamento em seguida vê via tx.user) coerentes entre si.
+  const authService: any = {
+    ensureGoogleAccount: async (payload: { sub: string; email: string }) => {
+      calls.ensureGoogleAccountCalls += 1;
+      if (options?.byGoogleId) {
+        const user = options.byGoogleId;
+        if (user.isActive === false) {
+          throw new UnauthorizedException('Conta desativada. Contate seu Administrador.');
+        }
+        return user;
+      }
+      const matches = options?.byEmail ?? [];
+      if (matches.length > 1) {
+        throw new ConflictException('Há mais de uma conta HBX com este e-mail. Contate o suporte antes de vincular o aparelho.');
+      }
+      if (matches.length === 1) {
+        const existing = matches[0];
+        if (existing.googleId && existing.googleId !== payload.sub) {
+          throw new ConflictException('Este e-mail HBX já está vinculado a outra identidade Google.');
+        }
+        return existing;
+      }
+      if (!options?.createdUser) {
+        throw new UnauthorizedException('Não existe uma conta HBX vinculada a este e-mail Google.');
+      }
+      return options.createdUser;
+    },
+  };
+  const service = new MobileDeviceService(prisma, { sign: () => 'jwt' } as any, verifier, authService);
   (service as any).upsertPairedInstallationTx = async (_tx: any, user: any) => {
     calls.upsertUsers.push(user);
     return pairedDevice;
@@ -227,11 +267,36 @@ test('Google pair não sobrescreve googleId diferente nem escolhe e-mail ambígu
   assert.equal(ambiguous.calls.upsertUsers.length, 0);
 });
 
-test('Google pair rejeita conta inexistente, inativa, System Master e sem empresa', async (t) => {
-  await t.test('inexistente', async () => {
-    const { service } = buildGooglePairHarness();
-    await assert.rejects(() => service.googlePairDevice(googlePairDto()), UnauthorizedException);
-  });
+// PR18072026 L4-G — GAP FECHADO: e-mail sem conta HBX não rejeita mais com
+// "Não existe uma conta..."; cadastra igual ao site (ensureGoogleAccount
+// compartilhado com auth.service.ts) e segue o pareamento normalmente.
+test('Google pair: e-mail sem conta HBX cadastra empresa+user (neutra, Google confirmado) e pareia o aparelho', async () => {
+  const newUser = {
+    id: 900,
+    email: identity.email,
+    emailConfirmedAt: new Date('2026-07-18T00:00:00.000Z'),
+    googleId: identity.googleId,
+    companyId: 4200,
+    isActive: true,
+    isSystemMaster: false,
+    mustChangePassword: false,
+  };
+  // `createdUser` é o que o AuthService real devolveria de ensureGoogleAccount
+  // após cadastrar (auth.service.test.ts prova a criação em si); `byGoogleId`
+  // reflete que, depois do cadastro, a linha já existe quando
+  // resolveGooglePairingUserTx procurar por este googleId dentro da transação
+  // de pareamento — mesma linha, duas metades do double.
+  const { service, calls } = buildGooglePairHarness({ createdUser: newUser, byGoogleId: newUser });
+
+  const result = await service.googlePairDevice(googlePairDto());
+
+  assert.equal(calls.ensureGoogleAccountCalls, 1);
+  assert.deepEqual(calls.upsertUsers, [{ id: newUser.id, companyId: newUser.companyId }]);
+  assert.match(result.deviceToken, /^hbx_device_[A-Za-z0-9_-]{40,}$/);
+  assert.equal(result.entryUrl, 'https://www.hbxsystem.com.br/mobile/entry?ticket=unit-test');
+});
+
+test('Google pair rejeita conta inativa, System Master e sem empresa', async (t) => {
   await t.test('inativa', async () => {
     const { service } = buildGooglePairHarness({ byGoogleId: { ...activeUser, isActive: false } });
     await assert.rejects(() => service.googlePairDevice(googlePairDto()), UnauthorizedException);

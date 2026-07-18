@@ -501,6 +501,14 @@ class PairingActivity : AppCompatActivity() {
         }
         googleButton = button
         card.addView(button, LinearLayout.LayoutParams(-1, dp(48)))
+        // L5 — o google-pair agora CADASTRA quem não tem conta (igual ao site);
+        // a legenda avisa que ninguém precisa de código/conta prévia pra começar.
+        card.addView(TextView(this).apply {
+            text = "Novo no HBX? Entre com o Google e sua conta é criada na hora."
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#667793"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(64) })
         content.addView(View(this).apply { minimumHeight = dp(28) }, LinearLayout.LayoutParams(-1, 0, 1f))
 

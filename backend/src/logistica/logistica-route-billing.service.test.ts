@@ -27,8 +27,19 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
     | { started: Promise<void>; markStarted: () => void; waitForRelease: Promise<void>; release: () => void }
     | null = null;
   const p2002 = () => Object.assign(new Error('unique'), { code: 'P2002' });
+  // FIX 18/07 (cobrança fantasma): a régua de blocos passou a filtrar pela
+  // relação delivery.status — o fake resolve o status por deliveryId (default
+  // 'agendada', igual ao create real).
+  const deliveryStatuses = new Map<string, string>();
   const match = (row: any, where: any) => Object.entries(where || {}).every(([key, value]: any) => {
     if (key === 'OR' && Array.isArray(value)) return value.some((part) => match(row, part));
+    if (key === 'delivery') {
+      const status = deliveryStatuses.get(row.deliveryId) || 'agendada';
+      const notValue = (value as any)?.status?.not;
+      if (notValue !== undefined) return status !== notValue;
+      const equals = (value as any)?.status;
+      return equals === undefined || status === equals;
+    }
     if (key === 'status' && value?.in) return value.in.includes(row.status);
     if (key === 'id' && value?.in) return value.in.includes(row.id);
     if (key === 'deliveryId' && value?.in) return value.in.includes(row.deliveryId);
@@ -234,6 +245,7 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
       return { started, release };
     },
     raceNextClaimToForeignDebit: () => { raceClaimToDebited = true; },
+    setDeliveryStatus: (id: string, status: string) => { deliveryStatuses.set(id, status); },
   };
 }
 
@@ -254,6 +266,33 @@ test('Essencial cobra uma vez por bloco e só abre novo claim na 6ª entrega', a
   assert.equal(h.debitCalls.length, 2, '6ª entrega abre exatamente o bloco 2');
   assert.equal(h.claims.length, 2);
   assert.equal(new Set(h.stops.map((s) => s.deliveryId)).size, 6);
+});
+
+test('cancelada não ocupa bloco: limpar o dia e regerar não debita de novo (caso real 18/07)', async () => {
+  const h = makeHarness();
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+  const firstBatch = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10'];
+  await h.service.prepareRoute({ ...base, deliveryIds: firstBatch, chargeEssential: true });
+  assert.equal(h.debitCalls.length, 2, '10 entregas = 2 blocos');
+
+  // "Limpar o dia": as entregas morrem (cancelada), os stops ficam no snapshot.
+  firstBatch.forEach((id) => h.setDeliveryStatus(id, 'cancelada'));
+
+  // Regera o MESMO dia com 10 entregas novas: cobráveis = 10 (não 20). Blocos
+  // 1-2 já estão DEBITED → nenhum débito novo (antes do fix: 4 blocos, 2 extras).
+  const secondBatch = ['d11', 'd12', 'd13', 'd14', 'd15', 'd16', 'd17', 'd18', 'd19', 'd20'];
+  await h.service.prepareRoute({ ...base, deliveryIds: secondBatch, chargeEssential: true });
+  assert.equal(h.debitCalls.length, 2, 'regerar o dia reaproveita os blocos já pagos');
+  assert.equal(h.claims.length, 2);
+  assert.equal(h.stops.length, 20, 'snapshot segue append-only (auditoria intacta)');
+
+  // Posição cobrável pula canceladas: d11 é a 1ª cobrável (bloco 1), não a 11ª.
+  h.routes[0].status = 'ACTIVE';
+  await h.service.assertEssentialDeliveryCovered(7, 'd11');
+
+  // Crescer o dia além da capacidade já paga volta a cobrar só o delta.
+  await h.service.prepareRoute({ ...base, deliveryIds: ['d21'], chargeEssential: true });
+  assert.equal(h.debitCalls.length, 3, '11ª cobrável abre exatamente o bloco 3');
 });
 
 test('COMPLETED é terminal: START não anexa, não cobra e não reabre o modo congelado', async () => {

@@ -1383,43 +1383,101 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('Token Google inválido ou expirado. Tente novamente.');
     }
 
-    const googleId = payload.sub;
-    const email = payload.email.toLowerCase().trim();
-    if (!email) throw new BadRequestException('Google não retornou e-mail válido.');
+    const user = await this.ensureGoogleAccount({
+      sub: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      companyName: opts?.companyName,
+    });
 
-    // 1. Busca por googleId
-    let user: any = await this.prisma.user.findUnique({ where: { googleId }, include: { company: true } });
-
-    // 2. Busca por e-mail e vincula
-    if (!user) {
-      user = await this.prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } }, include: { company: true } });
-      if (user) {
-        user = await this.prisma.user.update({
-          where: { id: user.id },
-          data: { googleId, emailConfirmedAt: user.emailConfirmedAt || new Date() },
-          include: { company: true },
-        });
-      }
+    // Regra do site (inalterada pelo PR18072026 L4-G): conta sem empresa e que
+    // não é o master não loga. ensureGoogleAccount é compartilhado com o
+    // pareamento móvel, que tem a MESMA falta-de-empresa checada com outro
+    // contrato (BadRequestException, dentro de resolveGooglePairingUserTx) —
+    // por isso este check fica aqui no callsite web, não no método
+    // compartilhado (evita trocar tipo/mensagem de exceção de quem já confia
+    // nela hoje).
+    if (!user.companyId && !user.isSystemMaster) {
+      throw new UnauthorizedException('Conta sem empresa vinculada.');
     }
 
-    // 3. Login da conta existente
-    if (user) {
-      if (user.isActive === false) throw new UnauthorizedException('Conta desativada. Contate seu Administrador.');
-      if (!user.companyId && !user.isSystemMaster) throw new UnauthorizedException('Conta sem empresa vinculada.');
-      // Google é login federado (sem senha): a identidade já está provada pelo
-      // token. Forçar "troque a senha temporária" para quem entrou por Google é
-      // contradição — e a pessoa pode nem ter senha local. Limpa a trava.
-      if (user.mustChangePassword) {
-        await this.prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: false } });
-      }
-      return this.login(user, { companyId: user.companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
-    }
-
-    // 4. Cadastro novo via Google
-    return this.signupWithGoogle({ email, name: payload.name || email, googleId, companyName: opts?.companyName });
+    return this.login(user, { companyId: user.companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
   }
 
-  private async signupWithGoogle(data: { email: string; name: string; googleId: string; companyName?: string }) {
+  // PR18072026 L4-G — miolo find-or-create do Google extraído do
+  // googleLoginOrSignup pra ser reaproveitado pelo pareamento do APK
+  // (mobile-device.service.ts googlePairDevice). Recebe o payload JÁ
+  // VERIFICADO (nem site nem pareamento re-verificam token aqui; cada um usa
+  // seu próprio verifier) e devolve o User (existente ou recém-criado) — quem
+  // chama decide o que fazer com ele (login web / seguir pro pareamento).
+  //
+  // byGoogleId → byEmail (só se ÚNICO e sem Google diferente já vinculado,
+  // mesma trava que o pareamento móvel já tinha) → signup novo. A checagem de
+  // e-mail ambíguo/conflito de identidade NÃO existia no site antes (o site
+  // fazia findFirst e sobrescrevia sem checar) — endurece o site pro mesmo
+  // padrão do móvel; nenhum teste do site exercita esses ramos (auth.service.test.ts
+  // permanece verde), e o caso feliz (1 conta por e-mail) é idêntico a antes.
+  async ensureGoogleAccount(payload: { sub: string; email: string; name?: string; companyName?: string }) {
+    const googleId = String(payload.sub || '').trim();
+    const email = String(payload.email || '').toLowerCase().trim();
+    if (!googleId || !email) throw new BadRequestException('Google não retornou e-mail válido.');
+
+    // 1. Busca por googleId (identidade já vinculada antes).
+    const byGoogleId = await this.prisma.user.findUnique({ where: { googleId } });
+    if (byGoogleId) return this.finalizeExistingGoogleUser(byGoogleId);
+
+    // 2. Busca por e-mail (case-insensitive — `email` é @unique mas sensível a
+    // maiúsculas no legado) e vincula, só quando for a ÚNICA conta com este
+    // e-mail e ela ainda não tiver outra identidade Google.
+    const byEmail = await this.prisma.user.findMany({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      orderBy: { id: 'asc' },
+      take: 2,
+    });
+    if (byEmail.length > 1) {
+      throw new ConflictException('Há mais de uma conta HBX com este e-mail. Contate o suporte antes de vincular o aparelho.');
+    }
+    if (byEmail.length === 1) {
+      const existing: any = byEmail[0];
+      if (existing.googleId && existing.googleId !== googleId) {
+        throw new ConflictException('Este e-mail HBX já está vinculado a outra identidade Google.');
+      }
+      const linked = await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { googleId, emailConfirmedAt: existing.emailConfirmedAt || new Date() },
+      });
+      return this.finalizeExistingGoogleUser(linked);
+    }
+
+    // 3. Ninguém encontrado: cadastro novo (mesmo miolo do signup por e-mail;
+    // Google já chega com identidade confirmada).
+    const created = await this.createGoogleAccountTx({
+      email,
+      name: payload.name || email,
+      googleId,
+      companyName: payload.companyName,
+    });
+    return created.user;
+  }
+
+  private async finalizeExistingGoogleUser(user: any) {
+    if (user.isActive === false) throw new UnauthorizedException('Conta desativada. Contate seu Administrador.');
+    // Google é login federado (sem senha): a identidade já está provada pelo
+    // token. Forçar "troque a senha temporária" para quem entrou por Google é
+    // contradição — e a pessoa pode nem ter senha local. Limpa a trava.
+    if (user.mustChangePassword) {
+      await this.prisma.user.update({ where: { id: user.id }, data: { mustChangePassword: false } });
+      user.mustChangePassword = false;
+    }
+    return user;
+  }
+
+  // PR18072026 L4-G — criação crua (empresa NEUTRA + user), sem login. Extraído
+  // de signupWithGoogle pra ser reaproveitado por ensureGoogleAccount (que devolve
+  // só o user pro pareamento móvel decidir o que fazer). signupWithGoogle segue
+  // chamando isto e depois fazendo login, comportamento e assinatura intactos
+  // (auth.service.test.ts chama signupWithGoogle direto e espera access_token).
+  private async createGoogleAccountTx(data: { email: string; name: string; googleId: string; companyName?: string }) {
     const { email, name, googleId } = data;
     const username = email;
     const normalizedCompanyName = String(data.companyName || '').trim();
@@ -1441,6 +1499,11 @@ export class AuthService implements OnModuleInit {
       // plano, sem post-it de CompanyModule (módulo vem do default/kill-switch
       // do master). Estruturalmente IGUAL ao signup por e-mail; a diferença dos
       // dois fluxos é só identidade/verificação (Google já chega confirmado).
+      // PR18072026 L4-G: idêntico pro cadastro nascido do pareamento do APK
+      // (ensureGoogleAccount chama esta mesma função) — módulo `logistica` nasce
+      // ligado por SystemModule.defaultEnabled (kill-switch por empresa, sem
+      // post-it de CompanyModule aqui embaixo), mesma régua de qualquer empresa
+      // nova; ver module-access-policy.ts.
       const company = await tx.company.create({
         data: {
           slug,
@@ -1495,6 +1558,11 @@ export class AuthService implements OnModuleInit {
     // telefone/CPF (não concede 2x pra mesma identidade). platform_infra nunca nasce por aqui.
     await this.maybeGrantWelcomeAfterConfirm(created.company.id);
 
+    return created;
+  }
+
+  private async signupWithGoogle(data: { email: string; name: string; googleId: string; companyName?: string }) {
+    const created = await this.createGoogleAccountTx(data);
     return this.login(created.user, { companyId: created.company.id });
   }
 

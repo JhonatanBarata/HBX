@@ -11,6 +11,12 @@ import type { Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { withoutTenantScope } from '../prisma/tenant-context';
+// PR18072026 L4-G — AuthService.ensureGoogleAccount é o find-or-create do
+// Google compartilhado com o site. Sem ciclo de DI: AuthService não depende de
+// MobileDeviceService (confirmado em auth.service.ts) e os dois vivem no MESMO
+// AuthModule — injeção direta, sem forwardRef (só seria preciso se A precisasse
+// de B e B precisasse de A).
+import { AuthService } from './auth.service';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { resolveOperationalAccessProjection } from '../team/operational-capabilities';
 import {
@@ -98,6 +104,10 @@ export class MobileDeviceService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly googleIdTokens: GoogleIdTokenVerifierService,
+    // Opcional por retrocompat de teste (mobile-device-google-pair.service.test.ts
+    // instancia com 3 args nos cenários que não passam por googlePairDevice); em
+    // runtime o Nest sempre injeta a instância real via AuthModule.
+    private readonly authService?: AuthService,
   ) {}
 
   /** Hash para segredos aleatórios de alta entropia (token do aparelho/ticket). */
@@ -379,6 +389,12 @@ export class MobileDeviceService {
 
   private assertGooglePairingUserAvailable(user: MobilePairingUserRow | null | undefined) {
     if (!user) {
+      // PR18072026 L4-G: desde que googlePairDevice passou a chamar
+      // authService.ensureGoogleAccount ANTES desta transação, "e-mail sem
+      // conta" deixou de acontecer no fluxo normal — ensureGoogleAccount já
+      // cadastra (igual ao site) ou lança antes de chegar aqui. Mensagem/guard
+      // mantidos como rede de segurança (ex.: chamada direta deste método em
+      // teste, ou uma regressão futura que pule o passo acima).
       throw new UnauthorizedException('Não existe uma conta HBX vinculada a este e-mail Google.');
     }
     if (user.isActive === false) {
@@ -407,6 +423,13 @@ export class MobileDeviceService {
     });
   }
 
+  // PR18072026 L4-G: a transação segue IGUAL (nada aqui foi tocado) — mas desde
+  // que googlePairDevice passou a chamar authService.ensureGoogleAccount ANTES
+  // de abrir esta transação, o caminho normal sempre vai achar `byGoogleId` já
+  // na primeira busca (a conta existia, foi vinculada por e-mail, ou acabou de
+  // ser criada). Os ramos de e-mail ambíguo/conflito/"não existe" abaixo viram
+  // rede de segurança defensiva (ex.: corrida rara entre duas requisições
+  // simultâneas) em vez de caminho principal — preservados de propósito.
   private async resolveGooglePairingUserTx(
     tx: Prisma.TransactionClient,
     identity: VerifiedGoogleIdentity,
@@ -442,6 +465,8 @@ export class MobileDeviceService {
       take: 2,
     });
     if (byEmail.length === 0) {
+      // Inalcançável no fluxo normal (ver comentário acima da função): ensureGoogleAccount
+      // já cria a conta antes de chegar aqui. Mantido como rede de segurança.
       throw new UnauthorizedException('Não existe uma conta HBX vinculada a este e-mail Google.');
     }
     if (byEmail.length > 1) {
@@ -545,6 +570,21 @@ export class MobileDeviceService {
 
     let device: MobileDeviceRow | undefined;
     try {
+      // PR18072026 L4-G — fecha o gap "e-mail sem conta HBX = 401 no pareamento"
+      // (dono pediu: Google no APK cadastra gente nova, igual o site).
+      // ensureGoogleAccount é o MESMO find-or-create do googleLoginOrSignup
+      // (auth.service.ts): acha por googleId, vincula por e-mail, ou cadastra
+      // empresa+user novos (Google já chega confirmado). Roda ANTES da
+      // transação de pareamento — quando resolveGooglePairingUserTx (abaixo)
+      // procurar por googleId, a linha já existe (achada, vinculada, ou
+      // recém-criada). Fica dentro do try: uma corrida rara de dois pareamentos
+      // simultâneos criando o mesmo googleId já tinha o catch P2002 abaixo
+      // preparado pra isso.
+      if (!this.authService) {
+        throw new Error('MobileDeviceService sem AuthService injetado (googlePairDevice).');
+      }
+      await this.authService.ensureGoogleAccount({ sub: identity.googleId, email: identity.email });
+
       device = await withoutTenantScope('mobile pairing: validar Google e vincular instalação', () =>
         this.prisma.$transaction(async (tx) => {
           await this.lockPairingInstallationTx(tx, prepared.installationId);
