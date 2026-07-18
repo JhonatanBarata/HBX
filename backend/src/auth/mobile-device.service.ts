@@ -372,7 +372,32 @@ export class MobileDeviceService {
         AND (${existing?.id || null}::text IS NULL OR "id" <> ${existing?.id || null})
     `;
     if (Number(counts[0]?.count || 0) >= this.maxDevicesPerUser) {
-      throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
+      // AUTOLIMPEZA (dono 18/07: "1 celular por vez; usei sempre o mesmo, como
+      // excedeu 4?"). Antes do hardwareId, cada reinstalação do MESMO aparelho
+      // virava uma linha nova SEM identidade de hardware (hardwareId NULL). Um
+      // aparelho agora IDENTIFICADO (hardwareId real) que chega no teto só por
+      // causa desse entulho legado RECUPERA a vaga mais antiga sem identidade —
+      // é o próprio celular retomando o slot dele. Seguro: quem pareia já se
+      // autenticou (token Google/código do painel), e assim que os 4 slots têm
+      // hardwareId a reclamação para de existir (volta o 409 normal). Nunca
+      // toca em linha JÁ identificada (essa é de outro aparelho de verdade).
+      if (hardwareId && !existing) {
+        const reclaimable = await tx.$queryRaw<ExistingInstallationRow[]>`
+          SELECT "id", "userId", "companyId", "revokedAt"
+          FROM "MobileDevice"
+          WHERE "userId" = ${user.id}
+            AND "companyId" = ${user.companyId}
+            AND "revokedAt" IS NULL
+            AND "hardwareId" IS NULL
+          ORDER BY "lastUsedAt" ASC NULLS FIRST, "createdAt" ASC
+          LIMIT 1
+          FOR UPDATE
+        `;
+        existing = reclaimable[0];
+      }
+      if (!existing) {
+        throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
+      }
     }
 
     if (existing) {

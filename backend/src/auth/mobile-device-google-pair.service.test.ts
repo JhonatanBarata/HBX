@@ -488,3 +488,77 @@ test('FIX 18/07 — reinstalação do mesmo celular (installationId novo, hardwa
   assert.ok(sql.some((s) => s.includes('UPDATE "MobileDevice" SET') && s.includes('"revokedAt" = NULL')));
   assert.ok(!sql.some((s) => s.includes('INSERT INTO "MobileDevice"')), 'reconectar pelo hardware nunca deve inserir linha nova');
 });
+
+test('FIX 18/07 — celular identificado no teto RECUPERA a vaga de entulho legado (hardwareId NULL) em vez de 409', async () => {
+  const service = new MobileDeviceService({} as any, {} as any, {} as any);
+  const legacyDebris = {
+    id: 'device-legacy-null-hw',
+    userId: activeUser.id,
+    companyId: activeUser.companyId,
+    revokedAt: null,
+  };
+  const prepared = {
+    rawDeviceToken: 'hbx_device_reclaim',
+    tokenHash: 'token-hash-reclaim',
+    installationId: 'hbx_install_novo',
+    deviceName: pairedDevice.name,
+    platform: pairedDevice.platform,
+    hardwareId: 'android-id-primeiro-com-hw',
+    now: new Date(),
+  };
+  const sql: string[] = [];
+  const reclaimed = { ...pairedDevice, id: legacyDebris.id, installationId: prepared.installationId };
+  const tx: any = {
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      const statement = strings.join('?');
+      sql.push(statement);
+      if (statement.includes('FROM "User"')) {
+        return [{ id: activeUser.id, companyId: activeUser.companyId, isActive: true, isSystemMaster: false }];
+      }
+      if (statement.includes('WHERE "installationId" =')) return [];
+      // Nenhuma linha com este hardwareId ainda (é a 1ª pareada com identidade).
+      if (statement.includes('"hardwareId" =') && statement.includes('ORDER BY "updatedAt"')) return [];
+      // Teto cheio (4 linhas legadas sem hardwareId).
+      if (statement.includes('COUNT(*)')) return [{ count: 4n }];
+      // Reclamação: acha a linha legada mais antiga sem hardwareId.
+      if (statement.includes('"hardwareId" IS NULL') && statement.includes('ORDER BY "lastUsedAt"')) return [legacyDebris];
+      if (statement.includes('UPDATE "MobileDevice" SET')) return [reclaimed];
+      return [];
+    },
+  };
+
+  const result = await (service as any).upsertPairedInstallationTx(
+    tx,
+    { id: activeUser.id, companyId: activeUser.companyId },
+    prepared,
+  );
+  assert.equal(result.id, legacyDebris.id, 'retoma o slot do entulho legado, não abre uma 5ª linha nem dá 409');
+  assert.ok(sql.some((s) => s.includes('"hardwareId" IS NULL') && s.includes('ORDER BY "lastUsedAt"')), 'consultou o entulho reclamável');
+  assert.ok(!sql.some((s) => s.includes('INSERT INTO "MobileDevice"')));
+
+  // Contraprova: se TODOS os 4 slots já têm hardwareId (nada reclamável), volta o 409.
+  const sql2: string[] = [];
+  const txFull: any = {
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      const statement = strings.join('?');
+      sql2.push(statement);
+      if (statement.includes('FROM "User"')) {
+        return [{ id: activeUser.id, companyId: activeUser.companyId, isActive: true, isSystemMaster: false }];
+      }
+      if (statement.includes('WHERE "installationId" =')) return [];
+      if (statement.includes('"hardwareId" =') && statement.includes('ORDER BY "updatedAt"')) return [];
+      if (statement.includes('COUNT(*)')) return [{ count: 4n }];
+      if (statement.includes('"hardwareId" IS NULL') && statement.includes('ORDER BY "lastUsedAt"')) return [];
+      return [];
+    },
+  };
+  await assert.rejects(
+    () => (service as any).upsertPairedInstallationTx(
+      txFull,
+      { id: activeUser.id, companyId: activeUser.companyId },
+      prepared,
+    ),
+    ConflictException,
+    '4 slots identificados e cheios = 409 normal (teto de segurança preservado)',
+  );
+});
