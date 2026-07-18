@@ -192,6 +192,20 @@
         const content = root.querySelector(":scope > .content");
         const nav = root.querySelector(":scope > .bottom-nav");
 
+        // PR18072026 L4-D — o mapa maplibre (route-live-map / route-plan-preview-map)
+        // não pode ser destruído a cada render (piscada + peso: tiles recarregam, GPU
+        // reinicia). Se o nó atual já tem uma instância viva pendurada (el.__hbxMap,
+        // ver logistica/app.js mountMap) e o próximo HTML tem um placeholder com o
+        // MESMO id, transplanta o nó vivo pro lugar do placeholder ANTES de qualquer
+        // replaceWith (cobre tanto o #route-live-map dentro de .content quanto o
+        // #route-plan-preview-map dentro dos overlays, trocados mais abaixo). Se o
+        // novo HTML não tiver o id, deixa morrer naturalmente.
+        ["route-live-map", "route-plan-preview-map"].forEach(id => {
+          const liveEl = root.querySelector(`#${id}`);
+          const placeholder = template.content.querySelector(`#${id}`);
+          if (liveEl && liveEl.__hbxMap && placeholder && placeholder !== liveEl) placeholder.replaceWith(liveEl);
+        });
+
         if (nextTopbar) {
           const brand = topbar.querySelector(".brand-copy");
           const nextBrand = nextTopbar.querySelector(".brand-copy");

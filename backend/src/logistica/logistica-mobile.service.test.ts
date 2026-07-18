@@ -19,13 +19,16 @@ test('rota móvel expõe instrução de recebimento sem inventar campos monetár
   const logistica: any = {
     listRota: async () => ({
       date: '2026-07-17',
-      items: [{ id: 'delivery-1', status: 'agendada', cliente: { id: 'customer-1', nome: 'Cliente' } }],
+      items: [{ id: 'delivery-1', status: 'agendada', origem: 'recorrente', cliente: { id: 'customer-1', nome: 'Cliente' } }],
     }),
   };
   const service = new LogisticaMobileService(prisma, logistica, {} as any, {} as any);
   const result: any = await service.getRoute(7, '2026-07-17', { id: 42, companyId: 7, role: 'USER' });
 
   assert.equal(result.moduloFinanceiroAtivo, true);
+  // L4-A (18/07) — o adapter mobile só acrescenta campos; origem do listRota
+  // clássico precisa passar intacta pro app (filtro Avulsos/Recorrentes).
+  assert.equal(result.items[0].origem, 'recorrente');
   assert.deepEqual(result.pix, {
     chave: 'financeiro@hbx.test',
     nome: 'HBX TESTE',

@@ -317,6 +317,9 @@ export class LogisticaPedidoPublicoService {
         quantidade,
         valor,
         status: 'agendada',
+        // L4-A (18/07) — pedido pelo link é um pedido único do cliente, mesma
+        // categoria do createEntrega manual (nunca recorrência).
+        origem: 'avulsa',
         scheduledAt: new Date(),
         cobrancaStatus: 'pendente',
         notes,

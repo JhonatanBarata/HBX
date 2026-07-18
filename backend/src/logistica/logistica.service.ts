@@ -164,6 +164,9 @@ export class LogisticaService {
         id: true,
         status: true,
         quantidade: true,
+        // L4-A (18/07) — 'avulsa' | 'recorrente' | null (legado). Operacional,
+        // não comercial: exposto a QUALQUER ator (app filtra Avulsos/Recorrentes).
+        origem: true,
         // PR18072026 W1 (coordenador) — `valor` precisa ser lido pelo SERVIDOR
         // mesmo fora do billingAudience pra computar `valorHoje` (total seguro
         // da entrega, sem expor valorUnit/catálogo). A saída pro billingAudience
@@ -399,6 +402,9 @@ export class LogisticaService {
           id: r.id,
         status: r.status,
         quantidade: r.quantidade,
+        // L4-A (18/07) — legado (antes deste pacote) grava null; o app trata
+        // null como recorrente (mesmo default do bug que este pacote corrige).
+        origem: r.origem ?? null,
         ...(billingAudience ? { valor: r.valor } : {}),
         ...(valorHoje !== undefined ? { valorHoje } : {}),
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
@@ -603,6 +609,8 @@ export class LogisticaService {
         quantidade,
         valor,
         status: 'agendada',
+        // L4-A (18/07) — criação manual (POST /logistica/entregas) é sempre avulsa.
+        origem: 'avulsa',
         scheduledAt,
         cobrancaStatus: 'pendente',
         notes: input.notes?.trim() || null,
@@ -2729,6 +2737,9 @@ export interface RotaItem {
   id: string;
   status: string;
   quantidade: number;
+  // L4-A (18/07) — 'avulsa' | 'recorrente' | null (legado). Operacional, não
+  // comercial: sempre exposto (o app usa isto pra separar Avulsos/Recorrentes).
+  origem: string | null;
   valor?: number;
   // PR18072026 W1 (coordenador) — total SEGURO da entrega atual (gateado por
   // moduloFinanceiroAtivoConfig, não billingAudience): quanto cobrar na porta,

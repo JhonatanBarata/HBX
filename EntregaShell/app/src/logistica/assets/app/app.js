@@ -18,6 +18,11 @@
     config: H.cache.get("logistica-config", null),
     companyName: H.cache.get("logistica-company-name", ""),
     statement: null,
+    // L4-F Recarga: vitrine dos packs (catálogo público) + trava de saldo zerado.
+    recargaCatalog: null,
+    recargaLoading: false,
+    recargaError: null,
+    creditsLock: null,
     // PR — os 3 KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue/Avulsos).
     routeFilter: "fila",
     filter: "Todos",
@@ -105,6 +110,10 @@
   let ignoredProductClickId = null;
   let dayPreviewRequestId = 0;
   let dayReviewTimer = null;
+  // PR18072026 L4-E — cache só de RENDER (não é estado de negócio) pra detectar,
+  // no próprio dayOrderManualModal, se exatamente 2 posições trocaram desde o
+  // último desenho (assinatura de um único ▲/▼) e dar um flash na linha movida.
+  let dayManualOrderSnapshot = null;
   let navMotionTimer = null;
   let nextStopTimer = null;
   let routeMap = null;
@@ -177,7 +186,18 @@
   function toast(message, error) { state.toast = { message, error: !!error }; render(); clearTimeout(toast.timer); toast.timer = setTimeout(() => { state.toast = null; render(); }, 2600); }
   function validCoordinates(latValue, lngValue) { const lat = Number(latValue); const lng = Number(lngValue); return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0); }
   function routeMapPoints() { return orderedItems().map((item, index) => { const client = item.cliente || {}; const lat = Number(client.lat); const lng = Number(client.lng); return validCoordinates(lat, lng) ? { item, lat, lng, number: index + 1 } : null; }).filter(Boolean); }
-  function disposeRouteMap() { if (routeMap) { routeMap.remove(); routeMap = null; } routeMapHost = null; }
+  function disposeRouteMap() {
+    // PR18072026 L4-D — quando de fato descartamos, limpar as marcas no
+    // elemento (el.__hbxMap/__hbxMapParts) pra que o transplante do native.js
+    // e o próximo mountMap nunca leiam uma instância morta como se estivesse viva.
+    if (routeMapHost) {
+      ((routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.markers) || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
+      routeMapHost.__hbxMap = null;
+      routeMapHost.__hbxMapParts = null;
+    }
+    if (routeMap) { routeMap.remove(); routeMap = null; }
+    routeMapHost = null;
+  }
   function loadRouteMapLibrary() {
     if (window.maplibregl) return Promise.resolve(window.maplibregl);
     if (routeMapLibraryPromise) return routeMapLibraryPromise;
@@ -249,35 +269,83 @@
   function dayPreviewMapPoints() {
     return (state.dayPreview || []).map((client, index) => { const point = dayPreviewCoordinates(client); return point ? { ...point, number: index + 1 } : null; }).filter(Boolean);
   }
+  // PR18072026 L4-D — extraídas do corpo do mountMap pra serem reaproveitadas
+  // tanto na criação (dentro do map.on("load")) quanto na atualização de um
+  // mapa já vivo (sem recriar o objeto map): markers sempre podem ser
+  // removidos/recriados, a linha da rota é atualizada via source.setData
+  // quando já existe.
+  function applyRouteMarkers(host, map, points, interactive) {
+    const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
+    (parts.markers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
+    parts.markers = points.map(point => {
+      const pin = document.createElement(interactive ? "button" : "span");
+      if (interactive) pin.type = "button";
+      pin.className = "route-map-pin"; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`);
+      if (interactive) pin.addEventListener("click", () => showSheet(point.item));
+      return new window.maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
+    });
+    const bounds = new window.maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat]));
+    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
+  }
+  async function applyRouteLine(host, map, points) {
+    try {
+      const coordinates = points.length >= 2 ? await roadGeometry(points) : [];
+      if (routeMap !== map || routeMapHost !== host) return;
+      if (coordinates.length < 2) {
+        if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
+        if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line");
+        return;
+      }
+      const data = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } };
+      const source = map.getSource("hbx-route-line");
+      if (source) source.setData(data);
+      else {
+        map.addSource("hbx-route-line", { type: "geojson", data });
+        map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .9 } });
+      }
+    } catch (_) {
+      // Sem resposta viária, mantenha somente os pinos. Uma linha reta entre
+      // casas seria visualmente falsa e não pode ser apresentada como rota.
+    }
+  }
   async function mountMap(hostId, points, interactive) {
     const host = document.getElementById(hostId);
     if (!host) return;
     try {
+      if (!interactive) points = await roadOptimizedPoints(points);
+      // PR18072026 L4-D — se este host já carrega a MESMA instância viva
+      // (pendurada em host.__hbxMap por uma montagem anterior e preservada
+      // pelo transplante do native.js entre renders), atualiza markers/rota/
+      // fitBounds no lugar; o objeto map em si nunca é recriado à toa.
+      if (host.__hbxMap && routeMap === host.__hbxMap && routeMapHost === host) {
+        const styleLoaded = !host.__hbxMap.isStyleLoaded || host.__hbxMap.isStyleLoaded();
+        if (styleLoaded) {
+          applyRouteMarkers(host, host.__hbxMap, points, interactive);
+          host.classList.add("is-ready");
+          void applyRouteLine(host, host.__hbxMap, points);
+        } else {
+          // Mapa recém-criado, estilo ainda carregando: o handler "load" logo
+          // abaixo aplica os pontos mais recentes quando disparar.
+          host.__hbxMapParts.pendingPoints = points;
+        }
+        return;
+      }
       const pendingPosition = !points.length && interactive ? currentPosition() : Promise.resolve(null);
       const center = points[0] || { lat: -14.235, lng: -51.9253 };
-      if (!interactive) points = await roadOptimizedPoints(points);
       const maplibregl = await loadRouteMapLibrary();
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
       disposeRouteMap(); routeMapHost = host;
       const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [center.lng, center.lat], zoom: points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
-      routeMap = map;
+      routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [] };
       if (!points.length) void pendingPosition.then(position => {
         if (position && routeMap === map && routeMapHost === host) map.easeTo({ center: [position.lng, position.lat], zoom: 14, duration: 500 });
       });
       map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
-        points.forEach(point => { const pin = document.createElement(interactive ? "button" : "span"); if (interactive) pin.type = "button"; pin.className = "route-map-pin"; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`); if (interactive) pin.addEventListener("click", () => showSheet(point.item)); new maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map); });
-        const bounds = new maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat])); if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: 0 });
+        const latest = (host.__hbxMapParts && host.__hbxMapParts.pendingPoints) || points;
+        applyRouteMarkers(host, map, latest, interactive);
         host.classList.add("is-ready");
-        try {
-          const coordinates = await roadGeometry(points);
-          if (routeMap !== map || routeMapHost !== host || coordinates.length < 2) return;
-          map.addSource("hbx-route-line", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } });
-          map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .9 } });
-        } catch (_) {
-          // Sem resposta viária, mantenha somente os pinos. Uma linha reta entre
-          // casas seria visualmente falsa e não pode ser apresentada como rota.
-        }
+        await applyRouteLine(host, map, latest);
       });
       map.on("error", () => {});
     } catch (_) { if (host.isConnected) host.innerHTML = `<span class="route-map-unavailable">Não foi possível carregar o mapa agora.</span>`; }
@@ -288,7 +356,7 @@
   function shell(content, floatingAction) {
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions" style="width:100%"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
@@ -731,13 +799,15 @@
     if (state.loading) return shell(loading());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
-    // Avulsos = entregas avulsas (têm scheduledAt); recorrentes materializadas vêm com scheduledAt null.
-    const avulsos = items().filter(i => !!i.scheduledAt);
+    // Avulsos = item.origem === "avulsa" (campo do backend L4-A). scheduledAt é
+    // setado em TODO item pelo backend, então não serve pra distinguir; item
+    // legado sem origem (null/undefined) conta como recorrente.
+    const avulsos = items().filter(i => i.origem === "avulsa");
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
     // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
-    const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => !!i.scheduledAt) : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
+    const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
     return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
@@ -812,7 +882,7 @@
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button></section>`);
   }
 
@@ -940,15 +1010,16 @@
         const located = dayPreviewMapPoints().length;
         const count = Math.max(0, Number(state.dayReviewCountdown || 0));
         const mapContent = located ? `<div id="route-plan-preview-map" class="route-plan-preview-map"><span class="route-map-loading">Desenhando rota…</span></div>` : `<div class="route-plan-preview-map route-plan-map-empty"><span>Os endereços desta rota ainda não têm GPS para desenhar o mapa.</span></div>`;
-        return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet route-plan-review"><div class="route-plan-review-copy"><span class="hero-kicker">Prévia</span><h2>${preview.length || selected.length} ${preview.length === 1 ? "parada" : "paradas"}</h2></div>${mapContent}<div class="route-plan-confirm"><div class="route-plan-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="route-plan-count-track" cx="35" cy="35" r="30"/><circle class="route-plan-count-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p>Gerando rota…</p></div><button class="btn btn-primary btn-block route-plan-confirm-button" data-action="confirm-managed-route" ${state.dayStarting ? "disabled" : ""}>Gerar agora</button></section></div>`;
+        return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet route-plan-review"><div class="route-plan-review-copy"><span class="hero-kicker">Prévia</span><h2>${preview.length || selected.length} ${preview.length === 1 ? "parada" : "paradas"}</h2></div>${mapContent}<div class="route-plan-confirm"><div class="route-plan-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="route-plan-count-track" cx="35" cy="35" r="30"/><circle class="route-plan-count-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p>Gerando rota…</p></div><button class="btn btn-primary btn-block route-plan-confirm-button rp2-cta" data-action="confirm-managed-route" ${state.dayStarting ? "disabled" : ""}>Gerar agora</button></section></div>`;
       }
       const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
-      const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => { const key = dayPreviewKey(client); const missingLocation = !dayPreviewCoordinates(client); return `<div class="row-card${missingLocation ? " day-preview-location-invalid" : ""}${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div>${missingLocation ? `<b class="day-preview-location-warning">Localização</b>` : ""}</div>`; }).join("")}</div>` : "";
+      const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => { const key = dayPreviewKey(client); const missingLocation = !dayPreviewCoordinates(client); return `<div class="row-card rp2-client-card${missingLocation ? " day-preview-location-invalid" : ""}${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="avatar">${H.escape(initials(client.nome))}</div><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div>${missingLocation ? `<b class="day-preview-location-warning">GPS</b>` : ""}</div>`; }).join("")}</div>` : "";
       const previewStatus = state.dayPreviewError ? `<div class="empty"><strong>Não foi possível carregar</strong>${H.escape(state.dayPreviewError)}</div>` : selected.length === 0 ? `<div class="empty">Escolha ao menos um dia.</div>` : previewList || (state.dayPreviewLoading ? `<div class="empty">Carregando clientes…</div>` : `<div class="empty">Nenhum cliente nos dias escolhidos.</div>`);
       // Se a lista já está visível, ela é uma prévia válida mesmo que uma
       // atualização visual ainda esteja encerrando em segundo plano.
       const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
-      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="day-chips">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div><input id="day-preview-search" class="day-search" placeholder="Buscar" aria-label="Buscar cliente na prévia">${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}<button class="btn btn-primary btn-block" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo</button></section></div>`;
+      const summaryHtml = selected.length ? `<div class="rp2-summary"><b>${preview.length}</b><span>${preview.length === 1 ? "parada" : "paradas"} em ${selected.length} ${selected.length === 1 ? "dia" : "dias"}</span></div>` : "";
+      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2><p class="subtitle">Escolha os dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="rp2-days">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="rp2-day ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo ›</button></div></section></div>`;
     }
     if (state.modal === "route-mode") {
       const locked = routeActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
@@ -965,9 +1036,58 @@
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Saldo</span><strong>${Number(s.balanceCredits || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(totals.bonusCredits || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(totals.trackedDeliveries || 0)}</strong></div></div><div class="kpis"><div class="kpi"><span>Hoje</span><strong>${Number(usage.hoje || 0)}</strong></div><div class="kpi"><span>Semana</span><strong>${Number(usage.semana || 0)}</strong></div><div class="kpi"><span>Mês</span><strong>${Number(usage.mes || 0)}</strong></div></div><div class="list">${moves.length ? moves.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>Entrega rastreada</strong><span>${H.date(e.completedAt)}</span></div><strong>${Number(e.paidCredits || e.credits || 0)}</strong></div>`).join("") : empty("Sem entregas rastreadas", "")}</div></section></div>`;
     }
     if (state.modal === "route-modelos") return routeModelosModal();
+    if (state.modal === "recarga") return recargaModal();
     if (state.modal === "financeiro") return financeiroModal();
     if (state.modal === "avancado") return avancadoModal();
     return "";
+  }
+  // L4-F — Recarga (Ajustes › Administração, SÓ admin): saldo + vitrine dos packs
+  // do catálogo público. A COMPRA (cartão/MP) é concluída no PAINEL WEB — o link
+  // externo sai do WebView pro navegador (shouldOverrideUrlLoading); cartão nunca
+  // entra no app. Valores só aparecem aqui porque a tela inteira é admin-only
+  // (Lei do Vendedor preservada).
+  function recargaModal() {
+    const statement = state.statement || {};
+    const balance = Number(statement.balanceCredits || 0);
+    const packs = state.recargaCatalog && Array.isArray(state.recargaCatalog.packs) ? state.recargaCatalog.packs : [];
+    const webBase = String((H.info() || {}).webBaseUrl || "").replace(/\/+$/, "");
+    const packRow = pack => `<div class="settings-row"${pack.paused ? ` style="opacity:.45"` : ""}><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>${H.escape(pack.title || pack.key || "Pacote")}</strong><span>${Number(pack.credits || 0)} créditos${pack.recommended ? " · mais usado" : ""}${pack.paused ? " · em breve" : ""}</span></div><strong>${H.money(Number(pack.price || 0))}</strong></div>`;
+    const list = state.recargaLoading ? loading() : state.recargaError ? empty("Não foi possível carregar", state.recargaError) : packs.length ? `<section class="card flat">${packs.map(packRow).join("")}</section>` : empty("Sem pacotes no momento", "Fale com o suporte HBX.");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Recarga de créditos</h2><p class="subtitle">Créditos geram as rotas do dia</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Saldo atual</span><strong>${balance}</strong></div></div><div class="section-title"><strong>Pacotes</strong></div>${list}${webBase ? `<a class="btn btn-primary btn-block" href="${H.escape(webBase)}/configuracoes">Concluir recarga no painel</a>` : `<p class="subtitle">Acesse o painel HBX no computador para concluir a recarga.</p>`}<p class="subtitle" style="margin-top:8px">O pagamento é feito no painel HBX. Depois de pagar, toque em Sincronizar — os créditos entram sozinhos.</p></section></div>`;
+  }
+  function openRecarga() {
+    if (!isAdmin()) return;
+    state.recargaLoading = true; state.recargaError = null;
+    showModal("recarga");
+    void (async () => {
+      try {
+        const [catalog, statement] = await Promise.all([
+          H.api("/credits/public-catalog"),
+          H.api("/logistica/creditos/extrato").catch(() => null),
+        ]);
+        state.recargaCatalog = catalog || { packs: [] };
+        if (statement) state.statement = statement;
+      } catch (error) { state.recargaError = humanApiError(error); }
+      state.recargaLoading = false;
+      render();
+    })();
+  }
+  // Trava de créditos esgotados (L4-F): saldo <= 0 SEM rota ativa cobre o app —
+  // quem está dirigindo termina o dia (exceção pedida pelo dono); o próximo boot
+  // sem saldo cai na trava. Erro de rede NUNCA tranca (fail-open): trancar por
+  // bug de conexão seria pior que deixar passar um dia de saldo negativo.
+  async function refreshCreditsLock() {
+    try {
+      const statement = await H.api("/logistica/creditos/extrato");
+      state.statement = statement;
+      const balance = Number(statement && statement.balanceCredits);
+      state.creditsLock = Number.isFinite(balance) && balance <= 0 && !routeActive() ? { balance } : null;
+    } catch (_) { state.creditsLock = null; }
+    render();
+  }
+  function creditsLockOverlay() {
+    if (!state.creditsLock) return "";
+    return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon("wallet", 22)}</div><h2>Créditos esgotados</h2><p>Sem créditos a rota do dia não pode ser gerada. Recarregue para continuar usando o aplicativo.</p><button class="btn btn-primary btn-block" data-action="open-recarga">Recarregar créditos</button><button class="btn btn-secondary btn-block" data-action="credits-lock-refresh">Já recarreguei · atualizar</button></div></div>`;
   }
   // PR18072026 — "Financeiro" (Ajustes › Administração): mestre liga/desliga o
   // módulo inteiro; sub-toggles só aparecem com o mestre ON. Cada linha é 1
@@ -992,25 +1112,36 @@
   // PR18072026 Onda 3 — passo "Como montar a rota?": 3 cards grandes, sem
   // jargão. "Ordem do app" segue o fluxo antigo (startDayReview) sem mudança.
   function dayOrderChooseModal() {
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Como montar a rota?</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">
-      <button type="button" class="row-card" data-action="order-mode-app"><div class="card-main"><strong>Ordem do app</strong><span>O aplicativo escolhe o melhor caminho</span></div><span>›</span></button>
-      <button type="button" class="row-card" data-action="order-mode-manual"><div class="card-main"><strong>Minha ordem</strong><span>Você escolhe a ordem das paradas</span></div><span>›</span></button>
-      <button type="button" class="row-card" data-action="order-mode-saved"><div class="card-main"><strong>Rota salva</strong><span>Usar uma ordem que você já salvou antes</span></div><span>›</span></button>
-    </div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
+    const stopsCount = (state.dayPreview || []).length;
+    const modes = [
+      { action: "order-mode-app", variant: "app", glyph: "✨", title: "Automática", desc: "O app traça o caminho mais curto" },
+      { action: "order-mode-manual", variant: "manual", glyph: "↕", title: "Minha ordem", desc: "Você arrasta e organiza as paradas" },
+      { action: "order-mode-saved", variant: "saved", glyph: "☆", title: "Rota salva", desc: "Repetir uma ordem que você guardou" },
+    ];
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Como montar?</h2><p class="subtitle">${stopsCount} ${stopsCount === 1 ? "parada pronta" : "paradas prontas"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-mode-list">${modes.map(m => `<button type="button" class="row-card rp2-mode-card" data-action="${m.action}"><span class="rp2-mode-icon rp2-mode-icon--${m.variant}">${m.glyph}</span><span class="card-main"><strong>${m.title}</strong><span>${m.desc}</span></span><span class="rp2-mode-chev">›</span></button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></div></section></div>`;
   }
   // "Minha ordem": lista da prévia com ▲▼ grandes (mecanismo obrigatório de
   // reordenação) + checkbox opcional de salvar como rota do dia escolhido.
   function dayOrderManualModal() {
     const preview = state.dayPreview || [];
     const order = state.dayManualOrder || [];
+    // Flash só quando exatamente 2 posições diferem do último render (assinatura
+    // de um swap único de ▲/▼); reentrar no passo do zero muda várias posições
+    // de uma vez, então não dispara flash nenhum (heurística puramente visual).
+    let movedKeys = new Set();
+    if (dayManualOrderSnapshot && dayManualOrderSnapshot.length === order.length) {
+      const diffKeys = order.filter((key, index) => dayManualOrderSnapshot[index] !== key);
+      if (diffKeys.length === 2) movedKeys = new Set(diffKeys);
+    }
+    dayManualOrderSnapshot = order.slice();
     const rows = order.map((key, index) => {
       const client = preview.find(c => dayPreviewKey(c) === key);
       if (!client) return "";
-      return `<div class="row-card"><div class="card-main"><strong>${index + 1}. ${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div><div class="actions" style="margin:0;gap:6px"><button type="button" class="btn btn-secondary" style="min-width:52px;font-size:1.3rem;line-height:1" data-action="manual-order-up" data-order-key="${H.escape(key)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary" style="min-width:52px;font-size:1.3rem;line-height:1" data-action="manual-order-down" data-order-key="${H.escape(key)}" aria-label="Mover para baixo" ${index === order.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
+      return `<div class="row-card rp2-order-row${movedKeys.has(key) ? " rp2-order-flash" : ""}"><div class="rp2-order-badge">${index + 1}</div><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="manual-order-up" data-order-key="${H.escape(key)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="manual-order-down" data-order-key="${H.escape(key)}" aria-label="Mover para baixo" ${index === order.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
     }).join("");
     const singleDay = state.daySelection.length === 1;
     const dayLabel = singleDay ? (weekDays.find(day => day.n === state.daySelection[0]) || {}).label || "" : "";
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minha ordem</h2><p class="subtitle">Use as setas para reordenar as paradas</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list day-order-list">${rows || empty("Sem paradas", "Escolha ao menos um dia com clientes.")}</div>${singleDay && order.length ? `<button type="button" class="settings-row" data-action="toggle-manual-save" role="switch" aria-checked="${state.dayManualSave}"><div class="settings-copy"><strong>Salvar como minha rota de ${H.escape(dayLabel)}</strong></div><span class="module-switch ${state.dayManualSave ? "active" : ""}" aria-hidden="true"><i></i></span></button>` : ""}<button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block" type="button" data-action="confirm-manual-order" ${order.length && !state.dayStarting ? "" : "disabled"}>Gerar agora</button></section></div>`;
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Sua ordem</h2><p class="subtitle">Toque nas setas para mover</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list day-order-list">${rows || empty("Sem paradas", "Escolha ao menos um dia com clientes.")}</div></div><div class="rp2-footer">${singleDay && order.length ? `<button type="button" class="settings-row" data-action="toggle-manual-save" role="switch" aria-checked="${state.dayManualSave}"><div class="settings-copy"><strong>Salvar como minha rota de ${H.escape(dayLabel)}</strong></div><span class="module-switch ${state.dayManualSave ? "active" : ""}" aria-hidden="true"><i></i></span></button>` : ""}<button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="confirm-manual-order" ${order.length && !state.dayStarting ? "" : "disabled"}>Gerar agora</button></div></section></div>`;
   }
   // "Rota salva": lista de rota-modelos; escolher pré-ordena a prévia (clientes
   // fora do modelo vão pro fim) e segue direto pro "Gerar agora".
@@ -1018,8 +1149,8 @@
     const modelos = state.routeModelos || [];
     const today = todayIso();
     const sorted = [...modelos].sort((a, b) => (Number(a.diaSemana) === today ? -1 : 0) - (Number(b.diaSemana) === today ? -1 : 0));
-    const rows = sorted.map(modelo => `<button type="button" class="row-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><span>›</span></button>`).join("");
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Rota salva</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota no modo \"Minha ordem\" primeiro.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
+    const rows = sorted.map(modelo => `<button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></span><span class="rp2-mode-chev">›</span></button>`).join("");
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Rota salva</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-mode-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota no modo \"Minha ordem\" primeiro.")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></div></section></div>`;
   }
   function clientScheduleLine(client) {
     const days = (client.diasEntrega || []).map(Number).filter(Boolean);
@@ -1068,7 +1199,13 @@
     if (!moduleActive) return;
     const modalScroll = app.querySelector(".modal")?.scrollTop || 0;
     const sheetScroll = app.querySelector(".sheet")?.scrollTop || 0;
-    disposeRouteMap();
+    // PR18072026 L4-D — só descarta o mapa vivo quando este render NÃO vai
+    // reexibi-lo; se vai (mesma tela/mesmo passo), mountMap/mountDayReviewMap
+    // reaproveita a instância (applyRouteMarkers/applyRouteLine) em vez de
+    // destruir e recriar o maplibre a cada render (piscada + peso, item 10).
+    const willShowRouteMap = state.screen === "route" && !state.dayReview;
+    const willShowDayReviewMap = state.modal === "manage-day" && state.dayReview;
+    if (!willShowRouteMap && !willShowDayReviewMap) disposeRouteMap();
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
@@ -1098,8 +1235,8 @@
         lastRouteTransmuxState = nextTransmuxState;
       }
     }
-    if (state.screen === "route" && !state.dayReview) void mountRouteMap();
-    if (state.modal === "manage-day" && state.dayReview) void mountDayReviewMap();
+    if (willShowRouteMap) void mountRouteMap();
+    if (willShowDayReviewMap) void mountDayReviewMap();
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
     state.openingOverlay = null;
@@ -1157,6 +1294,9 @@
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
     if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; state.routeBootRetries = 0; }
+    // L4-F: saldo do admin em segundo plano — alimenta a trava "créditos esgotados"
+    // (dirigindo termina o dia; falha de rede nunca tranca). Não bloqueia o boot.
+    if (isAdmin()) void refreshCreditsLock();
     else {
       state.error = humanApiError(results[0].reason);
       // Primeiro login: a sessão nativa pode não estar pronta quando o boot já
@@ -1779,6 +1919,8 @@
     if (action === "call-stop" || action === "wa-stop" || action === "confirm-stop") { event.preventDefault(); event.stopPropagation(); const next = openItems()[0]; if (!next) return; if (action === "call-stop") H.call(next.cliente.phone); if (action === "wa-stop") H.whatsapp(next.cliente.phone, `Olá, ${next.cliente.nome || "tudo bem"}? Sua entrega está a caminho.`); if (action === "confirm-stop") confirmDelivery(next); }
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(humanApiError(error), true); } }
+    if (action === "open-recarga") openRecarga();
+    if (action === "credits-lock-refresh") { toast("Atualizando saldo…"); void refreshCreditsLock(); }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
   });
   app.addEventListener("touchstart", event => {
@@ -1786,22 +1928,26 @@
     if (clientCard && event.touches.length === 1 && state.screen === "clients" && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: clientCard.dataset.client, el: clientCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
       hold.el.classList.add("is-hold-arming");
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(18); }, 950);
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       clientHold = hold;
     }
     const productCard = event.target.closest("[data-client-product-id]");
     if (productCard && event.touches.length === 1) {
       const touch = event.touches[0]; const hold = { id: productCard.dataset.clientProductId, el: productCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      // Primeiro arma visualmente (vermelho + vibração); só ao soltar abre a
-      // confirmação. Assim o toque longo nunca parece um clique que não fez nada.
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); H.vibrate(14); }, 480);
+      // Mesmo padrão do clientHold: arma is-hold-arming na hora do touchstart
+      // (vermelho progressivo); só aos 950ms vira is-holding + vibra. Ao soltar
+      // abre a confirmação. Assim o toque longo nunca parece um clique que não
+      // fez nada.
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       clientProductHold = hold;
     }
     const target = event.target;
     const routeStop = target.closest("[data-route-stop]");
     if (routeStop && event.touches.length === 1 && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: routeStop.dataset.routeStop, el: routeStop, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); H.vibrate(14); }, 520);
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       routeStopHold = hold;
     }
     // Segurar pressionado no card de Produtos (só admin) arma o vermelho e vibra;
@@ -1809,7 +1955,8 @@
     const catalogCard = target.closest("[data-product-id]");
     if (catalogCard && event.touches.length === 1 && state.screen === "products" && isAdmin() && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: catalogCard.dataset.productId, el: catalogCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.add("is-holding"); H.vibrate(14); }, 520);
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       productHold = hold;
     }
     if (event.touches.length !== 1 || state.modal || state.selected || !target.closest("[data-route-current]")) { touchStart = null; return; }
@@ -1820,9 +1967,9 @@
     if (event.touches.length !== 1) return;
     const touch = event.touches[0];
     if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); clientHold = null; }
-    if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); clientProductHold = null; }
-    if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); routeStopHold = null; }
-    if (productHold && (Math.abs(touch.clientX - productHold.x) > 12 || Math.abs(touch.clientY - productHold.y) > 12)) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-holding"); productHold = null; }
+    if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); clientProductHold = null; }
+    if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); routeStopHold = null; }
+    if (productHold && (Math.abs(touch.clientX - productHold.x) > 12 || Math.abs(touch.clientY - productHold.y) > 12)) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); productHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
       current?.classList.toggle("is-swiping-skip", touch.clientX - touchStart.x < -24 && Math.abs(touch.clientX - touchStart.x) > Math.abs(touch.clientY - touchStart.y));
@@ -1836,12 +1983,12 @@
     }
     if (clientProductHold) {
       clearTimeout(clientProductHold.timer);
-      const hold = clientProductHold; clientProductHold = null; hold.el.classList.remove("is-holding");
+      const hold = clientProductHold; clientProductHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredClientProductClickId = hold.id; void deleteClientProduct(state.clientProducts.find(item => item.id === hold.id)); return; }
     }
     if (routeStopHold) {
       clearTimeout(routeStopHold.timer);
-      const hold = routeStopHold; routeStopHold = null; hold.el.classList.remove("is-holding");
+      const hold = routeStopHold; routeStopHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) {
         ignoredRouteStopClickId = hold.id;
         touchStart = null;
@@ -1851,7 +1998,7 @@
     }
     if (productHold) {
       clearTimeout(productHold.timer);
-      const hold = productHold; productHold = null; hold.el.classList.remove("is-holding");
+      const hold = productHold; productHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredProductClickId = hold.id; archiveProductByHold((state.products || []).find(p => String(p.id) === String(hold.id))); return; }
     }
     if (!touchStart || state.modal || state.selected || event.changedTouches.length !== 1) { touchStart = null; return; }
@@ -1867,7 +2014,7 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
@@ -2018,11 +2165,36 @@
   window.HBXApp = {
     refresh,
     handleBack() {
-      if (state.confirmation) { state.confirmation = null; render(); return true; }
-      if (state.modal) { state.modal = null; render(); return true; }
-      if (state.sheet) { state.sheet = null; state.selected = null; render(); return true; }
-      if (state.screen !== "route") { navigateTo("route", "back"); return true; }
-      return false;
+      // Regra do dono: voltar sempre fecha o que está por cima primeiro; só sai do
+      // app quando já está na Rota sem nada aberto. Síncrono pro nativo (Kotlin só
+      // quer o boolean); closeOverlay é assíncrono, então dispara com `void` e já
+      // devolve `true` — a UI fecha com a animação de qualquer forma.
+      try {
+        if (state.confirmation) { state.confirmation = null; render(); return true; }
+        if (state.modal === "manage-day") {
+          if (state.dayReview) {
+            // Aborta a prévia (não confirma rota) e mata o timer pra não sobrar rodando sozinho.
+            clearInterval(dayReviewTimer);
+            state.dayReview = false;
+            render();
+            return true;
+          }
+          if (state.dayOrderStep === "manual" || state.dayOrderStep === "saved" || state.dayOrderStep === "choose") {
+            // Espelha data-action="back-route-order": choose volta pros dias, manual/saved volta pro choose.
+            state.dayOrderStep = state.dayOrderStep === "choose" ? null : "choose";
+            render();
+            return true;
+          }
+        }
+        if (state.modal) { void closeOverlay("modal"); return true; }
+        if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
+        if (state.selected) { void closeOverlay("sheet"); return true; }
+        if (state.screen !== "route") { navigateTo("route", "back"); return true; }
+        return false;
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
     },
     routeActivated() { toast("GPS da rota ativado."); },
     locationPermissionChanged(granted) {

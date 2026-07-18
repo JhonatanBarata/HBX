@@ -262,6 +262,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "produtos"),
             listOf("logistica", "config"),
             listOf("logistica", "creditos", "extrato"),
+            listOf("credits", "public-catalog"),
             listOf("logistica", "admin-route", "route"),
             listOf("logistica", "admin-route", "adjustments"),
             listOf("logistica", "rota-modelos"),

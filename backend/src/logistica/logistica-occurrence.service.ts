@@ -458,6 +458,8 @@ export class LogisticaOccurrenceService {
               quantidade,
               valor,
               status: 'agendada',
+              // L4-A (18/07) — materialização de recorrência (ClienteProduto vencido).
+              origem: 'recorrente',
               scheduledAt: start,
               cobrancaStatus: 'pendente',
               notes: note || null,

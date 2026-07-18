@@ -1215,6 +1215,11 @@ model Entrega {
   quantidade        Int      @default(1)
   valor             Float    @default(0)
   status            String   @default("agendada") // agendada | em_rota | entregue | cancelada
+  // L4-A (18/07) — 'avulsa' | 'recorrente' | null. O app filtra "Avulsos" por
+  // scheduledAt != null, mas o backend grava scheduledAt em QUALQUER entrega
+  // (recorrente inclusive) — sem este campo o filtro contava recorrência como
+  // avulso. Aditivo/nullable: legado (null) o app trata como recorrente.
+  origem            String?
   scheduledAt       DateTime?
   startedAt         DateTime?
   deliveredAt       DateTime?

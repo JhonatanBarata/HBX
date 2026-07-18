@@ -198,6 +198,8 @@ test('gerarDia: 2 chamadas no mesmo dia = 1 entrega por cliente (idempotente)', 
   // Backward-compat: escalar coerente com o item (qtd 2 × valorUnit 15 acordado = 30).
   assert.equal(entregas[0].quantidade, 2);
   assert.equal(entregas[0].valor, 30);
+  // L4-A (18/07) — gerarDia materializa recorrência: origem sempre 'recorrente'.
+  assert.equal(entregas[0].origem, 'recorrente');
   assert.equal(itensCriados.length, 1);
   assert.equal(itensCriados[0].qtdPrevista, 2);
   assert.equal(itensCriados[0].valorUnit, 15);

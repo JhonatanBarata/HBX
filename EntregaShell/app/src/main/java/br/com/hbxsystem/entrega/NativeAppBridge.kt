@@ -261,6 +261,9 @@ class NativeAppBridge(
         .put("versionCode", BuildConfig.VERSION_CODE)
         .put("platform", "android")
         .put("offlineRouteSupported", BuildConfig.APP_MODE == "logistica")
+        // Recarga (L4-F): o app abre o checkout no painel web via link externo —
+        // o JS precisa saber a origem do painel sem hardcode de domínio.
+        .put("webBaseUrl", BuildConfig.WEB_BASE_URL)
         .toString()
 
     @JavascriptInterface

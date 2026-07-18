@@ -209,6 +209,9 @@ test('payload com preço é IGNORADO: valorUnit/valor saem do catálogo do servi
   assert.equal(entregas[0].itens.create[0].qtdPrevista, 2);
   assert.equal(entregas[0].status, 'agendada');
   assert.match(String(entregas[0].notes), /Pedido pelo link/);
+  // L4-A (18/07) — pedido pelo link é um pedido único do cliente (mesma
+  // categoria do createEntrega manual), nunca recorrência.
+  assert.equal(entregas[0].origem, 'avulsa');
   flagOff();
 });
 

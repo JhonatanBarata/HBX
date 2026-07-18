@@ -295,7 +295,9 @@
   });
   document.addEventListener("hbx:theme", render);
   window.addEventListener("online", () => refresh(true));
-  window.HBXApp = { refresh };
+  // Embutido na logística, HBXApp já existe (logistica/app.js carrega antes) e tem
+  // handleBack/routeActivated/locationPermissionChanged — não pode ser sobrescrito.
+  if (!window.HBXApp) window.HBXApp = { refresh };
   if (!["funnel", "chat", "agenda"].includes(state.screen)) state.screen = "funnel";
   H.salesModule = {
     activate(screen, motion) {

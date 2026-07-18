@@ -527,3 +527,83 @@ test('tentar novamente move somente a própria parada para o fim', async () => {
   assert.equal(recalculation?.[2], 42);
   assert.deepEqual(result, { id: 'delivery-1', rotaOrdem: 4 });
 });
+
+// ── L4-A (18/07) — movePending (carry-forward de pendência pro dia novo)
+// clona a Entrega original: precisa herdar `origem` (nunca reclassificar uma
+// pendência avulsa como recorrente só por ter sido movida de dia).
+test('preparar com pendência: clone do dia novo herda a origem da entrega original', async () => {
+  const companyId = 7;
+  const operationalDate = '2026-07-19';
+  const originalId = 'pending-1';
+  const original = {
+    id: originalId,
+    customerProfileId: 'customer-1',
+    contatoId: null,
+    localId: null,
+    productId: 10,
+    quantidade: 2,
+    valor: 20,
+    scheduledAt: new Date('2026-07-17T03:00:00.000Z'), // dia anterior, ainda aberta
+    notes: null,
+    origem: 'avulsa',
+    itens: [],
+  };
+  let createdData: any = null;
+  let cancelledUpdate: any = null;
+  const tx: any = {
+    $executeRawUnsafe: async () => 0,
+    entrega: {
+      findMany: async () => [original],
+      findUnique: async () => null, // sem clone existente ainda
+      findFirst: async () => null, // sem entrega aberta pro cliente no dia novo
+      create: async ({ data }: any) => {
+        createdData = data;
+        return { id: data.id, notes: data.notes };
+      },
+      update: async (args: any) => {
+        if (args.where.id === originalId) cancelledUpdate = args;
+        return { id: args.where.id };
+      },
+    },
+  };
+  const prisma: any = {
+    entrega: {
+      updateMany: async () => ({ count: 0 }),
+      findMany: async () => [{ id: createdData?.id ?? 'sem-clone' }],
+    },
+    $transaction: async (callback: any) => callback(tx),
+  };
+  const occurrences: any = {
+    materialize: async () => ({
+      date: operationalDate,
+      sourceDates: [operationalDate],
+      criadas: 0,
+      puladas: 0,
+      avancados: 0,
+      candidatos: 0,
+      deliveryIds: [],
+    }),
+  };
+  const rota: any = {
+    planejarRota: async () => ({
+      date: operationalDate,
+      total: 1,
+      semCoordenada: 0,
+      distanciaTotalKm: 1,
+      terminoPrevisto: null,
+      velocidadeMediaKmH: 25,
+      tempoParadaMin: 5,
+      paradas: [],
+    }),
+  };
+  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, {} as any);
+
+  await service.prepare(companyId, {
+    operationalDate,
+    pendingDeliveryIds: [originalId],
+  }, ADMIN);
+
+  assert.ok(createdData, 'a pendência precisa ser clonada pro dia novo');
+  assert.equal(createdData.origem, 'avulsa', 'o clone herda a origem da entrega original');
+  assert.equal(cancelledUpdate?.data?.status, 'cancelada', 'a original vira cancelada após mover');
+});

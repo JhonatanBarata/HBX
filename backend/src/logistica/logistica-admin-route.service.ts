@@ -349,6 +349,9 @@ export class LogisticaAdminRouteService {
           valor: true,
           scheduledAt: true,
           notes: true,
+          // L4-A (18/07) — precisa pra copiar pro clone (carry-forward preserva a
+          // origem da pendência original, nunca reclassifica como recorrente).
+          origem: true,
           itens: {
             select: { id: true, productId: true, qtdPrevista: true, valorUnit: true },
           },
@@ -414,6 +417,9 @@ export class LogisticaAdminRouteService {
               quantidade,
               valor,
               status: 'agendada',
+              // L4-A (18/07) — carry-forward: clone é a MESMA entrega pendente,
+              // só movida de dia; herda a origem (nunca reclassifica).
+              origem: original.origem ?? null,
               scheduledAt: start,
               cobrancaStatus: 'pendente',
               notes: appendNote(original.notes, transferNote),

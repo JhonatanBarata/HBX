@@ -123,6 +123,9 @@ test('quarta selecionada na quinta vira ocorrência da quinta sem duplicar nem m
   assert.deepEqual(first.deliveryIds, ['delivery-1']);
   assert.equal(createCount, 1);
   assert.equal(createdData.scheduledAt.toISOString(), '2026-07-16T03:00:00.000Z');
+  // L4-A (18/07) — materialize sempre marca a Entrega criada como recorrente
+  // (o app usa isto pra NÃO contar recorrência como Avulso).
+  assert.equal(createdData.origem, 'recorrente');
   assert.equal(createdData.itens.create[0].id, occurrenceId);
   assert.match(createdData.notes, /15\/07\/2026/);
   assert.equal(recurrenceUpdate.data.proximaData.toISOString(), '2026-07-22T03:00:00.000Z');

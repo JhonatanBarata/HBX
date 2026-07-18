@@ -360,6 +360,35 @@ test('confirmarEntrega consulta cobertura Essencial antes da transação', async
   assert.equal(entregaUpdates.length, 0, 'gate bloqueia antes do status/GPS');
 });
 
+// ── L4-A (18/07) — createEntrega (POST /logistica/entregas) sempre marca a
+// Entrega como 'avulsa' (nunca recorrência: essa vem só de gerarDia/materialize).
+test('createEntrega: marca origem=avulsa na criação manual', async () => {
+  let createdData: any = null;
+  const prisma: any = {
+    customerProfile: {
+      findFirst: async () => ({ id: 'conta-1', precoPadrao: null }),
+    },
+    contato: {
+      findFirst: async () => null,
+    },
+    entrega: {
+      create: async (args: any) => {
+        createdData = args.data;
+        return { id: args.data.id };
+      },
+    },
+  };
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  const res = await service.createEntrega(7, { customerProfileId: 'conta-1' } as any);
+
+  assert.ok(res.id, 'devolve o id da entrega criada');
+  assert.ok(createdData, 'entrega.create deve ter sido chamado');
+  assert.equal(createdData.origem, 'avulsa');
+  assert.equal(createdData.companyId, 7);
+  assert.equal(createdData.status, 'agendada');
+});
+
 test('confirmarEntrega: flag ON (avulso) → WhatsApp blindado 1x + 1 charge LINKADO (MANUAL/pending)', async () => {
   const prev = process.env.HBX_LOGISTICA_ENABLED;
   process.env.HBX_LOGISTICA_ENABLED = '1';
@@ -2081,6 +2110,9 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
     id: 'entrega-rota-1',
     status: 'em_rota',
     quantidade: 2,
+    // L4-A (18/07) — origem é operacional (não comercial): visível a QUALQUER
+    // ator, inclusive sem billingAudience (ver os 2 testes de listRota abaixo).
+    origem: 'recorrente',
     valor: 42,
     scheduledAt: new Date('2026-07-13T12:00:00Z'),
     deliveredAt: null,
@@ -2219,6 +2251,8 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     // PR18072026 W1 — observacoes é OPERACIONAL (instrução de entrega), não
     // comercial: continua visível pro entregador/vendedor/gerente sem billing.
     assert.equal(result.items[0].cliente.observacoes, 'Deixa na portaria, cachorro bravo.', `${nome}: observacoes deve continuar visível`);
+    // L4-A (18/07) — origem também é operacional: visível sem billingAudience.
+    assert.equal(result.items[0].origem, 'recorrente', `${nome}: origem deve continuar visível`);
     assert.equal(result.trackingRequired, true, `${nome}: sinal operacional deve permanecer disponível`);
     assert.deepEqual(queries.trackingIncludeCommercialMode, [false]);
 
@@ -2283,6 +2317,7 @@ test('listRota: dono mantém a visão comercial necessária à administração',
   assert.equal(item.valorHoje, undefined, 'moduloFinanceiroAtivoConfig OFF → valorHoje nem aparece');
   assert.equal(item.cliente.limiteFiado, 100);
   assert.equal(item.cliente.observacoes, 'Deixa na portaria, cachorro bravo.');
+  assert.equal(item.origem, 'recorrente', 'origem visível também pro dono (billingAudience)');
   assert.equal(item.itens[0].valorUnit, 21);
   assert.equal('valor' in queries.entrega.select, true);
   assert.equal('pixChave' in queries.config.select, true);

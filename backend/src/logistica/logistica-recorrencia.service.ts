@@ -546,6 +546,9 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
               quantidade, // backward-compat: escalar coerente com a SOMA dos itens
               valor, // idem
               status: 'agendada',
+              // L4-A (18/07) — mesma semântica do materialize (logistica-occurrence.service.ts):
+              // este gerarDia materializa recorrência do dia.
+              origem: 'recorrente',
               scheduledAt: dia,
               cobrancaStatus: 'pendente',
               itens: { create: itens },
