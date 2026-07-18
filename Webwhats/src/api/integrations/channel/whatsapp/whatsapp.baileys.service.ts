@@ -2264,9 +2264,13 @@ export class BaileysStartupService extends ChannelStartupService {
 
     // Cache profile-picture lookups (both hits and misses) so a single hung query never
     // stalls the serial event pipeline on every message from the same contact.
+    // Store a string sentinel for "no picture" (never null) so presence works across
+    // every node-cache version via `get() !== undefined`.
     const cacheKey = `profilePicUrl:${jid}`;
-    if (await this.baileysCache.has(cacheKey)) {
-      return { wuid: jid, profilePictureUrl: (await this.baileysCache.get(cacheKey)) ?? null };
+    const NO_PIC = '__none__';
+    const cachedPic = await this.baileysCache.get(cacheKey);
+    if (cachedPic !== undefined) {
+      return { wuid: jid, profilePictureUrl: cachedPic === NO_PIC ? null : cachedPic };
     }
 
     try {
@@ -2274,11 +2278,11 @@ export class BaileysStartupService extends ChannelStartupService {
       // otherwise ride out Baileys' 60s default and block message ingestion for the whole instance.
       const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image', 5000);
 
-      await this.baileysCache.set(cacheKey, profilePictureUrl ?? null, 60 * 60);
-      return { wuid: jid, profilePictureUrl };
+      await this.baileysCache.set(cacheKey, profilePictureUrl || NO_PIC, 60 * 60);
+      return { wuid: jid, profilePictureUrl: profilePictureUrl || null };
     } catch {
       // Short TTL so a transient failure is retried soon, but not on every message meanwhile.
-      await this.baileysCache.set(cacheKey, null, 10 * 60);
+      await this.baileysCache.set(cacheKey, NO_PIC, 10 * 60);
       return { wuid: jid, profilePictureUrl: null };
     }
   }
