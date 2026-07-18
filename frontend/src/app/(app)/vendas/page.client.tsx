@@ -25,7 +25,6 @@ import { LeadCockpitModal } from "@/components/hbx/lead-cockpit-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
-import { RadarStatusPreview } from "../leads/radar-status-preview";
 import { apiFetch } from "@/lib/api";
 
 import { useTabParam } from "@/lib/use-tab-param";
@@ -422,7 +421,7 @@ export function VendasClient() {
 
   // Slide Funil ↔ Buscar empresas (27/06): UMA tela, 2 modos. buscarMounted monta o
   // Radar só quando precisa (lazy) e o mantém montado depois (slide fluido).
-  const [modo, setModo] = useState<"funil" | "buscar" | "enriquecimento">("funil");
+  const [modo, setModo] = useState<"funil" | "buscar">("funil");
   const segPill = useGlassPill<HTMLButtonElement>(modo);
   const [buscarMounted, setBuscarMounted] = useState(false);
   // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
@@ -602,7 +601,6 @@ export function VendasClient() {
 
   function irBuscar() { setBuscarMounted(true); setModo("buscar"); }
   function irFunil() { setModo("funil"); }
-  function irEnriquecimento() { setModo("enriquecimento"); }
   // Lead puxado no Radar embutido entrou no funil → recarrega o board; focus desliza
   // pro funil mostrando ele (puxar manual). Auto-pull manda focus=false (só recarrega).
   function handlePulled(focus?: boolean) { loadBoard(); if (focus) setModo("funil"); }
@@ -1126,19 +1124,12 @@ export function VendasClient() {
           <I d={ICONS.scrape} size={16} /> <span>Buscar empresas</span>
         </button>
       )}
-      {podeBuscarLeads && (
-        <button ref={segPill.itemRef("enriquecimento")} id="vendas-tab-enriquecimento" type="button" role="tab"
-          aria-selected={modo === "enriquecimento"} aria-controls="vendas-panel-enriquecimento"
-          className={"vnd-segbtn glass-pill-item" + (modo === "enriquecimento" ? " is-on" : "")} onClick={irEnriquecimento}>
-          <I d={ICONS.crown} size={16} /> <span>Enriquecimento</span>
-        </button>
-      )}
     </div>
   );
 
   return (
     <React.Fragment>
-        <div className="vnd-modehost vnd-modehost--enrichment-status-enabled" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
+        <div className="vnd-modehost" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
 
           {/* TOPO — UMA casca: toggle + cards. Os NÚMEROS trocam por modo
               (funil ↔ Radar ↔ status) em crossfade no MESMO lugar. */}
@@ -1166,7 +1157,7 @@ export function VendasClient() {
             </div>
             {/* 4º botão — a faixa "Buscando empresas" virou card destacado (persistente
                 nos 2 modos). Mora na barra (limitada à esquerda) → não invade o card. */}
-            {board?.radarSupply && modo !== "enriquecimento" && (
+            {board?.radarSupply && (
               <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
             )}
           </div>
@@ -1487,14 +1478,6 @@ export function VendasClient() {
                 />
               ) : null}
             </div>{/* /vnd-layer buscar */}
-
-            {podeBuscarLeads && (
-              <div id="vendas-panel-enriquecimento" role="tabpanel" aria-labelledby="vendas-tab-enriquecimento"
-                className={"vnd-layer vnd-layer--buscar vnd-layer--enriquecimento" + (modo === "enriquecimento" ? " is-on" : "")}
-                aria-hidden={modo !== "enriquecimento"}>
-                <RadarStatusPreview embedTitle={<TypedText key={"t-enriquecimento-" + modo} text="Estados do enriquecimento" />} />
-              </div>
-            )}
           </div>{/* /vnd-stage */}
         </div>{/* /vnd-modehost */}
 

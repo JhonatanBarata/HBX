@@ -4,6 +4,32 @@ Pedido do dono (18/07): tela de Vendas pesada, clique em "Buscar empresas" não 
 tela, e o visual do encanamento de enriquecimento (SVG que liga os 4 estados do topo
 aos leads na lista) ficou bagunçado. Achado ao vivo no Chrome, direto em prod.
 
+## DECISÃO FINAL 18/07 — encanamento REMOVIDO por inteiro (dono não gostou da lapidação)
+
+A lapidação (abaixo) foi publicada, o dono viu e **rejeitou**: "não gostei, remova todo
+esse encanamento, e essa tela por trás da tela". Ação executada:
+
+- **Removido o aparato de enriquecimento inteiro** — o componente `RadarStatusPreview`
+  (que injetava a fileira de 4 estados + ativador no topo e o SVG do encanamento ATRÁS
+  da tela, e marcava `vnd-has-live-enrichment`). Arquivo deletado:
+  `frontend/src/app/(app)/leads/radar-status-preview.tsx`. CSS do encanamento deletado:
+  `frontend/src/app/hbx-theme/vendas-live-polish.css` (import tirado do globals.css).
+- **Guia "Enriquecimento" e o modo `enriquecimento`** saíram do
+  [vendas/page.client.tsx](../../frontend/src/app/(app)/vendas/page.client.tsx) — sobrou
+  só `Meu funil ↔ Buscar empresas`. O topo reverte pro base (toggle + KPIs), sem os
+  canos e sem os estados.
+- **Bônus — botões invadindo o radar (buscar):** o ativador "Radar de enriquecimento"
+  do topo cavalgava em cima do painel "Radar HBX" no modo Buscar. Como era parte do
+  mesmo aparato, sumiu junto; o funhead base fica confinado (`right:360px`) e não invade
+  mais o painel do radar. (Verificar ao vivo pós-publish.)
+- CSS `.radar-status-preview*` / `.vnd-enrichment-*` em `screens.css`/`vendas-live.css`
+  ficou inerte (classes que não renderizam mais) — não removido pra não arriscar mexer
+  nesses arquivos gigantes compartilhados; é dead code sem efeito.
+
+O que segue abaixo (lapidação dos canos) é histórico do que foi tentado antes da remoção.
+
+---
+
 ## 1. "Buscar empresas" não entra — CAUSA ACHADA E CORRIGIDA
 
 `vnd-funhead` (barra dos 7 botões) e `vnd-stage` (as 3 camadas Funil/Buscar/Enriquecimento)
