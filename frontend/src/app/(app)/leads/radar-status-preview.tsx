@@ -207,6 +207,7 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
   useEffect(() => {
     let disposed = false;
     let locateFrame = 0;
+    let observer: MutationObserver | null = null;
 
     const locate = () => {
       if (disposed) return;
@@ -219,15 +220,20 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
       portalHostRef.current = header;
       modeHost.classList.add("vnd-has-live-enrichment");
       locateFrame = window.requestAnimationFrame(() => setPortalHost(header));
+      // Achou a casca — para de observar o body inteiro (era subtree:true genérico
+      // rodando em TODA mutação da página; o modehost é estável depois de montado).
+      observer?.disconnect();
     };
 
     locate();
-    const observer = new MutationObserver(locate);
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (!portalHostRef.current) {
+      observer = new MutationObserver(locate);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
 
     return () => {
       disposed = true;
-      observer.disconnect();
+      observer?.disconnect();
       window.cancelAnimationFrame(locateFrame);
       modeHostRef.current?.classList.remove("vnd-has-live-enrichment");
       modeHostRef.current = null;
@@ -256,11 +262,15 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
     let flying = false;
     let firstScan = true;
     let currentLayer = "";
+    let lastSignature = "";
     let previous = new Map<string, FlowEntry>();
     let latest = new Map<string, FlowEntry>();
     const queue: FlowFlight[] = [];
     const timers = new Set<number>();
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    // Teto de braços desenhados: só os leads na faixa visível do cano, no máximo
+    // este número. Pipeline cheio (20+) virava emaranhado e ainda pesava o SVG.
+    const MAX_BRANCHES = 8;
 
     const setTimer = (callback: () => void, delay: number) => {
       const timer = window.setTimeout(() => {
@@ -297,23 +307,30 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
         });
       });
 
-      const targets: FlowTargetGeometry[] = [];
+      const headerBottom = header.getBoundingClientRect().bottom - rootRect.top;
+      const bandBottom = rootRect.height - 6;
+
+      const allTargets: FlowTargetGeometry[] = [];
       entries.forEach((entry, key) => {
         if (!root.contains(entry.target) || !visible(entry.target)) return;
         const rect = entry.target.getBoundingClientRect();
-        targets.push({
+        allTargets.push({
           key,
           ...entry,
           x: rect.left - rootRect.left + 1,
           y: rect.top - rootRect.top + rect.height / 2,
         });
       });
-      targets.sort((left, right) => left.y - right.y);
+      // Só o lead que está de fato na faixa visível do cano (abaixo do cabeçalho,
+      // acima do rodapé) ganha braço — e no máximo MAX_BRANCHES.
+      const targets = allTargets
+        .filter((target) => target.y >= headerBottom + 8 && target.y <= bandBottom)
+        .sort((left, right) => left.y - right.y)
+        .slice(0, MAX_BRANCHES);
 
       if (sources.size === 0 || targets.length === 0) return null;
 
       const sourcePoints = Array.from(sources.values(), ({ point }) => point);
-      const headerBottom = header.getBoundingClientRect().bottom - rootRect.top;
       const collectorY = Math.max(
         headerBottom + 15,
         Math.max(...sourcePoints.map((point) => point[1])) + 14,
@@ -379,12 +396,30 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
 
     const renderNetwork = (entries: Map<string, FlowEntry>) => {
       const layout = buildLayout(entries);
-      network.replaceChildren();
       root.classList.toggle("vnd-live-pipe-ready", Boolean(layout));
       if (!layout) {
+        network.replaceChildren();
+        lastSignature = "";
         delete pipe.dataset.branchCount;
         return null;
       }
+
+      // Assinatura barata da geometria: se nada mudou, não reconstrói o SVG (o
+      // scan roda a cada mutação — sem isso, redesenhava o cano inteiro à toa).
+      const signature = [
+        Math.round(layout.width),
+        Math.round(layout.height),
+        Math.round(layout.collectorY),
+        Math.round(layout.trunkX),
+        Math.round(layout.trunkBottomY),
+        Array.from(layout.sources.keys()).join(","),
+        layout.targets.map((target) => `${target.key}@${Math.round(target.x)},${Math.round(target.y)}:${target.state}`).join("|"),
+      ].join(";");
+      if (signature === lastSignature && network.childNodes.length > 0) {
+        return layout;
+      }
+      lastSignature = signature;
+      network.replaceChildren();
 
       pipe.setAttribute("viewBox", `0 0 ${Math.ceil(layout.width)} ${Math.ceil(layout.height)}`);
       pipe.dataset.branchCount = String(layout.targets.length);
@@ -607,9 +642,21 @@ export function RadarStatusPreview({ embedTitle }: { embedTitle?: ReactNode }) {
       });
     };
 
+    const isOwnNode = (node: Node): boolean => {
+      if (node === pipe || pipe.contains(node)) return true;
+      return node instanceof HTMLElement && node.classList.contains("vnd-live-token");
+    };
+
     const observer = new MutationObserver((mutations) => {
-      const onlyPipeMutations = mutations.every((mutation) => pipe.contains(mutation.target));
-      if (!onlyPipeMutations) scheduleScan();
+      // Ignora mutações que são só as nossas próprias injeções (SVG do cano e os
+      // tokens que voam): sem isso, cada token disparava rescan + rebuild completo.
+      const meaningful = mutations.some((mutation) => {
+        if (pipe.contains(mutation.target)) return false;
+        if (mutation.type === "attributes") return true;
+        const touched = [...mutation.addedNodes, ...mutation.removedNodes];
+        return touched.some((node) => !isOwnNode(node));
+      });
+      if (meaningful) scheduleScan();
     });
     observer.observe(root, {
       childList: true,

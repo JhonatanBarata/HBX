@@ -66,6 +66,31 @@
   --pipe-core: color-mix(in srgb, var(--hbx-info) 8%, transparent);
 }
 
+/* Braços laterais ficam SUBORDINADOS ao tronco: mais finos e discretos, para que
+   vários leads não virem um emaranhado. O tronco (is-main) e as entradas
+   (is-inlet) seguem com o peso cheio; só o braço até cada card afina. */
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__segment.is-branch .vnd-live-pipe__shadow {
+  stroke-width: 12;
+  opacity: 0.22;
+  filter: blur(4px);
+}
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__segment.is-branch .vnd-live-pipe__rim {
+  stroke-width: 9;
+  opacity: 0.5;
+}
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__segment.is-branch .vnd-live-pipe__glass {
+  stroke-width: 6.5;
+  opacity: 0.7;
+}
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__segment.is-branch .vnd-live-pipe__core {
+  stroke-width: 2.6;
+  opacity: 0.58;
+}
+.vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe__segment.is-branch .vnd-live-pipe__shine {
+  stroke-width: 1.4;
+  opacity: 0.42;
+}
+
 .vnd-modehost.vnd-has-live-enrichment .vnd-live-pipe path {
   fill: none;
   stroke-linecap: round;

@@ -19,6 +19,34 @@ explica o porquê). Local: [vendas-live-polish.css:31](../../frontend/src/app/hb
 Confirmado ao vivo trocando o CSS no DOM antes de editar o arquivo (clique passou a
 acertar o botão). **Falta publicar pra valer em prod.**
 
+## STATUS 18/07 — os 3 caminhos foram APLICADOS (dono mandou aplicar + publicar)
+
+Não são mais 3 alternativas: virou UMA lapidação com as 3 alavancas juntas, coerentes.
+
+- **Fix 2 (reatividade + rebuild):** o `MutationObserver` do cano
+  ([radar-status-preview.tsx](../../frontend/src/app/(app)/leads/radar-status-preview.tsx))
+  ignorava só mutações DENTRO do SVG — mas cada token que voa é injetado no `root`,
+  então TODO token disparava rescan + rebuild completo do SVG. Agora ignora as nossas
+  próprias injeções (SVG + tokens) e o `renderNetwork` calcula uma assinatura barata da
+  geometria: se nada mudou, não reconstrói. Também desliguei o 2º observer (o `locate`,
+  que rodava `subtree:true` no `document.body` inteiro a cada mutação) assim que acha a
+  casca. → ataca direto o "pesada".
+- **Fix 1 (cortar braços):** `buildLayout` agora só desenha braço pro lead que está de
+  fato na faixa visível do cano (abaixo do cabeçalho, acima do rodapé) e no máximo 8
+  (`MAX_BRANCHES`). Pipeline cheio (20+) não vira mais emaranhado e o SVG cai de 100+
+  nós pra um punhado. Lead fora da faixa não anima token (consistente: sem braço, sem
+  voo) mas continua contando no topo.
+- **Fix 3 (visual):** braços laterais ficaram SUBORDINADOS ao tronco — mais finos e
+  discretos ([vendas-live-polish.css](../../frontend/src/app/hbx-theme/vendas-live-polish.css),
+  bloco `.is-branch`). O tronco (4 entradas → 1 cano) continua sendo o herói; vários
+  leads deixam de competir visualmente.
+
+Verificado local: `tsc --noEmit` verde, `eslint` verde nos arquivos tocados, `check-pele`
+sem apontar meus arquivos. Publicado junto com o fix do z-index (item 1) e o fix da tela
+de aplicativo (mobile-device-panel, que o dono já tinha publicado em `ba326abd`).
+
+---
+
 ## 2. Tela pesada — causa provável, NÃO mexida ainda
 
 `frontend/src/app/(app)/leads/radar-status-preview.tsx` (743 linhas) monta o SVG do
