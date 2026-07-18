@@ -2262,11 +2262,23 @@ export class BaileysStartupService extends ChannelStartupService {
   public async profilePicture(number: string) {
     const jid = createJid(number);
 
-    try {
-      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image');
+    // Cache profile-picture lookups (both hits and misses) so a single hung query never
+    // stalls the serial event pipeline on every message from the same contact.
+    const cacheKey = `profilePicUrl:${jid}`;
+    if (await this.baileysCache.has(cacheKey)) {
+      return { wuid: jid, profilePictureUrl: (await this.baileysCache.get(cacheKey)) ?? null };
+    }
 
+    try {
+      // Explicit short timeout: contacts with photo privacy (or @lid without a server reply)
+      // otherwise ride out Baileys' 60s default and block message ingestion for the whole instance.
+      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image', 5000);
+
+      await this.baileysCache.set(cacheKey, profilePictureUrl ?? null, 60 * 60);
       return { wuid: jid, profilePictureUrl };
     } catch {
+      // Short TTL so a transient failure is retried soon, but not on every message meanwhile.
+      await this.baileysCache.set(cacheKey, null, 10 * 60);
       return { wuid: jid, profilePictureUrl: null };
     }
   }
