@@ -91,6 +91,7 @@ type PreparedDevicePairing = {
   installationId: string;
   deviceName: string;
   platform: string;
+  hardwareId: string | null;
   now: Date;
 };
 
@@ -265,6 +266,7 @@ export class MobileDeviceService {
     installationId: string;
     deviceName?: string;
     platform?: string;
+    hardwareId?: string;
   }): PreparedDevicePairing {
     const rawDeviceToken = `hbx_device_${crypto.randomBytes(32).toString('base64url')}`;
     return {
@@ -273,6 +275,7 @@ export class MobileDeviceService {
       installationId: String(dto.installationId || '').trim(),
       deviceName: String(dto.deviceName || 'Aparelho Android').trim().slice(0, 120) || 'Aparelho Android',
       platform: this.normalizePlatform(dto.platform),
+      hardwareId: String(dto.hardwareId || '').trim().slice(0, 128) || null,
       now: new Date(),
     };
   }
@@ -305,6 +308,7 @@ export class MobileDeviceService {
       installationId,
       deviceName,
       platform,
+      hardwareId,
       tokenHash,
       now,
     } = prepared;
@@ -332,10 +336,33 @@ export class MobileDeviceService {
       WHERE "installationId" = ${installationId}
       FOR UPDATE
     `;
-    const existing = existingRows[0];
+    let existing = existingRows[0];
+
+    // FIX 18/07 (dono: "mesmo celular, apenas conectar, não vincular outro
+    // cadastro") — desinstalar o app apaga o installationId (SharedPreferences),
+    // então uma reinstalação do MESMO aparelho chegava aqui como instalação
+    // nova e abria uma linha nova a cada vez, esgotando o teto de aparelhos.
+    // hardwareId (ANDROID_ID) sobrevive à reinstalação: se não há linha pelo
+    // installationId mas existe uma linha deste USUÁRIO com o mesmo hardware
+    // (ativa OU já desconectada), é o mesmo celular reconectando — reaproveita
+    // a linha em vez de abrir uma vaga nova.
+    if (!existing && hardwareId) {
+      const hardwareRows = await tx.$queryRaw<ExistingInstallationRow[]>`
+        SELECT "id", "userId", "companyId", "revokedAt"
+        FROM "MobileDevice"
+        WHERE "userId" = ${user.id}
+          AND "companyId" = ${user.companyId}
+          AND "hardwareId" = ${hardwareId}
+        ORDER BY "updatedAt" DESC
+        LIMIT 1
+        FOR UPDATE
+      `;
+      existing = hardwareRows[0];
+    }
 
     // Conta todos os OUTROS aparelhos ativos. Reemitir a credencial para esta
-    // instalação não consome vaga; transferi-la de outra conta não burla o teto.
+    // instalação (ou reconectar pelo hardwareId) não consome vaga; transferir
+    // de outra conta não burla o teto.
     const counts = await tx.$queryRaw<Array<{ count: bigint }>>`
       SELECT COUNT(*)::bigint AS "count"
       FROM "MobileDevice"
@@ -348,17 +375,44 @@ export class MobileDeviceService {
       throw new ConflictException(`Limite de ${this.maxDevicesPerUser} aparelhos ativos atingido. Desconecte um aparelho pelo HBX web.`);
     }
 
-    const deviceId = existing?.id || crypto.randomUUID();
+    if (existing) {
+      // Reconectar (mesma installationId OU mesmo hardwareId após reinstalar):
+      // UPDATE por id — installationId pode ter mudado, então não dá pra
+      // contar com ON CONFLICT(installationId) aqui.
+      const rows = await tx.$queryRaw<MobileDeviceRow[]>`
+        UPDATE "MobileDevice" SET
+          "userId" = ${user.id},
+          "companyId" = ${user.companyId},
+          "installationId" = ${installationId},
+          "name" = ${deviceName},
+          "platform" = ${platform},
+          "hardwareId" = ${hardwareId},
+          "tokenHash" = ${tokenHash},
+          "tokenVersion" = "tokenVersion" + 1,
+          "lastUsedAt" = ${now},
+          "expiresAt" = NULL,
+          "revokedAt" = NULL,
+          "webTicketHash" = NULL,
+          "webTicketExpiresAt" = NULL,
+          "updatedAt" = ${now}
+        WHERE "id" = ${existing.id}
+        RETURNING *
+      `;
+      return rows[0];
+    }
+
+    const deviceId = crypto.randomUUID();
     const rows = await tx.$queryRaw<MobileDeviceRow[]>`
       INSERT INTO "MobileDevice"
-        ("id", "userId", "companyId", "installationId", "name", "platform", "tokenHash", "tokenVersion", "lastUsedAt", "revokedAt", "createdAt", "updatedAt")
+        ("id", "userId", "companyId", "installationId", "name", "platform", "hardwareId", "tokenHash", "tokenVersion", "lastUsedAt", "revokedAt", "createdAt", "updatedAt")
       VALUES
-        (${deviceId}, ${user.id}, ${user.companyId}, ${installationId}, ${deviceName}, ${platform}, ${tokenHash}, 1, ${now}, NULL, ${now}, ${now})
+        (${deviceId}, ${user.id}, ${user.companyId}, ${installationId}, ${deviceName}, ${platform}, ${hardwareId}, ${tokenHash}, 1, ${now}, NULL, ${now}, ${now})
       ON CONFLICT ("installationId") DO UPDATE SET
         "userId" = EXCLUDED."userId",
         "companyId" = EXCLUDED."companyId",
         "name" = EXCLUDED."name",
         "platform" = EXCLUDED."platform",
+        "hardwareId" = EXCLUDED."hardwareId",
         "tokenHash" = EXCLUDED."tokenHash",
         "tokenVersion" = "MobileDevice"."tokenVersion" + 1,
         "lastUsedAt" = EXCLUDED."lastUsedAt",

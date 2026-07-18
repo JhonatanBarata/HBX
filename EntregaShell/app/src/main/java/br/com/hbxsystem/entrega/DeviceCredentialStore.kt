@@ -1,6 +1,7 @@
 package br.com.hbxsystem.entrega
 
 import android.content.Context
+import android.provider.Settings
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -17,6 +18,7 @@ import javax.crypto.spec.GCMParameterSpec
  * esta instalação e permanece estável até os dados do app serem apagados.
  */
 class DeviceCredentialStore(context: Context) {
+    private val appContext = context.applicationContext
     companion object {
         private const val PREFS = "hbx_mobile_pairing"
         private const val KEY_INSTALLATION_ID = "installation_id"
@@ -27,7 +29,7 @@ class DeviceCredentialStore(context: Context) {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 
-    private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun installationId(): String {
         val existing = prefs.getString(KEY_INSTALLATION_ID, null)?.trim().orEmpty()
@@ -36,6 +38,15 @@ class DeviceCredentialStore(context: Context) {
         prefs.edit().putString(KEY_INSTALLATION_ID, created).apply()
         return created
     }
+
+    // FIX 18/07 — ANDROID_ID sobrevive a desinstalar/reinstalar o app (ao
+    // contrário do installationId, que mora em SharedPreferences e é apagado
+    // junto com os dados do app). O backend usa isto pra reconhecer "mesmo
+    // celular reconectando" em vez de abrir um cadastro de aparelho novo.
+    // Não é segredo; pode voltar null em ROMs/emuladores atípicos.
+    fun hardwareId(): String? = runCatching {
+        Settings.Secure.getString(appContext.contentResolver, Settings.Secure.ANDROID_ID)
+    }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
 
     fun saveDeviceToken(token: String) {
         val cipher = Cipher.getInstance(TRANSFORMATION)

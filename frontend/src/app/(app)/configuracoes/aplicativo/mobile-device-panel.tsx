@@ -135,7 +135,7 @@ export function MobileDevicePanel() {
 
   return (
     <div className="work" style={{ display: "grid", gap: 14, alignContent: "start" }}>
-      <section className="panel" style={{ overflow: "hidden" }}>
+      <section className="panel">
         <div className="panel-head" style={{ gap: 12, flexWrap: "wrap" }}>
           <div>
             <h2 style={{ display: "flex", gap: 8, alignItems: "center" }}>

@@ -375,6 +375,7 @@ test('núcleo compartilhado respeita o limite e mantém rotação por installati
     installationId: pairedDevice.installationId,
     deviceName: pairedDevice.name,
     platform: pairedDevice.platform,
+    hardwareId: null,
     now: new Date(),
   };
   const sql: string[] = [];
@@ -390,11 +391,11 @@ test('núcleo compartilhado respeita o limite e mantém rotação por installati
           isSystemMaster: false,
         }];
       }
-      if (statement.includes('WHERE "installationId"')) {
+      if (statement.includes('WHERE "installationId" =')) {
         return [{ id: pairedDevice.id, userId: 99, companyId: 999, revokedAt: null }];
       }
       if (statement.includes('COUNT(*)')) return [{ count: 3n }];
-      if (statement.includes('INSERT INTO "MobileDevice"')) return [pairedDevice];
+      if (statement.includes('UPDATE "MobileDevice" SET')) return [pairedDevice];
       return [];
     },
     $executeRaw: async (strings: TemplateStringsArray) => {
@@ -409,8 +410,12 @@ test('núcleo compartilhado respeita o limite e mantém rotação por installati
     prepared,
   );
   assert.equal(result.id, pairedDevice.id);
-  assert.ok(sql.some((statement) => statement.includes('ON CONFLICT ("installationId") DO UPDATE')));
-  assert.ok(sql.some((statement) => statement.includes('"tokenVersion" = "MobileDevice"."tokenVersion" + 1')));
+  // Instalação já existe pelo installationId (mesmo transferindo de outra
+  // conta, caso legado): reconecta por UPDATE direto, sem INSERT/ON CONFLICT.
+  assert.ok(sql.some((statement) => statement.includes('UPDATE "MobileDevice" SET') && statement.includes('WHERE "id" =')));
+  assert.ok(sql.some((statement) => statement.includes('"tokenVersion" = "tokenVersion" + 1')));
+  assert.ok(sql.some((statement) => statement.includes('"revokedAt" = NULL')));
+  assert.ok(!sql.some((statement) => statement.includes('INSERT INTO "MobileDevice"')));
   assert.ok(sql.some((statement) => statement.includes('FROM "User"')));
   assert.ok(sql.some((statement) => statement.includes('RETURNING *')));
 
@@ -424,7 +429,7 @@ test('núcleo compartilhado respeita o limite e mantém rotação por installati
         isSystemMaster: false,
       }];
     }
-    if (statement.includes('WHERE "installationId"')) return [];
+    if (statement.includes('WHERE "installationId" =')) return [];
     if (statement.includes('COUNT(*)')) return [{ count: 4n }];
     return [];
   };
@@ -436,4 +441,50 @@ test('núcleo compartilhado respeita o limite e mantém rotação por installati
     ),
     ConflictException,
   );
+});
+
+test('FIX 18/07 — reinstalação do mesmo celular (installationId novo, hardwareId igual) reconecta em vez de abrir vaga nova', async () => {
+  const service = new MobileDeviceService({} as any, {} as any, {} as any);
+  const staleDevice = {
+    id: 'device-same-phone-stale',
+    userId: activeUser.id,
+    companyId: activeUser.companyId,
+    revokedAt: new Date('2026-07-14T00:00:00.000Z'),
+  };
+  const prepared = {
+    rawDeviceToken: 'hbx_device_reinstall',
+    tokenHash: 'token-hash-reinstall',
+    installationId: 'hbx_install_apos_reinstalar',
+    deviceName: pairedDevice.name,
+    platform: pairedDevice.platform,
+    hardwareId: 'android-id-mesmo-celular',
+    now: new Date(),
+  };
+  const sql: string[] = [];
+  const reconnected = { ...pairedDevice, id: staleDevice.id, installationId: prepared.installationId, revokedAt: null };
+  const tx: any = {
+    $queryRaw: async (strings: TemplateStringsArray) => {
+      const statement = strings.join('?');
+      sql.push(statement);
+      if (statement.includes('FROM "User"')) {
+        return [{ id: activeUser.id, companyId: activeUser.companyId, isActive: true, isSystemMaster: false }];
+      }
+      // Instalação nova (SharedPreferences apagado pela reinstalação): sem match.
+      if (statement.includes('WHERE "installationId" =')) return [];
+      // Mas o hardware (ANDROID_ID) é o mesmo aparelho de sempre.
+      if (statement.includes('"hardwareId" =') && statement.includes('ORDER BY "updatedAt"')) return [staleDevice];
+      if (statement.includes('COUNT(*)')) return [{ count: 3n }];
+      if (statement.includes('UPDATE "MobileDevice" SET')) return [reconnected];
+      return [];
+    },
+  };
+
+  const result = await (service as any).upsertPairedInstallationTx(
+    tx,
+    { id: activeUser.id, companyId: activeUser.companyId },
+    prepared,
+  );
+  assert.equal(result.id, staleDevice.id, 'reaproveita a linha do hardware conhecido, não cria device novo');
+  assert.ok(sql.some((s) => s.includes('UPDATE "MobileDevice" SET') && s.includes('"revokedAt" = NULL')));
+  assert.ok(!sql.some((s) => s.includes('INSERT INTO "MobileDevice"')), 'reconectar pelo hardware nunca deve inserir linha nova');
 });

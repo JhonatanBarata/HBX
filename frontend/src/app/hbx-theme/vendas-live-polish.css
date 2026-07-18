@@ -30,11 +30,14 @@
 
 .vnd-modehost.vnd-has-live-enrichment .vnd-funhead {
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 
 /* .vnd-stage já é position:absolute na casca base. Não sobrescrever aqui:
-   torná-lo relative desmonta as camadas sobrepostas e cobre o conteúdo. */
+   torná-lo relative desmonta as camadas sobrepostas e cobre o conteúdo.
+   z-index MENOR que .vnd-funhead (3): empatar os dois faz o stage (que vem
+   depois no DOM) pintar por cima da barra e roubar o clique dos botões
+   Meu funil/Buscar empresas — bug real, achado 18/07 (clique não entrava). */
 .vnd-modehost.vnd-has-live-enrichment .vnd-stage {
   z-index: 2;
 }

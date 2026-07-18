@@ -180,7 +180,8 @@ class PairingActivity : AppCompatActivity() {
                         .put("code", code)
                         .put("installationId", credentialStore.installationId())
                         .put("deviceName", deviceDisplayName())
-                        .put("platform", "android-${BuildConfig.APP_MODE}"),
+                        .put("platform", "android-${BuildConfig.APP_MODE}")
+                        .putOpt("hardwareId", credentialStore.hardwareId()),
                 )
             },
             success = ::completePairing,
@@ -200,7 +201,8 @@ class PairingActivity : AppCompatActivity() {
                         .put("idToken", idToken)
                         .put("installationId", credentialStore.installationId())
                         .put("deviceName", deviceDisplayName())
-                        .put("platform", "android-${BuildConfig.APP_MODE}"),
+                        .put("platform", "android-${BuildConfig.APP_MODE}")
+                        .putOpt("hardwareId", credentialStore.hardwareId()),
                 )
             },
             success = ::completePairing,

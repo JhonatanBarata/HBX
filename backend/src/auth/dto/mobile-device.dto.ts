@@ -18,6 +18,14 @@ export class PairMobileDeviceDto {
   @IsString()
   @MaxLength(32)
   platform?: string;
+
+  // FIX 18/07 — ANDROID_ID: sobrevive a desinstalar/reinstalar o app (ao
+  // contrário do installationId). Permite reconectar o MESMO celular em vez
+  // de abrir um cadastro de aparelho novo a cada reinstalação.
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  hardwareId?: string;
 }
 
 export class GooglePairMobileDeviceDto {
@@ -38,6 +46,11 @@ export class GooglePairMobileDeviceDto {
   @IsString()
   @MaxLength(32)
   platform?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  hardwareId?: string;
 }
 
 export class OpenMobileDeviceSessionDto {

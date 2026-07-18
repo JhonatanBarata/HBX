@@ -2151,6 +2151,10 @@ model MobileDevice {
   revokedAt          DateTime?
   webTicketHash      String?  @unique
   webTicketExpiresAt DateTime?
+  // FIX 18/07 — ANDROID_ID (sobrevive a desinstalar/reinstalar o app, ao contrário
+  // do installationId gerado em SharedPreferences). Mesmo celular reinstalando
+  // reconecta este aparelho em vez de abrir um cadastro novo e consumir vaga.
+  hardwareId         String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @default(now()) @updatedAt
   actions            MobileAction[]
@@ -2159,6 +2163,7 @@ model MobileDevice {
   @@unique([id, companyId])
   @@index([userId, revokedAt])
   @@index([companyId, revokedAt])
+  @@index([userId, hardwareId])
   @@index([companyId, pushToken])
   @@index([userId, companyId, pushUpdatedAt])
 }
