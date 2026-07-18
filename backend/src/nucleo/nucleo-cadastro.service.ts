@@ -627,6 +627,8 @@ export class NucleoCadastroService {
           phoneNormalized: true,
           formaPagamento: true,
           diaFechamento: true,
+          // PR18072026 W1 — observação livre sobre o cliente (card do /entrega).
+          observacoes: true,
           // O telefone operacional pode viver no Contato principal. O app edita
           // esse registro; usar só CustomerProfile mantinha o alerta vermelho
           // mesmo depois de salvar corretamente o número.
@@ -661,6 +663,8 @@ export class NucleoCadastroService {
         uf: row.uf ?? null,
         formaPagamento: row.formaPagamento ?? 'aberto',
         diaFechamento: row.diaFechamento ?? null,
+        // PR18072026 W1 — observação livre sobre o cliente.
+        observacoes: row.observacoes ?? null,
         isLead: Boolean(row.isLead),
         isCliente: Boolean(row.isCliente),
         isFornecedor: Boolean(row.isFornecedor),
@@ -929,6 +933,8 @@ export class NucleoCadastroService {
         limiteFiado: true,
         // S2 COBRANÇA-WHATS (11/07) — opt-out do aviso de cobrança (toggle da ficha).
         avisarCobranca: true,
+        // PR18072026 W1 — observação livre sobre o cliente.
+        observacoes: true,
         // MULTILOCAL (10/07) — a ficha agora traz TODOS os contatos (telefones[]),
         // principal primeiro. O whatsapp da ficha continua vindo do principal (abaixo).
         contatos: {
@@ -1006,6 +1012,8 @@ export class NucleoCadastroService {
         phone: c.phone ?? null,
         isPrincipal: Boolean(c.isPrincipal),
       })),
+      // PR18072026 W1 — observação livre sobre o cliente.
+      observacoes: row.observacoes ?? null,
     };
   }
 
@@ -1095,6 +1103,8 @@ export class NucleoCadastroService {
           ...(isCliente ? { isCliente: true } : {}),
           ...(isLead ? { isLead: true } : {}),
           ...(isFornecedor ? { isFornecedor: true } : {}),
+          // PR18072026 W1 — observação livre (trim + max 500).
+          ...(input.observacoes !== undefined ? { observacoes: normalizeObservacoes(input.observacoes) } : {}),
         },
         select: { id: true },
       });
@@ -1127,6 +1137,8 @@ export class NucleoCadastroService {
           isLead,
           isFornecedor,
           origin: 'manual',
+          // PR18072026 W1 — observação livre (trim + max 500).
+          observacoes: normalizeObservacoes(input.observacoes),
         },
         select: { id: true },
       });
@@ -1269,6 +1281,8 @@ export class NucleoCadastroService {
     if (input.isCliente !== undefined) data.isCliente = Boolean(input.isCliente);
     if (input.isLead !== undefined) data.isLead = Boolean(input.isLead);
     if (input.isFornecedor !== undefined) data.isFornecedor = Boolean(input.isFornecedor);
+    // PR18072026 W1 — observação livre (trim + max 500); string vazia limpa (null).
+    if (input.observacoes !== undefined) data.observacoes = normalizeObservacoes(input.observacoes);
 
     const updated = await this.prisma.customerProfile.update({
       where: { id: found.id },
@@ -1999,6 +2013,13 @@ function normalizeDigits(value: string | null | undefined): string {
   return String(value ?? '').replace(/\D+/g, '');
 }
 
+// PR18072026 W1 — observação livre do cliente: trim + max 500; string vazia
+// (após trim) vira null (limpa o campo), mesmo padrão de endereco/bairro etc.
+function normalizeObservacoes(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? '').trim();
+  return trimmed ? trimmed.slice(0, 500) : null;
+}
+
 // ── W5 (10/07) — helpers do card de clientes do /entrega ─────────────────────
 
 /**
@@ -2283,6 +2304,8 @@ export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {
   numero: string | null;
   formaPagamento: string;
   diaFechamento: number | null;
+  // PR18072026 W1 — observação livre sobre o cliente.
+  observacoes: string | null;
 }
 
 export interface ListClientesResult {
@@ -2360,6 +2383,8 @@ export interface ClienteDetail {
   // e a lista de telefones (Contatos). Cobrança segue 1 só por CONTA.
   locais: LocalEntregaDTO[];
   telefones: ClienteTelefone[];
+  // PR18072026 W1 — observação livre sobre o cliente.
+  observacoes: string | null;
 }
 
 // ── MULTILOCAL (10/07) — DTOs de leitura (ficha do cliente) ──────────────────
@@ -2479,6 +2504,8 @@ export interface CreateContaInput {
   isLead?: boolean;
   isFornecedor?: boolean;
   cargo?: string | null;
+  // PR18072026 W1 — observação livre sobre o cliente.
+  observacoes?: string | null;
 }
 
 export interface ContaCreated {
@@ -2527,6 +2554,8 @@ export interface UpdateContaInput {
   isCliente?: boolean;
   isLead?: boolean;
   isFornecedor?: boolean;
+  // PR18072026 W1 — observação livre sobre o cliente.
+  observacoes?: string | null;
 }
 
 export interface AddContatoInput {

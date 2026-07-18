@@ -164,7 +164,11 @@ export class LogisticaService {
         id: true,
         status: true,
         quantidade: true,
-        ...(billingAudience ? { valor: true as const } : {}),
+        // PR18072026 W1 (coordenador) — `valor` precisa ser lido pelo SERVIDOR
+        // mesmo fora do billingAudience pra computar `valorHoje` (total seguro
+        // da entrega, sem expor valorUnit/catálogo). A saída pro billingAudience
+        // (campo `valor` cru) continua gateada abaixo — só o SELECT abriu.
+        valor: true,
         scheduledAt: true,
         deliveredAt: true,
         deliveredLat: true,
@@ -208,12 +212,22 @@ export class LogisticaService {
             lat: true,
             lng: true,
             phone: true,
+            // PR18072026 W1 — observação livre sobre o cliente ("deixa na
+            // portaria"...). Operacional, não financeiro: visível a qualquer ator.
+            observacoes: true,
+            // PR18072026 W1 (coordenador) — metodoPadrao (pix|dinheiro|null) NÃO é
+            // valor/margem: é só o método fixo do cliente 'na_hora', que o botão
+            // [Pago] do app usa como receiptMethod. Sai do gate de billingAudience
+            // (senão o entregador comum sem cobrança cai sempre no fallback
+            // 'dinheiro' — bug reportado pelo W4); gate próprio é moduloFinanceiroAtivo
+            // (abaixo, na resposta). formaPagamento/limiteFiado CONTINUAM só p/
+            // billingAudience — não mexido.
+            metodoPadrao: true,
             ...(billingAudience
               ? {
                   // Dados comerciais são exclusivos de dono/master. A omissão no
                   // select impede vazamento mesmo antes da serialização HTTP.
                   formaPagamento: true as const,
-                  metodoPadrao: true as const,
                   limiteFiado: true as const,
                 }
               : {}),
@@ -228,7 +242,11 @@ export class LogisticaService {
             id: true,
             qtdPrevista: true,
             qtdEntregue: true,
-            ...(billingAudience ? { valorUnit: true as const } : {}),
+            // PR18072026 W1 (coordenador) — mesmo motivo do `valor` acima: o
+            // SERVIDOR precisa somar valorUnit×qtdPrevista pra `valorHoje` mesmo
+            // fora do billingAudience. A saída pro billingAudience (valorUnit cru
+            // por item) continua gateada abaixo — só o SELECT abriu.
+            valorUnit: true,
             product: { select: { id: true, name: true, unidade: true } },
           },
         },
@@ -240,6 +258,13 @@ export class LogisticaService {
     // config não existir ainda, o default do schema (false) é o comportamento seguro.
     // F1 — a MESMA leitura traz o Pix do tenant (chave/nome/cidade do BR Code).
     let moduloFinanceiroAtivo = false;
+    // PR18072026 W1 (coordenador) — valor REAL da config, independente do ator.
+    // `moduloFinanceiroAtivo` acima preserva a semântica ORIGINAL (só true p/
+    // billingAudience — gate de pix/formaPagamento/saldoAberto/limiteFiado/valor/
+    // cobrancaStatus/valorUnit, todos dado comercial de verdade, intocados). Este
+    // aqui gateia SÓ os campos ADITIVOS seguros p/ o entregador comum (sem
+    // cobrança): metodoPadrao (chip [Pago]), debitoAtual e valorHoje.
+    let moduloFinanceiroAtivoConfig = false;
     let pix: RotaPix | null = null;
     // AVISO-CHEGANDO — o app só arma o 2º anel (~500m) quando avisoChegandoAtivo
     // é true (effectsEnabled global E o toggle da empresa) — evita POST inútil
@@ -255,9 +280,14 @@ export class LogisticaService {
       const cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
         select: {
+          // PR18072026 W1 (coordenador) — moduloFinanceiroAtivo (o TOGGLE) sai do
+          // gate de billingAudience: é um booleano de feature, não dado comercial —
+          // precisa ser lido p/ QUALQUER ator pra gatear metodoPadrao/debitoAtual/
+          // valorHoje. pixChave/pixNome/pixCidade (dado sensível de verdade)
+          // CONTINUAM só p/ billingAudience — intocado.
+          moduloFinanceiroAtivo: true as const,
           ...(billingAudience
             ? {
-                moduloFinanceiroAtivo: true as const,
                 pixChave: true as const,
                 pixNome: true as const,
                 pixCidade: true as const,
@@ -270,7 +300,8 @@ export class LogisticaService {
           comprovanteCodigoObrigatorio: true,
         },
       });
-      moduloFinanceiroAtivo = billingAudience && (cfg?.moduloFinanceiroAtivo ?? false);
+      moduloFinanceiroAtivoConfig = cfg?.moduloFinanceiroAtivo ?? false;
+      moduloFinanceiroAtivo = billingAudience && moduloFinanceiroAtivoConfig;
       // O QR só existe com o módulo ON e a chave configurada (regra do M4 preservada:
       // financeiro OFF = nenhum pagamento aparece na entrega, nunca).
       if (moduloFinanceiroAtivo && cfg?.pixChave) {
@@ -289,8 +320,11 @@ export class LogisticaService {
     // (saldoAbertoPorClientes). SÓ com o módulo financeiro ON — OFF significa que
     // dinheiro não aparece (nem roda) em lugar nenhum da entrega. Best-effort:
     // falha aqui NUNCA derruba a rota — o app só fica sem o badge.
+    // PR18072026 W1 (coordenador) — gate por moduloFinanceiroAtivoConfig (não mais
+    // preso a billingAudience): debitoAtual (aditivo, seguro) também precisa deste
+    // mapa pro entregador comum. saldoAberto (billing-only) segue lendo o MESMO mapa.
     let saldoPorCliente = new Map<string, { pendente: number; aguardando: number }>();
-    if (billingAudience && moduloFinanceiroAtivo) {
+    if (moduloFinanceiroAtivoConfig) {
       try {
         saldoPorCliente = await this.saldoAbertoPorClientes(
           companyId,
@@ -344,11 +378,29 @@ export class LogisticaService {
       items: rows.map((r) => {
         const foto = r.comprovantes.find((item) => item.tipo === 'foto') ?? null;
         const assinatura = r.comprovantes.find((item) => item.tipo === 'assinatura') ?? null;
+        // PR18072026 W1 (coordenador) — valorHoje: total SEGURO da entrega ATUAL
+        // pro entregador comum ver quanto cobrar na porta, sem expor valorUnit
+        // por item nem o catálogo inteiro (isso continua billingAudience-only,
+        // abaixo). Soma EntregaItem.valorUnit×qtdPrevista — a MESMA fonte
+        // canônica que gerarDia/materialize já grava (precoAcordado > catálogo >
+        // precoPadrao, ver resolveValorUnit/resolveUnitValue); entrega legada sem
+        // EntregaItem (ainda usa o campo escalar) cai no r.valor.
+        const valorHoje = moduloFinanceiroAtivoConfig
+          ? round2(
+              r.itens.length > 0
+                ? r.itens.reduce(
+                    (sum, it) => sum + Math.max(0, Number(it.qtdPrevista) || 0) * Math.max(0, Number(it.valorUnit) || 0),
+                    0,
+                  )
+                : Math.max(0, Number(r.valor) || 0),
+            )
+          : undefined;
         return {
           id: r.id,
         status: r.status,
         quantidade: r.quantidade,
         ...(billingAudience ? { valor: r.valor } : {}),
+        ...(valorHoje !== undefined ? { valorHoje } : {}),
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         deliveredLat: r.deliveredLat ?? null,
@@ -390,6 +442,24 @@ export class LogisticaService {
           lat: r.local ? (r.local.lat ?? null) : (r.customerProfile.lat ?? null),
           lng: r.local ? (r.local.lng ?? null) : (r.customerProfile.lng ?? null),
           phone: r.customerProfile.phone ?? null,
+          // PR18072026 W1 — observação livre sobre o cliente (operacional, sempre
+          // visível — não gateado por billingAudience).
+          observacoes: r.customerProfile.observacoes ?? null,
+          // PR18072026 W1 (coordenador) — DUAS exposições ADITIVAS gateadas por
+          // moduloFinanceiroAtivoConfig (o valor REAL da config, independente do
+          // ator) — NÃO por billingAudience: o entregador comum (sem cobrança)
+          // precisa das duas pra folha de chegada modo simples (W4):
+          //   metodoPadrao → receiptMethod do botão [Pago] (cliente 'na_hora').
+          //   debitoAtual  → mesma fonte canônica de saldoAberto (saldoAbertoPorClientes),
+          //                  só com o nome que o app espera.
+          // Não mexe no bloco billingAudience abaixo (formaPagamento/saldoAberto/
+          // limiteFiado seguem EXCLUSIVOS de dono/master).
+          ...(moduloFinanceiroAtivoConfig
+            ? {
+                metodoPadrao: r.customerProfile.metodoPadrao ?? null,
+                debitoAtual: somaSaldo(saldoPorCliente.get(r.customerProfile.id)),
+              }
+            : {}),
           ...(billingAudience
             ? {
                 formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
@@ -2626,11 +2696,16 @@ export interface RotaCliente {
   lat: number | null;
   lng: number | null;
   phone: string | null;
+  // PR18072026 W1 — observação livre sobre o cliente (operacional, sempre visível).
+  observacoes?: string | null;
   formaPagamento?: string;
   metodoPadrao?: string | null;
   // F1 — "quanto me deve" (charges pending da logística + mensal a fechar) e o
   // teto de fiado do cliente (null = sem limite). Base do badge da chegada.
   saldoAberto?: number;
+  // PR18072026 W1 (coordenador) — mesma fonte canônica de saldoAberto, gateada
+  // por moduloFinanceiroAtivoConfig (não billingAudience): visível ao entregador comum.
+  debitoAtual?: number;
   limiteFiado?: number | null;
 }
 
@@ -2655,6 +2730,10 @@ export interface RotaItem {
   status: string;
   quantidade: number;
   valor?: number;
+  // PR18072026 W1 (coordenador) — total SEGURO da entrega atual (gateado por
+  // moduloFinanceiroAtivoConfig, não billingAudience): quanto cobrar na porta,
+  // sem expor valorUnit por item nem o catálogo inteiro (isso é billingAudience-only).
+  valorHoje?: number;
   scheduledAt: string | null;
   deliveredAt: string | null;
   deliveredLat: number | null;

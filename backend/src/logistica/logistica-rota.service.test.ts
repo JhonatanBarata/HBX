@@ -8,6 +8,7 @@ import {
   routeCostKm,
   computeEta,
   planRoute,
+  planRouteManual,
   filtrarComCoord,
   resolveDayRange,
   type Stop,
@@ -160,4 +161,75 @@ test('resolveDayRange: data impossível (2026-02-30) cai pra HOJE, igual a lixo/
 
 test('resolveDayRange: "YYYY-MM-DD" válido resolve pro próprio dia (fuso local)', () => {
   assert.equal(resolveDayRange('2026-07-11').dayISO, '2026-07-11');
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PR18072026 W1 — planRouteManual: "Minha ordem" (ordemManual) pula NN+2-opt de
+// vez e respeita a lista dada ao pé da letra.
+// ══════════════════════════════════════════════════════════════════════════════
+
+test('planRouteManual: respeita a ordem dada; ETA cumulativo cresce igual ao automático', () => {
+  const stops = FIXTURE.slice(0, 4); // s01..s04
+  const ordemManual = ['s04', 's02', 's01']; // s03 fica de fora da lista
+  const plan = planRouteManual(stops, ordemManual, {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-06T08:00:00'),
+  });
+
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.deepEqual(ordenadas.map((p) => p.id), ['s04', 's02', 's01', 's03'], 's03 (fora da lista) vai pro FIM');
+
+  // ETA cumulativo cresce (mesma garantia do caminho automático).
+  let prevMs = -Infinity;
+  for (const p of ordenadas) {
+    assert.ok(p.etaAt instanceof Date);
+    assert.ok(p.etaAt!.getTime() > prevMs);
+    prevMs = p.etaAt!.getTime();
+  }
+});
+
+test('planRouteManual: id repetido na lista conta só a 1ª vez; id fora do conjunto aberto é ignorado', () => {
+  const stops = FIXTURE.slice(0, 3); // s01..s03
+  const ordemManual = ['s02', 's02', 'nao-existe', 's01'];
+  const plan = planRouteManual(stops, ordemManual, {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-06T08:00:00'),
+  });
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.deepEqual(ordenadas.map((p) => p.id), ['s02', 's01', 's03'], 'repetido/inexistente não duplicam nem travam');
+  assert.equal(new Set(ordenadas.map((p) => p.id)).size, 3, 'cada parada aparece exatamente 1×');
+});
+
+test('planRouteManual: ordemManual vazia é equivalente a "tudo no fim" (ordem natural preservada)', () => {
+  const stops = FIXTURE.slice(0, 3);
+  const plan = planRouteManual(stops, [], {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-06T08:00:00'),
+  });
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.deepEqual(ordenadas.map((p) => p.id), stops.map((s) => s.id), 'sem manual, mantém a ordem de entrada (natural do fetch)');
+});
+
+test('planRouteManual: parada sem coordenada mantém a posição da lista manual mas fica sem ETA', () => {
+  const stops: Stop[] = [
+    FIXTURE[0],
+    { id: 'sem-gps', lat: null, lng: null, status: 'agendada', nome: 'Sem GPS' },
+    FIXTURE[1],
+  ];
+  const plan = planRouteManual(stops, ['sem-gps', FIXTURE[1].id, FIXTURE[0].id], {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-06T08:00:00'),
+  });
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.deepEqual(ordenadas.map((p) => p.id), ['sem-gps', FIXTURE[1].id, FIXTURE[0].id], 'ordem manual respeitada mesmo sem coord');
+  assert.equal(ordenadas[0].semCoordenada, true);
+  assert.equal(ordenadas[0].etaAt, null);
 });

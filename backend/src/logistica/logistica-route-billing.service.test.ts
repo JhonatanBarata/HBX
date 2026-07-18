@@ -66,7 +66,10 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
         return row;
       },
       findFirst: async ({ where }: any) => routes.find((r) => match(r, where)) || null,
-      findMany: async ({ where }: any) => routes.filter((route) => {
+      findMany: async ({ where }: any) => {
+        // Consulta genérica (ex.: lookup de rotas donas na migração de stop).
+        if (!where.OR) return routes.filter((r) => match(r, where));
+        return routes.filter((route) => {
         if (route.companyId !== where.companyId || route.mode !== where.mode) return false;
         return where.OR.some((part: any) => {
           if (!match(route, Object.fromEntries(Object.entries(part).filter(([key]) => key !== 'essentialClaims')))) {
@@ -75,7 +78,8 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
           const statuses = part.essentialClaims?.some?.status?.in;
           return !statuses || claims.some((claim) => claim.routeId === route.id && statuses.includes(claim.status));
         });
-      }),
+        });
+      },
       updateMany: async ({ where, data }: any) => {
         const selected = routes.filter((r) => match(r, where));
         selected.forEach((row) => {
@@ -101,9 +105,14 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
       }),
       create: async ({ data }: any) => {
         if (stops.some((r) => r.deliveryId === data.deliveryId || (r.routeId === data.routeId && r.snapshotOrder === data.snapshotOrder))) throw p2002();
-        const row = { id: `stop-${++seq}`, ...data };
+        const row = { id: `stop-${++seq}`, billingExempt: false, ...data };
         stops.push(row);
         return row;
+      },
+      updateMany: async ({ where, data }: any) => {
+        const selected = stops.filter((r) => match(r, where));
+        selected.forEach((row) => Object.assign(row, data));
+        return { count: selected.length };
       },
     },
     logisticaEssentialCreditClaim: {
@@ -591,4 +600,62 @@ test('fronteiras da fórmula Essencial: 0/1/5/6/10/11', () => {
     [0, 1, 5, 6, 10, 11].map(essentialBlocksForDeliveries),
     [0, 1, 1, 2, 2, 3],
   );
+});
+
+function seedForeignRoute(h: ReturnType<typeof makeHarness>, overrides: any = {}) {
+  const route = {
+    id: 'route-antiga', companyId: 7, entregadorId: 8, routeDate: '2026-07-12', mode: 'ESSENTIAL',
+    status: 'PLANNED', billingRevision: 0, initializationToken: null, initializationLeaseUntil: null,
+    operationalEndedAt: null, updatedAt: new Date(), ...overrides,
+  };
+  h.routes.push(route);
+  h.stops.push({ id: 'stop-antigo', companyId: 7, routeId: route.id, deliveryId: 'd1', snapshotOrder: 0, billingExempt: false });
+  return route;
+}
+
+test('pendência de rota de dia anterior MIGRA de graça: billingExempt e sem bloco extra', async () => {
+  const h = makeHarness();
+  seedForeignRoute(h); // routeDate 2026-07-12 < 2026-07-13
+  const prepared = await h.service.prepareRoute({
+    companyId: 7, entregadorId: 9, routeDate: '2026-07-13',
+    deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'], chargeEssential: true,
+  });
+  // 6 no snapshot, mas d1 migrada não conta: 5 cobráveis = 1 bloco (sem a isenção seriam 2).
+  assert.equal(prepared!.totalUniqueDeliveries, 6);
+  assert.equal(h.claims.length, 1);
+  const moved = h.stops.find((s) => s.deliveryId === 'd1')!;
+  assert.notEqual(moved.routeId, 'route-antiga');
+  assert.equal(moved.billingExempt, true);
+  assert.equal(h.debitCalls.length, 1);
+});
+
+test('rota do MESMO dia encerrada operacionalmente também libera a entrega', async () => {
+  const h = makeHarness();
+  seedForeignRoute(h, { routeDate: '2026-07-13', status: 'ACTIVE', operationalEndedAt: new Date() });
+  const prepared = await h.service.prepareRoute({
+    companyId: 7, entregadorId: 9, routeDate: '2026-07-13', deliveryIds: ['d1'], chargeEssential: true,
+  });
+  assert.equal(prepared!.totalUniqueDeliveries, 1);
+  assert.equal(h.stops.find((s) => s.deliveryId === 'd1')!.billingExempt, true);
+  // migrada sozinha = 0 cobráveis = 0 blocos exigidos... rota sem bloco é barrada
+  // pelo START (requiredBlocks 0 → 402) — aqui só validamos que não debitou.
+  assert.equal(h.debitCalls.length, 0);
+});
+
+test('rota VIVA no mesmo dia NÃO migra: 409 com code e mensagem sem id de entrega', async () => {
+  const h = makeHarness();
+  seedForeignRoute(h, { routeDate: '2026-07-13', status: 'ACTIVE', operationalEndedAt: null });
+  await assert.rejects(
+    h.service.prepareRoute({
+      companyId: 7, entregadorId: 9, routeDate: '2026-07-13', deliveryIds: ['d1'], chargeEssential: true,
+    }),
+    (error: any) => {
+      const body = typeof error.getResponse === 'function' ? error.getResponse() : {};
+      assert.equal(body.code, 'ENTREGA_EM_OUTRA_ROTA');
+      assert.ok(!String(body.message).includes('d1'), 'mensagem não pode vazar id');
+      return true;
+    },
+  );
+  assert.equal(h.stops.find((s) => s.deliveryId === 'd1')!.routeId, 'route-antiga');
+  assert.equal(h.debitCalls.length, 0);
 });

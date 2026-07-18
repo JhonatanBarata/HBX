@@ -922,3 +922,96 @@ test('catálogo e vínculo preservam preços para dono/master', async () => {
   assert.equal(vinculos[0].precoAcordado, 19);
   assert.equal(vinculos[0].produto?.precoCatalogo, 21.5);
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PR18072026 W1 — façade de produtos sob /logistica (POST/PATCH /logistica/produtos)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function buildProdutoPrisma(seed: any[] = []) {
+  const store = new Map<number, any>(seed.map((row) => [row.id, { ...row }]));
+  let nextId = 100;
+  const prisma: any = {
+    product: {
+      create: async (args: any) => {
+        const id = nextId++;
+        const row = { id, ...args.data };
+        store.set(id, row);
+        return row;
+      },
+      findFirst: async (args: any) => {
+        const where = args?.where || {};
+        const row = store.get(where.id);
+        if (!row) return null;
+        if (where.companyId != null && row.companyId !== where.companyId) return null;
+        return { id: row.id };
+      },
+      update: async (args: any) => {
+        const row = store.get(args.where.id);
+        Object.assign(row, args.data);
+        return row;
+      },
+    },
+  };
+  return { prisma, store };
+}
+
+test('createProduto: cria produto tenant_product/active/usaLogistica=true company-scoped', async () => {
+  const { prisma, store } = buildProdutoPrisma();
+  const dto = await svc(prisma).createProduto(7, { nome: 'Galão 20L', unidade: 'galão', preco: 12.5, estoque: 30 });
+
+  assert.equal(dto.nome, 'Galão 20L');
+  assert.equal(dto.unidade, 'galão');
+  assert.equal(dto.preco, 12.5);
+  assert.equal(dto.estoque, 30);
+  assert.equal(dto.ativo, true);
+  const row = store.get(dto.id)!;
+  assert.equal(row.companyId, 7);
+  assert.equal(row.kind, 'tenant_product');
+  assert.equal(row.status, 'active');
+  assert.equal(row.usaLogistica, true);
+  assert.equal(row.priceCents, 1250);
+});
+
+test('createProduto: nome vazio rejeita; preco/estoque omitidos nascem 0', async () => {
+  const { prisma } = buildProdutoPrisma();
+  await assert.rejects(() => svc(prisma).createProduto(7, { nome: '' }), /Nome é obrigatório/);
+  const dto = await svc(prisma).createProduto(7, { nome: 'Sem preço' });
+  assert.equal(dto.preco, 0);
+  assert.equal(dto.estoque, 0);
+});
+
+test('updateProduto: edita nome/unidade/preco/estoque (PATCH parcial)', async () => {
+  const { prisma, store } = buildProdutoPrisma([
+    { id: 501, companyId: 7, name: 'Galão', unidade: 'un', price: 10, priceCents: 1000, stock: 5, status: 'active' },
+  ]);
+  const dto = await svc(prisma).updateProduto(7, '501', { preco: 15, estoque: 8 });
+  assert.equal(dto!.preco, 15);
+  assert.equal(dto!.estoque, 8);
+  assert.equal(dto!.nome, 'Galão', 'nome omitido não muda');
+  assert.equal(store.get(501)!.priceCents, 1500);
+});
+
+test('updateProduto: ativo=false ARQUIVA (status=archived), some do picker sem apagar o produto', async () => {
+  const { prisma, store } = buildProdutoPrisma([
+    { id: 501, companyId: 7, name: 'Galão', unidade: 'un', price: 10, priceCents: 1000, stock: 5, status: 'active' },
+  ]);
+  const dto = await svc(prisma).updateProduto(7, '501', { ativo: false });
+  assert.equal(dto!.ativo, false);
+  assert.equal(store.get(501)!.status, 'archived');
+  assert.ok(store.has(501), 'produto continua existindo — vínculos não quebram');
+});
+
+test('updateProduto: id de OUTRA empresa → null (404 no controller), nada é escrito', async () => {
+  const { prisma, store } = buildProdutoPrisma([
+    { id: 501, companyId: 7, name: 'Galão', unidade: 'un', price: 10, priceCents: 1000, stock: 5, status: 'active' },
+  ]);
+  const res = await svc(prisma).updateProduto(999, '501', { preco: 999 });
+  assert.equal(res, null);
+  assert.equal(store.get(501)!.price, 10, 'preço original intocado');
+});
+
+test('updateProduto: id inexistente/inválido → null', async () => {
+  const { prisma } = buildProdutoPrisma();
+  assert.equal(await svc(prisma).updateProduto(7, 'nao-numero', {}), null);
+  assert.equal(await svc(prisma).updateProduto(7, '999', {}), null);
+});

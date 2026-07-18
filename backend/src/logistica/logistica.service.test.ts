@@ -26,12 +26,17 @@ function buildEntrega(overrides: Record<string, any> = {}) {
   };
 }
 
+// PR18072026 W1 (coordenador) — `metodoPadrao` SAIU deste set: agora é exposto
+// intencionalmente ao ator sem billing quando moduloFinanceiroAtivoConfig (o
+// botão [Pago] da folha de chegada precisa dele como receiptMethod). O gate
+// correto virou a checagem POSITIVA em cada teste (ver 'listRota: vendedor...'
+// abaixo), não mais ausência total. `debitoAtual`/`valorHoje` são as OUTRAS
+// duas exposições aditivas do mesmo pacote — nunca estiveram neste set.
 const COMMERCIAL_ROUTE_KEYS = new Set([
   'valor',
   'valorUnit',
   'cobrancaStatus',
   'formaPagamento',
-  'metodoPadrao',
   'saldoAberto',
   'limiteFiado',
   'moduloFinanceiroAtivo',
@@ -2101,6 +2106,9 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
       lat: -23.5,
       lng: -46.6,
       phone: '11999999999',
+      // PR18072026 W1 — observação operacional (visível a QUALQUER ator, não
+      // gateada por billingAudience — diferente de formaPagamento/saldo/etc).
+      observacoes: 'Deixa na portaria, cachorro bravo.',
       formaPagamento: 'aberto',
       metodoPadrao: 'pix',
       limiteFiado: 100,
@@ -2208,21 +2216,38 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     const result = await service.listRota(7, '2026-07-13', actor);
 
     assertNoCommercialRouteKeys(result, nome);
+    // PR18072026 W1 — observacoes é OPERACIONAL (instrução de entrega), não
+    // comercial: continua visível pro entregador/vendedor/gerente sem billing.
+    assert.equal(result.items[0].cliente.observacoes, 'Deixa na portaria, cachorro bravo.', `${nome}: observacoes deve continuar visível`);
     assert.equal(result.trackingRequired, true, `${nome}: sinal operacional deve permanecer disponível`);
     assert.deepEqual(queries.trackingIncludeCommercialMode, [false]);
-    assert.equal(queries.saldo, 0, `${nome}: consulta de saldo não deve executar`);
+
+    // PR18072026 W1 (coordenador) — as TRÊS exposições aditivas (metodoPadrao/
+    // debitoAtual/valorHoje) são gateadas por moduloFinanceiroAtivoConfig (o
+    // valor REAL da config), NÃO por billingAudience — o entregador comum (sem
+    // cobrança) recebe as três mesmo sendo vendedor/motorista/gerente.
+    assert.equal(result.items[0].cliente.metodoPadrao, 'pix', `${nome}: metodoPadrao deve ser exposto (botão [Pago])`);
+    assert.equal(result.items[0].cliente.debitoAtual, 0, `${nome}: debitoAtual deve ser exposto (mesma fonte canônica de saldoAberto)`);
+    assert.equal(result.items[0].valorHoje, 42, `${nome}: valorHoje deve ser exposto (2×21 dos itens da entrega atual)`);
+    // A consulta de saldo AGORA roda (debitoAtual precisa dela) mesmo sem billingAudience.
+    assert.equal(queries.saldo, 2, `${nome}: consulta de saldo roda p/ alimentar debitoAtual`);
 
     const entregaSelect = queries.entrega.select;
-    assert.equal('valor' in entregaSelect, false, `${nome}: Entrega.valor não deve ser selecionado`);
+    // `valor`/`itens.valorUnit`/`customerProfile.metodoPadrao` agora são
+    // selecionados p/ QUALQUER ator (o SERVIDOR precisa deles pra computar
+    // valorHoje/metodoPadrao/debitoAtual) — a OUTPUT de `valor`/`valorUnit` cru
+    // continua billing-only (ver o resto deste teste: sem 'valor'/'valorUnit'
+    // no objeto, só o agregado seguro valorHoje).
+    assert.equal('valor' in entregaSelect, true, `${nome}: Entrega.valor É selecionado (uso interno p/ valorHoje)`);
     assert.equal('cobrancaStatus' in entregaSelect, false, `${nome}: cobrança não deve ser selecionada`);
     assert.equal('formaPagamento' in entregaSelect.customerProfile.select, false);
-    assert.equal('metodoPadrao' in entregaSelect.customerProfile.select, false);
+    assert.equal('metodoPadrao' in entregaSelect.customerProfile.select, true, `${nome}: metodoPadrao É selecionado (uso p/ output aditivo)`);
     assert.equal('limiteFiado' in entregaSelect.customerProfile.select, false);
-    assert.equal('valorUnit' in entregaSelect.itens.select, false);
+    assert.equal('valorUnit' in entregaSelect.itens.select, true, `${nome}: valorUnit É selecionado (uso interno p/ valorHoje)`);
 
     const configSelect = queries.config.select;
-    assert.equal('moduloFinanceiroAtivo' in configSelect, false);
-    assert.equal('pixChave' in configSelect, false);
+    assert.equal('moduloFinanceiroAtivo' in configSelect, true, `${nome}: moduloFinanceiroAtivo (o TOGGLE) É lido p/ QUALQUER ator`);
+    assert.equal('pixChave' in configSelect, false, `${nome}: pixChave (dado sensível de verdade) continua ausente`);
     assert.equal('pixNome' in configSelect, false);
     assert.equal('pixCidade' in configSelect, false);
   }
@@ -2246,10 +2271,168 @@ test('listRota: dono mantém a visão comercial necessária à administração',
   assert.equal(item.valor, 42);
   assert.equal(item.cobrancaStatus, 'pendente');
   assert.equal(item.cliente.formaPagamento, 'aberto');
-  assert.equal(item.cliente.metodoPadrao, 'pix');
+  assert.equal(item.cliente.metodoPadrao, 'pix', 'billingAudience continua vendo metodoPadrao pelo bloco ORIGINAL');
   assert.equal(item.cliente.saldoAberto, 0);
+  // PR18072026 W1 (coordenador) — este teste usa buildRotaPrivacyMock(false):
+  // moduloFinanceiroAtivoConfig (o TOGGLE real da empresa) é FALSE aqui. As TRÊS
+  // exposições aditivas (metodoPadrao-standalone/debitoAtual/valorHoje) ficam
+  // AUSENTES (undefined) — "OFF = dinheiro não aparece em lugar nenhum", mesmo
+  // pro dono. metodoPadrao='pix' acima vem do bloco billingAudience ORIGINAL,
+  // que não depende do toggle (nunca dependeu — comportamento intocado).
+  assert.equal(item.cliente.debitoAtual, undefined, 'moduloFinanceiroAtivoConfig OFF → debitoAtual nem aparece');
+  assert.equal(item.valorHoje, undefined, 'moduloFinanceiroAtivoConfig OFF → valorHoje nem aparece');
   assert.equal(item.cliente.limiteFiado, 100);
+  assert.equal(item.cliente.observacoes, 'Deixa na portaria, cachorro bravo.');
   assert.equal(item.itens[0].valorUnit, 21);
   assert.equal('valor' in queries.entrega.select, true);
   assert.equal('pixChave' in queries.config.select, true);
+});
+
+// PR18072026 W1 (coordenador) — com o toggle LIGADO, o dono (billingAudience)
+// também recebe as 3 exposições aditivas — mesmo valor que o entregador comum
+// veria, via o gate NOVO (moduloFinanceiroAtivoConfig), redundante com o bloco
+// billingAudience ORIGINAL só quando os dois batem (o que é o caso do dono).
+test('listRota: dono com o módulo financeiro LIGADO também vê as 3 exposições aditivas', async () => {
+  const { service } = buildRotaPrivacyMock(true);
+  const result = await service.listRota(7, '2026-07-13', {
+    id: 1,
+    companyId: 7,
+    role: 'ADMIN',
+    canViewBilling: true,
+  });
+  const item = result.items[0];
+
+  assert.equal(item.cliente.metodoPadrao, 'pix');
+  assert.equal(item.cliente.debitoAtual, 0);
+  assert.equal(item.valorHoje, 42);
+});
+
+// PR18072026 W1 — cliente.debitoAtual reusa a MESMA fonte canônica de
+// saldoAberto (saldoAbertoPorClientes) quando moduloFinanceiroAtivo está ON —
+// não recalcula na mão, os dois batem com o valor REAL (não só 0).
+test('listRota: cliente.debitoAtual bate com saldoAberto (mesma fonte canônica, valor não-zero)', async () => {
+  const row = {
+    id: 'entrega-rota-1',
+    status: 'em_rota',
+    quantidade: 1,
+    valor: 30,
+    scheduledAt: new Date('2026-07-18T12:00:00Z'),
+    deliveredAt: null,
+    deliveredLat: null,
+    deliveredLng: null,
+    cobrancaStatus: 'pendente',
+    notes: null,
+    updatedAt: new Date('2026-07-18T12:05:00Z'),
+    entregador: { id: 42, name: 'Motorista', email: 'motorista@hbx.test', username: 'motorista' },
+    comprovanteCodigoHash: null,
+    comprovanteConfirmadoAt: null,
+    comprovantes: [],
+    rotaOrdem: 0,
+    etaAt: null,
+    localId: null,
+    local: null,
+    customerProfile: {
+      id: 'cliente-devedor',
+      name: 'Cliente Devedor',
+      endereco: 'Rua B',
+      cidade: 'São Paulo',
+      uf: 'SP',
+      lat: -23.5,
+      lng: -46.6,
+      phone: '11988888888',
+      observacoes: null,
+      formaPagamento: 'aberto',
+      metodoPadrao: null,
+      limiteFiado: null,
+    },
+    contato: null,
+    product: { id: 10, name: 'Galão', unidade: 'un' },
+    itens: [],
+  };
+  const prisma: any = {
+    entrega: {
+      findMany: async () => [row],
+      groupBy: async () => [{ customerProfileId: 'cliente-devedor', _sum: { valor: 12.5 } }],
+    },
+    financeiroCharge: {
+      groupBy: async () => [{ customerProfileId: 'cliente-devedor', _sum: { amount: 37.5 } }],
+    },
+    logisticaConfig: {
+      findUnique: async () => ({ moduloFinanceiroAtivo: true, pixChave: null, pixNome: null, pixCidade: null }),
+    },
+  };
+  const operacao: any = {
+    whereForActor: async () => ({}),
+    requisitosFromConfig: () => ({ fotoObrigatoria: false, assinaturaObrigatoria: false, codigoObrigatorio: false }),
+  };
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any, undefined, undefined, undefined, operacao);
+  const result = await service.listRota(7, '2026-07-18', { id: 1, companyId: 7, role: 'ADMIN', canViewBilling: true });
+
+  const cliente = result.items[0].cliente as any;
+  assert.equal(cliente.saldoAberto, 50, 'pendente(37.5) + aguardando(12.5)');
+  assert.equal(cliente.debitoAtual, 50, 'debitoAtual = MESMO valor de saldoAberto');
+  // PR18072026 W1 (coordenador) — entrega SEM EntregaItem (itens: []) cai no
+  // fallback: valorHoje = r.valor (o escalar legado), não zero.
+  assert.equal(result.items[0].valorHoje, 30, 'sem itens, valorHoje cai no r.valor legado');
+});
+
+test('listRota: valorHoje soma EntregaItem.qtdPrevista×valorUnit quando a entrega TEM itens', async () => {
+  const row = {
+    id: 'entrega-multi-item',
+    status: 'agendada',
+    quantidade: 3,
+    valor: 999, // propositalmente diferente da soma dos itens — valorHoje NÃO usa este campo quando há itens
+    scheduledAt: new Date('2026-07-18T12:00:00Z'),
+    deliveredAt: null,
+    deliveredLat: null,
+    deliveredLng: null,
+    cobrancaStatus: 'pendente',
+    notes: null,
+    updatedAt: new Date('2026-07-18T12:05:00Z'),
+    entregador: null,
+    comprovanteCodigoHash: null,
+    comprovanteConfirmadoAt: null,
+    comprovantes: [],
+    rotaOrdem: 0,
+    etaAt: null,
+    localId: null,
+    local: null,
+    customerProfile: {
+      id: 'cliente-1',
+      name: 'Cliente Um',
+      endereco: null,
+      cidade: null,
+      uf: null,
+      lat: null,
+      lng: null,
+      phone: null,
+      observacoes: null,
+      formaPagamento: 'aberto',
+      metodoPadrao: null,
+      limiteFiado: null,
+    },
+    contato: null,
+    product: null,
+    itens: [
+      { id: 'item-1', qtdPrevista: 2, qtdEntregue: null, valorUnit: 12, product: { id: 10, name: 'Galão', unidade: 'un' } },
+      { id: 'item-2', qtdPrevista: 1, qtdEntregue: null, valorUnit: 8, product: { id: 20, name: 'Gás', unidade: 'un' } },
+    ],
+  };
+  const prisma: any = {
+    entrega: { findMany: async () => [row], groupBy: async () => [] },
+    financeiroCharge: { groupBy: async () => [] },
+    logisticaConfig: {
+      findUnique: async () => ({ moduloFinanceiroAtivo: true, pixChave: null, pixNome: null, pixCidade: null }),
+    },
+  };
+  const operacao: any = {
+    whereForActor: async () => ({}),
+    requisitosFromConfig: () => ({ fotoObrigatoria: false, assinaturaObrigatoria: false, codigoObrigatorio: false }),
+  };
+  // Ator SEM billing (vendedor) — valorHoje ainda deve aparecer (gate é moduloFinanceiroAtivoConfig).
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any, undefined, undefined, undefined, operacao);
+  const result = await service.listRota(7, '2026-07-18', { id: 11, companyId: 7, role: 'USER', canViewBilling: false });
+
+  assert.equal(result.items[0].valorHoje, 32, '2×12 + 1×8 = 32 (Σ itens, ignora o r.valor=999)');
+  assert.equal('valor' in result.items[0], false, 'valor cru continua ausente pro ator sem billing');
 });

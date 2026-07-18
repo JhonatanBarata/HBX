@@ -294,6 +294,8 @@ model Company {
   clienteProdutos        ClienteProduto[]
   logisticaRoutes        LogisticaRoute[]
   logisticaRouteStops    LogisticaRouteStop[]
+  // PR18072026 W1 — roteiros salvos (rota-modelo) da empresa.
+  logisticaRotaModelos   LogisticaRotaModelo[]
   logisticaEssentialClaims LogisticaEssentialCreditClaim[]
   logisticaTrackingSessions LogisticaTrackingSession[]
   logisticaTrackingPoints LogisticaTrackingPoint[]
@@ -1041,6 +1043,10 @@ model CustomerProfile {
   externalCustomerId   String?
   status               String   @default("active")
   notes                String?
+  // PR18072026 W1 — observação livre do vendedor/entregador sobre o cliente
+  // ("deixa na portaria", "cachorro bravo"...). Aditiva/opcional; exposta em
+  // listRota (cliente.observacoes), lista/detalhe de clientes e dia-preview.
+  observacoes          String?  @db.VarChar(500)
   // BUG 1 (11/07) — coluna ESPELHO de `name` sem acento/caixa, pra busca insensível a
   // acento (`{name:{contains,mode:insensitive}}` vira ILIKE no Postgres, que é
   // acento-SENSÍVEL — "Déia" não bate "Deia"). Gravada pelo service em TODO write de
@@ -1321,12 +1327,36 @@ model LogisticaRouteStop {
   delivery      Entrega  @relation(fields: [deliveryId, companyId], references: [id, companyId], onDelete: Restrict)
   deliveryId    String
   snapshotOrder Int
+  // PR18072026 W2 (Opus, billing) — coluna da FRENTE DE BILLING (migration é do
+  // W1 só pra não conflitar no schema.prisma; comportamento fica 100% em
+  // logistica-route-billing.service.ts, que W1 NÃO toca). Default false = 0
+  // mudança de cobrança pra paradas existentes.
+  billingExempt Boolean  @default(false)
   createdAt     DateTime @default(now())
 
   @@unique([routeId, snapshotOrder])
   @@unique([deliveryId, companyId])
   @@index([companyId, routeId])
   @@index([companyId, deliveryId])
+}
+
+// PR18072026 W1 — "rota-modelo": um roteiro salvo (nome + dia da semana +
+// paradas em ordem) que o admin/entregador reaplica sem redigitar tudo. Aplicar
+// o modelo é 100% CLIENT-SIDE (o app manda a lista como `ordemManual` no
+// planejar/iniciar) — este model só guarda o molde, não participa da rota em si.
+model LogisticaRotaModelo {
+  id         String   @id @default(cuid())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  Int
+  nome       String   @db.VarChar(80)
+  diaSemana  Int?     // 1(seg)..7(dom); null = sem dia fixo
+  // Array ordenado de { customerProfileId, localId? } — a ORDEM da lista é a
+  // ordem do roteiro (o índice vira a ordemManual quando o app aplica o modelo).
+  paradasJson Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([companyId])
 }
 
 // ROTA RASTREADA PR2 (14/07) — sessão única e congelada da rota TRACKED.
@@ -1642,6 +1672,11 @@ model LogisticaConfig {
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
   gerarDiaAutomatico    Boolean  @default(false)
+  // PR18072026 W1 — "cobrança simples" (opt-in do dono): reservado para a UI
+  // do app simplificar a folha de chegada (chips) quando ligado. Só a coluna
+  // nasce aqui; o comportamento em si é de outra frente. Default false = 0
+  // mudança de comportamento pra quem não ligou.
+  cobrancaSimples       Boolean  @default(false)
   // TASK 4 (08/07) — dias da semana em que a empresa TRABALHA (CSV ISO "1,2,3,4,5,6,7",
   // 1=segunda…7=domingo; mesma convenção de ClienteProduto.diasSemana). null = default
   // (sem restrição configurada). Usado pelo pop-up "Gerar entregas" do app pra sugerir

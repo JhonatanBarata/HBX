@@ -336,6 +336,14 @@ export class PlanejarRotaDto {
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   deliveryIds?: string[];
+
+  // PR18072026 — "Minha ordem": ids na ordem que o entregador arrastou na
+  // tela. Presentes = ordem dada; ausentes = apêndice no fim. Pula NN+2-opt.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  ordemManual?: string[];
 }
 
 // Iniciar: re-planeja com a origem atual e marca a 1ª parada em rota.
@@ -362,6 +370,13 @@ export class IniciarRotaDto {
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   deliveryIds?: string[];
+
+  // PR18072026 — mesmo contrato do PlanejarRotaDto acima.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  ordemManual?: string[];
 }
 
 // ── PR17072026 Onda 1 — encerrar rota (transacional, tudo-ou-nada) ───────────
@@ -370,6 +385,21 @@ export class IniciarRotaDto {
 // Ver docs/PLANEJAMENTOS/PR17072026/01-backend-encerrar-rota.md (contrato
 // congelado). motivo é só para log/auditoria — não persiste em nenhuma tabela.
 export class EncerrarRotaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  motivo?: string;
+}
+
+// ── PR18072026 Onda 1 — limpar dia (transacional, CANCELA as abertas) ────────
+// Mesma guarda/shape do EncerrarRotaDto — decisão do dono (18/07): "Limpar dia"
+// cancela as entregas abertas (diferente de encerrar, que pausa p/ pendência).
+export class LimparDiaDto {
   @IsOptional()
   @IsString()
   @MaxLength(40)
@@ -602,4 +632,111 @@ export class VarrerRecoveryDto {
   @IsString()
   @MaxLength(40)
   date?: string;
+}
+
+// ── PR18072026 W1 — rota-modelo (roteiro salvo, aplicado client-side) ────────
+// Uma parada do molde: cliente + local opcional (mesmo par que ordemManual usa
+// pra montar a lista de aplicação — o app resolve id→ordemManual na hora de
+// aplicar o modelo; não existe endpoint "aplicar" no backend).
+export class RotaModeloParadaDto {
+  @IsString()
+  @MaxLength(80)
+  customerProfileId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  localId?: string;
+}
+
+export class CreateRotaModeloDto {
+  @IsString()
+  @MaxLength(80)
+  nome!: string;
+
+  // 1(segunda)..7(domingo); omitido/null = sem dia fixo.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  diaSemana?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RotaModeloParadaDto)
+  paradas?: RotaModeloParadaDto[];
+}
+
+// PATCH parcial — os MESMOS campos, todos opcionais.
+export class UpdateRotaModeloDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  nome?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  diaSemana?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RotaModeloParadaDto)
+  paradas?: RotaModeloParadaDto[];
+}
+
+// ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ─────
+// O app do entregador só fala com endpoints `logistica/*` (isMobileEndpointAllowed
+// no NativeApiClient.kt) — este é o par POST/PATCH que faltava pra editar o
+// catálogo sem sair do prefixo. Arquivar (ativo=false) mapeia pra Product.status
+// ('active'|'archived') — o Product não tem coluna `ativo` própria.
+export class CreateProdutoDto {
+  @IsString()
+  @MaxLength(140)
+  nome!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  unidade?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  preco?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  estoque?: number;
+}
+
+export class UpdateProdutoDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(140)
+  nome?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  unidade?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  preco?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  estoque?: number;
+
+  // false arquiva (status='archived', some do picker); true reativa.
+  @IsOptional()
+  @IsBoolean()
+  ativo?: boolean;
 }

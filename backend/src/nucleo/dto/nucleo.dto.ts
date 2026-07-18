@@ -134,6 +134,13 @@ export class CreateContaDto {
   @IsString()
   @MaxLength(120)
   cargo?: string;
+
+  // PR18072026 W1 — observação livre sobre o cliente ("deixa na portaria"...).
+  // Trim + max 500 no serviço (mesmo padrão de outros campos de texto livre).
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observacoes?: string;
 }
 
 // ── Editar CONTA (papéis, endereço, dados) ───────────────────────────────────
@@ -214,6 +221,12 @@ export class UpdateContaDto {
   @IsOptional()
   @IsBoolean()
   isFornecedor?: boolean;
+
+  // PR18072026 W1 — mesma regra do CreateContaDto acima.
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observacoes?: string;
 }
 
 // ── Adicionar CONTATO (pessoa) a uma conta existente ─────────────────────────

@@ -74,10 +74,25 @@ export class LogisticaRotaService {
 
     // Ordena (NN + 2-opt) e calcula ETA cumulativo a partir de AGORA (ou input.startAt).
     const partida = parseDateOrNull(input.startAt) ?? new Date();
-    const plan = await planRouteByRoads(
-      rows.map((r) => toStop(r)),
-      { origem, velocidadeKmH: config.velocidadeMediaKmH, paradaMin: config.tempoParadaMin, partida },
-    );
+    // PR18072026 — ORDEM MANUAL: quando o app manda `ordemManual` (ids na ordem que
+    // o entregador arrastou na tela), a rota respeita ESSA ordem ao pé da letra —
+    // pula o NN+2-opt inteiro. Paradas listadas recebem rotaOrdem na ordem dada;
+    // as não-listadas (fora do conjunto aberto ou esquecidas na lista) vão pro FIM
+    // na ordem natural do fetch (rotaOrdem→scheduledAt→createdAt). ETA cumulativo
+    // segue a MESMA função (computeEta) — mesma velocidade/tempo de parada, mesma
+    // persistência rotaOrdem/etaAt do caminho automático.
+    const ordemManual = normalizeOrdemManual(input.ordemManual);
+    const plan = ordemManual
+      ? planRouteManual(rows.map((r) => toStop(r)), ordemManual, {
+          origem,
+          velocidadeKmH: config.velocidadeMediaKmH,
+          paradaMin: config.tempoParadaMin,
+          partida,
+        })
+      : await planRouteByRoads(
+          rows.map((r) => toStop(r)),
+          { origem, velocidadeKmH: config.velocidadeMediaKmH, paradaMin: config.tempoParadaMin, partida },
+        );
 
     // Persiste rotaOrdem/etaAt de cada parada (sequencial: são poucas paradas/dia).
     for (const p of plan.paradas) {
@@ -179,6 +194,7 @@ export class LogisticaRotaService {
       origemLat: input.origemLat,
       origemLng: input.origemLng,
       deliveryIds: input.deliveryIds,
+      ordemManual: input.ordemManual,
     }, effectiveDriverId, actorUserId, true);
 
     if (plan.paradas.length === 0) throw new BadRequestException('Não há entregas abertas para iniciar.');
@@ -437,6 +453,77 @@ export class LogisticaRotaService {
       `[logistica] rota encerrada ${dayISO} company=${companyId}` +
         (entregadorId ? ` entregador=${entregadorId}` : '') +
         `: total=${resumo.total} entregues=${resumo.entregues} naoEntregues=${resumo.naoEntregues} pendentes=${resumo.pendentes}` +
+        (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
+    );
+
+    return { ok: true, resumo };
+  }
+
+  // ── LIMPAR DIA (PR18072026 Onda 1) ───────────────────────────────────────────
+  /**
+   * "Limpar dia" — decisão do dono (18/07): CANCELA as entregas ABERTAS
+   * (agendada/em_rota) do escopo do dia, transacional e tudo-ou-nada. Mesmo
+   * escopo do encerrarRota (mesmo OR: range do dia + sem-data abertas), mas o
+   * DESFECHO é diferente por design — aqui é para descartar o dia mesmo
+   * (ex.: erro de geração, dia cancelado), não pausar para retomar depois:
+   *
+   *  - 'agendada'/'em_rota' do escopo → 'cancelada' (rotaOrdem/etaAt/startedAt
+   *    limpos — não sobra rastro de rota numa entrega cancelada).
+   *  - 'entregue'/'cancelada': NUNCA entram no WHERE de escrita — INTOCADAS.
+   *  - FinanceiroCharge/comprovantes: NÃO tocados (este método só lê/escreve
+   *    `Entrega` + o campo operacional decoupled de `LogisticaRoute`).
+   *  - Encerra a rota OPERACIONALMENTE (operationalEndedAt, mesmo updateMany
+   *    do encerrarRota) — o app para de ver a rota do dia como ativa.
+   *
+   * IDEMPOTENTE: 2ª chamada no mesmo dia não acha mais nenhuma aberta →
+   * canceladas:0, sem erro.
+   */
+  async limparDia(
+    companyId: number,
+    input: EncerrarRotaInput = {},
+    entregadorId?: number,
+  ): Promise<LimparDiaResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const { start, end, dayISO } = resolveDayRange(input.date);
+    const routeDate = canonicalRouteDate(input.date);
+
+    const resumo = await this.prisma.$transaction(async (tx: any) => {
+      // Mesmo escopo "abertas do dia" do encerrarRota (range do dia + sem-data
+      // abertas), já restrito por status — aqui CANCELA direto (sem o meio-termo
+      // "estava mesmo na rota?" do encerrar: Limpar Dia descarta tudo que está
+      // aberto no dia, planejado ou não).
+      const canceladas = await tx.entrega.updateMany({
+        where: {
+          companyId,
+          ...(entregadorId ? { entregadorId } : {}),
+          status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+          OR: [
+            { scheduledAt: { gte: start, lte: end } },
+            { scheduledAt: null, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
+          ],
+        },
+        data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null },
+      });
+
+      // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
+      // encerrarRota): NÃO altera `status` de cobrança.
+      await tx.logisticaRoute.updateMany({
+        where: {
+          companyId,
+          routeDate,
+          ...(entregadorId ? { entregadorId } : {}),
+          status: { in: ['ACTIVE', 'INITIALIZING'] },
+        },
+        data: { operationalEndedAt: new Date() },
+      });
+
+      return { canceladas: canceladas.count };
+    });
+
+    this.logger.log(
+      `[logistica] limpar-dia ${dayISO} company=${companyId}` +
+        (entregadorId ? ` entregador=${entregadorId}` : '') +
+        `: canceladas=${resumo.canceladas}` +
         (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
     );
 
@@ -792,6 +879,43 @@ export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResul
 }
 
 /**
+ * PR18072026 — pipeline da ORDEM MANUAL: nada de NN/2-opt/OSRM. `ordemManual`
+ * dita a ordem ao pé da letra — só as paradas que EXISTEM no conjunto aberto
+ * (`stops`) entram, na ordem dada (1ª ocorrência de um id repetido vence, as
+ * demais são ignoradas); tudo que sobrar (fora da lista OU fora do conjunto
+ * aberto) vai pro FIM, na ordem natural em que `stops` chegou (já vem
+ * pré-ordenado pelo fetch: rotaOrdem→scheduledAt→createdAt). ETA cumulativo
+ * pela MESMA `computeEta` — mesma velocidade/tempo de parada do caminho
+ * automático; só a ORDEM de entrada muda.
+ */
+export function planRouteManual(stops: Stop[], ordemManual: string[], opts: PlanRouteOptions): PlanRouteResult {
+  const byId = new Map(stops.map((s) => [s.id, s] as const));
+  const seen = new Set<string>();
+  const manualOrdered: Stop[] = [];
+  for (const id of ordemManual) {
+    if (seen.has(id)) continue;
+    const stop = byId.get(id);
+    if (!stop) continue; // fora do conjunto aberto do dia/motorista — ignorado
+    manualOrdered.push(stop);
+    seen.add(id);
+  }
+  const resto = stops.filter((s) => !seen.has(s.id));
+  const ordenados: Stop[] = [...manualOrdered, ...resto].map((s, i) => ({ ...s, rotaOrdem: i }));
+
+  const paradas = computeEta(ordenados, {
+    velocidadeKmH: opts.velocidadeKmH,
+    paradaMin: opts.paradaMin,
+    partida: opts.partida,
+  });
+
+  const distanciaTotalKm = routeCostKm(filtrarComCoord(ordenados), opts.origem);
+  const comEta = paradas.filter((p) => p.etaAt != null);
+  const terminoPrevisto = comEta.length > 0 ? comEta[comEta.length - 1].etaAt : null;
+
+  return { paradas, distanciaTotalKm, terminoPrevisto };
+}
+
+/**
  * Planejamento real por ruas. A matriz do OSRM contém o tempo/distância da
  * malha viária entre cada par de paradas; portanto sentidos, retornos, pontes e
  * bairros entram na ordem. Haversine permanece apenas como fallback resiliente.
@@ -1001,6 +1125,10 @@ export interface PlanejarRotaInput {
   origemLng?: number;
   deliveryIds?: string[];
   startAt?: string; // hora de partida (default: agora) — usado no cálculo do ETA
+  // PR18072026 — ids das entregas na ordem que o entregador arrastou na tela
+  // ("Minha ordem"). Presentes = ordem dada; ausentes/fora do conjunto aberto
+  // do dia/motorista = apêndice no fim (ordem natural do fetch). Pula NN+2-opt.
+  ordemManual?: string[];
 }
 
 export interface IniciarRotaInput {
@@ -1008,6 +1136,7 @@ export interface IniciarRotaInput {
   origemLat?: number;
   origemLng?: number;
   deliveryIds?: string[];
+  ordemManual?: string[];
 }
 
 // ── ENCERRAR ROTA (PR17072026 Onda 1) ────────────────────────────────────────
@@ -1028,9 +1157,33 @@ export interface EncerrarRotaResult {
   resumo: EncerrarRotaResumo;
 }
 
+// ── LIMPAR DIA (PR18072026 Onda 1) ────────────────────────────────────────────
+export interface LimparDiaResumo {
+  canceladas: number;
+}
+
+export interface LimparDiaResult {
+  ok: true;
+  resumo: LimparDiaResumo;
+}
+
 function normalizeDeliveryIds(value?: string[]): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const ids = [...new Set(value.map(id => String(id || '').trim()).filter(id => id.length > 0 && id.length <= 80))].slice(0, 300);
+  return ids.length ? ids : undefined;
+}
+
+// PR18072026 — mesma normalização de normalizeDeliveryIds (trim + tamanho +
+// teto), mas SEM dedupe/Set: planRouteManual precisa da ORDEM original dada
+// pelo app (o Set do normalizeDeliveryIds embaralharia a ordem de inserção
+// em runtimes que não preservam string keys — mais seguro nunca depender
+// disso aqui). O dedupe acontece em planRouteManual (1ª ocorrência vence).
+function normalizeOrdemManual(value?: string[]): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value
+    .map((id) => String(id || '').trim())
+    .filter((id) => id.length > 0 && id.length <= 80)
+    .slice(0, 500);
   return ids.length ? ids : undefined;
 }
 

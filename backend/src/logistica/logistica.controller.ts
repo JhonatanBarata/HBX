@@ -29,6 +29,7 @@ import { LogisticaService } from './logistica.service';
 import { isScoreFiadoEnabled } from './logistica-score.flags';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
@@ -41,15 +42,20 @@ import {
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
+  CreateProdutoDto,
+  CreateRotaModeloDto,
   EncerrarRotaDto,
   FecharMesDto,
   GerarDiaDto,
   IniciarRotaDto,
+  LimparDiaDto,
   PlanejarRotaDto,
   SetAvisarClienteDto,
   UpdateClienteProdutoDto,
   UpdateFinanceiroClienteDto,
   UpdateLogisticaConfigDto,
+  UpdateProdutoDto,
+  UpdateRotaModeloDto,
   TipoComprovanteDto,
   VarrerRecoveryDto,
 } from './dto/logistica.dto';
@@ -87,6 +93,10 @@ export class LogisticaController {
     private readonly tracking: LogisticaTrackingService = null as any,
     private readonly trackingBonus: LogisticaTrackingBonusService = null as any,
     private readonly occurrences: LogisticaOccurrenceService = null as any,
+    // PR18072026 W1 — CRUD de rota-modelo. Default preserva testes legados que
+    // instanciam o controller diretamente com poucos argumentos; no módulo
+    // Nest o provider é sempre injetado.
+    private readonly rotaModelo: LogisticaRotaModeloService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -546,6 +556,7 @@ export class LogisticaController {
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
       deliveryIds: dto?.deliveryIds,
+      ordemManual: dto?.ordemManual,
     }, entregadorId, Number(req.user?.id) || null);
   }
 
@@ -563,6 +574,7 @@ export class LogisticaController {
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
       deliveryIds: dto?.deliveryIds,
+      ordemManual: dto?.ordemManual,
     }, entregadorId, Number(req.user?.id) || null, isBillingOwnerActor(req.user));
   }
 
@@ -581,6 +593,78 @@ export class LogisticaController {
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
     return this.rota.encerrarRota(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+  }
+
+  /**
+   * PR18072026 Onda 1 — "Limpar dia": CANCELA (não pausa) as entregas ABERTAS
+   * do dia, transacional/tudo-ou-nada. Decisão do dono (18/07): diferente de
+   * encerrar (que devolve pra pendência), limpar dia é pra descartar o dia
+   * mesmo. Entregues/canceladas/FinanceiroCharge/comprovantes INTOCADOS. Mesmo
+   * guard/escopo do rota/encerrar — NÃO admin-only.
+   */
+  @Post('rota/limpar-dia')
+  async limparDia(@Req() req: any, @Body() dto: LimparDiaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    return this.rota.limparDia(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+  }
+
+  // ── PR18072026 W1 — rota-modelo (roteiro salvo, aplicado client-side) ──────
+  // Mesma guarda do gerar-dia (só JwtAuthGuard+ModuleAccessGuard de classe —
+  // não Admin-only: o próprio entregador também monta/reaplica um roteiro).
+
+  @Get('rota-modelos')
+  listRotaModelos(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rotaModelo.list(companyId);
+  }
+
+  @Post('rota-modelos')
+  createRotaModelo(@Req() req: any, @Body() dto: CreateRotaModeloDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rotaModelo.create(companyId, { nome: dto.nome, diaSemana: dto.diaSemana, paradas: dto.paradas });
+  }
+
+  @Patch('rota-modelos/:id')
+  async updateRotaModelo(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateRotaModeloDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.rotaModelo.update(companyId, id, {
+      nome: dto.nome,
+      diaSemana: dto.diaSemana,
+      paradas: dto.paradas,
+    });
+    if (!res) throw new NotFoundException('Modelo de rota não encontrado');
+    return res;
+  }
+
+  @Delete('rota-modelos/:id')
+  async deleteRotaModelo(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const ok = await this.rotaModelo.remove(companyId, id);
+    if (!ok) throw new NotFoundException('Modelo de rota não encontrado');
+    return { success: true };
+  }
+
+  // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ───
+  // O app do entregador só fala com endpoints `logistica/*`; PATCH/POST aqui
+  // evitam sair do prefixo permitido. ADMIN-only (mesmo padrão de
+  // cliente-produtos: ensureBillingOwner, não RolesGuard/@Admin).
+
+  @Post('produtos')
+  createProduto(@Req() req: any, @Body() dto: CreateProdutoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    return this.recorrencia.createProduto(companyId, dto);
+  }
+
+  @Patch('produtos/:id')
+  async updateProduto(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateProdutoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    const res = await this.recorrencia.updateProduto(companyId, id, dto);
+    if (!res) throw new NotFoundException('Produto não encontrado');
+    return res;
   }
 
   // ── ROTA RASTREADA PR2 — cockpit administrativo ao vivo ───────────────────

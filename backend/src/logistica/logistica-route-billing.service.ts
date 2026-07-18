@@ -38,6 +38,7 @@ type RouteRow = {
   billingRevision: number;
   initializationToken: string | null;
   initializationLeaseUntil: Date | null;
+  operationalEndedAt?: Date | null;
 };
 
 type ClaimRow = {
@@ -158,6 +159,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     );
     route = snapshot.route;
     const totalUniqueDeliveries = snapshot.totalUniqueDeliveries;
+    const billableDeliveries = snapshot.billableDeliveries;
     if (route.status === 'COMPLETED') {
       // Cobre a corrida em que END venceu depois da primeira leitura de rota.
       // O caminho START já lança dentro de syncSnapshot; PLAN retorna read-only.
@@ -167,7 +169,9 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     const newlyDebitedUsageKeys: string[] = [];
     const shouldChargeEssential = route.mode === 'ESSENTIAL' && (input.chargeEssential === true || route.status === 'ACTIVE');
     if (shouldChargeEssential) {
-      const requiredBlocks = essentialBlocksForDeliveries(totalUniqueDeliveries);
+      // Blocos cobram só entregas NÃO-migradas: stop com billingExempt veio de
+      // rota anterior já cobrada — entra de graça (decisão do dono 18/07).
+      const requiredBlocks = essentialBlocksForDeliveries(billableDeliveries);
       try {
         for (let blockIndex = 1; blockIndex <= requiredBlocks; blockIndex++) {
           const charged = await this.chargeEssentialBlock({
@@ -215,7 +219,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     route: RouteRow,
     deliveryIdsInput: string[],
     rejectCompleted: boolean,
-  ): Promise<{ route: RouteRow; totalUniqueDeliveries: number }> {
+  ): Promise<{ route: RouteRow; totalUniqueDeliveries: number; billableDeliveries: number }> {
     const deliveryIds = Array.from(new Set((deliveryIdsInput || []).map(String).filter(Boolean)));
     return this.prisma.$transaction(async (tx: any) => {
       await lockLogisticaRouteTransaction(tx, route.companyId, route.id);
@@ -233,7 +237,10 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
         const totalUniqueDeliveries = await tx.logisticaRouteStop.count({
           where: { companyId: current.companyId, routeId: current.id },
         });
-        return { route: current, totalUniqueDeliveries };
+        const billableDeliveries = await tx.logisticaRouteStop.count({
+          where: { companyId: current.companyId, routeId: current.id, billingExempt: false },
+        });
+        return { route: current, totalUniqueDeliveries, billableDeliveries };
       }
 
       if (deliveryIds.length > 0) {
@@ -254,14 +261,49 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
           select: { deliveryId: true, routeId: true },
         })) as Array<{ deliveryId: string; routeId: string }>;
         const existingByDelivery = new Map(existing.map((row) => [row.deliveryId, row.routeId]));
-        for (const [deliveryId, routeId] of existingByDelivery) {
-          if (routeId !== current.id) {
-            throw new ConflictException(`A entrega ${deliveryId} já pertence a outra rota comercial.`);
+
+        // Entrega presa em outra rota comercial: se a rota dona já morreu
+        // (COMPLETED, encerrada operacionalmente ou de um dia anterior), o stop
+        // MIGRA para a rota atual SEM cobrar de novo (billingExempt — decisão do
+        // dono 18/07: pendência de ontem entra de graça na rota de hoje). Rota
+        // dona ainda viva no mesmo dia = conflito real → 409 humano, sem id cru.
+        const foreignRouteIds = Array.from(
+          new Set(Array.from(existingByDelivery.values()).filter((routeId) => routeId !== current.id)),
+        );
+        if (foreignRouteIds.length > 0) {
+          const owners = (await tx.logisticaRoute.findMany({
+            where: { companyId: current.companyId, id: { in: foreignRouteIds } },
+          })) as RouteRow[];
+          const ownerById = new Map(owners.map((owner) => [owner.id, owner]));
+          for (const routeId of foreignRouteIds) {
+            const owner = ownerById.get(routeId);
+            const migratable =
+              !owner ||
+              owner.status === 'COMPLETED' ||
+              owner.operationalEndedAt != null ||
+              String(owner.routeDate) < String(current.routeDate);
+            if (!migratable) throw stuckInOtherRouteError();
+          }
+          for (const [deliveryId, routeId] of existingByDelivery) {
+            if (routeId === current.id) continue;
+            const aggregate = await tx.logisticaRouteStop.aggregate({
+              where: { companyId: current.companyId, routeId: current.id },
+              _max: { snapshotOrder: true },
+            });
+            const snapshotOrder = Number(aggregate?._max?.snapshotOrder ?? -1) + 1;
+            // Update condicional (deliveryId + rota dona): se outra transação
+            // moveu o stop no meio do caminho, count=0 → conflito, sem lock na
+            // rota dona (evita deadlock com o lock que já seguramos na atual).
+            const moved = await tx.logisticaRouteStop.updateMany({
+              where: { companyId: current.companyId, deliveryId, routeId },
+              data: { routeId: current.id, snapshotOrder, billingExempt: true },
+            });
+            if (moved.count !== 1) throw stuckInOtherRouteError();
           }
         }
 
         for (const deliveryId of deliveryIds) {
-          if (existingByDelivery.has(deliveryId)) continue;
+          if (existingByDelivery.has(deliveryId)) continue; // já era da rota ou migrou acima
           await this.appendStop(tx, current, deliveryId);
         }
       }
@@ -269,7 +311,10 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       const totalUniqueDeliveries = await tx.logisticaRouteStop.count({
         where: { companyId: current.companyId, routeId: current.id },
       });
-      return { route: current, totalUniqueDeliveries };
+      const billableDeliveries = await tx.logisticaRouteStop.count({
+        where: { companyId: current.companyId, routeId: current.id, billingExempt: false },
+      });
+      return { route: current, totalUniqueDeliveries, billableDeliveries };
     });
   }
 
@@ -306,7 +351,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
           select: { routeId: true },
         });
         if (winner?.routeId === route.id) return;
-        if (winner) throw new ConflictException('Entrega já vinculada a outra rota comercial.');
+        if (winner) throw stuckInOtherRouteError();
       }
     }
     throw new ConflictException('Não foi possível congelar a ordem da rota. Tente novamente.');
@@ -615,8 +660,14 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     const stopCount = await (this.prisma as any).logisticaRouteStop.count({
       where: { companyId: route.companyId, routeId: route.id },
     });
-    const requiredBlocks = essentialBlocksForDeliveries(stopCount);
-    if (requiredBlocks === 0) throw commercialUnavailable();
+    // Rota VAZIA continua barrada; rota só de pendências migradas (todas
+    // billingExempt, 0 blocos cobráveis) PODE iniciar — já foi paga na origem.
+    if (stopCount === 0) throw commercialUnavailable();
+    const billableCount = await (this.prisma as any).logisticaRouteStop.count({
+      where: { companyId: route.companyId, routeId: route.id, billingExempt: false },
+    });
+    const requiredBlocks = essentialBlocksForDeliveries(billableCount);
+    if (requiredBlocks === 0) return;
     const debitedClaims = await (this.prisma as any).logisticaEssentialCreditClaim.count({
       where: {
         companyId: route.companyId,
@@ -645,7 +696,19 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       // Stop já congelado em rota Essencial nunca pode escapar pelo caminho
       // legado: PLANNED/FAILED/INITIALIZING ainda não é rota válida para entrega.
       if (route.status !== 'ACTIVE') throw commercialUnavailable();
-      const blockIndex = Math.floor(Number(stop.snapshotOrder) / 5) + 1;
+      // Migrada de rota anterior: o bloco dela foi pago lá — liberada aqui.
+      if (stop.billingExempt === true) return;
+      // Posição COBRÁVEL (ignora migradas intercaladas): snapshotOrder cru
+      // apontaria para bloco inexistente quando há exempt antes deste stop.
+      const billablePosition = await (this.prisma as any).logisticaRouteStop.count({
+        where: {
+          companyId,
+          routeId: route.id,
+          billingExempt: false,
+          snapshotOrder: { lte: Number(stop.snapshotOrder) },
+        },
+      });
+      const blockIndex = Math.floor((Math.max(1, Number(billablePosition)) - 1) / 5) + 1;
       const claim = (await (this.prisma as any).logisticaEssentialCreditClaim.findFirst({
         where: { companyId, routeId: route.id, blockIndex },
       })) as ClaimRow | null;
@@ -1113,6 +1176,17 @@ function commercialUnavailable() {
     { statusCode: 402, code: 'LOGISTICA_ROUTE_UNAVAILABLE', message: 'Rota indisponível. Fale com o administrador.' },
     402,
   );
+}
+
+// 409 humano: nunca vaza id de entrega pra tela do motorista. O app trata o
+// code e orienta ("encerre a rota antiga"); a migração automática em
+// syncSnapshot faz este erro só sobrar pra rota dona ainda VIVA no mesmo dia.
+function stuckInOtherRouteError() {
+  return new ConflictException({
+    statusCode: 409,
+    code: 'ENTREGA_EM_OUTRA_ROTA',
+    message: 'Uma das entregas ainda está em outra rota em andamento. Encerre a rota antiga e monte de novo.',
+  });
 }
 
 function isUniqueError(error: unknown): boolean {

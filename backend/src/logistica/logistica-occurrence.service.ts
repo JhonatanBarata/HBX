@@ -26,6 +26,7 @@ type RecurrenceRow = {
     lat: number | null;
     lng: number | null;
     geoFonte: string | null;
+    observacoes: string | null;
   } | null;
   local: {
     apelido: string | null;
@@ -57,6 +58,8 @@ export type OccurrencePreviewCustomer = {
   lng: number | null;
   geoFonte: string | null;
   itens: OccurrencePreviewItem[];
+  // PR18072026 W1 — observação livre sobre o cliente.
+  observacoes: string | null;
 };
 
 export type OccurrencePreviewResult = {
@@ -278,6 +281,7 @@ export class LogisticaOccurrenceService {
           lng: row.local?.lng ?? row.customerProfile?.lng ?? null,
           geoFonte: row.local?.geoFonte ?? row.customerProfile?.geoFonte ?? null,
           itens: [],
+          observacoes: row.customerProfile?.observacoes ?? null,
         };
         groups.set(key, group);
       }
@@ -543,7 +547,7 @@ export class LogisticaOccurrenceService {
         proximaData: true,
         product: { select: { id: true, name: true, price: true, priceCents: true } },
         customerProfile: {
-          select: { id: true, name: true, precoPadrao: true, lat: true, lng: true, geoFonte: true },
+          select: { id: true, name: true, precoPadrao: true, lat: true, lng: true, geoFonte: true, observacoes: true },
         },
         local: { select: { apelido: true, lat: true, lng: true, geoFonte: true } },
       },

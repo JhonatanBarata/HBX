@@ -53,6 +53,20 @@ class NativeApiClientPathPolicyTest {
     }
 
     @Test
+    fun pr18072026EndpointsFollowTheExactMethodPolicy() {
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/limpar-dia"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota-modelos"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-modelos"))
+        assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/logistica/rota-modelos/modelo-1"))
+        assertTrue(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/rota-modelos/modelo-1"))
+        assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/logistica/produtos/produto-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/produtos/produto-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota-modelos/modelo-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-modelos/modelo-1"))
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/rota-modelos"))
+    }
+
+    @Test
     fun vendasCannotAccessNucleoOrLogistica() {
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/vendas/board"))
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/products"))

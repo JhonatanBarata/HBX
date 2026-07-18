@@ -303,6 +303,69 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     }));
   }
 
+  // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ────
+  /**
+   * POST /logistica/produtos — cria um produto do catálogo do tenant DIRETO
+   * (o app do entregador só fala com `logistica/*`, não `/products`). Nasce
+   * `kind='tenant_product'`, `status='active'`, `usaLogistica=true` (é o
+   * catálogo do roteiro de entrega). Company-scoped (companyId do JWT).
+   */
+  async createProduto(companyId: number, input: CriarProdutoInput): Promise<ProdutoFacadeDTO> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const nome = String(input.nome ?? '').trim();
+    if (!nome) throw new BadRequestException('Nome é obrigatório.');
+    const priceCents = normalizePrecoCentavos(input.preco);
+    const created = await this.prisma.product.create({
+      data: {
+        companyId,
+        kind: 'tenant_product',
+        status: 'active',
+        name: nome.slice(0, 140),
+        unidade: input.unidade?.trim() || null,
+        usaLogistica: true,
+        price: priceCents / 100,
+        priceCents,
+        stock: normalizeEstoque(input.estoque),
+      },
+    });
+    return produtoFacadeDTO(created);
+  }
+
+  /**
+   * PATCH /logistica/produtos/:id — nome/unidade/preço/estoque/ativo, company-
+   * scoped (fail-closed: id de outra empresa → null, o controller vira 404).
+   * Arquivar (`ativo:false`) mapeia para `Product.status='archived'` — some do
+   * picker (listProdutos filtra `status:'active'`) sem quebrar vínculos
+   * existentes (ClienteProduto/EntregaItem seguem apontando pro mesmo id).
+   */
+  async updateProduto(companyId: number, id: string, input: Partial<CriarProdutoInput> & { ativo?: boolean }): Promise<ProdutoFacadeDTO | null> {
+    if (!companyId || !id) return null;
+    const productId = Math.trunc(Number(id));
+    if (!Number.isInteger(productId) || productId <= 0) return null;
+    const existing = await this.prisma.product.findFirst({ where: { id: productId, companyId }, select: { id: true } });
+    if (!existing) return null;
+
+    const data: Record<string, unknown> = {};
+    if (input.nome !== undefined) {
+      const nome = String(input.nome).trim();
+      if (!nome) throw new BadRequestException('Nome é obrigatório.');
+      data.name = nome.slice(0, 140);
+    }
+    if (input.unidade !== undefined) data.unidade = String(input.unidade).trim() || null;
+    if (input.preco !== undefined) {
+      const priceCents = normalizePrecoCentavos(input.preco);
+      data.priceCents = priceCents;
+      data.price = priceCents / 100;
+    }
+    if (input.estoque !== undefined) data.stock = normalizeEstoque(input.estoque);
+    // Arquivar = ativo=false: some do picker (listProdutos filtra status:'active')
+    // sem quebrar vínculos existentes (produto continua existindo no banco).
+    if (input.ativo !== undefined) data.status = input.ativo ? 'active' : 'archived';
+
+    const updated = await this.prisma.product.update({ where: { id: existing.id }, data });
+    return produtoFacadeDTO(updated);
+  }
+
   // ── GERAR ENTREGAS DO DIA ────────────────────────────────────────────────────
   /**
    * Busca os vínculos ATIVOS candidatos do dia (proximaData vencida OU o dia bate
@@ -356,6 +419,8 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
             lat: true,
             lng: true,
             geoFonte: true,
+            // PR18072026 W1 — observação livre sobre o cliente (dia-preview).
+            observacoes: true,
             ...(includeBillingInputs ? { precoPadrao: true as const } : {}),
           },
         },
@@ -576,6 +641,8 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
             nome: String(v.product?.name ?? '').trim(),
             qtd: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
           })),
+          // PR18072026 W1 — observação livre sobre o cliente.
+          observacoes: vencidosDoLocal[0]?.customerProfile?.observacoes ?? null,
         });
       }
     }
@@ -814,6 +881,8 @@ export interface DiaPreviewClienteDTO {
   lng?: number | null;
   geoFonte?: string | null;
   itens: DiaPreviewItemDTO[];
+  // PR18072026 W1 — observação livre sobre o cliente.
+  observacoes?: string | null;
 }
 
 export interface DiaPreviewResult {
@@ -827,4 +896,46 @@ export interface ProdutoOptionDTO {
   unidade: string | null;
   usaLogistica: boolean;
   precoCatalogo?: number | null;
+}
+
+// ── PR18072026 W1 — façade de produtos ────────────────────────────────────────
+export interface CriarProdutoInput {
+  nome: string;
+  unidade?: string;
+  preco?: number;
+  estoque?: number;
+}
+
+export interface ProdutoFacadeDTO {
+  id: number;
+  nome: string;
+  unidade: string | null;
+  preco: number;
+  estoque: number;
+  ativo: boolean;
+}
+
+function normalizePrecoCentavos(value: unknown): number {
+  if (value === undefined || value === null || value === '') return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) throw new BadRequestException('preco inválido.');
+  return Math.round(n * 100);
+}
+
+function normalizeEstoque(value: unknown): number {
+  if (value === undefined || value === null || value === '') return 0;
+  const n = Math.trunc(Number(value));
+  if (!Number.isInteger(n) || n < 0) throw new BadRequestException('estoque inválido.');
+  return n;
+}
+
+function produtoFacadeDTO(row: { id: number; name: string; unidade: string | null; price: number | null; priceCents: number | null; stock: number | null; status: string }): ProdutoFacadeDTO {
+  return {
+    id: row.id,
+    nome: row.name,
+    unidade: row.unidade ?? null,
+    preco: typeof row.priceCents === 'number' ? row.priceCents / 100 : typeof row.price === 'number' ? row.price : 0,
+    estoque: row.stock ?? 0,
+    ativo: row.status === 'active',
+  };
 }

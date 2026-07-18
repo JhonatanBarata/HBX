@@ -41,17 +41,31 @@
     dayStarting: false,
     dayReview: false,
     dayReviewCountdown: 10,
+    // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e a
+    // prévia/geração: null (dia-chips) → "choose" (3 cards) → "manual" (▲▼) ou
+    // "saved" (lista de rota-modelos). dayOrderMode é o modo EFETIVO desta
+    // montagem ("app" = fluxo intocado, nunca manda ordemManual).
+    dayOrderStep: null,
+    dayOrderMode: "app",
+    dayManualOrder: [],
+    dayManualSave: false,
+    routeModelos: [],
+    routeModelosLoading: false,
+    routeModelosError: null,
+    // ordem manual/salva ATIVA na rota planejada de hoje — sobrevive do
+    // planejar até o "Iniciar rota" (ação separada, ver startPlannedRoute).
+    routeOrdemManual: H.cache.get("logistica-route-ordem-manual", null),
     clientProductDays: [],
     clientProductMode: "",
-    clientProductDraft: { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "" },
+    clientProductDraft: { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "", precoAcordado: "" },
     clientProducts: [],
     clientProductsLoading: false,
     clientProductsError: null,
     clientProductEditingId: null,
     clientDetail: null,
-    clientPaymentDraft: { phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", lat: null, lng: null, geoFonte: null, limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "" },
+    clientPaymentDraft: { phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", lat: null, lng: null, geoFonte: null, limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", observacoes: "" },
     clientCepStatus: "",
-    newClientDraft: { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null },
+    newClientDraft: { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null, observacoes: "" },
     newClientCepStatus: "",
     newClientGpsLoading: false,
     deliveryDraft: null,
@@ -59,6 +73,7 @@
     deliveryNotDelivered: false,
     deliveryArrived: false,
     deliveryProductPicker: false,
+    deliverySimpleDetail: false,
     nextStop: null,
     nextCountdown: 5,
     nextStopOpening: false,
@@ -111,6 +126,13 @@
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
   function err(error) { return error instanceof Error ? error.message : "Não foi possível concluir."; }
+  function humanApiError(error) {
+    // Nunca mostrar id cru na tela: cuid (ex.: c1a2b3c4d5e6f7g8h9i0j1k2) vira uma
+    // referência humana; erros conhecidos do backend ganham texto explicativo.
+    const code = error && error.body && error.body.code;
+    if (code === "ENTREGA_EM_OUTRA_ROTA") return "Uma entrega ficou presa em outra rota. Encerre a rota antiga ou tente montar de novo.";
+    return err(error).replace(/\bc[a-z0-9]{20,}\b/g, "essa entrega");
+  }
   function allRouteItems() { return state.route && Array.isArray(state.route.items) ? state.route.items : []; }
   function activeRouteSelectionIds() {
     const selection = state.routeSelection;
@@ -254,7 +276,10 @@
   function confirmationOverlay() {
     const confirmation = state.confirmation;
     if (!confirmation) return "";
-    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title"><div class="app-confirm-icon">${icon(confirmation.icon || "box", 24)}</div><h2 id="app-confirm-title">${H.escape(confirmation.title || "Confirmar")}</h2><p>${H.escape(confirmation.message || "Deseja continuar?")}</p><div class="actions"><button class="btn btn-secondary" data-action="cancel-confirmation">Cancelar</button><button class="btn ${confirmation.danger ? "btn-danger" : "btn-primary"}" data-action="accept-confirmation">${H.escape(confirmation.confirmLabel || "Confirmar")}</button></div></section></div>`;
+    // PR18072026 Onda 3 — extraAction/extraLabel: botão perigoso opcional
+    // dentro do próprio popup (ex.: "Limpar o dia" dentro de cancelar
+    // planejamento); cancelLabel troca o texto do botão neutro (ex.: "Agora não").
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title"><div class="app-confirm-icon">${icon(confirmation.icon || "box", 24)}</div><h2 id="app-confirm-title">${H.escape(confirmation.title || "Confirmar")}</h2><p>${H.escape(confirmation.message || "Deseja continuar?")}</p>${confirmation.extraAction ? `<button class="btn btn-danger btn-block" type="button" style="margin-top:14px" data-action="${H.escape(confirmation.extraAction)}">${H.escape(confirmation.extraLabel || "")}</button>` : ""}<div class="actions"><button class="btn btn-secondary" data-action="cancel-confirmation">${H.escape(confirmation.cancelLabel || "Cancelar")}</button><button class="btn ${confirmation.danger ? "btn-danger" : "btn-primary"}" data-action="accept-confirmation">${H.escape(confirmation.confirmLabel || "Confirmar")}</button></div></section></div>`;
   }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
@@ -299,6 +324,74 @@
     state.routeSelection = null;
     H.cache.remove("logistica-route-selection");
   }
+  // PR18072026 Onda 3 — "Minha ordem"/"Rota salva": guarda o ordemManual ATIVO
+  // pra rota planejada de hoje, no mesmo padrão de routeSelection (sobrevive até
+  // o "Iniciar rota" separado, ver startPlannedRoute/startRoute).
+  function activeRouteOrdemManual() {
+    const stored = state.routeOrdemManual;
+    if (!stored || !Array.isArray(stored.ids) || !stored.ids.length) return null;
+    return stored.date === operationalDate() ? stored.ids : null;
+  }
+  function setRouteOrdemManual(ids) {
+    const unique = [...new Set((ids || []).map(String).filter(Boolean))];
+    if (!unique.length) return clearRouteOrdemManual();
+    state.routeOrdemManual = { date: operationalDate(), ids: unique };
+    H.cache.set("logistica-route-ordem-manual", state.routeOrdemManual);
+  }
+  function clearRouteOrdemManual() {
+    state.routeOrdemManual = null;
+    H.cache.remove("logistica-route-ordem-manual");
+  }
+  // Traduz a ordem escolhida pelo usuário (chaves de dayPreviewKey, cliente/local)
+  // pras deliveryIds reais já materializadas (depois de gerar-dia/admin-route
+  // prepare). Ausentes na ordem = o backend apêndice no fim sozinho.
+  function manualOrderDeliveryIds(routeItems) {
+    const used = new Set();
+    const ids = [];
+    (state.dayManualOrder || []).forEach(key => {
+      const preview = (state.dayPreview || []).find(client => dayPreviewKey(client) === key);
+      if (!preview) return;
+      const match = (routeItems || []).find(item => !used.has(String(item.id)) && previewMatchesDelivery(preview, item));
+      if (match) { ids.push(String(match.id)); used.add(String(match.id)); }
+    });
+    return ids;
+  }
+  // Paradas {customerProfileId, localId?} na ordem manual escolhida — pro
+  // corpo de POST/PATCH rota-modelos.
+  function manualOrderParadas() {
+    return (state.dayManualOrder || [])
+      .map(key => (state.dayPreview || []).find(client => dayPreviewKey(client) === key))
+      .filter(Boolean)
+      .map(client => ({ customerProfileId: String(client.customerProfileId || ""), ...(client.localId ? { localId: String(client.localId) } : {}) }))
+      .filter(row => row.customerProfileId);
+  }
+  let routeModelosLoaded = false;
+  async function loadRouteModelos(force) {
+    if (routeModelosLoaded && !force) return;
+    state.routeModelosLoading = true; state.routeModelosError = null; render();
+    try {
+      const result = await H.api("/logistica/rota-modelos");
+      state.routeModelos = Array.isArray(result) ? result : (result && (result.items || result.data)) || [];
+      routeModelosLoaded = true;
+    } catch (error) { state.routeModelosError = humanApiError(error); }
+    finally { state.routeModelosLoading = false; render(); }
+  }
+  // Checkbox "Salvar como minha rota de {dia}" no modo Minha ordem: cria ou
+  // atualiza (PATCH) o modelo do mesmo diaSemana — nunca duplica.
+  async function saveManualRouteModeloIfNeeded() {
+    if (!state.dayManualSave || state.daySelection.length !== 1) return;
+    const diaSemana = state.daySelection[0];
+    const paradas = manualOrderParadas();
+    if (!paradas.length) return;
+    try {
+      await loadRouteModelos(true);
+      const existing = (state.routeModelos || []).find(modelo => Number(modelo.diaSemana) === diaSemana);
+      const dayLabel = (weekDays.find(day => day.n === diaSemana) || {}).label || "";
+      if (existing) await H.api(`/logistica/rota-modelos/${encodeURIComponent(existing.id)}`, { method: "PATCH", body: { paradas } });
+      else await H.api("/logistica/rota-modelos", { method: "POST", body: { nome: `Minha rota de ${dayLabel}`, diaSemana, paradas } });
+      await loadRouteModelos(true);
+    } catch (error) { toast(humanApiError(error), true); }
+  }
   async function refreshDayPreview() {
     const requestId = ++dayPreviewRequestId;
     const previous = state.dayPreview || [];
@@ -330,7 +423,7 @@
       state.dayPreview = next;
       state.dayPreviewLeavingIds = [];
       state.dayPreviewEnteringIds = next.filter(client => !previousIds.has(dayPreviewKey(client))).map(dayPreviewKey);
-    } catch (error) { if (requestId === dayPreviewRequestId) { state.dayPreviewError = err(error); state.dayPreviewEnteringIds = []; } }
+    } catch (error) { if (requestId === dayPreviewRequestId) { state.dayPreviewError = humanApiError(error); state.dayPreviewEnteringIds = []; } }
     finally {
       if (requestId === dayPreviewRequestId) {
         state.dayPreviewLoading = false;
@@ -353,6 +446,8 @@
     // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
     state.daySelection = [];
     state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
+    // PR18072026 Onda 3 — cada abertura começa sempre no modo "Ordem do app".
+    state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false;
     refreshDayPreview();
   }
   function toggleManagedRouteDay(day) {
@@ -367,7 +462,7 @@
     render();
     void refreshDayPreview();
   }
-  function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "" }; }
+  function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "", precoAcordado: "" }; }
   function resetClientProductEditor() {
     state.clientProductEditingId = null;
     state.clientProductDays = [];
@@ -387,7 +482,7 @@
     try {
       const result = await H.api(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(client.id)}`);
       state.clientProducts = Array.isArray(result) ? result : (result && (result.items || result.data)) || [];
-    } catch (error) { state.clientProducts = []; state.clientProductsError = err(error); }
+    } catch (error) { state.clientProducts = []; state.clientProductsError = humanApiError(error); }
     finally { state.clientProductsLoading = false; render(); }
   }
   async function loadClientDetail() {
@@ -413,7 +508,8 @@
         formaPagamento: state.clientDetail.formaPagamento || "aberto",
         metodoPadrao: state.clientDetail.metodoPadrao || "",
         diaFechamento: state.clientDetail.diaFechamento ? String(state.clientDetail.diaFechamento) : "",
-        limite: state.clientDetail.limiteFiado != null ? String(state.clientDetail.limiteFiado) : ""
+        limite: state.clientDetail.limiteFiado != null ? String(state.clientDetail.limiteFiado) : "",
+        observacoes: state.clientDetail.observacoes || client.observacoes || ""
       };
       render();
     }
@@ -427,7 +523,8 @@
     state.clientProductDraft = {
       productId: String(item.productId || ""), qtdPadrao: String(item.qtdPadrao || 1),
       proximaData: item.proximaData ? String(item.proximaData).slice(0, 10) : "",
-      frequenciaDias: String(item.frequenciaDias || 30), scheduledAt: ""
+      frequenciaDias: String(item.frequenciaDias || 30), scheduledAt: "",
+      precoAcordado: item.precoAcordado != null ? String(item.precoAcordado) : ""
     };
     render();
   }
@@ -442,7 +539,7 @@
       await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "DELETE" });
       await loadClients(true, true);
       toast("Cliente excluído.");
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
   async function deleteClientProduct(item) {
     if (!item || !item.id) return;
@@ -457,12 +554,12 @@
       if (state.clientProductEditingId === item.id) resetClientProductEditor();
       await loadClientProducts();
       toast("Produto removido das entregas recorrentes.");
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
-  function blankNewClientDraft() { return { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null }; }
+  function blankNewClientDraft() { return { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null, observacoes: "" }; }
   function paymentFields(draft, target) {
     const form = draft.formaPagamento || "aberto";
-    return `<div class="section-title"><strong>Forma de pagamento</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${form === "aberto" ? "active" : ""}" data-payment-form="aberto" data-payment-target="${target}">Na entrega</button><button type="button" class="recurrence-mode ${form === "na_hora" ? "active" : ""}" data-payment-form="na_hora" data-payment-target="${target}">Na hora</button><button type="button" class="recurrence-mode ${form === "mensal" ? "active" : ""}" data-payment-form="mensal" data-payment-target="${target}">Mensal</button></div>${form === "na_hora" ? `<div class="field"><label>Recebe por</label><div class="recurrence-modes"><button type="button" class="recurrence-mode ${draft.metodoPadrao === "pix" ? "active" : ""}" data-payment-method="pix" data-payment-target="${target}">Pix</button><button type="button" class="recurrence-mode ${draft.metodoPadrao === "dinheiro" ? "active" : ""}" data-payment-method="dinheiro" data-payment-target="${target}">Dinheiro</button></div></div>` : ""}${form === "mensal" ? `<div class="field"><label>Dia de pagamento</label><input name="diaFechamento" type="number" inputmode="numeric" min="1" max="31" value="${H.escape(draft.diaFechamento || "")}" placeholder="Ex.: 10"></div>` : ""}<div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(draft.limite || "")}" placeholder="R$ 0,00"></div>`;
+    return `<div class="section-title"><strong>Forma de pagamento</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${form === "aberto" ? "active" : ""}" data-payment-form="aberto" data-payment-target="${target}">Na entrega</button><button type="button" class="recurrence-mode ${form === "na_hora" ? "active" : ""}" data-payment-form="na_hora" data-payment-target="${target}">Na hora</button><button type="button" class="recurrence-mode ${form === "mensal" ? "active" : ""}" data-payment-form="mensal" data-payment-target="${target}">Mensal</button><button type="button" class="recurrence-mode ${form === "pendura" ? "active" : ""}" data-payment-form="pendura" data-payment-target="${target}">Fiado</button></div>${form === "na_hora" ? `<div class="field"><label>Recebe por</label><div class="recurrence-modes"><button type="button" class="recurrence-mode ${draft.metodoPadrao === "pix" ? "active" : ""}" data-payment-method="pix" data-payment-target="${target}">Pix</button><button type="button" class="recurrence-mode ${draft.metodoPadrao === "dinheiro" ? "active" : ""}" data-payment-method="dinheiro" data-payment-target="${target}">Dinheiro</button></div></div>` : ""}${form === "mensal" ? `<div class="field"><label>Dia de pagamento</label><input name="diaFechamento" type="number" inputmode="numeric" min="1" max="31" value="${H.escape(draft.diaFechamento || "")}" placeholder="Ex.: 10"></div>` : ""}<div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(draft.limite || "")}" placeholder="R$ 0,00"></div>`;
   }
   function onlyDigits(value) { return String(value || "").replace(/\D/g, ""); }
   function formatPhone(value) { const digits = onlyDigits(value).slice(0, 11); if (digits.length <= 2) return digits ? `(${digits}` : ""; if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`; const split = digits.length <= 10 ? 6 : 7; return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`; }
@@ -471,7 +568,7 @@
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
   function clientAddressFields(fields, status, mode) {
     const isNew = mode === "new";
-    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="subtitle ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Localizar este Endereço</button>${isNew ? `<button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps" ${state.newClientGpsLoading ? "disabled" : ""}>${icon("gps", 17)} ${state.newClientGpsLoading ? "Lendo GPS…" : "Puxar Local Atual"}</button>` : ""}</div>`;
+    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="subtitle ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Localizar este Endereço</button>${isNew ? `<button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps" ${state.newClientGpsLoading ? "disabled" : ""}>${icon("gps", 17)} ${state.newClientGpsLoading ? "Lendo GPS…" : "Puxar Local Atual"}</button>` : ""}</div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
   }
   function separateAddress(value, numberValue, districtValue) {
     let endereco = String(value || "").trim(); const numero = String(numberValue || "").trim(); const bairro = String(districtValue || "").trim();
@@ -624,7 +721,7 @@
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
-    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small></div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
+    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${c.observacoes ? `<small style="display:block;margin-top:2px;font-weight:700;color:var(--brand-strong)">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
   }
 
   function clientsScreen() {
@@ -636,34 +733,70 @@
   }
   function productsScreen() {
     const products = state.products || [];
-    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><div class="compact-grid">${products.length ? products.map(p => `<article class="card card-pad"><div class="avatar">${icon("box", 19)}</div><h3 style="margin-top:10px">${H.escape(p.nome || p.name)}</h3><p class="subtitle">${H.escape(p.unidade || "unidade")}</p>${isAdmin() && p.precoCatalogo != null ? `<strong style="display:block;margin-top:8px">${H.money(p.precoCatalogo)}</strong>` : ""}</article>`).join("") : empty("Nenhum produto", "")}</div>`, isAdmin() ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
+    const admin = isAdmin();
+    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><div class="compact-grid">${products.length ? products.map(p => {
+      const archived = p.ativo === false;
+      const tag = admin ? "button" : "article";
+      const openAttrs = admin ? ` type="button" data-action="edit-product" data-product-id="${H.escape(p.id)}"` : "";
+      return `<${tag} class="card card-pad"${openAttrs}${archived ? ` style="opacity:.45"` : ""}><div class="avatar">${icon("box", 19)}</div><h3 style="margin-top:10px">${H.escape(p.nome || p.name)}</h3><p class="subtitle">${H.escape(p.unidade || "unidade")}</p>${admin && p.precoCatalogo != null ? `<strong style="display:block;margin-top:8px">${H.money(p.precoCatalogo)}</strong>` : ""}${archived ? `<span class="badge" style="display:block;margin-top:8px">Arquivado</span>` : ""}</${tag}>`;
+    }).join("") : empty("Nenhum produto", "")}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
   }
   function settingsScreen() {
     const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED"; const modules = H.modules.get();
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button></section>` : ""}
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button></section>
+      <div class="section-title"><strong>Como você trabalha</strong></div><section class="card flat"><button class="settings-row" data-action="toggle-cobranca-simples" role="switch" aria-checked="${!!cfg.cobrancaSimples}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Cobrança simples na chegada</strong><span>Nome grande, Pago ou Próximo</span></div><span class="module-switch ${cfg.cobrancaSimples ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button></section>`);
   }
 
+  function simpleModeActive(item) {
+    // Modo simples é camada opcional por cima do fluxo atual: só entra quando o
+    // toggle dos Ajustes está ligado, a entrega ainda está aberta e o motorista
+    // não pediu "Ver detalhes" (aí a folha completa assume até fechar a folha).
+    return !!(state.config && state.config.cobrancaSimples) && !!item && item.status !== "entregue" && item.status !== "cancelada" && !state.deliverySimpleDetail;
+  }
+  function draftValorHoje(item) {
+    // Fonte preferida: `valorHoje` do listRota (servidor soma valorUnit real da
+    // entrega — inclui preço acordado por cliente — e chega pro entregador comum
+    // quando o financeiro da empresa está ligado).
+    if (item && item.valorHoje !== undefined && item.valorHoje !== null) return Number(item.valorHoje) || 0;
+    // Fallback local: preço por item só existe na resposta pra quem enxerga
+    // catálogo (dono/admin); sem essa visão o valor de hoje some do somatório
+    // (nunca inventa preço) e a folha mostra só o débito existente do cliente.
+    const draft = deliveryDraftFor(item);
+    return draft.items.reduce((sum, row) => {
+      const product = (state.products || []).find(p => String(p.id) === String(row.productId));
+      const preco = Number((product && product.precoCatalogo) || 0);
+      return sum + Number(row.qtd || 0) * preco;
+    }, 0);
+  }
+  function deliverySimpleSheet(item) {
+    const c = item.cliente || {};
+    const debitoAtual = c.debitoAtual;
+    const financeiroAtivo = debitoAtual !== null && debitoAtual !== undefined;
+    const totalDevido = financeiroAtivo ? Number(debitoAtual || 0) + draftValorHoje(item) : null;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle" style="margin:0">Chegada</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div style="text-align:center;padding:4px 4px 18px"><h1 style="font-size:1.85rem;line-height:1.15;margin:0">${H.escape(c.nome || "Cliente")}</h1>${c.observacoes ? `<p class="subtitle" style="margin:8px 0 0;font-weight:700;color:var(--brand-strong)">${H.escape(c.observacoes)}</p>` : ""}${totalDevido !== null ? `<p style="margin:14px 0 0"><span class="subtitle">Deve</span><br><strong style="font-size:2rem;color:var(--danger)">${H.money(totalDevido)}</strong></p>` : ""}</div><div style="display:flex;flex-direction:column;gap:10px"><button class="btn btn-primary delivery-confirm" style="margin-top:0;min-height:64px;font-size:1.05rem" type="button" data-action="confirm-pago">${icon("check", 20)} Pago</button><button class="btn btn-secondary delivery-confirm" style="margin-top:0;min-height:64px;font-size:1.05rem" type="button" data-action="confirm-proximo">${icon("route", 20)} Próximo</button></div><button class="link-btn" type="button" style="display:block;margin:16px auto 0" data-action="delivery-simple-detail">Ver detalhes</button></section></div>`;
+  }
   function deliverySheet(item) {
+    if (simpleModeActive(item)) return deliverySimpleSheet(item);
     const c = item.cliente || {}; const phone = c.phone || item.contato && (item.contato.whatsapp || item.contato.phone) || "";
     const finished = item.status === "entregue" || item.status === "cancelada";
     const proof = item.comprovante || {};
     const draft = deliveryDraftFor(item); const reason = state.deliveryReason; const notDelivered = state.deliveryNotDelivered;
     const productIds = new Set(draft.items.map(x => String(x.productId)).filter(Boolean));
-    const availableProducts = (state.products || []).filter(p => p && p.id != null && !productIds.has(String(p.id)));
+    const availableProducts = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !productIds.has(String(p.id)));
     const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong>${row.novo ? `<small>Novo na entrega</small>` : ""}</div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
     const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
     const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong><span>edite na hora</span></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">+ Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovantes</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><input class="sr-only" id="proof-signature" type="file" accept="image/png"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button><button class="btn btn-secondary" data-action="signature">${proof.assinaturaEnviada ? icon("check",17) : icon("plus",17)} Assinatura PNG</button></div><button class="btn btn-primary delivery-confirm" data-action="confirm">${icon("check", 18)} Confirmar entrega</button><button class="delivery-not-delivered" data-action="delivery-not-delivered">Não entregue</button>` : ""}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat" style="margin:0 0 14px;padding:10px 12px"><strong style="font-size:.78rem">Observações</strong><p class="subtitle" style="margin:2px 0 0">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovantes</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><input class="sr-only" id="proof-signature" type="file" accept="image/png"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button><button class="btn btn-secondary" data-action="signature">${proof.assinaturaEnviada ? icon("check",17) : icon("plus",17)} Assinatura PNG</button></div><button class="btn btn-primary delivery-confirm" data-action="confirm">${icon("check", 18)} Confirmar entrega</button><button class="delivery-not-delivered" data-action="delivery-not-delivered">Não entregue</button>` : ""}</section></div>`;
   }
   function newClientProductFields() {
     const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
     const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
     const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(draft.proximaData || defaultDate)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(draft.scheduledAt || defaultDateTime)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
-    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${modeContent}`;
+    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${(mode === "weekly" || mode === "date") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
   }
   function clientEditorModal(isNew) {
     const client = isNew ? state.newClientDraft : (state.modalClient || {}); const fields = isNew ? state.newClientDraft : state.clientPaymentDraft;
@@ -675,9 +808,9 @@
     if (!isNew) {
       const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
       const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
-      const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
+      const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
-      products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>`;
+      products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${(mode === "weekly" || mode === "date") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
     const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
@@ -700,11 +833,22 @@
     }
     if (state.modal === "new-client") { const d = state.newClientDraft; return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Novo cliente</h2><p class="subtitle">Preencha os dados do cliente</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-client-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(d.name)}"></div><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(d.phone)}" placeholder="(00) 00000-0000"></div></div><div class="field"><label>CPF</label><input name="cpf" inputmode="numeric" maxlength="14" value="${H.escape(d.cpf)}" placeholder="000.000.000-00"></div>${clientAddressFields(d, state.newClientCepStatus, "new")}<div class="client-primary-actions"><button class="btn btn-primary" type="submit">Salvar cliente</button></div></form></section></div>`; }
     if (state.modal === "new-product") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Novo produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="number" min="0" step="0.01"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block" type="submit">Cadastrar</button></form></section></div>`;
-    if (state.modal === "new-delivery") {
-      const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${new Date(Date.now() + 3600000).toISOString().slice(0,16)}"></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
+    if (state.modal === "edit-product") {
+      const p = state.modalProduct || {};
+      const active = p.ativo !== false;
+      return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Editar produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(p.nome || p.name || "")}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(p.unidade || "")}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="number" min="0" step="0.01" value="${p.precoCatalogo != null ? H.escape(String(p.precoCatalogo)) : ""}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" value="${p.estoque != null ? H.escape(String(p.estoque)) : ""}"></div></div><button class="btn btn-primary btn-block" type="submit">Salvar</button></form><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}" style="margin-top:10px">${active ? "Arquivar" : "Reativar"}</button></section></div>`;
     }
-    if (state.modal === "new-oneoff") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente</label><select name="customerProfileId"><option value="">Novo cliente abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}">${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome avulso</label><input name="clientName" maxlength="160"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1" required></div></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar</button></form></section></div>`;
+    if (state.modal === "new-delivery") {
+      const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${new Date(Date.now() + 3600000).toISOString().slice(0,16)}"></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
+    }
+    if (state.modal === "new-oneoff") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente</label><select name="customerProfileId"><option value="">Novo cliente abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}">${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome avulso</label><input name="clientName" maxlength="160"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1" required></div></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar</button></form></section></div>`;
     if (state.modal === "manage-day") {
+      // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e
+      // a prévia/geração. Fica ANTES do dayReview: "Ordem do app" cai direto
+      // no fluxo antigo (dayReview), intocado.
+      if (state.dayOrderStep === "choose") return dayOrderChooseModal();
+      if (state.dayOrderStep === "manual") return dayOrderManualModal();
+      if (state.dayOrderStep === "saved") return dayOrderSavedModal();
       const allowed = workDays(); const selected = state.daySelection; const preview = state.dayPreview || [];
       if (state.dayReview) {
         const located = dayPreviewMapPoints().length;
@@ -718,7 +862,7 @@
       // Se a lista já está visível, ela é uma prévia válida mesmo que uma
       // atualização visual ainda esteja encerrando em segundo plano.
       const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
-      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="day-chips">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div><input id="day-preview-search" class="day-search" placeholder="Buscar" aria-label="Buscar cliente na prévia">${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}<button class="btn btn-primary btn-block" data-action="review-managed-route" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo</button></section></div>`;
+      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="day-chips">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div><input id="day-preview-search" class="day-search" placeholder="Buscar" aria-label="Buscar cliente na prévia">${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}<button class="btn btn-primary btn-block" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo</button></section></div>`;
     }
     if (state.modal === "route-mode") {
       const locked = routeActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
@@ -730,7 +874,47 @@
       const s = state.statement || {}; const entries = s.entries || s.items || [];
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Consumido</span><strong>${Number(s.trackedPaidCreditsConsumed || s.consumed || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(s.bonusGranted || s.bonus || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(s.trackedDeliveries || s.deliveries || 0)}</strong></div></div><div class="list">${entries.length ? entries.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>${H.escape(e.description || e.type || "Movimento")}</strong><span>${H.date(e.createdAt || e.date)}</span></div><strong>${Number(e.amount || e.credits || 0)}</strong></div>`).join("") : empty("Sem movimentos", "")}</div></section></div>`;
     }
+    if (state.modal === "route-modelos") return routeModelosModal();
     return "";
+  }
+  // PR18072026 Onda 3 — "Minhas rotas" (Ajustes › Administração): lista dos
+  // modelos salvos com renomear (prompt simples) e excluir (2 toques).
+  function routeModelosModal() {
+    const modelos = state.routeModelos || [];
+    const rows = modelos.map(modelo => `<div class="row-card"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><div class="actions" style="margin:0;gap:6px"><button type="button" class="btn btn-secondary" data-action="rename-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Renomear</button><button type="button" class="btn btn-danger" data-action="delete-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Excluir</button></div></div>`).join("");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minhas rotas</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota ao montar no modo \"Minha ordem\".")}</div></section></div>`;
+  }
+  // PR18072026 Onda 3 — passo "Como montar a rota?": 3 cards grandes, sem
+  // jargão. "Ordem do app" segue o fluxo antigo (startDayReview) sem mudança.
+  function dayOrderChooseModal() {
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Como montar a rota?</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">
+      <button type="button" class="row-card" data-action="order-mode-app"><div class="card-main"><strong>Ordem do app</strong><span>O aplicativo escolhe o melhor caminho</span></div><span>›</span></button>
+      <button type="button" class="row-card" data-action="order-mode-manual"><div class="card-main"><strong>Minha ordem</strong><span>Você escolhe a ordem das paradas</span></div><span>›</span></button>
+      <button type="button" class="row-card" data-action="order-mode-saved"><div class="card-main"><strong>Rota salva</strong><span>Usar uma ordem que você já salvou antes</span></div><span>›</span></button>
+    </div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
+  }
+  // "Minha ordem": lista da prévia com ▲▼ grandes (mecanismo obrigatório de
+  // reordenação) + checkbox opcional de salvar como rota do dia escolhido.
+  function dayOrderManualModal() {
+    const preview = state.dayPreview || [];
+    const order = state.dayManualOrder || [];
+    const rows = order.map((key, index) => {
+      const client = preview.find(c => dayPreviewKey(c) === key);
+      if (!client) return "";
+      return `<div class="row-card"><div class="card-main"><strong>${index + 1}. ${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span></div><div class="actions" style="margin:0;gap:6px"><button type="button" class="btn btn-secondary" style="min-width:52px;font-size:1.3rem;line-height:1" data-action="manual-order-up" data-order-key="${H.escape(key)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary" style="min-width:52px;font-size:1.3rem;line-height:1" data-action="manual-order-down" data-order-key="${H.escape(key)}" aria-label="Mover para baixo" ${index === order.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
+    }).join("");
+    const singleDay = state.daySelection.length === 1;
+    const dayLabel = singleDay ? (weekDays.find(day => day.n === state.daySelection[0]) || {}).label || "" : "";
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minha ordem</h2><p class="subtitle">Use as setas para reordenar as paradas</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list day-order-list">${rows || empty("Sem paradas", "Escolha ao menos um dia com clientes.")}</div>${singleDay && order.length ? `<button type="button" class="settings-row" data-action="toggle-manual-save" role="switch" aria-checked="${state.dayManualSave}"><div class="settings-copy"><strong>Salvar como minha rota de ${H.escape(dayLabel)}</strong></div><span class="module-switch ${state.dayManualSave ? "active" : ""}" aria-hidden="true"><i></i></span></button>` : ""}<button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block" type="button" data-action="confirm-manual-order" ${order.length && !state.dayStarting ? "" : "disabled"}>Gerar agora</button></section></div>`;
+  }
+  // "Rota salva": lista de rota-modelos; escolher pré-ordena a prévia (clientes
+  // fora do modelo vão pro fim) e segue direto pro "Gerar agora".
+  function dayOrderSavedModal() {
+    const modelos = state.routeModelos || [];
+    const today = todayIso();
+    const sorted = [...modelos].sort((a, b) => (Number(a.diaSemana) === today ? -1 : 0) - (Number(b.diaSemana) === today ? -1 : 0));
+    const rows = sorted.map(modelo => `<button type="button" class="row-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><span>›</span></button>`).join("");
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Rota salva</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota no modo \"Minha ordem\" primeiro.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   function clientScheduleLine(client) {
     const days = (client.diasEntrega || []).map(Number).filter(Boolean);
@@ -836,7 +1020,7 @@
       state.clientsTotal = Number(result && result.total || state.clients.length);
       state.clientsTotalPages = Math.max(1, Number(result && result.totalPages || 1));
     } catch (error) {
-      if (requestId === clientsRequestId) state.clientsError = err(error);
+      if (requestId === clientsRequestId) state.clientsError = humanApiError(error);
     } finally {
       if (requestId === clientsRequestId) {
         state.clientsLoading = false;
@@ -854,7 +1038,7 @@
     const tracked = boot ? requests.map(request => Promise.resolve(request).finally(() => H.boot.step("logistica"))) : requests;
     const results = await Promise.allSettled(tracked);
     if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; }
-    else state.error = err(results[0].reason);
+    else state.error = humanApiError(results[0].reason);
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
     if (state.screen === "clients") {
@@ -884,11 +1068,16 @@
       const selectedIds = Array.isArray(deliveryIds) ? deliveryIds : activeRouteSelectionIds() ? [...activeRouteSelectionIds()] : [];
       const position = await currentPosition(); const body = position ? { date: operationalDate(), origemLat: position.lat, origemLng: position.lng } : { date: operationalDate() };
       if (selectedIds.length) body.deliveryIds = selectedIds;
+      // PR18072026 Onda 3 — "Minha ordem"/"Rota salva": reaplica o ordemManual
+      // ativo tanto no planejar quanto no iniciar (o iniciar acontece numa ação
+      // separada, depois — sem isso a ordem manual se perderia no NN+2-opt).
+      const manualOrder = activeRouteOrdemManual();
+      if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
       if (!planOnly) activateNativeRoute(result);
       await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
       if (!planOnly) abrirNavegacao(openItems()[0]);
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
   function pauseRouteOnDevice() {
     clearInterval(nextStopTimer);
@@ -909,14 +1098,21 @@
       const position = await currentPosition();
       const body = { operationalDate: operationalDate() };
       if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
-      const started = await H.api("/logistica/admin-route/start", { method: "POST", body });
+      // PR18072026 Onda 3 — admin-route/start não conhece ordemManual (contrato
+      // fica só em rota/planejar|iniciar). Com ordem manual ativa, chama o
+      // iniciar direto: mesmo ator, resolve o único motorista já atribuído no
+      // prepare (resolveSingleDriver) e mantém a MESMA ordem definida.
+      const manualOrder = activeRouteOrdemManual();
+      const started = manualOrder && manualOrder.length
+        ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: operationalDate(), ordemManual: manualOrder, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
+        : await H.api("/logistica/admin-route/start", { method: "POST", body });
       state.routePaused = false;
       H.cache.remove("logistica-route-paused");
       activateNativeRoute(started);
       await refresh(true);
       toast("Rota iniciada.");
       abrirNavegacao(openItems()[0]);
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
     finally { state.dayStarting = false; }
   }
   function startDayReview() {
@@ -949,17 +1145,42 @@
           .filter(Boolean);
         const body = { operationalDate: today, sourceDates, pendingDeliveryIds };
         if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
-        await H.api("/logistica/admin-route/prepare", { method: "POST", body });
+        const prepared = await H.api("/logistica/admin-route/prepare", { method: "POST", body });
         state.routePaused = false;
         H.cache.remove("logistica-route-paused");
         clearRouteSelection();
+        // PR18072026 Onda 3 — "Minha ordem"/"Rota salva": admin-route/prepare já
+        // fez o planejamento automático; se o usuário escolheu ordem manual,
+        // sobrepõe agora chamando rota/planejar direto (aceita ordemManual —
+        // admin-route não aceita). refresh ANTES pra allRouteItems() enxergar as
+        // entregas recém-materializadas e traduzir cliente→deliveryId. IMPORTANTE:
+        // esse endpoint (chamado como admin) NÃO resolve motorista sozinho como o
+        // iniciar faz — por isso deliveryIds vem EXPLÍCITO (só o que o prepare já
+        // atribuiu a este admin/motorista), pra nunca reordenar rota de outro
+        // motorista numa empresa com mais de um.
+        const preparedIds = [...new Set((prepared && prepared.plan && prepared.plan.paradas || []).map(p => String(p.id)))];
+        let ordemManual = null;
+        if (preparedIds.length && state.dayOrderMode !== "app" && state.dayManualOrder.length) {
+          await refresh(true);
+          const preparedSet = new Set(preparedIds);
+          ordemManual = manualOrderDeliveryIds(allRouteItems()).filter(id => preparedSet.has(id));
+        }
+        if (ordemManual && ordemManual.length) {
+          await H.api("/logistica/rota/planejar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
+          setRouteOrdemManual(ordemManual);
+        } else clearRouteOrdemManual();
+        await saveManualRouteModeloIfNeeded();
         await closeOverlay("modal");
         if (state.dayMode === "plan") {
           await refresh(true);
           toast("Rota planejada.");
           return;
         }
-        const started = await H.api("/logistica/admin-route/start", { method: "POST", body: { operationalDate: today, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
+        // dayMode "start" (sem botão hoje, mantido por completude): mesma troca
+        // acima — ordem manual pula admin-route/start e vai direto no iniciar.
+        const started = ordemManual && ordemManual.length
+          ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
+          : await H.api("/logistica/admin-route/start", { method: "POST", body: { operationalDate: today, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
         activateNativeRoute(started);
         await refresh(true);
         toast("Rota iniciada.");
@@ -971,13 +1192,19 @@
       const deliveryIds = [...new Set(generatedDays.flatMap(day => Array.isArray(day && day.deliveryIds) ? day.deliveryIds.map(String) : []))];
       if (!deliveryIds.length) deliveryIds.push(...selectedPreviewDeliveryIds());
       if (!deliveryIds.length) throw new Error("Não encontrei as entregas dos dias selecionados. Atualize e tente novamente.");
+      // PR18072026 Onda 3 — mesma tradução cliente→deliveryId acima, já com
+      // allRouteItems() atualizado pelo refresh(true) logo depois do gerar-dia.
+      const manualOrder = state.dayOrderMode !== "app" && state.dayManualOrder.length ? manualOrderDeliveryIds(allRouteItems()) : null;
+      if (manualOrder && manualOrder.length) setRouteOrdemManual(manualOrder); else clearRouteOrdemManual();
+      await saveManualRouteModeloIfNeeded();
       setRouteSelection(deliveryIds);
       await closeOverlay("modal");
       await startRoute(state.dayMode === "plan", false, deliveryIds);
-    } catch (error) { render(); toast(err(error), true); }
+    } catch (error) { render(); toast(humanApiError(error), true); }
     finally { state.dayStarting = false; }
   }
-  async function confirmDelivery(item) {
+  async function confirmDelivery(item, options) {
+    const opts = options || {};
     try {
       const requirements = state.route && state.route.comprovante || {};
       const proof = item.comprovante || {};
@@ -987,13 +1214,14 @@
       const client = item.cliente || {}; const limit = Math.max(Number(state.config && state.config.raioChegadaM || 60) * 2, 120);
       if (position && Number(position.accuracy || 0) <= limit && validCoordinates(client.lat, client.lng)) {
         const distance = distanceMeters(position, { lat: Number(client.lat), lng: Number(client.lng) });
-        if (distance > limit && state.distanceOverrideDeliveryId !== item.id) { state.distanceWarning = { itemId: item.id, distance, clientName: client.nome || "este cliente" }; showModal("distance-warning"); return; }
+        if (distance > limit && state.distanceOverrideDeliveryId !== item.id) { state.distanceWarning = { itemId: item.id, distance, clientName: client.nome || "este cliente", options: opts }; showModal("distance-warning"); return; }
       }
       const keyName = `delivery-confirm:${item.id}`; let key = H.cache.get(keyName, null); if (!key) { key = H.uuid(); H.cache.set(keyName, key); }
       const draft = deliveryDraftFor(item);
       const body = { idempotencyKey: key, itens: draft.items.filter(x => !x.novo).map(x => ({ id: x.id, qtdEntregue: Number(x.qtd || 0) })) };
       const novosItens = draft.items.filter(x => x.novo && x.qtd > 0 && x.productId != null).map(x => ({ productId: Number(x.productId), qtdEntregue: Number(x.qtd) }));
       if (novosItens.length) body.novosItens = novosItens;
+      if (opts.receiptMethod) body.receiptMethod = opts.receiptMethod;
       if (proof.fotoId) body.comprovanteFotoId = proof.fotoId;
       if (proof.assinaturaId) body.comprovanteAssinaturaId = proof.assinaturaId;
       if (requirements.codigoObrigatorio) {
@@ -1006,7 +1234,7 @@
       H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true); toast("Entrega confirmada.");
       const next = openItems()[0];
       if (next) showNextStop(next); else pauseRouteOnDevice();
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
   async function removeStopForToday(item, reason, message) {
     if (!item || !item.id || item.status === "entregue" || item.status === "cancelada") return;
@@ -1021,13 +1249,17 @@
       state.selected = null;
       await refresh(true);
       toast("Entrega retirada somente da rota de hoje.");
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
-  async function performEncerrarRota(motivo) {
+  async function performEncerrarRota(motivo, offerSaveRoute) {
     // Substitui o loop antigo (cancelava entrega por entrega — cancelamento
     // parcial se a rede caísse no meio). Uma chamada só, transacional no
     // backend. Em erro, NÃO mexe em nenhum estado local: o backend é atômico,
     // então "meio encerrado" não existe — ou some tudo, ou nada muda aqui.
+    // PR18072026 Onda 3 — snapshot ANTES da chamada (offerSaveRoute só em
+    // finish-route): a ordem real de hoje é entregues por conclusão + abertas
+    // por rotaOrdem, e depois do encerrar os itens voltam pra "agendada".
+    const snapshot = offerSaveRoute ? items() : null;
     try {
       const response = await H.api("/logistica/rota/encerrar", { method: "POST", body: { date: operationalDate(), motivo: motivo || "Rota encerrada." } });
       const resumo = (response && response.resumo) || {};
@@ -1036,11 +1268,77 @@
       state.routePaused = false;
       H.cache.remove("logistica-route-paused");
       clearRouteSelection();
+      clearRouteOrdemManual();
       H.stopRoute();
       await refresh(true);
       toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`);
+      if (offerSaveRoute && snapshot && snapshot.length >= 2) offerSaveTodayRoute(snapshot);
     } catch (error) {
-      toast(err(error), true);
+      toast(humanApiError(error), true);
+    }
+  }
+  // PR18072026 Onda 3 — pergunta 1 vez, depois do encerrar: "Salvar a ordem de
+  // hoje como sua rota de {dia}?". Ordem real = entregues por deliveredAt asc
+  // (concluídas primeiro, na ordem que aconteceram) + abertas por rotaOrdem.
+  function offerSaveTodayRoute(snapshot) {
+    const dia = todayIso();
+    const dayLabel = (weekDays.find(day => day.n === dia) || {}).label || "";
+    const delivered = snapshot.filter(item => item.status === "entregue")
+      .sort((a, b) => new Date(a.deliveredAt || 0).getTime() - new Date(b.deliveredAt || 0).getTime());
+    const open = snapshot.filter(item => item.status !== "entregue")
+      .sort((a, b) => (storedRouteOrder(a) ?? Infinity) - (storedRouteOrder(b) ?? Infinity));
+    const paradas = [...delivered, ...open]
+      .map(item => { const cliente = item.cliente || {}; return cliente.id ? { customerProfileId: String(cliente.id) } : null; })
+      .filter(Boolean);
+    if (!paradas.length) return;
+    state.confirmation = {
+      type: "save-today-route",
+      title: "Salvar a rota de hoje?",
+      message: `Salvar a ordem de hoje como sua rota de ${dayLabel}?`,
+      confirmLabel: "Salvar",
+      cancelLabel: "Agora não",
+      icon: "route",
+      payload: { diaSemana: dia, paradas },
+    };
+    render();
+  }
+  async function performSaveTodayRoute(payload) {
+    if (!payload || !Array.isArray(payload.paradas) || !payload.paradas.length) return;
+    try {
+      await loadRouteModelos(true);
+      const existing = (state.routeModelos || []).find(modelo => Number(modelo.diaSemana) === payload.diaSemana);
+      const dayLabel = (weekDays.find(day => day.n === payload.diaSemana) || {}).label || "";
+      if (existing) await H.api(`/logistica/rota-modelos/${encodeURIComponent(existing.id)}`, { method: "PATCH", body: { paradas: payload.paradas } });
+      else await H.api("/logistica/rota-modelos", { method: "POST", body: { nome: `Minha rota de ${dayLabel}`, diaSemana: payload.diaSemana, paradas: payload.paradas } });
+      await loadRouteModelos(true);
+      toast("Rota salva.");
+    } catch (error) { toast(humanApiError(error), true); }
+  }
+  async function performDeleteRouteModelo(id) {
+    if (!id) return;
+    try {
+      await H.api(`/logistica/rota-modelos/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await loadRouteModelos(true);
+      toast("Rota excluída.");
+    } catch (error) { toast(humanApiError(error), true); }
+  }
+  // PR18072026 Onda 3 — "Limpar o dia": CANCELA (não pausa) as entregas
+  // abertas de hoje. Botão perigoso dentro do popup de cancelar planejamento.
+  async function performLimparDia() {
+    try {
+      const response = await H.api("/logistica/rota/limpar-dia", { method: "POST", body: { date: operationalDate(), motivo: "Dia limpo pelo administrador." } });
+      const canceladas = Number((response && response.canceladas) || 0);
+      clearInterval(nextStopTimer);
+      state.nextStop = null;
+      state.routePaused = false;
+      H.cache.remove("logistica-route-paused");
+      clearRouteSelection();
+      clearRouteOrdemManual();
+      H.stopRoute();
+      await refresh(true);
+      toast(canceladas > 0 ? `${canceladas} entrega(s) cancelada(s).` : "Nenhuma entrega aberta para cancelar.");
+    } catch (error) {
+      toast(humanApiError(error), true);
     }
   }
   async function markNotDelivered(item) {
@@ -1050,7 +1348,7 @@
       await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason } });
       await closeOverlay("sheet"); await refresh(true); toast("Entrega retirada da rota.");
       const next = openItems()[0]; if (next) showNextStop(next);
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
   async function uploadProof(item, type, file) {
     try {
@@ -1063,7 +1361,7 @@
       state.selected = items().find(x => x.id === selectedId) || null;
       render();
       toast(type === "foto" ? "Foto anexada." : "Assinatura anexada.");
-    } catch (error) { toast(err(error), true); }
+    } catch (error) { toast(humanApiError(error), true); }
   }
   function clientById(id) { return (state.clients || []).find(c => String(c.id) === String(id)); }
   function navigateTo(nextScreen, motion) {
@@ -1113,7 +1411,7 @@
     state.nextStopOpening = false;
   }
   function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); }, 1000); }
-  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; render(); }
+  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; render(); }
 
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
@@ -1138,7 +1436,7 @@
     if (target.dataset.paymentMethod) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.metodoPadrao = target.dataset.paymentMethod; render(); return; }
     if (target.dataset.mode) {
       if (routeActive()) return toast("O modo está congelado até encerrar a rota.", true);
-      try { await H.api("/logistica/config", { method: "PATCH", body: { trackingAtivo: target.dataset.mode === "TRACKED", modoRotaPadrao: target.dataset.mode } }); await closeOverlay("modal"); await refresh(true); toast("Modo padrão atualizado."); } catch (error) { toast(err(error), true); }
+      try { await H.api("/logistica/config", { method: "PATCH", body: { trackingAtivo: target.dataset.mode === "TRACKED", modoRotaPadrao: target.dataset.mode } }); await closeOverlay("modal"); await refresh(true); toast("Modo padrão atualizado."); } catch (error) { toast(humanApiError(error), true); }
       return;
     }
     const action = target.dataset.action;
@@ -1148,6 +1446,18 @@
       const next = { ...current, [module]: !current[module] };
       if (!H.modules.set(next)) { toast("Mantenha pelo menos um módulo ativo.", true); return; }
       render();
+      return;
+    }
+    if (action === "toggle-cobranca-simples") {
+      if (!isAdmin()) return;
+      const next = !(state.config && state.config.cobrancaSimples);
+      try {
+        await H.api("/logistica/config", { method: "PATCH", body: { cobrancaSimples: next } });
+        state.config = { ...(state.config || {}), cobrancaSimples: next };
+        H.cache.set("logistica-config", state.config);
+        render();
+        toast(next ? "Cobrança simples ativada." : "Cobrança simples desativada.");
+      } catch (error) { toast(humanApiError(error), true); }
       return;
     }
     if (action === "reopen-delivery" && state.selected) {
@@ -1161,7 +1471,7 @@
         render();
         await refresh(true);
         toast("Entrega reaberta. Ajuste os itens e confirme novamente.");
-      } catch (error) { toast(err(error), true); }
+      } catch (error) { toast(humanApiError(error), true); }
       return;
     }
     if (action === "delivery-qty" && state.selected) { const draft = deliveryDraftFor(state.selected); const row = draft.items.find(x => x.key === target.dataset.draftItem); if (row) { row.qtd = Math.max(0, Number(row.qtd || 0) + Number(target.dataset.delta || 0)); if (navigator.vibrate) navigator.vibrate(8); render(); } return; }
@@ -1172,6 +1482,9 @@
     if (action === "delivery-reason") { state.deliveryReason = target.dataset.reason || ""; render(); return; }
     if (action === "delivery-back") { state.deliveryNotDelivered = false; state.deliveryReason = ""; render(); return; }
     if (action === "confirm-not-delivered" && state.selected) { markNotDelivered(state.selected); return; }
+    if (action === "delivery-simple-detail") { state.deliverySimpleDetail = true; render(); return; }
+    if (action === "confirm-pago" && state.selected) { const client = state.selected.cliente || {}; const method = ["pix", "dinheiro"].includes(client.metodoPadrao) ? client.metodoPadrao : "dinheiro"; confirmDelivery(state.selected, { receiptMethod: method }); return; }
+    if (action === "confirm-proximo" && state.selected) { confirmDelivery(state.selected, { receiptMethod: "fiado" }); return; }
     if (action === "next-stop") { openNextStop(); return; }
     if (action === "cancel-next-stop") { clearInterval(nextStopTimer); state.nextStop = null; render(); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
@@ -1188,7 +1501,10 @@
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
       if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
-      if (confirmation.type === "cancel-route" || confirmation.type === "finish-route") await performEncerrarRota(confirmation.type === "cancel-route" ? "Planejamento cancelado pelo administrador." : "Rota encerrada pelo motorista.");
+      if (confirmation.type === "cancel-route" || confirmation.type === "finish-route") await performEncerrarRota(confirmation.type === "cancel-route" ? "Planejamento cancelado pelo administrador." : "Rota encerrada pelo motorista.", confirmation.type === "finish-route");
+      if (confirmation.type === "limpar-dia") await performLimparDia();
+      if (confirmation.type === "save-today-route") await performSaveTodayRoute(confirmation.payload);
+      if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
       if (confirmation.type === "logout") H.logout();
       return;
     }
@@ -1197,22 +1513,103 @@
     if (action === "new-client-locate-address") await locateNewClientAddress();
     if (action === "locate-client-address") await locateClientAddress();
     if (action === "new-product") showModal("new-product");
+    if (action === "edit-product") {
+      if (!isAdmin()) return;
+      const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
+      if (product) { state.modalProduct = product; showModal("edit-product"); }
+      return;
+    }
+    if (action === "toggle-product-active") {
+      const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
+      if (!product) return;
+      const nextActive = product.ativo === false;
+      try {
+        await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body: { ativo: nextActive } });
+        product.ativo = nextActive;
+        H.cache.set("logistica-products", state.products);
+        await closeOverlay("modal");
+        toast(nextActive ? "Produto reativado." : "Produto arquivado.");
+      } catch (error) { toast(humanApiError(error), true); }
+      return;
+    }
     if (action === "new-client-product") { resetClientProductEditor(); render(); }
     if (action === "call-client" && state.modalClient) H.call(state.clientDetail && state.clientDetail.whatsapp || state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp);
     if (action === "whatsapp-client" && state.modalClient) { const client = state.modalClient; H.whatsapp(state.clientDetail && state.clientDetail.whatsapp || client.whatsapp || client.phone || client.phoneNormalized, `Olá, ${client.nome || client.name || "tudo bem"}?`); }
     if (action === "new-oneoff") { if (state.clientsPage === 0) await loadClients(true, true); showModal("new-oneoff"); }
     if (action === "cancel-distance-confirm") { state.distanceWarning = null; state.distanceOverrideDeliveryId = null; await closeOverlay("modal"); return; }
-    if (action === "confirm-distance-delivery") { const warning = state.distanceWarning; const item = warning && items().find(row => row.id === warning.itemId); state.distanceWarning = null; state.distanceOverrideDeliveryId = item && item.id || null; await closeOverlay("modal"); if (item) await confirmDelivery(item); return; }
+    if (action === "confirm-distance-delivery") { const warning = state.distanceWarning; const item = warning && items().find(row => row.id === warning.itemId); const pendingOptions = warning && warning.options; state.distanceWarning = null; state.distanceOverrideDeliveryId = item && item.id || null; await closeOverlay("modal"); if (item) await confirmDelivery(item, pendingOptions); return; }
     if (action === "arrival-radius") { if (!isAdmin()) return; showModal("arrival-radius"); }
     if (action === "route-mode") { if (!isAdmin()) return; showModal("route-mode"); }
     if (action === "start-route") openDayManager("start");
     if (action === "plan-route") openDayManager("plan");
     if (action === "start-planned-route") await startPlannedRoute();
-    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar planejamento?", message: "Remove só a ordem e a previsão. As entregas e o financeiro continuam.", confirmLabel: "Cancelar planejamento", danger: true, icon: "route" }; render(); }
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar planejamento?", message: "Remove só a ordem e a previsão. As entregas e o financeiro continuam.", confirmLabel: "Cancelar planejamento", danger: true, icon: "route", extraAction: "confirm-limpar-dia", extraLabel: "Limpar o dia (cancelar entregas de hoje)" }; render(); }
     if (action === "finish-route") { state.confirmation = { type: "finish-route", title: "Encerrar rota?", message: `${deliveredItems().length} entregas concluídas serão preservadas. ${openItems().length} continuarão pendentes. Nenhuma cobrança concluída é removida.`, confirmLabel: "Encerrar e manter pendências", danger: true, icon: "route" }; render(); }
+    // PR18072026 Onda 3 — "Limpar o dia": segunda confirmação a partir do botão
+    // perigoso dentro do popup de cancelar planejamento.
+    if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Limpar o dia?", message: "As entregas de hoje serão canceladas. As recorrentes voltam no próximo dia normal.", confirmLabel: "Limpar o dia", danger: true, icon: "route" }; render(); return; }
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
+    // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem / Rota salva).
+    if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
+    if (action === "back-route-order") { state.dayOrderStep = state.dayOrderStep === "choose" ? null : "choose"; render(); return; }
+    if (action === "order-mode-app") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; startDayReview(); return; }
+    if (action === "order-mode-manual") { state.dayOrderStep = "manual"; state.dayOrderMode = "manual"; state.dayManualOrder = (state.dayPreview || []).map(dayPreviewKey); state.dayManualSave = false; render(); return; }
+    if (action === "order-mode-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
+    if (action === "manual-order-up" || action === "manual-order-down") {
+      const key = target.dataset.orderKey; const list = state.dayManualOrder; const index = list.indexOf(key);
+      if (index === -1) return;
+      const swapWith = action === "manual-order-up" ? index - 1 : index + 1;
+      if (swapWith < 0 || swapWith >= list.length) return;
+      [list[index], list[swapWith]] = [list[swapWith], list[index]];
+      render();
+      return;
+    }
+    if (action === "toggle-manual-save") { state.dayManualSave = !state.dayManualSave; render(); return; }
+    if (action === "confirm-manual-order") { state.dayOrderStep = null; await beginManagedRoute(); return; }
+    if (action === "apply-route-modelo") {
+      const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
+      if (!modelo) return;
+      const preview = state.dayPreview || [];
+      const used = new Set();
+      const ordered = [];
+      (modelo.paradas || []).forEach(parada => {
+        const match = preview.find(client => !used.has(dayPreviewKey(client)) && String(client.customerProfileId || "") === String(parada.customerProfileId || "") && (!parada.localId || String(client.localId || "") === String(parada.localId) || !client.localId));
+        if (match) { ordered.push(dayPreviewKey(match)); used.add(dayPreviewKey(match)); }
+      });
+      preview.forEach(client => { const key = dayPreviewKey(client); if (!used.has(key)) { ordered.push(key); used.add(key); } });
+      state.dayManualOrder = ordered;
+      state.dayOrderMode = "saved";
+      state.dayOrderStep = null;
+      state.dayManualSave = false;
+      render();
+      await beginManagedRoute();
+      return;
+    }
+    // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
+    if (action === "route-modelos") { if (!isAdmin()) return; showModal("route-modelos"); void loadRouteModelos(); return; }
+    if (action === "rename-route-modelo") {
+      const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
+      if (!modelo) return;
+      const novo = window.prompt("Nome da rota", modelo.nome || "");
+      if (novo === null) return;
+      const nome = novo.trim();
+      if (!nome) return;
+      try {
+        await H.api(`/logistica/rota-modelos/${encodeURIComponent(modelo.id)}`, { method: "PATCH", body: { nome } });
+        await loadRouteModelos(true);
+        toast("Rota renomeada.");
+      } catch (error) { toast(humanApiError(error), true); }
+      return;
+    }
+    if (action === "delete-route-modelo") {
+      const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
+      if (!modelo) return;
+      state.confirmation = { type: "delete-route-modelo", itemId: modelo.id, title: "Excluir rota salva?", message: `"${modelo.nome || "Esta rota"}" será excluída.`, confirmLabel: "Excluir", danger: true, icon: "route" };
+      render();
+      return;
+    }
     if (action === "stop-route") { pauseRouteOnDevice(); render(); toast("Rota parada."); }
     if (action === "resume-route") { await resumeRouteOnDevice(); }
     if (action === "show-map") abrirNavegacao(openItems()[0]);
@@ -1223,7 +1620,7 @@
     if (action === "signature") document.getElementById("proof-signature")?.click();
     if (action === "call-stop" || action === "wa-stop" || action === "confirm-stop") { event.preventDefault(); event.stopPropagation(); const next = openItems()[0]; if (!next) return; if (action === "call-stop") H.call(next.cliente.phone); if (action === "wa-stop") H.whatsapp(next.cliente.phone, `Olá, ${next.cliente.nome || "tudo bem"}? Sua entrega está a caminho.`); if (action === "confirm-stop") confirmDelivery(next); }
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
-    if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(err(error), true); } }
+    if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(humanApiError(error), true); } }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
   });
   app.addEventListener("touchstart", event => {
@@ -1302,7 +1699,7 @@
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
-    if (event.target.form && event.target.form.id === "new-client-form" && ["productId", "qtdPadrao", "proximaData", "frequenciaDias", "scheduledAt"].includes(event.target.name)) { state.clientProductDraft[event.target.name] = event.target.value; return; }
+    if (event.target.form && event.target.form.id === "new-client-form" && ["productId", "qtdPadrao", "proximaData", "frequenciaDias", "scheduledAt", "precoAcordado"].includes(event.target.name)) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { if (event.target.name === "phone") event.target.value = formatPhone(event.target.value); if (event.target.name === "cep") event.target.value = formatCep(event.target.value); if (event.target.name === "uf") event.target.value = event.target.value.toUpperCase(); state.clientPaymentDraft[event.target.name] = event.target.value; if (event.target.name === "cep") { if (onlyDigits(event.target.value).length === 8) void lookupClientCep(event.target.value); else { clientCepRequestId += 1; setClientCepStatus(""); } } return; }
     if (event.target.form && event.target.form.id === "new-client-form" && event.target.name) {
       const name = event.target.name; const value = name === "cep" ? formatCep(event.target.value) : name === "phone" ? formatPhone(event.target.value) : name === "cpf" ? formatCpf(event.target.value) : event.target.value;
@@ -1341,9 +1738,11 @@
     if (!customerProfileId) throw new Error("Cliente não encontrado para salvar o produto.");
     if (!productId) throw new Error("Escolha o produto.");
     if (!Number.isFinite(quantity) || quantity < 1) throw new Error("Informe uma quantidade válida.");
+    const precoAcordadoRaw = values.precoAcordado !== undefined ? values.precoAcordado : state.clientProductDraft.precoAcordado;
+    const precoAcordado = precoAcordadoRaw !== undefined && precoAcordadoRaw !== null && String(precoAcordadoRaw).trim() !== "" ? Number(precoAcordadoRaw) : null;
     if (mode === "weekly") {
       if (!state.clientProductDays.length) throw new Error("Escolha ao menos um dia da semana.");
-      const body = { qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), frequenciaDias: null, proximaData: null, ativo: true };
+      const body = { qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), frequenciaDias: null, proximaData: null, ativo: true, precoAcordado };
       if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
       else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
       return;
@@ -1352,7 +1751,7 @@
       const frequenciaDias = Number(values.frequenciaDias || state.clientProductDraft.frequenciaDias);
       const proximaData = values.proximaData || state.clientProductDraft.proximaData;
       if (!Number.isFinite(frequenciaDias) || frequenciaDias < 1 || !proximaData) throw new Error("Informe a primeira entrega e a frequência.");
-      const body = { qtdPadrao: quantity, frequenciaDias, proximaData, diasSemana: null, ativo: true };
+      const body = { qtdPadrao: quantity, frequenciaDias, proximaData, diasSemana: null, ativo: true, precoAcordado };
       if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
       else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
       return;
@@ -1374,7 +1773,7 @@
       if (form.id === "arrival-radius-form") { const radius = Math.max(20, Math.min(1000, Number(data.raioChegadaM))); if (!Number.isFinite(radius)) throw new Error("Informe um raio entre 20 e 1000 metros."); await H.api("/logistica/config", { method: "PATCH", body: { raioChegadaM: radius } }); await closeOverlay("modal"); await refresh(true); toast(`Aviso de chegada ajustado para ${radius} m.`); }
       if (form.id === "new-client-form") {
         const d = state.newClientDraft;
-        const body = { nome: data.name, tipo: "pf", whatsapp: data.phone, document: data.cpf, endereco: data.endereco, numero: data.numero, bairro: data.bairro, cidade: data.cidade, uf: data.uf && String(data.uf).toUpperCase(), cep: data.cep, lat: d.lat, lng: d.lng, isCliente: true, isLead: false };
+        const body = { nome: data.name, tipo: "pf", whatsapp: data.phone, document: data.cpf, endereco: data.endereco, numero: data.numero, bairro: data.bairro, cidade: data.cidade, uf: data.uf && String(data.uf).toUpperCase(), cep: data.cep, lat: d.lat, lng: d.lng, isCliente: true, isLead: false, observacoes: data.observacoes };
         Object.keys(body).forEach(k => { if (body[k] === undefined || body[k] === null || body[k] === "") delete body[k]; });
         const created = await H.api("/nucleo/contas", { method: "POST", body });
         const customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
@@ -1383,12 +1782,13 @@
         await H.api(`/logistica/clientes/${encodeURIComponent(customerProfileId)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } });
         if (state.clientProductMode) {
           const productId = Number(data.productId || state.clientProductDraft.productId); const quantity = Number(data.qtdPadrao || state.clientProductDraft.qtdPadrao || 1);
+          const precoAcordado = data.precoAcordado !== undefined ? Number(data.precoAcordado) : null;
           if (!productId) throw new Error("Escolha o produto.");
           if (state.clientProductMode === "weekly") {
             if (!state.clientProductDays.length) throw new Error("Escolha ao menos um dia da semana.");
-            await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), ativo: true } });
+            await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), ativo: true, precoAcordado } });
           } else if (state.clientProductMode === "date") {
-            await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, frequenciaDias: Number(data.frequenciaDias), proximaData: data.proximaData, ativo: true } });
+            await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, frequenciaDias: Number(data.frequenciaDias), proximaData: data.proximaData, ativo: true, precoAcordado } });
           } else if (state.clientProductMode === "oneoff") {
             await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId, quantidade: quantity, scheduledAt: new Date(data.scheduledAt).toISOString() } });
           }
@@ -1399,10 +1799,10 @@
         const client = state.modalClient; const phoneDigits = onlyDigits(data.phone); const placeholderPhone = phoneDigits.length > 0 && /^0+$/.test(phoneDigits); const phone = (phoneDigits.length === 10 || phoneDigits.length === 11) && !placeholderPhone ? formatPhone(phoneDigits) : "";
         if (!client || !client.id) throw new Error("Cliente não encontrado.");
         if (phoneDigits.length && !placeholderPhone && !phone) throw new Error("Telefone incompleto.");
-        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const lat = Number(d.lat); const lng = Number(d.lng); const hasCoordinates = d.lat !== null && d.lat !== "" && d.lng !== null && d.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0); const addressBody = { endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), ...(hasCoordinates ? { lat, lng } : {}) };
+        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const lat = Number(d.lat); const lng = Number(d.lng); const hasCoordinates = d.lat !== null && d.lat !== "" && d.lng !== null && d.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0); const observacoes = String(form.elements.namedItem("observacoes")?.value || "").trim().slice(0, 500); const addressBody = { endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), observacoes, ...(hasCoordinates ? { lat, lng } : {}) };
         await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: addressBody });
         try {
-          const localBody = { ...addressBody, endereco };
+          const localBody = { ...addressBody, endereco }; delete localBody.observacoes;
           if (d.localId) await H.api(`/nucleo/locais/${encodeURIComponent(d.localId)}`, { method: "PATCH", body: localBody });
           else if (endereco || addressBody.cep) await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/locais`, { method: "POST", body: { ...localBody, isPrincipal: true } });
         } catch (_) { /* A conta já foi atualizada; o local principal é best-effort. */ }
@@ -1424,9 +1824,20 @@
         toast(state.clientProductMode === "oneoff" ? "Entrega avulsa adicionada." : wasEditing ? "Alterações salvas." : "Recorrência salva.");
       }
       if (form.id === "new-product-form") { data.price = Number(data.price || 0); data.stock = Number(data.stock || 0); data.kind = "tenant_product"; data.status = "active"; data.usaLogistica = true; await H.api("/products", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Produto cadastrado."); }
+      if (form.id === "edit-product-form") {
+        const product = state.modalProduct;
+        if (!product || !product.id) throw new Error("Produto não encontrado.");
+        // Contrato do backend (UpdateProdutoDto): campo de preço chama `preco`;
+        // só manda o que foi preenchido (formValues já dropa vazios).
+        const body = { nome: data.nome, ...(data.unidade !== undefined ? { unidade: data.unidade } : {}), ...(data.precoCatalogo !== undefined ? { preco: Number(data.precoCatalogo) } : {}), ...(data.estoque !== undefined ? { estoque: Math.trunc(Number(data.estoque)) } : {}) };
+        await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body });
+        await closeOverlay("modal");
+        await refresh(true);
+        toast("Produto atualizado.");
+      }
       if (form.id === "new-delivery-form") { data.productId = data.productId ? Number(data.productId) : undefined; data.quantidade = Number(data.quantidade || 1); data.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt).toISOString() : undefined; await H.api("/logistica/entregas", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Entrega adicionada à rota."); }
       if (form.id === "new-oneoff-form") { let customerProfileId = data.customerProfileId; if (!customerProfileId) { if (!data.clientName) throw new Error("Escolha ou informe o cliente avulso."); const client = await H.api("/nucleo/contas", { method: "POST", body: { nome: data.clientName, tipo: "pf", whatsapp: data.clientPhone, isCliente: true, isLead: false } }); customerProfileId = client && client.id; } if (!customerProfileId) throw new Error("Não foi possível preparar o cliente avulso."); await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId: Number(data.productId), quantidade: Number(data.quantidade || 1), scheduledAt: operationalScheduledAt(), notes: data.notes || undefined } }); await closeOverlay("modal"); await refresh(true); toast("Entrega avulsa adicionada à rota de hoje."); }
-    } catch (error) { button.disabled = false; toast(err(error), true); }
+    } catch (error) { button.disabled = false; toast(humanApiError(error), true); }
   });
   document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
   document.addEventListener("hbx:theme", render);

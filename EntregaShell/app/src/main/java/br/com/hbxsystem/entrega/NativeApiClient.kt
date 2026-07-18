@@ -263,6 +263,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "creditos", "extrato"),
             listOf("logistica", "admin-route", "route"),
             listOf("logistica", "admin-route", "adjustments"),
+            listOf("logistica", "rota-modelos"),
             listOf("nucleo", "clientes"),
         ) -> true
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
@@ -270,6 +271,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "rota", "planejar"),
             listOf("logistica", "rota", "iniciar"),
+            listOf("logistica", "rota", "encerrar"),
+            listOf("logistica", "rota", "limpar-dia"),
+            listOf("logistica", "rota-modelos"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "entregas"),
             listOf("logistica", "admin-route", "prepare"),
@@ -282,9 +286,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "PATCH" && segments == listOf("logistica", "config") -> true
         method == "PATCH" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "financeiro" -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
+        method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
+        method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "produtos") -> true
         method == "PATCH" && segments.size == 3 && segments[0] == "nucleo" && segments[1] in setOf("contas", "locais", "telefones") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("nucleo", "contas") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
+        method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
         else -> false
     }
     return when (appMode) {
