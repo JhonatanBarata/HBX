@@ -297,6 +297,10 @@ export class BaileysStartupService extends ChannelStartupService {
   private readonly MESSAGE_CACHE_TTL_SECONDS = 5 * 60; // 5 minutes - avoid duplicate message processing
   private readonly UPDATE_CACHE_TTL_SECONDS = 30 * 60; // 30 minutes - avoid duplicate status updates
 
+  // Self-contained profile-picture cache (baileysCache no-ops when no cache engine is enabled).
+  // Prevents re-querying a contact whose photo lookup hangs, on every single message.
+  private readonly profilePicCache = new Map<string, { url: string | null; exp: number }>();
+
   public stateConnection: wa.StateConnection = { state: 'close' };
 
   public phoneNumber: string;
@@ -2262,29 +2266,27 @@ export class BaileysStartupService extends ChannelStartupService {
   public async profilePicture(number: string) {
     const jid = createJid(number);
 
-    // Cache profile-picture lookups (both hits and misses) so a single hung query never
-    // stalls the serial event pipeline on every message from the same contact.
-    // Store a string sentinel for "no picture" (never null) so presence works across
-    // every node-cache version via `get() !== undefined`.
-    const cacheKey = `profilePicUrl:${jid}`;
-    const NO_PIC = '__none__';
-    const cachedPic = await this.baileysCache.get(cacheKey);
-    if (cachedPic !== undefined) {
-      return { wuid: jid, profilePictureUrl: cachedPic === NO_PIC ? null : cachedPic };
+    // Cache lookups (hits and misses) so a contact whose photo query hangs is not re-queried
+    // on every message. Uses a local Map because baileysCache no-ops without a cache engine.
+    const now = Date.now();
+    const cached = this.profilePicCache.get(jid);
+    if (cached && cached.exp > now) {
+      return { wuid: jid, profilePictureUrl: cached.url };
     }
 
+    let url: string | null = null;
+    let ttlMs = 60 * 60 * 1000; // 1h for a resolved lookup
     try {
       // Explicit short timeout: contacts with photo privacy (or @lid without a server reply)
       // otherwise ride out Baileys' 60s default and block message ingestion for the whole instance.
-      const profilePictureUrl = await this.client.profilePictureUrl(jid, 'image', 5000);
-
-      await this.baileysCache.set(cacheKey, profilePictureUrl || NO_PIC, 60 * 60);
-      return { wuid: jid, profilePictureUrl: profilePictureUrl || null };
+      url = (await this.client.profilePictureUrl(jid, 'image', 5000)) || null;
     } catch {
-      // Short TTL so a transient failure is retried soon, but not on every message meanwhile.
-      await this.baileysCache.set(cacheKey, NO_PIC, 10 * 60);
-      return { wuid: jid, profilePictureUrl: null };
+      ttlMs = 10 * 60 * 1000; // shorter TTL so a transient failure is retried sooner
     }
+
+    if (this.profilePicCache.size > 5000) this.profilePicCache.clear();
+    this.profilePicCache.set(jid, { url, exp: now + ttlMs });
+    return { wuid: jid, profilePictureUrl: url };
   }
 
   public async getStatus(number: string) {
