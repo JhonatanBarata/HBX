@@ -62,6 +62,10 @@
     clientProductsLoading: false,
     clientProductsError: null,
     clientProductEditingId: null,
+    // PR — form "Novo produto / entrega" da ficha de EDIÇÃO fica oculto até o
+    // operador tocar "+ Novo" ou um produto já salvo (fix do botão morto).
+    clientProductFormOpen: false,
+    productQuery: "",
     clientDetail: null,
     clientPaymentDraft: { phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", lat: null, lng: null, geoFonte: null, limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", observacoes: "" },
     clientCepStatus: "",
@@ -87,6 +91,7 @@
   let clientsRequestId = 0;
   let clientCepRequestId = 0;
   let clientsSearchTimer = null;
+  let productsSearchTimer = null;
   let touchStart = null;
   let clientHold = null;
   let ignoredClientClickId = null;
@@ -146,6 +151,16 @@
   function routePlanned() { const open = openItems(); return open.length > 0 && open.every(item => storedRouteOrder(item) !== null); }
   function deliveredItems() { return items().filter(item => item.status === "entregue"); }
   function isAdmin() { return !!state.config && Object.prototype.hasOwnProperty.call(state.config, "modoRotaPadrao"); }
+  // PR18072026 Módulo Financeiro — chaves operacionais que o backend defaulta
+  // TRUE (aceitaNaHora/aceitaMensal/aceitaFiado/precoPorClienteAtivo). Um cache
+  // local de config gravado antes deste deploy pode não ter essas chaves ainda;
+  // configFlag() cobre esse vão sem depender de um refresh imediato do GET.
+  const CONFIG_DEFAULT_TRUE_KEYS = new Set(["aceitaNaHora", "aceitaMensal", "aceitaFiado", "precoPorClienteAtivo"]);
+  function configFlag(key) {
+    const value = state.config && state.config[key];
+    if (value !== undefined) return !!value;
+    return CONFIG_DEFAULT_TRUE_KEYS.has(key);
+  }
   function serverRouteActive() { return !!(state.route && state.route.routeStatus === "ACTIVE"); }
   function routeActive() { return serverRouteActive() && openItems().length > 0 && !state.routePaused; }
   function routeTracked() {
@@ -517,6 +532,7 @@
   }
   function editClientProduct(item) {
     const days = String(item.diasSemana || "").split(",").map(Number).filter(day => day >= 1 && day <= 7);
+    state.clientProductFormOpen = true;
     state.clientProductEditingId = item.id;
     state.clientProductDays = days;
     state.clientProductMode = days.length ? "weekly" : item.frequenciaDias ? "date" : "";
@@ -551,15 +567,29 @@
     if (!item || !item.id) return;
     try {
       await H.api(`/logistica/cliente-produtos/${encodeURIComponent(item.id)}`, { method: "DELETE" });
-      if (state.clientProductEditingId === item.id) resetClientProductEditor();
+      if (state.clientProductEditingId === item.id) { resetClientProductEditor(); state.clientProductFormOpen = false; }
       await loadClientProducts();
       toast("Produto removido das entregas recorrentes.");
     } catch (error) { toast(humanApiError(error), true); }
   }
   function blankNewClientDraft() { return { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null, observacoes: "" }; }
   function paymentFields(draft, target) {
-    const form = draft.formaPagamento || "aberto";
-    return `<div class="section-title"><strong>Forma de pagamento</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${form === "aberto" ? "active" : ""}" data-payment-form="aberto" data-payment-target="${target}">Na entrega</button><button type="button" class="recurrence-mode ${form === "na_hora" ? "active" : ""}" data-payment-form="na_hora" data-payment-target="${target}">Na hora</button><button type="button" class="recurrence-mode ${form === "mensal" ? "active" : ""}" data-payment-form="mensal" data-payment-target="${target}">Mensal</button><button type="button" class="recurrence-mode ${form === "pendura" ? "active" : ""}" data-payment-form="pendura" data-payment-target="${target}">Fiado</button></div>${form === "na_hora" ? `<div class="field"><label>Recebe por</label><div class="recurrence-modes"><button type="button" class="recurrence-mode ${draft.metodoPadrao === "pix" ? "active" : ""}" data-payment-method="pix" data-payment-target="${target}">Pix</button><button type="button" class="recurrence-mode ${draft.metodoPadrao === "dinheiro" ? "active" : ""}" data-payment-method="dinheiro" data-payment-target="${target}">Dinheiro</button></div></div>` : ""}${form === "mensal" ? `<div class="field"><label>Dia de pagamento</label><input name="diaFechamento" type="number" inputmode="numeric" min="1" max="31" value="${H.escape(draft.diaFechamento || "")}" placeholder="Ex.: 10"></div>` : ""}<div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(draft.limite || "")}" placeholder="R$ 0,00"></div>`;
+    // PR18072026 Módulo Financeiro — unifica "aberto"(Na entrega)+"na_hora" numa
+    // única forma "Na hora"; cliente legado com formaPagamento="aberto" continua
+    // válido no backend (nunca reescrito aqui), só é EXIBIDO como "na_hora" ativo.
+    // Cada forma só entra na lista se seu toggle de config estiver ligado; se
+    // todas estiverem OFF, esconde o seletor inteiro (só resta limite/saldo).
+    const rawForm = draft.formaPagamento || "na_hora";
+    const form = rawForm === "aberto" ? "na_hora" : rawForm;
+    const options = [
+      configFlag("aceitaNaHora") ? ["na_hora", "Na hora"] : null,
+      configFlag("aceitaMensal") ? ["mensal", "Mensal"] : null,
+      configFlag("aceitaFiado") ? ["pendura", "Fiado"] : null,
+    ].filter(Boolean);
+    const formaSelector = options.length ? `<div class="section-title"><strong>Forma de pagamento</strong></div><div class="recurrence-modes">${options.map(([id, label]) => `<button type="button" class="recurrence-mode ${form === id ? "active" : ""}" data-payment-form="${id}" data-payment-target="${target}">${label}</button>`).join("")}</div>` : "";
+    const naHoraDisponivel = options.some(([id]) => id === "na_hora");
+    const mensalDisponivel = options.some(([id]) => id === "mensal");
+    return `${formaSelector}${form === "na_hora" && naHoraDisponivel ? `<div class="field"><label>Recebe por</label><div class="recurrence-modes"><button type="button" class="recurrence-mode ${draft.metodoPadrao === "pix" ? "active" : ""}" data-payment-method="pix" data-payment-target="${target}">Pix</button><button type="button" class="recurrence-mode ${draft.metodoPadrao === "dinheiro" ? "active" : ""}" data-payment-method="dinheiro" data-payment-target="${target}">Dinheiro</button></div></div>` : ""}${form === "mensal" && mensalDisponivel ? `<div class="field"><label>Dia de pagamento</label><input name="diaFechamento" type="number" inputmode="numeric" min="1" max="31" value="${H.escape(draft.diaFechamento || "")}" placeholder="Ex.: 10"></div>` : ""}<div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(draft.limite || "")}" placeholder="R$ 0,00"></div>`;
   }
   function onlyDigits(value) { return String(value || "").replace(/\D/g, ""); }
   function formatPhone(value) { const digits = onlyDigits(value).slice(0, 11); if (digits.length <= 2) return digits ? `(${digits}` : ""; if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`; const split = digits.length <= 10 ? 6 : 7; return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`; }
@@ -703,6 +733,7 @@
     const action = active ? "stop-route" : current === "gps" ? "start-planned-route" : "plan-route";
     const label = active ? "Parar rota" : current === "gps" ? "Iniciar rota" : "Planejar rota";
     lastRouteTransmuxState = current;
+    const clearDayVisible = !active && isAdmin() && openItems().length > 0;
     return `<div class="route-transmux-wrap"><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
       <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
         <linearGradient id="routePlayGradient" x1="25" y1="12" x2="92" y2="112" gradientUnits="userSpaceOnUse"><stop stop-color="#38e95e"/><stop offset="1" stop-color="#07a93f"/></linearGradient>
@@ -717,7 +748,7 @@
       <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><path d="M60 27 79 77.5c1.1 3-2.2 5.7-4.9 4L60 73.4l-14.1 8.1c-2.7 1.6-6-1-4.9-4z" fill="#fff"/><path d="M60 34 68 67l-8-4.7L52 67z" fill="rgba(8,101,223,.22)"/></g>
       <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z" fill="#fff"/><circle cx="88" cy="42" r="5.2" fill="#168be8"/></g>
       <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><path d="M44 28h32l16 16v32L76 92H44L28 76V44z" fill="#fff"/><path d="M47 35h26l12 12v26L73 85H47L35 73V47z" fill="rgba(223,7,26,.14)"/><rect x="41" y="55" width="38" height="10" rx="5" fill="#e10a1d"/></g></svg>
-    </button>${planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : ""}${active ? `<button class="route-cancel-icon" type="button" data-action="finish-route" aria-label="Encerrar rota"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeFinishGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#5b6472"/><stop offset="1" stop-color="#20242b"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeFinishGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><rect x="16" y="16" width="16" height="16" rx="3" fill="#fff"/></svg></button>` : ""}</div>`;
+    </button>${planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : ""}${active ? `<button class="route-cancel-icon" type="button" data-action="finish-route" aria-label="Encerrar rota"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeFinishGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#5b6472"/><stop offset="1" stop-color="#20242b"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeFinishGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><rect x="16" y="16" width="16" height="16" rx="3" fill="#fff"/></svg></button>` : ""}${clearDayVisible ? `<button class="route-cancel-icon" type="button" data-action="clear-day-request" aria-label="Limpar o dia"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeClearDayGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeClearDayGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M17 18h14M20 18v-2.5c0-.8.7-1.5 1.5-1.5h1c.8 0 1.5.7 1.5 1.5V18M18.5 18 19.6 32c.06.9.8 1.6 1.7 1.6h5.4c.9 0 1.64-.7 1.7-1.6L29.5 18" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 22.5v7M27 22.5v7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></button>` : ""}</div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -732,30 +763,41 @@
     return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card ${clientPendingKeys(c).length ? "has-pending" : ""}" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><div class="client-balance"><small>Saldo ${H.money(Number(c.debitoAtual || 0))}</small>${clientMissingLabels(c)}</div></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${state.clientsPage < state.clientsTotalPages ? `<button class="btn btn-secondary btn-block" data-action="load-more-clients" ${state.clientsLoading ? "disabled" : ""}>${state.clientsLoading ? "Carregando…" : "Carregar mais"}</button>` : ""}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
   }
   function productsScreen() {
-    const products = state.products || [];
+    const all = state.products || [];
     const admin = isAdmin();
-    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><div class="compact-grid">${products.length ? products.map(p => {
+    const query = state.productQuery.trim().toLowerCase();
+    const products = query ? all.filter(p => String(p.nome || p.name || "").toLowerCase().includes(query)) : all;
+    const emptyText = all.length && query ? "Nenhum resultado." : "";
+    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => {
       const archived = p.ativo === false;
       const tag = admin ? "button" : "article";
       const openAttrs = admin ? ` type="button" data-action="edit-product" data-product-id="${H.escape(p.id)}"` : "";
-      return `<${tag} class="card card-pad"${openAttrs}${archived ? ` style="opacity:.45"` : ""}><div class="avatar">${icon("box", 19)}</div><h3 style="margin-top:10px">${H.escape(p.nome || p.name)}</h3><p class="subtitle">${H.escape(p.unidade || "unidade")}</p>${admin && p.precoCatalogo != null ? `<strong style="display:block;margin-top:8px">${H.money(p.precoCatalogo)}</strong>` : ""}${archived ? `<span class="badge" style="display:block;margin-top:8px">Arquivado</span>` : ""}</${tag}>`;
-    }).join("") : empty("Nenhum produto", "")}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
+      const subtitle = admin && p.precoCatalogo != null ? `${H.escape(p.unidade || "unidade")} · ${H.money(p.precoCatalogo)}` : H.escape(p.unidade || "unidade");
+      return `<${tag} class="lead-card"${openAttrs}${archived ? ` style="opacity:.45"` : ""}><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(p.nome || p.name)}</strong><span>${subtitle}${archived ? ` · <span class="badge">Arquivado</span>` : ""}</span></div>${admin ? `<span>›</span>` : ""}</${tag}>`;
+    }).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
   }
   function settingsScreen() {
     const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED"; const modules = H.modules.get();
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button></section>
-      <div class="section-title"><strong>Como você trabalha</strong></div><section class="card flat"><button class="settings-row" data-action="toggle-cobranca-simples" role="switch" aria-checked="${!!cfg.cobrancaSimples}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Cobrança simples na chegada</strong><span>Nome grande, Pago ou Próximo</span></div><span class="module-switch ${cfg.cobrancaSimples ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>` : ""}
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button></section>`);
   }
 
   function simpleModeActive(item) {
     // Modo simples é camada opcional por cima do fluxo atual: só entra quando o
-    // toggle dos Ajustes está ligado, a entrega ainda está aberta e o motorista
-    // não pediu "Ver detalhes" (aí a folha completa assume até fechar a folha).
-    return !!(state.config && state.config.cobrancaSimples) && !!item && item.status !== "entregue" && item.status !== "cancelada" && !state.deliverySimpleDetail;
+    // financeiro está ligado, o toggle "cobrança simples" também está ligado, a
+    // entrega ainda está aberta e o motorista não pediu "Ver detalhes" (aí a
+    // folha completa assume até fechar a folha). Financeiro OFF cai no nível 1
+    // (deliveryOfflineSheet), nunca neste modo.
+    return configFlag("moduloFinanceiroAtivo") && !!(state.config && state.config.cobrancaSimples) && !!item && item.status !== "entregue" && item.status !== "cancelada" && !state.deliverySimpleDetail;
+  }
+  function offlineModeActive(item) {
+    // Nível 1 do contrato Financeiro: módulo inteiro desligado. Ultra-simples,
+    // sem nenhum dado de dinheiro na tela. Só entra enquanto a entrega segue
+    // aberta — finalizada/cancelada cai na folha completa (reabrir, comprovante).
+    return !configFlag("moduloFinanceiroAtivo") && !!item && item.status !== "entregue" && item.status !== "cancelada";
   }
   function draftValorHoje(item) {
     // Fonte preferida: `valorHoje` do listRota (servidor soma valorUnit real da
@@ -779,7 +821,16 @@
     const totalDevido = financeiroAtivo ? Number(debitoAtual || 0) + draftValorHoje(item) : null;
     return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle" style="margin:0">Chegada</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div style="text-align:center;padding:4px 4px 18px"><h1 style="font-size:1.85rem;line-height:1.15;margin:0">${H.escape(c.nome || "Cliente")}</h1>${c.observacoes ? `<p class="subtitle" style="margin:8px 0 0;font-weight:700;color:var(--brand-strong)">${H.escape(c.observacoes)}</p>` : ""}${totalDevido !== null ? `<p style="margin:14px 0 0"><span class="subtitle">Deve</span><br><strong style="font-size:2rem;color:var(--danger)">${H.money(totalDevido)}</strong></p>` : ""}</div><div style="display:flex;flex-direction:column;gap:10px"><button class="btn btn-primary delivery-confirm" style="margin-top:0;min-height:64px;font-size:1.05rem" type="button" data-action="confirm-pago">${icon("check", 20)} Pago</button><button class="btn btn-secondary delivery-confirm" style="margin-top:0;min-height:64px;font-size:1.05rem" type="button" data-action="confirm-proximo">${icon("route", 20)} Próximo</button></div><button class="link-btn" type="button" style="display:block;margin:16px auto 0" data-action="delivery-simple-detail">Ver detalhes</button></section></div>`;
   }
+  // PR18072026 Módulo Financeiro — nível 1 do contrato (financeiro OFF): nome
+  // grande + observações + "Não atendeu"/"Entregue", ZERO dinheiro na tela.
+  // Reusa confirmDelivery (sem receiptMethod, GPS-check preservado) e o fluxo
+  // de próxima parada já existente — nada de lógica nova de entrega aqui.
+  function deliveryOfflineSheet(item) {
+    const c = item.cliente || {};
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle" style="margin:0">Chegada</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div style="text-align:center;padding:4px 4px 18px"><h1 style="font-size:1.85rem;line-height:1.15;margin:0">${H.escape(c.nome || "Cliente")}</h1>${c.observacoes ? `<p class="subtitle" style="margin:8px 0 0;font-weight:700;color:var(--brand-strong)">${H.escape(c.observacoes)}</p>` : ""}</div><div style="display:flex;flex-direction:column;gap:10px"><button class="btn btn-secondary delivery-confirm" style="margin-top:0;min-height:64px;font-size:1.05rem" type="button" data-action="confirm-nao-atendeu">${icon("close", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm" style="margin-top:0;min-height:64px;font-size:1.05rem" type="button" data-action="confirm-entregue-simples">${icon("check", 20)} Entregue</button></div></section></div>`;
+  }
   function deliverySheet(item) {
+    if (offlineModeActive(item)) return deliveryOfflineSheet(item);
     if (simpleModeActive(item)) return deliverySimpleSheet(item);
     const c = item.cliente || {}; const phone = c.phone || item.contato && (item.contato.whatsapp || item.contato.phone) || "";
     const finished = item.status === "entregue" || item.status === "cancelada";
@@ -796,7 +847,7 @@
     const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
     const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
     const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(draft.proximaData || defaultDate)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(draft.scheduledAt || defaultDateTime)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
-    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${(mode === "weekly" || mode === "date") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
+    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${(mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
   }
   function clientEditorModal(isNew) {
     const client = isNew ? state.newClientDraft : (state.modalClient || {}); const fields = isNew ? state.newClientDraft : state.clientPaymentDraft;
@@ -810,12 +861,16 @@
       const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
       const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
-      products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${(mode === "weekly" || mode === "date") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>`;
+      const formOpen = !!state.clientProductFormOpen;
+      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${(mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>` : "";
+      products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}${editorForm}`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
     const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
     const productPart = `<section class="client-editor-part client-editor-products ${pending.includes("Dia") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>2</span><strong>Produto${pending.includes("Dia") ? " · dia pendente" : ""}</strong></div>${products}</section>`;
-    const finance = `<section class="client-editor-part client-editor-finance ${pending.includes("Pag") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>3</span><strong>Financeiro${pending.includes("Pag") ? " · pagamento pendente" : ""}</strong></div><div class="client-financial-fields"></div></section>`;
+    // PR18072026 Módulo Financeiro — seção 3 inteira some quando o módulo está
+    // desligado (nada de saldo/forma de pagamento pra quem não usa financeiro).
+    const finance = configFlag("moduloFinanceiroAtivo") ? `<section class="client-editor-part client-editor-finance ${pending.includes("Pag") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>3</span><strong>Financeiro${pending.includes("Pag") ? " · pagamento pendente" : ""}</strong></div><div class="client-financial-fields"></div></section>` : "";
     const customerForm = `<form id="${formId}">${registration}${isNew ? productPart : ""}${finance}${actions}</form>`;
     return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pending.length ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${pending.includes("Dup") ? `<div class="client-duplicate-warning">Endereço duplicado: confira antes de salvar.</div>` : ""}<div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
   }
@@ -875,7 +930,22 @@
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Consumido</span><strong>${Number(s.trackedPaidCreditsConsumed || s.consumed || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(s.bonusGranted || s.bonus || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(s.trackedDeliveries || s.deliveries || 0)}</strong></div></div><div class="list">${entries.length ? entries.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>${H.escape(e.description || e.type || "Movimento")}</strong><span>${H.date(e.createdAt || e.date)}</span></div><strong>${Number(e.amount || e.credits || 0)}</strong></div>`).join("") : empty("Sem movimentos", "")}</div></section></div>`;
     }
     if (state.modal === "route-modelos") return routeModelosModal();
+    if (state.modal === "financeiro") return financeiroModal();
+    if (state.modal === "avancado") return avancadoModal();
     return "";
+  }
+  // PR18072026 — "Financeiro" (Ajustes › Administração): mestre liga/desliga o
+  // módulo inteiro; sub-toggles só aparecem com o mestre ON. Cada linha é 1
+  // PATCH /logistica/config isolado, mesmo padrão do antigo toggle-cobranca-simples.
+  function financeiroModal() {
+    const ativo = configFlag("moduloFinanceiroAtivo");
+    const sub = (key, label, hint) => `<button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="${key}" role="switch" aria-checked="${configFlag(key)}"><div class="settings-copy"><strong>${label}</strong>${hint ? `<span>${hint}</span>` : ""}</div><span class="module-switch ${configFlag(key) ? "active" : ""}" aria-hidden="true"><i></i></span></button>`;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Financeiro</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="moduloFinanceiroAtivo" role="switch" aria-checked="${ativo}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Ativar financeiro</strong><span>Cobrança, saldo e formas de pagamento</span></div><span class="module-switch ${ativo ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>${ativo ? `<section class="card flat">${sub("cobrancaSimples", "Cobrança simples na chegada", "Nome grande, Pago ou Próximo")}${sub("aceitaNaHora", "Na hora")}${sub("aceitaMensal", "Mensal")}${sub("aceitaFiado", "Fiado")}${sub("precoPorClienteAtivo", "Preço por cliente")}</section>` : ""}</section></div>`;
+  }
+  // "Avançado" (Ajustes › Administração): estrutura pronta pra crescer com
+  // mais toggles operacionais, sem precisar de tela nova a cada item.
+  function avancadoModal() {
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gear", 18)}</div><div><h2>Avançado</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="avisoWhatsEnabled" role="switch" aria-checked="${configFlag("avisoWhatsEnabled")}"><div class="avatar">${icon("wa", 18)}</div><div class="settings-copy"><strong>Mensagens automáticas</strong></div><span class="module-switch ${configFlag("avisoWhatsEnabled") ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="cobrancaAutomatica" role="switch" aria-checked="${configFlag("cobrancaAutomatica")}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Cobrança automática</strong></div><span class="module-switch ${configFlag("cobrancaAutomatica") ? "active" : ""}" aria-hidden="true"><i></i></span></button></section></section></div>`;
   }
   // PR18072026 Onda 3 — "Minhas rotas" (Ajustes › Administração): lista dos
   // modelos salvos com renomear (prompt simples) e excluir (2 toques).
@@ -1362,6 +1432,18 @@
       const next = openItems()[0]; if (next) showNextStop(next);
     } catch (error) { toast(humanApiError(error), true); }
   }
+  // PR18072026 Módulo Financeiro — nível 1 (deliveryOfflineSheet): "Não
+  // atendeu" direto, sem pedir motivo (o app não tem pra onde mostrar isso
+  // nesta folha ultra-simples). Mesmo endpoint/fluxo de próxima parada do
+  // markNotDelivered acima — só sem a etapa de escolher motivo.
+  async function performOfflineNotDelivered(item) {
+    if (!item) return;
+    try {
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: "Não atendeu." } });
+      await closeOverlay("sheet"); await refresh(true); toast("Marcado como não atendido.");
+      const next = openItems()[0]; if (next) showNextStop(next);
+    } catch (error) { toast(humanApiError(error), true); }
+  }
   async function uploadProof(item, type, file) {
     try {
       toast("Enviando comprovante…");
@@ -1397,7 +1479,7 @@
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
-      if (kind === "modal") { state.modal = null; state.modalClient = null; }
+      if (kind === "modal") { state.modal = null; state.modalClient = null; state.clientProductFormOpen = false; }
       if (kind === "sheet") state.selected = null;
       state.closingOverlay = null;
       render();
@@ -1439,7 +1521,7 @@
       return;
     }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
-    if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.clientDetail = null; state.clientProducts = []; state.clientProductsError = null; state.clientCepStatus = ""; clientCepRequestId += 1; resetClientProductEditor(); showModal("client-product"); loadClientProducts(); loadClientDetail(); } return; }
+    if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.clientDetail = null; state.clientProducts = []; state.clientProductsError = null; state.clientCepStatus = ""; clientCepRequestId += 1; resetClientProductEditor(); state.clientProductFormOpen = false; showModal("client-product"); loadClientProducts(); loadClientDetail(); } return; }
     if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
@@ -1460,15 +1542,18 @@
       render();
       return;
     }
-    if (action === "toggle-cobranca-simples") {
+    if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
+    if (action === "open-avancado") { if (!isAdmin()) return; showModal("avancado"); return; }
+    if (action === "toggle-config-flag") {
       if (!isAdmin()) return;
-      const next = !(state.config && state.config.cobrancaSimples);
+      const key = target.dataset.configKey;
+      if (!key) return;
+      const next = !configFlag(key);
       try {
-        await H.api("/logistica/config", { method: "PATCH", body: { cobrancaSimples: next } });
-        state.config = { ...(state.config || {}), cobrancaSimples: next };
+        await H.api("/logistica/config", { method: "PATCH", body: { [key]: next } });
+        state.config = { ...(state.config || {}), [key]: next };
         H.cache.set("logistica-config", state.config);
         render();
-        toast(next ? "Cobrança simples ativada." : "Cobrança simples desativada.");
       } catch (error) { toast(humanApiError(error), true); }
       return;
     }
@@ -1497,6 +1582,11 @@
     if (action === "delivery-simple-detail") { state.deliverySimpleDetail = true; render(); return; }
     if (action === "confirm-pago" && state.selected) { const client = state.selected.cliente || {}; const method = ["pix", "dinheiro"].includes(client.metodoPadrao) ? client.metodoPadrao : "dinheiro"; confirmDelivery(state.selected, { receiptMethod: method }); return; }
     if (action === "confirm-proximo" && state.selected) { confirmDelivery(state.selected, { receiptMethod: "fiado" }); return; }
+    // Nível 1 (financeiro OFF) — deliveryOfflineSheet: "Entregue" reusa
+    // confirmDelivery sem receiptMethod (GPS-check preservado); "Não atendeu"
+    // marca direto (sem motivo digitado) e segue pro fluxo de próxima parada.
+    if (action === "confirm-entregue-simples" && state.selected) { confirmDelivery(state.selected, {}); return; }
+    if (action === "confirm-nao-atendeu" && state.selected) { performOfflineNotDelivered(state.selected); return; }
     if (action === "next-stop") { openNextStop(); return; }
     if (action === "cancel-next-stop") { clearInterval(nextStopTimer); state.nextStop = null; render(); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
@@ -1544,7 +1634,8 @@
       } catch (error) { toast(humanApiError(error), true); }
       return;
     }
-    if (action === "new-client-product") { resetClientProductEditor(); render(); }
+    if (action === "new-client-product") { resetClientProductEditor(); state.clientProductFormOpen = true; render(); }
+    if (action === "close-client-product-form") { resetClientProductEditor(); state.clientProductFormOpen = false; render(); }
     if (action === "call-client" && state.modalClient) H.call(state.clientDetail && state.clientDetail.whatsapp || state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp);
     if (action === "whatsapp-client" && state.modalClient) { const client = state.modalClient; H.whatsapp(state.clientDetail && state.clientDetail.whatsapp || client.whatsapp || client.phone || client.phoneNormalized, `Olá, ${client.nome || client.name || "tudo bem"}?`); }
     if (action === "new-oneoff") { if (state.clientsPage === 0) await loadClients(true, true); showModal("new-oneoff"); }
@@ -1560,6 +1651,11 @@
     // PR18072026 Onda 3 — "Limpar o dia": segunda confirmação a partir do botão
     // perigoso dentro do popup de cancelar planejamento.
     if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Limpar o dia?", message: "As entregas de hoje serão canceladas. As recorrentes voltam no próximo dia normal.", confirmLabel: "Limpar o dia", danger: true, icon: "route" }; render(); return; }
+    // PR18072026 — satélite lixeira "Limpar o dia" fora do popup de cancelar
+    // planejamento (o X só existe quando há rota planejada; sem ele a fila
+    // ficava sem jeito de limpar). Mesma confirmação/type "limpar-dia" de cima,
+    // reusa performLimparDia via accept-confirmation — zero duplicação de API.
+    if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Limpar o dia?", message: "As entregas de hoje serão canceladas. As recorrentes voltam no próximo dia normal. Nenhuma cobrança concluída é removida.", confirmLabel: "Limpar o dia", danger: true, icon: "route" }; render(); return; }
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
@@ -1725,6 +1821,7 @@
       app.querySelectorAll("[data-day-preview]").forEach(row => { row.hidden = !!query && !row.dataset.dayPreview.includes(query); });
       return;
     }
+    if (event.target.id === "product-search") { state.productQuery = event.target.value; clearTimeout(productsSearchTimer); productsSearchTimer = setTimeout(() => render(), 300); return; }
     if (event.target.id !== "client-search") return;
     state.query = event.target.value;
     clearTimeout(clientsSearchTimer);

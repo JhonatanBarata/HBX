@@ -1725,6 +1725,18 @@ model LogisticaConfig {
   comprovanteFotoObrigatoria Boolean @default(false)
   comprovanteAssinaturaObrigatoria Boolean @default(false)
   comprovanteCodigoObrigatorio Boolean @default(false)
+  // PR18072026 W-A — módulo Financeiro liga/desliga (3 níveis) + painel Avançado.
+  // Formas de pagamento aceitas (o admin desliga a que não usa; cliente legado com
+  // a forma desligada continua válido no backend, só some do seletor no app) e o
+  // toggle de preço por cliente. Todos default TRUE = zero mudança de comportamento
+  // pra quem já usa (empresa existente continua vendo tudo ligado).
+  aceitaNaHora          Boolean  @default(true)
+  aceitaMensal          Boolean  @default(true)
+  aceitaFiado           Boolean  @default(true)
+  precoPorClienteAtivo  Boolean  @default(true)
+  // Painel Avançado (novo) — cobrança automática. Opt-in: nasce FALSE (feature
+  // ainda não construída no fluxo de cobrança em si, só a coluna/toggle nascem aqui).
+  cobrancaAutomatica    Boolean  @default(false)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

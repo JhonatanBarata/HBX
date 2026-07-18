@@ -458,9 +458,36 @@ export class UpdateLogisticaConfigDto {
   @IsBoolean()
   cobrancaNaEntrega?: boolean;
 
+  // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
+  @IsOptional()
+  @IsBoolean()
+  cobrancaSimples?: boolean;
+
   @IsOptional()
   @IsBoolean()
   moduloFinanceiroAtivo?: boolean;
+
+  // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
+  // operacionais (mesmo padrão do cobrancaSimples): não exigem billing owner.
+  @IsOptional()
+  @IsBoolean()
+  aceitaNaHora?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  aceitaMensal?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  aceitaFiado?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  precoPorClienteAtivo?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  cobrancaAutomatica?: boolean;
 
   @IsOptional()
   @IsBoolean()

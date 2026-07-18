@@ -125,7 +125,7 @@ test('GET do dono recebe a preferência salva sem confundir com o modo efetivo',
 test('GET não-billing preserva operação e omite chaves administrativas/financeiras', async () => {
   const commercialKeys = [
     'trackingAtivo', 'trackingDisponivel', 'modoRotaPadrao',
-    'cobrancaNaEntrega', 'moduloFinanceiroAtivo', 'moduloRecoveryAtivo',
+    'cobrancaNaEntrega', 'moduloRecoveryAtivo',
     'pixChave', 'pixNome', 'pixCidade',
     'cobrancaWhatsAtiva', 'cobrancaWhatsDisponivel',
     'resumoDiarioAtivo', 'resumoDiarioHora', 'resumoDiarioDisponivel',
@@ -141,6 +141,11 @@ test('GET não-billing preserva operação e omite chaves administrativas/financ
       for (const key of commercialKeys) {
         assert.equal(Object.prototype.hasOwnProperty.call(config, key), false, `${key} deve estar ausente`);
       }
+      // PR18072026 W-A — moduloFinanceiroAtivo virou OPERACIONAL (o app do
+      // entregador usa pra escolher o nível da folha de chegada mesmo sem ser
+      // billing owner). É o TOGGLE, não valor financeiro — presente pra todos.
+      assert.equal(Object.prototype.hasOwnProperty.call(config, 'moduloFinanceiroAtivo'), true, 'moduloFinanceiroAtivo deve estar presente (operacional)');
+      assert.equal(config.moduloFinanceiroAtivo, true);
     }
   });
 });

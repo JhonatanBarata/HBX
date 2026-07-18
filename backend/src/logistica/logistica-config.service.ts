@@ -162,10 +162,19 @@ export class LogisticaConfigService {
       data.templateAviso = t ? t.slice(0, 1000) : null;
     }
     if (input.raioChegadaM !== undefined) data.raioChegadaM = clampInt(input.raioChegadaM, 10, 5000, 60);
+    if (input.cobrancaSimples !== undefined) data.cobrancaSimples = !!input.cobrancaSimples;
     if (input.velocidadeMediaKmH !== undefined) data.velocidadeMediaKmH = clampInt(input.velocidadeMediaKmH, 1, 200, 25);
     if (input.tempoParadaMin !== undefined) data.tempoParadaMin = clampInt(input.tempoParadaMin, 0, 240, 5);
     if (input.cobrancaNaEntrega !== undefined) data.cobrancaNaEntrega = !!input.cobrancaNaEntrega;
     if (input.moduloFinanceiroAtivo !== undefined) data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
+    // PR18072026 W-A — toggles operacionais (não exigem billing owner, mesmo
+    // padrão do cobrancaSimples): formas de pagamento aceitas + preço por
+    // cliente + cobrança automática (painel Avançado).
+    if (input.aceitaNaHora !== undefined) data.aceitaNaHora = !!input.aceitaNaHora;
+    if (input.aceitaMensal !== undefined) data.aceitaMensal = !!input.aceitaMensal;
+    if (input.aceitaFiado !== undefined) data.aceitaFiado = !!input.aceitaFiado;
+    if (input.precoPorClienteAtivo !== undefined) data.precoPorClienteAtivo = !!input.precoPorClienteAtivo;
+    if (input.cobrancaAutomatica !== undefined) data.cobrancaAutomatica = !!input.cobrancaAutomatica;
     if (input.moduloRecoveryAtivo !== undefined) data.moduloRecoveryAtivo = !!input.moduloRecoveryAtivo;
     if (input.gerarDiaAutomatico !== undefined) data.gerarDiaAutomatico = !!input.gerarDiaAutomatico;
     // TASK 4 — dias de trabalho da empresa: CSV de inteiros 1..7 (ISO, 1=segunda…
@@ -416,6 +425,20 @@ function serializeConfig(c: any, actor?: ActorKindUserLike): LogisticaConfigDTO 
     comprovanteFotoObrigatoria: !!c.comprovanteFotoObrigatoria,
     comprovanteAssinaturaObrigatoria: !!c.comprovanteAssinaturaObrigatoria,
     comprovanteCodigoObrigatorio: !!c.comprovanteCodigoObrigatorio,
+    cobrancaSimples: !!c.cobrancaSimples,
+    // PR18072026 W-A — módulo Financeiro liga/desliga (3 níveis) + painel
+    // Avançado. moduloFinanceiroAtivo e os 5 toggles abaixo são OPERACIONAIS
+    // (lidos por QUALQUER ator): o app do entregador precisa saber o nível da
+    // folha de chegada e quais formas mostrar no editar cliente MESMO sem ser
+    // billing owner (motorista/vendedor não é dono nem gerente). É o TOGGLE
+    // (liga/desliga), não valor financeiro — LEI DO VENDEDOR segue protegendo
+    // saldo/valor, não este booleano.
+    moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
+    aceitaNaHora: c.aceitaNaHora === undefined ? true : !!c.aceitaNaHora,
+    aceitaMensal: c.aceitaMensal === undefined ? true : !!c.aceitaMensal,
+    aceitaFiado: c.aceitaFiado === undefined ? true : !!c.aceitaFiado,
+    precoPorClienteAtivo: c.precoPorClienteAtivo === undefined ? true : !!c.precoPorClienteAtivo,
+    cobrancaAutomatica: !!c.cobrancaAutomatica,
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,
@@ -426,7 +449,6 @@ function serializeConfig(c: any, actor?: ActorKindUserLike): LogisticaConfigDTO 
   return {
     ...operational,
     cobrancaNaEntrega: !!c.cobrancaNaEntrega,
-    moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
     moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
     pixChave: c.pixChave ?? null,
     pixNome: c.pixNome ?? null,
@@ -488,6 +510,15 @@ export interface UpdateLogisticaConfigInput {
   comprovanteFotoObrigatoria?: boolean;
   comprovanteAssinaturaObrigatoria?: boolean;
   comprovanteCodigoObrigatorio?: boolean;
+  // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
+  cobrancaSimples?: boolean;
+  // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
+  // operacionais: não exigem billing owner (mesmo padrão do cobrancaSimples).
+  aceitaNaHora?: boolean;
+  aceitaMensal?: boolean;
+  aceitaFiado?: boolean;
+  precoPorClienteAtivo?: boolean;
+  cobrancaAutomatica?: boolean;
 }
 
 export interface LogisticaConfigDTO {
@@ -497,7 +528,6 @@ export interface LogisticaConfigDTO {
   velocidadeMediaKmH: number;
   tempoParadaMin: number;
   cobrancaNaEntrega?: boolean;
-  moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
   gerarDiaAutomatico: boolean;
   diasTrabalho: string | null;
@@ -526,4 +556,17 @@ export interface LogisticaConfigDTO {
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;
+  // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
+  // Operacional (não financeiro): precisa estar visível pro motorista, não só billing owner.
+  cobrancaSimples: boolean;
+  // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
+  // OPERACIONAIS (lidos por QUALQUER ator, mesmo padrão do cobrancaSimples):
+  // o app do entregador usa pra decidir o nível da folha de chegada e quais
+  // formas de pagamento mostrar no editar cliente.
+  moduloFinanceiroAtivo: boolean;
+  aceitaNaHora: boolean;
+  aceitaMensal: boolean;
+  aceitaFiado: boolean;
+  precoPorClienteAtivo: boolean;
+  cobrancaAutomatica: boolean;
 }
