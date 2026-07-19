@@ -85,6 +85,16 @@ export class AuthController {
     });
   }
 
+  // W1 (PR19072026): login de MÁQUINA — token com claim `ops:true`, NÃO cria AuthSession.
+  // Cabo de guerra de sessão do /master (HBX Owner + Ops Control derrubavam o dono do
+  // painel a cada poll via /auth/login comum); ver jwt.strategy.ts:89-99 pra faixa que
+  // aceita o claim SEM entrar na trava de sessão-única.
+  @Post('service-login')
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  async serviceLogin(@Body() dto: LoginDto) {
+    return this.authService.serviceLogin(dto.username, dto.password);
+  }
+
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   async logout(@Req() req: any) {

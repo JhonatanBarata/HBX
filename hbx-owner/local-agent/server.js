@@ -1269,26 +1269,19 @@ function backendRequestOnce(method, route, payload, token, options = {}) {
   });
 }
 
-function refreshBackendToken() {
-  if (backendTokenRefreshPromise) return backendTokenRefreshPromise;
-  backendTokenRefreshPromise = new Promise((resolve) => {
-    const backendEnv = path.join(rootDir, "backend", ".env");
-    const username = String(process.env.SYSTEM_MASTER_USERNAME || readDotenvValue(backendEnv, "SYSTEM_MASTER_USERNAME") || "").trim();
-    const password = String(process.env.SYSTEM_MASTER_PASSWORD || readDotenvValue(backendEnv, "SYSTEM_MASTER_PASSWORD") || "").trim();
-    if (!username || !password) {
-      resolve({ ok: false, error: "credenciais_master_ausentes" });
-      return;
-    }
-
+// Faz 1 POST de login pra `route` com `body` e devolve { ok, statusCode, token, error }.
+// Nunca rejeita (erro de rede/timeout vira { ok: false, error }) — quem chama decide o fallback.
+function backendLoginOnce(route, body) {
+  return new Promise((resolve) => {
     let target;
     try {
-      target = new URL(`${backendUrl}/auth/login`);
+      target = new URL(`${backendUrl}${route}`);
     } catch (error) {
       resolve({ ok: false, error: `URL backend invalida: ${error.message}` });
       return;
     }
 
-    const body = Buffer.from(JSON.stringify({ username, password, forceSession: true }));
+    const payload = Buffer.from(JSON.stringify(body));
     // BUG D1: mesma escolha de módulo por protocolo (ver backendRequestOnce acima).
     const { mod: httpMod, defaultPort } = httpModuleForUrl(target);
     const req = httpMod.request(
@@ -1300,7 +1293,7 @@ function refreshBackendToken() {
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
-          "Content-Length": body.length,
+          "Content-Length": payload.length,
         },
         timeout: 8000,
       },
@@ -1317,21 +1310,48 @@ function refreshBackendToken() {
             parsed = null;
           }
           const token = String(parsed?.access_token || "").trim();
-          if (response.statusCode >= 200 && response.statusCode < 300 && token) {
-            backendToken = token;
-            process.env.HBX_OWNER_BACKEND_TOKEN = token;
-            resolve({ ok: true });
-            return;
-          }
-          resolve({ ok: false, statusCode: response.statusCode, error: parsed?.message || parsed?.error || `http_${response.statusCode || "?"}` });
+          resolve({
+            ok: response.statusCode >= 200 && response.statusCode < 300 && Boolean(token),
+            statusCode: response.statusCode,
+            token,
+            error: parsed?.message || parsed?.error || null,
+          });
         });
       },
     );
     req.on("timeout", () => req.destroy(new Error("timeout")));
     req.on("error", (error) => resolve({ ok: false, error: error.message }));
-    req.write(body);
+    req.write(payload);
     req.end();
-  }).finally(() => {
+  });
+}
+
+function refreshBackendToken() {
+  if (backendTokenRefreshPromise) return backendTokenRefreshPromise;
+  backendTokenRefreshPromise = (async () => {
+    const backendEnv = path.join(rootDir, "backend", ".env");
+    const username = String(process.env.SYSTEM_MASTER_USERNAME || readDotenvValue(backendEnv, "SYSTEM_MASTER_USERNAME") || "").trim();
+    const password = String(process.env.SYSTEM_MASTER_PASSWORD || readDotenvValue(backendEnv, "SYSTEM_MASTER_PASSWORD") || "").trim();
+    if (!username || !password) {
+      return { ok: false, error: "credenciais_master_ausentes" };
+    }
+
+    // service-login = token de máquina (claim ops:true), NÃO cria AuthSession — o agent para
+    // de despejar a sessão humana do dono no /master (teto de 4 sessões). Fallback pro
+    // /auth/login clássico é só pra backend local ainda não rebuildado (404/405 = rota nova
+    // não existe ainda nesse ambiente).
+    let result = await backendLoginOnce("/auth/service-login", { username, password });
+    if (!result.ok && (result.statusCode === 404 || result.statusCode === 405)) {
+      result = await backendLoginOnce("/auth/login", { username, password, forceSession: true });
+    }
+
+    if (result.ok && result.token) {
+      backendToken = result.token;
+      process.env.HBX_OWNER_BACKEND_TOKEN = result.token;
+      return { ok: true };
+    }
+    return { ok: false, statusCode: result.statusCode, error: result.error || `http_${result.statusCode || "?"}` };
+  })().finally(() => {
     backendTokenRefreshPromise = null;
   });
   return backendTokenRefreshPromise;

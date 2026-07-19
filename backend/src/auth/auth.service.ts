@@ -1323,6 +1323,62 @@ export class AuthService implements OnModuleInit {
     return this.login(user, { companyId: companyId || undefined, userAgent: opts?.userAgent, ip: opts?.ip });
   }
 
+  // SERVICE LOGIN (W1 PR19072026): login de MÁQUINA pro master — emite JWT com claim
+  // `ops:true` (mesma faixa que jwt.strategy.ts:89-99 já isenta da trava de sessão-única)
+  // SEM criar/revogar AuthSession nem tocar sessionVersion/currentSessionId. Existe pra
+  // HBX Owner e Ops Control pararem de logar via loginWithUsername/`/auth/login` como o
+  // dono — cada poll deles criava uma AuthSession nova e, com o teto de 4 sessões
+  // (MAX_ADMIN_WEB_SESSIONS) e lastSeenAt sempre fresco de robô, o despejado era sempre
+  // o humano. Espelha só o INÍCIO anti-enumeração/anti-timing de loginWithUsername; o
+  // mint em si copia ops-control/server.js:673-678 (buildBackendAutoSessionScript), que
+  // antes só nascia via `docker exec`.
+  async serviceLogin(username: string, password: string) {
+    const normalized = String(username || '').trim();
+    const pass = String(password || '');
+    if (!normalized || !pass) {
+      throw new BadRequestException('Usuário e senha são obrigatórios');
+    }
+
+    if (normalized.toLowerCase() === this.masterUsername().toLowerCase()) {
+      await this.ensureSystemMasterUser();
+    }
+
+    const user: any = await this.usersService.findByLoginIdentifier(normalized);
+    if (!user) {
+      // Anti-enumeração + anti-timing (mesma disciplina de loginWithUsername).
+      await bcrypt.compare(pass, DUMMY_BCRYPT_HASH);
+      throw new UnauthorizedException('Usuário ou senha inválidos');
+    }
+
+    if (typeof user.password !== 'string' || user.password.length === 0) {
+      // Conta sem senha própria (convite pendente): bcrypt.compare rejeitaria com
+      // hash não-string. Nivela com a MESMA mensagem genérica em vez de deixar
+      // vazar erro 500 (que distinguiria essa conta de "não existe").
+      throw new UnauthorizedException('Usuário ou senha inválidos');
+    }
+
+    const match = await bcrypt.compare(pass, user.password);
+    if (!match) {
+      // Mesma mensagem genérica do caminho "não existe" (anti-enumeração).
+      throw new UnauthorizedException('Usuário ou senha inválidos');
+    }
+
+    // SÓ DEPOIS da prova de senha: inativo OU não-master cai na MESMA mensagem
+    // genérica — não vaza que a conta existe mas está desativada ou não é master.
+    if (user.isActive === false || !Boolean(user.isSystemMaster)) {
+      throw new UnauthorizedException('Usuário ou senha inválidos');
+    }
+
+    // Token de MÁQUINA (claim ops=true) — espelha o mint do ops-control
+    // (ops-control/server.js:673-678). PROIBIDO tocar AuthSession/sessionVersion/
+    // currentSessionId aqui: é o ponto inteiro deste endpoint (ver comentário acima).
+    const access_token = this.jwtService.sign(
+      { sub: user.id, email: user.email, companyId: user.companyId || undefined, ops: true },
+      { expiresIn: '4h' },
+    );
+    return { access_token, token_type: 'service', expires_in: 4 * 60 * 60 };
+  }
+
   async logoutCurrentSession(user: any) {
     const userId = Number(user?.id || 0);
     const sessionId = String(user?.sessionId || user?.authSessionId || '').trim();

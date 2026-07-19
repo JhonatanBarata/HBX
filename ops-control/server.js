@@ -624,6 +624,35 @@ function backendLoginCacheKey(environment, config) {
 }
 
 async function loginBackendWithCredentials(config) {
+  // service-login: token de maquina (claim ops:true), NAO cria AuthSession - o polling do
+  // ops-control para de derrubar a sessao humana do dono no /master. So cai pro /auth/login
+  // classico (abaixo) quando o backend responde 404/405 - rota nova ainda nao existe nesse
+  // ambiente (ex.: backend local sem rebuild).
+  const serviceResponse = await fetch(joinUrl(config.baseUrl, '/auth/service-login'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: config.username,
+      password: config.password,
+    }),
+    signal: timeoutSignal(30000),
+  });
+
+  if (serviceResponse.status !== 404 && serviceResponse.status !== 405) {
+    const serviceText = await serviceResponse.text();
+    let serviceData = null;
+    try {
+      serviceData = serviceText ? JSON.parse(serviceText) : null;
+    } catch {
+      serviceData = null;
+    }
+    if (!serviceResponse.ok || !serviceData?.access_token) {
+      throw new Error(`Login de servico do backend falhou (${serviceResponse.status}).`);
+    }
+    return { token: serviceData.access_token, service: true };
+  }
+
+  // Fallback legado: cria AuthSession humana (conta pro teto de 4 sessoes do master).
   const response = await fetch(joinUrl(config.baseUrl, '/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -645,7 +674,7 @@ async function loginBackendWithCredentials(config) {
     throw new Error(`Login Master do backend falhou (${response.status}).`);
   }
 
-  return data.access_token;
+  return { token: data.access_token, service: false };
 }
 
 function buildBackendAutoSessionScript() {
@@ -709,18 +738,21 @@ async function resolveBackendAuthToken(environment, config, force = false) {
   const cached = backendLoginCache.get(cacheKey);
   if (!force && cached?.token && cached.expiresAt > Date.now()) return cached.token;
 
-  const token = config.username && config.password
+  const login = config.username && config.password
     ? await loginBackendWithCredentials(config)
     : config.autoSession
-      ? await mintBackendSessionForEnvironment(environment, config)
+      ? { token: await mintBackendSessionForEnvironment(environment, config), service: false }
       : null;
 
-  if (!token) throw new Error('Autenticacao do backend nao configurada.');
+  if (!login?.token) throw new Error('Autenticacao do backend nao configurada.');
+  // Token de servico (claim ops:true) dura 4h no backend - cacheia 3h aqui. Fallback legado
+  // (/auth/login, sessao humana) mantem os 60s atuais, que eram o motor do re-login por minuto.
+  const ttlMs = login.service ? 3 * 60 * 60 * 1000 : 60 * 1000;
   backendLoginCache.set(cacheKey, {
-    token,
-    expiresAt: Date.now() + 60 * 1000,
+    token: login.token,
+    expiresAt: Date.now() + ttlMs,
   });
-  return token;
+  return login.token;
 }
 
 async function fetchBackendWithAuth(environment, config, method, route, payload, forceLogin = false, timeoutMs = 30000) {
