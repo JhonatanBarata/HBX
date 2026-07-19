@@ -1,16 +1,14 @@
-/* TUTORIAL FRONT — painel de upload no /master ("Tutorial front").
+/* TUTORIAL FRONT — editor do tutorial no /master ("Tutorial front").
    Só layout + token (Lei do Design System): zero cor literal, reusa
    .panel/.tag/.btn-* do kit. As cores vêm dos tokens do tema. */
 
-.tut-adm { display: grid; gap: 14px; }
-.tut-adm__intro { font-size: 0.72rem; color: var(--text-muted); line-height: 1.55; }
+.tut-adm { display: grid; gap: 16px; }
+.tut-adm__intro { font-size: 0.72rem; color: var(--text-muted); line-height: 1.55; margin: 0; }
 
 .tut-guide { display: grid; gap: 10px; }
-.tut-guide__head { display: flex; align-items: baseline; gap: 8px; padding: 2px 2px 0; }
-.tut-guide__head strong { font-size: 0.82rem; }
-.tut-guide__head small { font-size: 0.66rem; color: var(--text-muted); }
+.tut-guide__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 2px 0; }
 
-.tut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.tut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 10px; }
 
 .tut-card {
   display: grid;
@@ -20,16 +18,57 @@
   border-radius: var(--radius-sm);
   background: var(--hbx-surface-soft);
 }
-.tut-card__title { font-size: 0.76rem; font-weight: 700; }
-.tut-card__desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.5; }
+.tut-card__bar { display: flex; align-items: center; gap: 4px; }
+.tut-card__pos {
+  display: inline-grid; place-items: center;
+  width: 20px; height: 20px; margin-right: auto;
+  border-radius: 999px;
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+  font-size: 0.6rem; font-weight: 800;
+}
+
+/* Campos editáveis */
+.tut-inp {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--hbx-foreground);
+  font: inherit;
+  font-size: 0.72rem;
+}
+.tut-inp:focus { outline: none; border-color: var(--hbx-brand); }
+.tut-inp::placeholder { color: var(--text-muted); }
+.tut-inp--title { font-size: 0.78rem; font-weight: 700; }
+.tut-inp--desc { resize: vertical; line-height: 1.45; }
+.tut-inp--guide { width: auto; flex: 0 1 200px; font-size: 0.8rem; font-weight: 700; }
+.tut-inp--hint { width: auto; flex: 1 1 200px; font-size: 0.7rem; }
+
+/* Botõezinhos de ação (ordenar, remover, trocar) */
+.tut-mini {
+  padding: 4px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--hbx-foreground);
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tut-mini:hover:not(:disabled) { border-color: var(--hbx-brand); color: var(--hbx-brand-strong); }
+.tut-mini:disabled { opacity: 0.4; cursor: default; }
+.tut-mini--danger:hover:not(:disabled) { border-color: var(--hbx-danger); color: var(--hbx-danger); }
 
 /* Zona de soltar o vídeo */
 .tut-drop {
   display: grid;
   place-items: center;
   gap: 4px;
-  min-height: 96px;
-  padding: 12px;
+  min-height: 84px;
+  padding: 10px;
   text-align: center;
   border: 1.5px dashed var(--border-hairline);
   border-radius: var(--radius-sm);
@@ -44,11 +83,14 @@
 .tut-drop strong { font-size: 0.72rem; font-weight: 700; }
 .tut-drop.is-busy { opacity: 0.6; pointer-events: none; }
 
-/* Preview do vídeo já subido */
+.tut-link { display: flex; align-items: center; gap: 6px; }
+
+/* Preview da mídia já definida */
 .tut-media { display: grid; gap: 8px; }
-.tut-media video {
+.tut-media video,
+.tut-media__frame {
   width: 100%;
-  max-height: 190px;
+  height: 170px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-hairline);
   background: #000;
@@ -66,7 +108,8 @@
   cursor: pointer;
 }
 .tut-media__seg button.is-on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.tut-media__tag { font-size: 0.6rem; font-weight: 700; color: var(--text-muted); margin-right: auto; }
 
-.tut-msg { font-size: 0.64rem; font-weight: 600; }
+.tut-msg { font-size: 0.66rem; font-weight: 700; }
 .tut-msg.is-err { color: var(--hbx-danger); }
 .tut-msg.is-ok { color: var(--hbx-success, var(--hbx-brand-strong)); }

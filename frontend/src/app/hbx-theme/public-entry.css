@@ -571,58 +571,94 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   }
 }
 
+
 /* ============================================================
    TUTORIAL EXTERNO — /tutorialexterno (página pública). Reusa a
    casca da landing (.public-entry / .f1-backdrop / .f1-header) e
-   os tokens f1. 3 guias (Sistema / Android / iPhone); cada função
-   tem descrição de 1 linha + vídeo (subido pelo dono no /master).
+   os tokens f1. Uma tela por vez + painel Voltar/Próximo; o
+   conteúdo é editado pelo dono no /master ("Tutorial front").
    ============================================================ */
 .f1-tut { min-height: 100dvh; display: flex; flex-direction: column; }
 .f1-tut__wrap {
   position: relative;
   z-index: 1;
-  width: min(1120px, 100%);
+  width: min(880px, 100%);
   margin: 0 auto;
-  padding: clamp(10px, 2vh, 26px) clamp(20px, 4vw, 56px) 56px;
+  padding: clamp(10px, 2vh, 22px) clamp(20px, 4vw, 40px) 48px;
   flex: 1;
 }
-.f1-tut__head { max-width: 640px; margin: 0 0 clamp(18px, 3vh, 30px); animation: f1-rise-in 0.7s var(--f1-ease) both; }
-.f1-tut__head h1 { margin: 0; font-size: clamp(2rem, 4vw, 3rem); font-weight: 800; letter-spacing: -0.04em; }
-.f1-tut__head p { margin: 10px 0 0; color: var(--f1-text-soft); font-size: clamp(0.95rem, 1.4vw, 1.1rem); line-height: 1.5; }
+.f1-tut__head { margin: 0 0 clamp(14px, 2.5vh, 24px); animation: f1-rise-in 0.7s var(--f1-ease) both; }
+.f1-tut__head h1 { margin: 0; font-size: clamp(1.8rem, 3.4vw, 2.6rem); font-weight: 800; letter-spacing: -0.04em; }
+.f1-tut__head p { margin: 8px 0 0; color: var(--f1-text-soft); font-size: clamp(0.9rem, 1.3vw, 1.05rem); line-height: 1.5; }
 
-.f1-tut__tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: clamp(16px, 3vh, 26px); }
+.f1-tut__tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: clamp(14px, 2.5vh, 22px); }
 .f1-tut__tab {
   display: inline-flex; flex-direction: column; align-items: flex-start;
-  padding: 9px 16px; border: 1px solid var(--f1-line); border-radius: 14px;
+  padding: 8px 15px; border: 1px solid var(--f1-line); border-radius: 14px;
   background: var(--f1-surface); backdrop-filter: blur(14px); cursor: pointer;
   transition: transform 0.25s var(--f1-ease), border-color 0.25s ease, background 0.25s ease;
 }
 .f1-tut__tab:hover { transform: translateY(-2px); border-color: var(--f1-line-strong); }
-.f1-tut__tab strong { font-size: 0.86rem; font-weight: 750; }
-.f1-tut__tab small { font-size: 0.66rem; color: var(--f1-text-soft); }
+.f1-tut__tab strong { font-size: 0.84rem; font-weight: 750; }
+.f1-tut__tab small { font-size: 0.65rem; color: var(--f1-text-soft); }
 .f1-tut__tab.is-active { border-color: var(--f1-accent); background: var(--f1-accent-soft); }
 .f1-tut__tab.is-active strong { color: var(--f1-accent); }
 
-.f1-tut__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: clamp(12px, 2vw, 18px); }
-.f1-tut__card {
-  display: grid; gap: 10px; padding: 14px;
+/* Palco: a tela atual do tutorial */
+.f1-tut__stage {
+  display: grid; gap: 16px; padding: clamp(14px, 2.4vw, 20px);
   border: 1px solid var(--f1-line); border-radius: var(--f1-radius-md);
   background: var(--f1-surface); backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px var(--f1-shadow-soft);
-  animation: f1-rise-in 0.6s var(--f1-ease) both;
+  box-shadow: 0 14px 40px var(--f1-shadow-soft);
+  animation: f1-rise-in 0.5s var(--f1-ease) both;
 }
-.f1-tut__num { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.08em; color: var(--f1-accent); }
-.f1-tut__title { font-size: 0.92rem; font-weight: 750; letter-spacing: -0.01em; }
-.f1-tut__desc { font-size: 0.78rem; color: var(--f1-text-soft); line-height: 1.5; }
-
-.f1-tut__media { position: relative; aspect-ratio: 16 / 10; border-radius: var(--f1-radius-sm); overflow: hidden; border: 1px solid var(--f1-line); background: var(--f1-bg-soft); }
-.f1-tut__media video { width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
+.f1-tut__media {
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden;
+  border-radius: var(--f1-radius-sm); border: 1px solid var(--f1-line);
+  background: var(--f1-bg-soft);
+}
+.f1-tut__media video,
+.f1-tut__media iframe { width: 100%; height: 100%; display: block; border: 0; background: #000; }
+.f1-tut__media video { object-fit: cover; }
 .f1-tut__empty {
-  position: absolute; inset: 0; display: grid; place-items: center; gap: 6px;
-  color: var(--f1-text-soft); font-size: 0.72rem; text-align: center;
+  position: absolute; inset: 0; display: grid; place-items: center; gap: 8px;
+  color: var(--f1-text-soft); font-size: 0.8rem; text-align: center;
 }
-.f1-tut__empty .f1-icon { width: 30px; height: 30px; opacity: 0.7; }
+.f1-tut__empty .f1-icon { width: 34px; height: 34px; opacity: 0.65; }
+
+.f1-tut__info { display: grid; gap: 6px; }
+.f1-tut__num { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; color: var(--f1-accent); text-transform: uppercase; }
+.f1-tut__title { margin: 0; font-size: clamp(1.15rem, 2vw, 1.5rem); font-weight: 780; letter-spacing: -0.02em; }
+.f1-tut__desc { margin: 0; font-size: 0.92rem; color: var(--f1-text-soft); line-height: 1.55; }
+
+/* Painel de navegação */
+.f1-tut__nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 4px; }
+.f1-tut__btn {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px;
+  border: 1px solid var(--f1-line); border-radius: 14px; background: var(--f1-surface);
+  font-size: 0.85rem; font-weight: 720; cursor: pointer;
+  transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease, opacity 0.22s ease;
+}
+.f1-tut__btn:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--f1-line-strong); background: var(--f1-surface-up); }
+.f1-tut__btn:disabled { opacity: 0.4; cursor: default; }
+.f1-tut__btn.is-primary { margin-left: auto; border-color: var(--f1-accent); background: var(--f1-accent-soft); color: var(--f1-accent); }
+
+.f1-tut__dots { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+.f1-tut__dots i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--f1-line-strong); transition: background 0.25s ease, transform 0.25s ease; }
+.f1-tut__dots i.is-on { background: var(--f1-accent); transform: scale(1.3); }
+
+/* Encerramento (última tela da última guia) */
+.f1-tut__done {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; border: 1px solid var(--f1-accent);
+  border-radius: var(--f1-radius-sm); background: var(--f1-accent-soft);
+}
+.f1-tut__done strong { font-size: 0.95rem; font-weight: 760; }
+.f1-tut__done a { display: inline-flex; align-items: center; gap: 8px; font-size: 0.92rem; font-weight: 780; color: var(--f1-accent); }
 
 @media (max-width: 560px) {
-  .f1-tut__grid { grid-template-columns: 1fr; }
+  .f1-tut__nav { gap: 8px; }
+  .f1-tut__btn { flex: 1 1 auto; justify-content: center; padding: 0 12px; }
+  .f1-tut__btn.is-primary { margin-left: 0; }
+  .f1-tut__dots { order: 3; width: 100%; justify-content: center; }
 }

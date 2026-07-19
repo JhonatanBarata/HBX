@@ -1,11 +1,10 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
   Param,
-  Patch,
   Post,
+  Put,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -15,12 +14,12 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
-import { TUTORIAL_MAX_BYTES, TutorialMediaService, type TutorialMode } from './tutorial-media.service';
+import { TUTORIAL_MAX_BYTES, TutorialMediaService } from './tutorial-media.service';
+import type { TutorialManifest } from './tutorial-media.types';
 
-// TUTORIAL FRONT — GET público (a página /tutorialexterno lê o manifesto sem
-// login) + escrita master-only (upload/modo/remover). O vídeo em si é servido
-// estático em /uploads/tutorial/* (ServeStatic), este controller só cuida do
-// manifesto e do arquivo.
+// TUTORIAL FRONT — GET público (a página /tutorialexterno lê sem login) e
+// escrita master-only. Todas as escritas devolvem o manifesto inteiro, pra tela
+// do master reconciliar num round-trip só.
 @Controller('tutorial-media')
 export class TutorialMediaController {
   constructor(private readonly service: TutorialMediaService) {}
@@ -31,7 +30,14 @@ export class TutorialMediaController {
     return this.service.readManifest();
   }
 
-  @Post(':stepId')
+  // Estrutura completa: guias, telas, títulos, descrições, ordem e links.
+  @Put()
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  save(@Body() body: TutorialManifest) {
+    return this.service.saveStructure(body);
+  }
+
+  @Post(':stepId/upload')
   @UseGuards(JwtAuthGuard, MasterGuard)
   @UseInterceptors(
     FileInterceptor('file', {
@@ -40,18 +46,7 @@ export class TutorialMediaController {
     }),
   )
   upload(@Param('stepId') stepId: string, @UploadedFile() file?: any) {
-    return this.service.saveVideo(stepId, file);
+    return this.service.saveUpload(stepId, file);
   }
 
-  @Patch(':stepId')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  setMode(@Param('stepId') stepId: string, @Body() body: { mode?: TutorialMode }) {
-    return this.service.setMode(stepId, body?.mode as TutorialMode);
-  }
-
-  @Delete(':stepId')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  remove(@Param('stepId') stepId: string) {
-    return this.service.remove(stepId);
-  }
 }

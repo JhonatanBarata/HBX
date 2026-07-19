@@ -1,33 +1,27 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getBackendPublicUploadDir } from '../public-assets';
+import { DEFAULT_GUIDES } from './tutorial-defaults';
+import type {
+  TutorialGuide,
+  TutorialManifest,
+  TutorialMedia,
+  TutorialMode,
+  TutorialStep,
+} from './tutorial-media.types';
 
-// TUTORIAL FRONT — mídia dos passos do tutorial público (/tutorialexterno).
-// O dono sobe UM vídeo por passo pelo /master ("Tutorial front"); o arquivo
-// vai pra public/uploads/tutorial/ (servido público em /uploads/tutorial/* pelo
-// ServeStatic) e o manifesto mapeia passo → { url, mode }. A página pública lê
-// o manifesto por GET /tutorial-media (sem login). A lista de passos e as
-// descrições de 1 linha são ESTÁTICAS no frontend (tutorial-content.ts) — aqui
-// só guardamos o vídeo e o modo de exibição.
+// TUTORIAL FRONT — conteúdo do tutorial público (/tutorialexterno).
+// O manifesto (public/uploads/tutorial/manifest.json) é a FONTE DA VERDADE:
+// guias → telas (título, descrição, vídeo). O dono edita tudo pelo /master.
+// O vídeo pode ser upload (arquivo em /uploads/tutorial/, servido público pelo
+// ServeStatic) ou LINK externo (YouTube etc.). A leitura é pública; toda
+// escrita é master-only.
 
-export type TutorialMode = 'video' | 'light';
-
-export type TutorialStepMedia = {
-  url: string; // relativo à raiz do backend: /uploads/tutorial/<arquivo>
-  mode: TutorialMode;
-  filename: string;
-  updatedAt: string;
-};
-
-export type TutorialManifest = { steps: Record<string, TutorialStepMedia> };
-
-// stepId chega do frontend (id do passo em tutorial-content.ts). É master-only,
-// mas validamos assim mesmo pra nunca virar path traversal na escrita do arquivo.
 const STEP_ID_RE = /^[a-z0-9-]{1,60}$/;
-
-// vídeo curto de tutorial; teto generoso mas não absurdo (protege o disco do VPS).
 export const TUTORIAL_MAX_BYTES = 80 * 1024 * 1024;
+const MAX_TITLE = 120;
+const MAX_DESC = 400;
 
 const EXT_BY_MIME: Record<string, string> = {
   'video/mp4': 'mp4',
@@ -38,91 +32,192 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/webp': 'webp',
 };
 
+function text(value: unknown, max: number) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 @Injectable()
 export class TutorialMediaService {
+  // Padrão = pasta pública servida em /uploads/tutorial/* (é isso que faz a URL
+  // do vídeo funcionar sem login). O override por env existe só para TESTE
+  // isolado — apontar para fora do public quebra a entrega do arquivo.
   private dir() {
-    return getBackendPublicUploadDir('tutorial');
+    return process.env.TUTORIAL_UPLOAD_DIR || getBackendPublicUploadDir('tutorial');
   }
 
   private manifestPath() {
     return join(this.dir(), 'manifest.json');
   }
 
-  readManifest(): TutorialManifest {
-    try {
-      const raw = readFileSync(this.manifestPath(), 'utf8');
-      const parsed = JSON.parse(raw);
-      const steps = parsed && typeof parsed === 'object' ? parsed.steps : null;
-      return { steps: steps && typeof steps === 'object' ? steps : {} };
-    } catch {
-      return { steps: {} };
-    }
-  }
-
-  private writeManifest(manifest: TutorialManifest) {
+  private write(manifest: TutorialManifest) {
     mkdirSync(this.dir(), { recursive: true });
     writeFileSync(this.manifestPath(), JSON.stringify(manifest, null, 2), 'utf8');
   }
 
-  private assertStepId(stepId: string) {
-    if (!STEP_ID_RE.test(String(stepId || ''))) {
-      throw new BadRequestException('Passo do tutorial inválido.');
+  // Sem manifesto no disco = ambiente novo: semeia com o conteúdo padrão e grava,
+  // pra que a primeira edição do dono já parta de algo real.
+  readManifest(): TutorialManifest {
+    try {
+      const parsed = JSON.parse(readFileSync(this.manifestPath(), 'utf8'));
+      const guides = Array.isArray(parsed?.guides) ? parsed.guides : null;
+      if (guides) return { version: 2, guides };
+
+      // v1 (conteúdo fixo no código, manifesto só com { steps: { id: media } }):
+      // migra os vídeos já subidos pra estrutura nova em vez de perdê-los.
+      if (parsed?.steps && typeof parsed.steps === 'object') {
+        const migrated = this.migrateFromV1(parsed.steps as Record<string, any>);
+        try { this.write(migrated); } catch { /* disco read-only */ }
+        return migrated;
+      }
+    } catch {
+      /* sem manifesto ou inválido → semeia */
     }
+    const seeded: TutorialManifest = { version: 2, guides: DEFAULT_GUIDES };
+    try { this.write(seeded); } catch { /* disco read-only: serve em memória */ }
+    return seeded;
   }
 
-  saveVideo(stepId: string, file?: { buffer?: Buffer; mimetype?: string; originalname?: string; size?: number }): TutorialStepMedia {
-    this.assertStepId(stepId);
+  private migrateFromV1(legacy: Record<string, any>): TutorialManifest {
+    const guides: TutorialGuide[] = DEFAULT_GUIDES.map((guide) => ({
+      ...guide,
+      steps: guide.steps.map((step) => {
+        const old = legacy[step.id];
+        if (!old?.url) return { ...step, media: null };
+        return {
+          ...step,
+          media: {
+            kind: 'upload' as const,
+            url: String(old.url),
+            mode: old.mode === 'light' ? ('light' as const) : ('video' as const),
+            filename: old.filename ? String(old.filename) : undefined,
+            updatedAt: String(old.updatedAt || new Date().toISOString()),
+          },
+        };
+      }),
+    }));
+    return { version: 2, guides };
+  }
+
+  private uploadFilenames(manifest: TutorialManifest): Set<string> {
+    const names = new Set<string>();
+    for (const guide of manifest.guides || []) {
+      for (const step of guide.steps || []) {
+        if (step.media?.kind === 'upload' && step.media.filename) names.add(step.media.filename);
+      }
+    }
+    return names;
+  }
+
+  private findStep(manifest: TutorialManifest, stepId: string): TutorialStep | null {
+    for (const guide of manifest.guides || []) {
+      const step = (guide.steps || []).find((s) => s.id === stepId);
+      if (step) return step;
+    }
+    return null;
+  }
+
+  private deleteFile(filename?: string) {
+    if (!filename) return;
+    try { rmSync(join(this.dir(), filename), { force: true }); } catch { /* ignore */ }
+  }
+
+  // Salva a ESTRUTURA (guias, telas, textos, links, ordem). O cliente NÃO manda
+  // url de upload: para kind='upload' preservamos o que o servidor já tem, senão
+  // seria possível apontar um passo pra qualquer arquivo.
+  saveStructure(incoming: TutorialManifest): TutorialManifest {
+    const current = this.readManifest();
+    const guidesIn = Array.isArray(incoming?.guides) ? incoming.guides : null;
+    if (!guidesIn?.length) throw new BadRequestException('Estrutura do tutorial inválida.');
+
+    const seenStepIds = new Set<string>();
+    const guides: TutorialGuide[] = guidesIn.map((guide) => {
+      const guideId = text(guide?.id, 60).toLowerCase();
+      if (!STEP_ID_RE.test(guideId)) throw new BadRequestException(`Guia inválida: "${guide?.id}".`);
+      const label = text(guide?.label, MAX_TITLE);
+      if (!label) throw new BadRequestException('Toda guia precisa de um nome.');
+
+      const steps: TutorialStep[] = (Array.isArray(guide?.steps) ? guide.steps : []).map((step) => {
+        const id = text(step?.id, 60).toLowerCase();
+        if (!STEP_ID_RE.test(id)) throw new BadRequestException(`Tela inválida: "${step?.id}".`);
+        if (seenStepIds.has(id)) throw new BadRequestException(`Tela repetida: "${id}".`);
+        seenStepIds.add(id);
+
+        const title = text(step?.title, MAX_TITLE);
+        if (!title) throw new BadRequestException('Toda tela precisa de um título.');
+
+        return {
+          id,
+          title,
+          desc: text(step?.desc, MAX_DESC),
+          media: this.resolveMedia(step?.media, this.findStep(current, id)?.media || null),
+        };
+      });
+
+      return { id: guideId, label, hint: text(guide?.hint, MAX_TITLE), steps };
+    });
+
+    const next: TutorialManifest = { version: 2, guides };
+
+    // Arquivo que deixou de ser referenciado (tela removida ou trocada por link)
+    // sai do disco — senão o volume do VPS vira cemitério de vídeo.
+    const before = this.uploadFilenames(current);
+    const after = this.uploadFilenames(next);
+    for (const filename of before) if (!after.has(filename)) this.deleteFile(filename);
+
+    this.write(next);
+    return next;
+  }
+
+  private resolveMedia(incoming: unknown, previous: TutorialMedia | null): TutorialMedia | null {
+    const media = incoming as Partial<TutorialMedia> | null | undefined;
+    if (!media || !media.kind) return null;
+    const mode: TutorialMode = media.mode === 'light' ? 'light' : 'video';
+
+    if (media.kind === 'link') {
+      const url = String(media.url || '').trim();
+      if (!/^https?:\/\//i.test(url)) throw new BadRequestException('O link do vídeo precisa começar com http(s)://');
+      return { kind: 'link', url: url.slice(0, 500), mode, updatedAt: new Date().toISOString() };
+    }
+
+    // upload: só mantém o que o servidor já gravou (o cliente não define a url).
+    if (previous?.kind === 'upload') return { ...previous, mode };
+    return null;
+  }
+
+  saveUpload(
+    stepId: string,
+    file?: { buffer?: Buffer; mimetype?: string; size?: number },
+  ): TutorialManifest {
+    if (!STEP_ID_RE.test(String(stepId || ''))) throw new BadRequestException('Tela inválida.');
     if (!file?.buffer?.length) throw new BadRequestException('Nenhum arquivo enviado.');
     if ((file.size ?? file.buffer.length) > TUTORIAL_MAX_BYTES) {
       throw new BadRequestException('Arquivo grande demais (máx. 80 MB).');
     }
     const ext = EXT_BY_MIME[String(file.mimetype || '')];
-    if (!ext) throw new BadRequestException('Formato não suportado (envie um vídeo MP4/WebM/MOV).');
+    if (!ext) throw new BadRequestException('Formato não suportado (envie MP4/WebM/MOV).');
 
-    mkdirSync(this.dir(), { recursive: true });
-    // 1 arquivo por passo: sobrescreve. Nome = stepId.<ext>. Se a extensão mudar
-    // (mp4 → webm), apaga a versão antiga pra não deixar órfão no disco.
     const manifest = this.readManifest();
-    const prev = manifest.steps[stepId];
-    if (prev?.filename && prev.filename !== `${stepId}.${ext}`) {
-      try { rmSync(join(this.dir(), prev.filename), { force: true }); } catch { /* ignore */ }
+    const step = this.findStep(manifest, stepId);
+    if (!step) throw new BadRequestException('Tela não encontrada. Salve a estrutura antes de subir o vídeo.');
+
+    // 1 arquivo por tela: se a extensão mudou, o antigo sai.
+    const filename = `${stepId}.${ext}`;
+    if (step.media?.kind === 'upload' && step.media.filename && step.media.filename !== filename) {
+      this.deleteFile(step.media.filename);
     }
 
-    const filename = `${stepId}.${ext}`;
+    mkdirSync(this.dir(), { recursive: true });
     writeFileSync(join(this.dir(), filename), file.buffer);
 
-    const entry: TutorialStepMedia = {
+    step.media = {
+      kind: 'upload',
       url: `/uploads/tutorial/${filename}`,
-      mode: prev?.mode === 'light' ? 'light' : 'video',
+      mode: step.media?.mode === 'light' ? 'light' : 'video',
       filename,
       updatedAt: new Date().toISOString(),
     };
-    manifest.steps[stepId] = entry;
-    this.writeManifest(manifest);
-    return entry;
-  }
-
-  setMode(stepId: string, mode: TutorialMode): TutorialStepMedia {
-    this.assertStepId(stepId);
-    if (mode !== 'video' && mode !== 'light') throw new BadRequestException('Modo inválido.');
-    const manifest = this.readManifest();
-    const entry = manifest.steps[stepId];
-    if (!entry) throw new BadRequestException('Nenhum vídeo neste passo ainda.');
-    entry.mode = mode;
-    entry.updatedAt = new Date().toISOString();
-    this.writeManifest(manifest);
-    return entry;
-  }
-
-  remove(stepId: string): TutorialManifest {
-    this.assertStepId(stepId);
-    const manifest = this.readManifest();
-    const entry = manifest.steps[stepId];
-    if (entry?.filename) {
-      try { rmSync(join(this.dir(), entry.filename), { force: true }); } catch { /* ignore */ }
-    }
-    delete manifest.steps[stepId];
-    this.writeManifest(manifest);
+    this.write(manifest);
     return manifest;
   }
+
 }

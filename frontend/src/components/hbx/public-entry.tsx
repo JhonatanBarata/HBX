@@ -10,9 +10,9 @@ import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
 import { getToken } from "@/lib/api";
+import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
 
 const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
-const CONTACT_WHATSAPP_URL = "https://wa.me/5519997024884?text=Ol%C3%A1%2C%20quero%20conhecer%20o%20HBX.";
 
 type StageKey = "radar" | "vendas" | "whatsapp" | "entrega" | "cobranca";
 type IconName =
