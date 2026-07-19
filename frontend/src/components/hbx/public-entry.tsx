@@ -22,6 +22,7 @@ type IconName =
   | "chevron"
   | "email"
   | "moon"
+  | "play"
   | "radar"
   | "route"
   | "sun"
@@ -77,6 +78,7 @@ const ICONS: Record<IconName, string[]> = {
   chevron: ["m9 18 6-6-6-6"],
   email: ["M3 5h18v14H3z", "m3 8 6 5 6-5"],
   moon: ["M20 15.2A8 8 0 0 1 8.8 4a8 8 0 1 0 11.2 11.2Z"],
+  play: ["M8 5v14l11-7z"],
   radar: ["M12 12h.01", "M8.5 12a3.5 3.5 0 1 1 3.5 3.5", "M5 12a7 7 0 1 1 7 7", "M2 12a10 10 0 1 1 10 10"],
   route: ["M5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M19 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M5 15V9a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4"],
   sun: ["M12 3v2", "M12 19v2", "M3 12h2", "M19 12h2", "m5.6 5.6-1.4-1.4", "m15.8 15.8-1.4-1.4", "m18.4 5.6 1.4-1.4", "m4.2 19.8 1.4-1.4", "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"],
@@ -317,6 +319,9 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <span>HBX</span>
         </Link>
         <nav className="f1-header__actions" aria-label="Ações principais">
+          <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial" title="Tutorial">
+            <Icon name="play" />
+          </Link>
           <button className="f1-icon-button" type="button" onClick={toggleTheme} aria-label={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"} title={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"}>
             <Icon name={themeMode === "dark" ? "sun" : "moon"} />
           </button>

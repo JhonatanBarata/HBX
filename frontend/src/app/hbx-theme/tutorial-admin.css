@@ -1,0 +1,72 @@
+/* TUTORIAL FRONT — painel de upload no /master ("Tutorial front").
+   Só layout + token (Lei do Design System): zero cor literal, reusa
+   .panel/.tag/.btn-* do kit. As cores vêm dos tokens do tema. */
+
+.tut-adm { display: grid; gap: 14px; }
+.tut-adm__intro { font-size: 0.72rem; color: var(--text-muted); line-height: 1.55; }
+
+.tut-guide { display: grid; gap: 10px; }
+.tut-guide__head { display: flex; align-items: baseline; gap: 8px; padding: 2px 2px 0; }
+.tut-guide__head strong { font-size: 0.82rem; }
+.tut-guide__head small { font-size: 0.66rem; color: var(--text-muted); }
+
+.tut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+
+.tut-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+}
+.tut-card__title { font-size: 0.76rem; font-weight: 700; }
+.tut-card__desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.5; }
+
+/* Zona de soltar o vídeo */
+.tut-drop {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 96px;
+  padding: 12px;
+  text-align: center;
+  border: 1.5px dashed var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+.tut-drop:hover { border-color: var(--hbx-brand); color: var(--hbx-brand-strong); }
+.tut-drop.is-over { border-color: var(--hbx-brand); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.tut-drop strong { font-size: 0.72rem; font-weight: 700; }
+.tut-drop.is-busy { opacity: 0.6; pointer-events: none; }
+
+/* Preview do vídeo já subido */
+.tut-media { display: grid; gap: 8px; }
+.tut-media video {
+  width: 100%;
+  max-height: 190px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: #000;
+}
+.tut-media__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tut-media__seg { display: inline-flex; border: 1px solid var(--border-hairline); border-radius: 999px; overflow: hidden; }
+.tut-media__seg button {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.tut-media__seg button.is-on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+
+.tut-msg { font-size: 0.64rem; font-weight: 600; }
+.tut-msg.is-err { color: var(--hbx-danger); }
+.tut-msg.is-ok { color: var(--hbx-success, var(--hbx-brand-strong)); }

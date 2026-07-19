@@ -23,6 +23,7 @@ import { JanelaOnline } from "./janela-online";
 import { JanelaIntegracoes } from "./janela-integracoes";
 import { JanelaSistema } from "./janela-sistema";
 import { JanelaTickets } from "./janela-tickets";
+import { JanelaTutorial } from "./janela-tutorial";
 
 // Shape de GET /modules/master/companies (modules.service.listMasterOverview)
 export type MasterCompany = {
@@ -133,6 +134,7 @@ const JANELAS = [
   { id: "emails", label: "E-mails", icon: "mail" },
   { id: "tickets", label: "Tickets", icon: "doc" },
   { id: "contabil", label: "Contabil", icon: "doc" },
+  { id: "tutorial", label: "Tutorial front", icon: "doc" },
   { id: "sistema", label: "Sistema", icon: "mark" },
 ] as const;
 
@@ -380,6 +382,7 @@ export function MasterClient() {
           {janela === "emails" && <JanelaEmails />}
           {janela === "tickets" && <JanelaTickets />}
           {janela === "contabil" && <JanelaContabil onBadgeChange={setContabilBadge} />}
+          {janela === "tutorial" && <JanelaTutorial />}
           {janela === "sistema" && <JanelaSistema />}
         </div>
       </div>
