@@ -78,6 +78,12 @@ body {
 .pill-muted { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
 .pill-bad { background: rgba(220, 38, 38, .12); color: var(--red); }
 .pill-amber { background: rgba(217, 119, 6, .14); color: var(--amber); }
+/* Interruptor mestre do 30B no header — pílula clicável */
+.pill-power { cursor: pointer; font: inherit; font-size: .76rem; font-weight: 600; }
+.pill-power:hover { border-color: var(--brand); }
+.pill-power[disabled] { cursor: progress; opacity: .7; }
+.pill-power.is-on { background: rgba(22, 163, 74, .14); color: var(--green); border: 1px solid transparent; }
+.pill-power.is-off { background: rgba(220, 38, 38, .12); color: var(--red); border: 1px solid transparent; }
 
 /* Tabs */
 .tabs {

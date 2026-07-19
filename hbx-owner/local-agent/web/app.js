@@ -1819,6 +1819,50 @@ async function ponteToggleClick() {
 { const b = $("#btn-ai-warm"); if (b) b.addEventListener("click", aiWarmClick); }
 { const b = $("#btn-ponte-toggle"); if (b) b.addEventListener("click", ponteToggleClick); }
 
+/* ---------- Interruptor MESTRE do 30B no header (kill-switch) ----------
+   Uma pílula clicável que liga/desliga o cérebro 30B. Desligar para de puxar
+   missão E libera o modelo da memória na hora (o backend cobre local-deep + ponte). */
+let power30bState = null; // último { on, warm } conhecido
+async function power30bRender() {
+  const btn = $("#btn-30b-power");
+  if (!btn || btn.dataset.busy === "true") return;
+  let r;
+  try { r = await api("GET", "/owner/30b/power"); }
+  catch { btn.textContent = "30B —"; btn.className = "pill pill-power pill-muted"; return; }
+  const p = (r && r.power) || {};
+  power30bState = p;
+  btn.disabled = false;
+  if (p.on) {
+    btn.textContent = p.warm ? "30B ligado 🔥" : "30B ligado";
+    btn.className = "pill pill-power is-on";
+    btn.title = "Cérebro 30B LIGADO. Clique para desligar e liberar a memória da sua máquina.";
+  } else {
+    btn.textContent = "30B desligado";
+    btn.className = "pill pill-power is-off";
+    btn.title = "Cérebro 30B DESLIGADO (memória livre). Clique para ligar.";
+  }
+}
+async function power30bToggle() {
+  const btn = $("#btn-30b-power");
+  if (!btn || btn.dataset.busy === "true") return;
+  const turningOn = !(power30bState && power30bState.on);
+  btn.dataset.busy = "true";
+  btn.disabled = true;
+  btn.textContent = turningOn ? "ligando…" : "desligando…";
+  btn.className = "pill pill-power pill-muted";
+  try {
+    const r = await api("POST", "/owner/30b/power", { on: turningOn });
+    if (r && r.power) power30bState = r.power;
+  } catch (err) {
+    btn.textContent = "30B — erro";
+    btn.title = err.message || "falha ao alternar o 30B";
+  } finally {
+    delete btn.dataset.busy;
+    await power30bRender();
+  }
+}
+{ const b = $("#btn-30b-power"); if (b) b.addEventListener("click", power30bToggle); }
+
 /* ================= HOT-02 + HOT-03 (fundidos) — Base Receita ================= */
 /* Pesquisa avançada em cima do dump local da RFB (CnpjPublicCompany) + anti-contador.
    Endpoints via proxy do local-agent (server.js) → backend `/modules/owner/cnpj-base/*`. */
@@ -2104,6 +2148,7 @@ loadCockpit();
 fabRender();
 aiLocalRender();
 ponteRender();
+power30bRender();
 // ─────────────────────────── TIMERS DE POLLING (FALLBACK À PROVA DE BALA) ───────────────────────────
 // Sprint 4: os que o SSE consegue empurrar (sistema + motores VPS) viram timers GERENCIÁVEIS.
 // Enquanto o SSE está SAUDÁVEL eles rodam DEVAGAR (mantidos vivos só como rede de segurança);
@@ -2133,6 +2178,7 @@ setInterval(pingStatus, 10000);          // S2: pílula honesta ≤15s (com o ca
 setInterval(fabRender, 10000);           // fábrica de enriquecimento
 setInterval(aiLocalRender, 30000);       // IA LOCAL (Ollama) — presença + modelos
 setInterval(ponteRender, 8000);          // ponte local: controle, estado e trabalhos
+setInterval(power30bRender, 8000);       // pílula do header: estado ligado/desligado do 30B
 // ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────
 // EventSource escuta /owner/events?token=<TOKEN> (o header Authorization não passa por EventSource;
 // o agent valida o ?token= só nessa rota). O painel consome `snapshot` e `enricher`.

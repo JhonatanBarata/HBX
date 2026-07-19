@@ -3639,6 +3639,45 @@ async function route(req, res) {
     sendJson(res, 202, { ok: true, localDeepEnrich: localDeepEnrichWorker.status() });
     return;
   }
+  // ── Interruptor MESTRE do 30B (kill-switch do header) ────────────────────────────────────────────
+  // "Desligar o 30B" = parar de puxar missão (local-deep + ponte) E descarregar o modelo da RAM na hora
+  // (keep_alive 0 no Ollama). Cobre os DOIS caminhos porque start-owner.ps1 arma a ponte junto.
+  // Reversível: "ligar" religa o local-deep e reabilita a ponte (o modelo reaquece sob demanda).
+  function build30bPower() {
+    const ld = localDeepEnrichWorker.status();
+    let pt = null;
+    try { pt = ponteWorker.status(); } catch { pt = null; }
+    const running = Boolean(ld && ld.running);
+    const ponteEnabled = Boolean(pt && pt.manualEnabled);
+    return {
+      on: running || ponteEnabled,
+      running,
+      ponteEnabled,
+      warm: Boolean(pt && pt.warm),
+      model: (ld && ld.model) || (pt && pt.model) || null,
+    };
+  }
+  if (req.method === "GET" && url.pathname === "/owner/30b/power") {
+    sendJson(res, 200, { ok: true, power: build30bPower() });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/owner/30b/power") {
+    const body = await readBody(req);
+    if (typeof body.on !== "boolean") {
+      sendJson(res, 400, { ok: false, reason: "on_boolean_obrigatorio", power: build30bPower() });
+      return;
+    }
+    if (body.on) {
+      try { localDeepEnrichWorker.start(); } catch (e) { console.log(`[30b] start local-deep falhou: ${e.message}`); }
+      try { ponteWorker.setManualEnabled(true); } catch (e) { console.log(`[30b] reabilitar ponte falhou: ${e.message}`); }
+    } else {
+      try { await localDeepEnrichWorker.stop(); } catch (e) { console.log(`[30b] stop local-deep falhou: ${e.message}`); }
+      try { ponteWorker.setManualEnabled(false); } catch (e) { console.log(`[30b] pausar ponte falhou: ${e.message}`); }
+      try { await ponteWorker.unload("desligado pelo painel (header)"); } catch (e) { console.log(`[30b] unload 30B falhou: ${e.message}`); }
+    }
+    sendJson(res, 200, { ok: true, power: build30bPower() });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/owner/ponte/status") {
     sendJson(res, 200, { ok: true, ponte: ponteWorker.status() });
     return;
