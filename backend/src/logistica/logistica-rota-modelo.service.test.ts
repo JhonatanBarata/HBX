@@ -198,3 +198,251 @@ test('update: renomear pro MESMO nome do próprio modelo não conflita', async (
   const dto = await svc.update(7, 'm1', { nome: 'Segunda' });
   assert.equal(dto!.nome, 'Segunda');
 });
+
+// ── PR20072026-ROTA-SALVA F2 — POST /rota-modelos/:id/gerar (lista EXATA) ────
+
+const COMPANY = 7;
+const GERAR_DATE = '2026-07-20';
+
+function buildGerarPrisma(
+  seed: {
+    modelos?: any[];
+    customerProfiles?: any[];
+    locais?: any[];
+    clienteProdutos?: any[];
+    produtos?: any[];
+    entregas?: any[];
+    contatos?: any[];
+  } = {},
+) {
+  const modelos = new Map<string, any>((seed.modelos ?? []).map((r) => [r.id, { ...r }]));
+  const customerProfiles = new Map<string, any>((seed.customerProfiles ?? []).map((r) => [r.id, { ...r }]));
+  const locais = new Map<string, any>((seed.locais ?? []).map((r) => [r.id, { ...r }]));
+  const clienteProdutos = new Map<string, any>((seed.clienteProdutos ?? []).map((r) => [r.id, { ...r }]));
+  const produtos = new Map<number, any>((seed.produtos ?? []).map((r) => [r.id, { ...r }]));
+  const entregas = new Map<string, any>((seed.entregas ?? []).map((r) => [r.id, { ...r }]));
+  const contatos = new Map<string, any>((seed.contatos ?? []).map((r) => [r.id, { ...r }]));
+  let entregaSeq = 0;
+
+  const prisma: any = {
+    logisticaRotaModelo: {
+      findFirst: async ({ where }: any) => {
+        const row = Array.from(modelos.values()).find((r) => r.id === where.id && r.companyId === where.companyId);
+        return row ? { id: row.id, paradasJson: row.paradasJson } : null;
+      },
+    },
+    customerProfile: {
+      findFirst: async ({ where }: any) => {
+        const row = Array.from(customerProfiles.values()).find(
+          (r) => r.id === where.id && r.companyId === where.companyId,
+        );
+        return row ? { id: row.id, name: row.name } : null;
+      },
+    },
+    localEntrega: {
+      findFirst: async ({ where }: any) => {
+        const row = Array.from(locais.values()).find(
+          (r) =>
+            r.id === where.id && r.companyId === where.companyId && r.customerProfileId === where.customerProfileId,
+        );
+        return row ? { id: row.id } : null;
+      },
+    },
+    clienteProduto: {
+      findMany: async ({ where }: any) => {
+        return Array.from(clienteProdutos.values())
+          .filter(
+            (r) =>
+              r.companyId === where.companyId &&
+              r.customerProfileId === where.customerProfileId &&
+              r.ativo === where.ativo,
+          )
+          .map((r) => {
+            const produto = produtos.get(r.productId);
+            return {
+              productId: r.productId,
+              qtdPadrao: r.qtdPadrao,
+              precoAcordado: r.precoAcordado ?? null,
+              product: produto ? { price: produto.price ?? null, priceCents: produto.priceCents ?? null } : null,
+            };
+          });
+      },
+    },
+    entrega: {
+      findFirst: async ({ where }: any) => {
+        const row = Array.from(entregas.values()).find((r) => {
+          if (r.companyId !== where.companyId) return false;
+          if (r.customerProfileId !== where.customerProfileId) return false;
+          if (r.localId !== where.localId) return false;
+          const t = new Date(r.scheduledAt).getTime();
+          return t >= where.scheduledAt.gte.getTime() && t <= where.scheduledAt.lte.getTime();
+        });
+        return row ? { id: row.id } : null;
+      },
+      create: async ({ data }: any) => {
+        const id = `entrega-${++entregaSeq}`;
+        entregas.set(id, { id, ...data });
+        return { id };
+      },
+    },
+    contato: {
+      findFirst: async ({ where }: any) => {
+        let rows = Array.from(contatos.values()).filter(
+          (r) => r.companyId === where.companyId && r.customerProfileId === where.customerProfileId,
+        );
+        if (where.isPrincipal !== undefined) rows = rows.filter((r) => r.isPrincipal === where.isPrincipal);
+        rows = rows.slice().sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime());
+        return rows[0] ?? null;
+      },
+    },
+  };
+  return { prisma, modelos, entregas, clienteProdutos };
+}
+
+test('gerar: modelo de OUTRA empresa → 404', async () => {
+  const { prisma } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: 999, paradasJson: [] }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  await assert.rejects(() => svc.gerar(COMPANY, 'm1', GERAR_DATE), /não encontrado/);
+});
+
+test('gerar: cliente COM vínculo ativo → Entrega criada com itens "de sempre" (ignora dia/vencimento)', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    produtos: [{ id: 1, price: 7, priceCents: null }],
+    clienteProdutos: [
+      {
+        id: 'cp1',
+        companyId: COMPANY,
+        customerProfileId: 'c1',
+        productId: 1,
+        qtdPadrao: 2,
+        precoAcordado: null,
+        ativo: true,
+        // vencimento no futuro/nenhum — gerar() ignora isso de propósito.
+        diasSemana: null,
+        proximaData: null,
+      },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+
+  assert.equal(res.deliveryIds.length, 1);
+  assert.deepEqual(res.avisos, []);
+  const entrega = entregas.get(res.deliveryIds[0])!;
+  assert.equal(entrega.customerProfileId, 'c1');
+  assert.equal(entrega.origem, 'avulsa');
+  assert.equal(entrega.status, 'agendada');
+  assert.equal(entrega.cobrancaStatus, 'pendente');
+  assert.equal(entrega.quantidade, 2);
+  assert.equal(entrega.valor, 14);
+  assert.equal(entrega.itens.create.length, 1);
+  assert.equal(entrega.itens.create[0].productId, 1);
+  assert.equal(entrega.itens.create[0].qtdPrevista, 2);
+  assert.equal(entrega.itens.create[0].valorUnit, 7);
+});
+
+test('gerar: cliente SEM vínculo ativo → Entrega SEM itens (valor 0)', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+
+  assert.equal(res.deliveryIds.length, 1);
+  const entrega = entregas.get(res.deliveryIds[0])!;
+  assert.equal(entrega.quantidade, 0);
+  assert.equal(entrega.valor, 0);
+  assert.equal(entrega.itens, undefined, 'sem vínculo ativo não manda itens.create');
+});
+
+test('gerar: cliente já agendado HOJE (mesmo local) → REUSA o id, não duplica', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    entregas: [
+      {
+        id: 'entrega-ja-existe',
+        companyId: COMPANY,
+        customerProfileId: 'c1',
+        localId: null,
+        scheduledAt: new Date(2026, 6, 20, 0, 0, 0, 0),
+      },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+
+  assert.deepEqual(res.deliveryIds, ['entrega-ja-existe']);
+  assert.equal(entregas.size, 1, 'não criou uma 2ª entrega');
+});
+
+test('gerar: rodar 2× no MESMO dia é idempotente', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const primeira = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  const segunda = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+
+  assert.deepEqual(segunda.deliveryIds, primeira.deliveryIds);
+  assert.equal(entregas.size, 1, '2ª chamada não duplica a entrega');
+});
+
+test('gerar: NÃO avança proximaData de nenhum vínculo (só a recorrência automática mexe nisso)', async () => {
+  const { prisma, clienteProdutos } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    produtos: [{ id: 1, price: 5, priceCents: null }],
+    clienteProdutos: [
+      {
+        id: 'cp1',
+        companyId: COMPANY,
+        customerProfileId: 'c1',
+        productId: 1,
+        qtdPadrao: 1,
+        precoAcordado: null,
+        ativo: true,
+        diasSemana: '1,2,3',
+        proximaData: new Date(2026, 6, 15),
+      },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+
+  const cp = clienteProdutos.get('cp1')!;
+  assert.deepEqual(cp.proximaData, new Date(2026, 6, 15), 'proximaData intocada');
+});
+
+test('gerar: cliente de OUTRA empresa / excluído → pula com aviso; preserva ORDEM dos demais', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [
+      {
+        id: 'm1',
+        companyId: COMPANY,
+        paradasJson: [
+          { customerProfileId: 'c-fantasma' },
+          { customerProfileId: 'c1' },
+          { customerProfileId: 'c2' },
+        ],
+      },
+    ],
+    customerProfiles: [
+      { id: 'c1', companyId: COMPANY, name: 'A' },
+      { id: 'c2', companyId: COMPANY, name: 'B' },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+
+  assert.equal(res.avisos.length, 1);
+  assert.equal(res.deliveryIds.length, 2);
+  assert.equal(entregas.get(res.deliveryIds[0])!.customerProfileId, 'c1');
+  assert.equal(entregas.get(res.deliveryIds[1])!.customerProfileId, 'c2');
+});

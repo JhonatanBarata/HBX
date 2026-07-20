@@ -98,6 +98,15 @@ export function humanize(raw: string | null | undefined): string {
   return LABEL_MAP[key] || raw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+/** Payloads do motor são dados operacionais, não conteúdo para o cliente. */
+export function clientTimelineDescription(raw: string | null | undefined): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  if (/^[{[]/.test(text)) return "";
+  if (/(?:asyncEnrichmentJobs|postDeliveryJobs|enrichmentJobSummary|traceId|lastError)/i.test(text)) return "";
+  return text;
+}
+
 // ── Seções secundárias: ocultas sob o chevron "Mais detalhes" (default fechado)
 const CARD_SECONDARY: string[] = [
   "detalhes",
@@ -2441,7 +2450,9 @@ export function DetalhesNegocio({
             <span className="ctx-tl-dot" aria-hidden="true" />
             <div className="ctx-tl-body">
               <span className="ctx-tl-title" title={ev.title || undefined}>{ev.title || "Atualização"}</span>
-              {ev.description && <span className="ctx-tl-desc" title={ev.description}>{ev.description}</span>}
+              {clientTimelineDescription(ev.description) && (
+                <span className="ctx-tl-desc" title={clientTimelineDescription(ev.description)}>{clientTimelineDescription(ev.description)}</span>
+              )}
               <div className="ctx-tl-foot">
                 {ev.resultLabel && <span className="tag teal">{ev.resultLabel}</span>}
                 {ev.returnAt && <span className="tag warn">Retorno {fmtDate(ev.returnAt)}</span>}

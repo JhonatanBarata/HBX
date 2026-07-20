@@ -296,6 +296,95 @@ function publishAndroidApk(config, apk) {
   runStep('ssh', sshArgs, { stdin: remoteScript });
 }
 
+// PR20072026-ROTA-SALVA F4 — auto-update do APK Logística: lê versionCode/
+// versionName do PRÓPRIO build.gradle.kts (flavor "logistica"), no MESMO
+// arquivo que o gradle usa pra assinar o APK que acabou de sair do
+// buildAndroidApk() — nunca hardcode, nunca dessincroniza do binário real.
+function readLogisticaFlavorVersion() {
+  const gradleFile = path.join(androidProjectDir, 'app', 'build.gradle.kts');
+  const content = fs.readFileSync(gradleFile, 'utf8');
+  const flavorMatch = /create\("logistica"\)\s*\{([\s\S]*?)\n\s*\}/.exec(content);
+  if (!flavorMatch) {
+    throw new Error('Não encontrei o bloco create("logistica") em app/build.gradle.kts.');
+  }
+  const block = flavorMatch[1];
+  const versionCodeMatch = /versionCode\s*=\s*(\d+)/.exec(block);
+  const versionNameMatch = /versionName\s*=\s*"([^"]+)"/.exec(block);
+  if (!versionCodeMatch || !versionNameMatch) {
+    throw new Error('Não encontrei versionCode/versionName do flavor "logistica" em app/build.gradle.kts.');
+  }
+  return { versionCode: Number(versionCodeMatch[1]), versionName: versionNameMatch[1] };
+}
+
+// URL pública do version-logistica.json. Reusa o MESMO domínio do APK
+// (config.androidApkUrl) + `/downloads/version-logistica.json` — contrato
+// travado em docs/PLANEJAMENTOS/PR20072026-ROTA-SALVA/00-ORQUESTRACAO.md
+// (`${WEB_BASE_URL}/downloads/version-logistica.json`, o mesmo `WEB_BASE_URL`
+// que o APK usa pra falar com o backend/frontend).
+// TODO(dono): confirmar no nginx do VPS que `/var/www/hbx-downloads/` (onde o
+// APK e este JSON são gravados) é servido publicamente sob `/downloads/*` —
+// `androidApkUrl` hoje é uma ROTA dedicada (`/download/android-logistica`,
+// singular), não necessariamente uma pasta estática exposta em `/downloads/`.
+// Dá pra sobrescrever via HOSTINGER_ANDROID_LOGISTICA_VERSION_URL sem mexer
+// no código, caso o caminho real no nginx seja outro.
+function resolveVersionJsonPublicUrl(config) {
+  const env = resolveOperationsEnv();
+  const explicit = String(env.HOSTINGER_ANDROID_LOGISTICA_VERSION_URL || '').trim();
+  if (explicit) return explicit;
+  try {
+    return `${new URL(config.androidApkUrl).origin}/downloads/version-logistica.json`;
+  } catch {
+    return null;
+  }
+}
+
+function publishVersionJson(config, apk) {
+  const version = readLogisticaFlavorVersion();
+  const payload = {
+    versionCode: version.versionCode,
+    versionName: version.versionName,
+    url: config.androidApkUrl,
+    sha256: apk.sha256,
+    obrigatoria: false,
+    nota: '',
+  };
+  const content = JSON.stringify(payload);
+
+  const remoteDirectory = path.posix.dirname(config.androidApkRemotePath);
+  const remotePath = path.posix.join(remoteDirectory, 'version-logistica.json');
+  const remoteTemporaryPath = `${remotePath}.${formatTimestamp()}.tmp`;
+  const remoteTarget = `${config.sshUser}@${config.sshHost}`;
+  const sshArgs = ['-o', 'BatchMode=yes'];
+  if (config.sshPort) sshArgs.push('-p', config.sshPort);
+  sshArgs.push(remoteTarget, 'bash', '-s');
+
+  const publicUrl = resolveVersionJsonPublicUrl(config);
+  const remoteScript = [
+    'set -euo pipefail',
+    `VERSION_TMP=${shellQuote(remoteTemporaryPath)}`,
+    `VERSION_TARGET=${shellQuote(remotePath)}`,
+    'cleanup() { rm -f "$VERSION_TMP"; }',
+    'trap cleanup EXIT',
+    `cat > "$VERSION_TMP" <<'HBX_VERSION_JSON_EOF'\n${content}\nHBX_VERSION_JSON_EOF`,
+    'chmod 0644 "$VERSION_TMP"',
+    'mv -f "$VERSION_TMP" "$VERSION_TARGET"',
+    'trap - EXIT',
+    ...(publicUrl
+      ? [
+          `VERSION_URL=${shellQuote(publicUrl)}`,
+          // Best-effort: NÃO falha o publish se a rota pública do JSON ainda
+          // não estiver mapeada no nginx (ver TODO acima) — só avisa no log.
+          'if curl -fsSL --retry 2 --retry-delay 2 "$VERSION_URL" >/tmp/hbx-version-check.json 2>/dev/null; then ' +
+            `echo "version-logistica.json publicado e acessível em $VERSION_URL"; ` +
+            'else ' +
+            `echo "AVISO: version-logistica.json gravado em $VERSION_TARGET mas NÃO respondeu em $VERSION_URL — confira o nginx (rota /downloads/)."; ` +
+            'fi',
+        ]
+      : [`echo "version-logistica.json gravado em $VERSION_TARGET (sem URL pública configurada pra validar)."`]),
+  ].join('\n');
+  runStep('ssh', sshArgs, { stdin: remoteScript });
+}
+
 function main(requestedMode) {
   const mode = requestedMode || process.argv[2];
   if (!['full', 'selective'].includes(mode)) {
@@ -325,6 +414,17 @@ function main(requestedMode) {
   runStep('git', ['push', remote, branch]);
   deploy(config, mode === 'full' || plan.full, plan.services);
   publishAndroidApk(config, androidApk);
+
+  // PR20072026-ROTA-SALVA F4 — version-logistica.json (auto-update do APK).
+  // NUNCA pode derrubar o publish: o APK já subiu e validou acima; isto é só
+  // um adicional pro app checar update sozinho.
+  try {
+    publishVersionJson(config, androidApk);
+  } catch (error) {
+    console.warn(
+      `[version.json] pulado (não bloqueante): ${error && error.message ? error.message : error}`,
+    );
+  }
 }
 
 if (require.main === module) {

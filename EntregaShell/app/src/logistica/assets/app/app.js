@@ -188,6 +188,8 @@
     search: "<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>",
     sales: "<path d='M4 20V10M10 20V4M16 20v-7M22 20V7'/>",
     calendar: "<rect x='3' y='5' width='18' height='16' rx='2'/><path d='M16 3v4M8 3v4M3 10h18'/>",
+    lock: "<rect x='5' y='11' width='14' height='9' rx='2'/><path d='M8 11V7a4 4 0 0 1 8 0v4'/>",
+    signal: "<path d='M4 20v-4M9 20v-8M14 20V9M19 20V4'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -430,6 +432,133 @@
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
   function statusLabel(status) { return ({ agendada: "Agendada", em_rota: "Em rota", entregue: "Entregue", cancelada: "Cancelada" })[status] || status; }
+
+  // ==========================================================================
+  // F5 — componente base do wizard de leitura: cartão CENTRAL (mesma moldura de
+  // dayHomeModal, `.modal-wrap.day-home-wrap` + `.modal.day-home`) com header
+  // (ícone + título + resumo do que já foi escolhido) e rodapé com DUAS SETAS
+  // CIRCULARES GRANDES (‹ voltar / › próximo). `backAction`/`nextAction` são
+  // data-action (delegação de clique já existente); omitir desabilita a seta.
+  // `extra` é HTML livre entre o corpo e as setas (ex.: botões Sim/Não).
+  // ==========================================================================
+  function centerModal(opts) {
+    const o = opts || {};
+    const closeAction = o.closeAction === false ? null : (o.closeAction || "leitura-voltar");
+    return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal" role="dialog" aria-modal="true">
+      <div class="center-modal-head">
+        <div class="day-home-icon">${icon(o.icon || "route", 22)}</div>
+        <h2>${H.escape(o.title || "")}</h2>
+        ${o.resumo ? `<p class="center-modal-resumo">${o.resumo}</p>` : ""}
+        ${o.hideClose ? "" : `<button class="close center-modal-close" type="button" data-action="${o.closeButtonAction || "leitura-voltar"}">${icon("close", 16)}</button>`}
+      </div>
+      <div class="center-modal-body">${o.body || ""}</div>
+      ${o.extra || ""}
+      <div class="center-modal-nav">
+        <button type="button" class="center-arrow center-arrow--back" data-action="${o.backAction || ""}" ${!o.backAction ? "disabled" : ""} aria-label="${H.escape(o.backLabel || "Voltar")}"><span class="center-arrow-glyph">‹</span><span class="center-arrow-label">${H.escape(o.backLabel || "Voltar")}</span></button>
+        <button type="button" class="center-arrow center-arrow--next" data-action="${o.nextAction || ""}" ${o.nextDisabled || !o.nextAction ? "disabled" : ""} aria-label="${H.escape(o.nextLabel || "Próximo")}"><span class="center-arrow-glyph">›</span><span class="center-arrow-label">${H.escape(o.nextLabel || "Próximo")}</span></button>
+      </div>
+    </section></div>`;
+  }
+
+  // ==========================================================================
+  // F6 — loading overlay escurecido, leve (spinner CSS puro, 1 nó reaproveitado
+  // fora do ciclo de render do #app — nunca recriado/re-renderizado junto com o
+  // resto). Contador de refs: várias chamadas simultâneas não piscam; debounce
+  // de 150ms pra não aparecer em requests rápidos.
+  // ==========================================================================
+  let hbxLoadingRefs = 0;
+  let hbxLoadingTimer = null;
+  let hbxLoadingEl = null;
+  let hbxLoadingMsg = "Carregando…";
+  function showLoading(msg) {
+    if (msg) hbxLoadingMsg = msg;
+    hbxLoadingRefs += 1;
+    if (hbxLoadingEl) { const t = hbxLoadingEl.querySelector(".hbx-loading-text"); if (t) t.textContent = hbxLoadingMsg; }
+    if (hbxLoadingRefs > 1) return;
+    clearTimeout(hbxLoadingTimer);
+    hbxLoadingTimer = setTimeout(() => {
+      if (hbxLoadingRefs <= 0) return;
+      if (!hbxLoadingEl) {
+        hbxLoadingEl = document.createElement("div");
+        hbxLoadingEl.className = "hbx-loading-overlay";
+        hbxLoadingEl.innerHTML = `<div class="hbx-loading-spinner" aria-hidden="true"></div><p class="hbx-loading-text"></p>`;
+        document.body.appendChild(hbxLoadingEl);
+      }
+      hbxLoadingEl.querySelector(".hbx-loading-text").textContent = hbxLoadingMsg;
+      hbxLoadingEl.classList.add("is-visible");
+    }, 150);
+  }
+  function hideLoading() {
+    hbxLoadingRefs = Math.max(0, hbxLoadingRefs - 1);
+    if (hbxLoadingRefs > 0) return;
+    clearTimeout(hbxLoadingTimer);
+    if (hbxLoadingEl) hbxLoadingEl.classList.remove("is-visible");
+  }
+
+  // ==========================================================================
+  // F3.1 — campo de moeda "estilo banco": guarda CENTAVOS, digitação sempre no
+  // fim (nunca deixa cair "no meio do número" — bug provado no aparelho).
+  // preventDefault em keydown/beforeinput controla 100% o valor; a exibição
+  // (`R$ 20,00`) é sempre recalculada a partir dos centavos internos.
+  // ==========================================================================
+  function moneyCentsToBRL(cents) {
+    const value = Math.max(0, Math.round(Number(cents) || 0));
+    return (value / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function attachMoneyInput(el, initialReais, onChange) {
+    if (!el) return;
+    let cents = Math.max(0, Math.round((Number(initialReais) || 0) * 100));
+    const paint = () => {
+      el.value = moneyCentsToBRL(cents);
+      requestAnimationFrame(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} });
+    };
+    paint();
+    const apply = next => {
+      cents = Math.max(0, Math.min(9999999, Math.round(next)));
+      paint();
+      if (typeof onChange === "function") onChange(cents / 100);
+    };
+    const digitFrom = event => {
+      if (event.key && /^[0-9]$/.test(event.key)) return event.key;
+      if (event.data && /^[0-9]$/.test(event.data)) return event.data;
+      return null;
+    };
+    el.addEventListener("keydown", event => {
+      const digit = digitFrom(event);
+      if (digit !== null) { event.preventDefault(); apply(cents * 10 + Number(digit)); return; }
+      if (event.key === "Backspace") { event.preventDefault(); apply(Math.floor(cents / 10)); return; }
+      if (event.key === "Delete") { event.preventDefault(); apply(0); return; }
+      if (["Tab", "Enter", "Escape", "Shift", "Control", "Meta", "Alt", "Unidentified"].includes(event.key) || (event.key && event.key.indexOf("Arrow") === 0)) return;
+      event.preventDefault();
+    });
+    el.addEventListener("beforeinput", event => {
+      if (event.inputType === "insertText") {
+        const digit = digitFrom(event);
+        event.preventDefault();
+        if (digit !== null) apply(cents * 10 + Number(digit));
+        return;
+      }
+      if (event.inputType === "deleteContentBackward") { event.preventDefault(); apply(Math.floor(cents / 10)); return; }
+      if (event.inputType === "insertFromPaste") {
+        event.preventDefault();
+        const pasted = onlyDigits(event.data || (event.dataTransfer && event.dataTransfer.getData("text")) || "");
+        if (pasted) apply(Number(pasted.slice(-7)));
+        return;
+      }
+      event.preventDefault();
+    });
+    el.addEventListener("focus", () => requestAnimationFrame(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} }));
+  }
+  // Liga os campos de moeda visíveis no DOM atual (chamado a cada render — a
+  // folha inteira é recriada do zero, então religar é barato e necessário).
+  function enhanceMoneyInputs() {
+    app.querySelectorAll("[data-leitura-preco]").forEach(el => {
+      const productId = el.dataset.leituraPreco;
+      const item = state.leituraItens.find(i => String(i.productId) === String(productId));
+      if (!item) return;
+      attachMoneyInput(el, Number(item.valorUnit || 0), value => { item.valorUnit = value; });
+    });
+  }
   const weekDays = [{ n: 1, label: "SEG" }, { n: 2, label: "TER" }, { n: 3, label: "QUA" }, { n: 4, label: "QUI" }, { n: 5, label: "SEX" }, { n: 6, label: "SÁB" }, { n: 7, label: "DOM" }];
   function operationalDate() {
     const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());

@@ -1,21 +1,33 @@
 package br.com.hbxsystem.entrega
 
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.Settings
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URI
+import java.net.URL
+import java.security.DigestOutputStream
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -39,8 +51,38 @@ class NativeAppBridge(
     private val logoutEmAndamento = AtomicBoolean(false)
     private val appReadyEnviado = AtomicBoolean(false)
 
+    // Auto-update (F4): 1 atualização por vez, nunca em loop.
+    private val updateEmAndamento = AtomicBoolean(false)
+    private val updateStatusAction = "${activity.packageName}.HBX_UPDATE_STATUS"
+    private val updateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
+                PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+                    val confirm = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_INTENT, Intent::class.java)
+                    if (confirm != null) {
+                        confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        activity.runOnUiThread { runCatching { activity.startActivity(confirm) } }
+                    }
+                }
+                PackageInstaller.STATUS_SUCCESS -> emitUpdateProgress(100)
+                else -> {
+                    val message = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+                    emitUpdateError(message?.takeIf(String::isNotBlank) ?: "Falha ao instalar a atualização (status $status).")
+                }
+            }
+        }
+    }
+
     init {
-        if (BuildConfig.APP_MODE == "logistica") OperationalSync.requestFlush(activity)
+        if (BuildConfig.APP_MODE == "logistica") {
+            OperationalSync.requestFlush(activity)
+            ContextCompat.registerReceiver(
+                activity,
+                updateReceiver,
+                IntentFilter(updateStatusAction),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
     }
 
     @JavascriptInterface
@@ -266,6 +308,174 @@ class NativeAppBridge(
         .put("webBaseUrl", BuildConfig.WEB_BASE_URL)
         .toString()
 
+    // ---- Auto-update (F4) ----------------------------------------------------
+
+    @JavascriptInterface
+    fun updateInstallAllowed(): Boolean {
+        if (BuildConfig.APP_MODE != "logistica") return false
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            activity.packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+    }
+
+    @JavascriptInterface
+    fun openInstallPermission() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread {
+            val withPackage = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:${activity.packageName}"),
+            )
+            try {
+                activity.startActivity(withPackage)
+            } catch (_: ActivityNotFoundException) {
+                try {
+                    activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES))
+                } catch (_: ActivityNotFoundException) {
+                    // Aparelho sem essa tela de configurações; nada a fazer.
+                }
+            }
+        }
+    }
+
+    /**
+     * Baixa o APK publicado pelo próprio HBX, confere o sha256 e instala via
+     * PackageInstaller. Só aceita host igual ao de WEB_BASE_URL/API_BASE_URL
+     * (trava anti-SSRF) — nunca segue redirecionamento pra outro host.
+     */
+    @JavascriptInterface
+    fun downloadAndInstall(url: String, sha256: String, versionName: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        if (!updateEmAndamento.compareAndSet(false, true)) {
+            emitUpdateError("Já existe uma atualização em andamento.")
+            return
+        }
+        executor.execute {
+            val safeVersion = versionName.filter { it.isLetterOrDigit() || it in ".-" }.take(40).ifBlank { "update" }
+            val updatesDir = File(activity.cacheDir, "updates")
+            val tempFile = File(updatesDir, "hbx-$safeVersion-${UUID.randomUUID()}.apk")
+            try {
+                performUpdate(url, sha256, tempFile)
+            } catch (error: Throwable) {
+                emitUpdateError(error.message ?: "Não foi possível concluir a atualização.")
+            } finally {
+                tempFile.delete()
+                updateEmAndamento.set(false)
+            }
+        }
+    }
+
+    private fun performUpdate(urlInput: String, sha256Input: String, tempFile: File) {
+        val expectedHash = sha256Input.trim().lowercase()
+        require(expectedHash.matches(Regex("^[0-9a-f]{64}$"))) { "Verificação de integridade inválida." }
+
+        val uri = runCatching { URI(urlInput.trim()) }.getOrNull()
+            ?: throw IllegalArgumentException("URL de atualização inválida.")
+        require(uri.scheme?.lowercase() == "https") { "Atualização recusada: origem insegura." }
+        val host = uri.host?.lowercase().orEmpty()
+        val allowedHosts = setOf(
+            runCatching { URI(BuildConfig.WEB_BASE_URL).host?.lowercase() }.getOrNull(),
+            runCatching { URI(BuildConfig.API_BASE_URL).host?.lowercase() }.getOrNull(),
+        )
+        require(host.isNotBlank() && host in allowedHosts) { "Atualização recusada: origem não confiável." }
+
+        tempFile.parentFile?.mkdirs()
+        downloadWithHash(uri.toString(), tempFile, expectedHash)
+        installApk(tempFile)
+    }
+
+    private fun downloadWithHash(url: String, destination: File, expectedHash: String) {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 20_000
+            readTimeout = 30_000
+            useCaches = false
+            instanceFollowRedirects = false
+            setRequestProperty("User-Agent", "HBX-${BuildConfig.APP_MODE}/${BuildConfig.VERSION_NAME} Android/${Build.VERSION.SDK_INT}")
+        }
+        try {
+            val status = connection.responseCode
+            require(status in 200..299) { "Não foi possível baixar a atualização (HTTP $status)." }
+            val contentLength = connection.contentLengthLong
+            val digest = MessageDigest.getInstance("SHA-256")
+            connection.inputStream.use { input ->
+                DigestOutputStream(destination.outputStream(), digest).use { output ->
+                    val buffer = ByteArray(16 * 1024)
+                    var totalRead = 0L
+                    var lastPct = -1
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        totalRead += read
+                        if (contentLength > 0) {
+                            val pct = ((totalRead * 100) / contentLength).toInt().coerceIn(0, 94)
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                emitUpdateProgress(pct)
+                            }
+                        }
+                    }
+                }
+            }
+            val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+            if (!actualHash.equals(expectedHash, ignoreCase = true)) {
+                throw IllegalStateException("Arquivo corrompido, tente novamente.")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun installApk(apkFile: File) {
+        val installer = activity.packageManager.packageInstaller
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+            setSize(apkFile.length())
+            // Só é silencioso quando este app já é o installer de registro
+            // (a partir da 2ª atualização); na 1ª vez o sistema mostra o diálogo dele.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            }
+        }
+        val sessionId = installer.createSession(params)
+        val session = installer.openSession(sessionId)
+        try {
+            session.openWrite("hbx-update", 0, apkFile.length()).use { sessionOut ->
+                apkFile.inputStream().use { it.copyTo(sessionOut) }
+                session.fsync(sessionOut)
+            }
+            emitUpdateProgress(95)
+            val statusIntent = Intent(updateStatusAction).setPackage(activity.packageName)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            val pendingIntent = PendingIntent.getBroadcast(activity, sessionId, statusIntent, flags)
+            session.commit(pendingIntent.intentSender)
+        } catch (error: Throwable) {
+            runCatching { session.abandon() }
+            throw error
+        } finally {
+            session.close()
+        }
+    }
+
+    private fun emitUpdateProgress(pct: Int) {
+        val value = pct.coerceIn(0, 100)
+        activity.runOnUiThread {
+            webView.evaluateJavascript("window.HBXUpdate&&window.HBXUpdate.onProgress($value);", null)
+        }
+    }
+
+    private fun emitUpdateError(message: String) {
+        activity.runOnUiThread {
+            webView.evaluateJavascript(
+                "window.HBXUpdate&&window.HBXUpdate.onError(${JSONObject.quote(message)});",
+                null,
+            )
+        }
+    }
+
     @JavascriptInterface
     fun logout() {
         if (!logoutEmAndamento.compareAndSet(false, true)) return
@@ -299,6 +509,9 @@ class NativeAppBridge(
 
     fun close() {
         executor.shutdownNow()
+        if (BuildConfig.APP_MODE == "logistica") {
+            runCatching { activity.unregisterReceiver(updateReceiver) }
+        }
     }
 
     private fun resolve(id: String, status: Int, rawBody: String, error: String?) {

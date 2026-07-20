@@ -293,6 +293,100 @@ test('parada: atualizarPrecoAcordado faz UPSERT do ClienteProduto (cria, depois 
   assert.equal(cp.precoAcordado, 9);
 });
 
+// ── PR20072026-ROTA-SALVA F2a — ponte Leitura → cadastro (ClienteProduto SEM dia) ─
+// A partir de agora o vínculo é garantido SEMPRE (não só quando
+// atualizarPrecoAcordado) — produto digitado com preço normal não morre mais
+// junto com a sessão de leitura.
+
+test('parada: SEM atualizarPrecoAcordado (produto com preço normal) AINDA cria o vínculo ClienteProduto sem dia', async () => {
+  const { prisma, stores } = buildHarness({
+    product: [seedProduct(1)],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'José', isCliente: true }],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+
+  await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'stop-1',
+    capturadoEm: '2026-07-20T08:00:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 2, valorUnit: 7 }],
+    // atualizarPrecoAcordado OMITIDO de propósito — é exatamente o cenário que
+    // antes "morria com a sessão".
+  } as any);
+
+  assert.equal(stores.clienteProduto.size, 1, 'vínculo criado mesmo sem atualizarPrecoAcordado');
+  const cp = Array.from(stores.clienteProduto.values())[0];
+  assert.equal(cp.customerProfileId, 'cust-1');
+  assert.equal(cp.productId, 1);
+  assert.equal(cp.qtdPadrao, 2);
+  assert.equal(cp.precoAcordado, 7);
+  assert.equal(cp.diasSemana, null, 'nasce SEM dia — invisível pro gerar-dia/recorrência');
+  assert.equal(cp.frequenciaDias, null);
+  assert.equal(cp.proximaData, null);
+});
+
+test('parada: vínculo EXISTENTE com dia (recorrência já configurada) — leitura NÃO apaga o dia, só atualiza preço', async () => {
+  const { prisma, stores } = buildHarness({
+    product: [seedProduct(1)],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'José', isCliente: true }],
+    clienteProduto: [
+      {
+        id: 'cp-existente',
+        companyId: COMPANY,
+        customerProfileId: 'cust-1',
+        productId: 1,
+        qtdPadrao: 1,
+        precoAcordado: 5,
+        diasSemana: '1,3,5',
+        frequenciaDias: null,
+        proximaData: new Date('2026-07-21T00:00:00-03:00'),
+        ativo: true,
+      },
+    ],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+
+  await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'stop-1',
+    capturadoEm: '2026-07-20T08:00:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 3, valorUnit: 9 }],
+  } as any);
+
+  assert.equal(stores.clienteProduto.size, 1, 'reusa o vínculo existente, não duplica');
+  const cp = stores.clienteProduto.get('cp-existente')!;
+  assert.equal(cp.precoAcordado, 9, 'preço atualizado');
+  assert.equal(cp.diasSemana, '1,3,5', 'dia da recorrência PRESERVADO — leitura não apaga');
+  assert.deepEqual(cp.proximaData, new Date('2026-07-21T00:00:00-03:00'), 'proximaData preservada');
+});
+
+test('PATCH parada: também garante o vínculo sem dia de cada item (mesma ponte do registrarParada)', async () => {
+  const { prisma, stores } = buildHarness({
+    product: [seedProduct(1), seedProduct(2, { name: 'Galão 10L' })],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'José', isCliente: true }],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+  const parada = await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'stop-1',
+    capturadoEm: '2026-07-20T08:00:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 1, valorUnit: 10 }],
+  } as any);
+  assert.equal(stores.clienteProduto.size, 1);
+
+  await svc.updateParada(COMPANY, USER, sessao.id, parada.id, {
+    itens: [{ productId: 2, qtd: 1, valorUnit: 12 }],
+  } as any);
+
+  assert.equal(stores.clienteProduto.size, 2, 'PATCH garante vínculo do NOVO produto também');
+  const novo = Array.from(stores.clienteProduto.values()).find((r: any) => r.productId === 2)!;
+  assert.equal(novo.precoAcordado, 12);
+  assert.equal(novo.diasSemana, null);
+});
+
 // ── PATCH/DELETE parada ──────────────────────────────────────────────────────
 
 test('PATCH parada: edita itens (qtd/valor); DELETE parada: remove', async () => {
@@ -390,6 +484,89 @@ test('finalizar: nome vazio usa default = label do dia da semana', async () => {
 
   const res = await svc.finalizar(COMPANY, USER, sessao.id, { diaSemana: 6 } as any);
   assert.equal(res.nome, 'Sábado');
+});
+
+// ── PR20072026-ROTA-SALVA F1 — "rota salva sem dia": diaSemana vira opcional ─
+
+test('finalizar: SEM diaSemana (ausente) → modelo com diaSemana null e nome default "Rota dd/mm"', async () => {
+  const { prisma, stores } = buildHarness({
+    product: [seedProduct(1)],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'Josefina', isCliente: true }],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+  await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'a',
+    capturadoEm: '2026-07-20T08:30:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 1, valorUnit: 5 }],
+  } as any);
+
+  // Nenhum diaSemana no body (o app novo não manda mais o passo "dia").
+  const res = await svc.finalizar(COMPANY, USER, sessao.id, {} as any);
+  assert.match(res.nome, /^Rota \d{2}\/\d{2}$/, 'nome default "Rota dd/mm" quando não há dia');
+  const modelo = stores.logisticaRotaModelo.get(res.modeloId)!;
+  assert.equal(modelo.diaSemana, null);
+});
+
+test('finalizar: diaSemana explicitamente null (compat) → mesmo comportamento de ausente', async () => {
+  const { prisma, stores } = buildHarness({
+    product: [seedProduct(1)],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'Josefina', isCliente: true }],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+  await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'a',
+    capturadoEm: '2026-07-20T08:30:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 1, valorUnit: 5 }],
+  } as any);
+
+  const res = await svc.finalizar(COMPANY, USER, sessao.id, { diaSemana: null, nome: 'Minha lista' } as any);
+  assert.equal(res.nome, 'Minha lista');
+  const modelo = stores.logisticaRotaModelo.get(res.modeloId)!;
+  assert.equal(modelo.diaSemana, null);
+});
+
+test('finalizar: diaSemana fora de 1..7 (quando informado) continua rejeitando 400', async () => {
+  const { prisma } = buildHarness({
+    product: [seedProduct(1)],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'Josefina', isCliente: true }],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+  await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'a',
+    capturadoEm: '2026-07-20T08:30:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 1, valorUnit: 5 }],
+  } as any);
+
+  await assert.rejects(
+    () => svc.finalizar(COMPANY, USER, sessao.id, { diaSemana: 8 } as any),
+    /1 \(segunda\) a 7/,
+  );
+});
+
+test('finalizar: APK velho continua mandando diaSemana 1..7 → compat intacta (nome = label do dia)', async () => {
+  const { prisma, stores } = buildHarness({
+    product: [seedProduct(1)],
+    customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'Josefina', isCliente: true }],
+  });
+  const svc = new LogisticaLeituraService(prisma as any);
+  const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
+  await svc.registrarParada(COMPANY, USER, sessao.id, {
+    clientKey: 'a',
+    capturadoEm: '2026-07-20T08:30:00-03:00',
+    customerProfileId: 'cust-1',
+    itens: [{ productId: 1, qtd: 1, valorUnit: 5 }],
+  } as any);
+
+  const res = await svc.finalizar(COMPANY, USER, sessao.id, { diaSemana: 2 } as any);
+  assert.equal(res.nome, 'Terça-feira');
+  const modelo = stores.logisticaRotaModelo.get(res.modeloId)!;
+  assert.equal(modelo.diaSemana, 2);
 });
 
 test('finalizar: ordemParadaIds (modo MANUAL) reordena; id estranho ao final → 400', async () => {

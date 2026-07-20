@@ -195,10 +195,14 @@ export class FinalizarLeituraDto {
   @MaxLength(80)
   nome?: string;
 
+  // PR20072026-ROTA-SALVA F1 — "rota salva sem dia": passa a ser OPCIONAL. Ausente
+  // (undefined) ou explicitamente null grava LogisticaRotaModelo.diaSemana=null
+  // (schema já é Int?). APK atual que ainda manda 1–7 continua funcionando igual.
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(7)
-  diaSemana!: number;
+  diaSemana?: number | null;
 
   @IsOptional()
   @IsArray()

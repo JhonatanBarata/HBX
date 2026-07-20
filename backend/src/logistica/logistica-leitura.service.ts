@@ -174,8 +174,13 @@ export class LogisticaLeituraService {
 
       const itens = await normalizeItens(tx, companyId, input.itens);
 
-      if (input.atualizarPrecoAcordado && itens[0] && customerProfileId) {
-        await upsertPrecoAcordado(tx, companyId, customerProfileId, itens[0].productId, itens[0].qtd, itens[0].valorUnit);
+      // PR20072026-ROTA-SALVA F2a — ponte Leitura → cadastro: SEMPRE (não só
+      // quando atualizarPrecoAcordado) garante o vínculo ClienteProduto de
+      // CADA item digitado, sem dia. Ver ensureVinculoSemDia.
+      if (customerProfileId) {
+        for (const item of itens) {
+          await ensureVinculoSemDia(tx, companyId, customerProfileId, item.productId, item.qtd, item.valorUnit);
+        }
       }
 
       const ultimaOrdem = await tx.logisticaLeituraParada.findFirst({
@@ -267,15 +272,11 @@ export class LogisticaLeituraService {
       if (input.itens !== undefined) {
         const itens = await normalizeItens(tx, companyId, input.itens);
         data.itensJson = itens as any;
-        if (input.atualizarPrecoAcordado && itens[0] && existente.customerProfileId) {
-          await upsertPrecoAcordado(
-            tx,
-            companyId,
-            existente.customerProfileId,
-            itens[0].productId,
-            itens[0].qtd,
-            itens[0].valorUnit,
-          );
+        // PR20072026-ROTA-SALVA F2a — mesma ponte SEMPRE-ativa do registrarParada.
+        if (existente.customerProfileId) {
+          for (const item of itens) {
+            await ensureVinculoSemDia(tx, companyId, existente.customerProfileId, item.productId, item.qtd, item.valorUnit);
+          }
         }
       }
       if (input.telefoneConfirmado !== undefined) data.telefoneConfirmado = Boolean(input.telefoneConfirmado);
@@ -310,9 +311,18 @@ export class LogisticaLeituraService {
     input: FinalizarLeituraDto,
   ): Promise<{ modeloId: string; nome: string; avisos?: string[] }> {
     ensureIds(companyId, userId);
-    const diaSemana = Math.trunc(Number(input?.diaSemana));
-    if (!Number.isInteger(diaSemana) || diaSemana < 1 || diaSemana > 7) {
-      throw new BadRequestException('diaSemana deve ser 1 (segunda) a 7 (domingo).');
+    // PR20072026-ROTA-SALVA F1 — diaSemana agora é OPCIONAL ("rota salva sem
+    // dia"): ausente/null grava diaSemana:null no modelo (schema já é Int?).
+    // Quando vier preenchido, mantém a validação 1–7 de sempre (compat com o
+    // APK atual, que ainda manda o dia).
+    const diaSemanaRaw = input?.diaSemana;
+    let diaSemana: number | null = null;
+    if (diaSemanaRaw !== undefined && diaSemanaRaw !== null) {
+      const parsed = Math.trunc(Number(diaSemanaRaw));
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 7) {
+        throw new BadRequestException('diaSemana deve ser 1 (segunda) a 7 (domingo), ou omitido.');
+      }
+      diaSemana = parsed;
     }
 
     return this.prisma.$transaction(async (tx: any) => {
@@ -345,7 +355,7 @@ export class LogisticaLeituraService {
         .filter(Boolean);
 
       const nomeInput = String(input?.nome ?? '').trim();
-      const nome = nomeInput || diaLabel(diaSemana);
+      const nome = nomeInput || (diaSemana != null ? diaLabel(diaSemana) : defaultNomeRotaSemDia());
       await assertNomeUnico(tx, companyId, nome);
 
       const modelo = await tx.logisticaRotaModelo.create({
@@ -410,6 +420,17 @@ function diaLabel(diaSemana: number): string {
   return DIA_LABELS[diaSemana] || `Dia ${diaSemana}`;
 }
 
+/** PR20072026-ROTA-SALVA F1 — nome default quando finaliza SEM dia da semana:
+ *  "Rota dd/mm" na data local (America/Sao_Paulo, mesmo fuso do resto do módulo). */
+function defaultNomeRotaSemDia(): string {
+  const hoje = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+  }).format(new Date());
+  return `Rota ${hoje}`;
+}
+
 interface StoredItem {
   productId: number;
   qtd: number;
@@ -445,11 +466,24 @@ async function normalizeItens(
   return out;
 }
 
-/** Upsert manual (schema NÃO tem @@unique customerProfileId+productId — dono
+/** PR20072026-ROTA-SALVA F2a — ponte Leitura → cadastro: SEMPRE garante o vínculo
+ *  ClienteProduto (produto + qtdPadrao + precoAcordado) de cada item digitado na
+ *  Leitura de Rota, SEM DIA (produto digitado com preço normal não morre mais
+ *  junto com a sessão — antes só virava vínculo quando `atualizarPrecoAcordado`).
+ *
+ *  SEGURO por quê: `buscarVencidosPorCliente` (logistica-recorrencia.service.ts)
+ *  só considera vencido quem tem `diasSemana != null` OU `proximaData` vencida —
+ *  um vínculo criado aqui nasce com diasSemana/frequenciaDias/proximaData=null,
+ *  logo é INVISÍVEL pro gerar-dia/"Por dia" (não polui a recorrência automática).
+ *  Modelo mental do dono: vínculo SEM dia = "o de sempre" (rota salva usa);
+ *  vínculo COM dia = recorrência.
+ *
+ *  Idempotência (schema NÃO tem @@unique customerProfileId+productId — dono
  *  permite o mesmo produto vinculado 2x pra recorrência; aqui pegamos o
- *  primeiro vínculo do par como "o preço combinado" e atualizamos, ou criamos
- *  um novo se ainda não existir nenhum). */
-async function upsertPrecoAcordado(
+ *  primeiro vínculo do par como "o de sempre" e SÓ atualizamos preço/qtd — NUNCA
+ *  mexe em diasSemana/frequenciaDias/proximaData de um vínculo já existente, pra
+ *  não apagar o dia de uma recorrência já configurada no cadastro). */
+async function ensureVinculoSemDia(
   tx: any,
   companyId: number,
   customerProfileId: string,
@@ -465,7 +499,16 @@ async function upsertPrecoAcordado(
     await tx.clienteProduto.update({ where: { id: existente.id }, data: { precoAcordado: valorUnit } });
   } else {
     await tx.clienteProduto.create({
-      data: { companyId, customerProfileId, productId, precoAcordado: valorUnit, qtdPadrao: qtd || 1 },
+      data: {
+        companyId,
+        customerProfileId,
+        productId,
+        precoAcordado: valorUnit,
+        qtdPadrao: qtd || 1,
+        diasSemana: null,
+        frequenciaDias: null,
+        proximaData: null,
+      },
     });
   }
 }

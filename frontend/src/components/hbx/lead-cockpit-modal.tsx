@@ -8,6 +8,7 @@ import type { VendasLead } from "@/app/(app)/vendas/page.client";
 import {
   AgendaLeadPanel,
   ConversationPanel,
+  clientTimelineDescription,
   LockGate,
   formatPhoneDisplay,
   humanize,
@@ -833,7 +834,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                 <span key={event.id}>
                   <i aria-hidden="true" />
                   <strong>{event.title || "Atualização"}</strong>
-                  <small>{event.description || event.resultLabel || fmtDateTime(event.createdAt)}</small>
+                  <small>{clientTimelineDescription(event.description) || event.resultLabel || fmtDateTime(event.createdAt)}</small>
                 </span>
               )) : <span className="muted-note">Sem histórico ainda.</span>}
             </div>

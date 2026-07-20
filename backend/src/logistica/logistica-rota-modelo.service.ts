@@ -1,5 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
+import { resolvePrincipalContatoId } from './logistica-contato.util';
 
 /**
  * PR18072026 W1 — CRUD de "rota-modelo" (roteiro salvo): nome + dia da semana
@@ -100,6 +102,153 @@ export class LogisticaRotaModeloService {
     await this.prisma.logisticaRotaModelo.delete({ where: { id: existing.id } });
     return true;
   }
+
+  /**
+   * PR20072026-ROTA-SALVA F2 — `POST /rota-modelos/:id/gerar`: materializa a
+   * LISTA EXATA do modelo (na ORDEM salva), espelhando o shape de `gerarDia`
+   * (logistica-recorrencia.service.ts): contatoId resolvido, escalares
+   * quantidade/valor coerentes com a soma dos itens, `status:'agendada'`,
+   * `origem:'avulsa'` (NÃO reusa 'recorrente' — consumidores de `origem` não
+   * são tocados por este PR), `cobrancaStatus:'pendente'`.
+   *
+   * Itens vêm dos `ClienteProduto` ATIVOS do cliente (qtd=qtdPadrao,
+   * valor=resolveValorUnit), IGNORANDO dia/vencimento — é isto que faz "rota
+   * salva" rodar em QUALQUER dia, diferente do gerar-dia (que só pega vencidos).
+   * Cliente sem vínculo ativo → Entrega SEM itens (valor 0; o motorista edita
+   * na hora, edição de item por entrega já existe desde PR18072026).
+   *
+   * Idempotência IDÊNTICA ao gerarDia — [companyId, customerProfileId, localId,
+   * dia]: já existe Entrega → REUSA o id (não duplica com a recorrência nem
+   * entre 2 chamadas no mesmo dia; claim de cobrança é por delivery). NÃO
+   * debita crédito aqui e NÃO avança `proximaData` de nenhum vínculo (só a
+   * recorrência automática mexe nisso).
+   *
+   * Company-scoped/fail-closed: id de modelo de outra empresa → 404 (padrão do
+   * service). Parada sem cliente / cliente de outra empresa / excluído → pula
+   * e entra em `avisos[]`, sem travar o restante da lista.
+   */
+  async gerar(companyId: number, id: string, dateInput?: string): Promise<GerarRotaModeloResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const modelo = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { id: String(id ?? '').trim(), companyId },
+      select: { id: true, paradasJson: true },
+    });
+    if (!modelo) throw new NotFoundException('Modelo de rota não encontrado');
+
+    const paradas: RotaModeloParada[] = Array.isArray(modelo.paradasJson)
+      ? (modelo.paradasJson as unknown as RotaModeloParada[])
+      : [];
+
+    const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
+    const dayEnd = endOfDay(dia);
+
+    const avisos: string[] = [];
+    const deliveryIds: string[] = [];
+
+    for (const parada of paradas) {
+      const customerProfileId = String((parada as any)?.customerProfileId ?? '').trim();
+      if (!customerProfileId) {
+        avisos.push('Parada sem cliente vinculado foi ignorada.');
+        continue;
+      }
+
+      const cliente = await this.prisma.customerProfile.findFirst({
+        where: { id: customerProfileId, companyId },
+        select: { id: true, name: true },
+      });
+      if (!cliente) {
+        avisos.push(`Cliente (${customerProfileId}) não encontrado nesta empresa — parada ignorada.`);
+        continue;
+      }
+
+      // localId da parada salva SÓ vale se ainda pertencer ao MESMO cliente+
+      // empresa (leniência igual à do resolveLocalDoCliente em recorrencia) —
+      // senão cai no grupo sem-local (null), mesma chave de idempotência do gerarDia.
+      const localIdParada = String((parada as any)?.localId ?? '').trim();
+      let localId: string | null = null;
+      if (localIdParada) {
+        const local = await this.prisma.localEntrega.findFirst({
+          where: { id: localIdParada, companyId, customerProfileId },
+          select: { id: true },
+        });
+        localId = local?.id ?? null;
+      }
+
+      // Idempotência IGUAL ao gerarDia: já existe Entrega (cliente, local, dia)?
+      const existente = await this.prisma.entrega.findFirst({
+        where: { companyId, customerProfileId, localId, scheduledAt: { gte: dia, lte: dayEnd } },
+        select: { id: true },
+      });
+      if (existente) {
+        deliveryIds.push(existente.id);
+        continue;
+      }
+
+      const vinculos = await this.prisma.clienteProduto.findMany({
+        where: { companyId, customerProfileId, ativo: true },
+        select: {
+          productId: true,
+          qtdPadrao: true,
+          precoAcordado: true,
+          product: { select: { price: true, priceCents: true } },
+        },
+      });
+
+      const itens = vinculos.map((v: any) => ({
+        productId: v.productId,
+        qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+        valorUnit: resolveValorUnit(v),
+      }));
+      const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
+      const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
+
+      // Mesmo BUGFIX (09/07) do gerarDia: resolve o contato principal ANTES de
+      // criar a Entrega, best-effort (falha aqui não pode travar o gerar).
+      let contatoId: string | null = null;
+      try {
+        contatoId = await resolvePrincipalContatoId(this.prisma as any, companyId, customerProfileId);
+      } catch (e: any) {
+        this.logger.warn(
+          `[logistica] rota-modelo gerar resolvePrincipalContato cliente=${customerProfileId} falhou: ${String(e?.message || e)}`,
+        );
+      }
+
+      const criada = await this.prisma.entrega.create({
+        data: {
+          companyId,
+          customerProfileId,
+          contatoId,
+          localId,
+          productId: itens[0]?.productId ?? null,
+          quantidade,
+          valor,
+          status: 'agendada',
+          origem: 'avulsa',
+          scheduledAt: dia,
+          cobrancaStatus: 'pendente',
+          ...(itens.length ? { itens: { create: itens } } : {}),
+        },
+        select: { id: true },
+      });
+      deliveryIds.push(criada.id);
+    }
+
+    this.logger.log(
+      `[logistica] rota-modelo gerar company=${companyId} modeloId=${modelo.id}: ${deliveryIds.length} entrega(s), ${avisos.length} aviso(s).`,
+    );
+    return { deliveryIds, avisos };
+  }
+}
+
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+function endOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
 }
 
 export function normalizeNome(value: unknown): string {
@@ -170,4 +319,9 @@ export interface RotaModeloDTO {
   nome: string;
   diaSemana: number | null;
   paradas: RotaModeloParada[];
+}
+
+export interface GerarRotaModeloResult {
+  deliveryIds: string[];
+  avisos: string[];
 }

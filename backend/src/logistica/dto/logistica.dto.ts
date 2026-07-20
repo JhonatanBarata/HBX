@@ -715,6 +715,16 @@ export class UpdateRotaModeloDto {
   paradas?: RotaModeloParadaDto[];
 }
 
+// PR20072026-ROTA-SALVA F2 — POST /rota-modelos/:id/gerar: materializa a lista
+// EXATA do modelo (ver LogisticaRotaModeloService.gerar). date opcional; se
+// omitido = hoje (mesmo contrato do GerarDiaDto).
+export class GerarRotaModeloDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+}
+
 // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ─────
 // O app do entregador só fala com endpoints `logistica/*` (isMobileEndpointAllowed
 // no NativeApiClient.kt) — este é o par POST/PATCH que faltava pra editar o

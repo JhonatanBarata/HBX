@@ -3781,6 +3781,23 @@ html, body { height: 100%; }
   cursor: pointer;
   transition: background var(--motion-fast);
 }
+.vnd-m__row-wrap {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--surface-canvas);
+}
+.vnd-m__row-wrap .vnd-m__row { flex: 1 1 auto; min-width: 0; border-bottom: none; }
+.vnd-m__row-delete {
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--hbx-danger);
+  cursor: pointer;
+}
+.vnd-m__row-delete:active { background: var(--surface-recessed); }
 .vnd-m__row:active { background: var(--surface-recessed); }
 /* recém-chegado durante a busca ao vivo: marca leve + tag "novo", some sozinha */
 .vnd-m__row.is-new { animation: vnd-m-row-in var(--casca-motion-dur) var(--casca-motion-ease) both; background: var(--hbx-brand-soft); }
@@ -3970,33 +3987,62 @@ html, body { height: 100%; }
 .vnd-m__act--primary { background: var(--hbx-brand-strong); color: var(--hbx-action-ink); }
 .vnd-m__sheet-msg { margin: 0; font-size: var(--casca-text-sub); color: var(--text-muted); }
 
-/* ---------- escolher onde abrir o WhatsApp (MOBILE): externo × interno ---------- */
+/* ---------- escolher onde abrir o WhatsApp (MOBILE) ---------- */
+.vnd-m__wa-choice-backdrop {
+  position: fixed;
+  z-index: 140;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--text-body) 16%, transparent);
+}
 .vnd-m__wa-choice {
   display: grid;
-  gap: var(--space-2);
+  width: min(100%, 360px);
+  gap: 3px;
   padding: var(--space-3);
   border-radius: var(--radius-md);
-  background: var(--surface-recessed);
+  border: 1px solid var(--border-hairline);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
 }
 .vnd-m__wa-choice-q {
-  margin: 0;
+  margin: 0 0 var(--space-1);
   font-size: var(--casca-text-sub);
   font-weight: var(--weight-bold);
-  color: var(--text-muted);
+  color: var(--text-body);
 }
-.vnd-m__wa-choice-opts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.vnd-m__wa-choice-option {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
-}
-.vnd-m__wa-choice-cancel {
-  justify-self: center;
-  border: none;
-  background: none;
-  padding: var(--space-1) var(--space-2);
+  width: 100%;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-body);
+  font: inherit;
   font-size: var(--casca-text-sub);
-  color: var(--text-muted);
+  font-weight: var(--weight-bold);
+  text-align: left;
+  text-decoration: none;
   cursor: pointer;
+}
+.vnd-m__wa-choice-option.is-active {
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+.vnd-m__wa-choice-option svg:last-child { margin-left: auto; }
+.vnd-m__wa-choice-option:disabled { opacity: 0.45; cursor: default; }
+.vnd-m__wa-choice > small {
+  padding: var(--space-2) var(--space-1) 0;
+  font-size: 0.64rem;
+  line-height: 1.3;
+  color: var(--text-muted);
 }
 
 /* ---------- ações do sheet "Novo lead" (vive num CascaSheet) ---------- */

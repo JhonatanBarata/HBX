@@ -14,6 +14,7 @@ import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
+import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
@@ -111,6 +112,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaRotaService,
     LogisticaRotaModeloService,
     LogisticaLeituraService,
+    LogisticaGeoService,
     LogisticaConfigService,
     LogisticaRecoveryService,
     LogisticaCobrancaAvisoService,

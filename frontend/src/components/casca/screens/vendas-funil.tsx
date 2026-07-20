@@ -131,6 +131,9 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   const [vista, setVista] = useState<Vista>("lista");
   const [foco, setFoco] = useState(false);
   const [sel, setSel] = useState<VendasLeadMobile | null>(null);
+  const [excluirAlvo, setExcluirAlvo] = useState<VendasLeadMobile | null>(null);
+  const [excluirBusy, setExcluirBusy] = useState(false);
+  const [excluirMsg, setExcluirMsg] = useState<string | null>(null);
 
   const [novoOpen, setNovoOpen] = useState(false);
   const [novoForm, setNovoForm] = useState({ name: "", phone: "" });
@@ -203,6 +206,26 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
     }
   }
 
+  async function excluirLead() {
+    if (!excluirAlvo?.id || excluirBusy) return;
+    setExcluirBusy(true);
+    setExcluirMsg(null);
+    try {
+      await apiFetch(`/vendas/leads/${encodeURIComponent(excluirAlvo.id)}/delete`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "excluir" }),
+      });
+      if (sel?.id === excluirAlvo.id) setSel(null);
+      setExcluirAlvo(null);
+      showCascaToast("Lead excluído.");
+      await load();
+    } catch (err) {
+      setExcluirMsg(err instanceof Error ? err.message : "Não foi possível excluir o lead.");
+    } finally {
+      setExcluirBusy(false);
+    }
+  }
+
   if (loading) return <CascaLoading caption="Carregando funil…" />;
 
   if (loadError) {
@@ -226,6 +249,33 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   }
 
   const empty = todos.length === 0;
+
+  function leadRow(card: VendasLeadMobile, sub: React.ReactNode) {
+    return (
+      <div className="vnd-m__row-wrap" key={card.id}>
+        <button type="button" className="vnd-m__row" onClick={() => setSel(card)}>
+          <Av name={card.name || "?"} size={42} />
+          <span className="vnd-m__row-main">
+            <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
+            <span className="vnd-m__row-sub">{sub}</span>
+            <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
+            <CanaisMiniRow card={card} />
+          </span>
+          <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
+          <span className="vnd-m__row-chevron"><I d={ICONS.arrow} size={16} /></span>
+        </button>
+        <button
+          type="button"
+          className="vnd-m__row-delete"
+          onClick={() => { setExcluirMsg(null); setExcluirAlvo(card); }}
+          aria-label={`Excluir ${card.name || "lead"}`}
+          title="Excluir lead"
+        >
+          <I d={ICONS.trash} size={17} />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="vnd-m__body">
@@ -270,20 +320,8 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
             return (
               <div className="vnd-m__group" key={key}>
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
-                {items.map(card => (
-                  <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>
-                    <Av name={card.name || "?"} size={42} />
-                    <span className="vnd-m__row-main">
-                      <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
-                      <span className="vnd-m__row-sub">
-                        {card.statusLabel} · {vendasEngagementMeta(card.engagement, card.conversation).label} · {fmtWhenMobile(card.returnAt)}
-                      </span>
-                      <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
-                      <CanaisMiniRow card={card} />
-                    </span>
-                    <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
-                    <span className="vnd-m__row-chevron"><I d={ICONS.arrow} size={16} /></span>
-                  </button>
+                {items.map(card => leadRow(card,
+                  <>{card.statusLabel} · {vendasEngagementMeta(card.engagement, card.conversation).label} · {fmtWhenMobile(card.returnAt)}</>,
                 ))}
               </div>
             );
@@ -297,20 +335,8 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
             return (
               <div className="vnd-m__group" key={key}>
                 <div className="vnd-m__group-head">{label} · {items.length}</div>
-                {items.map(card => (
-                  <button type="button" key={card.id} className="vnd-m__row" onClick={() => setSel(card)}>
-                    <Av name={card.name || "?"} size={42} />
-                    <span className="vnd-m__row-main">
-                      <span className="vnd-m__row-name"><span className="vnd-m__row-name-txt">{card.name || "Sem nome"}</span></span>
-                      <span className="vnd-m__row-sub">
-                        {vendasEngagementMeta(card.engagement, card.conversation).label} · {card.city || "—"}{card.state ? `/${card.state}` : ""}
-                      </span>
-                      <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
-                      <CanaisMiniRow card={card} />
-                    </span>
-                    <span className="vnd-m__row-value" data-zero={String(rowValueLabel(card, canViewValues) !== "" && rowValueLabel(card, canViewValues) === "R$ 0")}>{rowValueLabel(card, canViewValues)}</span>
-                    <span className="vnd-m__row-chevron"><I d={ICONS.arrow} size={16} /></span>
-                  </button>
+                {items.map(card => leadRow(card,
+                  <>{vendasEngagementMeta(card.engagement, card.conversation).label} · {card.city || "—"}{card.state ? `/${card.state}` : ""}</>,
                 ))}
               </div>
             );
@@ -326,6 +352,19 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
         crownSlot={sel ? <RadarAiBadge status={aiStatusMap[sel.radarLeadId || ""]} /> : null}
         onClose={() => setSel(null)}
       />
+
+      <CascaSheet open={Boolean(excluirAlvo)} title="Excluir lead" onClose={() => { if (!excluirBusy) setExcluirAlvo(null); }}>
+        <div className="vnd-m__filters">
+          <p className="vnd-m__sheet-msg">Excluir <strong>{excluirAlvo?.name || "este lead"}</strong>? O card volta para a vitrine.</p>
+          {excluirMsg ? <p className="vnd-m__sheet-msg">{excluirMsg}</p> : null}
+          <div className="vnd-m__novo-acts">
+            <button type="button" className="btn-ghost" onClick={() => setExcluirAlvo(null)} disabled={excluirBusy}>Cancelar</button>
+            <button type="button" className="btn-ghost danger" onClick={excluirLead} disabled={excluirBusy}>
+              {excluirBusy ? "Excluindo…" : "Excluir"}
+            </button>
+          </div>
+        </div>
+      </CascaSheet>
 
       {/* "+ Novo" pela central da casca (CascaSheet — LEI: nada abre/fecha
           seco). NÃO usa .hbx-veil/.hbx-modal (camada do desktop, sem IR/VOLTAR). */}

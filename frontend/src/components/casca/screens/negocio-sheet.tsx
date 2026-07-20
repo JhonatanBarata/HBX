@@ -19,6 +19,7 @@ import {
   type VendasConversationSnapshot,
 } from "@/components/hbx/detalhes-negocio";
 import { apiFetch } from "@/lib/api";
+import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 import { CascaSheet } from "../transitions";
@@ -49,6 +50,7 @@ export function NegocioSheet({
   crownSlot?: React.ReactNode;
 }) {
   const router = useRouter();
+  const waMode = useWaOpenMode();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   // MOBILE-ONLY (pedido do dono 07/07): no celular, clicar no WhatsApp NÃO dispara
@@ -134,6 +136,30 @@ export function NegocioSheet({
     }
   }
 
+  async function enviarAoHbxMobile() {
+    if (!shown?.phone || busy) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      await apiFetch("/mobile/actions", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "whatsapp",
+          requestId: window.crypto?.randomUUID?.(),
+          phone: shown.phone.trim(),
+          ...(shown.name ? { contactName: shown.name.trim() } : {}),
+          message: buildWaMessage({ name: shown.name, segment: shown.segment, city: shown.city }),
+        }),
+      });
+      setWaChoice(false);
+      setMsg("WhatsApp enviado ao HBX Mobile.");
+    } catch {
+      setMsg("Não foi possível enviar ao HBX Mobile.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const waLink = shown ? buildWaLink(shown.phone, { text: buildWaMessage({ name: shown.name, segment: shown.segment, city: shown.city }) }) : null;
   const telHref = shown?.phone ? `tel:${shown.phone.replace(/[^\d+]/g, "")}` : null;
 
@@ -187,30 +213,45 @@ export function NegocioSheet({
           </div>
 
           {waChoice && waLink ? (
-            <div className="vnd-m__wa-choice" role="group" aria-label="Onde abrir o WhatsApp">
-              <p className="vnd-m__wa-choice-q">Abrir o WhatsApp onde?</p>
-              <div className="vnd-m__wa-choice-opts">
+            <div className="vnd-m__wa-choice-backdrop" role="presentation" onMouseDown={() => setWaChoice(false)}>
+              <div
+                className="vnd-m__wa-choice"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Ao clicar no WhatsApp de um lead"
+                onMouseDown={event => event.stopPropagation()}
+              >
+                <p className="vnd-m__wa-choice-q">Ao clicar no WhatsApp de um lead:</p>
+                <button
+                  type="button"
+                  className={`vnd-m__wa-choice-option${waMode === "internal" ? " is-active" : ""}`}
+                  onClick={() => { setWaOpenMode("internal"); setWaChoice(false); void abrirConversaInterna(); }}
+                  disabled={!shown.phone || busy}
+                >
+                  <I d={ICONS.msg} size={16} /> Abrir no atendimento interno
+                  {waMode === "internal" && <I d={ICONS.check} size={15} />}
+                </button>
                 <a
-                  className="vnd-m__act vnd-m__act--wa"
+                  className={`vnd-m__wa-choice-option${waMode === "external" ? " is-active" : ""}`}
                   href={waLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setWaChoice(false)}
+                  onClick={() => { setWaOpenMode("external"); setWaChoice(false); }}
                 >
-                  <I d={ICONS.atend} size={16} /> No aparelho
+                  <I d={ICONS.atend} size={16} /> Abrir no WhatsApp externo
+                  {waMode === "external" && <I d={ICONS.check} size={15} />}
                 </a>
                 <button
                   type="button"
-                  className="vnd-m__act"
-                  onClick={() => { setWaChoice(false); void abrirConversaInterna(); }}
+                  className={`vnd-m__wa-choice-option${waMode === "mobile" ? " is-active" : ""}`}
+                  onClick={() => { setWaOpenMode("mobile"); void enviarAoHbxMobile(); }}
                   disabled={!shown.phone || busy}
                 >
-                  <I d={ICONS.msg} size={16} /> Atendimento HBX
+                  <I d={ICONS.phone} size={16} /> Enviar ao HBX Mobile
+                  {waMode === "mobile" && <I d={ICONS.check} size={15} />}
                 </button>
+                <small>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>
               </div>
-              <button type="button" className="vnd-m__wa-choice-cancel" onClick={() => setWaChoice(false)}>
-                Cancelar
-              </button>
             </div>
           ) : null}
 

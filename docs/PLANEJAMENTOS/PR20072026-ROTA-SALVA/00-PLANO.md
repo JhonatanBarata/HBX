@@ -46,6 +46,15 @@ edição de itens/preço por entrega já existe desde PR18072026). NÃO avança 
 
 ## F2 — Aplicar roda a LISTA EXATA (o fundo)
 
+### W1-F2a Backend — ponte Leitura → cadastro (confirmada pelo dono 20/07)
+No salvar/finalizar da Leitura, garantir SEMPRE o vínculo `ClienteProduto`
+(produto+qtdPadrao+precoAcordado, **SEM dia**) de cada item da parada — hoje o
+`upsertPrecoAcordado` só roda quando o preço difere do padrão (`atualizarPrecoAcordado`),
+e o item digitado com preço normal morre com a sessão. SEGURO: `buscarVencidosPorCliente`
+exige `diasSemana != null` OU `proximaData` na query — vínculo sem dia é INVISÍVEL pro
+gerar-dia/"Por dia" (não polui a recorrência). Modelo mental do dono: vínculo SEM dia =
+"o de sempre" (rota salva usa); vínculo COM dia = recorrência ("Por dia" usa).
+
 ### W1-F2 Backend — `POST /logistica/rota-modelos/:id/gerar`
 Materializa as entregas da lista do modelo (date opcional, default hoje). Para cada parada, na ordem:
 1. Valida cliente/local da empresa (fail-closed; cliente excluído → pula + aviso).

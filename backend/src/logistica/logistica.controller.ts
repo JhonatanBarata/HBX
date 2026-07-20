@@ -37,6 +37,7 @@ import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
+import { LogisticaGeoService } from './logistica-geo.service';
 import {
   FinalizarLeituraDto,
   IniciarLeituraDto,
@@ -54,6 +55,7 @@ import {
   EncerrarRotaDto,
   FecharMesDto,
   GerarDiaDto,
+  GerarRotaModeloDto,
   IniciarRotaDto,
   LimparDiaDto,
   PlanejarRotaDto,
@@ -106,6 +108,8 @@ export class LogisticaController {
     private readonly rotaModelo: LogisticaRotaModeloService = null as any,
     // PR20072026 W1 — sessão de "Leitura de Rota". Mesmo padrão de default acima.
     private readonly leitura: LogisticaLeituraService = null as any,
+    // PR20072026-ROTA-SALVA F3.2 — geocode reverso (GPS → endereço). Mesmo padrão de default acima.
+    private readonly geo: LogisticaGeoService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -661,6 +665,17 @@ export class LogisticaController {
     return { success: true };
   }
 
+  /**
+   * PR20072026-ROTA-SALVA F2 — materializa a lista EXATA do modelo salvo (não
+   * é a prévia do dia da recorrência). Mesma guarda das demais rota-modelos
+   * acima (driver comum PODE aplicar sua própria rota salva).
+   */
+  @Post('rota-modelos/:id/gerar')
+  gerarRotaModelo(@Req() req: any, @Param('id') id: string, @Body() dto: GerarRotaModeloDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rotaModelo.gerar(companyId, id, dto?.date);
+  }
+
   // ── PR20072026 W1 — "Leitura de Rota" (docs/PLANEJAMENTOS/PR20072026/
   // SPEC-LEITURA-DE-ROTA.md + 00-ORQUESTRACAO.md, contrato = LEI). Mesma
   // guarda das rotas acima (driver comum PODE usar, sem @Admin) — sessão é
@@ -727,6 +742,17 @@ export class LogisticaController {
     const userId = this.ensureUserId(req.user);
     await this.leitura.cancelar(companyId, userId, id);
     return { success: true };
+  }
+
+  /**
+   * PR20072026-ROTA-SALVA F3.2 — geocode reverso (GPS → endereço), sugestão
+   * EDITÁVEL pro passo "Sequência" da Leitura de Rota. 200 SEMPRE (nunca 500):
+   * flag `HBX_GEO_SERVER_ENABLED` OFF (default) ou sem match → `fonte:'nenhum'`
+   * com campos vazios. lat/lng fora do intervalo válido → 400 (erro de input).
+   */
+  @Get('geo/reverse')
+  geoReverse(@Query('lat') lat: string, @Query('lng') lng: string) {
+    return this.geo.reverse(lat, lng);
   }
 
   // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ───
