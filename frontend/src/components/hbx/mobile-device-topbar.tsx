@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { I, ICONS } from "@/components/hbx/shell";
+import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, getToken } from "@/lib/api";
 import { setMobileCallMode, useMobileCallMode } from "@/lib/mobile-call-mode";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
@@ -83,6 +83,16 @@ function isOnline(device: MobileDevice | undefined, now: number) {
 
 function MobileDeviceAction() {
   const router = useRouter();
+  const currentUser = useCurrentUser();
+  // A ponte HBX Mobile é exclusiva de contas de EMPRESA (vendedor/entregador).
+  // O MASTER — puro ou com contexto de empresa assumido pelo /master — mantém o
+  // próprio JWT (isSystemMaster); o backend rejeita essa conta por design em
+  // /mobile/devices (resolvePairingOwner → 400) e /mobile/actions/history
+  // (resolveWebOwner → 401). Sem este guard, "assumir contexto" dispara esse par
+  // de erros a cada navegação e a cada 30s, e o ícone do topo fica no estado de
+  // erro (vermelho) — a origem do "assumir contexto enche de bug".
+  const isSystemMaster = Boolean(currentUser?.isSystemMaster)
+    || String(currentUser?.userKind || "").toLowerCase() === "system_master";
   const callMode = useMobileCallMode();
   const waMode = useWaOpenMode();
   const [devices, setDevices] = useState<MobileDevice[]>([]);
@@ -112,13 +122,16 @@ function MobileDeviceAction() {
   }, []);
 
   useEffect(() => {
+    // Só consulta quando já sabemos o papel e NÃO é master: evita disparar o par
+    // 400/401 antes de o /profile/current-user responder (e para sempre no master).
+    if (!currentUser || isSystemMaster) return;
     const initial = window.setTimeout(() => void load(), 0);
     const interval = window.setInterval(() => void load(), 30_000);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(interval);
     };
-  }, [load]);
+  }, [load, currentUser, isSystemMaster]);
 
   useEffect(() => {
     if (!open) return;
@@ -157,6 +170,9 @@ function MobileDeviceAction() {
   const buttonClass = "round-btn wa-action-btn"
     + (state === "active" ? " wa-action-btn--active" : "")
     + (state === "error" ? " wa-action-btn--error" : "");
+
+  // Master não pareia celular: nem renderiza o botão (some o ícone de erro).
+  if (isSystemMaster) return null;
 
   return (
     <span ref={rootRef} className={styles.actionRoot}>
@@ -268,9 +284,16 @@ function MobileDeviceAction() {
 }
 
 export function MobileDeviceTopbarBridge() {
+  const currentUser = useCurrentUser();
+  // Mesmo motivo do guard interno: o master não usa a ponte HBX Mobile. Nem
+  // inserimos o host no topo — um <span> vazio viraria item-flex e somaria o
+  // gap de 12px do `.top-actions` (buraco no topo só pro master).
+  const isSystemMaster = Boolean(currentUser?.isSystemMaster)
+    || String(currentUser?.userKind || "").toLowerCase() === "system_master";
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
+    if (isSystemMaster) return;
     const actions = document.querySelector<HTMLElement>(".top-actions");
     if (!actions || actions.querySelector("[data-hbx-mobile-topbar-host]")) return;
 
@@ -286,8 +309,9 @@ export function MobileDeviceTopbarBridge() {
     return () => {
       window.cancelAnimationFrame(frame);
       host.remove();
+      setTarget(null);
     };
-  }, []);
+  }, [isSystemMaster]);
 
-  return target ? createPortal(<MobileDeviceAction />, target) : null;
+  return target && !isSystemMaster ? createPortal(<MobileDeviceAction />, target) : null;
 }
