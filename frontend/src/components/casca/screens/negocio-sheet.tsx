@@ -33,6 +33,9 @@ export function NegocioSheet({
   showConversation = true,
   conversationLeadId,
   onConversationChanged,
+  canCloseSale,
+  onStartSaleClose,
+  closeLocked = false,
   crownSlot,
 }: {
   detail: NegocioDetail | null;
@@ -47,6 +50,12 @@ export function NegocioSheet({
   /** Opt-in de Vendas; Radar/Leads sem esta prop preservam o fluxo legado. */
   conversationLeadId?: string | null;
   onConversationChanged?: (snapshot?: VendasConversationSnapshot) => void | Promise<void>;
+  /** Só o Funil passa este opt-in para negócios ainda abertos. */
+  canCloseSale?: boolean;
+  /** Abre o fechamento no Funil sem duplicar o modal comercial. */
+  onStartSaleClose?: () => void;
+  /** Evita que ESC feche a folha enquanto o modal de fechamento está aberto. */
+  closeLocked?: boolean;
   crownSlot?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -164,7 +173,7 @@ export function NegocioSheet({
   const telHref = shown?.phone ? `tel:${shown.phone.replace(/[^\d+]/g, "")}` : null;
 
   return (
-    <CascaSheet open={open && Boolean(detail)} title={shown?.name || "Detalhe"} onClose={onClose}>
+    <CascaSheet open={open && Boolean(detail)} title={shown?.name || "Detalhe"} onClose={() => { if (!closeLocked) onClose(); }}>
       {shown ? (
         <div className="vnd-m__sheet vnd-m__sheet--lead-detail">
           <DetalhesNegocio
@@ -205,6 +214,11 @@ export function NegocioSheet({
                 <I d={ICONS.phone} size={16} /> Ligar
               </button>
             )}
+            {canCloseSale && onStartSaleClose ? (
+              <button type="button" className="vnd-m__act vnd-m__act--primary" onClick={onStartSaleClose} disabled={busy}>
+                <I d={ICONS.money} size={16} /> Fechar venda
+              </button>
+            ) : null}
             {showPuxar ? (
               <button type="button" className="vnd-m__act vnd-m__act--primary" onClick={puxarProFunil} disabled={busy}>
                 <I d={ICONS.plus} size={16} /> {busy ? "Puxando…" : "Puxar"}

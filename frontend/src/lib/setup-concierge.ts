@@ -151,9 +151,7 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
       return {
         intro: "Posso abrir o funil para você concluir um negócio existente.",
         guidance: ["Escolha o negócio no funil.", "Revise cliente, produto e valor.", "A confirmação da venda continua sendo sua."],
-        solutions: mobile
-          ? [{ id: "sales-desktop", label: "Ver o que falta", description: "O primeiro fechamento é concluído no computador.", action: { kind: "notice", message: "Para revisar valores e fechar a primeira venda com segurança, continue no computador." } }]
-          : [navigate("sales", "Abrir meu funil", "Mostra as oportunidades que já estão em andamento.", "/vendas")],
+        solutions: [navigate("sales", "Abrir meu funil", "Mostra as oportunidades que já estão em andamento.", "/vendas")],
       };
     case "first_seller_invited":
       if (!gerencialAccessible) {

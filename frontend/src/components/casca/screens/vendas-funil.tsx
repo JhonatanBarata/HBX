@@ -8,9 +8,11 @@
 // VendasModoFoco velho foi deletado no W0; PROIBIDO ressuscitar.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { CanalIcon, type Canal } from "@/components/hbx/canal-icon";
 import { vendasEngagementMeta } from "@/components/hbx/detalhes-negocio";
+import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { Av, I, ICONS } from "@/components/hbx/shell";
@@ -131,6 +133,7 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
   const [vista, setVista] = useState<Vista>("lista");
   const [foco, setFoco] = useState(false);
   const [sel, setSel] = useState<VendasLeadMobile | null>(null);
+  const [fecharLead, setFecharLead] = useState<VendasLeadMobile | null>(null);
   const [excluirAlvo, setExcluirAlvo] = useState<VendasLeadMobile | null>(null);
   const [excluirBusy, setExcluirBusy] = useState(false);
   const [excluirMsg, setExcluirMsg] = useState<string | null>(null);
@@ -224,6 +227,11 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
     } finally {
       setExcluirBusy(false);
     }
+  }
+
+  function abrirFecharVenda() {
+    if (!sel || sel.block === "closed") return;
+    setFecharLead(sel);
   }
 
   if (loading) return <CascaLoading caption="Carregando funil…" />;
@@ -349,9 +357,25 @@ export function VendasFunilMobile({ modo, onModoChange }: { modo: Modo; onModoCh
         detail={sel ? vendasLeadToDetail(sel) : null}
         conversationLeadId={sel?.id ?? null}
         onConversationChanged={load}
+        canCloseSale={Boolean(sel && sel.block !== "closed")}
+        onStartSaleClose={abrirFecharVenda}
+        closeLocked={Boolean(fecharLead)}
         crownSlot={sel ? <RadarAiBadge status={aiStatusMap[sel.radarLeadId || ""]} /> : null}
         onClose={() => setSel(null)}
       />
+
+      {fecharLead && typeof document !== "undefined"
+        ? createPortal(
+          <FecharVendaModal
+            mode={{ kind: "lead", leadId: fecharLead.id }}
+            leadName={fecharLead.name}
+            phone={fecharLead.phone}
+            onClose={() => setFecharLead(null)}
+            onDone={() => { void load(); }}
+          />,
+          document.body,
+        )
+        : null}
 
       <CascaSheet open={Boolean(excluirAlvo)} title="Excluir lead" onClose={() => { if (!excluirBusy) setExcluirAlvo(null); }}>
         <div className="vnd-m__filters">
