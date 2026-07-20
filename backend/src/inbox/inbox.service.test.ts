@@ -1524,6 +1524,104 @@ test('sendMessage marks manual send metadata even when the inherited draft was a
   );
 });
 
+// PR20072026-CHIP (A2): a identidade de quem clica "enviar" se perdia na CRIAÇÃO da
+// conversa (shell órfã, sem whatsappConnectionSessionId) — não no dispatch. O incidente
+// 20/07 (9 msgs da vendedora Gabriele saindo pelo chip do dono) veio exatamente daqui: a
+// conversa nasceu órfã e o envio caiu no fallback cego do bridge. sendMessage agora resolve
+// a sessão do PRÓPRIO viewer quando a conversa é órfã, carimba a conversa (idempotente) e
+// propaga senderUserId no outboundPayload (fallback do queueOutboundForCompany, A3).
+test('sendMessage (A2, conversa órfã): resolve a sessão do viewer, carimba a conversa e propaga senderUserId', async () => {
+  const conversationUpdateManyCalls: Array<Record<string, unknown>> = [];
+  const orphanConversation = {
+    id: 42,
+    companyId: 7,
+    channel: 'whatsapp',
+    whatsappConnectionSessionId: null,
+    sourcePhoneNormalized: null,
+    sourceTenantKey: null,
+    contact: '+5519998877766',
+    humanAssigned: false,
+    botActive: true,
+    currentFlow: null,
+    currentStep: null,
+    flowResult: null,
+    assignedUserId: null,
+    metadata: JSON.stringify({ cliente: 'Carlos' }),
+    createdAt: new Date('2026-03-18T10:00:00.000Z'),
+    updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+    messages: [],
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({ ...orphanConversation }),
+        updateMany: async (input: any) => {
+          conversationUpdateManyCalls.push(input);
+          return { count: 1 };
+        },
+      },
+      whatsAppConnectionSession: {
+        findFirst: async ({ where }: any) =>
+          where?.userId === 33
+            ? { id: 'session-33', tenantKey: 'company-7-user-33', phoneNormalized: '5511988887777' }
+            : null,
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await service.sendMessage({ companyId: 7, id: 33 }, 42, 'Oi, aqui é a Gabriele');
+
+  assert.equal(queueCalls.length, 1);
+  assert.equal((queueCalls[0] as any).payload.senderUserId, 33);
+  assert.equal(conversationUpdateManyCalls.length, 1);
+  assert.equal((conversationUpdateManyCalls[0] as any).where.id, 42);
+  assert.equal((conversationUpdateManyCalls[0] as any).where.whatsappConnectionSessionId, null);
+  assert.equal((conversationUpdateManyCalls[0] as any).data.whatsappConnectionSessionId, 'session-33');
+  assert.equal((conversationUpdateManyCalls[0] as any).data.sourceTenantKey, 'company-7-user-33');
+});
+
+test('sendMessage (A2, conversa órfã, viewer sem chip conectado): falha fechado, nunca usa o chip da empresa/terceiro', async () => {
+  const orphanConversation = {
+    id: 42,
+    companyId: 7,
+    channel: 'whatsapp',
+    whatsappConnectionSessionId: null,
+    sourcePhoneNormalized: null,
+    sourceTenantKey: null,
+    contact: '+5519998877766',
+    humanAssigned: false,
+    botActive: true,
+    currentFlow: null,
+    currentStep: null,
+    flowResult: null,
+    assignedUserId: null,
+    metadata: JSON.stringify({ cliente: 'Carlos' }),
+    createdAt: new Date('2026-03-18T10:00:00.000Z'),
+    updatedAt: new Date('2026-03-18T10:01:00.000Z'),
+    messages: [],
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      companyConversation: {
+        findFirst: async () => ({ ...orphanConversation }),
+      },
+      // Ninguém conectado (banco não tem sessão active pra userId 33) — não pode cair pro
+      // ponteiro/chip mais recente da empresa.
+      whatsAppConnectionSession: {
+        findFirst: async () => null,
+      },
+    },
+  });
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42', messages: [] });
+
+  await assert.rejects(
+    () => service.sendMessage({ companyId: 7, id: 33 }, 42, 'Oi, aqui é a Gabriele'),
+    /Seu WhatsApp não está conectado/,
+  );
+  assert.equal(queueCalls.length, 0);
+});
+
 test('updateConversationStatus maps open and closed to real conversation flags', async () => {
   const updatedCalls: Array<Record<string, unknown>> = [];
   const { service, auditCalls } = createService({

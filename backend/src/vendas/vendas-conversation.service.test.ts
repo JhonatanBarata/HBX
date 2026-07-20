@@ -100,8 +100,10 @@ function createHarness(options: { projectedSnapshot?: any; readOnlySnapshot?: an
     },
   } as any;
 
+  const webwhatsBridge = { listMotorInstances: async () => [] } as any;
+
   return {
-    service: new VendasConversationService(prisma, inbox, projector),
+    service: new VendasConversationService(prisma, inbox, projector, webwhatsBridge),
     get writes() { return writes; },
     get rebuilds() { return rebuilds; },
     get readOnlyDerivations() { return readOnlyDerivations; },
@@ -156,4 +158,77 @@ test('envio pelo Vendas permanece humano e entra pela outbox do Inbox', async ()
   assert.equal(harness.sends[0][3].sourceModule, 'vendas_human');
   assert.equal(harness.sends[0][3].variables.purpose, 'human_reply');
   assert.equal(harness.rebuilds, 1);
+});
+
+// PR20072026-CHIP (A4): a shell da conversa nascia ÓRFÃ (sem whatsappConnectionSessionId)
+// quando o vendedor não tinha sessão 'active' no banco — causa raiz do vazamento 20/07
+// (a shell órfã caiu no fallback cego do bridge no envio, chip do dono). resolveCreationSession
+// agora recusa criar a shell órfã em modo INDIVIDUAL, mas confere o MOTOR AO VIVO antes de
+// recusar (a causa real era drift banco x motor: sessão 'open' no motor, não 'active' no banco).
+function buildCreationSessionHarness(options: {
+  companyRow: any;
+  sessionRow?: any;
+  motorInstances?: any[];
+}) {
+  const prisma = {
+    company: {
+      findUnique: async () => options.companyRow,
+    },
+    whatsAppConnectionSession: {
+      findFirst: async () => options.sessionRow ?? null,
+    },
+  } as any;
+  const webwhatsBridge = {
+    listMotorInstances: async () => options.motorInstances ?? [],
+  } as any;
+  return new VendasConversationService(prisma, {} as any, {} as any, webwhatsBridge) as any;
+}
+
+test('resolveCreationSession (individual, sem sessão no banco e motor fechado): falha fechado, não cria shell órfã', async () => {
+  const service = buildCreationSessionHarness({
+    companyRow: { whatsappAttendanceMode: 'individual', whatsappStatus: 'CONNECTED', currentWhatsappConnectionSessionId: null },
+    sessionRow: null,
+    motorInstances: [], // motor não reporta nenhuma instância aberta pro vendedor
+  });
+
+  await assert.rejects(
+    () => service.resolveCreationSession({ companyId: 5, userId: 33 }, { id: 'lead-x', assignedUserId: 33 }),
+    /Chip do vendedor não conectado/,
+  );
+});
+
+test('resolveCreationSession (individual, drift banco x motor): banco não tem sessão mas motor mostra open — tolera, não falha', async () => {
+  const service = buildCreationSessionHarness({
+    companyRow: { whatsappAttendanceMode: 'individual', whatsappStatus: 'DISCONNECTED', currentWhatsappConnectionSessionId: null },
+    sessionRow: null, // banco diz que não há sessão active (o drift real do incidente)
+    motorInstances: [
+      { instance: { instanceName: 'company-5-user-33', state: 'open' } },
+    ],
+  });
+
+  const session = await service.resolveCreationSession({ companyId: 5, userId: 33 }, { id: 'lead-x', assignedUserId: 33 });
+  assert.equal(session, null);
+});
+
+test('resolveCreationSession (individual, sessão resolvível no banco): usa a sessão do vendedor normalmente', async () => {
+  const sessionRow = { id: 'session-33', tenantKey: 'company-5-user-33', phoneNormalized: '5511999990000' };
+  const service = buildCreationSessionHarness({
+    companyRow: { whatsappAttendanceMode: 'individual', whatsappStatus: 'CONNECTED', currentWhatsappConnectionSessionId: null },
+    sessionRow,
+  });
+
+  const session = await service.resolveCreationSession({ companyId: 5, userId: 33 }, { id: 'lead-x', assignedUserId: 33 });
+  assert.equal(session?.id, 'session-33');
+});
+
+test('resolveCreationSession (shared): comportamento do ponteiro da empresa não muda (sem sessão do vendedor não é bug)', async () => {
+  const service = buildCreationSessionHarness({
+    companyRow: { whatsappAttendanceMode: 'shared', whatsappStatus: 'CONNECTED', currentWhatsappConnectionSessionId: null },
+    sessionRow: null,
+  });
+
+  // Não deve nem consultar o motor em modo shared — comportamento preservado (isMetaConnected
+  // cobre o caso, aqui simulado por whatsappStatus CONNECTED).
+  const session = await service.resolveCreationSession({ companyId: 5, userId: 33 }, { id: 'lead-x', assignedUserId: 33 });
+  assert.equal(session, null);
 });

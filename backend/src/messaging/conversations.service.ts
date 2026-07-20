@@ -60,6 +60,13 @@ export type QueueOutboundPayload = {
   preferredModuleKey?: string;
   // Fase 3: vínculo opcional do passo lógico comercial com a outbox física.
   automationStepRunId?: string;
+  // PR20072026-CHIP (A3): identidade de quem MANDA este envio (viewer do envio manual via
+  // inbox.service#sendMessage, ou createdByUserId da campanha do bot via vendas-automation).
+  // Só é usado quando a CONVERSA está ÓRFÃ (sem whatsappConnectionSessionId/sourceTenantKey
+  // próprios) — nesse caso resolve a sessão ativa deste usuário e carimba o companyMessage
+  // com ela, em vez de deixar o dispatch cair no "chip mais recente da empresa". Não
+  // regride o caso que já funciona (conversa com sessão vinculada continua mandando nela).
+  senderUserId?: number | null;
 };
 
 export type ConversationStatePatch = {
@@ -657,6 +664,34 @@ export class ConversationsService {
       throw new BadRequestException('body is required');
     }
 
+    // PR20072026-CHIP (A3): companyMessage hoje só copia sessão/tenantKey da CONVERSA. Se ela
+    // nasceu órfã (shells da ponte agenda<->vendas sem sessão do vendedor — causa raiz do
+    // vazamento 20/07), tenta resolver pelo payload.senderUserId (viewer do envio manual /
+    // dono da campanha do bot). Fallback: conversa -> payload -> null. Em modo SHARED, sem
+    // sessão própria do usuário não é bug (todo mundo usa o chip do pool via ponteiro da
+    // empresa) — não falha fechado; só modo INDIVIDUAL bloqueia.
+    let resolvedSessionId = conversation.whatsappConnectionSessionId || null;
+    let resolvedTenantKey = conversation.sourceTenantKey || null;
+    let resolvedPhoneNormalized = conversation.sourcePhoneNormalized || null;
+    const senderUserId = Number(payload?.senderUserId || 0) || null;
+    if (!resolvedSessionId && senderUserId) {
+      const senderSession = await this.prisma.whatsAppConnectionSession.findFirst({
+        where: { companyId, provider: 'webwhats', status: 'active', userId: senderUserId },
+        orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
+        select: { id: true, tenantKey: true, phoneNormalized: true },
+      });
+      if (senderSession?.id) {
+        resolvedSessionId = String(senderSession.id);
+        resolvedTenantKey = senderSession.tenantKey || null;
+        resolvedPhoneNormalized = senderSession.phoneNormalized || null;
+      } else {
+        const isSharedMode = String((company as any)?.whatsappAttendanceMode || '').trim().toLowerCase() === 'shared';
+        if (!isSharedMode) {
+          throw new BadRequestException('Chip do remetente não está conectado — envio bloqueado para não sair por outro número.');
+        }
+      }
+    }
+
     const queued = await this.prisma.$transaction(async (tx) => {
       if (commercialLeadId) {
         const lead = await tx.vendasLead.findFirst({
@@ -746,9 +781,9 @@ export class ConversationsService {
         data: {
           companyId,
           conversationId: conversation.id,
-          whatsappConnectionSessionId: conversation.whatsappConnectionSessionId || undefined,
-          sourcePhoneNormalized: conversation.sourcePhoneNormalized || undefined,
-          sourceTenantKey: conversation.sourceTenantKey || undefined,
+          whatsappConnectionSessionId: resolvedSessionId || undefined,
+          sourcePhoneNormalized: resolvedPhoneNormalized || undefined,
+          sourceTenantKey: resolvedTenantKey || undefined,
           contactId: contactId || to,
           direction: 'OUTBOUND',
           messageType,

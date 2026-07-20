@@ -104,10 +104,16 @@ type WebwhatsConnectionSessionContext = {
 // POR USUÁRIO (18/06): quem está agindo. A ponte resolve a SESSÃO (e o tenantKey do motor) a
 // partir disto, nunca do status da empresa. sessionId = sessão da conversa; tenantKey =
 // instanceName cru do webhook (`company-{id}-user-{n}`); userId = ação de um vendedor/admin.
+// strict (PR20072026-CHIP, A1): identidade sem chip resolvido deve FALHAR FECHADO no envio —
+// nunca cair no "chip mais recente da empresa" (passo 4b de resolveCurrentWebwhatsSession).
+// Usado SÓ pelos métodos que mandam conteúdo novo pro WhatsApp (sendText/sendMedia/
+// sendWhatsAppAudio/sendInteractive); leitura/sync (listLiveChats, listContacts,
+// checkWhatsappNumbers, ingestWebhookMessage etc.) continua lenient — não passar aqui.
 export type WebwhatsSessionSelector = {
   userId?: number | null;
   sessionId?: string | null;
   tenantKey?: string | null;
+  strict?: boolean;
 };
 
 export class WebwhatsProviderError extends Error {
@@ -852,6 +858,14 @@ export class WebwhatsBridgeService {
   private async requireConnectedCompany(companyId: number, selector?: WebwhatsSessionSelector) {
     const session = await this.resolveCurrentWebwhatsSession(companyId, selector);
     if (!session) {
+      // PR20072026-CHIP (A1): em modo strict o null pode vir do fail-closed do passo 4b (sem
+      // identidade resolvida) — mensagem própria pra não confundir com "motor fora do ar".
+      if (selector?.strict) {
+        throw new WebwhatsProviderError(
+          'WEBWHATS_NOT_CONNECTED',
+          'Sem chip vinculado a esta conversa/usuário — envio bloqueado para não sair pelo número de outro chip',
+        );
+      }
       throw new WebwhatsProviderError(
         'WEBWHATS_NOT_CONNECTED',
         'WhatsApp sem sessão ativa',
@@ -974,6 +988,16 @@ export class WebwhatsBridgeService {
       return this.toWebwhatsSessionContext(current, fallbackTenantKey);
     }
 
+    // 4b) FALLBACK CEGO ("chip mais recente da empresa"). PR20072026-CHIP (incidente
+    // 20/07): foi este passo que mandou 9 msgs de prospecção da vendedora Gabriele pelo
+    // chip PESSOAL do dono — a conversa nasceu órfã (sem sessionId/tenantKey/userId) e caiu
+    // aqui. Em modo strict (envio) este passo NÃO roda: sem ponteiro explícito (4a), sem
+    // identidade resolvida = sem chip. Mensagem fica FAILED/pendente (recuperável); nunca
+    // sai pelo número de terceiro. Leitura/sync (strict ausente/false) mantém o fallback.
+    if (selector?.strict) {
+      return null;
+    }
+
     const fallback = await this.prisma.whatsAppConnectionSession.findFirst({
       where: { companyId, provider: 'webwhats', status: 'active' },
       orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
@@ -1000,7 +1024,10 @@ export class WebwhatsBridgeService {
     },
     selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId, selector);
+    // PR20072026-CHIP (A1): envio de conteúdo novo é sempre strict — sem identidade
+    // resolvida (sessionId/tenantKey/userId/ponteiro), FALHA FECHADO, nunca pega o chip mais
+    // recente da empresa (era a causa do vazamento pro chip do dono).
+    const company = await this.requireConnectedCompany(companyId, { ...selector, strict: true });
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
@@ -1044,7 +1071,8 @@ export class WebwhatsBridgeService {
     },
     selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId, selector);
+    // PR20072026-CHIP (A1): strict — ver comentário em sendText.
+    const company = await this.requireConnectedCompany(companyId, { ...selector, strict: true });
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);
@@ -1081,7 +1109,8 @@ export class WebwhatsBridgeService {
     },
     selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId, selector);
+    // PR20072026-CHIP (A1): strict — ver comentário em sendText.
+    const company = await this.requireConnectedCompany(companyId, { ...selector, strict: true });
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, {
@@ -1116,7 +1145,8 @@ export class WebwhatsBridgeService {
     },
     selector?: WebwhatsSessionSelector,
   ) {
-    const company = await this.requireConnectedCompany(companyId, selector);
+    // PR20072026-CHIP (A1): strict — ver comentário em sendText.
+    const company = await this.requireConnectedCompany(companyId, { ...selector, strict: true });
 
     const tenantKey = company.session.tenantKey;
     const target = await this.resolveSendTarget(companyId, input);

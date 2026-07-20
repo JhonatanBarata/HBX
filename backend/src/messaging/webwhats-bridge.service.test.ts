@@ -248,6 +248,161 @@ test('POR USUÁRIO: resolveCurrentWebwhatsSession({tenantKey}) mira a instância
   }
 });
 
+// PR20072026-CHIP (A1): o incidente 20/07 (9 msgs da vendedora Gabriele saindo pelo chip
+// PESSOAL do dono) veio do passo 4b (fallback cego "chip mais recente da empresa") sendo
+// escolhido quando a conversa/selector não tinha identidade nenhuma. Os 4 testes abaixo
+// travam o contrato: leitura continua lenient (4b roda), envio (strict) NUNCA roda 4b.
+test('PR20072026-CHIP (A1): resolveCurrentWebwhatsSession sem strict é lenient e cai no fallback cego (leitura)', async () => {
+  const prev = setPerUserModalEnv();
+  let fallbackCalled = false;
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 5,
+        currentWhatsappConnectionSessionId: null,
+        currentWhatsappConnectionSession: null,
+      }),
+    },
+    whatsAppConnectionSession: {
+      findFirst: async () => {
+        fallbackCalled = true;
+        // simula o "chip mais recente da empresa" (era o chip PESSOAL do dono no incidente).
+        return {
+          id: 'session-dono',
+          tenantKey: 'company-5-user-6',
+          phoneNormalized: '5519997024884',
+          displayPhone: '+5519997024884',
+          metadataJson: null,
+        };
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  try {
+    const session = await service.resolveCurrentWebwhatsSession(5, {});
+    assert.equal(session?.id, 'session-dono');
+    assert.equal(fallbackCalled, true);
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('PR20072026-CHIP (A1): resolveCurrentWebwhatsSession({strict:true}) NÃO roda o fallback cego (passo 4b)', async () => {
+  const prev = setPerUserModalEnv();
+  let fallbackCalled = false;
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 5,
+        currentWhatsappConnectionSessionId: null,
+        currentWhatsappConnectionSession: null,
+      }),
+    },
+    whatsAppConnectionSession: {
+      findFirst: async () => {
+        fallbackCalled = true;
+        return {
+          id: 'session-dono',
+          tenantKey: 'company-5-user-6',
+          phoneNormalized: '5519997024884',
+          displayPhone: '+5519997024884',
+          metadataJson: null,
+        };
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any) as any;
+  try {
+    const session = await service.resolveCurrentWebwhatsSession(5, { strict: true });
+    assert.equal(session, null);
+    assert.equal(fallbackCalled, false);
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('PR20072026-CHIP (A1): sendText falha fechado (WEBWHATS_NOT_CONNECTED) sem identidade nem ponteiro — nunca usa o chip mais recente', async () => {
+  const prev = setPerUserModalEnv();
+  let requestCalled = false;
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 5,
+        currentWhatsappConnectionSessionId: null,
+        currentWhatsappConnectionSession: null,
+      }),
+    },
+    whatsAppConnectionSession: {
+      // Existe um chip "mais recente" ativo na empresa (era o chip do dono no incidente
+      // 20/07) — em strict (todo envio) isto NUNCA pode ser escolhido.
+      findFirst: async () => ({
+        id: 'session-dono',
+        tenantKey: 'company-5-user-6',
+        phoneNormalized: '5519997024884',
+        displayPhone: '+5519997024884',
+        metadataJson: null,
+      }),
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+  (service as any).requestRead = async () => {
+    requestCalled = true;
+    return { key: { id: 'MSG-SHOULD-NOT-SEND' } };
+  };
+  try {
+    await assert.rejects(
+      () => service.sendText(5, { to: '+5511999990000', text: 'Oi' }),
+      (err: any) => {
+        assert.ok(err instanceof WebwhatsProviderError);
+        assert.equal(err.code, 'WEBWHATS_NOT_CONNECTED');
+        return true;
+      },
+    );
+    assert.equal(requestCalled, false);
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
+test('PR20072026-CHIP (A1): sendText usa o ponteiro explícito da empresa mesmo em strict (modo shared continua legítimo)', async () => {
+  const prev = setPerUserModalEnv();
+  const calls = { path: null as string | null };
+  const prisma = {
+    company: {
+      findUnique: async () => ({
+        id: 5,
+        currentWhatsappConnectionSessionId: 'session-pool',
+        currentWhatsappConnectionSession: {
+          id: 'session-pool',
+          provider: 'webwhats',
+          tenantKey: 'company-5',
+          phoneNormalized: '5511999990000',
+          displayPhone: '+5511999990000',
+          metadataJson: null,
+          status: 'active',
+        },
+      }),
+    },
+    whatsAppConnectionSession: {
+      findFirst: async () => {
+        throw new Error('passo 4b não deveria rodar quando o ponteiro (4a) já resolveu a sessão');
+      },
+    },
+  };
+  const service = new WebwhatsBridgeService(prisma as any);
+  (service as any).requestRead = async (input: any) => {
+    calls.path = input.path;
+    return { key: { id: 'MSG-POOL-1' } };
+  };
+  try {
+    const result = await service.sendText(5, { to: '+5511999990001', text: 'Oi' });
+    assert.equal(calls.path, '/message/sendText/company-5');
+    assert.equal(result.providerMessageId, 'webwhats:company-5:MSG-POOL-1');
+  } finally {
+    restorePerUserModalEnv(prev);
+  }
+});
+
 test('POR USUÁRIO: sendText com selector {sessionId} envia pela instância da sessão (per-user)', async () => {
   const prev = setPerUserModalEnv();
   const calls = { path: null as string | null, data: null as Record<string, unknown> | null };

@@ -8278,6 +8278,40 @@ export class InboxService {
       (conversation as any).assignedUserId = viewerId;
     }
 
+    // PR20072026-CHIP (A2): em modo INDIVIDUAL, a identidade de quem clicou some na
+    // criação da conversa — não no dispatch. Se a conversa nasceu órfã (sem sessão
+    // vinculada; causa raiz do vazamento 20/07: shell criada pela ponte agenda<->vendas
+    // sem a sessão do vendedor), resolve a sessão ATIVA do PRÓPRIO viewer e adota agora
+    // (1º envio carimba a conversa, idempotente). Sem sessão do viewer = erro claro,
+    // NUNCA cai pro chip da empresa/de terceiro. Em modo shared, o pool é compartilhado
+    // de propósito — não mexe.
+    if (attendanceMode === 'individual' && !conversation.whatsappConnectionSessionId && viewerId) {
+      const viewerSession = await this.ensureWebwhatsSessionFromCompany({ id: companyId }, viewerId);
+      if (!viewerSession?.id) {
+        throw new BadRequestException('Seu WhatsApp não está conectado — conecte antes de enviar.');
+      }
+      try {
+        await this.prisma.companyConversation.updateMany({
+          where: { id: conversation.id, whatsappConnectionSessionId: null },
+          data: {
+            whatsappConnectionSessionId: String(viewerSession.id),
+            sourceTenantKey: viewerSession.tenantKey || null,
+            sourcePhoneNormalized: viewerSession.phoneNormalized || null,
+          },
+        });
+        (conversation as any).whatsappConnectionSessionId = String(viewerSession.id);
+        (conversation as any).sourceTenantKey = viewerSession.tenantKey || null;
+        (conversation as any).sourcePhoneNormalized = viewerSession.phoneNormalized || null;
+      } catch (err) {
+        // Best-effort: colisão na unique (companyId, channel, contact, sessionId) não pode
+        // travar o envio — o senderUserId no outboundPayload abaixo já garante o chip certo
+        // pra ESTA mensagem mesmo sem o carimbo persistido na conversa.
+        this.logger.warn(
+          `Falha ao carimbar sessão na conversa órfã (conversationId=${conversation.id}): ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+
     const normalizedContent = this.requireTrimmed(content, 'content');
     const toPhone = this.requireTrimmed(String(conversation.contact || ''), 'customer phone');
 
@@ -8365,6 +8399,12 @@ export class InboxService {
     };
     if (Object.keys(variables).length) {
       outboundPayload.variables = variables;
+    }
+    // PR20072026-CHIP (A2): identidade de quem manda viaja no envio — o
+    // queueOutboundForCompany usa isso como fallback quando a conversa está órfã. Só
+    // inclui a chave quando há viewer de verdade (não regride payload de chamadores sem user).
+    if (viewerId) {
+      outboundPayload.senderUserId = viewerId;
     }
 
     await this.conversations.queueOutboundForCompany(companyId, outboundPayload);

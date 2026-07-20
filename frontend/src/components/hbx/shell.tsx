@@ -1216,6 +1216,9 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   const [emailState, setEmailState] = useState<SignalState>("off");
   const [botActivation, setBotActivation] = useState<TopbarBotActivation | null>(null);
   const [botBusy, setBotBusy] = useState(false);
+  // Confirmação ao LIGAR a chave geral do bot (E3, PR20072026-CHIP) — desligar
+  // nunca abre esse dialog (é sempre seguro).
+  const [confirmLigarBotOpen, setConfirmLigarBotOpen] = useState(false);
   const [waMenuOpen, setWaMenuOpen] = useState(false);
   const waMode = useWaOpenMode();
   const botAccessible = mods.loaded && Boolean(mods.byKey["bot"]?.accessible);
@@ -1268,13 +1271,10 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     await logout();
   }
 
-  async function toggleBot() {
-    if (!botAccessible || botBusy) return;
+  // Faz o PUT de fato na chave geral (extraído p/ poder rodar direto no desligar
+  // e só após confirmação no ligar — ver toggleBot/confirmLigarBot abaixo).
+  async function putMasterSwitch(turningOn: boolean) {
     setBotBusy(true);
-    // CHAVE GERAL: se está desligada (masterOff) → liga; senão → desliga. Desligar
-    // sempre funciona (vira cinza); ligar fica vermelho até ter chip/config (ou tema
-    // se já roda). O backend cuida de derrubar/subir os 3 tipos respeitando o pré-voo.
-    const turningOn = botActivation?.masterOff === true;
     await apiFetch("/bot/activation/master-switch", {
       method: "PUT",
       body: JSON.stringify({ on: turningOn }),
@@ -1283,6 +1283,26 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     const fresh = await fetchBotActivationCached().catch(() => null);
     if (fresh) setBotActivation(fresh);
     setBotBusy(false);
+  }
+
+  async function toggleBot() {
+    if (!botAccessible || botBusy) return;
+    // CHAVE GERAL: se está desligada (masterOff) → liga; senão → desliga. Desligar
+    // sempre funciona (vira cinza) e é seguro — não pede confirmação. Ligar só
+    // remove o bloqueio geral: os 3 motores NÃO voltam sozinhos, cada um precisa
+    // ser religado no próprio toggle de /bot — por isso avisamos ANTES (anti-"1
+    // clique = frota disparando", incidente 20/07). Desligar continua imediato.
+    const turningOn = botActivation?.masterOff === true;
+    if (turningOn) {
+      setConfirmLigarBotOpen(true);
+      return;
+    }
+    await putMasterSwitch(false);
+  }
+
+  async function confirmLigarBot() {
+    setConfirmLigarBotOpen(false);
+    await putMasterSwitch(true);
   }
 
   const prevNaoLidosRef = React.useRef(0);
@@ -1594,6 +1614,15 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             })}
           </span>
         </span>}
+        <ConfirmDialog
+          open={confirmLigarBotOpen}
+          title="Ligar a chave geral do bot"
+          message="Isso só remove o bloqueio geral — os motores (atendimento, recovery, prospecção) não voltam a rodar sozinhos. Ligue cada um em /bot depois."
+          confirmLabel="Ligar mesmo assim"
+          busy={botBusy}
+          onConfirm={confirmLigarBot}
+          onCancel={() => setConfirmLigarBotOpen(false)}
+        />
         {!soLog && <button
           className={signalBtnClass(emailState)}
           title={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}

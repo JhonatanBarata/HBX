@@ -4388,6 +4388,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         messageType: 'text',
         sourceModule: 'vendas_prospeccao_bot',
         senderType: 'bot',
+        // PR20072026-CHIP (A5): a campanha sai pelo chip de QUEM A CRIOU, nunca "o mais
+        // recente" — foi faltar isso que deixou o bot mandar pelo chip errado. Se a
+        // conversa já nasceu com sessão própria (ex.: reply do cliente), este id só serve
+        // de fallback (queueOutboundForCompany não regride o caso que já funciona).
+        senderUserId: campaign.createdByUserId || null,
         variables: {
           botType: 'prospeccao',
           campaignId: campaign.id,

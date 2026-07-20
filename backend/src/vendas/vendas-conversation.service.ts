@@ -7,8 +7,9 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InboxService } from '../inbox/inbox.service';
+import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import { normalizeBrPhoneDigits, normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
-import { isMetaConnected } from '../messaging/whatsapp-connection-state';
+import { buildMotorStateByCompanyUser, isMetaConnected } from '../messaging/whatsapp-connection-state';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
@@ -48,6 +49,7 @@ export class VendasConversationService {
     private readonly prisma: PrismaService,
     private readonly inboxService: InboxService,
     private readonly cockpitProjector: VendasLeadCockpitProjectorService,
+    private readonly webwhatsBridge: WebwhatsBridgeService,
   ) {}
 
   private buildLeadAccessWhere(context: VendasAccessContext, leadId: string) {
@@ -263,6 +265,23 @@ export class VendasConversationService {
           orderBy: [{ connectedAt: 'desc' }, { createdAt: 'desc' }],
         });
 
+    // PR20072026-CHIP (A4): em modo INDIVIDUAL, `company.whatsappStatus` (flag legado no
+    // nível da empresa) NÃO representa o chip do VENDEDOR — foi essa brecha que deixou criar
+    // shell órfã (sem sessão) pra prospecção manual da Gabriele (20/07), que depois vazou no
+    // envio (fallback cego pro chip mais recente). Sem sessão do vendedor resolvível no banco,
+    // confere o MOTOR AO VIVO antes de recusar (a causa raiz real foi drift banco×motor: a
+    // sessão dela estava 'open' no motor mas não 'active' no banco). Motor confirma → tolera
+    // (cria sem sessão; o 1º envio resolve/carimba via inbox.service#sendMessage). Nem banco
+    // nem motor confirmam → FALHA FECHADO, não cria shell órfã.
+    if (!session && !shared) {
+      const motorInstances = await this.webwhatsBridge.listMotorInstances();
+      const motorStateByUser = buildMotorStateByCompanyUser(motorInstances);
+      const motorOpen = targetUserId ? motorStateByUser.get(`${context.companyId}:${targetUserId}`) === 'open' : false;
+      if (!motorOpen) {
+        throw new ServiceUnavailableException('Chip do vendedor não conectado — conecte antes de abrir esta conversa.');
+      }
+      return null;
+    }
     if (!session && !isMetaConnected(company.whatsappStatus)) {
       throw new ServiceUnavailableException('Conecte o WhatsApp antes de abrir uma nova conversa.');
     }

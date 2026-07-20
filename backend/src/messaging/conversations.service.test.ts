@@ -10,6 +10,10 @@ function createService(opts?: {
   leadExists?: boolean;
   duplicateProviderMessage?: boolean;
   linkCount?: number;
+  // PR20072026-CHIP (A3): sessão do senderUserId encontrada no banco (ou null pra simular
+  // vendedor sem chip conectado) e modo de atendimento da empresa.
+  senderSession?: Record<string, unknown> | null;
+  whatsappAttendanceMode?: string;
 }) {
   const outboundCreateCalls: Array<Record<string, unknown>> = [];
   const messageCreateCalls: Array<Record<string, unknown>> = [];
@@ -63,7 +67,11 @@ function createService(opts?: {
         whatsappConnectionMode: 'TEMPORARY',
         whatsappModalStatus: 'CONNECTED',
         useMasterWhatsAppToken: false,
+        whatsappAttendanceMode: opts?.whatsappAttendanceMode ?? 'individual',
       }),
+    },
+    whatsAppConnectionSession: {
+      findFirst: async () => (opts?.senderSession === undefined ? null : opts.senderSession),
     },
     companyConversation: {
       findFirst: async () => conversation,
@@ -198,6 +206,78 @@ test('queueOutboundForCompany rejects cross-tenant commercial lead links before 
     /nao pertence a esta empresa/,
   );
   assert.equal(outboundCreateCalls.length, 0);
+});
+
+// PR20072026-CHIP (A3): a conversa nasce ÓRFÃ (sem whatsappConnectionSessionId) quando a
+// ponte agenda<->vendas cria a shell antes de a sessão do vendedor existir — era essa
+// órfã que caía no fallback cego do bridge (chip do dono) no envio real. Aqui o
+// companyMessage passa a resolver a identidade via payload.senderUserId quando a conversa
+// não tem sessão própria.
+test('queueOutboundForCompany (A3): conversa órfã resolve sessão pelo senderUserId e carimba o companyMessage', async () => {
+  const { service, messageCreateCalls } = createService({
+    inboundExists: true,
+    whatsappAttendanceMode: 'individual',
+    senderSession: { id: 'session-33', tenantKey: 'company-7-user-33', phoneNormalized: '5511988887777' },
+  });
+
+  await service.queueOutboundForCompany(7, {
+    conversationId: 10,
+    to: '+55 11 99999-0000',
+    body: 'Oi, tudo bem?',
+    sourceModule: 'vendas_human',
+    senderType: 'human',
+    messageType: 'text',
+    senderUserId: 33,
+  });
+
+  assert.equal(messageCreateCalls.length, 1);
+  assert.equal((messageCreateCalls[0] as any).whatsappConnectionSessionId, 'session-33');
+  assert.equal((messageCreateCalls[0] as any).sourceTenantKey, 'company-7-user-33');
+  assert.equal((messageCreateCalls[0] as any).sourcePhoneNormalized, '5511988887777');
+});
+
+test('queueOutboundForCompany (A3): modo individual, senderUserId sem chip conectado — falha fechado (nunca cai pro chip de terceiro)', async () => {
+  const { service, outboundCreateCalls } = createService({
+    inboundExists: true,
+    whatsappAttendanceMode: 'individual',
+    senderSession: null,
+  });
+
+  await assert.rejects(
+    () =>
+      service.queueOutboundForCompany(7, {
+        conversationId: 10,
+        to: '+55 11 99999-0000',
+        body: 'Oi',
+        sourceModule: 'vendas_human',
+        senderType: 'human',
+        messageType: 'text',
+        senderUserId: 33,
+      }),
+    /Chip do remetente não está conectado/,
+  );
+  assert.equal(outboundCreateCalls.length, 0);
+});
+
+test('queueOutboundForCompany (A3): modo shared, senderUserId sem sessão própria não é erro (ponteiro da empresa cobre)', async () => {
+  const { service, messageCreateCalls } = createService({
+    inboundExists: true,
+    whatsappAttendanceMode: 'shared',
+    senderSession: null,
+  });
+
+  await service.queueOutboundForCompany(7, {
+    conversationId: 10,
+    to: '+55 11 99999-0000',
+    body: 'Oi',
+    sourceModule: 'vendas_human',
+    senderType: 'human',
+    messageType: 'text',
+    senderUserId: 33,
+  });
+
+  assert.equal(messageCreateCalls.length, 1);
+  assert.equal((messageCreateCalls[0] as any).whatsappConnectionSessionId, undefined);
 });
 
 test('recordInboundMessage marks provider webhook replays as duplicates', async () => {
