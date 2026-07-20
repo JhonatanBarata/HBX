@@ -36,6 +36,13 @@ import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
+import { LogisticaLeituraService } from './logistica-leitura.service';
+import {
+  FinalizarLeituraDto,
+  IniciarLeituraDto,
+  RegistrarLeituraParadaDto,
+  UpdateLeituraParadaDto,
+} from './dto/logistica-leitura.dto';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -97,12 +104,20 @@ export class LogisticaController {
     // instanciam o controller diretamente com poucos argumentos; no módulo
     // Nest o provider é sempre injetado.
     private readonly rotaModelo: LogisticaRotaModeloService = null as any,
+    // PR20072026 W1 — sessão de "Leitura de Rota". Mesmo padrão de default acima.
+    private readonly leitura: LogisticaLeituraService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
     const companyId = Number(user?.companyId);
     if (!companyId) throw new ForbiddenException('Empresa não identificada');
     return companyId;
+  }
+
+  private ensureUserId(user: any): number {
+    const userId = Number(user?.id);
+    if (!userId) throw new ForbiddenException('Usuário não identificado');
+    return userId;
   }
 
   private ensureBillingOwner(user: any): void {
@@ -643,6 +658,74 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const ok = await this.rotaModelo.remove(companyId, id);
     if (!ok) throw new NotFoundException('Modelo de rota não encontrado');
+    return { success: true };
+  }
+
+  // ── PR20072026 W1 — "Leitura de Rota" (docs/PLANEJAMENTOS/PR20072026/
+  // SPEC-LEITURA-DE-ROTA.md + 00-ORQUESTRACAO.md, contrato = LEI). Mesma
+  // guarda das rotas acima (driver comum PODE usar, sem @Admin) — sessão é
+  // escopada por (companyId, userId) dentro do serviço.
+
+  @Post('leitura/iniciar')
+  iniciarLeitura(@Req() req: any, @Body() dto: IniciarLeituraDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.iniciar(companyId, userId, dto?.modo);
+  }
+
+  @Get('leitura/atual')
+  leituraAtual(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.atual(companyId, userId);
+  }
+
+  @Post('leitura/:id/parada')
+  registrarLeituraParada(@Req() req: any, @Param('id') id: string, @Body() dto: RegistrarLeituraParadaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.registrarParada(companyId, userId, id, dto);
+  }
+
+  @Get('leitura/:id/resumo')
+  leituraResumo(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.resumo(companyId, userId, id);
+  }
+
+  @Patch('leitura/:id/parada/:paradaId')
+  updateLeituraParada(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('paradaId') paradaId: string,
+    @Body() dto: UpdateLeituraParadaDto,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.updateParada(companyId, userId, id, paradaId, dto);
+  }
+
+  @Delete('leitura/:id/parada/:paradaId')
+  async removeLeituraParada(@Req() req: any, @Param('id') id: string, @Param('paradaId') paradaId: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    await this.leitura.removeParada(companyId, userId, id, paradaId);
+    return { success: true };
+  }
+
+  @Post('leitura/:id/finalizar')
+  finalizarLeitura(@Req() req: any, @Param('id') id: string, @Body() dto: FinalizarLeituraDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.finalizar(companyId, userId, id, dto);
+  }
+
+  @Post('leitura/:id/cancelar')
+  async cancelarLeitura(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    await this.leitura.cancelar(companyId, userId, id);
     return { success: true };
   }
 

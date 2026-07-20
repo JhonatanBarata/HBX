@@ -267,8 +267,11 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "admin-route", "adjustments"),
             listOf("logistica", "rota-modelos"),
             listOf("nucleo", "clientes"),
+            listOf("logistica", "leitura", "atual"),
         ) -> true
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
+        // PR20072026 W2 — GET /logistica/leitura/:id/resumo.
+        method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "resumo" -> true
         method == "POST" && segments in listOf(
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "mobile", "materialize"),
@@ -283,18 +286,24 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "admin-route", "start"),
             listOf("nucleo", "contas"),
             listOf("products"),
+            listOf("logistica", "leitura", "iniciar"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
+        // PR20072026 W2 — sessão de leitura: parada/finalizar/cancelar por :id.
+        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] in setOf("parada", "finalizar", "cancelar") -> true
         method == "PATCH" && segments == listOf("logistica", "config") -> true
         method == "PATCH" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "financeiro" -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "produtos") -> true
         method == "PATCH" && segments.size == 3 && segments[0] == "nucleo" && segments[1] in setOf("contas", "locais", "telefones") -> true
+        // PR20072026 W2 — PATCH/DELETE de uma parada dentro da sessão de leitura.
+        method == "PATCH" && segments.size == 5 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "parada" -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("nucleo", "contas") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
+        method == "DELETE" && segments.size == 5 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "parada" -> true
         else -> false
     }
     return when (appMode) {

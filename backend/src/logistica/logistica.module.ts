@@ -13,6 +13,7 @@ import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-o
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
+import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
@@ -109,6 +110,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaMobileService,
     LogisticaRotaService,
     LogisticaRotaModeloService,
+    LogisticaLeituraService,
     LogisticaConfigService,
     LogisticaRecoveryService,
     LogisticaCobrancaAvisoService,

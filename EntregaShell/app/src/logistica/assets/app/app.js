@@ -94,6 +94,42 @@
     distanceWarning: null,
     distanceOverrideDeliveryId: null,
     confirmation: null,
+    // PR20072026 W2 — Leitura de Rota (wizard GPS + fila offline). `leitura` é a
+    // sessão ativa ({id, modo, startedAt, count}) — sobrevive a restart do app
+    // via cache; `count` é o contador local otimista (nunca regride, ver
+    // restoreLeituraSession/leitura-proximo). Estado do wizard some ao fechar.
+    leitura: H.cache.get("logistica-leitura", null),
+    leituraStarting: false,
+    leituraCapturing: false,
+    leituraCapture: null,
+    leituraStep: null,
+    leituraClientMode: null,
+    leituraClienteQuery: "",
+    leituraSelectedClient: null,
+    leituraClienteProdutos: {},
+    leituraNovoDraft: { nome: "", telefone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null },
+    leituraNovoEditing: false,
+    // PR20072026 W3 — modo MANUAL: status do lookup de CEP/geocode do form de
+    // cliente novo (endereço digitado, sem GPS).
+    leituraNovoCepStatus: "",
+    // Ordem local das paradas no resumo (só usada quando state.leitura.modo
+    // === "MANUAL" — ▲▼ na tela de finalizar; enviada como ordemParadaIds).
+    leituraManualOrder: [],
+    leituraTelefoneValue: "",
+    leituraTelefoneConfirmado: false,
+    leituraTelefoneCorrigindo: false,
+    leituraItens: [],
+    leituraProdutoPicker: false,
+    leituraFinalStep: null,
+    leituraResumo: null,
+    leituraResumoLoading: false,
+    leituraResumoError: null,
+    leituraEditParadaId: null,
+    leituraEditDraft: null,
+    leituraDiaEscolhido: null,
+    leituraNomeRota: "",
+    leituraNomeError: "",
+    leituraSaving: false,
   };
   const app = document.getElementById("app");
   let moduleActive = true;
@@ -151,6 +187,7 @@
     // referência humana; erros conhecidos do backend ganham texto explicativo.
     const code = error && error.body && error.body.code;
     if (code === "ENTREGA_EM_OUTRA_ROTA") return "Uma entrega ficou presa em outra rota. Encerre a rota antiga ou tente montar de novo.";
+    if (code === "ROTA_NOME_DUPLICADO") return "Já existe uma rota com esse nome.";
     return err(error).replace(/\bc[a-z0-9]{20,}\b/g, "essa entrega");
   }
   function allRouteItems() { return state.route && Array.isArray(state.route.items) ? state.route.items : []; }
@@ -797,6 +834,313 @@
     finally { state.newClientGpsLoading = false; render(); }
   }
 
+  // ==========================================================================
+  // PR20072026 W2 — Leitura de Rota: wizard "Cadastrar Local" (GPS em campo) +
+  // fila offline (localStorage, clientKey idempotente, replay em ordem) +
+  // wizard de finalização (resumo/timeline → dia da semana → nome → Feito.).
+  // Contrato dos endpoints é LEI de 00-ORQUESTRACAO.md — não inventar campos.
+  // ==========================================================================
+  const weekDayFullLabels = { 1: "Segunda-feira", 2: "Terça-feira", 3: "Quarta-feira", 4: "Quinta-feira", 5: "Sexta-feira", 6: "Sábado", 7: "Domingo" };
+  function diaSemanaLabel(n) { return weekDayFullLabels[n] || ""; }
+  function blankLeituraNovoDraft() { return { nome: "", telefone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null }; }
+  function leituraCapturePosition() {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  }
+  // Reverse geocode Nominatim — mesmo padrão de useCurrentLocationForNewClient,
+  // duplicado aqui de propósito (fluxo isolado; não mexe no cadastro existente).
+  async function reverseGeocodeLeitura(lat, lng) {
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { Accept: "application/json" } });
+      if (!response.ok) return null;
+      const address = (await response.json()).address || {};
+      const stateName = String(address.state || "").toLowerCase();
+      const stateMap = { "acre": "AC", "alagoas": "AL", "amapá": "AP", "amazonas": "AM", "bahia": "BA", "ceará": "CE", "distrito federal": "DF", "espírito santo": "ES", "goiás": "GO", "maranhão": "MA", "mato grosso": "MT", "mato grosso do sul": "MS", "minas gerais": "MG", "pará": "PA", "paraíba": "PB", "paraná": "PR", "pernambuco": "PE", "piauí": "PI", "rio de janeiro": "RJ", "rio grande do norte": "RN", "rio grande do sul": "RS", "rondônia": "RO", "roraima": "RR", "santa catarina": "SC", "são paulo": "SP", "sergipe": "SE", "tocantins": "TO" };
+      return {
+        cep: formatCep(address.postcode || ""),
+        endereco: address.road || address.pedestrian || address.footway || "",
+        numero: address.house_number || "",
+        bairro: address.suburb || address.neighbourhood || address.quarter || "",
+        cidade: address.city || address.town || address.village || address.municipality || "",
+        uf: (String(address["ISO3166-2-lvl4"] || "").match(/^BR-([A-Z]{2})$/) || [])[1] || stateMap[stateName] || "",
+      };
+    } catch (_) { return null; }
+  }
+  // PR20072026 W3 — modo MANUAL: endereço é DIGITADO (sem GPS). Mesmo padrão
+  // ViaCEP+Nominatim de lookupNewClientCep/locateNewClientAddress, duplicado
+  // aqui de propósito (fluxo isolado do cadastro normal de clientes).
+  async function lookupLeituraNovoCep(value) {
+    const cep = onlyDigits(value); if (cep.length !== 8) return;
+    state.leituraNovoCepStatus = "Buscando CEP…"; render();
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: { Accept: "application/json" } });
+      const data = response.ok ? await response.json() : null;
+      if (!data || data.erro) throw new Error("CEP não encontrado.");
+      Object.assign(state.leituraNovoDraft, { cep: formatCep(cep), endereco: data.logradouro || "", bairro: data.bairro || "", cidade: data.localidade || "", uf: data.uf || "", lat: null, lng: null, geoFonte: null });
+      state.leituraNovoCepStatus = "Endereço preenchido. Informe o número.";
+      render();
+      const point = await geocodeNewClient([data.logradouro, data.bairro, data.localidade, data.uf, cep].filter(Boolean).join(", "));
+      if (point) { Object.assign(state.leituraNovoDraft, point, { geoFonte: "geocode" }); state.leituraNovoCepStatus = "Endereço localizado."; render(); }
+    } catch (_) { state.leituraNovoCepStatus = "CEP não encontrado. Preencha o endereço."; render(); }
+  }
+  async function locateLeituraNovoAddress() {
+    const draft = state.leituraNovoDraft;
+    const street = [String(draft.endereco || "").trim(), String(draft.numero || "").trim()].filter(Boolean).join(", ");
+    const query = [street, String(draft.bairro || "").trim(), String(draft.cidade || "").trim(), String(draft.uf || "").trim(), onlyDigits(draft.cep || "")].filter(Boolean).join(", ");
+    if (!street || !draft.cidade) { state.leituraNovoCepStatus = "Preencha rua, número e cidade para localizar."; render(); return; }
+    state.leituraNovoCepStatus = "Localizando este endereço…"; render();
+    let point = await geocodeNewClient(query);
+    if (!point && onlyDigits(draft.cep || "").length === 8) {
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      point = await geocodeNewClient([formatCep(draft.cep), draft.cidade, draft.uf].filter(Boolean).join(", "));
+    }
+    if (!point) { state.leituraNovoCepStatus = "Não foi possível localizar este endereço."; render(); return; }
+    Object.assign(draft, point, { geoFonte: "geocode" });
+    state.leituraNovoCepStatus = "Endereço localizado.";
+    render();
+    H.vibrate(12);
+  }
+  // Fila offline: cada item é {sessionId, clientKey, payload} — persistido em
+  // localStorage via H.cache. clientKey garante idempotência no backend
+  // (sessaoId+clientKey); replay sempre em ordem (shift do array).
+  const LEITURA_QUEUE_KEY = "logistica-leitura-fila";
+  function leituraQueueAll() { const raw = H.cache.get(LEITURA_QUEUE_KEY, []); return Array.isArray(raw) ? raw : []; }
+  function leituraQueueForSession(sessionId) { return leituraQueueAll().filter(row => row && String(row.sessionId) === String(sessionId)); }
+  function leituraQueuePush(sessionId, clientKey, payload) { const all = leituraQueueAll(); all.push({ sessionId, clientKey, payload }); H.cache.set(LEITURA_QUEUE_KEY, all); }
+  function leituraQueueRemove(sessionId, clientKey) { H.cache.set(LEITURA_QUEUE_KEY, leituraQueueAll().filter(row => !(row && String(row.sessionId) === String(sessionId) && row.clientKey === clientKey))); }
+  function leituraQueueClearSession(sessionId) { H.cache.set(LEITURA_QUEUE_KEY, leituraQueueAll().filter(row => !(row && String(row.sessionId) === String(sessionId)))); }
+  function leituraPendingCount() { return state.leitura ? leituraQueueForSession(state.leitura.id).length : 0; }
+  function persistLeituraSession() { if (state.leitura) H.cache.set("logistica-leitura", state.leitura); else H.cache.remove("logistica-leitura"); }
+  let leituraFlushing = false;
+  // Sincroniza a fila em ordem; falha de rede no meio pára e deixa o resto
+  // esperando (nunca perde uma parada, nunca reordena).
+  async function flushLeituraQueue() {
+    if (!state.leitura || leituraFlushing) return;
+    leituraFlushing = true;
+    try {
+      const sessionId = state.leitura.id;
+      for (const row of leituraQueueForSession(sessionId)) {
+        try {
+          await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/parada`, { method: "POST", body: row.payload });
+          leituraQueueRemove(sessionId, row.clientKey);
+        } catch (_) { break; }
+      }
+    } finally { leituraFlushing = false; render(); }
+  }
+  // Boot / retomada: GET /logistica/leitura/atual é a fonte de verdade quando
+  // alcançável; falha de rede preserva a sessão já em cache local (offline-first
+  // — o motorista continua registrando sem depender do boot ter sucesso).
+  async function restoreLeituraSession() {
+    try {
+      const result = await H.api("/logistica/leitura/atual");
+      if (result && result.id) {
+        const cached = state.leitura;
+        const serverCount = Array.isArray(result.paradas) ? result.paradas.length : 0;
+        const cachedCount = cached && String(cached.id) === String(result.id) ? Number(cached.count || 0) : 0;
+        state.leitura = { id: result.id, modo: result.modo || "LEITURA", startedAt: result.startedAt, count: Math.max(serverCount, cachedCount) };
+      } else state.leitura = null;
+      persistLeituraSession();
+      render();
+      void flushLeituraQueue();
+    } catch (_) { /* offline: mantém a sessão local e tenta de novo quando houver rede */ }
+  }
+  function leituraDefaultValor(productId) {
+    const acordado = state.leituraClienteProdutos[String(productId)];
+    if (acordado != null) return Number(acordado);
+    const client = state.leituraSelectedClient;
+    if (client && client.precoPadrao != null && Number(client.precoPadrao) > 0) return Number(client.precoPadrao);
+    const product = (state.products || []).find(p => String(p.id) === String(productId));
+    return product ? Number(product.precoCatalogo ?? product.price ?? 0) : 0;
+  }
+  function itemLabel(productId) { const p = (state.products || []).find(pr => String(pr.id) === String(productId)); return p ? `${p.nome || p.name || "Produto"} · ${p.unidade || "unidade"}` : "Produto"; }
+  async function loadLeituraClienteProdutos(customerProfileId) {
+    try {
+      const result = await H.api(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(customerProfileId)}`);
+      const list = Array.isArray(result) ? result : (result && (result.items || result.data)) || [];
+      const map = {};
+      list.forEach(item => { if (item && item.productId != null && item.precoAcordado != null) map[String(item.productId)] = Number(item.precoAcordado); });
+      state.leituraClienteProdutos = map;
+      render();
+    } catch (_) { state.leituraClienteProdutos = {}; }
+  }
+  function leituraExistenteResults() {
+    const query = state.leituraClienteQuery.trim().toLowerCase();
+    const capture = state.leituraCapture;
+    const hasGps = capture && validCoordinates(capture.lat, capture.lng);
+    const pool = (state.clients || []).filter(c => {
+      if (!query) return true;
+      const haystack = `${c.nome || c.name || ""} ${c.phone || c.whatsapp || c.phoneNormalized || ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+    const withDistance = pool.map(client => {
+      const lat = Number(client.lat); const lng = Number(client.lng);
+      const dist = hasGps && validCoordinates(lat, lng) ? distanceMeters(capture, { lat, lng }) : null;
+      return { client, dist };
+    });
+    withDistance.sort((a, b) => {
+      if (a.dist === null && b.dist === null) return String(a.client.nome || "").localeCompare(String(b.client.nome || ""));
+      if (a.dist === null) return 1;
+      if (b.dist === null) return -1;
+      return a.dist - b.dist;
+    });
+    return withDistance;
+  }
+  // Passo do wizard "Cadastrar Local" que o Voltar (físico ou botão) deve
+  // reabrir; devolve false quando já está no primeiro passo (tipo) — o chamador
+  // fecha a folha inteira nesse caso.
+  function leituraGoBack() {
+    const step = state.leituraStep;
+    if (!step || step === "tipo") return false;
+    if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
+    if (step === "telefone") { state.leituraStep = state.leituraSelectedClient ? "existente" : "novo"; render(); return true; }
+    if (step === "produto") { state.leituraStep = "telefone"; render(); return true; }
+    if (step === "valor") { state.leituraStep = "produto"; render(); return true; }
+    return false;
+  }
+  async function performCancelLeitura() {
+    if (!state.leitura) return;
+    const sessionId = state.leitura.id;
+    try { await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/cancelar`, { method: "POST", body: {} }); }
+    catch (error) { toast(humanApiError(error), true); }
+    leituraQueueClearSession(sessionId);
+    state.leitura = null;
+    persistLeituraSession();
+    state.leituraManualOrder = [];
+    await closeOverlay("modal");
+    toast("Leitura cancelada.");
+  }
+  // PR20072026 W3 — mantém a ordem local (▲▼) do modo MANUAL estável através
+  // de fetches de resumo: ids conhecidos preservam posição, ids novos vão pro
+  // fim, ids removidos somem. orderedLeituraParadas() é o que a timeline
+  // desenha; o resumo em si (total/count) nunca é reordenado.
+  function syncLeituraManualOrder() {
+    const paradas = (state.leituraResumo && state.leituraResumo.paradas) || [];
+    const ids = paradas.map(p => String(p.id));
+    const existing = (state.leituraManualOrder || []).filter(id => ids.includes(id));
+    const missing = ids.filter(id => !existing.includes(id));
+    state.leituraManualOrder = [...existing, ...missing];
+  }
+  function orderedLeituraParadas() {
+    const paradas = (state.leituraResumo && state.leituraResumo.paradas) || [];
+    if (!state.leitura || state.leitura.modo !== "MANUAL") return paradas;
+    const map = new Map(paradas.map(p => [String(p.id), p]));
+    return (state.leituraManualOrder || []).map(id => map.get(id)).filter(Boolean);
+  }
+  async function performRemoveLeituraParada(paradaId) {
+    if (!state.leitura || !paradaId) return;
+    try {
+      await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/parada/${encodeURIComponent(paradaId)}`, { method: "DELETE" });
+      state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`);
+      syncLeituraManualOrder();
+      toast("Parada removida.");
+    } catch (error) { toast(humanApiError(error), true); }
+    render();
+  }
+  async function prepareLeituraNome() {
+    await loadRouteModelos(true);
+    const label = diaSemanaLabel(state.leituraDiaEscolhido);
+    const existingNames = new Set((state.routeModelos || []).map(m => String(m.nome || "").trim().toLowerCase()));
+    let candidate = label; let n = 2;
+    while (existingNames.has(candidate.toLowerCase())) { candidate = `${label} ${n}`; n += 1; }
+    state.leituraNomeRota = candidate;
+    state.leituraNomeError = "";
+    render();
+  }
+  function leituraBanner() {
+    if (!state.leitura) return `<div class="lrt-start-actions"><button class="btn btn-primary btn-block rp2-cta lrt-start" type="button" data-action="leitura-iniciar" ${state.leituraStarting ? "disabled" : ""}>${icon("gps", 18)} ${state.leituraStarting ? "Iniciando…" : "Iniciar Leitura de Rota"}</button><button class="btn btn-secondary btn-block lrt-start" type="button" data-action="leitura-iniciar-manual" ${state.leituraStarting ? "disabled" : ""}>${icon("route", 18)} Criar rota manual</button></div>`;
+    // PR20072026 W3 — modo MANUAL reusa a MESMA faixa ativa, só troca o rótulo
+    // e o gatilho de captura (sem GPS): "Cadastrar Local" vira "Adicionar
+    // cliente" e chama leitura-adicionar-cliente em vez de leitura-cadastrar-local.
+    const isManual = state.leitura.modo === "MANUAL";
+    const count = Number(state.leitura.count || 0);
+    return `<div class="lrt-active"><div class="lrt-active-head"><strong>${isManual ? "Rota manual em andamento" : "Leitura de rota em andamento"}</strong><span>${count} ${count === 1 ? "parada registrada" : "paradas registradas"}</span></div><div class="lrt-active-actions"><button class="btn btn-primary rp2-cta" type="button" data-action="${isManual ? "leitura-adicionar-cliente" : "leitura-cadastrar-local"}" ${state.leituraCapturing ? "disabled" : ""}>${icon(isManual ? "users" : "gps", 17)} ${state.leituraCapturing ? "Lendo GPS…" : (isManual ? "Adicionar cliente" : "Cadastrar Local")}</button><button class="btn btn-secondary" type="button" data-action="leitura-finalizar-iniciar">Finalizar Leitura de Rota</button></div><button class="link-btn lrt-cancel" type="button" data-action="leitura-cancelar">Cancelar leitura</button></div>`;
+  }
+  function leituraTipoStep() {
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Novo local</h2><p class="subtitle">Cliente novo ou existente?</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body lrt-choice"><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-existente"><span class="card-main"><strong>Cliente existente</strong><span>Buscar quem já está cadastrado</span></span><span class="rp2-mode-chev">›</span></button><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-novo"><span class="card-main"><strong>Cliente novo</strong><span>Só nome e telefone</span></span><span class="rp2-mode-chev">›</span></button></div></section></div>`;
+  }
+  function leituraExistenteStep() {
+    const rows = leituraExistenteResults();
+    const body = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Cliente existente</h2><p class="subtitle">Mais perto primeiro</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label><div class="rp2-body">${body}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button></div></section></div>`;
+  }
+  function leituraNovoStep() {
+    const draft = state.leituraNovoDraft;
+    const summary = [[draft.endereco, draft.numero].filter(Boolean).join(", "), draft.bairro].filter(Boolean).join(" - ");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Cliente novo</h2><p class="subtitle">Só nome e telefone</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><form id="leitura-novo-form"><div class="field"><label>Nome</label><input name="nome" required maxlength="160" value="${H.escape(draft.nome)}"></div><div class="field"><label>Telefone</label><input name="telefone" inputmode="tel" maxlength="15" value="${H.escape(draft.telefone)}" placeholder="(00) 00000-0000"></div>${state.leituraNovoEditing ? `<div class="section-title"><strong>Endereço</strong><button type="button" class="link-btn" data-action="leitura-novo-endereco-fechar">Fechar</button></div><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(draft.cep)}" placeholder="00.000-000"></div><div class="client-address-row client-address-primary"><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(draft.endereco)}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(draft.numero)}"></div></div><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(draft.bairro)}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(draft.cidade)}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(draft.uf)}"></div></div>${state.leituraNovoCepStatus ? `<p class="subtitle">${H.escape(state.leituraNovoCepStatus)}</p>` : ""}<div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="leitura-novo-consultar-local">${icon("map", 16)} Consultar local</button></div>` : `<p class="subtitle lrt-address-summary"><span>${summary ? `Endereço: ${H.escape(summary)}` : "Endereço não localizado ainda."}</span> <button type="button" class="link-btn" data-action="leitura-novo-endereco-editar">editar</button></p>`}<button class="btn btn-primary btn-block rp2-cta" type="submit">Confirmar</button></form></div></section></div>`;
+  }
+  function leituraTelefoneStep() {
+    const hasPhone = !!state.leituraTelefoneValue;
+    const editing = state.leituraTelefoneCorrigindo || !hasPhone;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("phone", 18)}</div><div><h2>Telefone</h2><p class="subtitle">${hasPhone ? "Confirme o número" : "Nenhum telefone cadastrado"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${editing ? `<div class="field"><label>Telefone</label><input id="leitura-telefone-input" inputmode="tel" maxlength="15" value="${H.escape(state.leituraTelefoneValue)}" placeholder="(00) 00000-0000"></div>` : `<p class="lrt-phone-display">${H.escape(state.leituraTelefoneValue)}</p>`}</div><div class="rp2-footer">${editing ? `<button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-salvar">${hasPhone ? "Salvar" : "Continuar sem telefone"}</button>` : `<button class="btn btn-secondary btn-block" type="button" data-action="leitura-telefone-corrigir">Corrigir</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-confirmar">Confirmar</button>`}<button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button></div></section></div>`;
+  }
+  function leituraProdutoStep() {
+    const selectedIds = new Set(state.leituraItens.map(i => String(i.productId)));
+    const available = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !selectedIds.has(String(p.id)));
+    const rows = state.leituraItens.map(item => `<div class="delivery-item"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div><button type="button" class="close" style="width:34px;height:34px" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div>`).join("");
+    const picker = state.leituraProdutoPicker ? `<div class="delivery-picker"><strong>Escolher produto</strong>${available.map(p => `<button type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name)} · ${H.escape(p.unidade || "unidade")}</button>`).join("") || `<p class="subtitle">Sem mais produtos.</p>`}<button class="btn btn-secondary" type="button" data-action="leitura-produto-fechar-picker">Fechar</button></div>` : (available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Produto</h2><p class="subtitle">O que foi entregue?</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-produto-avancar" ${state.leituraItens.length ? "" : "disabled"}>Próximo</button></div></section></div>`;
+  }
+  function leituraValorStep() {
+    const rows = state.leituraItens.map(item => {
+      if (item.valorUnit === null || item.valorUnit === undefined) item.valorUnit = leituraDefaultValor(item.productId);
+      return `<div class="field"><label>${H.escape(item.nome)} · ${H.escape(item.unidade)} (${item.qtd}×)</label><input type="number" min="0" step="0.01" inputmode="decimal" data-leitura-valor="${H.escape(item.productId)}" value="${H.escape(String(item.valorUnit))}"></div>`;
+    }).join("");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Valor do cliente</h2><p class="subtitle">Preço sugerido — altere se combinou outro</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${rows}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-proximo">Próximo</button></div></section></div>`;
+  }
+  function leituraParadaModal() {
+    const step = state.leituraStep;
+    if (step === "existente") return leituraExistenteStep();
+    if (step === "novo") return leituraNovoStep();
+    if (step === "telefone") return leituraTelefoneStep();
+    if (step === "produto") return leituraProdutoStep();
+    if (step === "valor") return leituraValorStep();
+    return leituraTipoStep();
+  }
+  function leituraTimelineStep() {
+    const resumo = state.leituraResumo || {};
+    // PR20072026 W3 — modo MANUAL: ordem local (▲▼) e "—" no lugar da hora
+    // (a hora real é só o instante do registro, não uma chegada em campo).
+    const isManual = !!(state.leitura && state.leitura.modo === "MANUAL");
+    const paradas = isManual ? orderedLeituraParadas() : (Array.isArray(resumo.paradas) ? resumo.paradas : []);
+    const rows = paradas.map((parada, index) => {
+      if (state.leituraEditParadaId === parada.id) {
+        const draft = state.leituraEditDraft || { itens: [] };
+        const itemRows = draft.itens.map(item => `<div class="delivery-item"><div><strong>${H.escape(itemLabel(item.productId))}</strong></div><div class="delivery-stepper"><button type="button" data-action="leitura-parada-editar-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-parada-editar-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div><input type="number" min="0" step="0.01" inputmode="decimal" style="width:84px" data-leitura-edit-valor="${H.escape(item.productId)}" value="${H.escape(String(item.valorUnit))}"></div>`).join("");
+        return `<div class="lrt-timeline-row lrt-timeline-editing"><div class="lrt-timeline-edit-body">${itemRows}</div><div class="actions"><button type="button" class="btn btn-secondary" data-action="leitura-parada-editar-cancelar">Cancelar</button><button type="button" class="btn btn-primary" data-action="leitura-parada-editar-salvar">Salvar</button></div></div>`;
+      }
+      const main = `<span class="lrt-timeline-time">${isManual ? "—" : H.escape(parada.hora || "")}</span><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${H.escape((parada.itens || []).map(i => { const p = (state.products || []).find(pr => String(pr.id) === String(i.productId)); return `${i.qtd} ${(p && (p.unidade || p.nome || p.name)) || i.unidade || i.nome || "item"}`; }).join(", "))}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong><div class="lrt-timeline-actions"><button type="button" class="link-btn" data-action="leitura-parada-editar" data-parada-id="${H.escape(parada.id)}">Editar</button><button type="button" class="link-btn" style="color:var(--danger)" data-action="leitura-parada-remover" data-parada-id="${H.escape(parada.id)}">Remover</button></div>`;
+      if (!isManual) return `<div class="lrt-timeline-row">${main}</div>`;
+      const arrows = `<div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-cima" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-baixo" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div>`;
+      return `<div class="lrt-timeline-row lrt-timeline-row--manual"><div class="lrt-timeline-main">${main}</div>${arrows}</div>`;
+    }).join("");
+    const total = `Total: ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"} · ${H.money(resumo.total || 0)}`;
+    const body = state.leituraResumoLoading ? loading() : state.leituraResumoError ? empty("Não foi possível carregar", state.leituraResumoError) : (rows ? `<div class="lrt-timeline">${rows}</div><p class="lrt-timeline-total">${total}</p>` : empty("Nenhuma parada", "Cadastre paradas antes de finalizar."));
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Resumo da leitura</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${body}</div><div class="rp2-footer"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-ir-salvar" ${paradas.length ? "" : "disabled"}>Salvar rota</button></div></section></div>`;
+  }
+  function leituraSalvarDiaStep() {
+    const label = diaSemanaLabel(todayIso());
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Salvar rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><p class="subtitle">Salvar Rotativo ${H.escape(label)}?</p></div><div class="rp2-footer lrt-choice"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-salvar-dia-sim">Sim</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-nao">Não</button></div></section></div>`;
+  }
+  function leituraSalvarDiaManualStep() {
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Selecione o dia da semana</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip" data-action="leitura-salvar-dia-escolher" data-day="${day.n}">${day.label}</button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar">Voltar</button></div></section></div>`;
+  }
+  function leituraSalvarNomeStep() {
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Nome da rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><form id="leitura-nome-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="120" value="${H.escape(state.leituraNomeRota)}"></div>${state.leituraNomeError ? `<p class="subtitle" style="color:var(--danger)">${H.escape(state.leituraNomeError)}</p>` : ""}<button class="btn btn-primary btn-block rp2-cta" type="submit" ${state.leituraSaving ? "disabled" : ""}>Confirmar</button></form></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar-nome">Voltar</button></div></section></div>`;
+  }
+  function leituraFinalizarModal() {
+    const step = state.leituraFinalStep;
+    if (step === "dia") return leituraSalvarDiaStep();
+    if (step === "dia-manual") return leituraSalvarDiaManualStep();
+    if (step === "nome") return leituraSalvarNomeStep();
+    return leituraTimelineStep();
+  }
+
   function routeScreen() {
     if (state.loading) return shell(loading());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
@@ -811,6 +1155,7 @@
     // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
     const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
     return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+      <div class="lrt-banner">${leituraBanner()}</div>
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -1044,6 +1389,8 @@
     if (state.modal === "recarga") return recargaModal();
     if (state.modal === "financeiro") return financeiroModal();
     if (state.modal === "avancado") return avancadoModal();
+    if (state.modal === "leitura-parada") return leituraParadaModal();
+    if (state.modal === "leitura-finalizar") return leituraFinalizarModal();
     return "";
   }
   // L4-F — Recarga (Ajustes › Administração, SÓ admin): saldo + vitrine dos packs
@@ -1123,7 +1470,12 @@
       { action: "order-mode-manual", variant: "manual", glyph: "↕", title: "Minha ordem", desc: "Você arrasta e organiza as paradas" },
       { action: "order-mode-saved", variant: "saved", glyph: "☆", title: "Rota salva", desc: "Repetir uma ordem que você guardou" },
     ];
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Como montar?</h2><p class="subtitle">${stopsCount} ${stopsCount === 1 ? "parada pronta" : "paradas prontas"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-mode-list">${modes.map(m => `<button type="button" class="row-card rp2-mode-card" data-action="${m.action}"><span class="rp2-mode-icon rp2-mode-icon--${m.variant}">${m.glyph}</span><span class="card-main"><strong>${m.title}</strong><span>${m.desc}</span></span><span class="rp2-mode-chev">›</span></button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></div></section></div>`;
+    // PR20072026 W3 §1.2 da spec — destaque de 1 toque quando existe rota-modelo
+    // do dia da semana operacional: aplica-se pelo MESMO handler de
+    // "apply-route-modelo" (equivale a escolher "Rota salva" + aquele modelo).
+    const todayModelo = (state.routeModelos || []).find(m => Number(m.diaSemana) === todayIso());
+    const highlight = todayModelo ? `<button type="button" class="row-card rp2-mode-card rp2-mode-card--highlight" data-action="apply-route-modelo" data-modelo-id="${H.escape(todayModelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>Aplicar rota de ${H.escape(diaSemanaLabel(todayIso()))} (${(todayModelo.paradas || []).length} paradas)</strong></span><span class="rp2-mode-chev">›</span></button>` : "";
+    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Como montar?</h2><p class="subtitle">${stopsCount} ${stopsCount === 1 ? "parada pronta" : "paradas prontas"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${highlight}<div class="list rp2-mode-list">${modes.map(m => `<button type="button" class="row-card rp2-mode-card" data-action="${m.action}"><span class="rp2-mode-icon rp2-mode-icon--${m.variant}">${m.glyph}</span><span class="card-main"><strong>${m.title}</strong><span>${m.desc}</span></span><span class="rp2-mode-chev">›</span></button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></div></section></div>`;
   }
   // "Minha ordem": lista da prévia com ▲▼ grandes (mecanismo obrigatório de
   // reordenação) + checkbox opcional de salvar como rota do dia escolhido.
@@ -1801,6 +2153,8 @@
       if (confirmation.type === "limpar-dia") await performLimparDia();
       if (confirmation.type === "save-today-route") await performSaveTodayRoute(confirmation.payload);
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
+      if (confirmation.type === "cancel-leitura") await performCancelLeitura();
+      if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
       if (confirmation.type === "logout") H.logout();
       return;
     }
@@ -1855,7 +2209,7 @@
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
     // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem / Rota salva).
-    if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
+    if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); void loadRouteModelos(); return; }
     if (action === "back-route-order") { state.dayOrderStep = state.dayOrderStep === "choose" ? null : "choose"; render(); return; }
     if (action === "order-mode-app") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; startDayReview(); return; }
     if (action === "order-mode-manual") { state.dayOrderStep = "manual"; state.dayOrderMode = "manual"; state.dayManualOrder = (state.dayPreview || []).map(dayPreviewKey); state.dayManualSave = false; render(); return; }
@@ -1927,6 +2281,242 @@
     if (action === "open-recarga") openRecarga();
     if (action === "credits-lock-refresh") { toast("Atualizando saldo…"); void refreshCreditsLock(); }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
+    // ---- PR20072026 W2 — Leitura de Rota ----
+    if (action === "leitura-iniciar") {
+      if (state.leituraStarting) return;
+      state.leituraStarting = true; render();
+      try {
+        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "LEITURA" } });
+        state.leitura = { id: result.id, modo: result.modo || "LEITURA", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
+        persistLeituraSession();
+      } catch (error) { toast(humanApiError(error), true); }
+      state.leituraStarting = false; render();
+      return;
+    }
+    if (action === "leitura-iniciar-manual") {
+      // PR20072026 W3 — "Criar rota manual": mesma sessão/contrato do W2, só
+      // muda o modo (sem GPS em nenhuma captura desta sessão).
+      if (state.leituraStarting) return;
+      state.leituraStarting = true; render();
+      try {
+        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "MANUAL" } });
+        state.leitura = { id: result.id, modo: result.modo || "MANUAL", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
+        persistLeituraSession();
+      } catch (error) { toast(humanApiError(error), true); }
+      state.leituraStarting = false; render();
+      return;
+    }
+    if (action === "leitura-cancelar") {
+      if (!state.leitura) return;
+      state.confirmation = { type: "cancel-leitura", title: "Cancelar leitura?", message: "As paradas já registradas nesta leitura serão descartadas.", confirmLabel: "Cancelar leitura", danger: true, icon: "route" };
+      render();
+      return;
+    }
+    if (action === "leitura-cadastrar-local") {
+      if (!state.leitura || state.leituraCapturing) return;
+      state.leituraCapturing = true; render();
+      const position = await leituraCapturePosition();
+      state.leituraCapturing = false;
+      if (!position) { toast("Não foi possível obter sua localização. Tente novamente.", true); render(); return; }
+      state.leituraCapture = { ...position, capturadoEm: new Date().toISOString() };
+      state.leituraStep = "tipo";
+      state.leituraClientMode = null;
+      state.leituraSelectedClient = null;
+      state.leituraClienteProdutos = {};
+      state.leituraNovoDraft = blankLeituraNovoDraft();
+      state.leituraNovoEditing = false;
+      state.leituraNovoCepStatus = "";
+      state.leituraClienteQuery = "";
+      state.leituraTelefoneValue = "";
+      state.leituraTelefoneConfirmado = false;
+      state.leituraTelefoneCorrigindo = false;
+      state.leituraItens = [];
+      state.leituraProdutoPicker = false;
+      showModal("leitura-parada");
+      if (state.clientsPage === 0) void loadClients(true, true);
+      return;
+    }
+    if (action === "leitura-adicionar-cliente") {
+      // PR20072026 W3 — equivalente do "Cadastrar Local" no modo MANUAL: sem
+      // GPS, captura só o instante (capturadoEm); o mesmo wizard "tipo →
+      // existente/novo → telefone → produto → valor" segue igual.
+      if (!state.leitura || state.leituraCapturing) return;
+      state.leituraCapture = { lat: null, lng: null, accuracy: null, capturadoEm: new Date().toISOString() };
+      state.leituraStep = "tipo";
+      state.leituraClientMode = null;
+      state.leituraSelectedClient = null;
+      state.leituraClienteProdutos = {};
+      state.leituraNovoDraft = blankLeituraNovoDraft();
+      state.leituraNovoEditing = false;
+      state.leituraNovoCepStatus = "";
+      state.leituraClienteQuery = "";
+      state.leituraTelefoneValue = "";
+      state.leituraTelefoneConfirmado = false;
+      state.leituraTelefoneCorrigindo = false;
+      state.leituraItens = [];
+      state.leituraProdutoPicker = false;
+      showModal("leitura-parada");
+      if (state.clientsPage === 0) void loadClients(true, true);
+      return;
+    }
+    if (action === "leitura-voltar") { if (!leituraGoBack()) await closeOverlay("modal"); return; }
+    if (action === "leitura-tipo-existente") { state.leituraStep = "existente"; render(); return; }
+    if (action === "leitura-tipo-novo") {
+      // Modo MANUAL: sem GPS, então o endereço nasce vazio e editável de cara
+      // (sem resumo de reverse-geocode pra mostrar) — reusa o mesmo passo.
+      const isManual = state.leitura && state.leitura.modo === "MANUAL";
+      state.leituraStep = "novo"; state.leituraNovoEditing = isManual;
+      const capture = state.leituraCapture;
+      if (!isManual && capture) Object.assign(state.leituraNovoDraft, { lat: capture.lat, lng: capture.lng, geoFonte: "gps_cadastro" });
+      render();
+      if (!isManual && capture && validCoordinates(capture.lat, capture.lng)) {
+        const point = await reverseGeocodeLeitura(capture.lat, capture.lng);
+        if (point && state.leituraStep === "novo") { Object.assign(state.leituraNovoDraft, point); render(); }
+      }
+      return;
+    }
+    if (action === "leitura-novo-endereco-editar") { state.leituraNovoEditing = true; render(); return; }
+    if (action === "leitura-novo-endereco-fechar") { state.leituraNovoEditing = false; render(); return; }
+    if (action === "leitura-escolher-cliente") {
+      const client = (state.clients || []).find(c => String(c.id) === String(target.dataset.clientId));
+      if (!client) return;
+      state.leituraSelectedClient = client;
+      state.leituraClienteProdutos = {};
+      void loadLeituraClienteProdutos(client.id);
+      state.leituraTelefoneValue = savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || "";
+      state.leituraTelefoneConfirmado = false;
+      state.leituraTelefoneCorrigindo = false;
+      state.leituraStep = "telefone";
+      render();
+      return;
+    }
+    if (action === "leitura-telefone-corrigir") { state.leituraTelefoneCorrigindo = true; render(); return; }
+    if (action === "leitura-telefone-confirmar") { state.leituraTelefoneConfirmado = true; state.leituraStep = "produto"; render(); return; }
+    if (action === "leitura-telefone-salvar") {
+      const input = document.getElementById("leitura-telefone-input");
+      const value = formatPhone(input ? input.value : state.leituraTelefoneValue);
+      state.leituraTelefoneValue = value;
+      state.leituraTelefoneConfirmado = !!value;
+      state.leituraTelefoneCorrigindo = false;
+      if (state.leituraSelectedClient) state.leituraSelectedClient = { ...state.leituraSelectedClient, phone: value };
+      else state.leituraNovoDraft.telefone = value;
+      state.leituraStep = "produto";
+      render();
+      return;
+    }
+    if (action === "leitura-produto-abrir-picker") { state.leituraProdutoPicker = true; render(); return; }
+    if (action === "leitura-produto-fechar-picker") { state.leituraProdutoPicker = false; render(); return; }
+    if (action === "leitura-item-adicionar") {
+      const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
+      if (!product) return;
+      state.leituraItens.push({ productId: product.id, nome: product.nome || product.name || "Produto", unidade: product.unidade || "unidade", qtd: 1, valorUnit: null });
+      state.leituraProdutoPicker = false;
+      H.vibrate(10);
+      render();
+      return;
+    }
+    if (action === "leitura-item-qtd") {
+      const item = state.leituraItens.find(i => String(i.productId) === String(target.dataset.productId));
+      if (item) { item.qtd = Math.max(1, Number(item.qtd || 1) + Number(target.dataset.delta || 0)); render(); }
+      return;
+    }
+    if (action === "leitura-item-remover") { state.leituraItens = state.leituraItens.filter(i => String(i.productId) !== String(target.dataset.productId)); render(); return; }
+    if (action === "leitura-produto-avancar") { if (!state.leituraItens.length) return; state.leituraStep = "valor"; render(); return; }
+    if (action === "leitura-proximo") {
+      if (!state.leitura || !state.leituraItens.length || !state.leituraCapture) return;
+      const atualizarPrecoAcordado = state.leituraItens.some(item => Math.abs(Number(item.valorUnit || 0) - Number(leituraDefaultValor(item.productId) || 0)) > 0.001);
+      const clientKey = H.uuid();
+      const payload = {
+        clientKey,
+        capturadoEm: state.leituraCapture.capturadoEm,
+        lat: state.leituraCapture.lat,
+        lng: state.leituraCapture.lng,
+        accuracy: state.leituraCapture.accuracy,
+        itens: state.leituraItens.map(item => ({ productId: item.productId, qtd: Number(item.qtd || 1), valorUnit: Number(item.valorUnit || 0) })),
+        telefoneConfirmado: !!state.leituraTelefoneConfirmado,
+        atualizarPrecoAcordado,
+      };
+      if (state.leituraSelectedClient) payload.customerProfileId = state.leituraSelectedClient.id;
+      else {
+        const draft = state.leituraNovoDraft;
+        payload.clienteNovo = { nome: draft.nome, telefone: draft.telefone || undefined, cep: draft.cep || undefined, endereco: draft.endereco || undefined, numero: draft.numero || undefined, bairro: draft.bairro || undefined, cidade: draft.cidade || undefined, uf: draft.uf || undefined, lat: draft.lat ?? undefined, lng: draft.lng ?? undefined, geoFonte: draft.geoFonte || "gps_cadastro" };
+      }
+      leituraQueuePush(state.leitura.id, clientKey, payload);
+      state.leitura.count = Number(state.leitura.count || 0) + 1;
+      persistLeituraSession();
+      await closeOverlay("modal");
+      toast("Parada registrada.");
+      H.vibrate(12);
+      void flushLeituraQueue();
+      return;
+    }
+    if (action === "leitura-finalizar-iniciar") {
+      if (!state.leitura) return;
+      await flushLeituraQueue();
+      const pending = leituraPendingCount();
+      if (pending > 0) { toast(`${pending} parada(s) aguardando rede.`, true); return; }
+      state.leituraFinalStep = "timeline";
+      state.leituraResumoLoading = true; state.leituraResumoError = null; state.leituraResumo = null;
+      showModal("leitura-finalizar");
+      try { state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`); syncLeituraManualOrder(); }
+      catch (error) { state.leituraResumoError = humanApiError(error); }
+      state.leituraResumoLoading = false;
+      render();
+      return;
+    }
+    if (action === "leitura-parada-mover-cima" || action === "leitura-parada-mover-baixo") {
+      // PR20072026 W3 — reordenação local (modo MANUAL); a ordem final vira
+      // ordemParadaIds no POST /finalizar (ver submit de leitura-nome-form).
+      const id = String(target.dataset.paradaId);
+      const list = state.leituraManualOrder;
+      const index = list.indexOf(id);
+      if (index === -1) return;
+      const swapWith = action === "leitura-parada-mover-cima" ? index - 1 : index + 1;
+      if (swapWith < 0 || swapWith >= list.length) return;
+      [list[index], list[swapWith]] = [list[swapWith], list[index]];
+      render();
+      return;
+    }
+    if (action === "leitura-novo-consultar-local") { await locateLeituraNovoAddress(); return; }
+    if (action === "leitura-parada-editar") {
+      const parada = (state.leituraResumo && state.leituraResumo.paradas || []).find(p => String(p.id) === String(target.dataset.paradaId));
+      if (!parada) return;
+      state.leituraEditParadaId = parada.id;
+      state.leituraEditDraft = { itens: (parada.itens || []).map(i => ({ productId: i.productId, qtd: Number(i.qtd || 1), valorUnit: Number(i.valorUnit ?? i.valor ?? 0) })) };
+      render();
+      return;
+    }
+    if (action === "leitura-parada-editar-cancelar") { state.leituraEditParadaId = null; state.leituraEditDraft = null; render(); return; }
+    if (action === "leitura-parada-editar-qtd") {
+      const draft = state.leituraEditDraft; if (!draft) return;
+      const item = draft.itens.find(i => String(i.productId) === String(target.dataset.productId));
+      if (item) { item.qtd = Math.max(1, Number(item.qtd || 1) + Number(target.dataset.delta || 0)); render(); }
+      return;
+    }
+    if (action === "leitura-parada-editar-salvar") {
+      const paradaId = state.leituraEditParadaId; const draft = state.leituraEditDraft;
+      if (!paradaId || !draft || !state.leitura) return;
+      try {
+        await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/parada/${encodeURIComponent(paradaId)}`, { method: "PATCH", body: { itens: draft.itens } });
+        state.leituraEditParadaId = null; state.leituraEditDraft = null;
+        state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`);
+        syncLeituraManualOrder();
+        toast("Parada atualizada.");
+      } catch (error) { toast(humanApiError(error), true); }
+      render();
+      return;
+    }
+    if (action === "leitura-parada-remover") {
+      state.confirmation = { type: "remove-leitura-parada", itemId: target.dataset.paradaId, title: "Remover parada?", message: "Esta parada será removida do resumo.", confirmLabel: "Remover", danger: true, icon: "route" };
+      render();
+      return;
+    }
+    if (action === "leitura-ir-salvar") { state.leituraFinalStep = "dia"; state.leituraDiaEscolhido = todayIso(); render(); return; }
+    if (action === "leitura-salvar-dia-sim") { state.leituraDiaEscolhido = todayIso(); state.leituraFinalStep = "nome"; void prepareLeituraNome(); render(); return; }
+    if (action === "leitura-salvar-dia-nao") { state.leituraFinalStep = "dia-manual"; render(); return; }
+    if (action === "leitura-salvar-dia-voltar") { state.leituraFinalStep = "dia"; render(); return; }
+    if (action === "leitura-salvar-dia-voltar-nome") { state.leituraFinalStep = "dia"; render(); return; }
+    if (action === "leitura-salvar-dia-escolher") { state.leituraDiaEscolhido = Number(target.dataset.day); state.leituraFinalStep = "nome"; void prepareLeituraNome(); render(); return; }
   });
   app.addEventListener("touchstart", event => {
     const clientCard = event.target.closest("[data-client]");
@@ -2032,6 +2622,31 @@
       return;
     }
     if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { if (event.target.name === "clientPhone") event.target.value = formatPhone(event.target.value); state.oneoffDraft[event.target.name] = event.target.value; return; }
+    // PR20072026 W2 — Leitura de Rota.
+    if (event.target.form && event.target.form.id === "leitura-novo-form" && event.target.name) {
+      const name = event.target.name;
+      const value = name === "telefone" ? formatPhone(event.target.value) : name === "cep" ? formatCep(event.target.value) : name === "uf" ? event.target.value.toUpperCase() : event.target.value;
+      event.target.value = value;
+      state.leituraNovoDraft[name] = value;
+      // PR20072026 W3 — modo MANUAL: CEP digitado dispara ViaCEP + geocode
+      // (mesmo padrão do form de cliente novo, ver lookupLeituraNovoCep).
+      if (name === "cep") { if (onlyDigits(value).length === 8) void lookupLeituraNovoCep(value); else state.leituraNovoCepStatus = ""; }
+      return;
+    }
+    if (event.target.form && event.target.form.id === "leitura-nome-form" && event.target.name === "nome") { state.leituraNomeRota = event.target.value; state.leituraNomeError = ""; return; }
+    if (event.target.id === "leitura-telefone-input") { event.target.value = formatPhone(event.target.value); return; }
+    if (event.target.id === "leitura-cliente-search") { state.leituraClienteQuery = event.target.value; render(); return; }
+    if (event.target.dataset.leituraValor !== undefined) {
+      const item = state.leituraItens.find(i => String(i.productId) === String(event.target.dataset.leituraValor));
+      if (item) item.valorUnit = event.target.value === "" ? null : Number(event.target.value);
+      return;
+    }
+    if (event.target.dataset.leituraEditValor !== undefined) {
+      const draft = state.leituraEditDraft;
+      const item = draft && draft.itens.find(i => String(i.productId) === String(event.target.dataset.leituraEditValor));
+      if (item) item.valorUnit = event.target.value === "" ? 0 : Number(event.target.value);
+      return;
+    }
     if (event.target.id === "day-preview-search") {
       const query = event.target.value.trim().toLowerCase();
       app.querySelectorAll("[data-day-preview]").forEach(row => { row.hidden = !!query && !row.dataset.dayPreview.includes(query); });
@@ -2161,12 +2776,58 @@
         toast("Produto atualizado.");
       }
       if (form.id === "new-delivery-form") { data.productId = data.productId ? Number(data.productId) : undefined; data.quantidade = Number(data.quantidade || 1); data.scheduledAt = data.scheduledAt ? new Date(data.scheduledAt).toISOString() : undefined; await H.api("/logistica/entregas", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Entrega adicionada à rota."); }
+      if (form.id === "leitura-novo-form") {
+        const nome = String(data.nome || "").trim();
+        if (!nome) throw new Error("Informe o nome do cliente.");
+        const draft = state.leituraNovoDraft;
+        draft.nome = nome;
+        draft.telefone = data.telefone || "";
+        if (data.endereco !== undefined) draft.endereco = data.endereco;
+        if (data.numero !== undefined) draft.numero = data.numero;
+        if (data.bairro !== undefined) draft.bairro = data.bairro;
+        if (data.cidade !== undefined) draft.cidade = data.cidade;
+        if (data.uf !== undefined) draft.uf = String(data.uf).toUpperCase();
+        state.leituraSelectedClient = null;
+        state.leituraClienteProdutos = {};
+        state.leituraTelefoneValue = draft.telefone || "";
+        state.leituraTelefoneConfirmado = !!draft.telefone;
+        state.leituraTelefoneCorrigindo = false;
+        state.leituraStep = "telefone";
+        button.disabled = false;
+        render();
+      }
+      if (form.id === "leitura-nome-form" && state.leitura) {
+        const nome = String(data.nome || "").trim() || diaSemanaLabel(state.leituraDiaEscolhido);
+        // Modo MANUAL manda a ordem exibida (▲▼) como ordemParadaIds — o
+        // contrato do backend reordena as paradas antes de salvar o modelo.
+        const body = { nome, diaSemana: state.leituraDiaEscolhido };
+        if (state.leitura.modo === "MANUAL") body.ordemParadaIds = state.leituraManualOrder.slice();
+        state.leituraSaving = true; render();
+        try {
+          await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/finalizar`, { method: "POST", body });
+          leituraQueueClearSession(state.leitura.id);
+          state.leitura = null;
+          persistLeituraSession();
+          state.leituraResumo = null;
+          state.leituraManualOrder = [];
+          await closeOverlay("modal");
+          await loadRouteModelos(true);
+          toast("Feito.");
+        } catch (error) {
+          const code = error && error.body && error.body.code;
+          if (code === "ROTA_NOME_DUPLICADO") state.leituraNomeError = humanApiError(error);
+          else toast(humanApiError(error), true);
+        }
+        state.leituraSaving = false;
+        button.disabled = false;
+        render();
+      }
       if (form.id === "new-oneoff-form") { let customerProfileId = data.customerProfileId; if (!customerProfileId) { if (!data.clientName) throw new Error("Escolha ou informe o cliente avulso."); const client = await H.api("/nucleo/contas", { method: "POST", body: { nome: data.clientName, tipo: "pf", whatsapp: data.clientPhone, isCliente: true, isLead: false } }); customerProfileId = client && (client.id || client.contaId); } if (!customerProfileId) throw new Error("Não foi possível preparar o cliente avulso."); await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId: Number(data.productId), quantidade: Number(data.quantidade || 1), scheduledAt: operationalScheduledAt(), notes: data.notes || undefined } }); state.oneoffDraft = {}; await closeOverlay("modal"); await refresh(true); toast("Entrega avulsa adicionada à rota de hoje."); }
     } catch (error) { button.disabled = false; toast(humanApiError(error), true); }
   });
   document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
   document.addEventListener("hbx:theme", render);
-  window.addEventListener("online", () => refresh(true));
+  window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); });
   window.HBXApp = {
     refresh,
     handleBack() {
@@ -2190,6 +2851,18 @@
             render();
             return true;
           }
+        }
+        if (state.modal === "leitura-parada") {
+          if (leituraGoBack()) return true;
+          void closeOverlay("modal");
+          return true;
+        }
+        if (state.modal === "leitura-finalizar") {
+          const step = state.leituraFinalStep;
+          if (step === "nome" || step === "dia-manual") { state.leituraFinalStep = "dia"; render(); return true; }
+          if (step === "dia") { state.leituraFinalStep = "timeline"; render(); return true; }
+          void closeOverlay("modal");
+          return true;
         }
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
@@ -2220,5 +2893,5 @@
     moduleActive = false;
     window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
   }
-  else { render(); refresh(false, true); state.screenMotion = ""; }
+  else { render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); }
 })();

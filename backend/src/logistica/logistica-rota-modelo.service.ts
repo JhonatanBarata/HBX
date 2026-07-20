@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -9,7 +9,38 @@ import { PrismaService } from '../prisma/prisma.service';
  * Aplicar o modelo é 100% CLIENT-SIDE: o app lê `paradas` e monta o
  * `ordemManual` que manda pro planejar/iniciar — não existe endpoint
  * "aplicar" aqui (contrato do 00-ORQUESTRACAO.md).
+ *
+ * PR20072026 W1 — nome ÚNICO por empresa (case-insensitive/trim, SEM constraint
+ * no banco — dados legados podem ter duplicata). `assertNomeUnico` é exportado
+ * para o finalizar de logistica-leitura.service.ts reusar a MESMA regra dentro
+ * da própria transação (aceita `tx` do Prisma).
  */
+export const ROTA_NOME_DUPLICADO_CODE = 'ROTA_NOME_DUPLICADO';
+export const ROTA_NOME_DUPLICADO_MESSAGE = 'Já existe uma rota com esse nome.';
+
+type RotaModeloClient = Pick<PrismaService, 'logisticaRotaModelo'> | { logisticaRotaModelo: any };
+
+export async function assertNomeUnico(
+  client: RotaModeloClient,
+  companyId: number,
+  nome: string,
+  excludeId?: string,
+): Promise<void> {
+  const alvo = nome.trim().toLowerCase();
+  if (!alvo) return;
+  const existing = await (client as any).logisticaRotaModelo.findFirst({
+    where: { companyId, nome: { equals: nome.trim(), mode: 'insensitive' } },
+    select: { id: true, nome: true },
+  });
+  if (existing && existing.id !== excludeId && String(existing.nome ?? '').trim().toLowerCase() === alvo) {
+    throw new ConflictException({
+      statusCode: 409,
+      code: ROTA_NOME_DUPLICADO_CODE,
+      message: ROTA_NOME_DUPLICADO_MESSAGE,
+    });
+  }
+}
+
 @Injectable()
 export class LogisticaRotaModeloService {
   private readonly logger = new Logger(LogisticaRotaModeloService.name);
@@ -30,6 +61,7 @@ export class LogisticaRotaModeloService {
     const nome = normalizeNome(input.nome);
     const diaSemana = normalizeDiaSemana(input.diaSemana);
     const paradas = normalizeParadas(input.paradas);
+    await assertNomeUnico(this.prisma, companyId, nome);
     const row = await this.prisma.logisticaRotaModelo.create({
       data: { companyId, nome, diaSemana, paradasJson: paradas as any },
     });
@@ -46,7 +78,11 @@ export class LogisticaRotaModeloService {
     if (!existing) return null;
 
     const data: Record<string, unknown> = {};
-    if (input.nome !== undefined) data.nome = normalizeNome(input.nome);
+    if (input.nome !== undefined) {
+      const nome = normalizeNome(input.nome);
+      await assertNomeUnico(this.prisma, companyId, nome, existing.id);
+      data.nome = nome;
+    }
     if (input.diaSemana !== undefined) data.diaSemana = normalizeDiaSemana(input.diaSemana);
     if (input.paradas !== undefined) data.paradasJson = normalizeParadas(input.paradas) as any;
 
@@ -66,14 +102,14 @@ export class LogisticaRotaModeloService {
   }
 }
 
-function normalizeNome(value: unknown): string {
+export function normalizeNome(value: unknown): string {
   const nome = String(value ?? '').trim();
   if (!nome) throw new BadRequestException('Nome é obrigatório.');
   if (nome.length > 80) throw new BadRequestException('Nome deve ter até 80 caracteres.');
   return nome;
 }
 
-function normalizeDiaSemana(value: unknown): number | null {
+export function normalizeDiaSemana(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const n = Math.trunc(Number(value));
   if (!Number.isInteger(n) || n < 1 || n > 7) {
@@ -82,7 +118,11 @@ function normalizeDiaSemana(value: unknown): number | null {
   return n;
 }
 
-function normalizeParadas(value: unknown): RotaModeloParada[] {
+// PR20072026 W1 — `horaRef` ("HH:MM") é chave ADITIVA gravada pelo finalizar de
+// logistica-leitura.service.ts (hora de referência da parada capturada em campo).
+// PRESERVAR aqui: o modelo salvo pela Leitura de Rota também passa por esta
+// função (via prisma direto no finalizar, mas com o MESMO contrato de shape).
+export function normalizeParadas(value: unknown): RotaModeloParada[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new BadRequestException('paradas deve ser uma lista.');
   if (value.length > 500) throw new BadRequestException('No máximo 500 paradas por modelo.');
@@ -93,7 +133,13 @@ function normalizeParadas(value: unknown): RotaModeloParada[] {
     }
     const localIdRaw = (item as any)?.localId;
     const localId = localIdRaw != null ? String(localIdRaw).trim() : null;
-    return { customerProfileId, ...(localId ? { localId } : {}) };
+    const horaRefRaw = (item as any)?.horaRef;
+    const horaRef = horaRefRaw != null ? String(horaRefRaw).trim() : null;
+    return {
+      customerProfileId,
+      ...(localId ? { localId } : {}),
+      ...(horaRef ? { horaRef } : {}),
+    };
   });
 }
 
@@ -109,6 +155,8 @@ function toDTO(row: { id: string; nome: string; diaSemana: number | null; parada
 export interface RotaModeloParada {
   customerProfileId: string;
   localId?: string;
+  // PR20072026 W1 — hora de referência ("HH:MM") da parada na captura original.
+  horaRef?: string;
 }
 
 export interface RotaModeloInput {

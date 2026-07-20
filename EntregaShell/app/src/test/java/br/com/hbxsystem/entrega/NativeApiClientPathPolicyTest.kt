@@ -78,6 +78,25 @@ class NativeApiClientPathPolicyTest {
     }
 
     @Test
+    fun pr20072026LeituraDeRotaEndpointsFollowTheExactMethodPolicy() {
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/iniciar"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/atual"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/parada"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1/resumo"))
+        assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/logistica/leitura/sessao-1/parada/parada-1"))
+        assertTrue(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/leitura/sessao-1/parada/parada-1"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/finalizar"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/cancelar"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/leitura/sessao-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1/parada/parada-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/parada/parada-1"))
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/leitura/atual"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/leitura/iniciar"))
+    }
+
+    @Test
     fun vendasCannotAccessNucleoOrLogistica() {
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/vendas/board"))
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/products"))

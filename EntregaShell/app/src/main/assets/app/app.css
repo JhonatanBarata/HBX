@@ -206,6 +206,9 @@ h3 { font-size: .95rem; }
 .rp2-mode-icon--saved { color: var(--warning); background: color-mix(in srgb, var(--warning) 18%, var(--surface)); }
 .rp2-mode-chev { flex: 0 0 auto; color: var(--muted); }
 .rp2-saved-icon { width: 32px; height: 32px; font-size: .85rem; border-radius: 10px; }
+/* PR20072026 W3 — destaque "Aplicar rota de {dia}" no topo do passo "Como
+   montar?" (spec §1.2): mesmo card rp2-mode-card, borda/fundo âmbar. */
+.rp2-mode-card--highlight { margin-bottom: 10px; border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); }
 
 .rp2-order-row { display: flex; align-items: center; gap: 12px; transition: background .18s ease, border-color .18s ease; }
 .rp2-order-badge { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px; color: var(--brand-strong); background: var(--brand-soft); font-size: .78rem; font-weight: 850; }
@@ -428,6 +431,43 @@ h3 { font-size: .95rem; }
 .toggle i { display: block; width: 16px; height: 16px; border-radius: 99px; background: white; transition: transform .18s; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
 .toggle.on { background: var(--brand); }.toggle.on i { transform: translateX(16px); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+
+/* PR20072026 W2 — Leitura de Rota (lrt-*): CTA de entrada + faixa ativa +
+   escolha Existente/Novo + distância na busca + timeline final. Só tokens
+   existentes (--brand/--danger/--surface/--line/--muted…), sem hex novo. */
+.lrt-banner { margin: 14px 0; }
+.lrt-start { min-height: 54px; }
+/* PR20072026 W3 — "Criar rota manual" ao lado de "Iniciar Leitura de Rota". */
+.lrt-start-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lrt-start-actions .lrt-start { font-size: .74rem; }
+.lrt-active { display: grid; gap: 10px; padding: 14px; border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line)); border-radius: 18px; background: var(--brand-soft); }
+.lrt-active-head { display: flex; flex-direction: column; gap: 2px; }
+.lrt-active-head strong { font-size: .86rem; }
+.lrt-active-head span { color: var(--brand-strong); font-size: .72rem; font-weight: 800; }
+.lrt-active-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lrt-active-actions .btn { min-width: 0; font-size: .74rem; }
+.lrt-cancel { justify-self: center; color: var(--danger); font-size: .68rem; min-height: 30px; }
+.lrt-choice { display: grid; gap: 10px; }
+.lrt-choice-btn { display: flex; align-items: center; gap: 10px; }
+.lrt-client-row { display: flex; align-items: center; gap: 10px; }
+.lrt-client-near { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); background: var(--brand-soft); }
+.lrt-distance { flex: 0 0 auto; color: var(--brand-strong); font-size: .68rem; font-weight: 850; }
+.lrt-address-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.lrt-phone-display { padding: 16px; border-radius: 14px; background: var(--surface-2); font-size: 1.4rem; font-weight: 850; text-align: center; }
+.lrt-timeline { display: grid; gap: 8px; }
+.lrt-timeline-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+/* PR20072026 W3 — modo MANUAL: ▲▼ (rp2-order-arrow, já ≥52px) numa segunda
+   linha da própria row, pra caber ao lado de valor/editar/remover. */
+.lrt-timeline-row--manual { flex-wrap: wrap; }
+.lrt-timeline-main { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; min-width: 0; }
+.lrt-timeline-row--manual .rp2-order-arrows { flex: 0 0 100%; margin-top: 8px; }
+.lrt-timeline-time { flex: 0 0 auto; color: var(--muted); font-size: .68rem; font-weight: 800; }
+.lrt-timeline-valor { flex: 0 0 auto; color: var(--brand-strong); font-size: .8rem; }
+.lrt-timeline-actions { display: grid; gap: 2px; flex: 0 0 auto; text-align: right; }
+.lrt-timeline-actions .link-btn { min-height: auto; padding: 2px 0; font-size: .66rem; }
+.lrt-timeline-editing { flex-direction: column; align-items: stretch; gap: 10px; }
+.lrt-timeline-edit-body { display: grid; gap: 8px; }
+.lrt-timeline-total { margin: 6px 2px 0; color: var(--muted); font-size: .78rem; font-weight: 800; text-align: right; }
 
 @media (min-width: 620px) {
   .form-grid { grid-template-columns: repeat(2, 1fr); }

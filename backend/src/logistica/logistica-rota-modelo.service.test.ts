@@ -17,12 +17,20 @@ function buildPrisma(seed: any[] = []) {
         const where = args?.where || {};
         return Array.from(store.values()).filter((row) => row.companyId === where.companyId);
       },
+      // PR20072026 W1 — findFirst também serve o lookup por NOME (case-insensitive)
+      // de assertNomeUnico (where.id ausente, where.nome = {equals, mode}).
       findFirst: async (args: any) => {
         const where = args?.where || {};
-        const row = store.get(where.id);
+        let rows = Array.from(store.values());
+        if (where.id != null) rows = rows.filter((r) => r.id === where.id);
+        if (where.companyId != null) rows = rows.filter((r) => r.companyId === where.companyId);
+        if (where.nome && typeof where.nome === 'object') {
+          const alvo = String(where.nome.equals ?? '').toLowerCase();
+          rows = rows.filter((r) => String(r.nome ?? '').toLowerCase() === alvo);
+        }
+        const row = rows[0];
         if (!row) return null;
-        if (where.companyId != null && row.companyId !== where.companyId) return null;
-        return { id: row.id };
+        return { id: row.id, nome: row.nome };
       },
       create: async (args: any) => {
         const id = `modelo-${nextId++}`;
@@ -144,4 +152,49 @@ test('remove: id inexistente → false', async () => {
   const { prisma } = buildPrisma([]);
   const svc = new LogisticaRotaModeloService(prisma);
   assert.equal(await svc.remove(7, 'nao-existe'), false);
+});
+
+// PR20072026 W1 — nome único por empresa (case-insensitive/trim), 409 ROTA_NOME_DUPLICADO.
+
+test('create: nome duplicado (case-insensitive) na MESMA empresa → 409 ROTA_NOME_DUPLICADO', async () => {
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda — Centro', diaSemana: 1, paradasJson: [] }]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  await assert.rejects(
+    () => svc.create(7, { nome: '  segunda — centro  ' }),
+    (err: any) => {
+      assert.equal(err.status, 409);
+      assert.equal(err.getResponse().code, 'ROTA_NOME_DUPLICADO');
+      return true;
+    },
+  );
+});
+
+test('create: mesmo nome em OUTRA empresa não conflita', async () => {
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradasJson: [] }]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  const dto = await svc.create(8, { nome: 'Segunda' });
+  assert.equal(dto.nome, 'Segunda');
+});
+
+test('update: renomear para um nome já usado por OUTRO modelo → 409 ROTA_NOME_DUPLICADO', async () => {
+  const { prisma } = buildPrisma([
+    { id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradasJson: [] },
+    { id: 'm2', companyId: 7, nome: 'Terça', diaSemana: 2, paradasJson: [] },
+  ]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  await assert.rejects(
+    () => svc.update(7, 'm2', { nome: 'SEGUNDA' }),
+    (err: any) => {
+      assert.equal(err.status, 409);
+      assert.equal(err.getResponse().code, 'ROTA_NOME_DUPLICADO');
+      return true;
+    },
+  );
+});
+
+test('update: renomear pro MESMO nome do próprio modelo não conflita', async () => {
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradasJson: [] }]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  const dto = await svc.update(7, 'm1', { nome: 'Segunda' });
+  assert.equal(dto!.nome, 'Segunda');
 });

@@ -296,6 +296,8 @@ model Company {
   logisticaRouteStops    LogisticaRouteStop[]
   // PR18072026 W1 — roteiros salvos (rota-modelo) da empresa.
   logisticaRotaModelos   LogisticaRotaModelo[]
+  // PR20072026 W1 — sessões de "Leitura de Rota" (captura em campo) da empresa.
+  logisticaLeituraSessoes LogisticaLeituraSessao[]
   logisticaEssentialClaims LogisticaEssentialCreditClaim[]
   logisticaTrackingSessions LogisticaTrackingSession[]
   logisticaTrackingPoints LogisticaTrackingPoint[]
@@ -1136,6 +1138,8 @@ model CustomerProfile {
   financeiroCharges    FinanceiroCharge[]
   recoveryDebtItems    RecoveryDebtItem[]
   conversations        CompanyConversation[]
+  // PR20072026 W1 — paradas de Leitura de Rota que resolveram para esta conta.
+  logisticaLeituraParadas LogisticaLeituraParada[]
 
   @@unique([companyId, phoneNormalized])
   @@index([companyId, document])
@@ -1362,6 +1366,55 @@ model LogisticaRotaModelo {
   updatedAt  DateTime @updatedAt
 
   @@index([companyId])
+}
+
+// PR20072026 W1 — "Leitura de Rota": sessão de captura em campo (docs/PLANEJAMENTOS/
+// PR20072026/SPEC-LEITURA-DE-ROTA.md). `modo` LEITURA manda GPS a cada parada;
+// MANUAL (criar rota manualmente) não manda. Ao finalizar vira uma
+// LogisticaRotaModelo (acima) — esta sessão NUNCA cria Entrega/EntregaItem
+// (decisão do dono 20/07: item 8 da spec — materializar entregas — CORTADO).
+model LogisticaLeituraSessao {
+  id         String   @id @default(cuid())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  Int
+  userId     Int      // dono da sessão (req.user) — escopo por usuário; nunca 2 ABERTAS ao mesmo tempo
+  modo       String   @default("LEITURA") // LEITURA | MANUAL
+  status     String   @default("ABERTA")  // ABERTA | FINALIZADA | CANCELADA
+  startedAt  DateTime @default(now())
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  paradas    LogisticaLeituraParada[]
+
+  @@index([companyId, userId, status])
+}
+
+// Uma parada capturada dentro de uma LogisticaLeituraSessao. `clientKey` é a
+// idempotência do replay offline (o app gera no aparelho e reenvia até
+// confirmar) — @@unique([sessaoId, clientKey]) garante que o replay nunca
+// duplica cliente/parada. `localEntregaId` tem relation de verdade (memória
+// 17/07 — FK órfã sem relation deu P2003 em produção).
+model LogisticaLeituraParada {
+  id                String   @id @default(cuid())
+  sessao            LogisticaLeituraSessao @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
+  sessaoId          String
+  clientKey         String   // idempotência do replay offline
+  ordem             Int
+  capturadoEm       DateTime
+  lat               Float?
+  lng               Float?
+  accuracy          Float?
+  customerProfile   CustomerProfile? @relation(fields: [customerProfileId], references: [id], onDelete: SetNull)
+  customerProfileId String?
+  localEntrega      LocalEntrega? @relation(fields: [localEntregaId], references: [id], onDelete: SetNull)
+  localEntregaId    String?
+  itensJson         Json     // [{ productId, qtd, valorUnit }]
+  telefoneConfirmado Boolean @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([sessaoId, clientKey])
+  @@index([sessaoId, ordem])
 }
 
 // ROTA RASTREADA PR2 (14/07) — sessão única e congelada da rota TRACKED.
@@ -1629,6 +1682,8 @@ model LocalEntrega {
   updatedAt         DateTime @updatedAt
   entregas          Entrega[]
   clienteProdutos   ClienteProduto[]
+  // PR20072026 W1 — paradas de Leitura de Rota que resolveram para este local.
+  logisticaLeituraParadas LogisticaLeituraParada[]
 
   @@index([companyId, customerProfileId])
   @@index([companyId, customerProfileId, isPrincipal])
