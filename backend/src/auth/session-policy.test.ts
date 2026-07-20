@@ -6,8 +6,8 @@ import {
   MAX_MOBILE_DEVICES_PER_USER,
 } from './session-policy';
 
-test('politica libera quatro sessoes web e quatro aparelhos', () => {
-  assert.equal(MAX_ADMIN_WEB_SESSIONS, 4);
+test('politica libera dez sessoes web e quatro aparelhos', () => {
+  assert.equal(MAX_ADMIN_WEB_SESSIONS, 10);
   assert.equal(MAX_MOBILE_DEVICES_PER_USER, 4);
 });
 

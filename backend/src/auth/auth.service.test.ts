@@ -217,9 +217,10 @@ test('bootstrap do System Master preserva sessao ativa quando usuario ja esta co
   }
 });
 
-// Administradores têm quatro telas simultâneas. O quinto login revoga apenas a
-// sessão mais antiga; continua sem consulta/409 antes de provar a senha.
-test('quinto login do System Master revoga somente a sessao administrativa mais antiga', async () => {
+// Administradores têm dez telas simultâneas (MAX_ADMIN_WEB_SESSIONS). O décimo
+// primeiro login revoga apenas a sessão mais antiga; continua sem consulta/409
+// antes de provar a senha.
+test('decimo primeiro login do System Master revoga somente a sessao administrativa mais antiga', async () => {
   const password = await bcrypt.hash('master-secret', 4);
   const authSessionFinds: any[] = [];
   const revokedSessions: any[] = [];
@@ -304,7 +305,7 @@ test('quinto login do System Master revoga somente a sessao administrativa mais 
     assert.equal(result.next, '/master');
     assert.equal(result.access_token, 'signed-token');
     assert.equal(authSessionFinds.length, 1);
-    assert.equal(authSessionFinds[0].skip, 3);
+    assert.equal(authSessionFinds[0].skip, 9);
     assert.equal(revokedSessions.length, 1);
     assert.deepEqual(revokedSessions[0].where.id.in, ['sessao_mais_antiga']);
     assert.equal(revokedSessions[0].data.revokedReason, 'session_limit_reached');
