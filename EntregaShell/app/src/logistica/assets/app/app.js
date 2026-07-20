@@ -508,6 +508,11 @@
   function attachMoneyInput(el, initialReais, onChange) {
     if (!el) return;
     let cents = Math.max(0, Math.round((Number(initialReais) || 0) * 100));
+    // Feedback do dono: ao tocar no campo e COMEÇAR a digitar, o valor atual é
+    // LIMPO (digita do zero, estilo caixa eletrônico). `pristine` = acabou de
+    // focar e ainda não digitou nada — o 1º dígito substitui tudo; do 2º em
+    // diante empurra dos centavos normalmente. Backspace também sai do pristine.
+    let pristine = false;
     const paint = () => {
       el.value = moneyCentsToBRL(cents);
       requestAnimationFrame(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} });
@@ -518,6 +523,11 @@
       paint();
       if (typeof onChange === "function") onChange(cents / 100);
     };
+    const pushDigit = digit => {
+      const base = pristine ? 0 : cents;
+      pristine = false;
+      apply(base * 10 + Number(digit));
+    };
     const digitFrom = event => {
       if (event.key && /^[0-9]$/.test(event.key)) return event.key;
       if (event.data && /^[0-9]$/.test(event.data)) return event.data;
@@ -525,9 +535,9 @@
     };
     el.addEventListener("keydown", event => {
       const digit = digitFrom(event);
-      if (digit !== null) { event.preventDefault(); apply(cents * 10 + Number(digit)); return; }
-      if (event.key === "Backspace") { event.preventDefault(); apply(Math.floor(cents / 10)); return; }
-      if (event.key === "Delete") { event.preventDefault(); apply(0); return; }
+      if (digit !== null) { event.preventDefault(); pushDigit(digit); return; }
+      if (event.key === "Backspace") { event.preventDefault(); pristine = false; apply(Math.floor(cents / 10)); return; }
+      if (event.key === "Delete") { event.preventDefault(); pristine = false; apply(0); return; }
       if (["Tab", "Enter", "Escape", "Shift", "Control", "Meta", "Alt", "Unidentified"].includes(event.key) || (event.key && event.key.indexOf("Arrow") === 0)) return;
       event.preventDefault();
     });
@@ -535,19 +545,20 @@
       if (event.inputType === "insertText") {
         const digit = digitFrom(event);
         event.preventDefault();
-        if (digit !== null) apply(cents * 10 + Number(digit));
+        if (digit !== null) pushDigit(digit);
         return;
       }
-      if (event.inputType === "deleteContentBackward") { event.preventDefault(); apply(Math.floor(cents / 10)); return; }
+      if (event.inputType === "deleteContentBackward") { event.preventDefault(); pristine = false; apply(Math.floor(cents / 10)); return; }
       if (event.inputType === "insertFromPaste") {
         event.preventDefault();
+        pristine = false;
         const pasted = onlyDigits(event.data || (event.dataTransfer && event.dataTransfer.getData("text")) || "");
         if (pasted) apply(Number(pasted.slice(-7)));
         return;
       }
       event.preventDefault();
     });
-    el.addEventListener("focus", () => requestAnimationFrame(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} }));
+    el.addEventListener("focus", () => { pristine = true; requestAnimationFrame(() => { try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} }); });
   }
   // Liga os campos de moeda visíveis no DOM atual (chamado a cada render — a
   // folha inteira é recriada do zero, então religar é barato e necessário).
@@ -1311,7 +1322,8 @@
   }
   async function prepareLeituraNome() {
     await loadRouteModelos(true);
-    const label = diaSemanaLabel(state.leituraDiaEscolhido);
+    // F1 — sem dia da semana: nome sugerido "Rota dd/mm" (com dedupe numérico).
+    const label = state.leituraDiaEscolhido ? diaSemanaLabel(state.leituraDiaEscolhido) : rotaDefaultName();
     const existingNames = new Set((state.routeModelos || []).map(m => String(m.nome || "").trim().toLowerCase()));
     let candidate = label; let n = 2;
     while (existingNames.has(candidate.toLowerCase())) { candidate = `${label} ${n}`; n += 1; }
@@ -1328,23 +1340,47 @@
     const count = Number(state.leitura.count || 0);
     return `<div class="lrt-active"><div class="lrt-active-head"><strong>${isManual ? "Rota manual em andamento" : "Leitura de rota em andamento"}</strong><span>${count} ${count === 1 ? "parada registrada" : "paradas registradas"}</span></div><div class="lrt-active-actions"><button class="btn btn-primary rp2-cta" type="button" data-action="${isManual ? "leitura-adicionar-cliente" : "leitura-cadastrar-local"}" ${state.leituraCapturing ? "disabled" : ""}>${icon(isManual ? "users" : "gps", 17)} ${state.leituraCapturing ? "Lendo GPS…" : (isManual ? "Adicionar cliente" : "Cadastrar Local")}</button><button class="btn btn-secondary" type="button" data-action="leitura-finalizar-iniciar">Finalizar Leitura de Rota</button></div><button class="link-btn lrt-cancel" type="button" data-action="leitura-cancelar">Cancelar leitura</button></div>`;
   }
+  // Resumo curto do que já foi escolhido nesta parada (cliente · itens) — some no
+  // header do modal central pra idoso não perder o fio.
+  function leituraResumo() {
+    const parts = [];
+    const c = state.leituraSelectedClient;
+    if (c) parts.push(c.nome || c.name || "Cliente");
+    else if (state.leituraNovoDraft && state.leituraNovoDraft.nome) parts.push(state.leituraNovoDraft.nome);
+    const itens = state.leituraItens || [];
+    if (itens.length) parts.push(itens.map(i => `${i.qtd}× ${i.nome}`).join(" · "));
+    return parts.length ? H.escape(parts.join("  ·  ")) : "";
+  }
   function leituraTipoStep() {
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Novo local</h2><p class="subtitle">Cliente novo ou existente?</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body lrt-choice"><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-existente"><span class="card-main"><strong>Cliente existente</strong><span>Buscar quem já está cadastrado</span></span><span class="rp2-mode-chev">›</span></button><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-novo"><span class="card-main"><strong>Cliente novo</strong><span>Só nome e telefone</span></span><span class="rp2-mode-chev">›</span></button></div></section></div>`;
+    const body = `<div class="lrt-choice"><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-existente"><span class="card-main"><strong>Cliente existente</strong><span>Buscar quem já está cadastrado</span></span><span class="rp2-mode-chev">›</span></button><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-novo"><span class="card-main"><strong>Cliente novo</strong><span>Só nome e telefone</span></span><span class="rp2-mode-chev">›</span></button></div>`;
+    return centerModal({ icon: "gps", title: "Novo local", resumo: "Cliente novo ou existente?", body, closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar" });
   }
   function leituraExistenteStep() {
     const rows = leituraExistenteResults();
-    const body = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Cliente existente</h2><p class="subtitle">Mais perto primeiro</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label><div class="rp2-body">${body}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button></div></section></div>`;
+    // "Mais perto primeiro" só quando há distância real (cliente com GPS); senão
+    // é ordem alfabética — não mentir pro motorista (F3.5).
+    const temDistancia = rows.some(r => r.dist !== null);
+    const list = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
+    const body = `<label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label>${list}`;
+    return centerModal({ icon: "users", title: "Cliente existente", resumo: temDistancia ? "Mais perto primeiro" : "Ordem alfabética", body, backAction: "leitura-voltar" });
   }
   function leituraNovoStep() {
     const draft = state.leituraNovoDraft;
     const summary = [[draft.endereco, draft.numero].filter(Boolean).join(", "), draft.bairro].filter(Boolean).join(" - ");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Cliente novo</h2><p class="subtitle">Só nome e telefone</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><form id="leitura-novo-form"><div class="field"><label>Nome</label><input name="nome" required maxlength="160" value="${H.escape(draft.nome)}"></div><div class="field"><label>Telefone</label><input name="telefone" inputmode="tel" maxlength="15" value="${H.escape(draft.telefone)}" placeholder="(00) 00000-0000"></div>${state.leituraNovoEditing ? `<div class="section-title"><strong>Endereço</strong><button type="button" class="link-btn" data-action="leitura-novo-endereco-fechar">Fechar</button></div><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(draft.cep)}" placeholder="00.000-000"></div><div class="client-address-row client-address-primary"><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(draft.endereco)}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(draft.numero)}"></div></div><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(draft.bairro)}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(draft.cidade)}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(draft.uf)}"></div></div>${state.leituraNovoCepStatus ? `<p class="subtitle">${H.escape(state.leituraNovoCepStatus)}</p>` : ""}<div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="leitura-novo-consultar-local">${icon("map", 16)} Consultar local</button></div>` : `<p class="subtitle lrt-address-summary"><span>${summary ? `Endereço: ${H.escape(summary)}` : "Endereço não localizado ainda."}</span> <button type="button" class="link-btn" data-action="leitura-novo-endereco-editar">editar</button></p>`}<button class="btn btn-primary btn-block rp2-cta" type="submit">Confirmar</button></form></div></section></div>`;
+    const body = `<form id="leitura-novo-form"><div class="field"><label>Nome</label><input name="nome" required maxlength="160" value="${H.escape(draft.nome)}"></div><div class="field"><label>Telefone</label><input name="telefone" inputmode="tel" maxlength="15" value="${H.escape(draft.telefone)}" placeholder="(00) 00000-0000"></div>${state.leituraNovoEditing ? `<div class="section-title"><strong>Endereço</strong><button type="button" class="link-btn" data-action="leitura-novo-endereco-fechar">Fechar</button></div><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(draft.cep)}" placeholder="00.000-000"></div><div class="client-address-row client-address-primary"><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(draft.endereco)}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(draft.numero)}"></div></div><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(draft.bairro)}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(draft.cidade)}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(draft.uf)}"></div></div>${state.leituraNovoCepStatus ? `<p class="subtitle">${H.escape(state.leituraNovoCepStatus)}</p>` : ""}<div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="leitura-novo-consultar-local">${icon("map", 16)} Consultar local</button></div>` : `<p class="subtitle lrt-address-summary"><span>${summary ? `Endereço: ${H.escape(summary)}` : "Endereço não localizado ainda."}</span> <button type="button" class="link-btn" data-action="leitura-novo-endereco-editar">editar</button></p>`}<button class="btn btn-primary btn-block rp2-cta" type="submit">Confirmar</button></form>`;
+    return centerModal({ icon: "users", title: "Cliente novo", resumo: "Só nome e telefone", body, backAction: "leitura-voltar", nextAction: "" });
   }
   function leituraTelefoneStep() {
     const hasPhone = !!state.leituraTelefoneValue;
     const editing = state.leituraTelefoneCorrigindo || !hasPhone;
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("phone", 18)}</div><div><h2>Telefone</h2><p class="subtitle">${hasPhone ? "Confirme o número" : "Nenhum telefone cadastrado"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${editing ? `<div class="field"><label>Telefone</label><input id="leitura-telefone-input" inputmode="tel" maxlength="15" value="${H.escape(state.leituraTelefoneValue)}" placeholder="(00) 00000-0000"></div>` : `<p class="lrt-phone-display">${H.escape(state.leituraTelefoneValue)}</p>`}</div><div class="rp2-footer">${editing ? `<button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-salvar">${hasPhone ? "Salvar" : "Continuar sem telefone"}</button>` : `<button class="btn btn-secondary btn-block" type="button" data-action="leitura-telefone-corrigir">Corrigir</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-confirmar">Confirmar</button>`}<button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button></div></section></div>`;
+    const body = editing
+      ? `<div class="field"><label>Telefone</label><input id="leitura-telefone-input" inputmode="tel" maxlength="15" value="${H.escape(state.leituraTelefoneValue)}" placeholder="(00) 00000-0000"></div>`
+      : `<p class="lrt-phone-display">${H.escape(state.leituraTelefoneValue)}</p>`;
+    // Ação extra (Salvar / Corrigir) acima das setas: o "Próximo" (›) confirma.
+    const extra = editing
+      ? `<div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-salvar">${hasPhone ? "Salvar" : "Continuar sem telefone"}</button></div>`
+      : `<div class="center-modal-extra"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-telefone-corrigir">Corrigir número</button></div>`;
+    return centerModal({ icon: "phone", title: "Telefone", resumo: hasPhone ? "Confirme o número" : "Nenhum telefone cadastrado", body, extra, backAction: "leitura-voltar", nextAction: editing ? "" : "leitura-telefone-confirmar", nextLabel: "Confirmar", nextDisabled: editing });
   }
   // PR20072026 fix 20/07 — a tela "Valor do cliente" foi FUNDIDA aqui (o dono
   // pediu): cada item mostra qtd (−/+) E o valor já pré-preenchido (preço do
@@ -1353,12 +1389,19 @@
   function leituraProdutoStep() {
     const selectedIds = new Set(state.leituraItens.map(i => String(i.productId)));
     const available = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !selectedIds.has(String(p.id)));
+    // F3.3 — sem módulo Financeiro, preço fica TRAVADO (cadeado): tocar abre o
+    // popup "configurar financeiro?". Com financeiro, campo moeda estilo banco.
+    const financeiroOn = configFlag("moduloFinanceiroAtivo");
     const rows = state.leituraItens.map(item => {
       if (item.valorUnit === null || item.valorUnit === undefined) item.valorUnit = leituraDefaultValor(item.productId);
-      return `<div class="lrt-produto-item"><div class="lrt-produto-head"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><button type="button" class="close" style="width:32px;height:32px" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div><label class="lrt-produto-valor"><span>R$</span><input type="number" min="0" step="0.01" inputmode="decimal" data-leitura-valor="${H.escape(item.productId)}" value="${H.escape(String(item.valorUnit))}" placeholder="0,00"></label></div></div>`;
+      const valorField = financeiroOn
+        ? `<label class="lrt-produto-valor"><span>R$</span><input type="text" inputmode="numeric" class="lrt-produto-valor-input" data-leitura-preco="${H.escape(item.productId)}" value="${H.escape(moneyCentsToBRL(Math.round(Number(item.valorUnit || 0) * 100)))}"></label>`
+        : `<button type="button" class="lrt-produto-valor lrt-produto-valor-locked" data-action="leitura-preco-bloqueado" aria-label="Preço bloqueado">${icon("lock", 14)}<span>R$ —</span></button>`;
+      return `<div class="lrt-produto-item"><div class="lrt-produto-head"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><button type="button" class="close" style="width:32px;height:32px" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div>${valorField}</div></div>`;
     }).join("");
     const picker = state.leituraProdutoPicker ? `<div class="delivery-picker"><strong>Escolher produto</strong>${available.map(p => `<button type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name)} · ${H.escape(p.unidade || "unidade")}</button>`).join("") || `<p class="subtitle">Sem mais produtos.</p>`}<button class="btn btn-secondary" type="button" data-action="leitura-produto-fechar-picker">Fechar</button></div>` : (available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Produto</h2><p class="subtitle">O que foi entregue?</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-proximo" ${state.leituraItens.length ? "" : "disabled"}>Próximo</button></div></section></div>`;
+    const body = `${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}`;
+    return centerModal({ icon: "box", title: "Produto", resumo: leituraResumo() || "O que ele recebe?", body, backAction: "leitura-voltar", nextAction: "leitura-proximo", nextLabel: "Próximo", nextDisabled: !state.leituraItens.length });
   }
   function leituraParadaModal() {
     const step = state.leituraStep;
@@ -1377,7 +1420,8 @@
     // Contagem só enquanto ninguém digitou (ao digitar ela some via DOM, sem
     // re-render, pra não roubar o foco do textarea no 1º caractere).
     const hint = state.leituraObsTyped ? "" : `<p class="lrt-obs-count">Salvando em <b class="lrt-obs-secs">${Math.max(0, Number(state.leituraObsCountdown || 0))}</b>s… <span>ou escreva um lembrete</span></p>`;
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Observações</h2><p class="subtitle">Lembrete pra entrega (opcional)</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="field"><textarea id="leitura-obs-input" maxlength="500" rows="4" placeholder="Ex.: subir escadas, cachorro bravo, entregar após 18h…">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-obs-salvar">Salvar</button></div></section></div>`;
+    const body = `<div class="field"><textarea id="leitura-obs-input" maxlength="500" rows="4" placeholder="Ex.: subir escadas, cachorro bravo, entregar após 18h…">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}`;
+    return centerModal({ icon: "box", title: "Observações", resumo: leituraResumo() || "Lembrete pra entrega (opcional)", body, backAction: "leitura-voltar", nextAction: "leitura-obs-salvar", nextLabel: "Salvar" });
   }
   // Abre o passo Observações e liga a contagem de 5s (auto-salva ao zerar).
   function startLeituraObs() {
@@ -1447,22 +1491,19 @@
     }).join("");
     const total = `Total: ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"} · ${H.money(resumo.total || 0)}`;
     const body = state.leituraResumoLoading ? loading() : state.leituraResumoError ? empty("Não foi possível carregar", state.leituraResumoError) : (rows ? `<div class="lrt-timeline">${rows}</div><p class="lrt-timeline-total">${total}</p>` : empty("Nenhuma parada", "Cadastre paradas antes de finalizar."));
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Resumo da leitura</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${body}</div><div class="rp2-footer"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-ir-salvar" ${paradas.length ? "" : "disabled"}>Salvar rota</button></div></section></div>`;
+    return centerModal({ icon: "route", title: "Resumo da leitura", resumo: total, body, closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "leitura-ir-salvar", nextLabel: "Salvar rota", nextDisabled: !paradas.length });
   }
-  function leituraSalvarDiaStep() {
-    const label = diaSemanaLabel(todayIso());
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Salvar rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><p class="subtitle">Salvar Rotativo ${H.escape(label)}?</p></div><div class="rp2-footer lrt-choice"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-salvar-dia-sim">Sim</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-nao">Não</button></div></section></div>`;
-  }
-  function leituraSalvarDiaManualStep() {
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Selecione o dia da semana</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip" data-action="leitura-salvar-dia-escolher" data-leitura-day="${day.n}">${day.label}</button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar">Voltar</button></div></section></div>`;
+  // F1 — nome default da rota quando salva SEM dia da semana: "Rota dd/mm".
+  function rotaDefaultName() {
+    const d = new Date(`${operationalDate()}T12:00:00`);
+    return `Rota ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
   }
   function leituraSalvarNomeStep() {
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Nome da rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><form id="leitura-nome-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="120" value="${H.escape(state.leituraNomeRota)}"></div>${state.leituraNomeError ? `<p class="subtitle" style="color:var(--danger)">${H.escape(state.leituraNomeError)}</p>` : ""}<button class="btn btn-primary btn-block rp2-cta" type="submit" ${state.leituraSaving ? "disabled" : ""}>Confirmar</button></form></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar-nome">Voltar</button></div></section></div>`;
+    const body = `<form id="leitura-nome-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="120" value="${H.escape(state.leituraNomeRota)}"></div>${state.leituraNomeError ? `<p class="subtitle" style="color:var(--danger)">${H.escape(state.leituraNomeError)}</p>` : ""}<button class="btn btn-primary btn-block rp2-cta" type="submit" ${state.leituraSaving ? "disabled" : ""}>Confirmar</button></form>`;
+    return centerModal({ icon: "route", title: "Nome da rota", resumo: "Dê um nome pra encontrar depois", body, backAction: "leitura-salvar-dia-voltar-nome", nextAction: "" });
   }
   function leituraFinalizarModal() {
     const step = state.leituraFinalStep;
-    if (step === "dia") return leituraSalvarDiaStep();
-    if (step === "dia-manual") return leituraSalvarDiaManualStep();
     if (step === "nome") return leituraSalvarNomeStep();
     return leituraTimelineStep();
   }
@@ -1907,6 +1948,7 @@
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
+    enhanceMoneyInputs();
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
     // montagem da rota operável sem duplicar o clique no listener global.
@@ -1956,6 +1998,10 @@
       state.clientsTotalPages = 1;
     }
     if (!silent) render();
+    // F6 — só escurece com loading quando é a 1ª página (reset) e não-silencioso:
+    // é o caso do "tela branca ao carregar muitos clientes" que o dono reportou.
+    const overlayThisLoad = reset && !silent;
+    if (overlayThisLoad) showLoading("Carregando clientes…");
     try {
       const result = await H.api(`/nucleo/clientes?${params.toString()}`);
       if (requestId !== clientsRequestId) return;
@@ -1971,6 +2017,7 @@
     } catch (error) {
       if (requestId === clientsRequestId) state.clientsError = humanApiError(error);
     } finally {
+      if (overlayThisLoad) hideLoading();
       if (requestId === clientsRequestId) {
         state.clientsLoading = false;
         if (!silent) render();
@@ -2497,6 +2544,16 @@
       if (confirmation.type === "cancel-leitura") await performCancelLeitura();
       if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
       if (confirmation.type === "logout") H.logout();
+      if (confirmation.type === "ativar-financeiro") {
+        try {
+          await H.api("/logistica/config", { method: "PATCH", body: { moduloFinanceiroAtivo: true } });
+          state.config = { ...(state.config || {}), moduloFinanceiroAtivo: true };
+          H.cache.set("logistica-config", state.config);
+          toast("Financeiro ativado. Agora você pode informar preços.");
+          render();
+        } catch (error) { toast(humanApiError(error), true); }
+      }
+      // type "info": só um aviso (OK) — nenhum efeito colateral.
       return;
     }
     if (action === "new-client") { state.newClientDraft = blankNewClientDraft(); state.newClientCepStatus = ""; resetClientProductEditor(); showModal("new-client"); }
@@ -2726,6 +2783,17 @@
     }
     if (action === "leitura-produto-abrir-picker") { state.leituraProdutoPicker = true; render(); return; }
     if (action === "leitura-produto-fechar-picker") { state.leituraProdutoPicker = false; render(); return; }
+    // F3.3 — tocou no preço travado (módulo Financeiro desligado). Admin: oferece
+    // ativar na hora; não-admin: só orienta (Lei do Vendedor — preço é admin-only).
+    if (action === "leitura-preco-bloqueado") {
+      if (isAdmin()) {
+        state.confirmation = { type: "ativar-financeiro", title: "Preço faz parte do Financeiro", message: "O módulo Financeiro está desligado. Deseja ativá-lo agora para informar preços?", confirmLabel: "Sim, ativar", cancelLabel: "Agora não", icon: "wallet" };
+      } else {
+        state.confirmation = { type: "info", title: "Preço bloqueado", message: "O módulo Financeiro está desligado. Peça ao administrador para ativá-lo.", confirmLabel: "Entendi", icon: "wallet" };
+      }
+      render();
+      return;
+    }
     if (action === "leitura-item-adicionar") {
       const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
       if (!product) return;
@@ -2808,12 +2876,10 @@
       render();
       return;
     }
-    if (action === "leitura-ir-salvar") { state.leituraFinalStep = "dia"; state.leituraDiaEscolhido = todayIso(); render(); return; }
-    if (action === "leitura-salvar-dia-sim") { state.leituraDiaEscolhido = todayIso(); state.leituraFinalStep = "nome"; void prepareLeituraNome(); render(); return; }
-    if (action === "leitura-salvar-dia-nao") { state.leituraFinalStep = "dia-manual"; render(); return; }
-    if (action === "leitura-salvar-dia-voltar") { state.leituraFinalStep = "dia"; render(); return; }
-    if (action === "leitura-salvar-dia-voltar-nome") { state.leituraFinalStep = "dia"; render(); return; }
-    if (action === "leitura-salvar-dia-escolher") { state.leituraDiaEscolhido = Number(target.dataset.leituraDay); state.leituraFinalStep = "nome"; void prepareLeituraNome(); render(); return; }
+    // F1 — rota salva é LISTA LIVRE (sem dia): finalizar vai direto do resumo pro
+    // nome. O dia da semana saiu do fluxo (recorrência é outra coisa, no cadastro).
+    if (action === "leitura-ir-salvar") { state.leituraFinalStep = "nome"; state.leituraDiaEscolhido = null; void prepareLeituraNome(); render(); return; }
+    if (action === "leitura-salvar-dia-voltar-nome") { state.leituraFinalStep = "timeline"; render(); return; }
   });
   app.addEventListener("touchstart", event => {
     const clientCard = event.target.closest("[data-client]");
@@ -3096,10 +3162,11 @@
         render();
       }
       if (form.id === "leitura-nome-form" && state.leitura) {
-        const nome = String(data.nome || "").trim() || diaSemanaLabel(state.leituraDiaEscolhido);
+        const nome = String(data.nome || "").trim() || rotaDefaultName();
         // Modo MANUAL manda a ordem exibida (▲▼) como ordemParadaIds — o
         // contrato do backend reordena as paradas antes de salvar o modelo.
-        const body = { nome, diaSemana: state.leituraDiaEscolhido };
+        // F1 — rota salva SEM dia (lista livre); backend aceita diaSemana ausente.
+        const body = { nome };
         if (state.leitura.modo === "MANUAL") body.ordemParadaIds = state.leituraManualOrder.slice();
         state.leituraSaving = true; render();
         try {
@@ -3160,8 +3227,7 @@
         }
         if (state.modal === "leitura-finalizar") {
           const step = state.leituraFinalStep;
-          if (step === "nome" || step === "dia-manual") { state.leituraFinalStep = "dia"; render(); return true; }
-          if (step === "dia") { state.leituraFinalStep = "timeline"; render(); return true; }
+          if (step === "nome") { state.leituraFinalStep = "timeline"; render(); return true; }
           void closeOverlay("modal");
           return true;
         }
