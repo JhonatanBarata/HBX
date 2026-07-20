@@ -44,6 +44,36 @@ test('normalizeBrPhoneDigits: vazio/lixo sem digitos devolve vazio', () => {
   assert.equal(normalizeBrPhoneDigits(undefined), '');
 });
 
+// BUGFIX (20/07, incidente chip vazado — Bloco B): a condição antiga também exigia
+// `!startsWith('55')` antes de prefixar o DDI, o que colide com o DDD 55 (Rio
+// Grande do Sul — Santa Maria, Uruguaiana, Bagé). Um celular local desse DDD (11
+// dígitos, sem país) começa com "55" e era lido como "já tem DDI", saindo sem o
+// país de verdade (`+55999923190`, DDD comido). A regra certa decide só por
+// COMPRIMENTO (10/11 = sem país, sempre prefixa), nunca por prefixo.
+test('normalizeBrPhoneDigits: DDD 55 (RS) nao colide mais com o DDI 55 — decide por comprimento', () => {
+  // Celular local do DDD 55 (11 digitos, sem pais) — caso real do incidente (SMART WORKSHOP).
+  assert.equal(normalizeBrPhoneDigits('55999923190'), '5555999923190');
+  // DDD 51 (tambem gaucho, sem colisao de prefixo) continua correto — regressao.
+  assert.equal(normalizeBrPhoneDigits('51998958090'), '5551998958090');
+  // Ja com pais (13 digitos, DDD 55 + celular) fica inalterado — nao duplica o DDI.
+  assert.equal(normalizeBrPhoneDigits('5551998958090'), '5551998958090');
+  // Fixo DDD 19 (10 digitos, sem pais) — regressao do caso classico.
+  assert.equal(normalizeBrPhoneDigits('1938765432'), '551938765432');
+});
+
+test('normalizeBrPhoneE164: DDD 55 (RS) ganha o DDI mesmo colidindo com o prefixo 55', () => {
+  assert.equal(normalizeBrPhoneE164('55999923190'), '+5555999923190');
+});
+
+test('buildWhatsAppPhoneCandidates: DDD 55 (RS) inclui a variante com pais (nao trava no prefixo)', () => {
+  assert.deepEqual(buildWhatsAppPhoneCandidates('55999923190').sort(), [
+    '+5555999923190',
+    '+55999923190',
+    '5555999923190',
+    '55999923190',
+  ]);
+});
+
 test('normalizeBrPhoneE164: formato final +55DDDNUMERO (os 3 casos do incidente)', () => {
   // 1) número local sem país → ganha +55 (o bug: saía "+19996015804").
   assert.equal(normalizeBrPhoneE164('19996015804'), '+5519996015804');

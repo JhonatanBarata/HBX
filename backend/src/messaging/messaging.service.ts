@@ -60,6 +60,7 @@ import {
   buildStructuredWhatsAppLog,
   buildWhatsAppPhoneCandidates,
   extractInboundTextFromPayload,
+  normalizeBrPhoneDigits,
   normalizeMetaProviderError,
   normalizeWhatsAppMessageType,
   normalizeWhatsAppPhone,
@@ -2209,12 +2210,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // BUGFIX (20/07, incidente chip vazado — Bloco B): reusa a fonte única
+  // `normalizeBrPhoneDigits` (whatsapp-channel.ts), que decide por COMPRIMENTO
+  // (nunca por prefixo) — evita o bug de DDD 55 (RS) confundido com DDI 55.
   private normalizeSelfAlertPhone(value: unknown) {
-    let digits = String(value || '').replace(/\D/g, '');
+    const digits = normalizeBrPhoneDigits(String(value || ''));
     if (!digits) return null;
-    if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
-      digits = `55${digits}`;
-    }
     if (digits.length < 10 || digits.length > 15) return null;
     return `+${digits}`;
   }

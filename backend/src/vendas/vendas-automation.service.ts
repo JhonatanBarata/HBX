@@ -11,7 +11,7 @@ import { type AtendimentoBotConfig } from '../inbox/atendimento-config';
 import { CommercialPlansService } from '../commercial-plans/commercial-plans.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
-import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
+import { buildWhatsAppPhoneCandidates, normalizeBrPhoneDigits } from '../messaging/whatsapp-channel';
 import { PrismaService } from '../prisma/prisma.service';
 import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
@@ -448,12 +448,11 @@ function parseJsonList(value: unknown, fallback: string[] = []) {
   }
 }
 
+// BUGFIX (20/07, incidente chip vazado — Bloco B): reusa a fonte única
+// `normalizeBrPhoneDigits` (whatsapp-channel.ts), que decide por COMPRIMENTO
+// (nunca por prefixo) — evita o bug de DDD 55 (RS) confundido com DDI 55.
 function normalizePhoneDigits(raw: unknown) {
-  let digits = String(raw || '').replace(/\D/g, '');
-  if (!digits) return null;
-  if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
-    digits = `55${digits}`;
-  }
+  const digits = normalizeBrPhoneDigits(String(raw || ''));
   return digits || null;
 }
 

@@ -55,13 +55,22 @@ export function normalizeWhatsAppPhone(valueRaw: string | null | undefined) {
  * correto nesses dois caminhos. Centralizado aqui (o módulo "dono" da normalização
  * de telefone WhatsApp) para os módulos que INICIAM conversa (ex.: logística)
  * reusarem em vez de reinventar.
+ *
+ * BUGFIX (20/07, incidente chip vazado — Bloco B) — a condição antiga também
+ * exigia `!digits.startsWith('55')` antes de prefixar. Isso é ambíguo: um celular
+ * de DDD 55 (Rio Grande do Sul — Santa Maria, Uruguaiana, Bagé) TAMBÉM começa com
+ * "55", então `55999923190` (DDD 55, 11 dígitos, SEM país) era lido como "já tem
+ * DDI" e saía sem o 55 → `+55999923190` de 11 dígitos, DDD comido, Webwhats recusa.
+ * A decisão certa nunca olha o prefixo: telefone BR sem país tem SEMPRE 10 (fixo)
+ * ou 11 (celular) dígitos; com país tem 12 ou 13. Logo, comprimento 10/11 já basta
+ * para saber que falta o 55 — decidir só por COMPRIMENTO.
  */
 export function normalizeBrPhoneDigits(valueRaw: string | null | undefined): string {
   const digits = normalizeWhatsAppDigits(valueRaw);
   if (!digits) return '';
-  if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
-    return `55${digits}`;
-  }
+  // BR sem país = 10 (fixo DDD+8) ou 11 (celular DDD+9) dígitos; nunca contém DDI.
+  // Decidir por COMPRIMENTO, não por prefixo — DDD 55 (RS) colide com DDI 55.
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
   return digits;
 }
 
@@ -77,7 +86,11 @@ export function buildWhatsAppPhoneCandidates(valueRaw: string | null | undefined
   const candidates = new Set<string>();
   candidates.add(`+${digits}`);
   candidates.add(digits);
-  if (!digits.startsWith('55') && (digits.length === 10 || digits.length === 11)) {
+  // BUGFIX (20/07, Bloco B) — comprimento 10/11 sempre falta o DDI, MESMO quando o
+  // número já começa com "55" (DDD 55/RS colide com o prefixo do DDI 55). Não checar
+  // `startsWith('55')` aqui: senão um celular de Santa Maria/Uruguaiana/Bagé nunca
+  // ganhava a variante com país.
+  if (digits.length === 10 || digits.length === 11) {
     candidates.add(`+55${digits}`);
     candidates.add(`55${digits}`);
   }
