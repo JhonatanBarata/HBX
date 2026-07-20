@@ -190,6 +190,9 @@
     calendar: "<rect x='3' y='5' width='18' height='16' rx='2'/><path d='M16 3v4M8 3v4M3 10h18'/>",
     lock: "<rect x='5' y='11' width='14' height='9' rx='2'/><path d='M8 11V7a4 4 0 0 1 8 0v4'/>",
     signal: "<path d='M4 20v-4M9 20v-8M14 20V9M19 20V4'/>",
+    trash: "<path d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'/>",
+    download: "<path d='M12 3v12M7 10l5 5 5-5M5 21h14'/>",
+    wifi: "<path d='M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0'/><circle cx='12' cy='19.5' r='.6'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -569,6 +572,91 @@
       if (!item) return;
       attachMoneyInput(el, Number(item.valorUnit || 0), value => { item.valorUnit = value; });
     });
+  }
+  // ==========================================================================
+  // F3.4 — chips vivos GPS + Rede no topbar (+ F4: chip "Atualizar"). Injetados
+  // via DOM no `.toolbar` DEPOIS do mount (o header vem da casca compartilhada
+  // native.js; não dá pra editar a casca só pra logística). O mount reconcilia o
+  // topbar sem recriar a toolbar, então o container injetado sobrevive; ainda
+  // assim reescrevo o innerHTML a cada render (idempotente).
+  // ==========================================================================
+  function netOnline() { return navigator.onLine !== false; }
+  function gpsChipClass() {
+    if (state.gpsPerm === "denied") return "is-off";
+    if (state.gpsPerm === "granted") return "is-ok";
+    return "is-warn";
+  }
+  function syncHeaderChips() {
+    const toolbar = document.querySelector(".topbar .toolbar");
+    if (!toolbar) return;
+    let box = toolbar.querySelector("#hbx-header-chips");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "hbx-header-chips";
+      box.style.cssText = "display:flex;align-items:center;gap:6px";
+      toolbar.insertBefore(box, toolbar.firstChild);
+    }
+    const net = netOnline();
+    const upd = state.updateInfo && state.updateInfo.outdated;
+    box.innerHTML =
+      (upd ? `<button class="hbx-chip hbx-chip-update" data-action="app-update" aria-label="Atualizar aplicativo">${icon("download", 13)}<span>Atualizar</span></button>` : "") +
+      `<button class="hbx-chip ${gpsChipClass()}" data-action="chip-gps" aria-label="Sinal de GPS">${icon("gps", 15)}</button>` +
+      `<button class="hbx-chip ${net ? "is-ok" : "is-off"}" data-action="chip-rede" aria-label="Conexão de rede">${icon(net ? "wifi" : "signal", 15)}</button>`;
+  }
+  function refreshGpsPerm() {
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "geolocation" }).then(p => {
+          state.gpsPerm = p.state;
+          try { p.onchange = () => { state.gpsPerm = p.state; syncHeaderChips(); }; } catch (_) {}
+          syncHeaderChips();
+        }).catch(() => {});
+      }
+    } catch (_) {}
+  }
+  // F4 — checa a versão publicada (version-logistica.json no site) contra a do
+  // APK (via ponte nativa). Maior no servidor → acende o chip "Atualizar".
+  async function checkAppUpdate() {
+    try {
+      if (typeof HBXAndroid === "undefined" || !HBXAndroid.appInfo) return;
+      if (typeof HBXAndroid.downloadAndInstall !== "function") return; // nativo antigo → sem auto-update
+      const info = JSON.parse(HBXAndroid.appInfo() || "{}");
+      const base = String(info.webBaseUrl || "").replace(/\/+$/, "");
+      if (!base) return;
+      const resp = await fetch(`${base}/downloads/version-logistica.json`, { cache: "no-store" });
+      if (!resp.ok) return;
+      const v = await resp.json();
+      if (v && Number(v.versionCode) > Number(info.versionCode || 0)) {
+        state.updateInfo = { versionName: v.versionName, versionCode: v.versionCode, url: v.url, sha256: v.sha256, obrigatoria: !!v.obrigatoria, nota: v.nota || "", outdated: true };
+        syncHeaderChips();
+        if (state.updateInfo.obrigatoria) showModal("app-update");
+      }
+    } catch (_) {}
+  }
+  function appUpdateModal() {
+    const u = state.updateInfo || {};
+    const canInstall = typeof HBXAndroid !== "undefined" && typeof HBXAndroid.updateInstallAllowed === "function" ? HBXAndroid.updateInstallAllowed() : true;
+    const busy = !!state.updateBusy;
+    const pct = Math.max(0, Math.min(100, Number(state.updateProgress || 0)));
+    const body = `<p class="day-home-sub">Uma versão nova (${H.escape(u.versionName || "")}) está pronta.${u.nota ? " " + H.escape(u.nota) : ""}</p>${busy ? `<div class="app-update-progress"><i style="width:${pct}%"></i></div><p class="subtitle" style="margin-top:8px">Baixando… ${pct}%</p>` : (!canInstall ? `<p class="subtitle">O Android vai abrir uma tela: ligue <b>"Permitir desta fonte"</b> e volte aqui.</p>` : "")}`;
+    const cta = busy
+      ? `<button class="btn btn-primary btn-block rp2-cta" type="button" disabled>Baixando…</button>`
+      : (!canInstall
+        ? `<button class="btn btn-primary btn-block rp2-cta" type="button" data-action="update-permitir">Abrir permissão</button>`
+        : `<button class="btn btn-primary btn-block rp2-cta" type="button" data-action="update-instalar">Atualizar agora</button>`);
+    return `<div class="modal-wrap day-home-wrap"${u.obrigatoria ? "" : ` data-action="close-modal"`}><section class="modal day-home" role="dialog" aria-modal="true"><div class="day-home-icon">${icon("download", 24)}</div><h2>Atualizar app</h2>${body}<div class="center-modal-actions" style="margin-top:14px">${cta}${u.obrigatoria ? "" : `<button class="btn btn-secondary btn-block" type="button" data-action="close-modal">${busy ? "Fechar" : "Agora não"}</button>`}</div></section></div>`;
+  }
+  function startAppUpdate() {
+    const u = state.updateInfo || {};
+    if (!u.url || !u.sha256) { toast("Informações da atualização indisponíveis.", true); return; }
+    if (typeof HBXAndroid === "undefined" || typeof HBXAndroid.downloadAndInstall !== "function") { toast("Atualização não suportada nesta versão.", true); return; }
+    window.HBXUpdate = {
+      onProgress(p) { state.updateProgress = Number(p) || 0; if (Number(p) >= 100) { state.updateBusy = false; } render(); },
+      onError(msg) { state.updateBusy = false; render(); toast(msg || "Falha ao atualizar.", true); },
+    };
+    state.updateBusy = true; state.updateProgress = 0; render();
+    try { HBXAndroid.downloadAndInstall(u.url, u.sha256, u.versionName || ""); }
+    catch (error) { state.updateBusy = false; render(); toast("Não foi possível iniciar a atualização.", true); }
   }
   const weekDays = [{ n: 1, label: "SEG" }, { n: 2, label: "TER" }, { n: 3, label: "QUA" }, { n: 4, label: "QUI" }, { n: 5, label: "SEX" }, { n: 6, label: "SÁB" }, { n: 7, label: "DOM" }];
   function operationalDate() {
@@ -1236,7 +1324,10 @@
     const step = state.leituraStep;
     if (!step || step === "tipo") return false;
     if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
-    if (step === "telefone") { state.leituraStep = state.leituraSelectedClient ? "existente" : "novo"; render(); return true; }
+    // F3.2 — cliente existente na LEITURA passa por endereço → número antes do telefone.
+    if (step === "endereco") { state.leituraStep = "existente"; render(); return true; }
+    if (step === "numero") { state.leituraStep = "endereco"; render(); return true; }
+    if (step === "telefone") { state.leituraStep = state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo"); render(); return true; }
     if (step === "produto") { state.leituraStep = "telefone"; render(); return true; }
     if (step === "observacoes") { clearInterval(leituraObsTimer); state.leituraStep = "produto"; render(); return true; }
     return false;
@@ -1340,6 +1431,90 @@
     const count = Number(state.leitura.count || 0);
     return `<div class="lrt-active"><div class="lrt-active-head"><strong>${isManual ? "Rota manual em andamento" : "Leitura de rota em andamento"}</strong><span>${count} ${count === 1 ? "parada registrada" : "paradas registradas"}</span></div><div class="lrt-active-actions"><button class="btn btn-primary rp2-cta" type="button" data-action="${isManual ? "leitura-adicionar-cliente" : "leitura-cadastrar-local"}" ${state.leituraCapturing ? "disabled" : ""}>${icon(isManual ? "users" : "gps", 17)} ${state.leituraCapturing ? "Lendo GPS…" : (isManual ? "Adicionar cliente" : "Cadastrar Local")}</button><button class="btn btn-secondary" type="button" data-action="leitura-finalizar-iniciar">Finalizar Leitura de Rota</button></div><button class="link-btn lrt-cancel" type="button" data-action="leitura-cancelar">Cancelar leitura</button></div>`;
   }
+  // F3.2 — reverse geocode do ponto capturado: tenta o backend (server-side,
+  // confiável) e cai no Nominatim direto do app se o backend não responder.
+  async function leituraReverse(lat, lng) {
+    try {
+      const r = await H.api(`/logistica/geo/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
+      if (r && (r.endereco || r.cidade) && r.fonte !== "nenhum") return r;
+    } catch (_) {}
+    return await reverseGeocodeLeitura(lat, lng);
+  }
+  function clientAddressText(client) {
+    if (!client) return "";
+    const rua = [client.endereco, client.numero].filter(Boolean).join(", ");
+    return [rua, client.bairro, client.cidade].filter(Boolean).join(" · ");
+  }
+  function reverseAddressText(rev) {
+    if (!rev) return "";
+    const rua = [rev.endereco, rev.numero].filter(Boolean).join(", ");
+    return [rua, rev.bairro, rev.cidade].filter(Boolean).join(" · ") || "Endereço não identificado";
+  }
+  // F3.2 — abre o passo ENDEREÇO: busca o reverse do GPS e mede a distância pro
+  // pino do cadastro (se houver), pro passo decidir "confere" × "diverge".
+  async function startLeituraEndereco(client, cap) {
+    state.leituraEnd = { loading: true, reverse: null, decision: null, numero: String(client.numero || "") };
+    render();
+    let rev = null;
+    try { rev = await leituraReverse(cap.lat, cap.lng); } catch (_) {}
+    const clat = Number(client.lat), clng = Number(client.lng);
+    const dist = validCoordinates(clat, clng) ? distanceMeters({ lat: cap.lat, lng: cap.lng }, { lat: clat, lng: clng }) : null;
+    state.leituraEnd = { loading: false, reverse: rev, dist, decision: null, numero: String(client.numero || (rev && rev.numero) || "") };
+    render();
+  }
+  // F3.2 — grava a decisão do passo endereço no cadastro do cliente. "atualizar":
+  // substitui endereço + pino pelo GPS/reverse (mesmo contrato do editar cliente:
+  // PATCH conta + local). "manter": só grava o número se mudou. Best-effort.
+  async function persistLeituraEndereco(numero) {
+    const client = state.leituraSelectedClient;
+    const e = state.leituraEnd;
+    if (!client || !client.id || !e) return;
+    const cap = state.leituraCapture || {};
+    let loading = false;
+    try {
+      if (e.decision === "atualizar" && e.reverse) {
+        const r = e.reverse;
+        const coords = Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng)) ? { lat: Number(cap.lat), lng: Number(cap.lng) } : {};
+        const body = { endereco: r.endereco || "", numero: numero || "", bairro: r.bairro || "", cidade: r.cidade || "", uf: String(r.uf || "").toUpperCase(), cep: r.cep || "", ...coords };
+        loading = true; showLoading("Atualizando endereço…");
+        await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body });
+        try {
+          if (client.localId) await H.api(`/nucleo/locais/${encodeURIComponent(client.localId)}`, { method: "PATCH", body });
+          else if (body.endereco || body.cep) await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/locais`, { method: "POST", body: { ...body, isPrincipal: true } });
+        } catch (_) {}
+        Object.assign(client, body);
+        toast("Endereço atualizado.");
+      } else if (numero && String(client.numero || "") !== numero) {
+        await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: { numero } });
+        client.numero = numero;
+      }
+    } catch (error) { toast(humanApiError(error), true); }
+    finally { if (loading) hideLoading(); }
+  }
+  function leituraEnderecoStep() {
+    const client = state.leituraSelectedClient || {};
+    const e = state.leituraEnd || {};
+    const temEndereco = !!(client.endereco || client.cidade);
+    if (e.loading) return centerModal({ icon: "map", title: "Endereço", resumo: leituraResumo() || client.nome || "", body: loading(), backAction: "leitura-voltar", nextAction: "" });
+    const rev = e.reverse;
+    // Confere = tem endereço no cadastro E o GPS caiu perto do pino (≤120 m).
+    const confere = temEndereco && e.dist !== null && e.dist <= 120;
+    let body;
+    if (!temEndereco) {
+      body = `<div class="lrt-endereco-compare"><p><b>Cliente sem endereço.</b></p><p>Você está em: ${H.escape(reverseAddressText(rev))}</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-usar">Usar este endereço</button></div>`;
+    } else if (confere) {
+      body = `<div class="lrt-endereco-card lrt-endereco-ok">${icon("check", 16)} Endereço confere${e.dist !== null ? ` · a ${Math.round(e.dist)} m` : ""}</div><p class="day-home-sub">${H.escape(clientAddressText(client))}</p>`;
+    } else {
+      body = `<div class="lrt-endereco-compare"><p><b>Cadastrado:</b> ${H.escape(clientAddressText(client) || "—")}</p><p><b>Você está em:</b> ${H.escape(reverseAddressText(rev))}${e.dist !== null ? ` (a ${Math.round(e.dist)} m)` : ""}</p><p style="color:var(--warning)">Atualizar substitui o endereço anterior.</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-atualizar">Atualizar endereço</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-manter">Manter o cadastrado</button></div>`;
+    }
+    // Quando confere, o › avança direto pro número; senão o avanço é pelos botões.
+    return centerModal({ icon: "map", title: "Endereço", resumo: leituraResumo() || client.nome || "", body, backAction: "leitura-voltar", nextAction: confere ? "leitura-end-manter" : "", nextLabel: "Próximo" });
+  }
+  function leituraNumeroStep() {
+    const e = state.leituraEnd || {};
+    const body = `<div class="field"><label>Número da casa</label><input id="leitura-numero-input" inputmode="numeric" maxlength="30" value="${H.escape(String(e.numero || ""))}" placeholder="Ex.: 1079" style="font-size:1.3rem"></div>`;
+    return centerModal({ icon: "map", title: "Número", resumo: leituraResumo() || (state.leituraSelectedClient && state.leituraSelectedClient.nome) || "", body, backAction: "leitura-end-voltar-numero", nextAction: "leitura-numero-confirmar", nextLabel: "Próximo" });
+  }
   // Resumo curto do que já foi escolhido nesta parada (cliente · itens) — some no
   // header do modal central pra idoso não perder o fio.
   function leituraResumo() {
@@ -1407,6 +1582,8 @@
     const step = state.leituraStep;
     if (step === "existente") return leituraExistenteStep();
     if (step === "novo") return leituraNovoStep();
+    if (step === "endereco") return leituraEnderecoStep();
+    if (step === "numero") return leituraNumeroStep();
     if (step === "telefone") return leituraTelefoneStep();
     if (step === "produto") return leituraProdutoStep();
     if (step === "observacoes") return leituraObsStep();
@@ -1766,6 +1943,7 @@
     if (state.modal === "avancado") return avancadoModal();
     if (state.modal === "leitura-parada") return leituraParadaModal();
     if (state.modal === "leitura-finalizar") return leituraFinalizarModal();
+    if (state.modal === "app-update") return appUpdateModal();
     return "";
   }
   // L4-F — Recarga (Ajustes › Administração, SÓ admin): saldo + vitrine dos packs
@@ -1882,11 +2060,13 @@
   // "Rota salva": lista de rota-modelos; escolher pré-ordena a prévia (clientes
   // fora do modelo vão pro fim) e segue direto pro "Gerar agora".
   function dayOrderSavedModal() {
-    const modelos = state.routeModelos || [];
-    const today = todayIso();
-    const sorted = [...modelos].sort((a, b) => (Number(a.diaSemana) === today ? -1 : 0) - (Number(b.diaSemana) === today ? -1 : 0));
-    const rows = sorted.map(modelo => `<button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></span><span class="rp2-mode-chev">›</span></button>`).join("");
-    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">☆</div><h2 id="day-saved-title">Rotas Salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota no modo \"Minha ordem\" primeiro.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
+    // F1/F2 — rota salva é LISTA LIVRE: sem rótulo de dia, sem ordenar "hoje
+    // primeiro" (todas iguais, por nome). Lixeira só pro admin (reusa a ação
+    // delete-route-modelo). Container + 2 botões (button aninhado é inválido).
+    const modelos = [...(state.routeModelos || [])].sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || "")));
+    const admin = isAdmin();
+    const rows = modelos.map(modelo => `<div class="day-saved-row"><button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${(modelo.paradas || []).length} parada(s)</span></span><span class="rp2-mode-chev">›</span></button>${admin ? `<button type="button" class="day-saved-delete" data-action="delete-route-modelo" data-modelo-id="${H.escape(modelo.id)}" aria-label="Excluir rota">${icon("trash", 16)}</button>` : ""}</div>`).join("");
+    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">☆</div><h2 id="day-saved-title">Rotas Salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota na Leitura de Rota primeiro.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   function clientScheduleLine(client) {
     const days = (client.diasEntrega || []).map(Number).filter(Boolean);
@@ -1949,6 +2129,7 @@
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
     enhanceMoneyInputs();
+    syncHeaderChips();
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
     // montagem da rota operável sem duplicar o clique no listener global.
@@ -2634,30 +2815,44 @@
     if (action === "apply-route-modelo") {
       const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
       if (!modelo) return;
-      // PR20072026 (feedback dono) — "Salvos" entra direto do menu, sem passar
-      // pelo seletor de dias. Sem prévia carregada não há o que reordenar/gerar,
-      // então carrega a prévia do dia da rota salva (ou de hoje) antes de aplicar.
-      if (!state.daySelection.length || !(state.dayPreview || []).length) {
-        state.daySelection = [todayIso()];
-        state.dayStarting = false; render();
-        await refreshDayPreview();
-      }
-      const preview = state.dayPreview || [];
-      const used = new Set();
-      const ordered = [];
-      (modelo.paradas || []).forEach(parada => {
-        const match = preview.find(client => !used.has(dayPreviewKey(client)) && String(client.customerProfileId || "") === String(parada.customerProfileId || "") && (!parada.localId || String(client.localId || "") === String(parada.localId) || !client.localId));
-        if (match) { ordered.push(dayPreviewKey(match)); used.add(dayPreviewKey(match)); }
-      });
-      preview.forEach(client => { const key = dayPreviewKey(client); if (!used.has(key)) { ordered.push(key); used.add(key); } });
-      state.dayManualOrder = ordered;
-      state.dayOrderMode = "saved";
-      state.dayOrderStep = null;
-      state.dayManualSave = false;
-      render();
-      await beginManagedRoute();
+      // F2 (PR20072026-ROTA-SALVA) — aplicar rota salva agora RODA A LISTA EXATA:
+      // chama o endpoint que MATERIALIZA as entregas dos clientes do modelo (com o
+      // "de sempre" de cada um), em qualquer dia, e devolve os deliveryIds na ordem
+      // do modelo. Não depende mais da prévia do dia (que descartava cliente fora
+      // da agenda de hoje). Ver logistica-rota-modelo.service.ts#gerar.
+      if (state.dayStarting) return;
+      state.dayStarting = true; render();
+      showLoading("Montando a rota…");
+      try {
+        const result = await H.api(`/logistica/rota-modelos/${encodeURIComponent(modelo.id)}/gerar`, { method: "POST", body: { date: operationalDate() } });
+        const deliveryIds = [...new Set((result && Array.isArray(result.deliveryIds) ? result.deliveryIds : []).map(String))];
+        const avisos = (result && Array.isArray(result.avisos)) ? result.avisos : [];
+        if (!deliveryIds.length) { toast(avisos[0] || "Nenhuma entrega para esta rota.", true); return; }
+        setRouteSelection(deliveryIds);
+        setRouteOrdemManual(deliveryIds);
+        state.dayOrderStep = null;
+        state.dayOrderMode = "saved";
+        await closeOverlay("modal");
+        // planeja com a lista+ordem exatas (generateToday=false: NÃO gera recorrência
+        // do dia; as entregas já foram materializadas pelo /gerar acima).
+        await startRoute(true, false, deliveryIds);
+        if (avisos.length) toast(avisos.length === 1 ? avisos[0] : `${avisos.length} cliente(s) pulado(s).`);
+      } catch (error) { toast(humanApiError(error), true); }
+      finally { hideLoading(); state.dayStarting = false; render(); }
       return;
     }
+    // F3.4 — toques nos chips do header.
+    if (action === "chip-rede") { toast(netOnline() ? "Conexão de rede OK." : "Sem conexão. As alterações ficam salvas e sincronizam ao voltar o sinal.", !netOnline()); return; }
+    if (action === "chip-gps") {
+      if (state.gpsPerm === "granted") { toast("GPS ativo."); return; }
+      if (H.requestLocationPermission) { H.requestLocationPermission(); toast("Confirme a permissão de localização."); }
+      else toast("Ative a localização do aparelho.", true);
+      return;
+    }
+    // F4 — auto-update.
+    if (action === "app-update") { if (state.updateInfo) showModal("app-update"); return; }
+    if (action === "update-permitir") { if (typeof HBXAndroid !== "undefined" && HBXAndroid.openInstallPermission) HBXAndroid.openInstallPermission(); return; }
+    if (action === "update-instalar") { startAppUpdate(); return; }
     // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
     if (action === "route-modelos") { if (!isAdmin()) return; showModal("route-modelos"); void loadRouteModelos(); return; }
     if (action === "rename-route-modelo") {
@@ -2763,9 +2958,28 @@
       state.leituraTelefoneValue = savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || "";
       state.leituraTelefoneConfirmado = false;
       state.leituraTelefoneCorrigindo = false;
-      state.leituraStep = "telefone";
-      render();
+      state.leituraEnd = null;
+      // F3.2 — na LEITURA (com GPS), passa por endereço → número antes do telefone.
+      // No MANUAL (sem GPS) segue direto pro telefone como antes.
+      const cap = state.leituraCapture;
+      const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
+      if (temGps) { state.leituraStep = "endereco"; render(); void startLeituraEndereco(client, cap); }
+      else { state.leituraStep = "telefone"; render(); }
       return;
+    }
+    // F3.2 — decisões do passo endereço.
+    if (action === "leitura-end-usar" || action === "leitura-end-atualizar") {
+      const e = state.leituraEnd || {}; e.decision = "atualizar"; state.leituraEnd = e;
+      state.leituraStep = "numero"; render(); return;
+    }
+    if (action === "leitura-end-manter") { const e = state.leituraEnd || {}; e.decision = "manter"; state.leituraEnd = e; state.leituraStep = "numero"; render(); return; }
+    if (action === "leitura-end-voltar-numero") { state.leituraStep = "endereco"; render(); return; }
+    if (action === "leitura-numero-confirmar") {
+      const input = document.getElementById("leitura-numero-input");
+      const numero = String(input ? input.value : (state.leituraEnd && state.leituraEnd.numero) || "").trim();
+      if (state.leituraEnd) state.leituraEnd.numero = numero;
+      await persistLeituraEndereco(numero);
+      state.leituraStep = "telefone"; render(); return;
     }
     if (action === "leitura-telefone-corrigir") { state.leituraTelefoneCorrigindo = true; render(); return; }
     if (action === "leitura-telefone-confirmar") { state.leituraTelefoneConfirmado = true; state.leituraStep = "produto"; render(); return; }
@@ -3193,7 +3407,8 @@
   });
   document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
   document.addEventListener("hbx:theme", render);
-  window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); });
+  window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); syncHeaderChips(); });
+  window.addEventListener("offline", syncHeaderChips);
   window.HBXApp = {
     refresh,
     handleBack() {
@@ -3268,5 +3483,5 @@
     moduleActive = false;
     window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
   }
-  else { render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); }
+  else { render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(); }
 })();
