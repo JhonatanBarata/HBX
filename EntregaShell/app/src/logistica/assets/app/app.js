@@ -90,6 +90,8 @@
     nextStop: null,
     nextCountdown: 5,
     nextStopOpening: false,
+    // PR20072026 (feedback dono) — pop-up "Qual o DDD?" do número sem DDD.
+    dddPrompt: null,
     routePaused: H.cache.get("logistica-route-paused", false) === true,
     distanceWarning: null,
     distanceOverrideDeliveryId: null,
@@ -121,6 +123,12 @@
     leituraTelefoneCorrigindo: false,
     leituraItens: [],
     leituraProdutoPicker: false,
+    // PR20072026 (feedback dono) — passo "Observações" (última tela da parada):
+    // abre o campo do cliente, 5s de contagem pra digitar (digitar PARA a
+    // contagem e revela Salvar; sem digitar, salva sozinho ao zerar).
+    leituraObsDraft: "",
+    leituraObsTyped: false,
+    leituraObsCountdown: 5,
     leituraFinalStep: null,
     leituraResumo: null,
     leituraResumoLoading: false,
@@ -138,6 +146,7 @@
   let clientCepRequestId = 0;
   let clientsSearchTimer = null;
   let productsSearchTimer = null;
+  let leituraObsTimer = null;
   let touchStart = null;
   let clientHold = null;
   let ignoredClientClickId = null;
@@ -396,10 +405,10 @@
   function shell(content, floatingAction) {
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions" style="width:100%"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
+  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions" style="width:100%"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
   function confirmationOverlay() {
     const confirmation = state.confirmation;
     if (!confirmation) return "";
@@ -407,6 +416,16 @@
     // dentro do próprio popup (ex.: "Limpar o dia" dentro de cancelar
     // planejamento); cancelLabel troca o texto do botão neutro (ex.: "Agora não").
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title"><div class="app-confirm-icon">${icon(confirmation.icon || "box", 24)}</div><h2 id="app-confirm-title">${H.escape(confirmation.title || "Confirmar")}</h2><p>${H.escape(confirmation.message || "Deseja continuar?")}</p>${confirmation.extraAction ? `<button class="btn btn-danger btn-block" type="button" style="margin-top:14px" data-action="${H.escape(confirmation.extraAction)}">${H.escape(confirmation.extraLabel || "")}</button>` : ""}<div class="actions"><button class="btn btn-secondary" data-action="cancel-confirmation">${H.escape(confirmation.cancelLabel || "Cancelar")}</button><button class="btn ${confirmation.danger ? "btn-danger" : "btn-primary"}" data-action="accept-confirmation">${H.escape(confirmation.confirmLabel || "Confirmar")}</button></div></section></div>`;
+  }
+  // PR20072026 (feedback dono) — pop-up que PERGUNTA o DDD do número sem DDD,
+  // já sugerindo o da região do CEP (ViaCEP devolve `ddd`). O motorista confirma
+  // ou corrige. Nada de chutar 19 fixo.
+  function dddPromptOverlay() {
+    const p = state.dddPrompt;
+    if (!p) return "";
+    const localFmt = displayPhone(p.local);
+    const sug = p.suggesting ? "Buscando DDD pelo CEP…" : (p.suggested ? `Sugerido pelo CEP: ${p.suggested}` : "Informe o DDD (2 dígitos)");
+    return `<div class="modal-wrap app-confirm-wrap ddd-wrap"><section class="modal app-confirm ddd-prompt" role="dialog" aria-modal="true" aria-labelledby="ddd-title"><div class="app-confirm-icon ddd-icon">${icon("phone", 24)}</div><h2 id="ddd-title">Qual o DDD?</h2><p>${H.escape(p.name || "Cliente")} · ${H.escape(localFmt)}</p><div class="ddd-row"><input id="ddd-input" class="ddd-input" inputmode="numeric" maxlength="2" value="${H.escape(p.ddd || "")}" placeholder="00" aria-label="DDD"><span class="ddd-preview">${H.escape(localFmt)}</span></div><p class="ddd-sug">${H.escape(sug)}</p><div class="actions"><button class="btn btn-secondary" type="button" data-action="cancel-ddd">Cancelar</button><button class="btn btn-primary" type="button" data-action="confirm-ddd" ${p.saving ? "disabled" : ""}>${p.saving ? "Salvando…" : "Salvar"}</button></div></section></div>`;
   }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
@@ -573,9 +592,11 @@
     // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
     state.daySelection = [];
     state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
-    // PR18072026 Onda 3 — cada abertura começa sempre no modo "Ordem do app".
-    state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false;
-    refreshDayPreview();
+    // PR20072026 (feedback dono) — a abertura agora cai num MENU centralizado
+    // ("Montar Rota" → Por dia / Salvos), não mais direto no seletor de dias.
+    state.dayOrderStep = "home"; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false;
+    render();
+    void loadRouteModelos();
   }
   function toggleManagedRouteDay(day) {
     if (!Number.isInteger(day) || day < 1 || day > 7) return;
@@ -621,7 +642,7 @@
       const local = locais.find(item => item && item.isPrincipal) || locais[0] || null;
       const parts = separateAddress(local && local.endereco || state.clientDetail.endereco || client.endereco, local && local.numero || state.clientDetail.numero || client.numero, local && local.bairro || state.clientDetail.bairro || client.bairro);
       state.clientPaymentDraft = {
-        phone: savedPhone(state.clientDetail.whatsapp || client.phone || client.phoneNormalized || client.whatsapp || ""),
+        phone: displayPhone(state.clientDetail.whatsapp || client.phone || client.phoneNormalized || client.whatsapp || ""),
         cep: formatCep(local && local.cep || state.clientDetail.cep || client.cep || ""),
         endereco: parts.endereco,
         numero: parts.numero,
@@ -641,6 +662,55 @@
       render();
     }
     catch (error) { state.clientDetail = null; render(); }
+  }
+  // PR20072026 (feedback dono) — abre o pop-up de DDD para o número atual (sem
+  // DDD) e busca a sugestão pela região do CEP (ViaCEP `ddd`). Nunca chuta.
+  function openDddPrompt() {
+    const raw = (state.clientDetail && state.clientDetail.whatsapp) || (state.modalClient && (state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp)) || "";
+    const local = phoneDigits(raw);
+    if (!local || phoneComplete(local)) return; // nada a completar
+    const cep = onlyDigits((state.clientPaymentDraft && state.clientPaymentDraft.cep) || (state.clientDetail && state.clientDetail.cep) || (state.modalClient && state.modalClient.cep) || "");
+    state.dddPrompt = { local, name: (state.modalClient && (state.modalClient.nome || state.modalClient.name)) || "Cliente", cep, ddd: "", suggested: "", suggesting: cep.length === 8, saving: false };
+    render();
+    if (cep.length === 8) void suggestDddFromCep(cep);
+  }
+  async function suggestDddFromCep(cep) {
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: { Accept: "application/json" } });
+      const data = await response.json();
+      const ddd = data && !data.erro ? onlyDigits(data.ddd || "").slice(0, 2) : "";
+      if (!state.dddPrompt) return; // usuário fechou enquanto buscava
+      state.dddPrompt.suggesting = false;
+      state.dddPrompt.suggested = ddd;
+      if (ddd && !state.dddPrompt.ddd) state.dddPrompt.ddd = ddd;
+      render();
+    } catch (_) { if (state.dddPrompt) { state.dddPrompt.suggesting = false; render(); } }
+  }
+  async function confirmDddPrompt() {
+    const prompt = state.dddPrompt;
+    if (!prompt) return;
+    const input = document.getElementById("ddd-input");
+    const ddd = onlyDigits(input ? input.value : prompt.ddd).slice(0, 2);
+    if (ddd.length !== 2) { toast("Informe o DDD com 2 dígitos.", true); return; }
+    const full = ddd + prompt.local;
+    if (!phoneComplete(full)) { toast("Número não ficou válido com esse DDD.", true); return; }
+    const client = state.modalClient;
+    if (!client || !client.id) { toast("Cliente não encontrado.", true); return; }
+    prompt.saving = true; render();
+    try {
+      await saveClientPhone(client, formatPhone(full));
+      state.dddPrompt = null;
+      await loadClientDetail();
+      await loadClients(true, true);
+      toast("DDD adicionado.");
+    } catch (error) { prompt.saving = false; render(); toast(humanApiError(error), true); }
+  }
+  // Grava o telefone no contato PRINCIPAL (PATCH) ou cria um (POST) — mesmo
+  // caminho do salvar-cliente, isolado pra reuso do fluxo de DDD.
+  async function saveClientPhone(client, phone) {
+    const principalId = state.clientDetail && state.clientDetail.contatoPrincipalId;
+    if (principalId) await H.api(`/nucleo/telefones/${encodeURIComponent(principalId)}`, { method: "PATCH", body: { whatsapp: phone, phone, isPrincipal: true } });
+    else await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/telefones`, { method: "POST", body: { nome: client.nome || client.name || phone, whatsapp: phone, phone, isPrincipal: true } });
   }
   function editClientProduct(item) {
     const days = String(item.diasSemana || "").split(",").map(Number).filter(day => day >= 1 && day <= 7);
@@ -721,6 +791,15 @@
   function onlyDigits(value) { return String(value || "").replace(/\D/g, ""); }
   function formatPhone(value) { const digits = onlyDigits(value).slice(0, 11); if (digits.length <= 2) return digits ? `(${digits}` : ""; if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`; const split = digits.length <= 10 ? 6 : 7; return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`; }
   function savedPhone(value) { let digits = onlyDigits(value); if (digits.length > 11 && digits.startsWith("55")) digits = digits.slice(2); return (digits.length === 10 || digits.length === 11) && !/^0+$/.test(digits) ? formatPhone(digits) : ""; }
+  // Dígitos "locais" do telefone (sem +55). Base de displayPhone/phoneComplete.
+  function phoneDigits(value) { let digits = onlyDigits(value); if (digits.length > 11 && digits.startsWith("55")) digits = digits.slice(2); return /^0+$/.test(digits) ? "" : digits; }
+  // Um número só é DISCÁVEL com DDD (10 fixo / 11 celular). O resto (8-9 díg.,
+  // salvo sem DDD) é incompleto — precisa perguntar o DDD antes de ligar.
+  function phoneComplete(value) { const d = phoneDigits(value); return d.length === 10 || d.length === 11; }
+  // Exibe QUALQUER número não-vazio (o feedback do dono: "tem telefone e não
+  // exibe"). Com DDD → formata normal; 8-9 díg. sem DDD → mostra só o número
+  // local (nunca chuta os 2 primeiros como DDD, que é o bug do formatPhone).
+  function displayPhone(value) { const d = phoneDigits(value); if (!d) return ""; if (d.length >= 10) return formatPhone(d); if (d.length === 9) return `${d.slice(0, 5)}-${d.slice(5)}`; if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4)}`; return d; }
   function formatCpf(value) { const digits = onlyDigits(value).slice(0, 11); return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2"); }
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
   function clientAddressFields(fields, status, mode) {
@@ -1019,6 +1098,7 @@
     if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
     if (step === "telefone") { state.leituraStep = state.leituraSelectedClient ? "existente" : "novo"; render(); return true; }
     if (step === "produto") { state.leituraStep = "telefone"; render(); return true; }
+    if (step === "observacoes") { clearInterval(leituraObsTimer); state.leituraStep = "produto"; render(); return true; }
     return false;
   }
   async function performCancelLeitura() {
@@ -1157,7 +1237,67 @@
     if (step === "novo") return leituraNovoStep();
     if (step === "telefone") return leituraTelefoneStep();
     if (step === "produto") return leituraProdutoStep();
+    if (step === "observacoes") return leituraObsStep();
     return leituraTipoStep();
+  }
+  // PR20072026 (feedback dono) — última tela da parada: SÓ abre o campo de
+  // observações do cliente (o mesmo do /cliente) pra lembrar o motorista na
+  // entrega (escadas, cliente chato, horário X). 5s de contagem: se ninguém
+  // digita, salva sozinho; ao digitar, a contagem para e aparece o Salvar.
+  function leituraObsStep() {
+    // Contagem só enquanto ninguém digitou (ao digitar ela some via DOM, sem
+    // re-render, pra não roubar o foco do textarea no 1º caractere).
+    const hint = state.leituraObsTyped ? "" : `<p class="lrt-obs-count">Salvando em <b class="lrt-obs-secs">${Math.max(0, Number(state.leituraObsCountdown || 0))}</b>s… <span>ou escreva um lembrete</span></p>`;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Observações</h2><p class="subtitle">Lembrete pra entrega (opcional)</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="field"><textarea id="leitura-obs-input" maxlength="500" rows="4" placeholder="Ex.: subir escadas, cachorro bravo, entregar após 18h…">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-obs-salvar">Salvar</button></div></section></div>`;
+  }
+  // Abre o passo Observações e liga a contagem de 5s (auto-salva ao zerar).
+  function startLeituraObs() {
+    clearInterval(leituraObsTimer);
+    state.leituraObsDraft = (state.leituraSelectedClient && state.leituraSelectedClient.observacoes) || "";
+    state.leituraObsTyped = false;
+    state.leituraObsCountdown = 5;
+    state.leituraStep = "observacoes";
+    render();
+    leituraObsTimer = setInterval(() => {
+      if (state.leituraStep !== "observacoes" || state.leituraObsTyped) { clearInterval(leituraObsTimer); return; }
+      state.leituraObsCountdown = Math.max(0, state.leituraObsCountdown - 1);
+      if (state.leituraObsCountdown === 0) { clearInterval(leituraObsTimer); void saveLeituraParada(); return; }
+      const secs = document.querySelector(".lrt-obs-secs");
+      if (secs) secs.textContent = String(state.leituraObsCountdown);
+    }, 1000);
+  }
+  // Save real da parada (era o corpo do "leitura-proximo"); agrega a observação
+  // digitada. `observacoes` só vai quando há texto — assim NÃO apaga a nota já
+  // existente do cliente quando o passo é pulado em branco.
+  async function saveLeituraParada() {
+    clearInterval(leituraObsTimer);
+    if (!state.leitura || !state.leituraItens.length || !state.leituraCapture) return;
+    const atualizarPrecoAcordado = state.leituraItens.some(item => Math.abs(Number(item.valorUnit || 0) - Number(leituraDefaultValor(item.productId) || 0)) > 0.001);
+    const obs = String(state.leituraObsDraft || "").trim().slice(0, 500);
+    const clientKey = H.uuid();
+    const payload = {
+      clientKey,
+      capturadoEm: state.leituraCapture.capturadoEm,
+      lat: state.leituraCapture.lat,
+      lng: state.leituraCapture.lng,
+      accuracy: state.leituraCapture.accuracy,
+      itens: state.leituraItens.map(item => ({ productId: item.productId, qtd: Number(item.qtd || 1), valorUnit: Number(item.valorUnit || 0) })),
+      telefoneConfirmado: !!state.leituraTelefoneConfirmado,
+      atualizarPrecoAcordado,
+    };
+    if (obs) payload.observacoes = obs;
+    if (state.leituraSelectedClient) payload.customerProfileId = state.leituraSelectedClient.id;
+    else {
+      const draft = state.leituraNovoDraft;
+      payload.clienteNovo = { nome: draft.nome, telefone: draft.telefone || undefined, cep: draft.cep || undefined, endereco: draft.endereco || undefined, numero: draft.numero || undefined, bairro: draft.bairro || undefined, cidade: draft.cidade || undefined, uf: draft.uf || undefined, lat: draft.lat ?? undefined, lng: draft.lng ?? undefined, geoFonte: draft.geoFonte || "gps_cadastro" };
+    }
+    leituraQueuePush(state.leitura.id, clientKey, payload);
+    state.leitura.count = Number(state.leitura.count || 0) + 1;
+    persistLeituraSession();
+    await closeOverlay("modal");
+    toast("Parada registrada.");
+    H.vibrate(12);
+    void flushLeituraQueue();
   }
   function leituraTimelineStep() {
     const resumo = state.leituraResumo || {};
@@ -1357,9 +1497,15 @@
   function clientEditorModal(isNew) {
     const client = isNew ? state.newClientDraft : (state.modalClient || {}); const fields = isNew ? state.newClientDraft : state.clientPaymentDraft;
     const pending = isNew ? [] : clientPendingKeys(client);
-    const phone = isNew ? state.newClientDraft.phone : (state.clientDetail ? fields.phone : savedPhone(client.phone || client.phoneNormalized || client.whatsapp || ""));
-    const identity = isNew ? `<div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(state.newClientDraft.name)}"></div><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div></div><div class="field"><label>CPF</label><input name="cpf" inputmode="numeric" maxlength="14" value="${H.escape(state.newClientDraft.cpf)}" placeholder="000.000.000-00"></div>` : `<div class="field ${pending.includes("Tel") ? "client-field-pending" : ""}"><label>Telefone / WhatsApp${pending.includes("Tel") ? " · pendente" : ""}</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div>`;
-    const actions = `<div class="client-primary-actions ${!isNew && phone ? "has-contact" : ""}"><button class="btn btn-primary" type="submit">Salvar cliente</button>${!isNew && phone ? `<button type="button" class="btn btn-secondary" data-action="call-client">${icon("phone", 16)} Ligar</button><button type="button" class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 16)} WhatsApp</button>` : ""}</div>`;
+    const phone = isNew ? state.newClientDraft.phone : (state.clientDetail ? fields.phone : displayPhone(client.phone || client.phoneNormalized || client.whatsapp || ""));
+    // PR20072026 (feedback dono) — número sem DDD APARECE (não some) mas não é
+    // discável: no lugar de Ligar/WhatsApp entra "Completar DDD", que pergunta o
+    // DDD já sugerindo o da região do CEP.
+    const phoneReady = !isNew && !!phone && phoneComplete(phone);
+    const phoneIncomplete = !isNew && !!phone && !phoneComplete(phone);
+    const ddHint = phoneIncomplete ? `<p class="client-ddd-hint">Falta o DDD — toque em “Completar DDD”.</p>` : "";
+    const identity = isNew ? `<div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(state.newClientDraft.name)}"></div><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div></div><div class="field"><label>CPF</label><input name="cpf" inputmode="numeric" maxlength="14" value="${H.escape(state.newClientDraft.cpf)}" placeholder="000.000.000-00"></div>` : `<div class="field ${pending.includes("Tel") ? "client-field-pending" : ""}"><label>Telefone / WhatsApp${pending.includes("Tel") ? " · pendente" : ""}</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000">${ddHint}</div>`;
+    const actions = `<div class="client-primary-actions ${phoneReady ? "has-contact" : ""}"><button class="btn btn-primary" type="submit">Salvar cliente</button>${phoneReady ? `<button type="button" class="btn btn-secondary" data-action="call-client">${icon("phone", 16)} Ligar</button><button type="button" class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 16)} WhatsApp</button>` : ""}${phoneIncomplete ? `<button type="button" class="btn btn-secondary" data-action="complete-ddd">${icon("phone", 16)} Completar DDD</button>` : ""}</div>`;
     let products = newClientProductFields();
     if (!isNew) {
       const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
@@ -1406,6 +1552,8 @@
     // o motorista tinha digitado. Rascunho zera no submit com sucesso.
     if (state.modal === "new-oneoff") { const d = state.oneoffDraft || {}; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente</label><select name="customerProfileId"><option value="">Novo cliente abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}" ${String(d.customerProfileId || "") === String(c.id) ? "selected" : ""}>${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome avulso</label><input name="clientName" maxlength="160" value="${H.escape(d.clientName || "")}"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30" value="${H.escape(d.clientPhone || "")}"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}" ${String(d.productId || "") === String(p.id) ? "selected" : ""}>${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="${H.escape(d.quantidade || "1")}" required></div></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500">${H.escape(d.notes || "")}</textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar</button></form></section></div>`; }
     if (state.modal === "manage-day") {
+      // PR20072026 (feedback dono) — menu de entrada centralizado.
+      if (state.dayOrderStep === "home") return dayHomeModal();
       // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e
       // a prévia/geração. Fica ANTES do dayReview: "Ordem do app" cai direto
       // no fluxo antigo (dayReview), intocado.
@@ -1426,7 +1574,7 @@
       // atualização visual ainda esteja encerrando em segundo plano.
       const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
       const summaryHtml = selected.length ? `<div class="rp2-summary"><b>${preview.length}</b><span>${preview.length === 1 ? "parada" : "paradas"} em ${selected.length} ${selected.length === 1 ? "dia" : "dias"}</span></div>` : "";
-      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2><p class="subtitle">Escolha os dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="rp2-days">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="rp2-day ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo ›</button></div></section></div>`;
+      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Por dia</h2><p class="subtitle">Escolha os dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="rp2-days">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="rp2-day ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo ›</button></div></section></div>`;
     }
     if (state.modal === "route-mode") {
       const locked = routeActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
@@ -1518,21 +1666,25 @@
     const rows = modelos.map(modelo => `<div class="row-card"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><div class="actions" style="margin:0;gap:6px"><button type="button" class="btn btn-secondary" data-action="rename-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Renomear</button><button type="button" class="btn btn-danger" data-action="delete-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Excluir</button></div></div>`).join("");
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minhas rotas</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota ao montar no modo \"Minha ordem\".")}</div></section></div>`;
   }
-  // PR18072026 Onda 3 — passo "Como montar a rota?": 3 cards grandes, sem
-  // jargão. "Ordem do app" segue o fluxo antigo (startDayReview) sem mudança.
+  // PR20072026 (feedback dono) — MENU de entrada centralizado. Duas portas:
+  // "Por dia" (monta pela agenda) e "Salvos" (repete uma rota guardada). Enquanto
+  // as rotas salvas carregam, o botão Salvos mostra "Carregando…".
+  function dayHomeModal() {
+    const modelos = state.routeModelos || [];
+    const loadingSaved = !!state.routeModelosLoading;
+    const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
+    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions"><button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("route", 22)}</span><strong>Por dia</strong><span>Clientes agendados do dia</span></button><button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><strong>Salvos</strong><span>${H.escape(savedHint)}</span></button></div></section></div>`;
+  }
+  // PR20072026 (feedback dono) — o antigo "Como montar?" virou um pop-up enxuto
+  // de 1 clique com só 2 modos (Automática / Minha ordem). "Rota salva" saiu
+  // daqui: agora é a porta "Salvos" do menu de entrada.
   function dayOrderChooseModal() {
     const stopsCount = (state.dayPreview || []).length;
     const modes = [
       { action: "order-mode-app", variant: "app", glyph: "✨", title: "Automática", desc: "O app traça o caminho mais curto" },
       { action: "order-mode-manual", variant: "manual", glyph: "↕", title: "Minha ordem", desc: "Você arrasta e organiza as paradas" },
-      { action: "order-mode-saved", variant: "saved", glyph: "☆", title: "Rota salva", desc: "Repetir uma ordem que você guardou" },
     ];
-    // PR20072026 W3 §1.2 da spec — destaque de 1 toque quando existe rota-modelo
-    // do dia da semana operacional: aplica-se pelo MESMO handler de
-    // "apply-route-modelo" (equivale a escolher "Rota salva" + aquele modelo).
-    const todayModelo = (state.routeModelos || []).find(m => Number(m.diaSemana) === todayIso());
-    const highlight = todayModelo ? `<button type="button" class="row-card rp2-mode-card rp2-mode-card--highlight" data-action="apply-route-modelo" data-modelo-id="${H.escape(todayModelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>Aplicar rota de ${H.escape(diaSemanaLabel(todayIso()))} (${(todayModelo.paradas || []).length} paradas)</strong></span><span class="rp2-mode-chev">›</span></button>` : "";
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Como montar?</h2><p class="subtitle">${stopsCount} ${stopsCount === 1 ? "parada pronta" : "paradas prontas"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${highlight}<div class="list rp2-mode-list">${modes.map(m => `<button type="button" class="row-card rp2-mode-card" data-action="${m.action}"><span class="rp2-mode-icon rp2-mode-icon--${m.variant}">${m.glyph}</span><span class="card-main"><strong>${m.title}</strong><span>${m.desc}</span></span><span class="rp2-mode-chev">›</span></button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></div></section></div>`;
+    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-choose" role="dialog" aria-modal="true" aria-labelledby="day-choose-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-choose-title">Ordem das paradas</h2><p class="day-home-sub">${stopsCount} ${stopsCount === 1 ? "parada pronta" : "paradas prontas"}</p><div class="list rp2-mode-list">${modes.map(m => `<button type="button" class="row-card rp2-mode-card" data-action="${m.action}"><span class="rp2-mode-icon rp2-mode-icon--${m.variant}">${m.glyph}</span><span class="card-main"><strong>${m.title}</strong><span>${m.desc}</span></span><span class="rp2-mode-chev">›</span></button>`).join("")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   // "Minha ordem": lista da prévia com ▲▼ grandes (mecanismo obrigatório de
   // reordenação) + checkbox opcional de salvar como rota do dia escolhido.
@@ -1564,7 +1716,7 @@
     const today = todayIso();
     const sorted = [...modelos].sort((a, b) => (Number(a.diaSemana) === today ? -1 : 0) - (Number(b.diaSemana) === today ? -1 : 0));
     const rows = sorted.map(modelo => `<button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></span><span class="rp2-mode-chev">›</span></button>`).join("");
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Rota salva</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-mode-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota no modo \"Minha ordem\" primeiro.")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></div></section></div>`;
+    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">☆</div><h2 id="day-saved-title">Rotas Salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota no modo \"Minha ordem\" primeiro.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   function clientScheduleLine(client) {
     const days = (client.diasEntrega || []).map(Number).filter(Boolean);
@@ -1581,7 +1733,10 @@
   function clientPendingKeys(client) {
     const pending = Array.isArray(client.pendencias) ? client.pendencias : [];
     const missing = [];
-    if (pending.includes("whatsapp") || !(client.phone || client.phoneNormalized || client.whatsapp)) missing.push("Tel");
+    // "Tel" pendente = sem número OU número sem DDD (incompleto, não discável).
+    // Antes só checava existência → número sem DDD sumia SEM acender alerta.
+    const anyPhone = client.phone || client.phoneNormalized || client.whatsapp;
+    if (pending.includes("whatsapp") || !anyPhone || !phoneComplete(anyPhone)) missing.push("Tel");
     if (pending.some(item => ["endereco", "numero", "gps"].includes(item))) missing.push("End");
     if (pending.includes("dia") || !(client.diasEntrega || []).length) missing.push("Dia");
     if (configFlag("moduloFinanceiroAtivo") && (!client.formaPagamento || (client.formaPagamento === "mensal" && !client.diaFechamento))) missing.push("Pag");
@@ -2076,11 +2231,11 @@
   }
   function closeOverlay(kind) {
     if (state.closingOverlay) return Promise.resolve();
-    if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; }
+    if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; clearInterval(leituraObsTimer); }
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
-      if (kind === "modal") { state.modal = null; state.modalClient = null; state.clientProductFormOpen = false; }
+      if (kind === "modal") { state.modal = null; state.modalClient = null; state.clientProductFormOpen = false; state.dddPrompt = null; }
       if (kind === "sheet") state.selected = null;
       state.closingOverlay = null;
       render();
@@ -2105,7 +2260,7 @@
     abrirNavegacao(next);
     state.nextStopOpening = false;
   }
-  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); }, 1000); }
+  function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const ring = document.querySelector(".next-stop-progress"); if (ring) ring.style.strokeDashoffset = (188.5 * state.nextCountdown / 5).toFixed(1); }, 1000); }
   function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; render(); }
 
   app.addEventListener("click", async event => {
@@ -2244,6 +2399,10 @@
     if (action === "close-client-product-form") { resetClientProductEditor(); state.clientProductFormOpen = false; render(); }
     if (action === "call-client" && state.modalClient) H.call(state.clientDetail && state.clientDetail.whatsapp || state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp);
     if (action === "whatsapp-client" && state.modalClient) { const client = state.modalClient; H.whatsapp(state.clientDetail && state.clientDetail.whatsapp || client.whatsapp || client.phone || client.phoneNormalized, `Olá, ${client.nome || client.name || "tudo bem"}?`); }
+    // PR20072026 (feedback dono) — completar DDD do número salvo sem DDD.
+    if (action === "complete-ddd") { openDddPrompt(); return; }
+    if (action === "cancel-ddd") { state.dddPrompt = null; render(); return; }
+    if (action === "confirm-ddd") { await confirmDddPrompt(); return; }
     if (action === "new-oneoff") { if (state.clientsPage === 0) await loadClients(true, true); showModal("new-oneoff"); }
     if (action === "cancel-distance-confirm") { state.distanceWarning = null; state.distanceOverrideDeliveryId = null; await closeOverlay("modal"); return; }
     if (action === "confirm-distance-delivery") { const warning = state.distanceWarning; const item = warning && items().find(row => row.id === warning.itemId); const pendingOptions = warning && warning.options; state.distanceWarning = null; state.distanceOverrideDeliveryId = item && item.id || null; await closeOverlay("modal"); if (item) await confirmDelivery(item, pendingOptions); return; }
@@ -2265,12 +2424,16 @@
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
-    // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem / Rota salva).
-    if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); void loadRouteModelos(); return; }
-    if (action === "back-route-order") { state.dayOrderStep = state.dayOrderStep === "choose" ? null : "choose"; render(); return; }
+    // PR20072026 (feedback dono) — menu de entrada: "Por dia" cai no seletor de
+    // dias (dayOrderStep=null), "Salvos" abre as rotas guardadas.
+    if (action === "day-entry-pordia") { state.dayOrderStep = null; render(); return; }
+    if (action === "day-entry-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
+    // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem).
+    if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
+    // Voltar hierárquico: choose→dias, dias→menu, manual→choose, saved→menu.
+    if (action === "back-route-order") { state.dayOrderStep = state.dayOrderStep === "choose" ? null : state.dayOrderStep === "manual" ? "choose" : "home"; render(); return; }
     if (action === "order-mode-app") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; startDayReview(); return; }
     if (action === "order-mode-manual") { state.dayOrderStep = "manual"; state.dayOrderMode = "manual"; state.dayManualOrder = (state.dayPreview || []).map(dayPreviewKey); state.dayManualSave = false; render(); return; }
-    if (action === "order-mode-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
     if (action === "manual-order-up" || action === "manual-order-down") {
       const key = target.dataset.orderKey; const list = state.dayManualOrder; const index = list.indexOf(key);
       if (index === -1) return;
@@ -2285,6 +2448,14 @@
     if (action === "apply-route-modelo") {
       const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
       if (!modelo) return;
+      // PR20072026 (feedback dono) — "Salvos" entra direto do menu, sem passar
+      // pelo seletor de dias. Sem prévia carregada não há o que reordenar/gerar,
+      // então carrega a prévia do dia da rota salva (ou de hoje) antes de aplicar.
+      if (!state.daySelection.length || !(state.dayPreview || []).length) {
+        state.daySelection = [todayIso()];
+        state.dayStarting = false; render();
+        await refreshDayPreview();
+      }
       const preview = state.dayPreview || [];
       const used = new Set();
       const ordered = [];
@@ -2443,32 +2614,10 @@
     if (action === "leitura-item-remover") { state.leituraItens = state.leituraItens.filter(i => String(i.productId) !== String(target.dataset.productId)); render(); return; }
     if (action === "leitura-proximo") {
       if (!state.leitura || !state.leituraItens.length || !state.leituraCapture) return;
-      const atualizarPrecoAcordado = state.leituraItens.some(item => Math.abs(Number(item.valorUnit || 0) - Number(leituraDefaultValor(item.productId) || 0)) > 0.001);
-      const clientKey = H.uuid();
-      const payload = {
-        clientKey,
-        capturadoEm: state.leituraCapture.capturadoEm,
-        lat: state.leituraCapture.lat,
-        lng: state.leituraCapture.lng,
-        accuracy: state.leituraCapture.accuracy,
-        itens: state.leituraItens.map(item => ({ productId: item.productId, qtd: Number(item.qtd || 1), valorUnit: Number(item.valorUnit || 0) })),
-        telefoneConfirmado: !!state.leituraTelefoneConfirmado,
-        atualizarPrecoAcordado,
-      };
-      if (state.leituraSelectedClient) payload.customerProfileId = state.leituraSelectedClient.id;
-      else {
-        const draft = state.leituraNovoDraft;
-        payload.clienteNovo = { nome: draft.nome, telefone: draft.telefone || undefined, cep: draft.cep || undefined, endereco: draft.endereco || undefined, numero: draft.numero || undefined, bairro: draft.bairro || undefined, cidade: draft.cidade || undefined, uf: draft.uf || undefined, lat: draft.lat ?? undefined, lng: draft.lng ?? undefined, geoFonte: draft.geoFonte || "gps_cadastro" };
-      }
-      leituraQueuePush(state.leitura.id, clientKey, payload);
-      state.leitura.count = Number(state.leitura.count || 0) + 1;
-      persistLeituraSession();
-      await closeOverlay("modal");
-      toast("Parada registrada.");
-      H.vibrate(12);
-      void flushLeituraQueue();
+      startLeituraObs();
       return;
     }
+    if (action === "leitura-obs-salvar") { await saveLeituraParada(); return; }
     if (action === "leitura-finalizar-iniciar") {
       if (!state.leitura) return;
       await flushLeituraQueue();
@@ -2654,6 +2803,12 @@
     }
     if (event.target.form && event.target.form.id === "leitura-nome-form" && event.target.name === "nome") { state.leituraNomeRota = event.target.value; state.leituraNomeError = ""; return; }
     if (event.target.id === "leitura-telefone-input") { event.target.value = formatPhone(event.target.value); return; }
+    // Observações da parada: guarda o texto e, no 1º toque, PARA a contagem e
+    // remove a linha do contador via DOM (sem re-render, pra não perder o foco).
+    if (event.target.id === "leitura-obs-input") { state.leituraObsDraft = event.target.value; if (!state.leituraObsTyped) { state.leituraObsTyped = true; clearInterval(leituraObsTimer); const line = document.querySelector(".lrt-obs-count"); if (line) line.remove(); } return; }
+    // DDD do pop-up: mantém só dígitos e guarda no estado (pra não perder o que
+    // foi digitado se a sugestão do CEP chegar e re-renderizar).
+    if (event.target.id === "ddd-input") { const v = onlyDigits(event.target.value).slice(0, 2); event.target.value = v; if (state.dddPrompt) state.dddPrompt.ddd = v; return; }
     if (event.target.id === "leitura-cliente-search") { state.leituraClienteQuery = event.target.value; render(); return; }
     if (event.target.dataset.leituraValor !== undefined) {
       const item = state.leituraItens.find(i => String(i.productId) === String(event.target.dataset.leituraValor));
@@ -2765,11 +2920,7 @@
           if (d.localId) await H.api(`/nucleo/locais/${encodeURIComponent(d.localId)}`, { method: "PATCH", body: localBody });
           else if (endereco || addressBody.cep) await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/locais`, { method: "POST", body: { ...localBody, isPrincipal: true } });
         } catch (localError) { toast("O endereço do mapa não atualizou: " + humanApiError(localError), true); }
-        if (phone) {
-          const principalId = state.clientDetail && state.clientDetail.contatoPrincipalId;
-          if (principalId) await H.api(`/nucleo/telefones/${encodeURIComponent(principalId)}`, { method: "PATCH", body: { whatsapp: phone, phone, isPrincipal: true } });
-          else await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/telefones`, { method: "POST", body: { nome: client.nome || client.name || phone, whatsapp: phone, phone, isPrincipal: true } });
-        }
+        if (phone) await saveClientPhone(client, phone);
         const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); await H.api(`/logistica/clientes/${encodeURIComponent(client.id)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } });
         const savesProduct = !!state.clientProductMode;
         if (savesProduct) await persistClientProduct(client.id, formValues(app.querySelector("#client-product-form")));
@@ -2855,6 +3006,7 @@
       // quer o boolean); closeOverlay é assíncrono, então dispara com `void` e já
       // devolve `true` — a UI fecha com a animação de qualquer forma.
       try {
+        if (state.dddPrompt) { state.dddPrompt = null; render(); return true; }
         if (state.confirmation) { state.confirmation = null; render(); return true; }
         if (state.modal === "manage-day") {
           if (state.dayReview) {
@@ -2864,9 +3016,10 @@
             render();
             return true;
           }
-          if (state.dayOrderStep === "manual" || state.dayOrderStep === "saved" || state.dayOrderStep === "choose") {
-            // Espelha data-action="back-route-order": choose volta pros dias, manual/saved volta pro choose.
-            state.dayOrderStep = state.dayOrderStep === "choose" ? null : "choose";
+          // Espelha data-action="back-route-order" (PR20072026): manual→choose,
+          // choose→dias, dias/saved→menu de entrada. Só o menu ("home") fecha o modal.
+          if (state.dayOrderStep !== "home") {
+            state.dayOrderStep = state.dayOrderStep === "manual" ? "choose" : state.dayOrderStep === "choose" ? null : "home";
             render();
             return true;
           }

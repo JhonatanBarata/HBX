@@ -93,6 +93,16 @@ export class LogisticaLeituraService {
         });
         if (!perfil) throw new BadRequestException('Cliente não encontrado nesta empresa.');
         customerProfileId = perfil.id;
+        // PR20072026 (feedback dono) — grava a observação do passo "Observações"
+        // no cliente existente. Só quando veio texto: passo pulado em branco NÃO
+        // apaga a nota que o cliente já tinha.
+        const obs = String(input.observacoes ?? '').trim();
+        if (obs) {
+          await tx.customerProfile.update({
+            where: { id: customerProfileId },
+            data: { observacoes: obs.slice(0, 500) },
+          });
+        }
       } else if (input.clienteNovo) {
         const nome = String(input.clienteNovo.nome ?? '').trim();
         if (!nome) throw new BadRequestException('clienteNovo.nome é obrigatório.');
@@ -120,6 +130,8 @@ export class LogisticaLeituraService {
             lat,
             lng,
             geoFonte,
+            // PR20072026 (feedback dono) — observação capturada no passo final.
+            observacoes: String(input.observacoes ?? '').trim().slice(0, 500) || null,
             isCliente: true,
             origin: 'manual',
           },

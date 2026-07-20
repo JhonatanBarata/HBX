@@ -160,6 +160,14 @@ export class RegistrarLeituraParadaDto {
   @IsOptional()
   @IsBoolean()
   atualizarPrecoAcordado?: boolean;
+
+  // PR20072026 (feedback dono) — observação operacional do cliente capturada no
+  // passo "Observações" da parada (lembrete pro motorista na entrega). Persiste
+  // em CustomerProfile.observacoes (mesmo campo do /cliente).
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  observacoes?: string;
 }
 
 // PATCH — mesmos campos editáveis da parada (itens/qtd/valor).
