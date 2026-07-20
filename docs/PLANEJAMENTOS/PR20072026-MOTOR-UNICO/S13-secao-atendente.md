@@ -36,6 +36,10 @@ A fusão que o cliente VÊ: bot-atendimento + assistente viram UM "Atendente" na
    automaticamente (backend S05 já garante; UI reflete).
 6. Estados de erro: agent 403 (módulo bot ausente) → seção nem aparece (gate S12); overview
    indisponível → aviso, não branco.
+6b. **Permissão (regra de produto 20/07)**: `canManage:false` (vendedor) → wizard/editor/publicar
+   em modo LEITURA (campos disabled, sem botões de salvar/publicar), sandbox LIBERADO (testar não
+   altera nada). A config do Admin vale pra empresa inteira — o vendedor vê o agente da empresa,
+   nunca configura o dele.
 7. QA local Chrome (localhost:3001, login `.test-login.local.md`): wizard completo → editor →
    sandbox nos 2 cérebros → troca de cérebro → publicar (empresa de teste com pino armado, se
    houver; senão validar o estado "Aguardando suporte").

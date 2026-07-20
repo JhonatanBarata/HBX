@@ -35,6 +35,9 @@ stores atuais, para o corte de tela não esperar migration.
    Para brain `'roteiro'`, implementar replay determinístico BACKEND da config (welcome → menu →
    botão → pós-ação), sem IA e sem WhatsApp — substitui o chat fake do front velho.
 6. Endpoints legados (`/assistente`, `/inbox/bot-config`) continuam funcionando INTACTOS.
+7. **Permissão (regra de produto 20/07)**: agente é DA EMPRESA. `GET` liberado pra qualquer usuário
+   do módulo; `PUT`/`publish` exigem gestão (mesmo mecanismo `canManage` da cadência — Admin/
+   USERMASTER); vendedor recebe `canManage:false` no GET e 403 no PUT. Sandbox liberado pra todos.
 
 ## Critérios de aceite
 - Build + testes verdes (casos: view monta dos 2 stores; PUT roteia pro store certo; publish

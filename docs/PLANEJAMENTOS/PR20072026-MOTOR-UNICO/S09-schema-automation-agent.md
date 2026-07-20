@@ -17,7 +17,7 @@ NADA é dropado (drop é S20, condicionado ao inventário).
 ```prisma
 model AutomationAgent {
   id           String   @id @default(cuid())
-  companyId    Int      @unique
+  companyId    Int      @unique // REGRA DE PRODUTO 20/07: 1 agente POR EMPRESA (Admin configura, todos herdam)
   nome         String   @default("Assistente")
   tom          String   @default("normal")     // formal | normal | descontraido
   perfil       String   @default("vendas")     // vendas | suporte

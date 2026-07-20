@@ -86,6 +86,17 @@ de liga/desliga sem visão conjunta (pino+chavinhas, `published`, `ativa`+runner
 6. Migrations: ADITIVAS até S19. DDL destrutivo SÓ na S20, condicionado ao inventário da S02, com dump seletivo prévio (NUNCA dumpar `cnpj_public*`).
 7. **Schema drift**: existe drift conhecido no `schema.prisma` sem migration (frente do dono, app entregador). Workers NÃO "consertam" drift alheio — migration focada só nas tabelas desta frente.
 
+## Regra de produto: o agente é DA EMPRESA (decisão do dono 20/07)
+
+**A configuração feita pelo Admin vale pra TODOS, forçado.** 1 agente por empresa (`companyId
+@unique`), configurado por Admin/USERMASTER; vendedor HERDA e não configura nada — no máximo vê
+read-only e testa no sandbox. É exatamente como o mercado faz (Intercom/HubSpot/ManyChat/Blip:
+o bot/IA é do workspace, fala em nome da MARCA, num canal só; vendedor nunca tem "seu" bot de
+atendimento — config por vendedor viraria bagunça de marca e risco de compliance). IA PESSOAL
+por usuário só existe como copiloto INTERNO (nosso Concierge — outra frente, intocada).
+Implementação: mesmo mecanismo `canManage` que a cadência já usa — S05 (PUT/publish exigem
+canManage), S13 (UI: editor só Admin; vendedor read-only + sandbox).
+
 ## Guardrails duros (violation = parar a sprint)
 
 - **`Webwhats/` é INTOCÁVEL** nesta frente. Nada de conexão/reconexão/pareamento de chip.
