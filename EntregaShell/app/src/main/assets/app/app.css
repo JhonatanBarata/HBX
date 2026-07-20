@@ -454,6 +454,15 @@ h3 { font-size: .95rem; }
 .lrt-distance { flex: 0 0 auto; color: var(--brand-strong); font-size: .68rem; font-weight: 850; }
 .lrt-address-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .lrt-phone-display { padding: 16px; border-radius: 14px; background: var(--surface-2); font-size: 1.4rem; font-weight: 850; text-align: center; }
+/* PR20072026 fix 20/07 — item do Produto com qtd (−/+) E valor na mesma tela
+   (a tela "Valor do cliente" foi fundida aqui). Só tokens existentes. */
+.lrt-produto-item { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); margin-bottom: 10px; }
+.lrt-produto-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lrt-produto-head small { display: block; color: var(--muted); font-size: .7rem; }
+.lrt-produto-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.lrt-produto-valor { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; max-width: 160px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.lrt-produto-valor span { color: var(--muted); font-size: .8rem; font-weight: 800; }
+.lrt-produto-valor input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; padding: 12px 0; font-size: 1rem; font-weight: 700; text-align: right; }
 .lrt-timeline { display: grid; gap: 8px; }
 .lrt-timeline-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
 /* PR20072026 W3 — modo MANUAL: ▲▼ (rp2-order-arrow, já ≥52px) numa segunda

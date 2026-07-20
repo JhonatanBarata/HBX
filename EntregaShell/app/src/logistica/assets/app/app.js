@@ -101,6 +101,7 @@
     leitura: H.cache.get("logistica-leitura", null),
     leituraStarting: false,
     leituraCapturing: false,
+    leituraAwaitingGps: false,
     leituraCapture: null,
     leituraStep: null,
     leituraClientMode: null,
@@ -719,7 +720,7 @@
   }
   function onlyDigits(value) { return String(value || "").replace(/\D/g, ""); }
   function formatPhone(value) { const digits = onlyDigits(value).slice(0, 11); if (digits.length <= 2) return digits ? `(${digits}` : ""; if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`; const split = digits.length <= 10 ? 6 : 7; return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`; }
-  function savedPhone(value) { const digits = onlyDigits(value); return (digits.length === 10 || digits.length === 11) && !/^0+$/.test(digits) ? formatPhone(digits) : ""; }
+  function savedPhone(value) { let digits = onlyDigits(value); if (digits.length > 11 && digits.startsWith("55")) digits = digits.slice(2); return (digits.length === 10 || digits.length === 11) && !/^0+$/.test(digits) ? formatPhone(digits) : ""; }
   function formatCpf(value) { const digits = onlyDigits(value).slice(0, 11); return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2"); }
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
   function clientAddressFields(fields, status, mode) {
@@ -959,13 +960,31 @@
     return product ? Number(product.precoCatalogo ?? product.price ?? 0) : 0;
   }
   function itemLabel(productId) { const p = (state.products || []).find(pr => String(pr.id) === String(productId)); return p ? `${p.nome || p.name || "Produto"} · ${p.unidade || "unidade"}` : "Produto"; }
+  // PR20072026 fix 20/07 — carrega os produtos JÁ cadastrados do cliente e (a)
+  // guarda o preço acordado por produto (usado como valor sugerido) e (b)
+  // PRÉ-CARREGA esses produtos como itens da parada (o dono pediu: "não carrega
+  // produto pré cadastrado"). Cliente sem produto salvo → itens fica limpo.
   async function loadLeituraClienteProdutos(customerProfileId) {
     try {
       const result = await H.api(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(customerProfileId)}`);
       const list = Array.isArray(result) ? result : (result && (result.items || result.data)) || [];
       const map = {};
-      list.forEach(item => { if (item && item.productId != null && item.precoAcordado != null) map[String(item.productId)] = Number(item.precoAcordado); });
-      state.leituraClienteProdutos = map;
+      const itens = [];
+      list.forEach(item => {
+        if (!item || item.productId == null || item.ativo === false) return;
+        if (item.precoAcordado != null) map[String(item.productId)] = Number(item.precoAcordado);
+        if (itens.some(i => String(i.productId) === String(item.productId))) return; // dedupe: cliente pode ter 2 vínculos do mesmo produto
+        const prod = (state.products || []).find(p => String(p.id) === String(item.productId));
+        const nome = (item.produto && item.produto.nome) || (prod && (prod.nome || prod.name)) || "Produto";
+        const unidade = (item.produto && item.produto.unidade) || (prod && prod.unidade) || "unidade";
+        itens.push({ productId: item.productId, nome, unidade, qtd: Number(item.qtdPadrao || 1), valorUnit: null });
+      });
+      state.leituraClienteProdutos = map; // setar ANTES do leituraDefaultValor (ele lê esse mapa)
+      // Só pré-carrega se o usuário ainda está neste cliente e não montou itens à mão.
+      if (state.leituraSelectedClient && String(state.leituraSelectedClient.id) === String(customerProfileId) && !state.leituraItens.length) {
+        itens.forEach(it => { it.valorUnit = leituraDefaultValor(it.productId); });
+        state.leituraItens = itens;
+      }
       render();
     } catch (_) { state.leituraClienteProdutos = {}; }
   }
@@ -1000,7 +1019,6 @@
     if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
     if (step === "telefone") { state.leituraStep = state.leituraSelectedClient ? "existente" : "novo"; render(); return true; }
     if (step === "produto") { state.leituraStep = "telefone"; render(); return true; }
-    if (step === "valor") { state.leituraStep = "produto"; render(); return true; }
     return false;
   }
   async function performCancelLeitura() {
@@ -1014,6 +1032,46 @@
     state.leituraManualOrder = [];
     await closeOverlay("modal");
     toast("Leitura cancelada.");
+  }
+  // PR20072026 fix 20/07 — abre o wizard "Cadastrar Local"/"Adicionar cliente"
+  // com a captura (GPS ou {null} no manual). Zera o estado do wizard e carrega
+  // a lista de clientes se ainda não veio.
+  function openLeituraParada(capture) {
+    state.leituraCapture = capture;
+    state.leituraStep = "tipo";
+    state.leituraClientMode = null;
+    state.leituraSelectedClient = null;
+    state.leituraClienteProdutos = {};
+    state.leituraNovoDraft = blankLeituraNovoDraft();
+    state.leituraNovoEditing = false;
+    state.leituraNovoCepStatus = "";
+    state.leituraClienteQuery = "";
+    state.leituraTelefoneValue = "";
+    state.leituraTelefoneConfirmado = false;
+    state.leituraTelefoneCorrigindo = false;
+    state.leituraItens = [];
+    state.leituraProdutoPicker = false;
+    showModal("leitura-parada");
+    if (state.clientsPage === 0) void loadClients(true, true);
+  }
+  // PR20072026 fix 20/07 — "não foi possível obter sua localização": a WebView
+  // precisa da permissão nativa (H.requestLocationPermission) ANTES do
+  // getCurrentPosition. Se a 1ª leitura falha, pede a permissão e retoma pelo
+  // callback locationPermissionChanged (state.leituraAwaitingGps).
+  async function startLeituraGpsCapture() {
+    if (!state.leitura || state.leituraCapturing) return;
+    state.leituraCapturing = true; render();
+    const position = await leituraCapturePosition();
+    if (position) { finishLeituraGpsCapture(position); return; }
+    if (H.requestLocationPermission) { state.leituraAwaitingGps = true; H.requestLocationPermission(); return; }
+    state.leituraCapturing = false;
+    toast("Não foi possível obter sua localização. Tente novamente.", true);
+    render();
+  }
+  function finishLeituraGpsCapture(position) {
+    state.leituraCapturing = false;
+    if (!position) { toast("Não foi possível obter sua localização. Tente novamente.", true); render(); return; }
+    openLeituraParada({ ...position, capturadoEm: new Date().toISOString() });
   }
   // PR20072026 W3 — mantém a ordem local (▲▼) do modo MANUAL estável através
   // de fetches de resumo: ids conhecidos preservam posição, ids novos vão pro
@@ -1066,7 +1124,7 @@
   }
   function leituraExistenteStep() {
     const rows = leituraExistenteResults();
-    const body = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
+    const body = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("users", 18)}</div><div><h2>Cliente existente</h2><p class="subtitle">Mais perto primeiro</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label><div class="rp2-body">${body}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button></div></section></div>`;
   }
   function leituraNovoStep() {
@@ -1079,19 +1137,19 @@
     const editing = state.leituraTelefoneCorrigindo || !hasPhone;
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("phone", 18)}</div><div><h2>Telefone</h2><p class="subtitle">${hasPhone ? "Confirme o número" : "Nenhum telefone cadastrado"}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${editing ? `<div class="field"><label>Telefone</label><input id="leitura-telefone-input" inputmode="tel" maxlength="15" value="${H.escape(state.leituraTelefoneValue)}" placeholder="(00) 00000-0000"></div>` : `<p class="lrt-phone-display">${H.escape(state.leituraTelefoneValue)}</p>`}</div><div class="rp2-footer">${editing ? `<button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-salvar">${hasPhone ? "Salvar" : "Continuar sem telefone"}</button>` : `<button class="btn btn-secondary btn-block" type="button" data-action="leitura-telefone-corrigir">Corrigir</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-telefone-confirmar">Confirmar</button>`}<button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button></div></section></div>`;
   }
+  // PR20072026 fix 20/07 — a tela "Valor do cliente" foi FUNDIDA aqui (o dono
+  // pediu): cada item mostra qtd (−/+) E o valor já pré-preenchido (preço do
+  // cliente → do cliente → do catálogo; sem preço = vazio). "Próximo" salva a
+  // parada direto (não existe mais passo de valor separado).
   function leituraProdutoStep() {
     const selectedIds = new Set(state.leituraItens.map(i => String(i.productId)));
     const available = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !selectedIds.has(String(p.id)));
-    const rows = state.leituraItens.map(item => `<div class="delivery-item"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div><button type="button" class="close" style="width:34px;height:34px" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div>`).join("");
-    const picker = state.leituraProdutoPicker ? `<div class="delivery-picker"><strong>Escolher produto</strong>${available.map(p => `<button type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name)} · ${H.escape(p.unidade || "unidade")}</button>`).join("") || `<p class="subtitle">Sem mais produtos.</p>`}<button class="btn btn-secondary" type="button" data-action="leitura-produto-fechar-picker">Fechar</button></div>` : (available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Produto</h2><p class="subtitle">O que foi entregue?</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-produto-avancar" ${state.leituraItens.length ? "" : "disabled"}>Próximo</button></div></section></div>`;
-  }
-  function leituraValorStep() {
     const rows = state.leituraItens.map(item => {
       if (item.valorUnit === null || item.valorUnit === undefined) item.valorUnit = leituraDefaultValor(item.productId);
-      return `<div class="field"><label>${H.escape(item.nome)} · ${H.escape(item.unidade)} (${item.qtd}×)</label><input type="number" min="0" step="0.01" inputmode="decimal" data-leitura-valor="${H.escape(item.productId)}" value="${H.escape(String(item.valorUnit))}"></div>`;
+      return `<div class="lrt-produto-item"><div class="lrt-produto-head"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><button type="button" class="close" style="width:32px;height:32px" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div><label class="lrt-produto-valor"><span>R$</span><input type="number" min="0" step="0.01" inputmode="decimal" data-leitura-valor="${H.escape(item.productId)}" value="${H.escape(String(item.valorUnit))}" placeholder="0,00"></label></div></div>`;
     }).join("");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Valor do cliente</h2><p class="subtitle">Preço sugerido — altere se combinou outro</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${rows}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-proximo">Próximo</button></div></section></div>`;
+    const picker = state.leituraProdutoPicker ? `<div class="delivery-picker"><strong>Escolher produto</strong>${available.map(p => `<button type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name)} · ${H.escape(p.unidade || "unidade")}</button>`).join("") || `<p class="subtitle">Sem mais produtos.</p>`}<button class="btn btn-secondary" type="button" data-action="leitura-produto-fechar-picker">Fechar</button></div>` : (available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Produto</h2><p class="subtitle">O que foi entregue?</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body">${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-voltar">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-proximo" ${state.leituraItens.length ? "" : "disabled"}>Próximo</button></div></section></div>`;
   }
   function leituraParadaModal() {
     const step = state.leituraStep;
@@ -1099,7 +1157,6 @@
     if (step === "novo") return leituraNovoStep();
     if (step === "telefone") return leituraTelefoneStep();
     if (step === "produto") return leituraProdutoStep();
-    if (step === "valor") return leituraValorStep();
     return leituraTipoStep();
   }
   function leituraTimelineStep() {
@@ -1128,7 +1185,7 @@
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Salvar rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><p class="subtitle">Salvar Rotativo ${H.escape(label)}?</p></div><div class="rp2-footer lrt-choice"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-salvar-dia-sim">Sim</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-nao">Não</button></div></section></div>`;
   }
   function leituraSalvarDiaManualStep() {
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Selecione o dia da semana</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip" data-action="leitura-salvar-dia-escolher" data-day="${day.n}">${day.label}</button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar">Voltar</button></div></section></div>`;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Selecione o dia da semana</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip" data-action="leitura-salvar-dia-escolher" data-leitura-day="${day.n}">${day.label}</button>`).join("")}</div></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar">Voltar</button></div></section></div>`;
   }
   function leituraSalvarNomeStep() {
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Nome da rota</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><form id="leitura-nome-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="120" value="${H.escape(state.leituraNomeRota)}"></div>${state.leituraNomeError ? `<p class="subtitle" style="color:var(--danger)">${H.escape(state.leituraNomeError)}</p>` : ""}<button class="btn btn-primary btn-block rp2-cta" type="submit" ${state.leituraSaving ? "disabled" : ""}>Confirmar</button></form></div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="leitura-salvar-dia-voltar-nome">Voltar</button></div></section></div>`;
@@ -1310,7 +1367,7 @@
       const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
       const formOpen = !!state.clientProductFormOpen;
-      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${(mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>` : "";
+      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${((mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo")) || (state.clientProductEditingId && String(draft.precoAcordado || "").trim() !== "") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>` : "";
       products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}${editorForm}`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
@@ -2312,51 +2369,13 @@
       render();
       return;
     }
-    if (action === "leitura-cadastrar-local") {
-      if (!state.leitura || state.leituraCapturing) return;
-      state.leituraCapturing = true; render();
-      const position = await leituraCapturePosition();
-      state.leituraCapturing = false;
-      if (!position) { toast("Não foi possível obter sua localização. Tente novamente.", true); render(); return; }
-      state.leituraCapture = { ...position, capturadoEm: new Date().toISOString() };
-      state.leituraStep = "tipo";
-      state.leituraClientMode = null;
-      state.leituraSelectedClient = null;
-      state.leituraClienteProdutos = {};
-      state.leituraNovoDraft = blankLeituraNovoDraft();
-      state.leituraNovoEditing = false;
-      state.leituraNovoCepStatus = "";
-      state.leituraClienteQuery = "";
-      state.leituraTelefoneValue = "";
-      state.leituraTelefoneConfirmado = false;
-      state.leituraTelefoneCorrigindo = false;
-      state.leituraItens = [];
-      state.leituraProdutoPicker = false;
-      showModal("leitura-parada");
-      if (state.clientsPage === 0) void loadClients(true, true);
-      return;
-    }
+    if (action === "leitura-cadastrar-local") { await startLeituraGpsCapture(); return; }
     if (action === "leitura-adicionar-cliente") {
       // PR20072026 W3 — equivalente do "Cadastrar Local" no modo MANUAL: sem
       // GPS, captura só o instante (capturadoEm); o mesmo wizard "tipo →
-      // existente/novo → telefone → produto → valor" segue igual.
+      // existente/novo → telefone → produto" segue igual.
       if (!state.leitura || state.leituraCapturing) return;
-      state.leituraCapture = { lat: null, lng: null, accuracy: null, capturadoEm: new Date().toISOString() };
-      state.leituraStep = "tipo";
-      state.leituraClientMode = null;
-      state.leituraSelectedClient = null;
-      state.leituraClienteProdutos = {};
-      state.leituraNovoDraft = blankLeituraNovoDraft();
-      state.leituraNovoEditing = false;
-      state.leituraNovoCepStatus = "";
-      state.leituraClienteQuery = "";
-      state.leituraTelefoneValue = "";
-      state.leituraTelefoneConfirmado = false;
-      state.leituraTelefoneCorrigindo = false;
-      state.leituraItens = [];
-      state.leituraProdutoPicker = false;
-      showModal("leitura-parada");
-      if (state.clientsPage === 0) void loadClients(true, true);
+      openLeituraParada({ lat: null, lng: null, accuracy: null, capturadoEm: new Date().toISOString() });
       return;
     }
     if (action === "leitura-voltar") { if (!leituraGoBack()) await closeOverlay("modal"); return; }
@@ -2382,6 +2401,7 @@
       if (!client) return;
       state.leituraSelectedClient = client;
       state.leituraClienteProdutos = {};
+      state.leituraItens = []; // limpa antes de pré-carregar os produtos deste cliente
       void loadLeituraClienteProdutos(client.id);
       state.leituraTelefoneValue = savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || "";
       state.leituraTelefoneConfirmado = false;
@@ -2421,7 +2441,6 @@
       return;
     }
     if (action === "leitura-item-remover") { state.leituraItens = state.leituraItens.filter(i => String(i.productId) !== String(target.dataset.productId)); render(); return; }
-    if (action === "leitura-produto-avancar") { if (!state.leituraItens.length) return; state.leituraStep = "valor"; render(); return; }
     if (action === "leitura-proximo") {
       if (!state.leitura || !state.leituraItens.length || !state.leituraCapture) return;
       const atualizarPrecoAcordado = state.leituraItens.some(item => Math.abs(Number(item.valorUnit || 0) - Number(leituraDefaultValor(item.productId) || 0)) > 0.001);
@@ -2516,7 +2535,7 @@
     if (action === "leitura-salvar-dia-nao") { state.leituraFinalStep = "dia-manual"; render(); return; }
     if (action === "leitura-salvar-dia-voltar") { state.leituraFinalStep = "dia"; render(); return; }
     if (action === "leitura-salvar-dia-voltar-nome") { state.leituraFinalStep = "dia"; render(); return; }
-    if (action === "leitura-salvar-dia-escolher") { state.leituraDiaEscolhido = Number(target.dataset.day); state.leituraFinalStep = "nome"; void prepareLeituraNome(); render(); return; }
+    if (action === "leitura-salvar-dia-escolher") { state.leituraDiaEscolhido = Number(target.dataset.leituraDay); state.leituraFinalStep = "nome"; void prepareLeituraNome(); render(); return; }
   });
   app.addEventListener("touchstart", event => {
     const clientCard = event.target.closest("[data-client]");
@@ -2876,6 +2895,14 @@
     },
     routeActivated() { toast("GPS da rota ativado."); },
     locationPermissionChanged(granted) {
+      // PR20072026 fix — retoma a captura da Leitura de Rota quando a permissão
+      // foi pedida pelo "Cadastrar Local" (tem prioridade sobre o cadastro).
+      if (state.leituraAwaitingGps) {
+        state.leituraAwaitingGps = false;
+        if (!granted) { state.leituraCapturing = false; toast("Permita a localização para cadastrar o local.", true); render(); return; }
+        leituraCapturePosition().then(finishLeituraGpsCapture);
+        return;
+      }
       if (granted) useCurrentLocationForNewClient(true);
       else { state.newClientGpsLoading = false; state.newClientCepStatus = "Permita a localização para usar este atalho."; render(); }
     }

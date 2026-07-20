@@ -1,9 +1,22 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+
 import { useCurrentUser, currentUserDisplayName } from "@/components/hbx/shell";
 import { exitImpersonation, isImpersonating } from "@/lib/impersonation";
 
 import styles from "./impersonation-banner.module.css";
+
+// Snapshot client-only da impersonação por storage. useSyncExternalStore é a via
+// sancionada pro SSR: no 1º render do cliente usa o getServerSnapshot (false),
+// batendo com o servidor (nada renderizado), e só DEPOIS troca pro valor real do
+// cliente — mata o mismatch de hidratação (React #418) sem setState em efeito.
+// enter/exitImpersonation fazem hard-nav (a página recarrega), então não há mudança
+// viva a assinar: subscribe é no-op.
+const subscribeNoop = () => () => {};
+function useStorageImpersonation(): boolean {
+  return useSyncExternalStore(subscribeNoop, () => isImpersonating(), () => false);
+}
 
 // MASTER "ENTRAR COMO": faixa global de aviso quando o master está vendo o app
 // COMO outro usuário (token de impersonação). A verdade é o backend
@@ -12,7 +25,10 @@ import styles from "./impersonation-banner.module.css";
 // pro /master; se o token guardado sumiu, cai no login pro master reentrar.
 export function ImpersonationBanner() {
   const user = useCurrentUser();
-  const active = Boolean(user?.impersonatedBy) || isImpersonating();
+  const storageHint = useStorageImpersonation();
+  // `user?.impersonatedBy` (backend) é null no 1º render dos dois lados (useState
+  // null), então não gera mismatch; o hint de storage passa pelo useSyncExternalStore.
+  const active = Boolean(user?.impersonatedBy) || storageHint;
   if (!active) return null;
 
   const nome = currentUserDisplayName(user);
