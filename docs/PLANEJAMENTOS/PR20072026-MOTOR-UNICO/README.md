@@ -61,6 +61,8 @@ de liga/desliga sem visão conjunta (pino+chavinhas, `published`, `ativa`+runner
 - Motor de prospecção `vendas-automation.service` (crédito, débito-ao-puxar, timing) — executor mantido, ganha orquestrador novo.
 - Runner de cadência (`runDueSteps` com teto diário por empresa) — executor mantido.
 - Sandbox do assistente (Ollama local, zero chip) — vira O teste único do Atendente.
+- Fundação de IA do Concierge (guardas anti-injeção 10/10, bench 86/100) — vira o cliente Ollama
+  ÚNICO de todos os cérebros (S05B); contexto isolado por papel (cliente final NUNCA vê dado interno).
 - Pino de ativação master→cliente (`bot-activation`) + gates fail-closed de módulo.
 - Guardrails WhatsApp (disjuntor, 1 número=1 conexão) — intocáveis, moram no Webwhats/messaging.
 
@@ -106,6 +108,7 @@ de liga/desliga sem visão conjunta (pino+chavinhas, `published`, `ativa`+runner
 | | S03 | Contrato técnico do motor único (doc) | |
 | **F1 Espinha backend** | S04 | Módulo `automation` + `GET /automation/overview` | |
 | | S05 | `AgentService` — config unificada do Atendente (adapter) | |
+| | S05B | Fundação IA única — cliente Ollama base Concierge (pedido do dono 20/07) | |
 | | S06 | `InboundRouterService` — precedência extraída do messaging | ⚠ |
 | | S07 | `OutboundOrchestratorService` — 1 scheduler, N executores | ⚠ |
 | | S08 | `EventRuleService` — gatilhos generalizados | |
