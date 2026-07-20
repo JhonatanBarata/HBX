@@ -1325,7 +1325,7 @@
     if (!step || step === "tipo") return false;
     if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
     // F3.2 — cliente existente na LEITURA passa por endereço → número antes do telefone.
-    if (step === "endereco") { state.leituraStep = "existente"; render(); return true; }
+    if (step === "endereco") { state.leituraStep = state.leituraEndNovo ? "novo" : "existente"; render(); return true; }
     if (step === "numero") { state.leituraStep = "endereco"; render(); return true; }
     if (step === "telefone") { state.leituraStep = state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo"); render(); return true; }
     if (step === "produto") { state.leituraStep = "telefone"; render(); return true; }
@@ -1355,6 +1355,8 @@
     state.leituraClienteProdutos = {};
     state.leituraNovoDraft = blankLeituraNovoDraft();
     state.leituraNovoEditing = false;
+    state.leituraEnd = null;
+    state.leituraEndNovo = false;
     state.leituraNovoCepStatus = "";
     state.leituraClienteQuery = "";
     state.leituraTelefoneValue = "";
@@ -1468,13 +1470,34 @@
   async function persistLeituraEndereco(numero) {
     const client = state.leituraSelectedClient;
     const e = state.leituraEnd;
-    if (!client || !client.id || !e) return;
+    if (!e) return;
+    // Cliente NOVO: ainda não existe conta — grava o endereço do GPS no rascunho
+    // (vai no clienteNovo do finalizar). Nada de PATCH.
+    if (state.leituraEndNovo || !client || !client.id) {
+      const cap = state.leituraCapture || {};
+      const r = e.chosen || e.reverse || {};
+      const digitado = !!e.chosenTyped;
+      const d = state.leituraNovoDraft;
+      Object.assign(d, {
+        endereco: r.endereco || d.endereco || "",
+        numero: numero || d.numero || "",
+        bairro: r.bairro || d.bairro || "",
+        cidade: r.cidade || d.cidade || "",
+        uf: String(r.uf || d.uf || "").toUpperCase(),
+        cep: r.cep || d.cep || "",
+        // Pino do GPS só vale quando o endereço veio do GPS; se foi 100% digitado
+        // sem base de GPS, não força coordenada (evita pino errado).
+        ...(Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng)) && !digitado ? { lat: cap.lat, lng: cap.lng, geoFonte: "gps_cadastro" } : {}),
+      });
+      return;
+    }
     const cap = state.leituraCapture || {};
     let loading = false;
     try {
-      if (e.decision === "atualizar" && e.reverse) {
-        const r = e.reverse;
-        const coords = Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng)) ? { lat: Number(cap.lat), lng: Number(cap.lng) } : {};
+      if (e.decision === "atualizar" && (e.chosen || e.reverse)) {
+        const r = e.chosen || e.reverse;
+        const digitado = !!e.chosenTyped;
+        const coords = Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng)) && !digitado ? { lat: Number(cap.lat), lng: Number(cap.lng) } : {};
         const body = { endereco: r.endereco || "", numero: numero || "", bairro: r.bairro || "", cidade: r.cidade || "", uf: String(r.uf || "").toUpperCase(), cep: r.cep || "", ...coords };
         loading = true; showLoading("Atualizando endereço…");
         await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body });
@@ -1495,20 +1518,30 @@
     const client = state.leituraSelectedClient || {};
     const e = state.leituraEnd || {};
     const temEndereco = !!(client.endereco || client.cidade);
-    if (e.loading) return centerModal({ icon: "map", title: "Endereço", resumo: leituraResumo() || client.nome || "", body: loading(), backAction: "leitura-voltar", nextAction: "" });
+    const resumo = leituraResumo() || client.nome || "";
+    if (e.loading) return centerModal({ icon: "map", title: "Endereço", resumo, body: loading(), backAction: "leitura-voltar", nextAction: "" });
+    // Modo DIGITAR — campos editáveis (pré-preenchidos com o que o GPS achou ou o
+    // que já estava no cadastro). O dono pediu: sempre poder digitar/corrigir.
+    if (e.editing) {
+      const f = e.form || {};
+      const body = `<div class="field"><label>Rua / Avenida</label><input id="lend-endereco" maxlength="240" value="${H.escape(f.endereco || "")}" placeholder="Ex.: Rua 16"></div><div class="field"><label>Bairro</label><input id="lend-bairro" maxlength="120" value="${H.escape(f.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input id="lend-cidade" maxlength="120" value="${H.escape(f.cidade || "")}"></div><div class="field"><label>UF</label><input id="lend-uf" maxlength="2" autocapitalize="characters" value="${H.escape(f.uf || "")}"></div></div><div class="field"><label>CEP</label><input id="lend-cep" inputmode="numeric" maxlength="10" value="${H.escape(f.cep || "")}"></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-salvar-digitado">Usar este endereço</button></div>`;
+      return centerModal({ icon: "map", title: "Digitar endereço", resumo, body, backAction: "leitura-end-cancelar-digitar", backLabel: "Voltar", nextAction: "" });
+    }
     const rev = e.reverse;
     // Confere = tem endereço no cadastro E o GPS caiu perto do pino (≤120 m).
     const confere = temEndereco && e.dist !== null && e.dist <= 120;
+    const digitarBtn = `<button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-digitar">${icon("map", 15)} Digitar endereço</button>`;
     let body;
     if (!temEndereco) {
-      body = `<div class="lrt-endereco-compare"><p><b>Cliente sem endereço.</b></p><p>Você está em: ${H.escape(reverseAddressText(rev))}</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-usar">Usar este endereço</button></div>`;
+      const titulo = state.leituraEndNovo ? "Endereço do local (pelo GPS):" : "Cliente sem endereço.";
+      body = `<div class="lrt-endereco-compare"><p><b>${titulo}</b></p><p>${H.escape(reverseAddressText(rev))}</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-usar">Usar este endereço</button>${digitarBtn}</div>`;
     } else if (confere) {
-      body = `<div class="lrt-endereco-card lrt-endereco-ok">${icon("check", 16)} Endereço confere${e.dist !== null ? ` · a ${Math.round(e.dist)} m` : ""}</div><p class="day-home-sub">${H.escape(clientAddressText(client))}</p>`;
+      body = `<div class="lrt-endereco-card lrt-endereco-ok">${icon("check", 16)} Endereço confere${e.dist !== null ? ` · a ${Math.round(e.dist)} m` : ""}</div><p class="day-home-sub">${H.escape(clientAddressText(client))}</p><div class="center-modal-extra">${digitarBtn}</div>`;
     } else {
-      body = `<div class="lrt-endereco-compare"><p><b>Cadastrado:</b> ${H.escape(clientAddressText(client) || "—")}</p><p><b>Você está em:</b> ${H.escape(reverseAddressText(rev))}${e.dist !== null ? ` (a ${Math.round(e.dist)} m)` : ""}</p><p style="color:var(--warning)">Atualizar substitui o endereço anterior.</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-atualizar">Atualizar endereço</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-manter">Manter o cadastrado</button></div>`;
+      body = `<div class="lrt-endereco-compare"><p><b>Cadastrado:</b> ${H.escape(clientAddressText(client) || "—")}</p><p><b>Você está em:</b> ${H.escape(reverseAddressText(rev))}${e.dist !== null ? ` (a ${Math.round(e.dist)} m)` : ""}</p><p style="color:var(--warning)">Atualizar substitui o endereço anterior.</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-atualizar">Atualizar (usar o GPS)</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-manter">Manter o cadastrado</button>${digitarBtn}</div>`;
     }
     // Quando confere, o › avança direto pro número; senão o avanço é pelos botões.
-    return centerModal({ icon: "map", title: "Endereço", resumo: leituraResumo() || client.nome || "", body, backAction: "leitura-voltar", nextAction: confere ? "leitura-end-manter" : "", nextLabel: "Próximo" });
+    return centerModal({ icon: "map", title: "Endereço", resumo, body, backAction: "leitura-voltar", nextAction: confere ? "leitura-end-manter" : "", nextLabel: "Próximo" });
   }
   function leituraNumeroStep() {
     const e = state.leituraEnd || {};
@@ -2959,6 +2992,7 @@
       state.leituraTelefoneConfirmado = false;
       state.leituraTelefoneCorrigindo = false;
       state.leituraEnd = null;
+      state.leituraEndNovo = false;
       // F3.2 — na LEITURA (com GPS), passa por endereço → número antes do telefone.
       // No MANUAL (sem GPS) segue direto pro telefone como antes.
       const cap = state.leituraCapture;
@@ -2967,12 +3001,33 @@
       else { state.leituraStep = "telefone"; render(); }
       return;
     }
-    // F3.2 — decisões do passo endereço.
+    // F3.2 — decisões do passo endereço. `chosen` = endereço que será gravado
+    // (do GPS/reverse OU digitado à mão); numero vem no passo seguinte.
     if (action === "leitura-end-usar" || action === "leitura-end-atualizar") {
-      const e = state.leituraEnd || {}; e.decision = "atualizar"; state.leituraEnd = e;
+      const e = state.leituraEnd || {}; const r = e.reverse || {};
+      e.chosen = { endereco: r.endereco || "", bairro: r.bairro || "", cidade: r.cidade || "", uf: String(r.uf || "").toUpperCase(), cep: r.cep || "" };
+      e.chosenTyped = false;
+      e.decision = "atualizar"; state.leituraEnd = e;
       state.leituraStep = "numero"; render(); return;
     }
-    if (action === "leitura-end-manter") { const e = state.leituraEnd || {}; e.decision = "manter"; state.leituraEnd = e; state.leituraStep = "numero"; render(); return; }
+    if (action === "leitura-end-manter") { const e = state.leituraEnd || {}; e.decision = "manter"; e.chosen = null; state.leituraEnd = e; state.leituraStep = "numero"; render(); return; }
+    // Digitar/corrigir endereço à mão: semeia o formulário com o GPS/cadastro.
+    if (action === "leitura-end-digitar") {
+      const e = state.leituraEnd || {}; const r = e.reverse || {}; const c = state.leituraSelectedClient || {};
+      const seed = (r.endereco || r.cidade) ? r : c;
+      e.form = { endereco: seed.endereco || "", bairro: seed.bairro || "", cidade: seed.cidade || "", uf: String(seed.uf || "").toUpperCase(), cep: seed.cep || "" };
+      e.editing = true; state.leituraEnd = e; render(); return;
+    }
+    if (action === "leitura-end-cancelar-digitar") { const e = state.leituraEnd || {}; e.editing = false; state.leituraEnd = e; render(); return; }
+    if (action === "leitura-end-salvar-digitado") {
+      const e = state.leituraEnd || {};
+      const val = id => { const el = document.getElementById(id); return el ? String(el.value || "").trim() : ""; };
+      e.chosen = { endereco: val("lend-endereco"), bairro: val("lend-bairro"), cidade: val("lend-cidade"), uf: val("lend-uf").toUpperCase(), cep: val("lend-cep") };
+      e.form = { ...e.chosen };
+      e.chosenTyped = true;
+      e.decision = "atualizar"; e.editing = false; state.leituraEnd = e;
+      state.leituraStep = "numero"; render(); return;
+    }
     if (action === "leitura-end-voltar-numero") { state.leituraStep = "endereco"; render(); return; }
     if (action === "leitura-numero-confirmar") {
       const input = document.getElementById("leitura-numero-input");
@@ -3371,9 +3426,22 @@
         state.leituraTelefoneValue = draft.telefone || "";
         state.leituraTelefoneConfirmado = !!draft.telefone;
         state.leituraTelefoneCorrigindo = false;
-        state.leituraStep = "telefone";
         button.disabled = false;
-        render();
+        // F3.2 — cliente NOVO na leitura também passa pela tela de ENDEREÇO (usa o
+        // GPS do lugar) → NÚMERO, igual ao existente. Sem GPS (manual) vai direto
+        // pro telefone. O endereço confirmado é gravado no rascunho (clienteNovo).
+        const capNovo = state.leituraCapture;
+        const temGpsNovo = state.leitura && state.leitura.modo !== "MANUAL" && capNovo && Number.isFinite(Number(capNovo.lat)) && Number.isFinite(Number(capNovo.lng));
+        if (temGpsNovo) {
+          state.leituraEndNovo = true;
+          state.leituraStep = "endereco";
+          render();
+          void startLeituraEndereco({ numero: draft.numero || "" }, capNovo);
+        } else {
+          state.leituraEndNovo = false;
+          state.leituraStep = "telefone";
+          render();
+        }
       }
       if (form.id === "leitura-nome-form" && state.leitura) {
         const nome = String(data.nome || "").trim() || rotaDefaultName();
