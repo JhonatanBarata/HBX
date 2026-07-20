@@ -57,6 +57,27 @@ export function getToken(): string | null {
   );
 }
 
+// Token "vivo": existe E (não dá pra ler o exp OU o exp ainda não passou). Decodifica
+// o payload do JWT só pra ler `exp` — não valida assinatura (isso é do servidor). Erro de
+// parse / sem exp = trata como VIVO de propósito: um 401 nunca pode derrubar a sessão só
+// porque o cliente não conseguiu ler o token. Base para "aproveitar o token sempre".
+export function isTokenLive(): boolean {
+  const token = getToken();
+  if (!token) return false;
+  const parts = token.split(".");
+  if (parts.length < 2) return true; // não é JWT decodificável → mantém
+  try {
+    let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    const json = JSON.parse(typeof atob === "function" ? atob(b64) : "");
+    const exp = Number((json as { exp?: unknown })?.exp);
+    if (!Number.isFinite(exp)) return true; // sem exp → mantém
+    return exp * 1000 > Date.now();
+  } catch {
+    return true; // não conseguiu ler → mantém (não desloga à toa)
+  }
+}
+
 export function setToken(token: string, persist: boolean = true) {
   if (persist) {
     // Persistente: fica no localStorage; garante que não sobra cópia no sessionStorage.
@@ -143,7 +164,10 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
       res.status === 401 &&
       !path.startsWith("/auth/") &&
       typeof window !== "undefined" &&
-      window.location.pathname !== "/"
+      window.location.pathname !== "/" &&
+      !isTokenLive()   // token vivo → o 401 é DAQUELE endpoint (permissão/token de celular/
+                       // transiente), não morte de sessão. Não derruba o app (bug do poll
+                       // de fundo que expulsava todo mundo). Só desloga com token morto/ausente.
     ) {
       try { sessionStorage.setItem("hbx:session-notice", "expired"); } catch { /* sem storage */ }
       clearToken();

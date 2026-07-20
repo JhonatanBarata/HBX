@@ -9,7 +9,7 @@ import { RadarDisc } from "@/components/hbx/radar-disc";
 import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
-import { getToken } from "@/lib/api";
+import { isTokenLive } from "@/lib/api";
 import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
 
 const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
@@ -228,7 +228,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
   // client-side do Next (o script inline não roda nela).
   useEffect(() => {
-    if (getToken()) router.replace("/dashboard");
+    if (isTokenLive()) router.replace("/dashboard");
   }, [router]);
 
   useEffect(() => {
