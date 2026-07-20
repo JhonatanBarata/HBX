@@ -33,6 +33,7 @@
 import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { enterImpersonation } from "@/lib/impersonation";
 import { useTabParam } from "@/lib/use-tab-param";
 
 import { accountTypeLabel, accountTypeTagClass, fmtData, fmtDataHora, statusLabel, statusTagClass, type MasterCompany } from "./page.client";
@@ -876,6 +877,30 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
+  // MASTER "ENTRAR COMO": vira o usuário-alvo. Pede o token de impersonação, guarda
+  // o token do master (pro banner "Sair") e recarrega o app já como ele — cai
+  // exatamente na casa dele (next do backend). Funciona pra QUALQUER usuário.
+  async function entrarComo(u: DetailUser) {
+    if (userBusy) return;
+    setUserBusy(true);
+    setUserMsg(null);
+    try {
+      const res = await apiFetch<{ access_token?: string; next?: string }>(
+        "/auth/impersonate",
+        { method: "POST", body: JSON.stringify({ userId: u.id }) },
+      );
+      if (!res?.access_token) throw new Error("Não veio o token de acesso.");
+      enterImpersonation(res.access_token);
+      // Navegação dura de propósito: recarrega o app inteiro já com a identidade do
+      // alvo (limpa o cache do /profile/current-user e monta menu/telas com o papel
+      // dele). Não zera userBusy no sucesso — a página está saindo.
+      window.location.assign(res.next || "/dashboard");
+    } catch (err) {
+      setUserMsg(err instanceof Error ? err.message : "Falha ao entrar como este usuário.");
+      setUserBusy(false);
+    }
+  }
+
   async function salvarUsuario(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (userBusy || !userEdit) return;
@@ -1244,7 +1269,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                               <td><span className={u.isActive ? "tag teal" : "tag red"}>{u.isActive ? "Ativo" : "Inativo"}</span></td>
                               <td>{fmtDataHora(u.createdAt)}</td>
                               <td>
-                                <div style={{ display: "flex", gap: 6 }}>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <button className="btn-teal" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                    onClick={() => entrarComo(u)}>Entrar como</button>
                                   <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
                                     onClick={() => resetSenha(u)}>Reset senha</button>
                                   <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}

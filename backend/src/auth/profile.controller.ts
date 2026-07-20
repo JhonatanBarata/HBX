@@ -134,6 +134,9 @@ export function sanitizeUser(user: any, masterContext?: any, operationalProjecti
     // apenas muda a navegacao; nunca adiciona SELLER/DRIVER a esta lista.
     ...operational,
     isSystemMaster: Boolean(user.isSystemMaster),
+    // MASTER "entrar como": id do master por trás quando o token é de impersonação
+    // (null no acesso normal). O front usa pra mostrar o banner de retorno.
+    impersonatedBy: user.impersonatedByMasterId != null ? Number(user.impersonatedByMasterId) : null,
     // Régua única P3: front esconde "Plano e cobrança" quando false (Gerente).
     canViewBilling: billingAudience,
     mustChangePassword: Boolean(user.mustChangePassword),
@@ -252,9 +255,15 @@ export class ProfileController {
 
   private async presentUser(req: any, user: any) {
     const masterContext = await this.resolveMasterContext(req, user);
-    const runtimeUser = user && !user.company && req.user?.company
+    const baseRuntimeUser = user && !user.company && req.user?.company
       ? { ...user, company: req.user.company }
       : user;
+    // "Entrar como" (impersonação): o current-user recarrega do banco, então o
+    // marcador vive só em req.user (posto pela jwt.strategy). Propaga pra sanitizeUser
+    // expor `impersonatedBy` — é o que o banner "Você está vendo como…" lê.
+    const runtimeUser = req.user?.impersonatedByMasterId != null
+      ? { ...baseRuntimeUser, impersonatedByMasterId: req.user.impersonatedByMasterId }
+      : baseRuntimeUser;
     const operational = await resolveOperationalAccessProjection(this.prisma, runtimeUser);
     return sanitizeUser(runtimeUser, masterContext, operational);
   }

@@ -362,6 +362,9 @@ type CurrentUser = {
   userKind?: string | null;
   role?: string | null;
   isSystemMaster?: boolean | null;
+  // MASTER "entrar como": id do master por trás quando esta sessão é de
+  // impersonação (null no acesso normal). Liga o banner global de retorno.
+  impersonatedBy?: number | null;
   operationalCapabilities?: Array<"SELLER" | "DRIVER"> | null;
   defaultWorkspace?: "vendas" | "entregas" | null;
   workspaceHome?: "/vendas" | "/entrega" | null;

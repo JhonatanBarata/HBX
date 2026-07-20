@@ -19,6 +19,7 @@ import { ActivationChecklist } from "@/components/hbx/activation-checklist";
 import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-banner";
 import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
 import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
+import { ImpersonationBanner } from "@/components/hbx/impersonation-banner";
 import { MobileShell } from "@/components/casca/mobile-shell";
 
 // FINANCEIRO-UNIVERSAL: o id da navegação precisa de um glifo no registry do shell.
@@ -97,6 +98,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app app-shell-root" data-rail={rail}>
           <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
           <div className="main">
+            {/* MASTER "entrar como": faixa de retorno acima do topo, visível em
+                toda tela enquanto o master vê o app como outro usuário. */}
+            <ImpersonationBanner />
             <Topbar title={meta.title} crumbs={meta.crumbs} />
             <MobileDeviceTopbarBridge />
             {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —

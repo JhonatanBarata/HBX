@@ -3,11 +3,14 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
+  NotFoundException,
   OnModuleInit,
   ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
+import { MasterContextService } from '../master-context/master-context.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -96,6 +99,10 @@ export class AuthService implements OnModuleInit {
     // já é importado pelo AuthModule — A3). Opcional por retrocompat de testes antigos;
     // ausente/flag OFF = cadastro idêntico (best-effort puro).
     private indicacao?: IndicacaoService,
+    // MASTER "entrar como": trilha de auditoria da impersonação (MasterContextModule já
+    // é importado pelo AuthModule → sem ciclo). Opcional por retrocompat dos testes que
+    // constroem o service com menos args; em runtime o Nest sempre injeta.
+    private masterContext?: MasterContextService,
   ) {}
 
   // F1 (CONFIRMACAO-TELEFONE) — guardrails do envio live do OTP: cooldown 60s por
@@ -1377,6 +1384,99 @@ export class AuthService implements OnModuleInit {
       { expiresIn: '4h' },
     );
     return { access_token, token_type: 'service', expires_in: 4 * 60 * 60 };
+  }
+
+  // MASTER "ENTRAR COMO" (impersonação): emite um JWT do usuário-ALVO com o claim
+  // `imp` = id do master por trás. O master VIRA o usuário (vê exatamente a tela
+  // dele, com as restrições dele). Mesmo molde do serviceLogin/ops: NÃO cria nem
+  // revoga AuthSession, NÃO toca sessionVersion/currentSessionId do alvo — a sessão
+  // real dele (web/app) continua de pé. Sem exceção: qualquer papel (vendedor,
+  // admin, entregador, outro master) e até conta desativada — a jwt.strategy libera
+  // o gate de inativo só neste caminho. Só o master mint (guard no controller).
+  async impersonateUser(
+    masterUserId: number,
+    targetUserId: number,
+    opts?: { route?: string },
+  ) {
+    const masterId = Number(masterUserId);
+    const targetId = Number(targetUserId);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      throw new BadRequestException('Usuário inválido para impersonação.');
+    }
+
+    const master: any = await this.usersService.findById(masterId);
+    if (!master || !Boolean(master.isSystemMaster)) {
+      throw new ForbiddenException('Acesso exclusivo do MASTER');
+    }
+
+    const target: any = await this.usersService.findById(targetId);
+    if (!target) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+
+    const access_token = this.jwtService.sign(
+      {
+        sub: target.id,
+        email: target.email,
+        companyId: target.companyId || undefined,
+        imp: masterId,
+      },
+      { expiresIn: '4h' },
+    );
+
+    // Destino = a casa do próprio usuário-alvo (mesma regra do login), pra cair
+    // exatamente onde ele cai.
+    const next = await this.resolveImpersonationNext(target);
+
+    // Auditoria na MESMA trilha do master-context (best-effort — nunca derruba o mint).
+    try {
+      await this.masterContext?.registerSupportAction({
+        masterUserId: masterId,
+        action: 'IMPERSONATE_USER',
+        scope: 'support_operation',
+        route: opts?.route || null,
+        companyId: target.companyId ? Number(target.companyId) : null,
+        metadata: {
+          targetUserId: target.id,
+          targetEmail: target.email || null,
+          targetRole: String(target.role || '').toUpperCase() || null,
+        },
+      });
+    } catch {
+      // trilha best-effort: uma falha de auditoria não pode impedir o suporte.
+    }
+
+    return {
+      access_token,
+      next,
+      user: {
+        id: target.id,
+        name: target.name || null,
+        email: target.email || null,
+        role: String(target.role || '').toUpperCase() || null,
+      },
+    };
+  }
+
+  // Espelha o destino pós-login (mobile/login): entregador→/entrega, vendedor→/vendas,
+  // os dois→/workspace, master→/master, resto→/dashboard. Best-effort: qualquer falha
+  // de projeção cai no /dashboard (nunca quebra o "entrar como").
+  private async resolveImpersonationNext(target: any): Promise<string> {
+    if (Boolean(target?.isSystemMaster)) return '/master';
+    try {
+      const operational = await resolveOperationalAccessProjection(this.prisma, target);
+      const role = String(target?.role || '').trim().toUpperCase();
+      if (role === 'USER') {
+        const policy = await loadUserTeamPolicyRuntime(this.prisma, target.id).catch(() => null);
+        const vendasDenied = resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false;
+        const canSell = operational.operationalCapabilities.includes('SELLER') && !vendasDenied;
+        const canDeliver = operational.operationalCapabilities.includes('DRIVER');
+        return canSell && canDeliver ? '/workspace' : canSell ? '/vendas' : canDeliver ? '/entrega' : '/dashboard';
+      }
+    } catch {
+      // projeção indisponível → destino neutro
+    }
+    return '/dashboard';
   }
 
   async logoutCurrentSession(user: any) {

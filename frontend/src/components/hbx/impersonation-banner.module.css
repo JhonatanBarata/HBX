@@ -1,0 +1,35 @@
+/* MASTER "entrar como": faixa fixa no topo do app avisando que a visão é a de
+   outro usuário, com a saída sempre à mão. Só tokens (Lei 1) — a mistura com
+   --hbx-warning segue a receita já aprovada de banner de aviso (contabil-master
+   .ctb-banner-warn), com fundo sólido por ser sticky sobre o conteúdo. */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--hbx-warning) 42%, transparent);
+  background: color-mix(in srgb, var(--hbx-warning) 16%, var(--hbx-surface));
+  color: var(--text-body);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.who {
+  color: var(--hbx-warning);
+  font-weight: 800;
+}
+
+.exit {
+  white-space: nowrap;
+}

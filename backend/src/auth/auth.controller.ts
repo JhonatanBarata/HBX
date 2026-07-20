@@ -1,12 +1,26 @@
 import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ConfirmEmailDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, PhoneVerificationStartDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
+import { ImpersonateUserDto } from './dto/impersonate-user.dto';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { MasterGuard } from './guards/master.guard';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  // MASTER "ENTRAR COMO": emite um token do usuário-alvo (o master VIRA o usuário).
+  // Duplo portão — JwtAuthGuard (sessão válida) + MasterGuard (só system master).
+  // O front guarda o token do master e usa o banner "Sair" pra voltar ao /master.
+  @Post('impersonate')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  @Throttle({ default: { limit: 30, ttl: 60 } })
+  impersonate(@Body() dto: ImpersonateUserDto, @Req() req: any) {
+    return this.authService.impersonateUser(Number(req?.user?.id), Number(dto.userId), {
+      route: String(req?.headers?.['x-master-route'] || ''),
+    });
+  }
 
   @Post('signup')
   @Throttle({ default: { limit: 5, ttl: 60 } })

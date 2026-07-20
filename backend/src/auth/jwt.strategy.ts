@@ -26,7 +26,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user: any = await this.usersService.findById(payload.sub);
     if (!user) throw new UnauthorizedException('Usuário inválido');
 
-    if (user.isActive === false) {
+    // IMPERSONAÇÃO (MASTER "entrar como"): claim `imp` = id do master por trás. O
+    // `sub` já é o usuário-ALVO — o master VIRA esse usuário. Mesma faixa do
+    // ops/mobile: sai da trava de sessão-única e NÃO toca a AuthSession do alvo.
+    const impersonatorId = payload?.imp != null ? Number(payload.imp) : null;
+    const isImpersonation = impersonatorId != null && Number.isInteger(impersonatorId);
+
+    // Sem exceção: o master pode inspecionar ATÉ uma conta desativada — o gate de
+    // inativo não vale no caminho de impersonação (o mint é exclusivo do master).
+    if (user.isActive === false && !isImpersonation) {
       throw new UnauthorizedException('Sessão revogada');
     }
 
@@ -97,6 +105,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     } else if (payload?.ops === true && Boolean(user.isSystemMaster)) {
       user.sessionId = 'ops-control';
       user.sessionVersion = Number(payload?.sv) || 0;
+    } else if (isImpersonation) {
+      // Confere que quem está por trás é REALMENTE um master do sistema. Forjar o
+      // claim já exige o JWT_SECRET (poder total), mas a checagem impede que um
+      // `imp` apontando pra um id não-master conceda uma sessão sem trava.
+      const impersonator: any = await this.usersService.findById(impersonatorId as number);
+      if (!impersonator || !Boolean(impersonator.isSystemMaster)) {
+        throw new UnauthorizedException('Impersonação inválida');
+      }
+      user.impersonatedByMasterId = impersonatorId;
+      user.sessionId = `imp:${impersonatorId}`;
+      user.sessionVersion = 0;
     } else {
       const sessionId = String(payload?.sid || '').trim();
       const sessionVersion = Number(payload?.sv);
@@ -173,16 +192,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       user.sessionVersion = sessionVersion;
     }
 
-    const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
-    user.masterContext = runtimeContext.masterContext;
+    // Impersonação já É o usuário-alvo: não passa pelo swap de contexto de EMPRESA
+    // do master (esse contexto assumido é só do master puro/ops navegando como ele
+    // mesmo). Sem isto, um alvo que por acaso fosse master herdaria o contexto dele.
+    if (!isImpersonation) {
+      const runtimeContext = await this.masterContextService.resolveRuntimeContext(user);
+      user.masterContext = runtimeContext.masterContext;
 
-    if (runtimeContext.effectiveCompanyId) {
-      user.companyId = runtimeContext.effectiveCompanyId;
-      if (runtimeContext.masterContext?.active) {
-        user.company = {
-          id: runtimeContext.masterContext.companyId,
-          name: runtimeContext.masterContext.companyName,
-        };
+      if (runtimeContext.effectiveCompanyId) {
+        user.companyId = runtimeContext.effectiveCompanyId;
+        if (runtimeContext.masterContext?.active) {
+          user.company = {
+            id: runtimeContext.masterContext.companyId,
+            name: runtimeContext.masterContext.companyName,
+          };
+        }
       }
     }
 

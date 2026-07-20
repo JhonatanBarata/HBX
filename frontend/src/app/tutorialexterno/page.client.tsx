@@ -135,7 +135,7 @@ export function TutorialExternoClient() {
 
         {guide && step && (
           <article className="f1-tut__stage" key={`${guide.id}-${step.id}`}>
-            <div className="f1-tut__media">
+            <div className={"f1-tut__media" + (playback && playback.kind === "video" ? " f1-tut__media--file" : "")}>
               {playback ? (
                 playback.kind === "iframe" ? (
                   <iframe src={playback.src} title={step.title} allow="accelerometer; clipboard-write; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
