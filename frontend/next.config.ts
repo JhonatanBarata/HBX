@@ -7,6 +7,12 @@ const DEFAULT_API_URL =
 		: "http://localhost:3000";
 
 const nextConfig: NextConfig = {
+	// Upload grande (vídeo do tutorial etc.) passa pelo rewrite /hbx/api → o Next 16
+	// limita o corpo PROXIADO a 10MB por padrão. nginx (80m nos 2 server blocks) e o
+	// multer do backend (TUTORIAL_MAX_BYTES = 80MB) já aceitam 80 — alinhamos o proxy.
+	experimental: {
+		proxyClientMaxBodySize: "80mb",
+	},
 	// NEXT_DIST_DIR permite um segundo dev server (preview do Claude) sem
 	// brigar pelo .next do dev principal — ver script dev:preview.
 	...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
