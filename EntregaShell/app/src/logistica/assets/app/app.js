@@ -572,6 +572,13 @@
       if (!item) return;
       attachMoneyInput(el, Number(item.valorUnit || 0), value => { item.valorUnit = value; });
     });
+    // Bug#2 — mesmo campo moeda-banco ao EDITAR o preço de uma parada no Resumo.
+    app.querySelectorAll("[data-leitura-edit-preco]").forEach(el => {
+      const productId = el.dataset.leituraEditPreco;
+      const item = (state.leituraEditDraft && state.leituraEditDraft.itens || []).find(i => String(i.productId) === String(productId));
+      if (!item) return;
+      attachMoneyInput(el, Number(item.valorUnit || 0), value => { item.valorUnit = value; });
+    });
   }
   // ==========================================================================
   // F3.4 — chips vivos GPS + Rede no topbar (+ F4: chip "Atualizar"). Injetados
@@ -581,10 +588,15 @@
   // assim reescrevo o innerHTML a cada render (idempotente).
   // ==========================================================================
   function netOnline() { return navigator.onLine !== false; }
+  // GPS realmente pegou uma posição? (fato > API de permissão, que é FURADA no
+  // WebView do Android — reporta "denied" mesmo com a localização funcionando).
+  function markGpsFix() { state.gpsFixAt = Date.now(); state.gpsPerm = "granted"; syncHeaderChips(); }
   function gpsChipClass() {
+    // Fix recente (≤5 min) = verde, não importa o que a API de permissão diga.
+    if (state.gpsFixAt && Date.now() - state.gpsFixAt < 300000) return "is-ok";
     if (state.gpsPerm === "denied") return "is-off";
     if (state.gpsPerm === "granted") return "is-ok";
-    return "is-warn";
+    return "is-warn"; // desconhecido/aguardando = amarelo (nunca vermelho sem certeza)
   }
   function syncHeaderChips() {
     const toolbar = document.querySelector(".topbar .toolbar");
@@ -607,12 +619,22 @@
     try {
       if (navigator.permissions && navigator.permissions.query) {
         navigator.permissions.query({ name: "geolocation" }).then(p => {
-          state.gpsPerm = p.state;
-          try { p.onchange = () => { state.gpsPerm = p.state; syncHeaderChips(); }; } catch (_) {}
-          syncHeaderChips();
+          // A query só é confiável quando diz "granted". "denied"/"prompt" no
+          // WebView do Android é NÃO-confiável → tratamos como "aguardando"
+          // (amarelo), nunca vermelho. Vermelho só vem de uma FALHA real de fix.
+          const apply = st => { state.gpsPerm = st === "granted" ? "granted" : "prompt"; syncHeaderChips(); };
+          apply(p.state);
+          try { p.onchange = () => apply(p.state); } catch (_) {}
         }).catch(() => {});
       }
     } catch (_) {}
+  }
+  // Falha real de localização: só marca "negado" (vermelho) quando o erro é de
+  // PERMISSÃO (code 1). Timeout/indisponível vira "aguardando" (amarelo).
+  function markGpsError(err) {
+    if (err && err.code === 1) state.gpsPerm = "denied";
+    else if (!state.gpsFixAt) state.gpsPerm = "prompt";
+    syncHeaderChips();
   }
   // F4 — checa a versão publicada (version-logistica.json no site) contra a do
   // APK (via ponte nativa). Maior no servidor → acende o chip "Atualizar".
@@ -860,6 +882,20 @@
       state.clientProducts = Array.isArray(result) ? result : (result && (result.items || result.data)) || [];
     } catch (error) { state.clientProducts = []; state.clientProductsError = humanApiError(error); }
     finally { state.clientProductsLoading = false; render(); }
+  }
+  function openClientEditor(client) {
+    if (!client || !client.id) return;
+    state.modalClient = client;
+    state.clientDetail = null;
+    state.clientProducts = [];
+    state.clientProductsError = null;
+    state.clientCepStatus = "";
+    clientCepRequestId += 1;
+    resetClientProductEditor();
+    state.clientProductFormOpen = false;
+    showModal("client-product");
+    void loadClientProducts();
+    void loadClientDetail();
   }
   async function loadClientDetail() {
     const client = state.modalClient;
@@ -1131,6 +1167,7 @@
     state.newClientGpsLoading = true; state.newClientCepStatus = "Lendo localização…"; render();
     try {
       const position = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }));
+      markGpsFix();
       const lat = position.coords.latitude; const lng = position.coords.longitude;
       Object.assign(state.newClientDraft, { lat, lng, geoFonte: "gps_cadastro" });
       const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&lat=${lat}&lon=${lng}`, { headers: { Accept: "application/json" } });
@@ -1155,8 +1192,8 @@
     return new Promise(resolve => {
       if (!navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
-        p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
-        () => resolve(null),
+        p => { markGpsFix(); resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); },
+        err => { markGpsError(err); resolve(null); },
         { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     });
@@ -1286,9 +1323,13 @@
         const unidade = (item.produto && item.produto.unidade) || (prod && prod.unidade) || "unidade";
         itens.push({ productId: item.productId, nome, unidade, qtd: Number(item.qtdPadrao || 1), valorUnit: null });
       });
+      // Bug#4 — guarda de corrida: se o motorista já trocou de cliente enquanto
+      // esta resposta estava em voo, NÃO aplica o mapa de preços (senão o preço
+      // sugerido do cliente novo vinha do acordo do anterior).
+      if (!state.leituraSelectedClient || String(state.leituraSelectedClient.id) !== String(customerProfileId)) return;
       state.leituraClienteProdutos = map; // setar ANTES do leituraDefaultValor (ele lê esse mapa)
       // Só pré-carrega se o usuário ainda está neste cliente e não montou itens à mão.
-      if (state.leituraSelectedClient && String(state.leituraSelectedClient.id) === String(customerProfileId) && !state.leituraItens.length) {
+      if (!state.leituraItens.length) {
         itens.forEach(it => { it.valorUnit = leituraDefaultValor(it.productId); });
         state.leituraItens = itens;
       }
@@ -1317,6 +1358,22 @@
     });
     return withDistance;
   }
+  function chooseLeituraClient(client) {
+    if (!client || !client.id) return;
+    state.leituraSelectedClient = client;
+    state.leituraClienteProdutos = {};
+    state.leituraItens = [];
+    void loadLeituraClienteProdutos(client.id);
+    state.leituraTelefoneValue = savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || "";
+    state.leituraTelefoneConfirmado = false;
+    state.leituraTelefoneCorrigindo = false;
+    state.leituraEnd = null;
+    state.leituraEndNovo = false;
+    const cap = state.leituraCapture;
+    const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
+    if (temGps) { state.leituraStep = "endereco"; render(); void startLeituraEndereco(client, cap); }
+    else { state.leituraStep = "telefone"; render(); }
+  }
   // Passo do wizard "Cadastrar Local" que o Voltar (físico ou botão) deve
   // reabrir; devolve false quando já está no primeiro passo (tipo) — o chamador
   // fecha a folha inteira nesse caso.
@@ -1325,6 +1382,9 @@
     if (!step || step === "tipo") return false;
     if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
     // F3.2 — cliente existente na LEITURA passa por endereço → número antes do telefone.
+    // Bug#1: no sub-modo "Digitar endereço" o Voltar/X deve só SAIR da edição
+    // (não pular 2 passos e perder o que foi digitado).
+    if (step === "endereco" && state.leituraEnd && state.leituraEnd.editing) { state.leituraEnd.editing = false; render(); return true; }
     if (step === "endereco") { state.leituraStep = state.leituraEndNovo ? "novo" : "existente"; render(); return true; }
     if (step === "numero") { state.leituraStep = "endereco"; render(); return true; }
     if (step === "telefone") { state.leituraStep = state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo"); render(); return true; }
@@ -1691,8 +1751,19 @@
     const rows = paradas.map((parada, index) => {
       if (state.leituraEditParadaId === parada.id) {
         const draft = state.leituraEditDraft || { itens: [] };
-        const itemRows = draft.itens.map(item => `<div class="delivery-item"><div><strong>${H.escape(itemLabel(item.productId))}</strong></div><div class="delivery-stepper"><button type="button" data-action="leitura-parada-editar-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-parada-editar-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div><input type="number" min="0" step="0.01" inputmode="decimal" style="width:84px" data-leitura-edit-valor="${H.escape(item.productId)}" value="${H.escape(String(item.valorUnit))}"></div>`).join("");
-        return `<div class="lrt-timeline-row lrt-timeline-editing"><div class="lrt-timeline-edit-body">${itemRows}</div><div class="actions"><button type="button" class="btn btn-secondary" data-action="leitura-parada-editar-cancelar">Cancelar</button><button type="button" class="btn btn-primary" data-action="leitura-parada-editar-salvar">Salvar</button></div></div>`;
+        // Bug#2 — editar preço da parada usa o MESMO gate do passo Produto:
+        // campo moeda-banco; travado (cadeado) quando o Financeiro está desligado
+        // (Lei do Vendedor — motorista não digita valor livre).
+        const editFinanceiroOn = configFlag("moduloFinanceiroAtivo");
+        // Layout EMPILHADO (nome em cima, qtd + preço embaixo) pra caber no modal
+        // central — a linha horizontal era do bottom-sheet largo e estourava.
+        const itemRows = draft.itens.map(item => {
+          const valorField = editFinanceiroOn
+            ? `<label class="lrt-produto-valor" style="flex:0 0 120px;max-width:120px;padding:0 10px"><span>R$</span><input type="text" inputmode="numeric" class="lrt-produto-valor-input" data-leitura-edit-preco="${H.escape(item.productId)}" value="${H.escape(moneyCentsToBRL(Math.round(Number(item.valorUnit || 0) * 100)))}"></label>`
+            : `<button type="button" class="lrt-produto-valor lrt-produto-valor-locked" style="flex:0 0 120px;max-width:120px" data-action="leitura-preco-bloqueado" aria-label="Preço bloqueado">${icon("lock", 14)}<span>R$ —</span></button>`;
+          return `<div style="padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)"><strong style="display:block;font-size:.82rem;margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${H.escape(itemLabel(item.productId))}</strong><div style="display:flex;align-items:center;gap:10px;justify-content:space-between"><div class="delivery-stepper"><button type="button" data-action="leitura-parada-editar-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-parada-editar-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div>${valorField}</div></div>`;
+        }).join("");
+        return `<div class="lrt-timeline-row lrt-timeline-editing"><div class="lrt-timeline-edit-body" style="display:grid;gap:10px">${itemRows}</div><div class="actions" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px"><button type="button" class="btn btn-secondary" data-action="leitura-parada-editar-cancelar">Cancelar</button><button type="button" class="btn btn-primary" data-action="leitura-parada-editar-salvar">Salvar</button></div></div>`;
       }
       const main = `<span class="lrt-timeline-time">${isManual ? "—" : H.escape(parada.hora || "")}</span><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${H.escape((parada.itens || []).map(i => { const p = (state.products || []).find(pr => String(pr.id) === String(i.productId)); return `${i.qtd} ${(p && (p.unidade || p.nome || p.name)) || i.unidade || i.nome || "item"}`; }).join(", "))}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong><div class="lrt-timeline-actions"><button type="button" class="link-btn" data-action="leitura-parada-editar" data-parada-id="${H.escape(parada.id)}">Editar</button><button type="button" class="link-btn" style="color:var(--danger)" data-action="leitura-parada-remover" data-parada-id="${H.escape(parada.id)}">Remover</button></div>`;
       if (!isManual) return `<div class="lrt-timeline-row">${main}</div>`;
@@ -2113,6 +2184,56 @@
       .map(value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\W/g, ""))
       .join("|");
   }
+  function duplicateTextKey(value) {
+    return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  }
+  function duplicateReason(client, draft) {
+    const document = onlyDigits(draft.document || draft.cpf || "");
+    const clientDocument = onlyDigits(client.document || client.cnpj || "");
+    if (document && clientDocument === document) return "CPF";
+    const phone = onlyDigits(draft.phone || draft.telefone || "");
+    const clientPhone = onlyDigits(client.phoneNormalized || client.phone || client.whatsapp || "");
+    if (phone && clientPhone === phone) return "telefone";
+    const endereco = duplicateTextKey(draft.endereco);
+    const numero = duplicateTextKey(draft.numero);
+    if (endereco && numero && duplicateTextKey(client.endereco) === endereco && duplicateTextKey(client.numero) === numero) return "endereço";
+    const name = duplicateTextKey(draft.name || draft.nome);
+    if (name && duplicateTextKey(client.name || client.nome) === name) return "nome";
+    return "";
+  }
+  async function findDuplicateClient(draft) {
+    const candidates = new Map((state.clients || []).filter(client => client && client.id).map(client => [String(client.id), client]));
+    const queries = [draft.document || draft.cpf, draft.phone || draft.telefone, draft.name || draft.nome, draft.endereco]
+      .map(value => String(value || "").trim())
+      .filter((value, index, list) => value && list.indexOf(value) === index);
+    if (netOnline()) {
+      await Promise.all(queries.map(async query => {
+        try {
+          const result = await H.api(`/nucleo/clientes?page=1&pageSize=100&query=${encodeURIComponent(query)}`);
+          (Array.isArray(result && result.items) ? result.items : []).forEach(client => { if (client && client.id) candidates.set(String(client.id), client); });
+        } catch (_) {}
+      }));
+    }
+    const matches = [...candidates.values()].map(client => ({ client, reason: duplicateReason(client, draft) })).filter(match => match.reason);
+    const priority = { CPF: 0, telefone: 1, "endereço": 2, nome: 3 };
+    matches.sort((a, b) => priority[a.reason] - priority[b.reason]);
+    return matches[0] || null;
+  }
+  function showDuplicateClient(duplicate, type) {
+    const client = duplicate && duplicate.client;
+    if (!client) return;
+    const name = client.name || client.nome || "Este cliente";
+    state.confirmation = {
+      type,
+      title: "Cliente já cadastrado",
+      message: `${name} já está cadastrado com o mesmo ${duplicate.reason}. Use o cadastro existente para evitar duplicidade.`,
+      cancelLabel: "Voltar",
+      confirmLabel: type === "duplicate-leitura-client" ? "Usar cliente" : "Abrir cliente",
+      icon: "users",
+      payload: { client },
+    };
+    render();
+  }
   function clientPendingKeys(client) {
     const pending = Array.isArray(client.pendencias) ? client.pendencias : [];
     const missing = [];
@@ -2287,7 +2408,7 @@
     if (!stops.length) return;
     H.activateRoute({ raioM: Number(state.config && state.config.raioChegadaM || 60), paradas: stops, routeId: route.routeId || state.route.routeId || null, mode: route.trackingRequired || state.route.trackingRequired ? "TRACKED" : "ESSENTIAL", trackingSessionId: route.trackingSessionId || state.route.trackingSessionId || null });
   }
-  function currentPosition() { return new Promise(resolve => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition(p => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }), () => resolve(null), { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }); }); }
+  function currentPosition() { return new Promise(resolve => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition(p => { markGpsFix(); resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); }, err => { markGpsError(err); resolve(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }); }); }
   function distanceMeters(a, b) { const r = 6371000; const lat = Math.PI / 180; const dLat = (b.lat - a.lat) * lat; const dLng = (b.lng - a.lng) * lat; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * lat) * Math.cos(b.lat * lat) * Math.sin(dLng / 2) ** 2; return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)); }
   async function startRoute(planOnly, generateToday, deliveryIds) {
     try {
@@ -2667,7 +2788,7 @@
       return;
     }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
-    if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } const c = clientById(target.dataset.client); if (c) { state.modalClient = c; state.clientDetail = null; state.clientProducts = []; state.clientProductsError = null; state.clientCepStatus = ""; clientCepRequestId += 1; resetClientProductEditor(); state.clientProductFormOpen = false; showModal("client-product"); loadClientProducts(); loadClientDetail(); } return; }
+    if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } openClientEditor(clientById(target.dataset.client)); return; }
     if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
@@ -2767,6 +2888,8 @@
           render();
         } catch (error) { toast(humanApiError(error), true); }
       }
+      if (confirmation.type === "duplicate-new-client") openClientEditor(confirmation.payload && confirmation.payload.client);
+      if (confirmation.type === "duplicate-leitura-client") chooseLeituraClient(confirmation.payload && confirmation.payload.client);
       // type "info": só um aviso (OK) — nenhum efeito colateral.
       return;
     }
@@ -2877,7 +3000,7 @@
     // F3.4 — toques nos chips do header.
     if (action === "chip-rede") { toast(netOnline() ? "Conexão de rede OK." : "Sem conexão. As alterações ficam salvas e sincronizam ao voltar o sinal.", !netOnline()); return; }
     if (action === "chip-gps") {
-      if (state.gpsPerm === "granted") { toast("GPS ativo."); return; }
+      if (gpsChipClass() === "is-ok") { toast("GPS ativo."); return; }
       if (H.requestLocationPermission) { H.requestLocationPermission(); toast("Confirme a permissão de localização."); }
       else toast("Ative a localização do aparelho.", true);
       return;
@@ -2984,21 +3107,7 @@
     if (action === "leitura-escolher-cliente") {
       const client = (state.clients || []).find(c => String(c.id) === String(target.dataset.clientId));
       if (!client) return;
-      state.leituraSelectedClient = client;
-      state.leituraClienteProdutos = {};
-      state.leituraItens = []; // limpa antes de pré-carregar os produtos deste cliente
-      void loadLeituraClienteProdutos(client.id);
-      state.leituraTelefoneValue = savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || "";
-      state.leituraTelefoneConfirmado = false;
-      state.leituraTelefoneCorrigindo = false;
-      state.leituraEnd = null;
-      state.leituraEndNovo = false;
-      // F3.2 — na LEITURA (com GPS), passa por endereço → número antes do telefone.
-      // No MANUAL (sem GPS) segue direto pro telefone como antes.
-      const cap = state.leituraCapture;
-      const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
-      if (temGps) { state.leituraStep = "endereco"; render(); void startLeituraEndereco(client, cap); }
-      else { state.leituraStep = "telefone"; render(); }
+      chooseLeituraClient(client);
       return;
     }
     // F3.2 — decisões do passo endereço. `chosen` = endereço que será gravado
@@ -3090,6 +3199,9 @@
       const pending = leituraPendingCount();
       if (pending > 0) { toast(`${pending} parada(s) aguardando rede.`, true); return; }
       state.leituraFinalStep = "timeline";
+      // Bug#3 — zera qualquer edição de parada pendente pra não reabrir o Resumo
+      // com uma parada em modo-edição e rascunho velho vazado da vez anterior.
+      state.leituraEditParadaId = null; state.leituraEditDraft = null;
       state.leituraResumoLoading = true; state.leituraResumoError = null; state.leituraResumo = null;
       showModal("leitura-finalizar");
       try { state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`); syncLeituraManualOrder(); }
@@ -3353,6 +3465,8 @@
         const d = state.newClientDraft;
         const body = { nome: data.name, tipo: "pf", whatsapp: data.phone, document: data.cpf, endereco: data.endereco, numero: data.numero, bairro: data.bairro, cidade: data.cidade, uf: data.uf && String(data.uf).toUpperCase(), cep: data.cep, lat: d.lat, lng: d.lng, isCliente: true, isLead: false, observacoes: data.observacoes };
         Object.keys(body).forEach(k => { if (body[k] === undefined || body[k] === null || body[k] === "") delete body[k]; });
+        const duplicate = await findDuplicateClient({ name: data.name, phone: data.phone, document: data.cpf, endereco: data.endereco, numero: data.numero });
+        if (duplicate) { showDuplicateClient(duplicate, "duplicate-new-client"); return; }
         const created = await H.api("/nucleo/contas", { method: "POST", body });
         const customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
         if (!customerProfileId) throw new Error("Cliente criado sem identificador para vincular os dados.");
@@ -3421,6 +3535,8 @@
         if (data.bairro !== undefined) draft.bairro = data.bairro;
         if (data.cidade !== undefined) draft.cidade = data.cidade;
         if (data.uf !== undefined) draft.uf = String(data.uf).toUpperCase();
+        const duplicate = await findDuplicateClient(draft);
+        if (duplicate) { showDuplicateClient(duplicate, "duplicate-leitura-client"); return; }
         state.leituraSelectedClient = null;
         state.leituraClienteProdutos = {};
         state.leituraTelefoneValue = draft.telefone || "";

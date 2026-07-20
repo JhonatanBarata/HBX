@@ -611,6 +611,7 @@ export class NucleoCadastroService {
           id: true,
           name: true,
           cnpj: true,
+          document: true,
           cidade: true,
           uf: true,
           isLead: true,
@@ -655,6 +656,7 @@ export class NucleoCadastroService {
         id: row.id,
         name: row.name ?? null,
         cnpj: row.cnpj ?? null,
+        document: row.document ?? null,
         phone: row.phone ?? row.contatos?.[0]?.whatsapp ?? row.contatos?.[0]?.phone ?? null,
         phoneNormalized: row.phoneNormalized ?? null,
         endereco: row.endereco ?? null,
@@ -2298,6 +2300,7 @@ const EMPTY_CLIENTE_CARD_EXTRAS: ClienteCardExtras = {
 };
 
 export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {
+  document: string | null;
   phone: string | null;
   phoneNormalized: string | null;
   endereco: string | null;
