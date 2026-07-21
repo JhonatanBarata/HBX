@@ -102,6 +102,15 @@
    (bot-builder.css) e .auto-flag-note (screens.css) tal qual a seção
    Atendente (Lei nº2 — nunca repetir visual). Nada a adicionar aqui. */
 
+/* Nota (S04, PADRAO-MERCADO): a frase acima ("ZERO classe nova") data da
+   S14 — esta sprint troca o .ia-pub-pill da toolbar por <StatusChip> (Lei
+   nº3, achado A6) e empilha junto uma linha secundária (dirty), o que o
+   .ia-toolbar (flex-row) não fazia sozinho. `.ia-toolbar__status` é a
+   ÚNICA classe nova: wrapper de layout puro (sem cor) — o chip vem do kit
+   (kit/status-chip.tsx) e a linha menor reusa `.aut-obj-card__secondary`
+   (já existe, S02) — mesma regra de peso visual do cartão do hub. */
+.ia-toolbar__status { display: flex; flex-direction: column; gap: 2px; }
+
 /* ── S15 — seção Prospecção & Cadência: drawer largo pro motor de disparo frio
    (<BotProspeccaoPanel> importado, não copiado — passa a viver fora do /bot).
    A casca (véu + entrada deslizante) vem 100% da central (.hbx-veil.to-right +

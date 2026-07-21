@@ -90,7 +90,10 @@ const SECAO_META: Record<SecaoKey, SecaoMeta> = {
     key: "cobranca",
     titulo: "Cobrar quem deve",
     icon: "money",
-    sub: "Recovery: lembra o cliente que ficou devendo, no ritmo certo, sem constrangimento.",
+    // S04 (PADRAO-MERCADO, sprint "cobranca"): frase original estourava o
+    // teto de copy (~84 chars, Lei nº1 ≤70) — a prévia no telefone já mostra
+    // o tom do lembrete, então a linha só precisa dizer o QUÊ.
+    sub: "Recovery: lembra o cliente que deve, no ritmo certo.",
   },
   prospeccao: {
     key: "prospeccao",

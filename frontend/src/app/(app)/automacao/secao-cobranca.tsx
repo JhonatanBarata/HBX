@@ -69,6 +69,13 @@
 // + .auto-flag-note (screens.css). Zero import das páginas velhas (bot/
 // page.client.tsx) — zero CSS novo (automacao.css só ganha o comentário desta
 // sprint, nada de classe nova: a reembalagem coube 100% no que já existe).
+//
+// Nota (S04, PADRAO-MERCADO): ".ia-pub-pill" acima descreve a S14 — esta
+// sprint troca o pill solto da toolbar por <StatusChip> (kit/status-chip.tsx,
+// Lei nº3: vocabulário único de status, achado A6) e junto dele empilha uma
+// linha secundária (dirty = "alterações não salvas"), só quando diverge do
+// estado principal — mesma regra do cartão do hub (S02 item 3). Único ganho
+// em automacao.css: `.ia-toolbar__status` (wrapper de layout, sem cor).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -77,6 +84,8 @@ import { isTenantAdmin } from "@/lib/roles";
 // S01 (PADRAO-MERCADO): telefone (dock + <WhatsAppPreview>) extraído pro kit central — zero duplicação (era igual em secao-atendente.tsx).
 import type { WAMessage } from "@/components/hbx/whatsapp-preview";
 import { PhonePreview } from "./kit/phone-preview";
+// S04 (PADRAO-MERCADO): StatusChip único pro estado da seção — Lei nº3 (vocabulário sem contradição, achado A6).
+import { StatusChip, type StatusTone } from "./kit/status-chip";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotPhaseEditor } from "@/components/hbx/bot-phase-editor";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
@@ -299,9 +308,30 @@ export function SecaoCobranca({ onChanged }: { onChanged?: () => void }) {
 
   const armed = activation?.armed ?? false;
   const live = activation?.types.recovery.live ?? false;
+  const preflight = activation?.types.recovery.preflight ?? null;
   const blocked = activation?.types.recovery.blocked ?? null;
-  const stateLabel = !armed ? "Aguardando suporte" : live ? "Ativo no WhatsApp" : dirty ? "Alterações não salvas" : "Rascunho";
-  const stateIcon = !armed ? ICONS.help : live ? ICONS.check : ICONS.edit;
+  // S04 (PADRAO-MERCADO) — item 1: antes, "dirty" (edição local não salva)
+  // trocava o MESMO rótulo que "Ativo no WhatsApp"/"Rascunho" usavam — 2
+  // fatos com 1 peso visual só, o mesmo formato do bug A6. Agora o estado
+  // PRINCIPAL reflete só a verdade do servidor (armado/publicado); "dirty"
+  // vira linha secundária menor lá embaixo, e só aparece quando existe
+  // (mesma regra do cartão do hub — S02 item 3).
+  const status: { tone: StatusTone; label: string } = !armed
+    ? { tone: "atencao", label: "Aguardando suporte" }
+    : live
+      ? { tone: "ligado", label: "Ativo no WhatsApp" }
+      : { tone: "rascunho", label: "Rascunho" };
+  // Item 4: motivo do bloqueio (preflight) — nunca frase solta na tela.
+  // Desvio documentado: o hub usa o rótulo "Sem chip" pro mesmo motivo
+  // (page.client.tsx), mas AQUI a prévia da Cobrança (PhonePreview) já
+  // mostra um selo FIXO "Sem chip" no próprio dock (safeLabel = "nunca
+  // dispara WhatsApp real", sempre presente, sem relação com a empresa ter
+  // chip ou não) — os dois ficam lado a lado na mesma tela. Repetir "Sem
+  // chip" aqui recriaria a MESMA confusão de vocabulário que a Lei nº3
+  // existe pra matar (2 rótulos iguais, 2 significados). "WhatsApp
+  // desconectado" espelha o antônimo do rótulo já usado no hub ("WhatsApp
+  // conectado") sem colidir com o selo da prévia.
+  const semChip = Boolean(armed && preflight && !preflight.chipConectado);
 
   if (error) {
     return (
@@ -325,10 +355,10 @@ export function SecaoCobranca({ onChanged }: { onChanged?: () => void }) {
           <span className="ia-toolbar__name">Cobrança</span>
           <span className="ia-toolbar__meta">Recovery — roteiro de menu</span>
         </div>
-        <span className={"ia-pub-pill" + (live ? " is-on" : "")}>
-          <I d={stateIcon} size={11} />
-          {stateLabel}
-        </span>
+        <div className="ia-toolbar__status">
+          <StatusChip tone={status.tone} label={status.label} />
+          {dirty && <span className="aut-obj-card__secondary">Alterações não salvas</span>}
+        </div>
 
         <div className="ia-toolbar__actions">
           {canManage && (
@@ -352,8 +382,16 @@ export function SecaoCobranca({ onChanged }: { onChanged?: () => void }) {
           Modo leitura — a configuração é feita pelo Admin da empresa.
         </div>
       )}
+      {/* S04 (PADRAO-MERCADO) — item 4: ícone + StatusChip `atencao` no lugar
+          da frase crua do backend; a ação (o que fazer) vira tooltip. */}
       {armed && blocked && (
-        <div className="auto-flag-note"><I d={ICONS.help} size={14} />{blocked}</div>
+        <div
+          className="auto-flag-note"
+          title={semChip ? "Conecte o WhatsApp para o recovery sair do pré-voo." : "Configure o menu principal para ativar."}
+        >
+          <I d={ICONS.help} size={14} />
+          <StatusChip tone="atencao" size="s" label={semChip ? "WhatsApp desconectado" : "Config incompleta"} />
+        </div>
       )}
       {note && <div className="auto-flag-note"><I d={ICONS.check} size={14} />{note}</div>}
 
@@ -511,14 +549,22 @@ function CobrancaPreview({ config }: { config: RecoveryConfig }) {
   // S01 (PADRAO-MERCADO): dock + <WhatsAppPreview> viviam duplicados aqui e
   // em AtendenteSandbox (secao-atendente.tsx) — componente único agora
   // (kit/phone-preview.tsx). Mesmas classes no mesmo DOM, zero mudança visual.
+  // S04 (PADRAO-MERCADO) — item 2: a legenda longa saiu do rodapé (era
+  // parágrafo, estourava o teto de copy) e virou tooltip no header do dock;
+  // o rodapé agora é 1 linha curta.
   return (
     <PhonePreview
       title="Prévia da Cobrança"
+      badge={
+        <span title="Recovery não tem cérebro de IA — a prévia só mostra o que a config vai enviar, não simula resposta.">
+          <I d={ICONS.help} size={12} />
+        </span>
+      }
       messages={messages}
       header={{ name: "Cobrança", status: "online" }}
       emptyHint="A prévia aparece quando você escrever a Boas-vindas ou o Menu principal"
       quickReplies={quick.length ? quick : undefined}
-      footerNote="Recovery não tem cérebro de IA — a prévia só mostra o que a config vai enviar, não simula resposta."
+      footerNote="Roteiro fixo — não simula resposta."
     />
   );
 }
