@@ -195,6 +195,7 @@ export class WhatsAppModalService {
   );
   private readonly connectAttemptCooldownMs = 12000;
   private readonly webhookConfigureCooldownMs = 60000;
+  private readonly webhookConfigureFailureRetryMs = 10000;
   private readonly qrCodeCacheTtlMs = 45000;
   private readonly pairingCodeCooldownMs = 60_000;
   private readonly pairingCodeTtlSeconds = 120;
@@ -1070,6 +1071,7 @@ export class WhatsAppModalService {
     // reconectar". Deletar na raiz garante que desconectou = não há mais rastro no motor.
     try {
       await this.deleteProviderInstance(tenantKey);
+      this.recentWebhookConfigureAt.delete(tenantKey);
     } catch (error) {
       if (!this.isMissingInstanceError(error)) {
         this.logger.warn(`delete pos-disconnect falhou para ${tenantKey}: ${this.toProviderError(error).message}`);
@@ -2172,6 +2174,7 @@ export class WhatsAppModalService {
   private async resetProviderInstanceForPairing(tenantKey: string, status?: WhatsAppModalStatus | null) {
     this.recentConnectAttemptAt.delete(tenantKey);
     this.qrCodeCache.delete(tenantKey);
+    this.recentWebhookConfigureAt.delete(tenantKey);
     if (status === 'connected') {
       await this.runSafeProviderResetStep(tenantKey, 'logout', () => this.logoutProviderSession(tenantKey));
       await this.runSafeProviderResetStep(tenantKey, 'delete', () => this.deleteProviderInstance(tenantKey));
@@ -2880,9 +2883,11 @@ export class WhatsAppModalService {
 
     const lastAttemptAt = this.recentWebhookConfigureAt.get(tenantKey);
     if (typeof lastAttemptAt === 'number' && Date.now() - lastAttemptAt < this.webhookConfigureCooldownMs) {
+      if (reason !== 'connect') {
+        this.logger.warn(`Webhook WebWhats skip por cooldown instance=${tenantKey} reason=${reason} elapsedMs=${Date.now() - lastAttemptAt}`);
+      }
       return;
     }
-    this.recentWebhookConfigureAt.set(tenantKey, Date.now());
 
     const requiredEvents = this.buildProviderWebhookEvents();
     const setPath = `/webhook/set/${encodeURIComponent(tenantKey)}`;
@@ -2902,6 +2907,7 @@ export class WhatsAppModalService {
           `Webhook WebWhats set falhou instance=${tenantKey} url=${setResult.url} status=${setResult.status} ` +
             `body=${this.stringifyProviderBodyForLog(setResult.body)}`,
         );
+        this.recentWebhookConfigureAt.set(tenantKey, Date.now() - this.webhookConfigureCooldownMs + this.webhookConfigureFailureRetryMs);
         return;
       }
 
@@ -2917,6 +2923,7 @@ export class WhatsAppModalService {
           `Webhook WebWhats find falhou instance=${tenantKey} url=${findResult.url} status=${findResult.status} ` +
             `body=${this.stringifyProviderBodyForLog(findResult.body)}`,
         );
+        this.recentWebhookConfigureAt.set(tenantKey, Date.now() - this.webhookConfigureCooldownMs + this.webhookConfigureFailureRetryMs);
         return;
       }
 
@@ -2926,15 +2933,18 @@ export class WhatsAppModalService {
           `Webhook WebWhats validacao falhou instance=${tenantKey} expectedUrl=${webhookUrl} ` +
             `mismatches=${validation.mismatches.join('; ')} body=${this.stringifyProviderBodyForLog(findResult.body)}`,
         );
+        this.recentWebhookConfigureAt.set(tenantKey, Date.now() - this.webhookConfigureCooldownMs + this.webhookConfigureFailureRetryMs);
         return;
       }
 
+      this.recentWebhookConfigureAt.set(tenantKey, Date.now());
       this.logger.log(
         `Webhook WebWhats configurado e validado instance=${tenantKey} url=${this.redactWebhookUrlForLog(webhookUrl)} ` +
           `events=${requiredEvents.join(',')}`,
       );
     } catch (error) {
       const providerError = this.toProviderError(error);
+      this.recentWebhookConfigureAt.set(tenantKey, Date.now() - this.webhookConfigureCooldownMs + this.webhookConfigureFailureRetryMs);
       this.logger.warn(
         `Webhook WebWhats nao configurado para ${tenantKey} durante ${reason}: ${providerError.message}`,
       );
