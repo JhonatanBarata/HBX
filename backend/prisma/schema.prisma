@@ -5034,6 +5034,38 @@ model AssistenteConfig {
   @@unique([companyId])
 }
 
+// S09 (MOTOR-ÚNICO, docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/S09-schema-automation-agent.md)
+// — lar definitivo do Atendente: funde AssistenteConfig (cérebro 'ia') + BotConfig
+// domain='atendimento_bot' (cérebro 'roteiro') numa tabela só. 1 agente POR EMPRESA
+// (`companyId @unique`, REGRA DE PRODUTO 20/07 — Admin configura, todos herdam, ver
+// README linhas 89-98). Migration ADITIVA (prisma/migrations/20260721000000_automation_agent);
+// NADA é dropado (drop condicionado ao inventário é a S20). `roteiroJson`/`fluxoJson`
+// guardam os DOIS shapes legados como string JSON (CONTRATO.md §4.2/§4.3) — não recria
+// formato novo, só dá endereço único pros dois. `migratedFrom` é preenchido pelo
+// backfill idempotente (agent-backfill.service.ts, S09) e registra de qual(is) store(s)
+// legado(s) esta linha veio ('assistente' | 'bot' | 'ambos'); linha criada direto no
+// schema novo (pós S10, fora do escopo desta sprint) fica null.
+// Stores antigos (AssistenteConfig, BotConfig) continuam INTOCADOS e são a fonte real
+// de runtime até a S10 trocar a leitura — esta tabela nasce OFF de uso, só populada
+// pelo backfill via script (backend/scripts/automation-agent-backfill.js), NUNCA no boot.
+model AutomationAgent {
+  id           String   @id @default(cuid())
+  companyId    Int      @unique // REGRA DE PRODUTO 20/07: 1 agente POR EMPRESA (Admin configura, todos herdam)
+  nome         String   @default("Assistente")
+  tom          String   @default("normal") // formal | normal | descontraido
+  perfil       String   @default("vendas") // vendas | suporte
+  produtos     String?
+  empresaNome  String?
+  brain        String   @default("roteiro") // roteiro | ia (AgentBrain, CONTRATO.md §4.1)
+  roteiroJson  String   @default("{}") // shape AtendimentoBotConfig (CONTRATO.md §4.2)
+  fluxoJson    String   @default("{}") // shape FluxoJson do assistente (CONTRATO.md §4.3)
+  published    Boolean  @default(false)
+  testCounter  Int      @default(0)
+  migratedFrom String? // 'assistente' | 'bot' | 'ambos' | null (linha nova, não migrada)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 // Claim idempotente de uma resposta conversacional da assistente. Não ocupa o
 // slot comercial e não é uma inscrição de automação proativa.
 model ConversationAssistantRun {

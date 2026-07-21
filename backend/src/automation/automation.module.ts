@@ -14,6 +14,7 @@ import { InboundRouterService } from './inbound-router.service';
 import { CadenciaSchedulerService } from '../cadencia/cadencia-scheduler.service';
 import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor } from './outbound-orchestrator.service';
 import { EventRuleService } from './event-rule.service';
+import { AgentBackfillService } from './agent-backfill.service';
 
 // S04 (MOTOR-ÚNICO) — módulo `automation`.
 //
@@ -60,6 +61,17 @@ import { EventRuleService } from './event-rule.service';
 // construtor. Isso evita o ciclo real que existiria se CadenciaModule
 // precisasse importar AutomationModule de volta (AutomationModule já importa
 // CadenciaModule, ver comentário acima). Ver event-rule.service.ts.
+//
+// S09: AgentBackfillService entra como provider aqui pro mesmo motivo de
+// AutomationOverviewService/AgentService (DI dentro desta frente/testes
+// Nest) — mas NINGUÉM injeta ele em runtime (não roda no boot, ver README
+// linha 85 "flags novas nascem OFF" e S09.md item 3). O consumidor real é o
+// script `backend/scripts/automation-agent-backfill.js`, que instancia os 3
+// services DONOS (PrismaService, BotConfigStoreService, BotActivationService)
+// direto via `require('../dist/...')`, fora do bootstrap HTTP do Nest —
+// mesmo padrão de `scripts/f2-fabrica-stop-resume.js`. Registrar aqui só
+// mantém o módulo como fonte única de DI da frente, sem duplicar o
+// construtor em dois lugares.
 @Module({
   imports: [
     PrismaModule,
@@ -83,7 +95,15 @@ import { EventRuleService } from './event-rule.service';
     },
     OutboundOrchestratorService,
     EventRuleService,
+    AgentBackfillService,
   ],
-  exports: [AutomationOverviewService, AgentService, InboundRouterService, OutboundOrchestratorService, EventRuleService],
+  exports: [
+    AutomationOverviewService,
+    AgentService,
+    InboundRouterService,
+    OutboundOrchestratorService,
+    EventRuleService,
+    AgentBackfillService,
+  ],
 })
 export class AutomationModule {}
