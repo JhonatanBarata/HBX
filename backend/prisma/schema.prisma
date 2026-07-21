@@ -1385,6 +1385,11 @@ model LogisticaLeituraSessao {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   paradas    LogisticaLeituraParada[]
+  // S2 (PR21072026-MONTAR-ROTA-PLAY) — trilha (breadcrumb GPS) acumulada via
+  // POST /logistica/leitura/:id/trilha: [{ lat, lng, ts }], já simplificada
+  // (Douglas-Peucker) no aparelho antes de enviar. Aceita lotes mesmo após
+  // FINALIZADA/CANCELADA (cauda da fila offline não pode se perder).
+  trilhaJson Json?
 
   @@index([companyId, userId, status])
 }

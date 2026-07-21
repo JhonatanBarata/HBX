@@ -2,7 +2,15 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeSearch } from '../nucleo/nucleo-search.util';
 import { assertNomeUnico } from './logistica-rota-modelo.service';
-import type { RegistrarLeituraParadaDto, UpdateLeituraParadaDto, FinalizarLeituraDto } from './dto/logistica-leitura.dto';
+import type {
+  RegistrarLeituraParadaDto,
+  UpdateLeituraParadaDto,
+  FinalizarLeituraDto,
+} from './dto/logistica-leitura.dto';
+
+// S2 (PR21072026-MONTAR-ROTA-PLAY) — teto de pontos de trilha guardados por
+// sessão (defesa em profundidade; o aparelho já simplifica antes de enviar).
+const MAX_TRILHA_PONTOS = 20_000;
 
 /**
  * PR20072026 W1 — "Leitura de Rota" (docs/PLANEJAMENTOS/PR20072026/
@@ -384,6 +392,48 @@ export class LogisticaLeituraService {
     });
     if (result.count === 0) throw new NotFoundException('Sessão de leitura não encontrada.');
   }
+
+  // ── POST /:id/trilha — S2 (PR21072026-MONTAR-ROTA-PLAY) ─────────────────────
+  // Trilha (breadcrumb GPS) que o RotaService nativo grava durante a Leitura,
+  // já simplificada (Douglas-Peucker ~10m) no aparelho antes de enviar. ADITIVO
+  // por design: concatena com o que a sessão já tinha (o app só manda o lote
+  // NOVO desde o último envio confirmado — contrato em S2-CONTRATO-PONTE.md).
+  //
+  // Sem gate de status ABERTA de propósito: a fila offline do aparelho pode
+  // entregar a cauda de pontos DEPOIS que o motorista já tocou "finalizar"
+  // (sessão já FINALIZADA/CANCELADA) — nunca 404 por status, só por sessão
+  // inexistente/de outra empresa-usuário.
+  async registrarTrilha(
+    companyId: number,
+    userId: number,
+    sessaoId: string,
+    pontos: Array<{ lat: number; lng: number; ts: string }>,
+  ): Promise<{ success: true; totalPontos: number }> {
+    ensureIds(companyId, userId);
+    if (!Array.isArray(pontos) || pontos.length === 0) {
+      throw new BadRequestException('Informe ao menos um ponto.');
+    }
+    return this.prisma.$transaction(async (tx: any) => {
+      const sessao = await tx.logisticaLeituraSessao.findFirst({
+        where: { id: sessaoId, companyId, userId },
+        select: { id: true, trilhaJson: true },
+      });
+      if (!sessao) throw new NotFoundException('Sessão de leitura não encontrada.');
+
+      const existentes = Array.isArray(sessao.trilhaJson) ? (sessao.trilhaJson as unknown as StoredTrilhaPonto[]) : [];
+      const novos: StoredTrilhaPonto[] = pontos.map((p) => ({ lat: p.lat, lng: p.lng, ts: p.ts }));
+      // Teto de segurança: mesmo com simplificação no aparelho, uma sessão
+      // aberta por muitas horas não pode crescer sem limite no banco.
+      const combinados = [...existentes, ...novos].slice(-MAX_TRILHA_PONTOS);
+
+      await tx.logisticaLeituraSessao.update({
+        where: { id: sessaoId },
+        data: { trilhaJson: combinados as any },
+      });
+
+      return { success: true as const, totalPontos: combinados.length };
+    });
+  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -391,6 +441,13 @@ export class LogisticaLeituraService {
 function ensureIds(companyId: number, userId: number): void {
   if (!companyId) throw new BadRequestException('Empresa não identificada.');
   if (!userId) throw new BadRequestException('Usuário não identificado.');
+}
+
+/** S2 (PR21072026-MONTAR-ROTA-PLAY) — um ponto da trilha (breadcrumb GPS). */
+interface StoredTrilhaPonto {
+  lat: number;
+  lng: number;
+  ts: string;
 }
 
 function normalizeDigits(value: string | null | undefined): string {

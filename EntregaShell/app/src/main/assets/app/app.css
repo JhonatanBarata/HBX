@@ -209,10 +209,17 @@ h3 { font-size: .95rem; }
 .rp2-footer > .btn { position: static; margin-top: 0; }
 .rp2-cta { background: var(--cta); color: #082610; font-weight: 850; box-shadow: 0 10px 22px rgba(7, 169, 63, .28); }
 
-.rp2-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 2px 0 12px; }
-.rp2-day { min-height: 42px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); background: var(--surface-2); font-size: .66rem; font-weight: 800; }
-.rp2-day.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: #1b290b; background: var(--brand); }
-:root[data-theme="dark"] .rp2-day.active { color: #102000; }
+/* S1 21/07 — "Por dia" virou lista VERTICAL (S1.2): uma linha por dia com a
+   quantidade de clientes; multi-seleção pelo mesmo token --brand (Lei 2b). */
+.rp2-days { display: grid; gap: 8px; margin: 2px 0 12px; }
+.rp2-day-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.rp2-day-row strong { font-size: .92rem; }
+.rp2-day-row.active { border-color: var(--brand-strong); background: var(--brand-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 30%, transparent); }
+.rp2-day-row.active strong, .rp2-day-row.active .rp2-day-count { color: var(--brand-strong); font-weight: 850; }
+.rp2-day-count { color: var(--muted); font-size: .78rem; font-weight: 700; flex: 0 0 auto; }
+/* Duas classes (especificidade 0,2,0) pra vencer .loading{min-height:58px}
+   independente da ordem no arquivo — senão o skeleton ficava gigante. */
+.rp2-day-count.rp2-day-count-skel { display: inline-block; min-width: 64px; min-height: 14px; border-radius: 7px; }
 
 .rp2-summary { display: flex; align-items: center; gap: 8px; padding: 11px 13px; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }
 .rp2-summary b { color: var(--brand-strong); font-size: 1.05rem; }
@@ -317,6 +324,11 @@ h3 { font-size: .95rem; }
 .day-home-btn span:last-child { color: var(--muted); font-size: .78rem; }
 .day-home-btn-glyph { display: grid; place-items: center; width: 40px; height: 40px; margin: 0 auto 2px; border-radius: 12px; color: var(--brand-strong); background: var(--brand-soft); }
 .day-home-btn-glyph--saved { font-size: 1.2rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, var(--surface)); }
+/* S1 21/07 — menu "Montar Rota" com 4 opções: aperta gap/padding/glifo pra
+   caber sem scroll no moto g15 (só este menu usa o modificador). */
+.day-home-actions--4 { gap: 8px; }
+.day-home-actions--4 .day-home-btn { padding: 12px 14px; }
+.day-home-actions--4 .day-home-btn-glyph { width: 34px; height: 34px; margin: 0 auto; }
 .day-choose .rp2-mode-list, .day-saved-list { text-align: left; margin-top: 2px; }
 .day-saved-list { max-height: 52dvh; overflow: auto; }
 /* Pop-up "Qual o DDD?" — número sem DDD (feedback dono PR20072026). */
@@ -325,7 +337,6 @@ h3 { font-size: .95rem; }
 .ddd-input { width: 74px; padding: 10px 12px; text-align: center; font-size: 1.2rem; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); }
 .ddd-preview { font-size: 1.02rem; font-weight: 600; color: var(--text); }
 .ddd-sug { margin: 2px 0 0; color: var(--muted); font-size: .78rem; }
-.client-ddd-hint { margin: 6px 0 0; color: var(--warning); font-size: .76rem; }
 /* Contador do passo Observações da Leitura/rota manual (feedback dono). */
 .lrt-obs-count { margin: 10px 2px 0; color: var(--muted); font-size: .76rem; text-align: center; }
 .lrt-obs-count b { color: var(--brand-strong); font-weight: 800; }
@@ -357,7 +368,10 @@ h3 { font-size: .95rem; }
 .delivery-add { min-height: 42px; border: 1px dashed color-mix(in srgb, var(--brand) 62%, var(--line)); border-radius: 12px; color: var(--brand-strong); background: var(--brand-soft); font: inherit; font-size: .74rem; font-weight: 800; }
 .delivery-picker { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }.delivery-picker strong { font-size: .75rem; }.delivery-picker > button:not(.btn) { min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); text-align: left; font: inherit; font-size: .73rem; }
 .delivery-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 12px; }.delivery-tools .btn { min-width: 0; padding: 9px 6px; font-size: .67rem; }
-.delivery-confirm { width: 100%; min-height: 54px; margin-top: 14px; font-size: .88rem; font-weight: 850; }.delivery-not-delivered { display: block; width: max-content; margin: 12px auto 0; border: 0; color: var(--danger); background: transparent; font: inherit; font-size: .72rem; font-weight: 750; }
+/* S4 21/07 — 54px → 64px: nível "completo" (deliverySheet) era o único dos 3
+   níveis de chegada com o CTA abaixo de 64px (offline/simples já usam
+   .delivery-big-btn a 64px, achado do pedido "chegada idêntica nos 3"). */
+.delivery-confirm { width: 100%; min-height: 64px; margin-top: 14px; font-size: .88rem; font-weight: 850; }.delivery-not-delivered { display: block; width: max-content; margin: 12px auto 0; border: 0; color: var(--danger); background: transparent; font: inherit; font-size: .72rem; font-weight: 750; }
 .delivery-reason { display: grid; gap: 11px; padding: 12px 0 2px; }.delivery-reason > strong { font-size: .9rem; }.delivery-reason-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }.delivery-reason-options button { min-height: 42px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--surface-2); font: inherit; font-size: .7rem; font-weight: 760; }.delivery-reason-options button.active { border-color: color-mix(in srgb, var(--danger) 65%, var(--line)); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
 .sales-view { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }.sales-view button { min-height: 37px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font: inherit; font-size: .72rem; font-weight: 780; }.sales-view button.active { color: var(--brand-strong); background: var(--surface); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 12%, transparent); }.sales-board { display: flex; gap: 10px; overflow-x: auto; margin: 12px -2px 0; padding: 2px 2px 10px; scroll-snap-type: x mandatory; }.sales-column { display: grid; align-content: start; gap: 7px; min-width: min(78vw, 300px); min-height: 260px; padding: 11px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); scroll-snap-align: start; }.sales-column-head { display: flex; justify-content: space-between; gap: 10px; font-size: .79rem; }.sales-column-head span { display: grid; place-items: center; min-width: 22px; height: 22px; border-radius: 8px; color: var(--brand-strong); background: var(--brand-soft); font-size: .66rem; font-weight: 800; }.sales-column > small, .sales-column-list > p { margin: 0; color: var(--muted); font-size: .65rem; line-height: 1.35; }.sales-column-list { display: grid; gap: 7px; }.sales-column .lead-card { background: var(--surface); }.sales-quick { display: grid; grid-template-columns: 1.25fr 1fr; gap: 8px; margin-top: 12px; }.sales-quick .btn { min-width: 0; font-size: .72rem; }.sales-stages { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }.sales-stages button, .sales-negative-options button { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--surface-2); font: inherit; font-size: .67rem; font-weight: 750; white-space: nowrap; }.sales-stages button.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: var(--brand-strong); background: var(--brand-soft); }.sales-negative-options { display: grid; gap: 8px; margin: 14px 0; }.sales-negative-options button { width: 100%; color: var(--danger); text-align: left; }
 .route-filter { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }.route-filter-btn { min-height: 40px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font: inherit; font-size: .74rem; font-weight: 780; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }.route-filter-btn b { font-size: .72rem; opacity: .8; }.route-filter-btn.active { color: var(--brand-strong); background: var(--surface); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 12%, transparent); }
@@ -397,7 +411,6 @@ h3 { font-size: .95rem; }
 .client-editor-part.client-part-pending .client-editor-part-head strong { color: var(--danger); }
 .client-field-pending label { color: var(--danger); }
 .client-field-pending input { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 12%, transparent); }
-.client-duplicate-warning { margin: -2px 0 10px; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--line)); border-radius: 11px; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); font-size: .69rem; font-weight: 800; text-align: center; }
 /* PR18072026 item 8 — endereço duplicado: só o vermelho sinaliza o campo (sem texto). */
 .client-address-duplicate .client-address-row input,
 .client-address-duplicate input[name="endereco"],
@@ -460,6 +473,12 @@ h3 { font-size: .95rem; }
 .route-live-map.is-ready > .route-map-loading { display: none; }
 .route-live-map .maplibregl-ctrl-attrib { background: rgba(255,255,255,.78); font-size: 9px; }
 .route-map-pin { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 2px solid white; border-radius: 99px; color: #172116; background: var(--brand); box-shadow: 0 3px 12px rgba(0,0,0,.28); font-size: .68rem; font-weight: 900; }
+/* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
+   mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados
+   via classe), só mais baixo pra caber no cartão central junto do cabeçalho/CTA/
+   setas. Só tokens (--brand) + as mesmas sombras neutras já usadas nesta seção. */
+.leitura-live-map-shell { height: 260px; min-height: 220px; max-height: 300px; }
+.leitura-live-dot { display: block; width: 20px; height: 20px; border: 3px solid white; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 28%, transparent), 0 3px 10px rgba(0,0,0,.3); }
 .route-controls { display: grid; place-items: center; min-height: 136px; padding: 12px 0; background: transparent; }
 .route-transmux-wrap { position: relative; z-index: 8; width: 112px; height: 112px; pointer-events: none; }
 .route-transmux { width: 112px; height: 112px; padding: 0; border: 0; border-radius: 50%; background: transparent; cursor: pointer; position: relative; isolation: isolate; pointer-events: auto; touch-action: manipulation; filter: drop-shadow(0 12px 18px rgba(0,0,0,.35)); transition: transform .27s ease, filter .27s ease; }
@@ -792,7 +811,16 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .lrt-endereco-option-kicker { color: var(--brand-strong); font-size: .66rem; font-weight: 800; }
 .lrt-endereco-option strong { font-size: .8rem; }
 .lrt-endereco-option small, .lrt-endereco-option > span { color: var(--muted); font-size: .69rem; }
-.lrt-endereco-warning { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); border-radius: 11px; color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); font-size: .7rem; text-align: center; }
+/* S4 21/07 (Lei 7) — classe única de aviso inline: 3 variantes (ok/warn/danger)
+   com os mesmos ingredientes (borda color-mix + fundo suave + texto pequeno
+   centralizado), só troca o token de cor. Nomes antigos que já existiam no
+   HTML (.lrt-endereco-warning / .client-ddd-hint / .client-duplicate-warning,
+   este último hoje sem uso — achado S4) viram alias na MESMA regra pra não
+   reescrever HTML espalhado pelo app.js (1ª aplicação real: status do CEP em
+   clientAddressFields, ok × warn — antes as duas caras eram texto cinza igual). */
+.hbx-aviso, .hbx-aviso--warn, .lrt-endereco-warning, .client-ddd-hint { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); border-radius: 11px; color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); font-size: .7rem; font-weight: 600; text-align: center; }
+.hbx-aviso--danger, .client-duplicate-warning { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); font-weight: 800; }
+.hbx-aviso--ok { border-color: color-mix(in srgb, var(--success) 32%, var(--line)); color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
 .lrt-endereco-card, .lrt-endereco-compare { border-radius: 16px; box-shadow: 0 6px 18px color-mix(in srgb, var(--ink) 5%, transparent); }
 .lrt-endereco-compare p { padding: 10px 11px; border-radius: 11px; background: var(--surface-2); line-height: 1.45; }
 .lrt-endereco-compare p[style*="--warning"] { border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); }

@@ -189,6 +189,32 @@ export class UpdateLeituraParadaDto {
   atualizarPrecoAcordado?: boolean;
 }
 
+// S2 (PR21072026-MONTAR-ROTA-PLAY) — trilha (breadcrumb GPS) enviada pelo
+// RotaService nativo. `ts` é ISO8601 (mesmo padrão de `capturadoEm` acima).
+export class TrilhaPontoDto {
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  lat!: number;
+
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  lng!: number;
+
+  @IsISO8601({ strict: true })
+  ts!: string;
+}
+
+export class RegistrarTrilhaDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => TrilhaPontoDto)
+  pontos!: TrilhaPontoDto[];
+}
+
 export class FinalizarLeituraDto {
   @IsOptional()
   @IsString()

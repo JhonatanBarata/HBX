@@ -62,6 +62,8 @@ import { BotProspeccaoPanel } from "@/components/hbx/bot-prospeccao-panel";
 // S05 (PADRAO-MERCADO): prévia da abertura por persona via kit central — zero fork local (mesmo padrão de secao-atendente/cobranca, S01).
 import type { WAMessage } from "@/components/hbx/whatsapp-preview";
 import { PhonePreview } from "./kit/phone-preview";
+// S08 (PADRAO-MERCADO): MiniFluxo/métrica do card de template padrão — persona JÁ é um modelo pronto, aqui alinha a moldura (ver comentário em PersonaCard).
+import { MiniFluxo, type MiniFluxoNode } from "./kit/mini-fluxo";
 // S05 (PADRAO-MERCADO): StatusChip único pro estado do motor e das plays (Lei nº3) — telemetria crua sai da tela.
 import { StatusChip, type StatusTone } from "./kit/status-chip";
 // S06 (PADRAO-MERCADO): EmptyState do kit pro funil vazio no picker de leads (Lei nº4 do README, nunca pedir ID) + a MESMA ilustração de busca já usada nesta seção (Lei nº2, nunca duplicar símbolo).
@@ -192,6 +194,24 @@ function personaAberturaMessages(c: Cadencia): WAMessage[] {
   const p0 = c.passos[0];
   if (!p0 || !p0.corpo) return [];
   return [{ dir: "in", text: p0.corpo, time: "agora" }];
+}
+
+// S08 (PADRAO-MERCADO) — item 3: persona JÁ É um modelo pronto (README:
+// "os modelos já existem... a sprint os torna visíveis") — estes 2
+// helpers alimentam a MESMA assinatura visual do card de template
+// (kit/template-card.tsx: MiniFluxo + métrica curta), consumida direto em
+// PersonaCard abaixo (sem herdar a moldura clicável inteira — persona já
+// tem cabeçalho/rodapé próprios, ver comentário lá).
+function personaFluxoNodes(c: Cadencia): MiniFluxoNode[] {
+  return c.passos.map((p) => ({
+    icon: CANAL_META[p.canal]?.icon ?? "check",
+    label: p.titulo || canalLabel(p.canal),
+  }));
+}
+function personaMetric(c: Cadencia): string {
+  const total = c.passos.length;
+  const whats = c.passos.filter((p) => p.canal === "whats").length;
+  return `${total} toque${total === 1 ? "" : "s"} · ${whats} WhatsApp`;
 }
 
 // ================================================================
@@ -475,6 +495,16 @@ function PersonaCard({ c, canManage, onToggle, onAplicar, onPreview }: {
           <div className="persona-card__persona">{c.persona}</div>
         </div>
       </div>
+
+      {/* S08 (PADRAO-MERCADO) — item 3: "alinha a moldura" de card de
+          template — MESMA assinatura visual (MiniFluxo + métrica curta) que
+          o wizard do Atendente e a galeria do hub usam (kit/template-card.tsx,
+          classes .aut-tpl-card__fluxo/__metric). Persona já é um modelo
+          pronto; isto só deixa a gramática visual igual, sem tirar nada do
+          que já existe abaixo (touch-badges/step-flow/Aplicar intactos). */}
+      <div className="aut-tpl-card__fluxo"><MiniFluxo nodes={personaFluxoNodes(c)} compact /></div>
+      <span className="aut-tpl-card__metric">{personaMetric(c)}</span>
+
       {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1, ≤70 chars);
           descrição vem do backend (cadencia-personas.ts, front-only não
           edita) — corta na exibição, nunca na fonte. */}

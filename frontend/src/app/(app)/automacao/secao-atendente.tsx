@@ -68,6 +68,8 @@ import type { WAMessage } from "@/components/hbx/whatsapp-preview";
 import { PhonePreview } from "./kit/phone-preview";
 // S03 (PADRAO-MERCADO): StatusChip pro aviso do fallback do sandbox — Lei nº3 (vocabulário único de status).
 import { StatusChip } from "./kit/status-chip";
+// S08 (PADRAO-MERCADO): card de template padrão (kit central, ver seu cabeçalho) — a galeria do passo 3 usa.
+import { TemplateCard, type TemplateCardOption } from "./kit/template-card";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotPhaseEditor, type PhaseRuleDef } from "@/components/hbx/bot-phase-editor";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
@@ -155,10 +157,73 @@ const PERFIS: { key: Perfil; title: string; desc: string }[] = [
   { key: "vendas", title: "Vendas", desc: "Desperta interesse e conduz para o próximo passo" },
   { key: "suporte", title: "Suporte", desc: "Entende o problema e ajuda ou encaminha" },
 ];
-// S03 (PADRAO-MERCADO): descs no teto da Lei nº1 (≤70 chars, 1 linha — eram parágrafo de 2 frases).
-const BRAIN_CHOICES: { key: AgentBrain; icon: keyof typeof ICONS; title: string; tag: string; desc: string }[] = [
-  { key: "roteiro", icon: "bot", title: "Roteiro de botões", tag: "Recomendado pra começar", desc: "Resposta fixa — você escreve as mensagens e os botões do menu." },
-  { key: "ia", icon: "assistente", title: "Inteligência Artificial", tag: "Conversa natural", desc: "IA local conduz a conversa — teste grátis no sandbox antes." },
+// S08 (PADRAO-MERCADO) — modelos da galeria do passo 3 (achado do README:
+// "os modelos JÁ EXISTEM como seeds/templates no código", só não estavam
+// visíveis). A IA tem 3 seeds por complexidade (backend/src/assistente/
+// assistente-seeds.ts, WORM-14: "2 perfis x 3 templates" — agil=1
+// mensagem/1 condição, flexivel=+1/+2, avancado=+1/+2, contagens REAIS do
+// arquivo de seeds, não inventadas aqui); o Roteiro tem 1 modelo fixo (7
+// peças, ver BOT_MSG_FIELDS acima — já populadas pelo backend quando
+// seedRoteiro() salva `{roteiro:{}}` vazio, sem variação).
+//
+// `template` viaja dentro do payload `ia` do PUT /automation/agent (ver
+// finalizar() abaixo) SEM mudar contrato nenhum: AgentService.updateAgent
+// repassa `dto.ia` inteiro pra AssistenteService.save(user, dto.ia as any)
+// (backend/src/automation/agent.service.ts linha ~485), e esse save() JÁ
+// aceita `template` — materializa getSeedFluxo(perfil, template) quando
+// `fluxo.passos` vier vazio (assistente.service.ts linha ~132; o campo
+// segue existindo desde antes da fusão S13, só nenhuma tela do /automacao
+// novo mandava — capacidade que já existia, ficou invisível). Zero rota
+// nova, zero DTO novo — só o FRONT passou a mandar o campo que faltava
+// (Lei nº6, front-only).
+type AssistenteTemplateKey = "agil" | "flexivel" | "avancado";
+export type AtendenteModeloKey = "roteiro" | AssistenteTemplateKey;
+
+type AtendenteModelo = TemplateCardOption & {
+  key: AtendenteModeloKey;
+  cerebro: AgentBrain;
+  template?: AssistenteTemplateKey;
+};
+
+// Exportado: a faixa "Começar por um modelo" do hub (page.client.tsx, S08)
+// reusa a MESMA lista — zero conteúdo novo, zero duplicação de metadado.
+export const ATENDENTE_MODELOS: AtendenteModelo[] = [
+  {
+    key: "roteiro", cerebro: "roteiro", icon: "bot", title: "Roteiro pronto", tag: "Recomendado pra começar",
+    fluxo: [
+      { icon: "msg", label: "Boas-vindas" },
+      { icon: "atend", label: "Menu" },
+      { icon: "check", label: "Resposta" },
+    ],
+    metric: "7 mensagens prontas",
+  },
+  {
+    key: "agil", cerebro: "ia", template: "agil", icon: "assistente", title: "IA Ágil",
+    fluxo: [
+      { icon: "msg", label: "Abertura" },
+      { icon: "reply", label: "Condição" },
+    ],
+    metric: "1 mensagem · 1 condição",
+  },
+  {
+    key: "flexivel", cerebro: "ia", template: "flexivel", icon: "assistente", title: "IA Flexível",
+    fluxo: [
+      { icon: "msg", label: "Abertura" },
+      { icon: "msg", label: "Explica" },
+      { icon: "reply", label: "Condição" },
+    ],
+    metric: "2 mensagens · 3 condições",
+  },
+  {
+    key: "avancado", cerebro: "ia", template: "avancado", icon: "assistente", title: "IA Avançado",
+    fluxo: [
+      { icon: "msg", label: "Abertura" },
+      { icon: "msg", label: "Explica" },
+      { icon: "msg", label: "Fecha" },
+      { icon: "reply", label: "Condição" },
+    ],
+    metric: "3 mensagens · 5 condições",
+  },
 ];
 
 type MsgFieldKey =
@@ -237,7 +302,12 @@ function nowTime(): string {
 // ================================================================
 // RAIZ da seção — GET /automation/agent, decide wizard × editor.
 // ================================================================
-export function SecaoAtendente({ iaPublishEnabled, onChanged }: { iaPublishEnabled: boolean; onChanged?: () => void }) {
+export function SecaoAtendente({ iaPublishEnabled, onChanged, initialTemplate }: {
+  iaPublishEnabled: boolean;
+  onChanged?: () => void;
+  /** S08 (PADRAO-MERCADO): chave da galeria vinda do hub (?template=, ver page.client.tsx) — string livre de propósito (query param cru); chave desconhecida cai no 1º modelo dentro do Wizard. */
+  initialTemplate?: string | null;
+}) {
   const user = useCurrentUser();
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<AgentView | null>(null);
@@ -290,6 +360,7 @@ export function SecaoAtendente({ iaPublishEnabled, onChanged }: { iaPublishEnabl
             empresaPadrao={empresaPadrao}
             onCancel={view.ia || view.roteiro ? () => setMode("editor") : undefined}
             onCreated={handleChanged}
+            initialModelo={initialTemplate}
           />
         ) : (
           <div className="ia-split has-chat">
@@ -333,10 +404,12 @@ function AguardandoConfigPanel() {
 // ============================================================================
 // WIZARD — 3 passos (identidade, negócio, cérebro)
 // ============================================================================
-function Wizard({ empresaPadrao, onCreated, onCancel }: {
+function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
   empresaPadrao: string;
   onCreated: (v: AgentView) => void;
   onCancel?: () => void;
+  /** S08 (PADRAO-MERCADO): string livre (query param cru) — chave inválida/ausente cai no 1º modelo (Roteiro). */
+  initialModelo?: string | null;
 }) {
   const [step, setStep] = useState(1);
   const [nome, setNome] = useState("");
@@ -344,14 +417,20 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
   const [perfil, setPerfil] = useState<Perfil>("vendas");
   const [produtos, setProdutos] = useState("");
   const [empresaNome, setEmpresaNome] = useState(empresaPadrao);
-  const [cerebro, setCerebro] = useState<AgentBrain>("roteiro");
+  // S08 (PADRAO-MERCADO): cérebro + template nascem do MESMO clique num card
+  // da galeria (passo 3, ATENDENTE_MODELOS) — `initialModelo` só escolhe QUAL
+  // card começa marcado (deep-link do hub); o usuário segue livre pra trocar.
+  const modeloDeAbertura = ATENDENTE_MODELOS.find((m) => m.key === initialModelo) ?? ATENDENTE_MODELOS[0];
+  const [cerebro, setCerebro] = useState<AgentBrain>(modeloDeAbertura.cerebro);
+  const [template, setTemplate] = useState<AssistenteTemplateKey>(modeloDeAbertura.template ?? "agil");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const stepPill = useGlassPill<HTMLSpanElement>(String(step));
   const tomPill = useGlassPill<HTMLButtonElement>(tom);
   const perfilPill = useGlassPill<HTMLButtonElement>(perfil);
-  const cerebroPill = useGlassPill<HTMLButtonElement>(cerebro);
+  const modeloKey: AtendenteModeloKey = cerebro === "ia" ? template : "roteiro";
+  const modeloPill = useGlassPill<HTMLButtonElement>(modeloKey);
 
   const fraseExemplo = useMemo(() => TONS.find((t) => t.key === tom)?.frase ?? "", [tom]);
   const canNext1 = nome.trim().length >= 2;
@@ -359,13 +438,20 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
   // D2 (cabeçalho do arquivo): só grava o store do cérebro ESCOLHIDO — nome/tom
   // (passo 1) só tem campo no schema da IA; escolhendo Roteiro, ficam sem
   // destino e são descartados aqui (nunca chegam a virar payload).
+  //
+  // S08 (PADRAO-MERCADO): `template` viaja junto no payload `ia` — `fluxo`
+  // continua vazio (emptyFluxo()) de propósito: é o QUE FAZ o backend
+  // reconhecer "sem fluxo próprio ainda" e materializar o seed (ver comentário
+  // de ATENDENTE_MODELOS acima). Escolher "Roteiro" não manda `template`
+  // nenhum — o roteiro não tem variação, `seedRoteiro`-equivalente já roda no
+  // `{roteiro:{}}` de sempre.
   async function finalizar() {
     setSaving(true);
     setErr(null);
     try {
       const body: Record<string, unknown> =
         cerebro === "ia"
-          ? { ia: { nome, tom, perfil, produtos, empresaNome, fluxo: emptyFluxo() } }
+          ? { ia: { nome, tom, perfil, produtos, empresaNome, fluxo: emptyFluxo(), template } }
           : { roteiro: {} };
       const res = await apiFetch<AgentView>("/automation/agent", { method: "PUT", body: JSON.stringify(body) });
       onCreated(res);
@@ -472,16 +558,20 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
             <label className="field-label">Como o Atendente vai responder</label>
             <span className="ia-field__hint">Dá pra trocar depois, a qualquer momento, sem perder a configuração.</span>
           </div>
-          <div className="ia-tpl-grid">
-            <GlassPill {...cerebroPill} />
-            {BRAIN_CHOICES.map((b) => (
-              <button key={b.key} ref={cerebroPill.itemRef(b.key)} type="button"
-                className={"ia-tpl-card" + (cerebro === b.key ? " is-on" : "")} onClick={() => setCerebro(b.key)}>
-                <span className="ia-tpl-card__icon"><I d={ICONS[b.icon]} size={17} /></span>
-                <span className="ia-tpl-card__name">{b.title}</span>
-                <span className="ia-tpl-card__meta">{b.tag}</span>
-                <span className="ia-tpl-card__desc">{b.desc}</span>
-              </button>
+          {/* S08 (PADRAO-MERCADO): galeria de modelos prontos (card central,
+              kit/template-card.tsx) no lugar dos 2 cards de texto — cada card
+              JÁ decide cérebro+template num clique só (ManyChat-style:
+              escolher > editar, nunca do zero). */}
+          <div className="aut-tpl-grid">
+            <GlassPill {...modeloPill} />
+            {ATENDENTE_MODELOS.map((m) => (
+              <TemplateCard
+                key={m.key}
+                option={m}
+                selected={modeloKey === m.key}
+                innerRef={modeloPill.itemRef(m.key)}
+                onSelect={() => { setCerebro(m.cerebro); if (m.template) setTemplate(m.template); }}
+              />
             ))}
           </div>
           {err && <div className="auto-flag-note"><I d={ICONS.help} size={14} />{err}</div>}

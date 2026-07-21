@@ -285,3 +285,58 @@
    grande, já em uso desde a S05 pro card de play) e <StatusChip size="s">
    sem label custom (mesmo padrão da S05 pro dot solto "Ativo/Pausado"). */
 .aut-empty-illus:has(.aut-minifluxo) { width: auto; height: auto; }
+
+/* ── S08 (PADRAO-MERCADO) — Card de template padrão: MOLDURA central (kit/
+   template-card.tsx) usada nos contextos que oferecem "começar por um
+   modelo pronto" (galeria do passo 3 do Atendente + faixa "Começar por um
+   modelo" do hub). `.aut-tpl-card` é o card INTEIRO clicável — recibo visual
+   equivalente ao que `.ia-tpl-card` (assistente.css) já usava só pro passo 3
+   do Atendente; migrou pra cá porque agora é central a mais de uma tela
+   (Lei nº2, nunca duplicar visual — `.ia-tpl-card` fica órfã em
+   assistente.css, sem novo consumidor, não apagada por não estar na lista de
+   arquivos desta sprint). `__fluxo`/`__metric` também são consumidos DIRETO
+   por secao-prospeccao.tsx (persona-card já tem cabeçalho/rodapé próprios
+   com Ativar/Aplicar, S05/S06 — não caberiam no slot fixo do card inteiro;
+   só a assinatura visual MiniFluxo+métrica é reusada ali, mesma gramática). */
+.aut-tpl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  position: relative;
+  --glass-pill-radius: var(--panel-radius);
+}
+.aut-tpl-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 16px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border-radius: var(--panel-radius);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+  transition: border-color .15s ease, transform .12s ease;
+}
+.aut-tpl-card:hover { transform: translateY(-2px); }
+.aut-tpl-card.is-on { border-color: color-mix(in srgb, var(--hbx-brand) 46%, transparent); }
+
+.aut-tpl-card__head { display: flex; align-items: center; gap: 9px; }
+.aut-tpl-card__icon {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--radius-sm); flex: none;
+  color: var(--hbx-brand-strong); background: var(--hbx-brand-soft);
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 26%, transparent);
+}
+.aut-tpl-card__title { font-size: 0.9rem; font-weight: 800; color: var(--text-strong); line-height: 1.2; }
+.aut-tpl-card__tag { font-size: 0.66rem; font-weight: 700; color: var(--hbx-brand-strong); }
+
+.aut-tpl-card__fluxo { margin: 2px 0; }
+.aut-tpl-card__metric { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
+
+.aut-tpl-card__foot { margin-top: auto; padding-top: 4px; }
+.aut-tpl-card__cta { font-size: 0.76rem; font-weight: 800; color: var(--hbx-brand-strong); }

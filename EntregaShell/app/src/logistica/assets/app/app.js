@@ -60,6 +60,11 @@
     dayOrderMode: "app",
     dayManualOrder: [],
     dayManualSave: false,
+    // S1 21/07 — contagem por dia da semana no "Por dia" vertical (S1.2):
+    // { [isoDay]: n }, uma chamada em paralelo por dia de workDays() ao abrir
+    // o menu; dia que falhar fica sem número (não quebra a lista).
+    dayCounts: {},
+    dayCountsLoaded: false,
     routeModelos: [],
     routeModelosLoading: false,
     routeModelosError: null,
@@ -111,6 +116,10 @@
     leituraStarting: false,
     leituraCapturing: false,
     leituraAwaitingGps: false,
+    // S06 (fix 21/07) — permissão de localização pedida ANTES de iniciar a
+    // GRAVAÇÃO nativa da trilha ("Iniciar Leitura de Rota"), mesmo mecanismo
+    // de leituraAwaitingGps acima (ver ensureLeituraTrilhaLocationPermission).
+    leituraTrilhaAwaitingGps: false,
     leituraCapture: null,
     leituraStep: null,
     leituraClientMode: null,
@@ -147,6 +156,24 @@
     leituraNomeRota: "",
     leituraNomeError: "",
     leituraSaving: false,
+    // S1 21/07 — wizard próprio "Criar Rota Manual" (S1.3): 3 passos em
+    // state.modal === "leitura-manual" (paradas → ordem → nome), sem faixa
+    // sobre a tela Rota. manualWizardMotion espelha leituraStepMotion (Lei 9).
+    manualWizardStep: "paradas",
+    manualWizardMotion: "",
+    manualWizardStepChanging: false,
+    leituraManualLoading: false,
+    // S3 21/07 — tela viva "Leitura de rota" (state.modal === "leitura-ativa",
+    // GPS ao vivo): trilha desenhada + posição atual + popup de pausa, ponte
+    // com o nativo via window.HBXAndroid (contrato exato em
+    // S2-CONTRATO-PONTE.md). leituraTrilha é SEMPRE ressincronizada por
+    // leituraStatus() ao abrir a tela — nunca é o dado definitivo, só o
+    // desenho; leituraPausaPendente é overlay GLOBAL (aparece em cima de
+    // qualquer tela/modal, igual state.confirmation) porque o evento nativo
+    // pode chegar com o app em qualquer lugar.
+    leituraTrilha: [],
+    leituraUltimaAmostra: null,
+    leituraPausaPendente: null,
   };
   const app = document.getElementById("app");
   let moduleActive = true;
@@ -193,6 +220,12 @@
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
   let lastRouteTransmuxState = null;
+  // S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal ===
+  // "leitura-ativa"). Host PRÓPRIO ("leitura-live-map"), nunca o mesmo nó do
+  // mapa da Rota — cada um com seu transplante __hbxMap (regra que já quebrou:
+  // remontar o nó mata o mapa vivo).
+  let leituraLiveMap = null;
+  let leituraLiveMapHost = null;
   const roadGeometryCache = new Map();
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
@@ -229,6 +262,11 @@
     const code = error && error.body && error.body.code;
     if (code === "ENTREGA_EM_OUTRA_ROTA") return "Uma entrega ficou presa em outra rota. Encerre a rota antiga ou tente montar de novo.";
     if (code === "ROTA_NOME_DUPLICADO") return "Já existe uma rota com esse nome.";
+    // S4 21/07 — achado provado ao vivo (modo avião): sem `code` nenhum, a ponte
+    // nativa devolve a exceção crua do Android ("Unable to resolve host…"),
+    // violando a Lei 6 (erro pra humano). Sem internet é o caso mais comum de
+    // erro SEM code — intercepta antes de cair no texto técnico.
+    if (!netOnline()) return "Sem conexão com a internet. Verifique o Wi-Fi ou os dados móveis e tente de novo.";
     return err(error).replace(/\bc[a-z0-9]{20,}\b/g, "essa entrega");
   }
   function allRouteItems() { return state.route && Array.isArray(state.route.items) ? state.route.items : []; }
@@ -433,10 +471,87 @@
   function mountRouteMap() { return mountMap("route-live-map", routeMapPoints(), true); }
   function mountDayReviewMap() { return mountMap("route-plan-preview-map", dayPreviewMapPoints(), false); }
 
+  // ==========================================================================
+  // S3 21/07 — mapa vivo da tela "Leitura de rota" (host #leitura-live-map,
+  // NUNCA o mesmo nó do mapa da Rota). Trilha desenhada é uma LineString
+  // "crua" (SEM roadGeometry/OSRM — o desenho tem que ser fiel ao caminho
+  // percorrido, já vem simplificado do nativo por Douglas-Peucker) + 1
+  // marcador de posição atual. Mesma regra de transplante do mountMap: se o
+  // host já carrega a instância viva, só atualiza layer/marcador no lugar.
+  // ==========================================================================
+  function disposeLeituraLiveMap() {
+    if (leituraLiveMapHost) {
+      if (leituraLiveMapHost.__hbxLeituraMarker) { try { leituraLiveMapHost.__hbxLeituraMarker.remove(); } catch (_) {} }
+      leituraLiveMapHost.__hbxMap = null;
+      leituraLiveMapHost.__hbxLeituraMarker = null;
+    }
+    if (leituraLiveMap) { leituraLiveMap.remove(); leituraLiveMap = null; }
+    leituraLiveMapHost = null;
+  }
+  function applyLeituraLiveLayer(map) {
+    const coordinates = (state.leituraTrilha || []).map(([lat, lng]) => [lng, lat]);
+    if (coordinates.length < 2) {
+      if (map.getLayer("hbx-leitura-trilha")) map.removeLayer("hbx-leitura-trilha");
+      if (map.getSource("hbx-leitura-trilha")) map.removeSource("hbx-leitura-trilha");
+      return;
+    }
+    const data = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } };
+    const source = map.getSource("hbx-leitura-trilha");
+    if (source) source.setData(data);
+    else {
+      map.addSource("hbx-leitura-trilha", { type: "geojson", data });
+      map.addLayer({ id: "hbx-leitura-trilha", type: "line", source: "hbx-leitura-trilha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .85 } });
+    }
+  }
+  function leituraLiveLastPoint() {
+    const amostra = state.leituraUltimaAmostra;
+    if (amostra && validCoordinates(amostra.lat, amostra.lng)) return { lat: Number(amostra.lat), lng: Number(amostra.lng) };
+    const trilha = state.leituraTrilha || [];
+    if (!trilha.length) return null;
+    const [lat, lng] = trilha[trilha.length - 1];
+    return validCoordinates(lat, lng) ? { lat, lng } : null;
+  }
+  function applyLeituraLiveMarker(host, map) {
+    const point = leituraLiveLastPoint();
+    if (!point) return;
+    if (host.__hbxLeituraMarker) host.__hbxLeituraMarker.setLngLat([point.lng, point.lat]);
+    else {
+      const dot = document.createElement("span");
+      dot.className = "leitura-live-dot";
+      host.__hbxLeituraMarker = new window.maplibregl.Marker({ element: dot, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
+    }
+  }
+  async function mountLeituraLiveMap() {
+    const host = document.getElementById("leitura-live-map");
+    if (!host) return;
+    try {
+      if (host.__hbxMap && leituraLiveMap === host.__hbxMap && leituraLiveMapHost === host) {
+        const styleLoaded = !host.__hbxMap.isStyleLoaded || host.__hbxMap.isStyleLoaded();
+        if (styleLoaded) { applyLeituraLiveLayer(host.__hbxMap); applyLeituraLiveMarker(host, host.__hbxMap); host.classList.add("is-ready"); }
+        return;
+      }
+      const maplibregl = await loadRouteMapLibrary();
+      if (!host.isConnected || host !== document.getElementById("leitura-live-map")) return;
+      disposeLeituraLiveMap();
+      leituraLiveMapHost = host;
+      const last = leituraLiveLastPoint();
+      const center = last || { lat: -14.235, lng: -51.9253 };
+      const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [center.lng, center.lat], zoom: last ? 16 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
+      leituraLiveMap = map; host.__hbxMap = map; host.__hbxLeituraMarker = null;
+      map.on("load", () => {
+        if (leituraLiveMap !== map || leituraLiveMapHost !== host) return;
+        applyLeituraLiveLayer(map);
+        applyLeituraLiveMarker(host, map);
+        host.classList.add("is-ready");
+      });
+      map.on("error", () => {});
+    } catch (_) { if (host.isConnected) host.innerHTML = `<span class="route-map-unavailable">Não foi possível carregar o mapa agora.</span>`; }
+  }
+
   function shell(content, floatingAction) {
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
@@ -458,6 +573,22 @@
     const sug = p.suggesting ? "Buscando DDD pelo CEP…" : (p.suggested ? `Sugerido pelo CEP: ${p.suggested}` : "Informe o DDD (2 dígitos)");
     return `<div class="modal-wrap app-confirm-wrap ddd-wrap"><section class="modal app-confirm ddd-prompt" role="dialog" aria-modal="true" aria-labelledby="ddd-title"><div class="app-confirm-icon ddd-icon">${icon("phone", 24)}</div><h2 id="ddd-title">Qual o DDD?</h2><p>${H.escape(p.name || "Cliente")} · ${H.escape(localFmt)}</p><div class="ddd-row"><input id="ddd-input" class="ddd-input" data-enter-action="confirm-ddd" inputmode="numeric" maxlength="2" value="${H.escape(p.ddd || "")}" placeholder="00" aria-label="DDD"><span class="ddd-preview">${H.escape(localFmt)}</span></div><p class="ddd-sug">${H.escape(sug)}</p><div class="actions"><button class="btn btn-secondary" type="button" data-action="cancel-ddd">Cancelar</button><button class="btn btn-primary" type="button" data-action="confirm-ddd" ${p.saving ? "disabled" : ""}>${p.saving ? "Salvando…" : "Salvar"}</button></div></section></div>`;
   }
+  // S3 21/07 — popup "Você parou — salvar parada?" (S3.2): overlay GLOBAL
+  // igual confirmationOverlay/dddPromptOverlay (aparece em cima de QUALQUER
+  // tela/modal, porque hbx:leitura-pausa pode chegar com o app em qualquer
+  // lugar — inclusive re-disparado sozinho no onResume, ver listener no fim
+  // do arquivo). Mesma moldura .app-confirm (Lei 3), zero CSS novo.
+  function leituraPausaOverlay() {
+    const pausa = state.leituraPausaPendente;
+    if (!pausa) return "";
+    const cliente = pausa.clienteProximo;
+    const distancia = cliente && Number.isFinite(Number(cliente.distanciaM)) ? Number(cliente.distanciaM) : null;
+    const distanciaTxt = distancia !== null ? (distancia < 1000 ? `${Math.round(distancia)} m` : `${(distancia / 1000).toFixed(1)} km`) : "";
+    const corpo = cliente
+      ? `<p><strong>${H.escape(cliente.nome || "Cliente")}</strong>${distanciaTxt ? `<br><span class="lrt-distance">${H.escape(distanciaTxt)}</span>` : ""}</p>`
+      : `<p>Nenhum cliente cadastrado por perto.</p>`;
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="lrt-pausa-title"><div class="app-confirm-icon">${icon("gps", 24)}</div><h2 id="lrt-pausa-title">Você parou — salvar parada?</h2>${corpo}<div class="actions"><button class="btn btn-secondary" type="button" data-action="leitura-pausa-dispensar">Dispensar</button><button class="btn btn-primary" type="button" data-action="leitura-pausa-salvar">${cliente ? "Salvar parada" : "Cadastrar Local"}</button></div></section></div>`;
+  }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
   function statusLabel(status) { return ({ agendada: "Agendada", em_rota: "Em rota", entregue: "Entregue", cancelada: "Cancelada" })[status] || status; }
@@ -473,7 +604,7 @@
   function centerModal(opts) {
     const o = opts || {};
     const closeAction = o.closeAction === false ? null : (o.closeAction || "leitura-voltar");
-    const stepMotion = state.modal === "leitura-parada" && state.leituraStepMotion ? ` leitura-step-${state.leituraStepMotion}` : "";
+    const stepMotion = state.modal === "leitura-parada" && state.leituraStepMotion ? ` leitura-step-${state.leituraStepMotion}` : state.modal === "leitura-manual" && state.manualWizardMotion ? ` leitura-step-${state.manualWizardMotion}` : "";
     return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal${stepMotion}" role="dialog" aria-modal="true">
       <div class="center-modal-head">
         <div class="day-home-icon">${icon(o.icon || "route", 22)}</div>
@@ -957,7 +1088,31 @@
       }
     }
   }
+  // S1 21/07 — contagem de clientes por dia (S1.2), pro "Por dia" vertical.
+  // Mesmo endpoint da prévia (/logistica/dia-preview?date=), uma chamada em
+  // paralelo por dia de workDays(); cacheia por sessão do modal
+  // (dayCountsLoaded some no próximo openDayManager). Dia que falhar fica sem
+  // número — não quebra a lista nem mostra erro por dia.
+  function loadDayCounts() {
+    if (state.dayCountsLoaded) return;
+    state.dayCountsLoaded = true;
+    workDays().forEach(day => {
+      (async () => {
+        try {
+          const preview = await H.api(`/logistica/dia-preview?date=${encodeURIComponent(dateForIsoDay(day))}`);
+          state.dayCounts[day] = Array.isArray(preview && preview.clientes) ? preview.clientes.length : 0;
+        } catch (_) { state.dayCounts[day] = null; /* falhou: linha fica sem número (null ≠ undefined = ainda carregando), sem toast por dia */ }
+        render();
+      })();
+    });
+  }
   function openDayManager(mode) {
+    // S1 21/07 — sessão MANUAL já aberta: o Play não mostra mais o menu de 4
+    // opções, reabre o wizard do S1.3 direto no passo Paradas.
+    if (state.leitura && state.leitura.modo === "MANUAL") { void openManualWizard("paradas"); return; }
+    // S3 21/07 — sessão LEITURA (GPS) já ativa: reabre a tela viva em vez do
+    // menu de 4 opções (mesmo padrão do MANUAL logo acima).
+    if (state.leitura && state.leitura.modo === "LEITURA") { openLeituraAtiva(); return; }
     clearInterval(dayReviewTimer);
     state.dayMode = mode || "start";
     // Uma geração anterior pode ter terminado com o painel fechado. O estado
@@ -972,6 +1127,8 @@
     // PR20072026 (feedback dono) — a abertura agora cai num MENU centralizado
     // ("Montar Rota" → Por dia / Salvos), não mais direto no seletor de dias.
     state.dayOrderStep = "home"; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false;
+    // S1 21/07 — contagem por dia (S1.2) zera a cada abertura do menu.
+    state.dayCounts = {}; state.dayCountsLoaded = false;
     render();
     void loadRouteModelos();
   }
@@ -1052,7 +1209,7 @@
       };
       render();
     }
-    catch (error) { state.clientDetail = null; render(); }
+    catch (error) { state.clientDetail = null; render(); toast(humanApiError(error), true); }
   }
   // PR20072026 (feedback dono) — abre o pop-up de DDD para o número atual (sem
   // DDD) e busca a sugestão pela região do CEP (ViaCEP `ddd`). Nunca chuta.
@@ -1205,9 +1362,27 @@
   function displayPhone(value) { const d = phoneDigits(value); if (!d) return ""; if (d.length >= 10) return formatPhone(d); if (d.length === 9) return `${d.slice(0, 5)}-${d.slice(5)}`; if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4)}`; return d; }
   function formatCpf(value) { const digits = onlyDigits(value).slice(0, 11); return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2"); }
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
+  // S4 21/07 (achado #0, 1a aplicacao da classe unica de aviso) - o status do
+  // CEP era texto cinza cru (`.subtitle`) e sucesso/erro tinham a MESMA cara.
+  // Classifica pela mensagem exata (zero copy nova, Lei 8) em ok/warn; texto
+  // de carregamento (termina em reticencias) fica neutro, sem caixa, pra nao
+  // piscar moldura a cada digito digitado.
+  function cepStatusKind(message) {
+    const text = String(message || "");
+    if (!text || /[.]{3}$|…$/.test(text)) return "";
+    const OK = [
+      "Endereço preenchido. Informe o número.",
+      "Endereço preenchido. Confirme o número.",
+      "Endereço localizado. Salve o cliente para confirmar.",
+      "Localização preenchida. Confirme o número.",
+    ];
+    return OK.includes(text) ? "ok" : "warn";
+  }
   function clientAddressFields(fields, status, mode) {
     const isNew = mode === "new";
-    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="subtitle ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
+    const statusKind = cepStatusKind(status);
+    const statusClass = statusKind ? `hbx-aviso hbx-aviso--${statusKind}` : "subtitle";
+    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="${statusClass} ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
   }
   function separateAddress(value, numberValue, districtValue) {
     let endereco = String(value || "").trim(); const numero = String(numberValue || "").trim(); const bairro = String(districtValue || "").trim();
@@ -1239,7 +1414,12 @@
   function setClientCepStatus(message) {
     state.clientCepStatus = message || "";
     const status = app.querySelector(".client-cep-status");
-    if (status) { status.textContent = state.clientCepStatus; status.hidden = !state.clientCepStatus; }
+    if (status) {
+      status.textContent = state.clientCepStatus;
+      status.hidden = !state.clientCepStatus;
+      const kind = cepStatusKind(state.clientCepStatus);
+      status.className = `${kind ? `hbx-aviso hbx-aviso--${kind}` : "subtitle"} client-cep-status`;
+    }
   }
   async function lookupClientCep(value) {
     const cep = onlyDigits(value);
@@ -1401,6 +1581,64 @@
   function leituraQueueClearSession(sessionId) { H.cache.set(LEITURA_QUEUE_KEY, leituraQueueAll().filter(row => !(row && String(row.sessionId) === String(sessionId)))); }
   function leituraPendingCount() { return state.leitura ? leituraQueueForSession(state.leitura.id).length : 0; }
   function persistLeituraSession() { if (state.leitura) H.cache.set("logistica-leitura", state.leitura); else H.cache.remove("logistica-leitura"); }
+  // S3 21/07 — ponte nativa da Leitura de Rota (GPS ao vivo), contrato exato
+  // em S2-CONTRATO-PONTE.md §1: window.HBXAndroid.{iniciarLeituraTrilha,
+  // pararLeituraTrilha,resolverPausaLeitura,leituraStatus}. Síncronos,
+  // fire-and-forget, sem H.api/HTTP. Guard igual ao já usado pro auto-update
+  // (typeof HBXAndroid === "undefined" cobre navegador sem a ponte nativa).
+  function leituraTrilhaIniciar(leituraId) {
+    try { if (typeof HBXAndroid !== "undefined" && typeof HBXAndroid.iniciarLeituraTrilha === "function") HBXAndroid.iniciarLeituraTrilha(String(leituraId)); } catch (_) {}
+  }
+  // S06 (fix 21/07) — "Iniciar Leitura de Rota" chamava leituraTrilhaIniciar
+  // sem garantir a permissão de localização antes: numa instalação nova o
+  // Android nunca perguntava nada e o serviço nativo se autoencerrava em
+  // silêncio (S2-CONTRATO-PONTE.md §1) — a trilha gravava ZERO sem erro na
+  // tela. Reaproveita o MESMO mecanismo de startLeituraGpsCapture acima
+  // (H.requestLocationPermission + callback locationPermissionChanged), só
+  // que aqui não queremos um fix de GPS, só a permissão concedida — resolve
+  // a Promise via leituraTrilhaPermResolve quando o callback chega.
+  // Já concedida: locationPermissionChanged(true) volta quase na hora (a
+  // ponte nativa responde direto, sem diálogo) — zero fricção extra.
+  let leituraTrilhaPermResolve = null;
+  function ensureLeituraTrilhaLocationPermission() {
+    return new Promise(resolve => {
+      if (typeof HBXAndroid === "undefined" || !H.requestLocationPermission) { resolve(true); return; }
+      leituraTrilhaPermResolve = resolve;
+      state.leituraTrilhaAwaitingGps = true;
+      H.requestLocationPermission();
+    });
+  }
+  function leituraTrilhaParar() {
+    try { if (typeof HBXAndroid !== "undefined" && typeof HBXAndroid.pararLeituraTrilha === "function") HBXAndroid.pararLeituraTrilha(); } catch (_) {}
+  }
+  function leituraPausaResolver(aceitar) {
+    try { if (typeof HBXAndroid !== "undefined" && typeof HBXAndroid.resolverPausaLeitura === "function") HBXAndroid.resolverPausaLeitura(!!aceitar); } catch (_) {}
+  }
+  function leituraStatusSnapshot() {
+    try {
+      if (typeof HBXAndroid === "undefined" || typeof HBXAndroid.leituraStatus !== "function") return null;
+      const raw = HBXAndroid.leituraStatus();
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+  }
+  // Aplica o snapshot completo (leituraStatus(), chamado 1x ao abrir a tela
+  // viva) no estado de desenho — é sempre um REPLACE (fonte da verdade do
+  // nativo), nunca um merge; os pontos incrementais de hbx:leitura-ponto (ver
+  // listener no fim do arquivo) só somam depois desse resync inicial.
+  function applyLeituraSnapshot(snapshot) {
+    if (!snapshot) return;
+    if (Array.isArray(snapshot.pontos)) state.leituraTrilha = snapshot.pontos.filter(p => Array.isArray(p) && p.length >= 2 && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))).map(p => [Number(p[0]), Number(p[1])]);
+    if (snapshot.ultimaAmostra) state.leituraUltimaAmostra = snapshot.ultimaAmostra;
+    if (snapshot.pausaPendente) state.leituraPausaPendente = snapshot.pausaPendente;
+  }
+  // Abre (ou reabre) a tela viva da Leitura: chama leituraStatus() 1x pra
+  // pintar o que já existe (S2-CONTRATO-PONTE §1 — "depois só escutar o
+  // evento pros pontos novos, não fazer polling").
+  function openLeituraAtiva() {
+    showModal("leitura-ativa");
+    applyLeituraSnapshot(leituraStatusSnapshot());
+    render();
+  }
   let leituraFlushing = false;
   // Sincroniza a fila em ordem; falha de rede no meio pára e deixa o resto
   // esperando (nunca perde uma parada, nunca reordena).
@@ -1549,34 +1787,126 @@
     return true;
   }
   // Passo do wizard "Cadastrar Local" que o Voltar (físico ou botão) deve
-  // reabrir; devolve false quando já está no primeiro passo (tipo) — o chamador
-  // fecha a folha inteira nesse caso.
-  async function leituraGoBack() {
+  // reabrir; devolve null quando já está no primeiro passo (tipo) — o chamador
+  // fecha a folha inteira nesse caso. SÍNCRONO de propósito: o handleBack do
+  // Kotlin só lê o boolean de retorno, então precisa decidir "tem passo
+  // anterior?" sem await (Lei 10).
+  function leituraBackTarget() {
     const step = state.leituraStep;
-    if (!step || step === "tipo") return false;
-    if (step === "existente" || step === "novo") { await changeLeituraStep("tipo"); return true; }
+    if (!step || step === "tipo") return null;
+    if (step === "existente" || step === "novo") return { step: "tipo" };
     // F3.2 — cliente existente na LEITURA passa por endereço → número antes do telefone.
     // Bug#1: no sub-modo "Digitar endereço" o Voltar/X deve só SAIR da edição
     // (não pular 2 passos e perder o que foi digitado).
-    if (step === "endereco" && state.leituraEnd && state.leituraEnd.editing) { await changeLeituraStep("endereco", () => { state.leituraEnd.editing = false; }); return true; }
-    if (step === "endereco") { await changeLeituraStep(state.leituraEndNovo ? "novo" : "existente"); return true; }
-    if (step === "numero") { await changeLeituraStep("endereco"); return true; }
-    if (step === "telefone") { await changeLeituraStep(state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo")); return true; }
-    if (step === "produto") { await changeLeituraStep("telefone"); return true; }
-    if (step === "observacoes") { clearInterval(leituraObsTimer); await changeLeituraStep("produto"); return true; }
-    return false;
+    if (step === "endereco" && state.leituraEnd && state.leituraEnd.editing) return { step: "endereco", beforeEnter: () => { state.leituraEnd.editing = false; } };
+    if (step === "endereco") return { step: state.leituraEndNovo ? "novo" : "existente" };
+    if (step === "numero") return { step: "endereco" };
+    if (step === "telefone") return { step: state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo") };
+    if (step === "produto") return { step: "telefone" };
+    // `before` roda ANTES da transição (o timer tem que morrer na hora);
+    // `beforeEnter` roda no meio dela (conteúdo já escondido).
+    if (step === "observacoes") return { step: "produto", before: () => clearInterval(leituraObsTimer) };
+    return null;
+  }
+  async function leituraGoBack() {
+    const target = leituraBackTarget();
+    if (!target) return false;
+    if (target.before) target.before();
+    await changeLeituraStep(target.step, target.beforeEnter);
+    return true;
   }
   async function performCancelLeitura() {
     if (!state.leitura) return;
     const sessionId = state.leitura.id;
+    // S1 21/07 — copy do toast não pode dizer "leitura" no modo MANUAL (Lei 8
+    // do wizard); captura o modo ANTES de zerar state.leitura embaixo.
+    const wasManual = state.leitura.modo === "MANUAL";
+    // S3 21/07 — só a sessão LEITURA liga a gravação nativa (leituraTrilhaIniciar);
+    // pararLeituraTrilha só faz sentido pra ela, DEPOIS do /cancelar (S2-CONTRATO-PONTE §1).
+    const wasLeitura = state.leitura.modo === "LEITURA";
     try { await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/cancelar`, { method: "POST", body: {} }); }
     catch (error) { toast(humanApiError(error), true); }
+    if (wasLeitura) leituraTrilhaParar();
     leituraQueueClearSession(sessionId);
     state.leitura = null;
     persistLeituraSession();
     state.leituraManualOrder = [];
+    state.leituraTrilha = [];
+    state.leituraUltimaAmostra = null;
+    state.leituraPausaPendente = null;
     await closeOverlay("modal");
-    toast("Leitura cancelada.");
+    toast(wasManual ? "Rota manual cancelada." : "Leitura cancelada.");
+  }
+  // S3 21/07 — "Cancelar" da tela viva (botão, X, fundo E handleBack, Lei 10)
+  // caem todos aqui: mesma confirmação `.app-confirm` (Lei 3) que o antigo
+  // botão "Cancelar leitura" da faixa já usava.
+  function promptCancelLeitura() {
+    if (!state.leitura) return;
+    state.confirmation = { type: "cancel-leitura", title: "Cancelar leitura?", message: "As paradas já registradas nesta leitura serão descartadas.", confirmLabel: "Cancelar leitura", danger: true, icon: "route" };
+    render();
+  }
+  // S1 21/07 — wizard próprio "Criar Rota Manual" (state.modal ===
+  // "leitura-manual"): 3 passos (paradas → ordem → nome), reusando a MESMA
+  // sessão/endpoints da Leitura de Rota. changeManualWizardStep espelha
+  // changeLeituraStep (mesma transição leitura-step-enter/exit, Lei 9).
+  async function changeManualWizardStep(nextStep) {
+    if (!nextStep || state.manualWizardStepChanging) return false;
+    state.manualWizardStepChanging = true;
+    state.manualWizardMotion = "exit";
+    render();
+    await new Promise(resolve => setTimeout(resolve, 170));
+    state.manualWizardStep = nextStep;
+    state.manualWizardMotion = "enter";
+    render();
+    await new Promise(resolve => setTimeout(resolve, 240));
+    state.manualWizardMotion = "";
+    state.manualWizardStepChanging = false;
+    return true;
+  }
+  // Abre (ou reabre) o wizard sempre no passo pedido, recarregando o resumo
+  // (mesmo endpoint do finalizar de hoje) pra refletir a última parada
+  // adicionada/removida. Usado ao iniciar a sessão MANUAL e ao voltar pro
+  // Play com uma sessão MANUAL já aberta (reabre direto em "paradas").
+  async function openManualWizard(step) {
+    state.manualWizardStep = step || "paradas";
+    state.manualWizardMotion = "";
+    state.leituraManualLoading = true;
+    showModal("leitura-manual");
+    if (!state.leitura) { state.leituraManualLoading = false; render(); return; }
+    try {
+      state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`);
+      syncLeituraManualOrder();
+    } catch (error) { toast(humanApiError(error), true); }
+    state.leituraManualLoading = false;
+    render();
+  }
+  // Fecha o mini-wizard de adicionar parada (state.modal === "leitura-parada")
+  // de volta pro passo Paradas do wizard MANUAL. GPS/LEITURA (banner de hoje)
+  // continua fechando pra tela Rota igual sempre (closeOverlay puro).
+  async function closeLeituraParadaModal() {
+    await closeOverlay("modal");
+    if (state.leitura && state.leitura.modo === "MANUAL") await openManualWizard("paradas");
+    // S3 21/07 — sessão LEITURA (GPS): mesmo padrão, volta pra tela viva em
+    // vez de fechar pra tela Rota crua (a faixa que fazia isso antes saiu).
+    else if (state.leitura && state.leitura.modo === "LEITURA") openLeituraAtiva();
+  }
+  // Voltar do wizard (seta ‹, X, fundo, físico do Android): passo 3→2→1; no
+  // passo 1, parada já registrada pede confirmação antes de cancelar a sessão
+  // inteira; sem parada, cancela direto.
+  async function manualWizardGoBack() {
+    const step = state.manualWizardStep || "paradas";
+    if (step === "nome") { await changeManualWizardStep("ordem"); return; }
+    if (step === "ordem") { await changeManualWizardStep("paradas"); return; }
+    // Usa o resumo carregado (não state.leitura.count — esse é um contador
+    // otimista que NUNCA regride, ver comentário no state inicial; removendo a
+    // única parada ele ficaria stale e pediria confirmação à toa).
+    const hasParadas = !!(state.leituraResumo && Array.isArray(state.leituraResumo.paradas) && state.leituraResumo.paradas.length > 0);
+    if (hasParadas) {
+      state.confirmation = { type: "cancel-leitura-manual", title: "Cancelar rota manual?", message: "As paradas já adicionadas serão descartadas.", confirmLabel: "Cancelar rota manual", danger: true, icon: "route" };
+      render();
+      return;
+    }
+    await performCancelLeitura();
   }
   // PR20072026 fix 20/07 — abre o wizard "Cadastrar Local"/"Adicionar cliente"
   // com a captura (GPS ou {null} no manual). Zera o estado do wizard e carrega
@@ -1666,15 +1996,12 @@
     state.leituraNomeError = "";
     render();
   }
-  function leituraBanner() {
-    if (!state.leitura) return `<div class="lrt-start-actions"><button class="btn btn-primary btn-block rp2-cta lrt-start" type="button" data-action="leitura-iniciar" ${state.leituraStarting ? "disabled" : ""}>${icon("gps", 18)} ${state.leituraStarting ? "Iniciando…" : "Iniciar Leitura de Rota"}</button><button class="btn btn-secondary btn-block lrt-start" type="button" data-action="leitura-iniciar-manual" ${state.leituraStarting ? "disabled" : ""}>${icon("route", 18)} Criar rota manual</button></div>`;
-    // PR20072026 W3 — modo MANUAL reusa a MESMA faixa ativa, só troca o rótulo
-    // e o gatilho de captura (sem GPS): "Cadastrar Local" vira "Adicionar
-    // cliente" e chama leitura-adicionar-cliente em vez de leitura-cadastrar-local.
-    const isManual = state.leitura.modo === "MANUAL";
-    const count = Number(state.leitura.count || 0);
-    return `<div class="lrt-active"><div class="lrt-active-head"><strong>${isManual ? "Rota manual em andamento" : "Leitura de rota em andamento"}</strong><span>${count} ${count === 1 ? "parada registrada" : "paradas registradas"}</span></div><div class="lrt-active-actions"><button class="btn btn-primary rp2-cta" type="button" data-action="${isManual ? "leitura-adicionar-cliente" : "leitura-cadastrar-local"}" ${state.leituraCapturing ? "disabled" : ""}>${icon(isManual ? "users" : "gps", 17)} ${state.leituraCapturing ? "Lendo GPS…" : (isManual ? "Adicionar cliente" : "Cadastrar Local")}</button><button class="btn btn-secondary" type="button" data-action="leitura-finalizar-iniciar">Finalizar Leitura de Rota</button></div><button class="link-btn lrt-cancel" type="button" data-action="leitura-cancelar">Cancelar leitura</button></div>`;
-  }
+  // S3 21/07 — S3.1: a sessão LEITURA (GPS) também ganhou tela própria
+  // (state.modal === "leitura-ativa", ver openLeituraAtiva/leituraAtivaModal),
+  // igual ao que a S1 já tinha feito pro MANUAL (leitura-manual). NENHUM modo
+  // mostra mais faixa sobre a tela Rota — função mantida (só o call-site em
+  // routeScreen, ~lrtBannerHtml, não precisa mudar) sempre devolvendo "".
+  function leituraBanner() { return ""; }
   // F3.2 — reverse geocode do ponto capturado: tenta o backend (server-side,
   // confiável) e cai no Nominatim direto do app se o backend não responder.
   async function leituraReverse(lat, lng) {
@@ -1953,7 +2280,9 @@
     leituraQueuePush(state.leitura.id, clientKey, payload);
     state.leitura.count = Number(state.leitura.count || 0) + 1;
     persistLeituraSession();
-    await closeOverlay("modal");
+    // S1 21/07 — sessão MANUAL volta pro passo Paradas do wizard em vez de
+    // fechar pra tela Rota (closeLeituraParadaModal cobre os dois casos).
+    await closeLeituraParadaModal();
     toast("Parada registrada.");
     H.vibrate(12);
     void flushLeituraQueue();
@@ -1991,7 +2320,10 @@
     }).join("");
     const total = `Total: ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"} · ${H.money(resumo.total || 0)}`;
     const body = state.leituraResumoLoading ? loading() : state.leituraResumoError ? empty("Não foi possível carregar", state.leituraResumoError) : (rows ? `<div class="lrt-timeline">${rows}</div><p class="lrt-timeline-total">${total}</p>` : empty("Nenhuma parada", "Cadastre paradas antes de finalizar."));
-    return centerModal({ icon: "route", title: "Resumo da leitura", resumo: total, body, closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "leitura-ir-salvar", nextLabel: "Salvar rota", nextDisabled: !paradas.length });
+    // S3 21/07 — "Fechar" não pode mais cair na tela Rota crua: a sessão
+    // LEITURA agora mora na tela viva (leitura-ativa-fechar reabre ela, ver
+    // ação abaixo); "close-modal" genérico deixaria a sessão sem tela nenhuma.
+    return centerModal({ icon: "route", title: "Resumo da leitura", resumo: total, body, closeButtonAction: "leitura-finalizar-fechar", backAction: "leitura-finalizar-fechar", backLabel: "Fechar", nextAction: "leitura-ir-salvar", nextLabel: "Salvar rota", nextDisabled: !paradas.length });
   }
   // F1 — nome default da rota quando salva SEM dia da semana: "Rota dd/mm".
   function rotaDefaultName() {
@@ -2000,12 +2332,99 @@
   }
   function leituraSalvarNomeStep() {
     const body = `<form id="leitura-nome-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="120" value="${H.escape(state.leituraNomeRota)}"></div>${state.leituraNomeError ? `<p class="subtitle subtitle-danger">${H.escape(state.leituraNomeError)}</p>` : ""}<button class="btn btn-primary btn-block rp2-cta" type="submit" ${state.leituraSaving ? "disabled" : ""}>Confirmar</button></form>`;
-    return centerModal({ icon: "route", title: "Nome da rota", resumo: "Dê um nome pra encontrar depois", body, backAction: "leitura-salvar-dia-voltar-nome", nextAction: "" });
+    // S1 21/07 — este passo é reusado pelo wizard "Criar Rota Manual" (S1.3,
+    // state.modal === "leitura-manual"): X/fundo/seta-voltar precisam cair no
+    // passo Ordem do wizard, não no "leitura-salvar-dia-voltar-nome" de hoje.
+    const isManualWizard = state.modal === "leitura-manual";
+    return centerModal({ icon: "route", title: "Nome da rota", resumo: "Dê um nome pra encontrar depois", body, backAction: isManualWizard ? "manual-wizard-voltar" : "leitura-salvar-dia-voltar-nome", closeAction: isManualWizard ? "manual-wizard-voltar" : undefined, closeButtonAction: isManualWizard ? "manual-wizard-voltar" : undefined, nextAction: "" });
+  }
+  // S1 21/07 — passo 1 do wizard "Criar Rota Manual": lista das paradas já
+  // registradas nesta sessão (mesmo resumo do finalizar de hoje) + botão que
+  // abre o MESMO picker de leitura-adicionar-cliente. Excluir = segurar
+  // (reusa data-lrt-parada-hold + confirmação, já existentes).
+  function leituraManualParadasStep() {
+    const resumo = state.leituraResumo || {};
+    const paradas = Array.isArray(resumo.paradas) ? resumo.paradas : [];
+    const rows = paradas.map(parada => {
+      const qtd = (parada.itens || []).reduce((sum, i) => sum + Number(i.qtd || 0), 0);
+      return `<div class="lrt-timeline-row" data-lrt-parada-hold="${H.escape(parada.id)}"><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${qtd} ${qtd === 1 ? "item" : "itens"}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong></div>`;
+    }).join("");
+    const list = rows ? `<div class="lrt-timeline">${rows}</div>` : empty("Nenhuma parada", "Adicione o primeiro cliente da rota.");
+    const body = `${state.leituraManualLoading ? loading() : list}<div class="center-modal-extra"><button type="button" class="btn btn-primary btn-block rp2-cta" data-action="leitura-adicionar-cliente" ${state.leituraCapturing ? "disabled" : ""}>${icon("users", 17)} ${state.leituraCapturing ? "Adicionando…" : "Adicionar cliente"}</button></div>`;
+    return centerModal({
+      icon: "route", title: "Paradas",
+      resumo: paradas.length ? `${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"}` : "",
+      body,
+      closeAction: "manual-wizard-voltar", closeButtonAction: "manual-wizard-voltar",
+      backAction: "manual-wizard-voltar", backLabel: "Cancelar",
+      nextAction: paradas.length ? "manual-wizard-ir-ordem" : "", nextLabel: "Ordem",
+      nextDisabled: state.leituraManualLoading || !paradas.length,
+    });
+  }
+  // Passo 2 do wizard: reordenar (▲▼ grandes, desabilita nas pontas) — o
+  // mesmo mecanismo de dayOrderManualModal (app.js ~2509), só que sobre a
+  // ordem local da sessão MANUAL (state.leituraManualOrder).
+  function leituraManualOrdemStep() {
+    const paradas = orderedLeituraParadas();
+    const rows = paradas.map((parada, index) => {
+      const qtd = (parada.itens || []).reduce((sum, i) => sum + Number(i.qtd || 0), 0);
+      return `<div class="row-card rp2-order-row"><div class="rp2-order-badge">${index + 1}</div><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${qtd} ${qtd === 1 ? "item" : "itens"}</span></div><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-cima" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-baixo" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
+    }).join("");
+    const body = rows ? `<div class="list day-order-list">${rows}</div>` : empty("Sem paradas", "Volte e adicione ao menos uma parada.");
+    return centerModal({
+      icon: "route", title: "Ordem", resumo: "Toque nas setas para mover", body,
+      closeAction: "manual-wizard-voltar", closeButtonAction: "manual-wizard-voltar",
+      backAction: "manual-wizard-voltar",
+      nextAction: "manual-wizard-ir-nome", nextLabel: "Nome",
+    });
+  }
+  // Container do wizard (state.modal === "leitura-manual"): despacha pelo
+  // passo atual. "nome" reusa leituraSalvarNomeStep (mesmo POST de finalizar,
+  // ver form#leitura-nome-form no listener de submit).
+  function leituraManualWizardModal() {
+    const step = state.manualWizardStep || "paradas";
+    if (step === "ordem") return leituraManualOrdemStep();
+    if (step === "nome") return leituraSalvarNomeStep();
+    return leituraManualParadasStep();
   }
   function leituraFinalizarModal() {
     const step = state.leituraFinalStep;
     if (step === "nome") return leituraSalvarNomeStep();
     return leituraTimelineStep();
+  }
+  // S3 21/07 — "tempo em rota" pro cabeçalho enxuto da tela viva (S3.1):
+  // calculado no render (sem timer próprio — os eventos de GPS já disparam
+  // render com frequência suficiente enquanto anda).
+  function leituraTempoEmRota() {
+    const startedAt = state.leitura && state.leitura.startedAt;
+    if (!startedAt) return "";
+    const ms = Date.now() - new Date(startedAt).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return "";
+    const minutos = Math.floor(ms / 60000);
+    if (minutos < 60) return `${minutos} min`;
+    return `${Math.floor(minutos / 60)}h${String(minutos % 60).padStart(2, "0")}`;
+  }
+  function leituraAtivaResumoTexto() {
+    const count = Number(state.leitura && state.leitura.count || 0);
+    const paradasTxt = `${count} ${count === 1 ? "parada registrada" : "paradas registradas"}`;
+    const tempo = leituraTempoEmRota();
+    return tempo ? `${tempo} em rota · ${paradasTxt}` : paradasTxt;
+  }
+  // S3.1 — tela própria da Leitura em andamento (mapa ao vivo + trilha
+  // desenhada + posição atual), no MESMO precedente de estrutura do wizard
+  // "Criar Rota Manual" (state.modal === "leitura-manual"): cartão central
+  // (Lei 3), sem faixa nenhuma sobre a tela Rota. Mapa em host PRÓPRIO
+  // ("leitura-live-map", ver mountLeituraLiveMap) — nunca reaproveita
+  // #route-live-map (regra do transplante __hbxMap).
+  function leituraAtivaModal() {
+    const body = `<div class="route-map-shell leitura-live-map-shell"><div id="leitura-live-map" class="route-live-map" aria-label="Mapa da leitura em andamento"><span class="route-map-loading">Carregando mapa…</span></div></div><p class="subtitle">O traçado segue o sinal de GPS e pode não bater 100% com o mapa.</p>`;
+    const extra = `<div class="center-modal-extra"><button type="button" class="btn btn-primary btn-block rp2-cta" data-action="leitura-cadastrar-local" ${state.leituraCapturing ? "disabled" : ""}>${icon("gps", 17)} ${state.leituraCapturing ? "Lendo GPS…" : "Cadastrar Local"}</button></div>`;
+    return centerModal({
+      icon: "gps", title: "Leitura de rota", resumo: leituraAtivaResumoTexto(), body, extra,
+      closeAction: "leitura-cancelar", closeButtonAction: "leitura-cancelar",
+      backAction: "leitura-cancelar", backLabel: "Cancelar",
+      nextAction: "leitura-finalizar-iniciar", nextLabel: "Finalizar",
+    });
   }
 
   function routeScreen() {
@@ -2021,8 +2440,11 @@
     const planned = routePlanned();
     // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
     const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
+    // S1 21/07 — sessão MANUAL não tem mais faixa (leituraBanner devolve "");
+    // sem o wrapper condicional sobrava uma margem vazia sobre a tela Rota.
+    const lrtBannerHtml = leituraBanner();
     return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
-      <div class="lrt-banner">${leituraBanner()}</div>
+      ${lrtBannerHtml ? `<div class="lrt-banner">${lrtBannerHtml}</div>` : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -2263,7 +2685,17 @@
       // atualização visual ainda esteja encerrando em segundo plano.
       const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
       const summaryHtml = selected.length ? `<div class="rp2-summary"><b>${preview.length}</b><span>${preview.length === 1 ? "parada" : "paradas"} em ${selected.length} ${selected.length === 1 ? "dia" : "dias"}</span></div>` : "";
-      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Por dia</h2><p class="subtitle">Escolha os dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="rp2-days">${weekDays.filter(day => allowed.includes(day.n)).map(day => `<button class="rp2-day ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo ›</button></div></section></div>`;
+      // S1 21/07 — "Por dia" virou lista VERTICAL (S1.2), uma linha por dia
+      // com a quantidade de clientes (state.dayCounts, ver loadDayCounts);
+      // multi-seleção mantida (mesmo toggle de sempre via data-day).
+      const dayRows = weekDays.filter(day => allowed.includes(day.n)).map(day => {
+        const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
+        // undefined = ainda buscando (skeleton); null = falhou (fica em branco,
+        // sem número, sem quebrar a linha); número = mostra normal.
+        const countHtml = count === undefined ? `<span class="rp2-day-count loading rp2-day-count-skel"></span>` : count === null ? `<span class="rp2-day-count"></span>` : `<span class="rp2-day-count">${count} ${count === 1 ? "cliente" : "clientes"}</span>`;
+        return `<button type="button" class="row-card rp2-day-row ${selected.includes(day.n) ? "active" : ""}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}"><span class="card-main"><strong>${day.label}</strong></span>${countHtml}</button>`;
+      }).join("");
+      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Por dia</h2><p class="subtitle">Escolha os dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-days">${dayRows}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Próximo ›</button></div></section></div>`;
     }
     if (state.modal === "route-mode") {
       const locked = routeActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
@@ -2286,6 +2718,8 @@
     if (state.modal === "avancado") return avancadoModal();
     if (state.modal === "leitura-parada") return leituraParadaModal();
     if (state.modal === "leitura-finalizar") return leituraFinalizarModal();
+    if (state.modal === "leitura-manual") return leituraManualWizardModal();
+    if (state.modal === "leitura-ativa") return leituraAtivaModal();
     if (state.modal === "app-update") return appUpdateModal();
     return "";
   }
@@ -2491,7 +2925,16 @@
     const modelos = state.routeModelos || [];
     const loadingSaved = !!state.routeModelosLoading;
     const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
-    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions"><button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("route", 22)}</span><strong>Por dia</strong><span>Clientes agendados do dia</span></button><button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><strong>Salvos</strong><span>${H.escape(savedHint)}</span></button></div></section></div>`;
+    // S1 21/07 — menu "Montar Rota" com 4 opções, nesta ordem fixa (pedido do
+    // dono): Rotas Salvas, Por dia, Criar Rota Manual (abre o wizard do S1.3),
+    // Iniciar Leitura de Rota (mesmo fluxo de sempre, só que a partir daqui).
+    const starting = !!state.leituraStarting;
+    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions day-home-actions--4">
+      <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><strong>Rotas Salvas</strong><span>${H.escape(savedHint)}</span></button>
+      <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("route", 20)}</span><strong>Por dia</strong><span>Clientes agendados do dia</span></button>
+      <button type="button" class="day-home-btn" data-action="day-entry-manual" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("edit", 20)}</span><strong>Criar Rota Manual</strong></button>
+      <button type="button" class="day-home-btn" data-action="day-entry-leitura" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("gps", 20)}</span><strong>Iniciar Leitura de Rota</strong></button>
+    </div></section></div>`;
   }
   // PR20072026 (feedback dono) — o antigo "Como montar?" virou um pop-up enxuto
   // de 1 clique com só 2 modos (Automática / Minha ordem). "Rota salva" saiu
@@ -2655,6 +3098,11 @@
     const willShowRouteMap = state.screen === "route" && !state.dayReview;
     const willShowDayReviewMap = state.modal === "manage-day" && state.dayReview;
     if (!willShowRouteMap && !willShowDayReviewMap) disposeRouteMap();
+    // S3 21/07 — mesma regra pro mapa vivo da Leitura (host próprio, ver bloco
+    // mountLeituraLiveMap acima): só descarta quando este render NÃO vai
+    // reexibir a tela.
+    const willShowLeituraLiveMap = state.modal === "leitura-ativa";
+    if (!willShowLeituraLiveMap) disposeLeituraLiveMap();
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
@@ -2694,6 +3142,7 @@
     }
     if (willShowRouteMap) void mountRouteMap();
     if (willShowDayReviewMap) void mountDayReviewMap();
+    if (willShowLeituraLiveMap) void mountLeituraLiveMap();
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
     state.openingOverlay = null;
@@ -3356,7 +3805,7 @@
       if (confirmation.type === "limpar-dia") await performLimparDia();
       if (confirmation.type === "save-today-route") await performSaveTodayRoute(confirmation.payload);
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
-      if (confirmation.type === "cancel-leitura") await performCancelLeitura();
+      if (confirmation.type === "cancel-leitura" || confirmation.type === "cancel-leitura-manual") await performCancelLeitura();
       if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
       if (confirmation.type === "logout") H.logout();
       if (confirmation.type === "ativar-financeiro") {
@@ -3441,8 +3890,54 @@
     if (action === "begin-managed-route") await beginManagedRoute();
     // PR20072026 (feedback dono) — menu de entrada: "Por dia" cai no seletor de
     // dias (dayOrderStep=null), "Salvos" abre as rotas guardadas.
-    if (action === "day-entry-pordia") { state.dayOrderStep = null; render(); return; }
+    // S1 21/07 — ao abrir "Por dia", dispara a contagem por dia (S1.2) em
+    // paralelo; loadDayCounts já cacheia por sessão do modal (dayCountsLoaded).
+    if (action === "day-entry-pordia") { state.dayOrderStep = null; render(); void loadDayCounts(); return; }
     if (action === "day-entry-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
+    // S1 21/07 — "Criar Rota Manual": sessão já aberta reabre o wizard direto
+    // no passo Paradas (mesma regra do Play, ver openDayManager); sem sessão,
+    // inicia a MESMA sessão MANUAL de sempre (POST /leitura/iniciar) e abre o
+    // wizard do S1.3.
+    if (action === "day-entry-manual") {
+      if (state.leitura && state.leitura.modo === "MANUAL") { await openManualWizard("paradas"); return; }
+      if (state.leituraStarting) return;
+      state.leituraStarting = true; render();
+      try {
+        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "MANUAL" } });
+        state.leitura = { id: result.id, modo: result.modo || "MANUAL", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
+        persistLeituraSession();
+      } catch (error) { toast(humanApiError(error), true); state.leituraStarting = false; render(); return; }
+      state.leituraStarting = false;
+      await openManualWizard("paradas");
+      return;
+    }
+    // S1 21/07 — "Iniciar Leitura de Rota" (POST modo LEITURA). S3 21/07:
+    // não fecha mais pra faixa da tela Rota — liga a gravação nativa
+    // (leituraTrilhaIniciar, S2-CONTRATO-PONTE §1) e abre a tela viva própria
+    // (openLeituraAtiva), mesmo padrão do "day-entry-manual" acima.
+    // S06 (fix 21/07) — garante a permissão de localização ANTES de criar a
+    // sessão no backend: sem isso, numa instalação nova, o serviço nativo
+    // gravava a trilha ZERO em silêncio. Checar antes do POST evita sessão
+    // órfã no backend caso o usuário negue (nada é criado se não tem GPS).
+    if (action === "day-entry-leitura") {
+      if (state.leitura && state.leitura.modo === "LEITURA") { openLeituraAtiva(); return; }
+      if (state.leituraStarting) return;
+      state.leituraStarting = true; render();
+      const podeGravar = await ensureLeituraTrilhaLocationPermission();
+      if (!podeGravar) { state.leituraStarting = false; render(); return; }
+      try {
+        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "LEITURA" } });
+        state.leitura = { id: result.id, modo: result.modo || "LEITURA", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
+        persistLeituraSession();
+        leituraTrilhaIniciar(result.id);
+      } catch (error) { toast(humanApiError(error), true); state.leituraStarting = false; render(); return; }
+      state.leituraStarting = false;
+      openLeituraAtiva();
+      return;
+    }
+    if (action === "manual-wizard-ir-ordem") { await changeManualWizardStep("ordem"); return; }
+    if (action === "manual-wizard-ir-nome") { if (await changeManualWizardStep("nome")) void prepareLeituraNome(); return; }
+    if (action === "manual-wizard-voltar") { await manualWizardGoBack(); return; }
     // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem).
     if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
     // Voltar hierárquico: choose→dias, dias→menu, manual→choose, saved→menu.
@@ -3588,33 +4083,30 @@
     if (action === "credits-lock-refresh") { toast("Atualizando saldo…"); void refreshCreditsLock(); }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
     // ---- PR20072026 W2 — Leitura de Rota ----
-    if (action === "leitura-iniciar") {
-      if (state.leituraStarting) return;
-      state.leituraStarting = true; render();
-      try {
-        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "LEITURA" } });
-        state.leitura = { id: result.id, modo: result.modo || "LEITURA", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
-        persistLeituraSession();
-      } catch (error) { toast(humanApiError(error), true); }
-      state.leituraStarting = false; render();
+    // S3 21/07 — "leitura-iniciar"/"leitura-iniciar-manual" (órfãos: nenhum
+    // botão dispara mais, S1 já move tudo pra "day-entry-leitura"/
+    // "day-entry-manual" acima) removidos — confirmado por busca no arquivo
+    // que nenhum data-action="leitura-iniciar[-manual]" restou em HTML nenhum.
+    if (action === "leitura-cancelar") { promptCancelLeitura(); return; }
+    if (action === "leitura-finalizar-fechar") { await closeLeituraParadaModal(); return; }
+    // S3.2 — popup de pausa: resolverPausaLeitura SEMPRE, aceitando ou
+    // dispensando (S2-CONTRATO-PONTE §1 — senão o detector nativo fica "preso").
+    if (action === "leitura-pausa-salvar") {
+      const pausa = state.leituraPausaPendente;
+      if (!pausa) return;
+      leituraPausaResolver(true);
+      state.leituraPausaPendente = null;
+      openLeituraParada({ lat: pausa.lat, lng: pausa.lng, accuracy: null, capturadoEm: new Date(Number(pausa.ts) || Date.now()).toISOString() });
+      if (pausa.clienteProximo && pausa.clienteProximo.id) {
+        const client = (state.clients || []).find(c => String(c.id) === String(pausa.clienteProximo.id)) || { id: pausa.clienteProximo.id, nome: pausa.clienteProximo.nome };
+        chooseLeituraClient(client);
+      }
       return;
     }
-    if (action === "leitura-iniciar-manual") {
-      // PR20072026 W3 — "Criar rota manual": mesma sessão/contrato do W2, só
-      // muda o modo (sem GPS em nenhuma captura desta sessão).
-      if (state.leituraStarting) return;
-      state.leituraStarting = true; render();
-      try {
-        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "MANUAL" } });
-        state.leitura = { id: result.id, modo: result.modo || "MANUAL", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
-        persistLeituraSession();
-      } catch (error) { toast(humanApiError(error), true); }
-      state.leituraStarting = false; render();
-      return;
-    }
-    if (action === "leitura-cancelar") {
-      if (!state.leitura) return;
-      state.confirmation = { type: "cancel-leitura", title: "Cancelar leitura?", message: "As paradas já registradas nesta leitura serão descartadas.", confirmLabel: "Cancelar leitura", danger: true, icon: "route" };
+    if (action === "leitura-pausa-dispensar") {
+      if (!state.leituraPausaPendente) return;
+      leituraPausaResolver(false);
+      state.leituraPausaPendente = null;
       render();
       return;
     }
@@ -3627,7 +4119,7 @@
       openLeituraParada({ lat: null, lng: null, accuracy: null, capturadoEm: new Date().toISOString() });
       return;
     }
-    if (action === "leitura-voltar") { if (!(await leituraGoBack())) await closeOverlay("modal"); return; }
+    if (action === "leitura-voltar") { if (!(await leituraGoBack())) await closeLeituraParadaModal(); return; }
     if (action === "leitura-tipo-existente") { await changeLeituraStep("existente"); return; }
     if (action === "leitura-tipo-novo") {
       // Modo MANUAL: sem GPS, então o endereço nasce vazio e editável de cara
@@ -3900,10 +4392,11 @@
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       productHold = hold;
     }
-    // Parada do resumo da leitura (state.modal === "leitura-finalizar"): segurar
-    // remove (com confirmação, porque já foi persistida via DELETE no backend).
+    // Parada do resumo da leitura (state.modal === "leitura-finalizar") OU do
+    // passo Paradas do wizard MANUAL (state.modal === "leitura-manual", S1
+    // 21/07): segurar remove (com confirmação, já persistida via DELETE).
     const lrtParada = target.closest("[data-lrt-parada-hold]");
-    if (lrtParada && event.touches.length === 1 && state.modal === "leitura-finalizar") {
+    if (lrtParada && event.touches.length === 1 && (state.modal === "leitura-finalizar" || state.modal === "leitura-manual")) {
       const touch = event.touches[0]; const hold = { id: lrtParada.dataset.lrtParadaHold, el: lrtParada, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
       hold.el.classList.add("is-hold-arming");
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
@@ -4264,14 +4757,20 @@
         // F1 — rota salva SEM dia (lista livre); backend aceita diaSemana ausente.
         const body = { nome };
         if (state.leitura.modo === "MANUAL") body.ordemParadaIds = state.leituraManualOrder.slice();
+        // S3 21/07 — só a sessão LEITURA liga a gravação nativa (S2-CONTRATO-PONTE §1).
+        const wasLeitura = state.leitura.modo === "LEITURA";
         state.leituraSaving = true; render();
         try {
           await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/finalizar`, { method: "POST", body });
+          if (wasLeitura) leituraTrilhaParar();
           leituraQueueClearSession(state.leitura.id);
           state.leitura = null;
           persistLeituraSession();
           state.leituraResumo = null;
           state.leituraManualOrder = [];
+          state.leituraTrilha = [];
+          state.leituraUltimaAmostra = null;
+          state.leituraPausaPendente = null;
           await closeOverlay("modal");
           await loadRouteModelos(true);
           toast("Feito.");
@@ -4289,6 +4788,29 @@
   });
   document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
   document.addEventListener("hbx:theme", render);
+  // S3 21/07 — S2-CONTRATO-PONTE §2. hbx:leitura-ponto: só desenha se a tela
+  // viva estiver aberta (evita render à toa em qualquer outra tela); a trilha
+  // em si é sempre ressincronizada do zero por leituraStatus() ao reabrir a
+  // tela (applyLeituraSnapshot), então não precisa acumular fora dela.
+  document.addEventListener("hbx:leitura-ponto", event => {
+    const detail = (event && event.detail) || {};
+    const lat = Number(detail.lat); const lng = Number(detail.lng);
+    if (!validCoordinates(lat, lng)) return;
+    state.leituraTrilha = [...(state.leituraTrilha || []), [lat, lng]];
+    state.leituraUltimaAmostra = { lat, lng, ts: detail.ts };
+    if (state.modal === "leitura-ativa") render();
+  });
+  // hbx:leitura-pausa: overlay GLOBAL (leituraPausaOverlay, dentro de shell())
+  // — pode chegar com o app em qualquer tela, inclusive re-disparado sozinho
+  // no onResume (evento pendente com o app fechado, ver contrato §2). Guard
+  // por segurança: só reage se o front também acha que há sessão LEITURA
+  // ativa (evita popup fantasma se os dois lados ficarem dessincronizados).
+  document.addEventListener("hbx:leitura-pausa", event => {
+    if (!state.leitura || state.leitura.modo !== "LEITURA") return;
+    const detail = (event && event.detail) || {};
+    state.leituraPausaPendente = { lat: detail.lat, lng: detail.lng, ts: detail.ts, clienteProximo: detail.clienteProximo || null };
+    render();
+  });
   window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); syncHeaderChips(); });
   window.addEventListener("offline", syncHeaderChips);
   window.HBXApp = {
@@ -4301,6 +4823,10 @@
       try {
         if (state.dddPrompt) { state.dddPrompt = null; render(); return true; }
         if (state.confirmation) { state.confirmation = null; render(); return true; }
+        // S3.2 — popup de pausa (overlay global, aparece em cima de qualquer
+        // tela): voltar SEMPRE dispensa (mesmo botão "Dispensar"), nunca sai
+        // da tela por baixo dele numa tacada só.
+        if (state.leituraPausaPendente) { leituraPausaResolver(false); state.leituraPausaPendente = null; render(); return true; }
         if (state.modal === "manage-day") {
           if (state.dayReview) {
             // Aborta a prévia (não confirma rota) e mata o timer pra não sobrar rodando sozinho.
@@ -4318,16 +4844,28 @@
           }
         }
         if (state.modal === "leitura-parada") {
-          if (leituraGoBack()) return true;
-          void closeOverlay("modal");
+          // leituraGoBack é async: chamar direto no `if` testa a Promise (SEMPRE
+          // truthy) e o closeOverlay abaixo nunca rodava — no 1º passo ("tipo") o
+          // voltar do Android prendia o usuário no wizard. Decide pelo teste
+          // síncrono e dispara a navegação com `void`.
+          if (leituraBackTarget()) { void leituraGoBack(); return true; }
+          // Mesmo fechamento do botão/X (data-action="leitura-voltar"): volta pra
+          // tela viva da sessão, não pra Rota crua.
+          void closeLeituraParadaModal();
           return true;
         }
         if (state.modal === "leitura-finalizar") {
           const step = state.leituraFinalStep;
           if (step === "nome") { state.leituraFinalStep = "timeline"; render(); return true; }
-          void closeOverlay("modal");
+          void closeLeituraParadaModal();
           return true;
         }
+        // S1 21/07 — wizard "Criar Rota Manual" (Lei 10): passo 3→2→1; no
+        // passo 1, pede confirmação se já houver parada (manualWizardGoBack).
+        if (state.modal === "leitura-manual") { void manualWizardGoBack(); return true; }
+        // S3.2 — tela viva da Leitura (Lei 10): sem popup de pausa aberto (já
+        // tratado acima), voltar pede a MESMA confirmação do botão "Cancelar".
+        if (state.modal === "leitura-ativa") { promptCancelLeitura(); return true; }
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
@@ -4340,6 +4878,17 @@
     },
     routeActivated() { toast("GPS da rota ativado."); },
     locationPermissionChanged(granted) {
+      // S06 (fix 21/07) — resolve ensureLeituraTrilhaLocationPermission() acima
+      // (pedido feito ANTES de iniciar a gravação nativa da trilha). Checado
+      // primeiro porque é o pedido mais recente em voo.
+      if (state.leituraTrilhaAwaitingGps) {
+        state.leituraTrilhaAwaitingGps = false;
+        const resolve = leituraTrilhaPermResolve;
+        leituraTrilhaPermResolve = null;
+        if (!granted) toast("Permita a localização para gravar a trilha da rota.", true);
+        if (resolve) resolve(!!granted);
+        return;
+      }
       // PR20072026 fix — retoma a captura da Leitura de Rota quando a permissão
       // foi pedida pelo "Cadastrar Local" (tem prioridade sobre o cadastro).
       if (state.leituraAwaitingGps) {

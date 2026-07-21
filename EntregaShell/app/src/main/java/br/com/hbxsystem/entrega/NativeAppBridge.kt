@@ -21,6 +21,7 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -165,6 +166,85 @@ class NativeAppBridge(
             OperationalSync.requestFlush(activity)
             activity.runOnUiThread(onRouteStopped)
         }
+    }
+
+    // ── S2 (PR21072026-MONTAR-ROTA-PLAY) — MODO "Leitura de Rota" ────────────
+    // Mesmo padrão fire-and-forget de activateRoute/stopRoute acima: RotaState
+    // + RotaService já fazem tudo (a Leitura é independente de `alvos`/rota do
+    // dia, então não passa pelo gate de permissão de activateRoute). Front
+    // deve garantir a permissão de localização ANTES via
+    // `requestLocationPermission()` (já existe, sem mudança aqui) — se não
+    // tiver, `RotaService.iniciarForeground` se autoencerra sem crashar.
+    // Contrato completo em S2-CONTRATO-PONTE.md.
+
+    @JavascriptInterface
+    fun iniciarLeituraTrilha(leituraId: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        val safeId = leituraId.trim().take(120)
+        if (safeId.isEmpty()) return
+        activity.runOnUiThread {
+            RotaState.iniciarLeitura(safeId)
+            RotaState.persistir(activity)
+            RotaService.sync(activity)
+        }
+    }
+
+    @JavascriptInterface
+    fun pararLeituraTrilha() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread {
+            val idFinalizado = RotaState.pararLeitura()
+            RotaState.persistir(activity)
+            if (idFinalizado != null) LeituraTrilhaSync.requestFlush(activity)
+            // Só derruba o foreground se não houver rota do dia ativa também —
+            // ver stopRunnable/onStartCommand em RotaService (S2 coexistência).
+            if (RotaState.alvos.isEmpty()) RotaService.requestStop(activity)
+        }
+    }
+
+    /** Front chama ao fechar o popup "detectado pausa, salvar rota?" — aceitar
+     *  ou dispensar tem o MESMO efeito nativo (reinicia o cooldown de 60s do
+     *  detector); quem decide o que fazer com a parada é o front/backend. */
+    @JavascriptInterface
+    fun resolverPausaLeitura(aceitar: Boolean) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        RotaState.resolverPausaPendente()
+    }
+
+    /** Leitura síncrona (mesmo padrão de `offlineStatus()`/`appInfo()`): trilha
+     *  acumulada + última amostra + pausa pendente (sobrevive a restart do
+     *  processo). Formato exato em S2-CONTRATO-PONTE.md. */
+    @JavascriptInterface
+    fun leituraStatus(): String {
+        if (BuildConfig.APP_MODE != "logistica") return JSONObject().put("ativa", false).toString()
+        val pontos = JSONArray()
+        RotaState.trilhaAcumuladaParaJs().forEach { pontos.put(JSONArray().put(it[0]).put(it[1])) }
+        val out = JSONObject()
+            .put("ativa", RotaState.isLeituraAtiva())
+            .put("leituraId", RotaState.leituraIdAtual())
+            .put("pontos", pontos)
+        RotaState.ultimaAmostraLeitura()?.let { p ->
+            out.put(
+                "ultimaAmostra",
+                JSONObject().put("lat", p.lat).put("lng", p.lng).put("ts", p.ts).put("accuracyM", p.accuracyM).apply {
+                    p.speedMps?.takeIf(Double::isFinite)?.let { put("speedMps", it) }
+                },
+            )
+        }
+        RotaState.pausaPendenteAtual()?.let { pausa ->
+            out.put(
+                "pausaPendente",
+                JSONObject().put("lat", pausa.lat).put("lng", pausa.lng).put("ts", pausa.ts).apply {
+                    put(
+                        "clienteProximo",
+                        pausa.clienteProximo?.let { c ->
+                            JSONObject().put("id", c.id).put("nome", c.nome).put("distanciaM", c.distanciaM)
+                        } ?: JSONObject.NULL,
+                    )
+                },
+            )
+        }
+        return out.toString()
     }
 
     @JavascriptInterface

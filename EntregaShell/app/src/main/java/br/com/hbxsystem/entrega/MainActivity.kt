@@ -346,11 +346,22 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.APP_MODE == "logistica") {
             RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
             RotaState.drenarPendencias().forEach(::entregarChegada)
+            // S2 (PR21072026-MONTAR-ROTA-PLAY) — mesmo padrão da chegada acima,
+            // pro evento de pausa da Leitura de Rota (ver S2-CONTRATO-PONTE.md).
+            RotaState.registrarPausaListener { pausa -> runOnUiThread { entregarPausa(pausa) } }
+            RotaState.drenarPausasPendentes().forEach(::entregarPausa)
+            // Mapa ao vivo (S3.1): ponto a ponto, só em foreground (sem fila —
+            // o acumulado completo já está em RotaState pra quando reabrir).
+            RotaState.registrarPontoListener { ponto -> runOnUiThread { entregarPonto(ponto) } }
         }
     }
 
     override fun onPause() {
-        if (BuildConfig.APP_MODE == "logistica") RotaState.registrarListener(null)
+        if (BuildConfig.APP_MODE == "logistica") {
+            RotaState.registrarListener(null)
+            RotaState.registrarPausaListener(null)
+            RotaState.registrarPontoListener(null)
+        }
         super.onPause()
     }
 
@@ -408,6 +419,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun entregarChegada(paradaId: String) {
         val js = "document.dispatchEvent(new CustomEvent('hbx:arrival',{detail:{deliveryId:${JSONObject.quote(paradaId)}}}));"
+        webView.evaluateJavascript(js, null)
+    }
+
+    /** S2 (PR21072026-MONTAR-ROTA-PLAY) — evento de pausa detectada na Leitura
+     *  de Rota, mesmo caminho (`document.dispatchEvent`) que a chegada já usa.
+     *  Nome de evento e formato do detail são o CONTRATO — ver S2-CONTRATO-PONTE.md. */
+    private fun entregarPausa(pausa: PausaDetectada) {
+        val clienteJson = pausa.clienteProximo?.let { c ->
+            JSONObject().put("id", c.id).put("nome", c.nome).put("distanciaM", c.distanciaM)
+        } ?: JSONObject.NULL
+        val detail = JSONObject()
+            .put("lat", pausa.lat)
+            .put("lng", pausa.lng)
+            .put("ts", pausa.ts)
+            .put("clienteProximo", clienteJson)
+        val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-pausa',{detail:$detail}));"
+        webView.evaluateJavascript(js, null)
+    }
+
+    /** S2/S3.1 — mapa ao vivo: um ponto novo (já filtrado 8m/15s) pro front
+     *  desenhar incremental na trilha, sem precisar de polling. */
+    private fun entregarPonto(ponto: TrilhaPonto) {
+        val detail = JSONObject().put("lat", ponto.lat).put("lng", ponto.lng).put("ts", ponto.ts)
+        val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-ponto',{detail:$detail}));"
         webView.evaluateJavascript(js, null)
     }
 

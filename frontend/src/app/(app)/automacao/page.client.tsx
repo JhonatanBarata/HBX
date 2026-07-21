@@ -43,7 +43,9 @@ import { apiFetch } from "@/lib/api";
 import { IlustracaoAtender, IlustracaoBuscar, IlustracaoCobrar, IlustracaoReagir } from "./kit/ilustracoes";
 import { MiniFluxo, type MiniFluxoNode } from "./kit/mini-fluxo";
 import { StatusChip, type StatusTone } from "./kit/status-chip";
-import { SecaoAtendente } from "./secao-atendente";
+// S08 (PADRAO-MERCADO): card de template padrão (kit central) — faixa "Começar por um modelo".
+import { TemplateCard } from "./kit/template-card";
+import { ATENDENTE_MODELOS, SecaoAtendente } from "./secao-atendente";
 import { SecaoCobranca } from "./secao-cobranca";
 import { SecaoProspeccao } from "./secao-prospeccao";
 import { SecaoRegras } from "./secao-regras";
@@ -287,10 +289,15 @@ export function AutomacaoHubClient() {
   const router = useRouter();
   const params = useSearchParams();
   const secaoParam = params.get("secao");
+  const templateParam = params.get("template");
 
   // Deep-link (?secao=...) só decide o estado INICIAL — dali em diante é
   // estado local puro (mesmo padrão de /entrega/financeiro ?cliente=).
   const [secao, setSecao] = useState<SecaoKey | null>(isSecaoKey(secaoParam) ? secaoParam : null);
+  // S08 (PADRAO-MERCADO): idem, pro `?template=` da faixa "Começar por um
+  // modelo" (ex. ?secao=atendente&template=agil) — só o Atendente consome
+  // hoje (SecaoAtendente ignora se não fizer sentido pro modo atual).
+  const [secaoTemplate, setSecaoTemplate] = useState<string | null>(isSecaoKey(secaoParam) ? templateParam : null);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -312,13 +319,17 @@ export function AutomacaoHubClient() {
     return () => { alive = false; };
   }, [load]);
 
-  const abrirSecao = useCallback((key: SecaoKey) => {
+  // S08 (PADRAO-MERCADO): `template` é opcional — segue o MESMO mecanismo do
+  // `secao` (query param espelha o estado local, nunca o contrário).
+  const abrirSecao = useCallback((key: SecaoKey, template?: string) => {
     setSecao(key);
-    router.replace(`/automacao?secao=${key}`);
+    setSecaoTemplate(template ?? null);
+    router.replace(`/automacao?secao=${key}${template ? `&template=${template}` : ""}`);
   }, [router]);
 
   const voltar = useCallback(() => {
     setSecao(null);
+    setSecaoTemplate(null);
     router.replace("/automacao");
   }, [router]);
 
@@ -328,6 +339,19 @@ export function AutomacaoHubClient() {
     if (!overview) return [];
     return SECOES.filter((key) => secaoGateOk(key, moduleAccess)).map((key) => buildCard(key, overview));
   }, [overview, moduleAccess]);
+
+  // S08 (PADRAO-MERCADO) — item 4: a faixa "Começar por um modelo" só aparece
+  // pro retrato exato de "empresa que acabou de ganhar o módulo" (S08.md):
+  // objetivo Atendente liberado (senão não haveria pra onde o clique mandar)
+  // E nada ainda "ligado" em nenhum cartão (tudo rascunho/pausado/indisponível
+  // — nenhum objetivo ativo de verdade). Deriva 100% do `cards` que o hub JÁ
+  // calcula acima (buildCard) — zero chamada nova.
+  const mostrarGaleriaModelos = useMemo(() => {
+    if (!cards.length) return false;
+    const temAtendente = cards.some((c) => c.key === "atendente");
+    const tudoParado = cards.every((c) => c.tone !== "ligado");
+    return temAtendente && tudoParado;
+  }, [cards]);
 
   // Seção aberta: só renderiza se o gate DAQUELA seção ainda passa (empresa
   // pode ter perdido acesso entre o deep-link e agora) — senão cai pro hub.
@@ -348,6 +372,7 @@ export function AutomacaoHubClient() {
         {secao === "atendente" ? (
           <SecaoAtendente
             iaPublishEnabled={Boolean(overview.motor.ok && overview.motor.publishEnabled)}
+            initialTemplate={secaoTemplate}
             onChanged={() => { void load(); }}
           />
         ) : secao === "cobranca" ? (
@@ -402,6 +427,23 @@ export function AutomacaoHubClient() {
           <div style={{ padding: 18, display: "grid", gap: 6, justifyItems: "start" }}>
             <strong>Nenhum objetivo liberado</strong>
             <span className="hint">Sua empresa ainda não tem atendimento, bot ou vendas liberado — fale com o suporte.</span>
+          </div>
+        </section>
+      )}
+
+      {/* S08 (PADRAO-MERCADO) — item 4: "começar por um modelo" — só quando
+          nada está ligado ainda (mostrarGaleriaModelos acima). Mesmo card
+          central da galeria do wizard (ATENDENTE_MODELOS/TemplateCard) — 1
+          clique cai direto na seção Atendente com o modelo pré-selecionado. */}
+      {!error && !loading && mostrarGaleriaModelos && (
+        <section style={{ display: "grid", gap: 10 }}>
+          <div className="auto-bar">
+            <span className="hint">Começar por um modelo</span>
+          </div>
+          <div className="aut-tpl-grid">
+            {ATENDENTE_MODELOS.map((m) => (
+              <TemplateCard key={m.key} option={m} onSelect={() => abrirSecao("atendente", m.key)} />
+            ))}
           </div>
         </section>
       )}

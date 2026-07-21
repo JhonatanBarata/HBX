@@ -42,6 +42,7 @@ import {
   FinalizarLeituraDto,
   IniciarLeituraDto,
   RegistrarLeituraParadaDto,
+  RegistrarTrilhaDto,
   UpdateLeituraParadaDto,
 } from './dto/logistica-leitura.dto';
 import {
@@ -743,6 +744,17 @@ export class LogisticaController {
     const userId = this.ensureUserId(req.user);
     await this.leitura.cancelar(companyId, userId, id);
     return { success: true };
+  }
+
+  /**
+   * S2 (PR21072026-MONTAR-ROTA-PLAY) — trilha (breadcrumb GPS) gravada pelo
+   * RotaService nativo durante a Leitura. Ver S2-CONTRATO-PONTE.md.
+   */
+  @Post('leitura/:id/trilha')
+  registrarLeituraTrilha(@Req() req: any, @Param('id') id: string, @Body() dto: RegistrarTrilhaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.leitura.registrarTrilha(companyId, userId, id, dto.pontos);
   }
 
   /**
