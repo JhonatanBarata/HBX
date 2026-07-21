@@ -2517,6 +2517,14 @@ export class WhatsAppModalService {
     if (normalizedPhone) {
       payload.number = normalizedPhone;
     }
+    // S2 21/07: instancia nasce COM webhook (motor aceita `webhook` no create —
+    // Webwhats event.manager.ts:setInstance le `data.webhook`). Reusa o mesmo builder
+    // do /webhook/set (buildProviderWebhookPayload) pra zero duplicar URL/lista de eventos;
+    // tryConfigureProviderWebhook pos-create segue rodando como redundancia defensiva.
+    const webhookUrl = this.buildProviderWebhookUrl();
+    if (webhookUrl) {
+      payload.webhook = this.buildProviderWebhookPayload(webhookUrl).webhook;
+    }
     return payload;
   }
 
