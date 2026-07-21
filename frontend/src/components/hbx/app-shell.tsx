@@ -51,8 +51,9 @@ const META: Record<string, Meta> = {
   // sem esta linha a rota caía no fallback active:"" (pill da sidebar apagada
   // e título "HBX" vazando, mesmo bug documentado abaixo pro NÚCLEO-CRM).
   "/automacao": { active: "automacaoHub", title: "Automação", crumbs: crumb("Automação") },
-  // WORM-13: automações (cadência com persona + gatilhos + rotinas).
-  "/automacoes": { active: "automacao", title: "Automações", crumbs: crumb("Automações", "Vendas") },
+  // S17: /automacoes, /bot e /assistente saíram daqui — viraram redirect puro
+  // pra /automacao (page.tsx client, sem tela própria); mesmo tratamento que
+  // /workspace (sem entrada em META, fallback "HBX" cobre o instante do replace).
   "/atendimento": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
   // NÚCLEO-CRM N3-N6: faltavam aqui → caíam no fallback active:"" e o item
   // correspondente nunca acendia na sidebar (nenhum highlight, sem transição).
@@ -64,8 +65,6 @@ const META: Record<string, Meta> = {
   // clientesOnly). Match é EXATO aqui, então a sub-rota precisa da própria linha
   // pra o item "Clientes" acender na sidebar (sem isso cairia no active:"" mudo).
   "/logistica/clientes": { active: "clientes", title: "Clientes", crumbs: crumb("Clientes", "Logística") },
-  "/bot": { active: "bot", title: "Bot", crumbs: crumb("Construtor", "Bot") },
-  "/assistente": { active: "assistente", title: "Assistente IA", crumbs: crumb("Assistente IA") },
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
   "/dashboard/website": { active: "website", title: "Website", crumbs: crumb("Website") },
   "/configuracoes": { active: "config", title: "Configurações", crumbs: crumb("Configurações") },

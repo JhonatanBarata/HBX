@@ -1,7 +1,8 @@
 // Fonte ÚNICA dos passos do tour guiado (coachmark). Tour completo (1º acesso,
-// 07/07): segue a ORDEM REAL da sidebar (NAV_LINKS) — Dashboard → Vendas →
-// Agenda → Automações → Conversas → Empresas → Contatos → Produtos → Logística
-// → Bot → Assistente IA → (pergunta IA/Bot) → Relatórios → Website →
+// 07/07, ordem atualizada S17/MOTOR-ÚNICO): segue a ORDEM REAL da sidebar
+// (NAV_LINKS) — Dashboard → Vendas → Agenda → Conversas → Empresas → Contatos
+// → Produtos → Automação (hub único: bot/IA/cadências, ex-Bot+Automações+
+// Assistente IA) → (pergunta IA/Bot) → Logística → Relatórios → Website →
 // Configurações → checklist → fim. Módulo que o usuário NÃO vê (plano/cargo)
 // não vira passo. Os passos de módulo NÃO navegam (o holofote desliza item a
 // item na sidebar — trocar de rota a cada passo deixava o tour instável, com
@@ -46,11 +47,6 @@ const MODULE_STEPS: Array<{ id: string; title: string; body: string }> = [
     body: "A Agenda organiza retornos, tarefas e próximos contatos. Ela evita que lead quente esfrie por esquecimento.",
   },
   {
-    id: "automacao",
-    title: "Rotinas trabalhando por você",
-    body: "Automações servem para criar cadências, lembretes e ações repetidas sem depender de memória manual.",
-  },
-  {
     id: "atend",
     title: "Atendimento conectado ao WhatsApp",
     body: "Em Conversas você conecta o WhatsApp, responde clientes e acompanha o histórico do lead no mesmo lugar.",
@@ -70,20 +66,20 @@ const MODULE_STEPS: Array<{ id: string; title: string; body: string }> = [
     title: "O que sua equipe vende",
     body: "Produtos define o catálogo que aparece no fechamento, nas propostas e na rotina comercial.",
   },
+  // S17 (MOTOR-ÚNICO): "automacao"(Automações)/"bot"/"assistente" eram 3 passos
+  // pra 3 telas — viraram 1 hub só (id "automacaoHub", NAV_LINKS). Mantido como
+  // 1 passo (retexto fino é S22) pra não sumir do tour: os 3 ids velhos nunca
+  // mais aparecem em `visibleModules` (sidebar real), então os passos antigos
+  // ficariam mortos (visible.has(id) sempre false) sem esta fusão.
+  {
+    id: "automacaoHub",
+    title: "Automação: bot, IA e cadências num só lugar",
+    body: "Aqui você liga o atendimento automático (roteiro ou IA), cobra quem ficou devendo, dispara cadências pra buscar clientes e organiza gatilhos e rotinas — tudo no mesmo painel.",
+  },
   {
     id: "logistica",
     title: "Quando vender também exige entregar",
     body: "Logística organiza rotas, entregas e confirmação de atendimento quando sua operação precisa sair do comercial e chegar na rua.",
-  },
-  {
-    id: "bot",
-    title: "Bot para atendimento automático",
-    body: "O Bot ajuda a responder, qualificar e conduzir conversas repetitivas. Ele não substitui a venda; ele tira peso do caminho.",
-  },
-  {
-    id: "assistente",
-    title: "Assistente IA da operação",
-    body: "O Assistente IA ajuda a testar mensagens, orientar respostas e acelerar tarefas sem mexer no WhatsApp real antes da sua aprovação.",
   },
   {
     id: "relat",
@@ -141,12 +137,10 @@ export function buildCoachSteps(audience: Partial<CoachAudience> = {}): CoachSte
     });
   }
 
-  // 4) Pergunta IA/Bot — logo depois do último módulo de IA visível (Assistente
-  // IA; senão Bot). Sem módulo de IA visível, a pergunta não existe.
-  const aiAnchor = Math.max(
-    steps.findIndex(s => s.id === "mod-assistente"),
-    steps.findIndex(s => s.id === "mod-bot"),
-  );
+  // 4) Pergunta IA/Bot — logo depois do módulo Automação (S17: hub único,
+  // id "automacaoHub" — funde os antigos Bot/Automações/Assistente IA). Sem o
+  // módulo visível, a pergunta não existe.
+  const aiAnchor = steps.findIndex(s => s.id === "mod-automacaoHub");
   if (aiAnchor >= 0) {
     steps.splice(aiAnchor + 1, 0, {
       id: "ai-bot-choice",

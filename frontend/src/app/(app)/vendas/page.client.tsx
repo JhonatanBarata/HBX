@@ -1584,7 +1584,7 @@ export function VendasClient() {
               <p className="muted-note">
                 Responde mensagens recebidas e não ocupa a automação comercial ativa do lead.
               </p>
-              <button className="btn-ghost" onClick={() => { setProspOpen(false); router.push("/assistente"); }}>
+              <button className="btn-ghost" onClick={() => { setProspOpen(false); router.push("/automacao?secao=atendente&cerebro=ia"); }}>
                 Configurar assistente
               </button>
             </div>

@@ -332,22 +332,16 @@ export const NAV_LINKS = [
   // NÚCLEO-CRM N5: catálogo "Produtos" — o que o vendedor vende/entrega (galão
   // 20L etc.), com unidade/preço + flag Logística. Kill-switch, não paywall (null).
   { id: "produtos", label: "Produtos", href: "/produtos", group: "Cadastros" },
-  // WORM-14: Assistente IA (wizard 3 passos + fluxo em lista + sandbox "Teste sua
-  // IA"). Mesma superfície do Bot (gate 'bot'); o sandbox testa sem tocar chip.
-  { id: "assistente", label: "Assistente IA", href: "/assistente", group: "Facilidades" },
   // MISSÃO F (RELEASE-20X S5): Concierge IA — busca do Radar guiada por conversa.
   // Gate próprio 'concierge' (defaultEnabled=false, master liga por empresa).
   { id: "concierge", label: "Concierge IA", href: "/concierge", group: "Facilidades" },
-  // S12 (MOTOR-ÚNICO) — casca única /automacao: hub por objetivo + painel de
+  // S12/S17 (MOTOR-ÚNICO) — casca única /automacao: hub por objetivo + painel de
   // status, funde /bot + /automacoes + /assistente (README PR20072026-MOTOR-
-  // ÚNICO). Nasce AO LADO dos 3 itens velhos abaixo (nenhum sai daqui ainda —
-  // matar/redirect é trabalho da S17); gate próprio (OR de 3 chaves) calculado
-  // no Sidebar, não pelo mecanismo padrão de 1 chave (ver isModuleVisible
-  // abaixo + comentário no filtro `visible`).
+  // ÚNICO). S17 matou os 3 itens velhos da sidebar (bot/automacao/assistente) —
+  // as rotas antigas viram redirect (page.tsx); gate próprio (OR de 3 chaves)
+  // calculado no Sidebar, não pelo mecanismo padrão de 1 chave (ver
+  // isModuleVisible abaixo + comentário no filtro `visible`).
   { id: "automacaoHub", label: "Automação", href: "/automacao", group: "Facilidades" },
-  // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
-  { id: "automacao", label: "Automações", href: "/automacoes", group: "Facilidades" },
-  { id: "bot", label: "Bot", href: "/bot", group: "Facilidades" },
   // NÚCLEO-CRM N6: módulo "Logística" — app de entrega (rota do dia, navegar,
   // confirmar com GPS). WhatsApp/cobrança atrás de flag OFF no backend.
   // Kill-switch, não paywall (null nos gates abaixo). Rótulo exibido virou
@@ -654,9 +648,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   agenda: "vendas",
   // S12: hub /automacao é kill-switch por MÓDULO (OR de atendimento/bot/vendas
   // via /modules/me, calculado à parte no Sidebar — ver `visible` abaixo), não
-  // paywall de plano — null aqui, igual bot/assistente/concierge.
+  // paywall de plano — null aqui, igual concierge.
   automacaoHub: null,
-  automacao: "vendas",
   atend: "atendimento_chat",
   // NÚCLEO-CRM N3: Empresas = kill-switch, NÃO paywall → sem gate de plano
   // (null = sempre visível). O interruptor do master vive no SystemModule
@@ -670,8 +663,6 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   logistica: null,
   // Logística → Clientes: mesma gestão de clientes de entrega (Contatos), sem paywall.
   clientes: null,
-  bot: null,
-  assistente: null,
   // Concierge IA: kill-switch por módulo (master liga por empresa), NÃO paywall.
   concierge: null,
   relat: "vendas",
@@ -699,7 +690,6 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // verdade é uma condição A MAIS no filtro `visible` do Sidebar (mesmo padrão
   // já usado por sellerOnlyNav/deliveryNav logo abaixo — extra gate por cima).
   automacaoHub: null,
-  automacao: "vendas",
   atend: "atendimento",
   // Cadastros básicos (empresas/contatos/produtos) = SEM gate (null, sempre
   // visíveis). Eles ficam FORA do mapa de categorias do OOBE de propósito
@@ -720,11 +710,6 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   logistica: "logistica",
   // Logística → Clientes: mesma porta do módulo Logística (sem chave própria).
   clientes: "logistica",
-  // Bot e Assistente IA usam o MESMO módulo 'bot' do backend (@ModuleAccess('bot'),
-  // defaultEnabled=false). Sem o gate aqui a sidebar mostrava os itens e a tela
-  // devolvia 403 "Módulo indisponível" — contra o fail-closed (sem acesso = some).
-  bot: "bot",
-  assistente: "bot",
   // Concierge IA tem chave PRÓPRIA (defaultEnabled=false) — nasce oculto e o
   // master libera empresa-a-empresa. Fail-closed: sem accessible:true, some.
   concierge: "concierge",
@@ -892,7 +877,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   const soLog = soLogistica(mods);
   const canSell = canUseOperationalWorkspace(user, "SELLER");
   const canDeliver = canUseOperationalWorkspace(user, "DRIVER");
-  const sellerOnlyNav = new Set(["vendas", "agenda", "atend", "website", "empresas", "contatos", "produtos", "assistente", "concierge", "automacao", "automacaoHub", "bot"]);
+  const sellerOnlyNav = new Set(["vendas", "agenda", "atend", "website", "empresas", "contatos", "produtos", "concierge", "automacaoHub"]);
   const deliveryNav = new Set(["logistica", "clientes"]);
   // S12: hub /automacao usa o OR de 3 chaves (hasAnyModuleAccess), não o gate
   // padrão de 1 chave — master continua vendo tudo via isModuleVisible acima.
