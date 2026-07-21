@@ -121,9 +121,9 @@
 /* ── S16 — seção Regras (Gatilhos & Rotinas, última da Fase 3): ZERO classe
    nova ── reusa .auto-tabs.glass-pill-track/.auto-tab (mesma trilha que a
    raiz do /automacoes velho usava pras 3 abas, aqui só 2), .auto-bar/
-   .auto-grid/.auto-card/.auto-rule*/.auto-connector/.auto-chip/.auto-state/
-   .auto-add-card/.auto-empty*/.auto-flag-note/.auto-skel/.rot-week/.rot-day/
-   .rot-status/.auto-weekdays/.auto-weekday/.auto-form*/.hbx-veil/.hbx-modal/
+   .auto-grid/.auto-card/.auto-rule* /.auto-connector/.auto-chip/.auto-state/
+   .auto-add-card/.auto-empty* /.auto-flag-note/.auto-skel/.rot-week/.rot-day/
+   .rot-status/.auto-weekdays/.auto-weekday/.auto-form* /.hbx-veil/.hbx-modal/
    .field-label/.field-dark (screens.css/kit.css) — a mesma superfície visual
    que a tela velha /automacoes já usava pras abas Gatilhos/Rotinas (Lei nº2).
    Nada a adicionar aqui.
@@ -133,3 +133,80 @@
    existia pra isso). `.aut-secao-placeholder*` continuam vivas: a seção
    Atendente (secao-atendente.tsx) reusa essas classes pros PRÓPRIOS estados
    vazios internos. */
+
+/* ── S01 (PADRAO-MERCADO) — kit visual central (frontend/src/app/(app)/
+   automacao/kit/): StatusChip, EmptyState e MiniFluxo nascem aqui. Nenhuma
+   tela consome ainda (as sprints seguintes consomem) — só o PhonePreview já
+   está em uso (secao-atendente.tsx/secao-cobranca.tsx), e ele reusa
+   .ia-chat-dock* (assistente.css) tal qual — zero classe nova pra ele.
+
+   Nota (S01): o comentário do S16 logo acima tinha 3 pares "asterisco colado
+   na barra" na lista de classes (o sufixo de wildcard de um nome seguido,
+   sem espaço, do separador de barra do próximo) — isso fecha um comentário
+   CSS na hora, cedo demais, e o texto solto que sobra só derruba o build
+   quando algo vem DEPOIS (este bloco aqui). Corrigido inserindo 1 espaço
+   entre o asterisco e a barra em cada ocorrência — mesma receita do gotcha
+   documentado em docs/Rules/FRONTEND.md, zero mudança de sentido no texto. */
+
+/* StatusChip (Lei nº3 "STATUS ÚNICO") — dot + rótulo, 2 tamanhos, 4 tons.
+   `rascunho` é o único com dot em CONTORNO (sem preenchimento) — os outros 3
+   preenchem com currentColor. `ligado` reusa o MESMO keyframe de pulso que
+   o dot do cartão-objetivo do hub já usa (aut-obj-dot-pulse, acima). */
+.aut-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: var(--radius-pill); border: 1px solid var(--border-hairline);
+  background: var(--hbx-field-surface); color: var(--text-strong);
+  font-weight: 800; white-space: nowrap;
+}
+.aut-chip--m { padding: 5px 12px; font-size: 0.74rem; }
+.aut-chip--s { padding: 3px 9px; font-size: 0.66rem; gap: 5px; }
+
+.aut-chip__dot {
+  box-sizing: border-box; width: 8px; height: 8px; border-radius: 999px; flex: none;
+  background: currentColor; color: var(--text-muted);
+}
+.aut-chip--s .aut-chip__dot { width: 6px; height: 6px; }
+
+.aut-chip--ligado .aut-chip__dot { color: var(--hbx-success); animation: aut-obj-dot-pulse 1.8s ease-in-out infinite; }
+.aut-chip--atencao .aut-chip__dot { color: var(--hbx-warning); }
+.aut-chip--pausado .aut-chip__dot { color: var(--text-muted); }
+.aut-chip--rascunho .aut-chip__dot { background: transparent; border: 1.5px solid var(--text-muted); }
+
+/* EmptyState (Lei nº1 "TETO DE COPY") — moldura igual em espírito à
+   .auto-empty já existente (screens.css: tracejado + superfície suave),
+   mas com slot de ILUSTRAÇÃO própria (maior que o ícone de .auto-empty__icon)
+   e SEM slot de parágrafo — a API só aceita título + 1 linha + CTA. */
+.aut-empty-wrap {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+  padding: 40px 24px;
+  border-radius: var(--panel-radius); border: 1px dashed var(--border-strong); background: var(--hbx-surface-soft);
+}
+.aut-empty-illus { display: grid; place-items: center; width: 88px; height: 88px; color: var(--hbx-brand-strong); flex: none; }
+.aut-empty-illus svg { width: 100%; height: 100%; }
+.aut-empty-title { margin: 0; font-family: var(--font-display); font-size: 0.98rem; font-weight: 800; color: var(--text-strong); }
+.aut-empty-line { font-size: 0.78rem; color: var(--text-muted); max-width: 320px; line-height: 1.5; }
+.aut-empty-cta { margin-top: 2px; }
+
+/* MiniFluxo — 2-4 nós (ícone+rótulo) num conector horizontal. `--compact`
+   troca o nó por um dot só (cabe no espaço apertado de um cartão pequeno). */
+.aut-minifluxo { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.aut-minifluxo__node {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface); min-width: 64px;
+}
+.aut-minifluxo__icon {
+  display: grid; place-items: center; width: 24px; height: 24px; border-radius: var(--radius-sm);
+  color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); flex: none;
+}
+.aut-minifluxo__icon svg { width: 14px; height: 14px; }
+.aut-minifluxo__label { font-size: 0.62rem; font-weight: 700; color: var(--text-muted); text-align: center; line-height: 1.25; }
+
+.aut-minifluxo__conn { display: grid; place-items: center; color: var(--text-muted); flex: none; }
+.aut-minifluxo__conn svg { width: 12px; height: 8px; }
+
+.aut-minifluxo--compact { gap: 3px; }
+.aut-minifluxo--compact .aut-minifluxo__node { padding: 0; border: none; background: none; min-width: 0; }
+.aut-minifluxo--compact .aut-minifluxo__dot { width: 7px; height: 7px; border-radius: 999px; background: var(--hbx-brand-strong); flex: none; }
+.aut-minifluxo--compact .aut-minifluxo__conn svg { width: 8px; height: 6px; }

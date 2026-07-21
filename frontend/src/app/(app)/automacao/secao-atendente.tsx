@@ -63,7 +63,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
-import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+// S01 (PADRAO-MERCADO): telefone (dock + <WhatsAppPreview>) extraído pro kit central — zero duplicação (era igual em secao-cobranca.tsx).
+import type { WAMessage } from "@/components/hbx/whatsapp-preview";
+import { PhonePreview } from "./kit/phone-preview";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotPhaseEditor, type PhaseRuleDef } from "@/components/hbx/bot-phase-editor";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
@@ -1200,44 +1202,36 @@ function AtendenteSandbox({ brain, iaLive, roteiroLive, displayName, disabledRea
     ? (SANDBOX_SOURCE_LABEL[lastSource.source] || lastSource.source) + (lastSource.source === "ia" && lastSource.ms > 0 ? ` · ${(lastSource.ms / 1000).toFixed(1)}s` : "")
     : null;
 
+  // S01 (PADRAO-MERCADO): dock + <WhatsAppPreview> viviam duplicados aqui e
+  // em CobrancaPreview (secao-cobranca.tsx) — componente único agora
+  // (kit/phone-preview.tsx). Mesmas classes no mesmo DOM, zero mudança visual.
   return (
-    <div className="ia-chat-dock">
-      <div className="ia-chat-dock__bar">
-        <I d={ICONS.smile} size={15} />
-        <span className="ia-chat-dock__title">Testar o Atendente</span>
-        <span className="ia-chat-dock__no">{lastTestNo != null ? `Teste nº ${lastTestNo}` : brain === "ia" ? "IA" : "Roteiro"}</span>
-        <span className="ia-chat-dock__safe"><I d={ICONS.check} size={11} /> Sem chip</span>
-      </div>
-
-      <WhatsAppPreview
-        className="ia-chat-phone"
-        messages={msgs}
-        typing={busy}
-        bodyRef={bodyRef}
-        header={{ name: displayName, status: "online" }}
-        emptyHint={disabledReason || `Mande um "oi" para ver o Atendente responder. Nada sai pro WhatsApp de verdade.`}
-        quickReplies={quick.length ? quick : undefined}
-        onQuickReply={(q) => void send(q)}
-        footer={
-          <form className="wa-composer-row" onSubmit={(e) => { e.preventDefault(); void send(); }}>
-            <input
-              className="field-dark wa-composer-input"
-              value={input}
-              placeholder={disabledReason ? "Indisponível" : "Escreva como um cliente…"}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={busy || Boolean(disabledReason)}
-              aria-label="Mensagem de teste"
-            />
-            <button type="submit" className="wa-send" disabled={busy || !input.trim() || Boolean(disabledReason)} aria-label="Enviar">
-              <I d={ICONS.send} size={16} />
-            </button>
-          </form>
-        }
-      />
-
-      <div className="ia-chat-dock__src">
-        {srcLabel ? <><I d={ICONS.bolt} size={11} /> {srcLabel}</> : disabledReason || "O teste roda local — nada é enviado no WhatsApp."}
-      </div>
-    </div>
+    <PhonePreview
+      title="Testar o Atendente"
+      badge={lastTestNo != null ? `Teste nº ${lastTestNo}` : brain === "ia" ? "IA" : "Roteiro"}
+      messages={msgs}
+      typing={busy}
+      bodyRef={bodyRef}
+      header={{ name: displayName, status: "online" }}
+      emptyHint={disabledReason || `Mande um "oi" para ver o Atendente responder. Nada sai pro WhatsApp de verdade.`}
+      quickReplies={quick.length ? quick : undefined}
+      onQuickReply={(q) => void send(q)}
+      footer={
+        <form className="wa-composer-row" onSubmit={(e) => { e.preventDefault(); void send(); }}>
+          <input
+            className="field-dark wa-composer-input"
+            value={input}
+            placeholder={disabledReason ? "Indisponível" : "Escreva como um cliente…"}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={busy || Boolean(disabledReason)}
+            aria-label="Mensagem de teste"
+          />
+          <button type="submit" className="wa-send" disabled={busy || !input.trim() || Boolean(disabledReason)} aria-label="Enviar">
+            <I d={ICONS.send} size={16} />
+          </button>
+        </form>
+      }
+      footerNote={srcLabel ? <><I d={ICONS.bolt} size={11} /> {srcLabel}</> : disabledReason || "O teste roda local — nada é enviado no WhatsApp."}
+    />
   );
 }

@@ -74,7 +74,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { isTenantAdmin } from "@/lib/roles";
-import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
+// S01 (PADRAO-MERCADO): telefone (dock + <WhatsAppPreview>) extraído pro kit central — zero duplicação (era igual em secao-atendente.tsx).
+import type { WAMessage } from "@/components/hbx/whatsapp-preview";
+import { PhonePreview } from "./kit/phone-preview";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotPhaseEditor } from "@/components/hbx/bot-phase-editor";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
@@ -506,25 +508,17 @@ function CobrancaPreview({ config }: { config: RecoveryConfig }) {
     return grp.map((b) => b.title).filter(Boolean);
   }, [config]);
 
+  // S01 (PADRAO-MERCADO): dock + <WhatsAppPreview> viviam duplicados aqui e
+  // em AtendenteSandbox (secao-atendente.tsx) — componente único agora
+  // (kit/phone-preview.tsx). Mesmas classes no mesmo DOM, zero mudança visual.
   return (
-    <div className="ia-chat-dock">
-      <div className="ia-chat-dock__bar">
-        <I d={ICONS.smile} size={15} />
-        <span className="ia-chat-dock__title">Prévia da Cobrança</span>
-        <span className="ia-chat-dock__safe"><I d={ICONS.check} size={11} /> Sem chip</span>
-      </div>
-
-      <WhatsAppPreview
-        className="ia-chat-phone"
-        messages={messages}
-        header={{ name: "Cobrança", status: "online" }}
-        emptyHint="A prévia aparece quando você escrever a Boas-vindas ou o Menu principal"
-        quickReplies={quick.length ? quick : undefined}
-      />
-
-      <div className="ia-chat-dock__src">
-        Recovery não tem cérebro de IA — a prévia só mostra o que a config vai enviar, não simula resposta.
-      </div>
-    </div>
+    <PhonePreview
+      title="Prévia da Cobrança"
+      messages={messages}
+      header={{ name: "Cobrança", status: "online" }}
+      emptyHint="A prévia aparece quando você escrever a Boas-vindas ou o Menu principal"
+      quickReplies={quick.length ? quick : undefined}
+      footerNote="Recovery não tem cérebro de IA — a prévia só mostra o que a config vai enviar, não simula resposta."
+    />
   );
 }
