@@ -3,6 +3,9 @@
 **Por quê primeiro:** código morto é a máquina de "erro que já foi corrigido voltar" — quem
 edita o branch morto acha que consertou e o bug segue vivo no branch real.
 
+**LER ANTES:** `01-ACHADOS-AO-VIVO.md` (evidência de tela do moto g15) — este sprint executa
+os achados 3, 4, 5, 6, 8, 9 e as 2 decisões do dono.
+
 ## Evidências (conferidas 21/07)
 
 1. **Código MORTO em `modal()`** (`app.js` ~2195-2207): os dois primeiros `if` retornam
@@ -31,7 +34,33 @@ edita o branch morto acha que consertou e o bug segue vivo no branch real.
    `clientAddressText` no app.js), se `endereco` já termina com o mesmo número, não repetir.
 4. Renomear `.day-saved-delete.day-saved-edit` → só `.day-saved-edit` (CSS + app.js ~2518).
    Comentário curto no CSS: "editar; exclusão é segurar no card (Lei 1)".
-5. Passada de olho nos 4 modais de formulário que seguem bottom-sheet (`new-product` ~2208,
+5. **CSS: consolidar seletor repetido** (achado 3 — 62 casos). Regra: cada componente tem UM
+   bloco no arquivo. Juntar as 3 definições de `.content`, as 3 de `.sheet`/`.sheet-wrap`,
+   as 3 de `.stop-card`, as 3 de `.lrt-endereco-compare`, as 2 de `.app-confirm-wrap`, as 2
+   de `*`. **Cuidado cirúrgico:** ao juntar, a regra que VENCIA por ordem tem que continuar
+   vencendo — juntar preservando o valor final, nunca o primeiro. Conferir tela por tela
+   depois (screenshot antes/depois).
+6. **Apagar `.btn-danger` morto** (1ª definição, #b62f2f) e unificar os 3 vermelhos em
+   `--danger`: `.toast.error` passa a usar `color-mix`/`--danger` no lugar de #a92e2e.
+7. **Token `--cta`** (decisão do dono): criar `--cta: linear-gradient(180deg,#38e95e,#07a93f)`
+   — ou par `--cta-from/--cta-to` — no `:root` (+ variante dark se precisar) e trocar os 2
+   usos hard-coded (`.rp2-cta` linha ~188, `.center-arrow-glyph` ~569) e o botão play/transmux
+   pelo token. Comentário no CSS: "limão = identidade; --cta = ação principal (Lei 2b)".
+   NENHUM outro componente ganha esmeralda.
+8. **Azul solto** #0865df (`.rp2-mode-icon--manual`) vira token `--info` no `:root`.
+9. **Unificar switch**: `.module-switch` (usado no "salvar como minha rota de X") passa a
+   usar a mesma caixa do `.toggle` dos Ajustes. Um só componente de liga/desliga.
+10. **Pendência do card de cliente** (decisão do dono): `has-pending` só pinta card/avatar
+    quando faltar **End** ou **Dia**. Chips `Tel` e `Dup` viram neutros (`--muted`, fundo
+    `--surface-2`), sem pintar o card. Achar a origem em `clientPendingKeys` + classes
+    `.has-pending`/`.client-missing b` e separar em "bloqueante" × "informativo".
+11. **FAB não cobre conteúdo**: aumentar o padding-bottom do `.content` (ou reposicionar o
+    FAB) o suficiente pro último card da lista não ficar atrás dele.
+12. **Marca centralizada no topbar**: hoje `1fr auto 1fr` com toolbar bem maior que o spacer
+    empurra o "» HBX" pra esquerda. Resolver (spacer com a mesma largura da toolbar, ou
+    marca em `position:absolute` centrada, ou grid `auto 1fr auto` com a marca à esquerda —
+    escolher o que NÃO quebre o nome longo da empresa) e conferir com nome curto e longo.
+13. Passada de olho nos 4 modais de formulário que seguem bottom-sheet (`new-product` ~2208,
    `new-delivery` ~2216, `new-oneoff` ~2221, `client-edit-modal` ~2193): manter sheet (form
    grande PODE ser sheet), mas garantir cabeçalho idêntico (`sheet-head` = avatar + h2 +
    subtitle opcional + `.close`) e CTA final `btn btn-primary btn-block`. Divergência = corrigir.

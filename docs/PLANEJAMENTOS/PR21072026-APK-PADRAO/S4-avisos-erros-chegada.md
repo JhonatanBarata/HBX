@@ -5,6 +5,11 @@ cara; a chegada (coração do app) tem que ser idêntica nas 3 configurações d
 
 ## Evidências
 
+0. **PROVADO AO VIVO (21/07):** o status do CEP no cadastro é **texto cinza solto**, colado
+   no label do campo de baixo, sem moldura — e o aviso de SUCESSO ("Endereço preenchido.
+   Informe o número.") tem a MESMA cara do de ERRO ("CEP não encontrado. Preencha o
+   endereço."). É o exemplo mais claro da "coisa solta". Ver `01-ACHADOS-AO-VIVO.md`.
+   → esse status vira a 1ª aplicação da classe única de aviso, com variante ok × warn.
 1. **3 estilos de aviso inline diferentes** no app.css: `.lrt-endereco-warning` (~737),
    `.client-ddd-hint` (~293), `.client-duplicate-warning` (~363) — mesmos ingredientes
    (borda color-mix + fundo suave + texto pequeno), três receitas.

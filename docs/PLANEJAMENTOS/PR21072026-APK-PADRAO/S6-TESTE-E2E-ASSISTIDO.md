@@ -5,15 +5,20 @@
 grava. Se qualquer passo falhar: PARAR, corrigir, rebuildar, recomeçar DO ZERO — o vídeo é
 de uma passada limpa, sem "vou só contornar aqui".
 
-## Pré-voo (sem gravação)
+## Pré-voo (sem gravação) — estado real conferido 21/07, ver `01-ACHADOS-AO-VIVO.md`
 
-1. Conferir empresa logada no aparelho (tem que ser a de TESTE — company 45/driver 55 na
-   última sessão; se estiver numa empresa REAL de cliente, parar e alinhar com o dono).
-2. Ajustes: financeiro do cliente ON + cobrança simples ON + fiado ON; dias de trabalho
-   incluem HOJE; raio de chegada padrão; GPS concedido; créditos ≥ 10 (2 rotas × ~2 blocos).
-3. Limpar resíduo de testes antigos (clientes/rotas "123teste" etc.) usando o PRÓPRIO app
-   (segurar pra excluir — dogfooding). Dia limpo: sem rota ativa.
-4. Sortear AGORA o cliente pagador (1 dos 3, aleatório de verdade — moeda/random) e anotar.
+1. Aparelho: 213 clientes (Rio Claro), 5 produtos, 9 rotas salvas, **sem rota ativa**.
+   Dono autorizou (21/07): conta mock, pode incluir/excluir à vontade. Ainda assim: dado novo
+   sempre com prefixo `E2E` e nunca excluir em massa o que não foi criado por mim.
+2. **Ajustes › Financeiro — o estado ATUAL é: Ativar ON · Cobrança simples OFF · Na hora OFF ·
+   Mensal ON · Fiado ON · Preço por cliente ON.** Para o roteiro do dono é preciso
+   **LIGAR "Na hora"** (sem isso não existe "pagou em dinheiro") e **MANTER "Cobrança simples"
+   OFF** — o roteiro pede a folha COMPLETA (editar quantidade de galões, comprovante).
+3. **Desligar "Avisar chegada"** (hoje em 20 m) antes de rodar — evita disparo de WhatsApp real.
+4. Conferir dias de trabalho incluindo HOJE; GPS concedido; créditos ≥ 10 (2 rotas).
+5. Limpar as rotas salvas de teste antigas ("Rota 21/07", "Rota blabla", "Andre teste",
+   "QA Rota 2107 …") segurando pressionado — dogfooding do gesto.
+6. Sortear AGORA o cliente pagador (1 dos 3, aleatório de verdade) e anotar.
 
 ## Roteiro gravado
 

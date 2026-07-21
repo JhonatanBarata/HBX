@@ -19,6 +19,12 @@
 3. **Setas**: wizard Leitura/Manual já usa `center-arrow` ‹›. Auditar botões "Voltar" de
    texto dentro de popups centrais que deveriam ser seta (padrão: wizard = setas; popup de
    1 decisão = botões nomeados; sheet = fechar no X/fundo).
+4. **PROVADO AO VIVO (21/07): três saídas diferentes na mesma família de popup central** —
+   "Montar Rota" não tem X nem Voltar (só toque fora), "Rotas Salvas" tem botão "Voltar" de
+   texto, editor de rota salva tem X no canto + seta ‹ Fechar. **Padronizar:** todo popup
+   central ganha X no canto; quem é PASSO de fluxo ganha também a seta ‹ (com rótulo);
+   quem é folha (sheet) fecha no X + toque no fundo. Referência visual = editor de rota
+   salva. Ver `01-ACHADOS-AO-VIVO.md`.
 
 ## Tarefas
 

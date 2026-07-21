@@ -14,6 +14,11 @@ e confirma no final quando não tem mais avanços".
 
 ## Furos a fechar (evidência)
 
+0. **PROVADO AO VIVO (21/07, moto g15):** no form "Novo cliente" com teclado aberto, o botão
+   "Salvar cliente" fica FORA da tela. A cadeia do Enter (Nome→Telefone→CPF→CEP), a máscara
+   do telefone, o teclado numérico e o `enterkeyhint` **→|** funcionam. Ver
+   `01-ACHADOS-AO-VIVO.md`. Ou seja: o motor está certo, falta COBERTURA.
+
 1. **CTA sticky com teclado aberto só existe pra 3 forms** (`app.css` ~665-673:
    `#new-oneoff-form`, `#leitura-novo-form`, `#edit-product-form`). Os outros 8 forms
    (`new-client-form`, `client-details-form`, `client-product-form`, `new-product-form`,
