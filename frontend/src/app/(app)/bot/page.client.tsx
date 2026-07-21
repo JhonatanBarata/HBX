@@ -1,9 +1,11 @@
 "use client";
 
-// Tela Bot — painel de controle real: pino + 3 chavinhas + pré-voo + config 3 tipos + modo teste.
+// Tela Bot — painel de controle real: pino + 3 chavinhas + pré-voo + config 3 tipos.
 // B: Header com faixa do pino (read-only) + chave de liberação + 3 guias por tipo.
 // C: Aba Configurações com seletor de tipo: troca endpoint (atendimento/recovery/prospecção).
-// D: Chat de teste — simulação local do fluxo de mensagens.
+// D: S18 (MOTOR-ÚNICO) — o chat de teste FAKE (simulação local hardcoded) e o
+// BotOnboarding (wizard duplicado) morreram; o sandbox real (POST
+// /automation/agent/sandbox) e o wizard únicos vivem em /automacao (S13).
 // Design System: zero hex/inline solto — só classes/tokens centrais. CSS novo em screens.css.
 
 import Link from "next/link";
@@ -14,8 +16,6 @@ import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotPhaseEditor } from "@/components/hbx/bot-phase-editor";
 import { BotProspeccaoPanel } from "@/components/hbx/bot-prospeccao-panel";
-import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
-import { BotOnboarding, type BotOnboardingField } from "@/components/hbx/bot-onboarding";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { apiFetch } from "@/lib/api";
 
@@ -113,17 +113,11 @@ const BOT_RULES: { key: keyof BotRoutingRules; label: string; hint: string }[] =
   { key: "notifyOnNewInbound", label: "Avisar nova mensagem", hint: "Notifica a equipe a cada inbound" },
 ];
 
-// ── Modos de montagem (experiência "tipo jogo") ──────────────────────────────
-// As 3 visões mostram AS MESMAS peças (derivadas da config) — só muda o jeito de
-// montar. "ajustes" é a peça-chave especial (regras), não uma das fases de mensagem.
-type MontagemModo = "tabuleiro" | "trilha" | "bandeja";
+// ── Montagem (Tabuleiro) ──────────────────────────────────────────────────────
+// S18 (MOTOR-ÚNICO): Trilha e Bandeja morreram — a S13 manteve só Tabuleiro no
+// /automacao novo (secao-atendente.tsx). "ajustes" é a peça-chave especial
+// (regras), não uma das fases de mensagem.
 type EditorKey = keyof BotConfig | "ajustes";
-
-const MONTAGEM_MODOS: { key: MontagemModo; label: string; hint: string; icon: string }[] = [
-  { key: "tabuleiro", label: "Tabuleiro", hint: "Mapa do fluxo — clique nas peças", icon: "dash" },
-  { key: "trilha", label: "Trilha", hint: "Passo a passo numerado", icon: "vendas" },
-  { key: "bandeja", label: "Bandeja", hint: "Arraste as peças pro fluxo", icon: "filter" },
-];
 
 // Mapeamento: qual endpoint GET/PATCH de config de MENSAGEM usar por tipo.
 // Atendimento/Recovery são bots de menu (welcomeMessage/botões). Prospecção NÃO é
@@ -149,47 +143,19 @@ const PROATIVO: Record<BotTypeName, boolean> = {
   prospeccao: true,
 };
 
-// ─── Chat de teste ────────────────────────────────────────────────────────────
-
-type ChatMsg = { dir: "in" | "out"; text: string; tm: string; quick?: boolean };
-
-const CHAT0: ChatMsg[] = [
-  { dir: "in", text: "👋 Olá! Bem-vindo à HBX. Como posso te ajudar hoje?", tm: "10:30" },
-  { dir: "out", text: "Quero melhorar nosso processo comercial.", tm: "10:31" },
-  { dir: "in", text: "Qual melhor descreve sua necessidade hoje?", tm: "10:31", quick: true },
-];
-
-const EMOJIS = ["😊", "👍", "🙏", "🎉", "❤️", "😂", "🚀", "✅"];
-
-function hhmm() {
-  return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
-
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function BotClient() {
-  const [chat, setChat] = useState(CHAT0);
-  const [draft, setDraft] = useState("");
-  // config do atendimento (alimenta o organograma + chat de teste)
-  const [config, setConfig] = useState<BotConfig | null>(null);
-  const [step, setStep] = useState(0);
-  // ── Tela dividida: fase em foco + gaveta de variáveis + painel de teste ──
+  // ── Tela dividida: fase em foco + gaveta de variáveis ──
   const [activeStep, setActiveStep] = useState<string>("welcomeMessage");
   const [varsOpen, setVarsOpen] = useState(false);
   const [activeFieldKey, setActiveFieldKey] = useState<keyof BotConfig | null>(null);
-  const [testOpen, setTestOpen] = useState(false);
-  // ── Onboarding + Termos ───────────────────────────────────────────────────
-  const [onbOpen, setOnbOpen] = useState(false);
+  // ── Termos ─────────────────────────────────────────────────────────────
   const [termsOpen, setTermsOpen] = useState(false);
   // flag: após aceitar os Termos, deve ligar o bot
   const pendingActivateRef = useRef(false);
-  // guard: auto-open do onboarding dispara só 1x por tipo
-  const onbAutoRef = useRef<Set<BotTypeName>>(new Set());
-  // ── Montagem "tipo jogo": modo selecionado + peça aberta no editor deslizante ──
-  const [montagemModo, setMontagemModo] = useState<MontagemModo>("tabuleiro");
+  // ── Montagem: peça aberta no editor deslizante ──
   const [editorKey, setEditorKey] = useState<EditorKey | null>(null);
-  // peça "arrastada/solta na área" (modo Bandeja) — destaca o alvo de drop
-  const [dragOver, setDragOver] = useState(false);
   // ref do textarea da fase atualmente focada (pra inserir variável no cursor)
   const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -264,9 +230,6 @@ export function BotClient() {
   // erro EXPLÍCITO de carregamento — nunca renderiza editor com config vazia.
   const [cfgErro, setCfgErro] = useState<string | null>(null);
 
-  const endRef = useRef<HTMLDivElement | null>(null);
-  const emojiIdx = useRef(0);
-
   // ── Carregar config do tipo selecionado ───────────────────────────────────
   // setState só em callback assíncrono (regra react-hooks/set-state-in-effect).
   // initCfgTipo é para a montagem (sem setState síncrono); loadCfgTipo é para reload.
@@ -278,19 +241,6 @@ export function BotClient() {
       .then(data => {
         if (!data) { setCfgErro("Não foi possível carregar a configuração do bot."); return; }
         setCfgData(data);
-        if (tipo === "atendimento") {
-          setConfig(data);
-          if (data.welcomeMessage) {
-            setChat([{ dir: "in", text: data.welcomeMessage, tm: hhmm(), quick: true }]);
-            setStep(0);
-          }
-        }
-        // Auto-open onboarding 1x quando config carrega incompleta (sem welcomeMessage)
-        // Só para tipos que não são prospecção. Dispara no .then (async) — nunca setState síncrono.
-        if (tipo !== "prospeccao" && !data.welcomeMessage && !onbAutoRef.current.has(tipo)) {
-          onbAutoRef.current.add(tipo);
-          setOnbOpen(true);
-        }
       })
       .catch(err => {
         setCfgData(null);
@@ -309,13 +259,6 @@ export function BotClient() {
       .then(data => {
         if (!data) { setCfgErro("Não foi possível carregar a configuração do bot."); return; }
         setCfgData(data);
-        if (tipo === "atendimento") {
-          setConfig(data);
-          if (data.welcomeMessage) {
-            setChat([{ dir: "in", text: data.welcomeMessage, tm: hhmm(), quick: true }]);
-            setStep(0);
-          }
-        }
       })
       .catch(err => {
         setCfgData(null);
@@ -343,9 +286,6 @@ export function BotClient() {
   function selecionarTipo(tipo: BotTypeName) {
     setCfgTipo(tipo);
     setEditorKey(null);
-    setChat([]);
-    setStep(0);
-    setDraft("");
     if (tipo === "prospeccao") {
       setCfgErro(null);
       setCfgMsg(null);
@@ -385,8 +325,8 @@ export function BotClient() {
   const acoesDisponiveis = (cfgData?.actionCatalog || []).filter(a => a.enabled !== false);
   const canUseOfficialButtons = cfgData?.providerCapabilities?.canUseOfficialButtons ?? false;
 
-  // ── Peças (modos de montagem) ─────────────────────────────────────────────
-  // Lista de peças exibida pelos 3 modos: as 7 fases reais + "Ajustes" (regras,
+  // ── Peças (Tabuleiro) ─────────────────────────────────────────────────────
+  // Lista de peças do organograma: as 7 fases reais + "Ajustes" (regras,
   // só no atendimento). NADA inventado — espelha BOT_MSG_FIELDS / BOT_RULES.
   type Peca = { key: EditorKey; label: string; hint: string; icon: string; tone: string; buttonsKey?: BotaoGrupo; settings?: boolean };
   const pecas: Peca[] = useMemo(() => {
@@ -399,34 +339,14 @@ export function BotClient() {
     return fases;
   }, [cfgTipo]);
 
-  // Uma peça está "pronta" se a mensagem está preenchida OU tem botões. A peça
-  // "Ajustes" conta como pronta se o bot está ligado nas regras (globalBotEnabled).
-  function pecaPronta(p: Peca): boolean {
-    if (p.settings) return ruleValue("globalBotEnabled");
-    const valor = p.key === "ajustes" ? "" : cfgValue(p.key as keyof BotConfig);
-    const botoes = p.buttonsKey ? botoesDe(p.buttonsKey) : [];
-    return valor.trim().length > 0 || botoes.length > 0;
-  }
-
-  const pecasProntas = pecas.filter(pecaPronta).length;
-  const pecasPct = pecas.length > 0 ? Math.round((pecasProntas / pecas.length) * 100) : 0;
-
-  // Abre uma peça no editor deslizante (qualquer modo). Fase real → também
+  // Abre uma peça no editor deslizante. Fase real → também
   // destaca o nó (activeStep). "Ajustes" não é nó, só abre o editor.
   function abrirPeca(key: EditorKey) {
     setEditorKey(key);
     if (key !== "ajustes") setActiveStep(String(key));
   }
 
-  // ── Variáveis: abre a gaveta apontando pra uma fase + insere no cursor ──────
-
-  // Abre a gaveta de variáveis ancorada num campo (guarda o textarea focado).
-  function abrirVariaveis(key: keyof BotConfig, el: HTMLTextAreaElement | null) {
-    setActiveFieldKey(key);
-    setActiveStep(String(key));
-    activeFieldRef.current = el;
-    setVarsOpen(true);
-  }
+  // ── Variáveis: insere no cursor do textarea ancorado ────────────────────────
 
   // Insere o token na posição do cursor do textarea salvo; reposiciona o cursor.
   function inserirVariavel(token: string) {
@@ -463,22 +383,6 @@ export function BotClient() {
     return base;
   }, [cfgData, cfgForm, cfgBotoes]);
 
-  // ── Prévia ao vivo do Tabuleiro (Atendimento/Recovery): deriva a conversa da
-  // config (boas-vindas + menu). Atualiza enquanto edita. Read-only — o teste
-  // interativo continua no drawer "Testar bot". ──
-  const boardPreviewMessages = useMemo<WAMessage[]>(() => {
-    const out: WAMessage[] = [];
-    const wc = typeof configVivo.welcomeMessage === "string" ? configVivo.welcomeMessage.trim() : "";
-    if (wc) out.push({ dir: "in", text: wc, time: "agora" });
-    const mm = typeof configVivo.mainMenuPrompt === "string" ? configVivo.mainMenuPrompt.trim() : "";
-    if (mm) out.push({ dir: "in", text: mm, time: "agora" });
-    return out;
-  }, [configVivo]);
-  const boardQuick = useMemo<string[]>(() => {
-    const grp = (configVivo.mainMenuButtons?.length ? configVivo.mainMenuButtons : configVivo.welcomeButtons) || [];
-    return grp.map(b => b.title).filter(Boolean);
-  }, [configVivo]);
-
   // PATCH full-replace: parte da config completa + sobrepõe edições
   function buildBody(overrides?: { globalBotEnabled?: boolean }): Record<string, unknown> {
     const body: Record<string, unknown> = cfgData ? { ...cfgData } : {};
@@ -513,7 +417,6 @@ export function BotClient() {
       });
       if (updated && typeof updated === "object") {
         setCfgData(updated);
-        if (cfgTipo === "atendimento") setConfig(updated);
       }
       setCfgForm({});
       setCfgRules({});
@@ -555,116 +458,9 @@ export function BotClient() {
     setCfgMsg("✓ Recarregando…");
   }
 
-  // ── Chat de teste ─────────────────────────────────────────────────────────
-
-  // Tipo selecionado no chat (Fluxo) — controla qual tipo "mark-tested" vai chamar
-  const [chatTipo, setChatTipo] = useState<BotTypeName>("atendimento");
-
-  function resetChat() {
-    if (config?.welcomeMessage) setChat([{ dir: "in", text: config.welcomeMessage, tm: hhmm(), quick: true }]);
-    else setChat(CHAT0);
-    setStep(0);
-    setDraft("");
-  }
-
-  function reply(text: string) {
-    const now = hhmm();
-    setChat(c => {
-      const next: ChatMsg[] = [...c.map(m => ({ ...m, quick: false })), { dir: "out" as const, text, tm: now }];
-      if (config) {
-        if (step === 0 && config.mainMenuPrompt) {
-          next.push({ dir: "in" as const, text: config.mainMenuPrompt, tm: now, quick: Boolean(config.mainMenuButtons?.length) });
-        } else if (config.postActionPrompt) {
-          next.push({ dir: "in" as const, text: config.postActionPrompt, tm: now });
-        }
-      } else {
-        next.push({ dir: "in" as const, text: "Perfeito! Posso agendar uma conversa com nosso especialista?", tm: now });
-      }
-      return next;
-    });
-    const novoStep = step + 1;
-    setStep(novoStep);
-  }
-
-  function send() { if (!draft.trim()) return; reply(draft.trim()); setDraft(""); }
-
-  function addEmoji() {
-    const e = EMOJIS[emojiIdx.current % EMOJIS.length];
-    emojiIdx.current += 1;
-    setDraft(d => d + e);
-  }
-
-  useEffect(() => { if (endRef.current) endRef.current.scrollTop = endRef.current.scrollHeight; }, [chat]);
-
   // ── Derived state ─────────────────────────────────────────────────────────
 
   const act = activation ?? defaultActivation;
-  const setupBadge = cfgData
-    ? cfgData.setup?.completed ? "✓ Configurado" : "Configuração pendente"
-    : "✓ Salvo";
-
-  const quickOptions = config
-    ? (step === 0 ? config.welcomeButtons : config.mainMenuButtons)?.map(b => b.title).filter(Boolean) || []
-    : ["Aumentar vendas", "Organizar processos", "Encontrar novos clientes", "Outro"];
-
-  // ── Painel "Testar bot" deslizante (reusa .hbx-veil/.hbx-drawer) ──────────
-  // Mesmo chat/estado de antes (mark-tested intacto), agora numa casca slide.
-  // Mapeia o chat de teste pro formato do <WhatsAppPreview> (preview padrão).
-  const previewMessages: WAMessage[] = chat.map(m => ({
-    dir: m.dir,
-    text: m.text,
-    time: m.tm,
-    status: m.dir === "out" ? "read" : undefined,
-  }));
-  const lastQuick = Boolean(chat[chat.length - 1]?.quick) && quickOptions.length > 0;
-
-  const testDrawer = testOpen ? (
-    <div
-      className="hbx-veil to-right"
-      onClick={e => { if (e.target === e.currentTarget) setTestOpen(false); }}
-    >
-      <div
-        className="hbx-drawer bot-test-drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Testar bot"
-      >
-        <div className="test-head">
-          <h2>Teste seu bot</h2>
-          <select
-            className="field-dark bot-chat-tipo-sel"
-            value={chatTipo}
-            onChange={e => { setChatTipo(e.target.value as BotTypeName); resetChat(); }}
-            aria-label="Tipo de bot no teste"
-          >
-            <option value="atendimento">Atendimento</option>
-            <option value="recovery">Recovery</option>
-            <option value="prospeccao">Prospecção</option>
-          </select>
-          <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Reiniciar conversa de teste" onClick={resetChat}><I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={14} /></button>
-          <button className="icon-ghost" style={{ width: 28, height: 28 }} aria-label="Fechar" title="Fechar" onClick={() => setTestOpen(false)}>✕</button>
-        </div>
-
-        <WhatsAppPreview
-          messages={previewMessages}
-          header={{ name: "HBX Bot", status: "online agora" }}
-          quickReplies={lastQuick ? quickOptions : undefined}
-          onQuickReply={reply}
-          bodyRef={endRef}
-          footer={(
-            <div className="wa-composer-row">
-              <input className="field-dark wa-composer-input" placeholder="Digite sua mensagem..." value={draft}
-                onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
-              <button className="icon-ghost" title="Inserir emoji" onClick={addEmoji}><I d={ICONS.smile} size={16} /></button>
-              <button className="send" onClick={send}><I d={ICONS.send} size={15} /></button>
-            </div>
-          )}
-        />
-
-        <div className="test-foot">⚡ Teste simulado · As respostas podem variar.</div>
-      </div>
-    </div>
-  ) : null;
 
   // ── Gaveta de variáveis (compartilhada por todas as fases / aba Config) ────
   const variablesDrawer = (
@@ -676,7 +472,7 @@ export function BotClient() {
     />
   );
 
-  // ── Editor deslizante de peça (compartilhado pelos 3 modos) ───────────────
+  // ── Editor deslizante de peça ───────────────────────────────────────────
   // Montado SÓ quando há peça selecionada (editorKey). O próprio componente
   // desmonta ao fechar (padrão closing→finishClose), então não trava o véu.
   const pecaAtual = editorKey ? pecas.find(p => p.key === editorKey) ?? null : null;
@@ -741,13 +537,15 @@ export function BotClient() {
               {cfgMsg}
             </span>
           )}
-          {/* Prospecção tem barra própria no painel (Salvar disparo / recarregar);
-              o teste simulado é de menu (atendimento), não faz sentido no disparo frio. */}
+          {/* Prospecção tem barra própria no painel (Salvar disparo / recarregar). */}
           {cfgTipo !== "prospeccao" && (
             <>
               <button className="btn-ghost" style={{ minWidth: 38 }} title="Recarregar configuração" onClick={recarregar} disabled={cfgBusy}>⋯</button>
-              <button className="btn-ghost" onClick={() => setOnbOpen(true)}><I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda</button>
-              <button className="btn-ghost" onClick={() => setTestOpen(true)}><I d={ICONS.send} size={13} /> Testar bot</button>
+              {!act.types[cfgTipo].live && (
+                <button className="btn-ghost" onClick={requestActivate} disabled={cfgBusy || actBusy}>
+                  <I d={ICONS.bolt || ICONS.check} size={13} /> Ativar bot
+                </button>
+              )}
               <button className="btn-ghost" onClick={salvarConfig} disabled={cfgBusy}>{cfgBusy ? "Salvando…" : "Salvar"}</button>
             </>
           )}
@@ -797,196 +595,32 @@ export function BotClient() {
           </div>
         ) : (
           <div className="bot-montagem">
-            {/* Switcher de modo (segmented control): Tabuleiro · Trilha · Bandeja */}
-            <div className="bot-modos" role="tablist" aria-label="Modo de montagem">
-              {MONTAGEM_MODOS.map(m => (
-                <button
-                  key={m.key}
-                  role="tab"
-                  type="button"
-                  aria-selected={montagemModo === m.key}
-                  className={"bot-modo" + (montagemModo === m.key ? " on" : "")}
-                  title={m.hint}
-                  onClick={() => setMontagemModo(m.key)}
-                >
-                  <I d={ICONS[m.icon] || ICONS.dash} size={14} />
-                  <span className="bot-modo__name">{m.label}</span>
-                </button>
-              ))}
-              <span className="bot-modo__hint">{MONTAGEM_MODOS.find(m => m.key === montagemModo)?.hint}</span>
-            </div>
-
-            {/* ── MODO TABULEIRO: organograma à esquerda + prévia encaixada à direita ── */}
-            {montagemModo === "tabuleiro" && (
-              <div className="bot-modo-view bot-modo-view--tabuleiro">
-                <div className="bot-board-canvas">
-                  <BotFlowCanvas config={configVivo} activeStep={activeStep} onPickNode={k => abrirPeca(k as EditorKey)} />
-                  {cfgTipo === "atendimento" && (
-                    <button
-                      type="button"
-                      className={"bot-board-settings" + (editorKey === "ajustes" ? " on" : "")}
-                      onClick={() => abrirPeca("ajustes")}
-                      title="Regras gerais do bot"
-                    >
-                      <span className="bot-board-settings__icon"><I d={ICONS.config} size={14} /></span>
-                      <span className="bot-board-settings__txt">Ajustes</span>
-                      <span className={"bot-board-settings__dot" + (ruleValue("globalBotEnabled") ? " on" : "")} aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-                <aside className="bot-preview-dock">
-                  <button type="button" className="bot-preview-reset" title="Reiniciar conversa" onClick={resetChat}>
-                    <I d={["M21 12a9 9 0 1 1-3-6.7", "M21 3v6h-6"]} size={12} />
+            {/* Tabuleiro: organograma central — Trilha e Bandeja morreram (S18,
+                README "DESCARTAR"); a S13 já manteve só este modo no /automacao novo. */}
+            <div className="bot-modo-view bot-modo-view--tabuleiro">
+              <div className="bot-board-canvas">
+                <BotFlowCanvas config={configVivo} activeStep={activeStep} onPickNode={k => abrirPeca(k as EditorKey)} />
+                {cfgTipo === "atendimento" && (
+                  <button
+                    type="button"
+                    className={"bot-board-settings" + (editorKey === "ajustes" ? " on" : "")}
+                    onClick={() => abrirPeca("ajustes")}
+                    title="Regras gerais do bot"
+                  >
+                    <span className="bot-board-settings__icon"><I d={ICONS.config} size={14} /></span>
+                    <span className="bot-board-settings__txt">Ajustes</span>
+                    <span className={"bot-board-settings__dot" + (ruleValue("globalBotEnabled") ? " on" : "")} aria-hidden="true" />
                   </button>
-                  <WhatsAppPreview
-                    messages={previewMessages}
-                    header={{ name: "HBX Bot", status: "online" }}
-                    quickReplies={lastQuick ? quickOptions : undefined}
-                    onQuickReply={reply}
-                    bodyRef={endRef}
-                    footer={(
-                      <div className="wa-composer-row">
-                        <button className="icon-ghost" style={{ width: 28, height: 28 }} title="Emoji" onClick={addEmoji}>
-                          <I d={ICONS.smile} size={16} />
-                        </button>
-                        <input
-                          className="field-dark wa-composer-input"
-                          placeholder="Digite sua mensagem..."
-                          value={draft}
-                          onChange={e => setDraft(e.target.value)}
-                          onKeyDown={e => e.key === "Enter" && send()}
-                        />
-                        <button className="send" onClick={send}>
-                          <I d={ICONS.send} size={15} />
-                        </button>
-                      </div>
-                    )}
-                    emptyHint="A prévia aparece quando você escrever a Boas-vindas"
-                  />
-                </aside>
+                )}
               </div>
-            )}
-
-            {/* ── MODO TRILHA: passos numerados verticais que ACENDEM ── */}
-            {montagemModo === "trilha" && (
-              <div className="bot-modo-view bot-modo-view--trilha">
-                <ol className="bot-trail">
-                  {pecas.map((p, i) => {
-                    const pronto = pecaPronta(p);
-                    const aberto = editorKey === p.key;
-                    return (
-                      <li key={String(p.key)} className={"bot-trail__step" + (pronto ? " is-done" : "") + (aberto ? " is-open" : "")}>
-                        <span className="bot-trail__rail" aria-hidden="true" />
-                        <span className="bot-trail__num" style={{ ["--bot-phase-color" as string]: p.tone }}>
-                          {pronto ? <I d={ICONS.check} size={13} /> : i + 1}
-                        </span>
-                        <button type="button" className="bot-trail__card" onClick={() => abrirPeca(p.key)}>
-                          <span className="bot-trail__icon" style={{ ["--bot-phase-color" as string]: p.tone }}>
-                            <I d={ICONS[p.icon] || ICONS.msg} size={15} />
-                          </span>
-                          <span className="bot-trail__titles">
-                            <span className="bot-trail__name">{p.label}</span>
-                            <span className="bot-trail__hint">{p.hint}</span>
-                          </span>
-                          <span className={"bot-trail__badge" + (pronto ? " bot-trail__badge--ready" : "")}>
-                            {pronto ? "Pronto" : "Montar"}
-                          </span>
-                          <span className="bot-trail__chev" aria-hidden="true"><I d={ICONS.arrow} size={12} /></span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-            )}
-
-            {/* ── MODO BANDEJA: arrasta peça da bandeja → área de montagem ── */}
-            {montagemModo === "bandeja" && (
-              <div className="bot-modo-view bot-modo-view--bandeja">
-                <div className="bot-tray">
-                  <span className="bot-tray__title">Peças disponíveis</span>
-                  <span className="bot-tray__sub">Arraste para a área ao lado (ou clique) para montar</span>
-                  <div className="bot-tray__chips">
-                    {pecas.map(p => {
-                      const pronto = pecaPronta(p);
-                      return (
-                        <button
-                          key={String(p.key)}
-                          type="button"
-                          className={"bot-chip" + (pronto ? " is-done" : "")}
-                          draggable
-                          onDragStart={e => { e.dataTransfer.setData("text/plain", String(p.key)); e.dataTransfer.effectAllowed = "move"; }}
-                          onClick={() => abrirPeca(p.key)}
-                          title={pronto ? "Editar peça" : "Arraste pra montar ou clique"}
-                        >
-                          <span className="bot-chip__icon" style={{ ["--bot-phase-color" as string]: p.tone }}>
-                            <I d={ICONS[p.icon] || ICONS.msg} size={13} />
-                          </span>
-                          <span className="bot-chip__name">{p.label}</span>
-                          {pronto && <span className="bot-chip__done" aria-hidden="true"><I d={ICONS.check} size={11} /></span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div
-                  className={"bot-drop" + (dragOver ? " is-over" : "")}
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (!dragOver) setDragOver(true); }}
-                  onDragLeave={e => { if (e.target === e.currentTarget) setDragOver(false); }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    setDragOver(false);
-                    const k = e.dataTransfer.getData("text/plain");
-                    if (k) abrirPeca(k as EditorKey);
-                  }}
-                >
-                  <div className="bot-drop__inner">
-                    <span className="bot-drop__icon"><I d={ICONS.plus} size={22} /></span>
-                    <strong className="bot-drop__title">Solte a peça aqui</strong>
-                    <span className="bot-drop__hint">Arraste uma peça da bandeja para começar a preenchê-la</span>
-                    <div className="bot-drop__progress">
-                      <span className="bot-drop__count">{pecasProntas} de {pecas.length} peças · {pecasPct}%</span>
-                      <span className="bot-drop__track"><span className="bot-drop__fill" style={{ width: `${pecasPct}%` }} /></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Gaveta de variáveis + editor de peça (deslizam da direita) + painel de teste */}
+      {/* Gaveta de variáveis + editor de peça (deslizam da direita) */}
       {variablesDrawer}
       {phaseEditor}
-      {testDrawer}
-
-      {/* Onboarding assistido (Atendimento/Recovery) */}
-      <BotOnboarding
-        open={onbOpen && cfgTipo !== "prospeccao"}
-        botType={cfgTipo as "atendimento" | "recovery"}
-        fields={BOT_MSG_FIELDS.map<BotOnboardingField>(f => ({
-          key: String(f.key),
-          label: f.label,
-          hint: f.hint,
-          icon: f.icon,
-          tone: f.color,
-          buttonsKey: f.buttonsKey,
-        }))}
-        value={k => cfgValue(k as keyof BotConfig)}
-        onChange={(k, v) => setCfgForm(prev => ({ ...prev, [k]: v }))}
-        onSave={async () => { await salvarConfig(); }}
-        saving={cfgBusy}
-        connectionReady={act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado}
-        connectionHint={
-          act.types[cfgTipo as "atendimento" | "recovery"].preflight.chipConectado
-            ? "WhatsApp conectado"
-            : "Conexão pendente — peça ao Suporte"
-        }
-        onClose={() => setOnbOpen(false)}
-        onRequestActivate={() => { setOnbOpen(false); requestActivate(); }}
-      />
 
       {/* Gate de Termos antes de ativar */}
       <BotTermsModal

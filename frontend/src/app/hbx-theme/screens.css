@@ -239,9 +239,6 @@ html, body { height: 100%; }
 .bot-cfg-tipo-btn.on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand); }
 .bot-cfg-tipo-desc { font-size: 0.68rem; color: var(--text-muted); margin-left: 8px; }
 
-/* Seletor de tipo no chat de teste (parte D) */
-.bot-chat-tipo-sel { min-height: unset; height: 26px; padding: 0 8px; font-size: 0.68rem; max-width: 120px; }
-
 .bot-tabs { display: flex; gap: 2px; padding: 10px 22px 0; border-bottom: 1px solid var(--border-hairline); }
 .bot-tab { padding: 10px 14px; border: none; background: none; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8rem; font-weight: 700; cursor: pointer; border-bottom: 2px solid transparent; }
 .bot-tab.on { color: var(--hbx-brand-strong); border-bottom-color: var(--login-accent); }

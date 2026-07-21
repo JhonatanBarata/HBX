@@ -66,11 +66,11 @@
 @import "./hbx-theme/automacao.css";
 
 /* Preview padrão do sistema (cara fiel de WhatsApp) + tutofig da Prospecção +
-   onboarding gamificado dos bots de menu + gate de Termos de Uso.
+   gate de Termos de Uso. BotOnboarding (wizard duplicado do /bot velho) morreu
+   na S18 (MOTOR-ÚNICO) — o wizard do Atendente (/automacao, S13) é o único.
    Depois de transitions.css (reusam .hbx-veil) e antes das peles. */
 @import "./hbx-theme/whatsapp.css";
 @import "./hbx-theme/bot-tutofig.css";
-@import "./hbx-theme/bot-onboarding.css";
 @import "./hbx-theme/bot-terms.css";
 /* Pop-up de aviso do Motor de disparo frio (sem crédito / não configurado /
    fila vazia / erro) — mesmo molde do gate de termos acima. */
