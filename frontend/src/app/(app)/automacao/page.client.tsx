@@ -40,6 +40,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { IlustracaoAtender, IlustracaoBuscar, IlustracaoCobrar, IlustracaoReagir } from "./kit/ilustracoes";
+import { MiniFluxo, type MiniFluxoNode } from "./kit/mini-fluxo";
+import { StatusChip, type StatusTone } from "./kit/status-chip";
 import { SecaoAtendente } from "./secao-atendente";
 import { SecaoCobranca } from "./secao-cobranca";
 import { SecaoProspeccao } from "./secao-prospeccao";
@@ -116,18 +119,24 @@ const EMPTY_MODULE_ACCESS: Overview["moduleAccess"] = { atendimento: false, bot:
 
 // ================================================================
 // Cartão-objetivo — normaliza cada bloco do overview num view-model comum
-// (dot de status, 1 número-chave, aviso opcional). Fail-soft: bloco
-// `ok:false` nunca derruba a tela, vira estado "Indisponível".
-// ================================================================
-type Dot = "on" | "warn" | "off" | "muted";
+// (tone de status ÚNICO — kit/status-chip.tsx, Lei nº3 —, 1 número-chave,
+// aviso opcional). Fail-soft: bloco `ok:false` nunca derruba a tela, vira
+// estado "Indisponível". S02 (PADRAO-MERCADO): `dot`/`icon`/`sub` saíram —
+// o dot solto virou StatusChip (mesmo componente do resto do módulo) e o
+// ícone plano virou ilustração (SECAO_ILUSTRACAO, abaixo); `sub` (parágrafo
+// descritivo) foi removido da tela sem substituto — a forma (ilustração +
+// MiniFluxo + número + StatusChip) assume, nenhuma frase nova no lugar.
 type CardVM = {
   key: SecaoKey;
   titulo: string;
-  sub: string;
-  icon: keyof typeof ICONS;
-  dot: Dot;
+  tone: StatusTone;
   stateLabel: string;
   metric: { value: string; label: string } | null;
+  // NOVO (S02) — linha secundária, peso MENOR que o StatusChip. Hoje só o
+  // cartão Cobrança usa (achado A6): nunca 2 termos de status com o mesmo
+  // peso, então "Disparo automático" só vira texto quando DIVERGE do estado
+  // principal — ver o bloco `cobranca` abaixo.
+  secondary: string | null;
   note: string | null;
 };
 
@@ -135,7 +144,7 @@ const INDISPONIVEL_NOTE = "Não deu pra ler o status agora — tente recarregar.
 
 function buildCard(key: SecaoKey, ov: Overview): CardVM {
   const meta = SECAO_META[key];
-  const base = { key, titulo: meta.titulo, sub: meta.sub, icon: meta.icon };
+  const base = { key, titulo: meta.titulo };
   // Chip do WhatsApp é o MESMO pino físico pra todos os tipos de bot — usar o
   // preflight do bloco `motor` (fonte única) como proxy pros cartões que
   // dependem dele. `null` = motor indisponível (fail-soft: não assusta com
@@ -144,81 +153,128 @@ function buildCard(key: SecaoKey, ov: Overview): CardVM {
 
   if (key === "atendente") {
     const b = ov.atendente;
-    if (!b.ok) return { ...base, dot: "muted", stateLabel: "Indisponível", metric: null, note: INDISPONIVEL_NOTE };
+    if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
     const brainLabel = b.brain === "ia" ? "IA" : b.brain === "roteiro" ? "Roteiro" : "—";
     const publishBloqueado = ov.motor.ok && ov.motor.publishEnabled === false;
-    let dot: Dot = "off";
+    let tone: StatusTone = "pausado";
     let stateLabel = "Não configurado";
     if (b.published && !publishBloqueado) {
-      dot = "on";
+      tone = "ligado";
       stateLabel = "Ligado";
     } else if (b.published && publishBloqueado) {
-      dot = "warn";
+      tone = "atencao";
       stateLabel = "Aguardando suporte";
     } else if (b.brain) {
-      dot = "muted";
+      tone = "rascunho";
       stateLabel = "Rascunho";
     }
     return {
       ...base,
-      dot,
+      tone,
       stateLabel,
       metric: { value: brainLabel, label: "Cérebro atual" },
+      secondary: null,
       note: chipOk === false ? "Sem chip do WhatsApp conectado." : null,
     };
   }
 
   if (key === "cobranca") {
     const b = ov.cobranca;
-    if (!b.ok) return { ...base, dot: "muted", stateLabel: "Indisponível", metric: null, note: INDISPONIVEL_NOTE };
-    let dot: Dot = "off";
+    if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
+    let tone: StatusTone = "pausado";
     let stateLabel = "Pausado";
     if (b.live) {
-      dot = "on";
+      tone = "ligado";
       stateLabel = "Ativo";
     } else if (chipOk === false) {
-      dot = "warn";
+      tone = "atencao";
       stateLabel = "Pré-voo: sem chip";
     }
+    // A6 (README) — antes: dot solto "Pausado" + metric GRANDE "Ligado"
+    // liam como 2 status discordantes com o MESMO peso visual (achado do
+    // QA). `workerEnabled` é flag de INFRA (disparo automático do sistema),
+    // não config da empresa — deixa de ser metric; vira linha secundária
+    // (peso menor, ver .aut-obj-card__secondary) e só aparece quando
+    // DIVERGE do estado principal (b.live). Quando bate, é redundante e some.
+    const secondary = b.workerEnabled !== b.live
+      ? (b.workerEnabled ? "envio automático ativo" : "envio automático pausado")
+      : null;
     return {
       ...base,
-      dot,
+      tone,
       stateLabel,
-      metric: { value: b.workerEnabled ? "Ligado" : "Manual", label: "Disparo automático" },
-      note: dot === "warn" ? "Conecte o WhatsApp para o recovery sair do pré-voo." : null,
+      metric: null,
+      secondary,
+      note: tone === "atencao" ? "Conecte o WhatsApp para o recovery sair do pré-voo." : null,
     };
   }
 
   if (key === "prospeccao") {
     const b = ov.prospeccao;
-    if (!b.ok) return { ...base, dot: "muted", stateLabel: "Indisponível", metric: null, note: INDISPONIVEL_NOTE };
-    let dot: Dot = "off";
+    if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
+    let tone: StatusTone = "pausado";
     let stateLabel = "Pausado";
     if (b.live) {
-      dot = "on";
+      tone = "ligado";
       stateLabel = "Ativo";
     } else if (b.campaignId) {
-      dot = "muted";
+      tone = "rascunho";
       stateLabel = "Configurado";
     }
-    return { ...base, dot, stateLabel, metric: { value: String(b.pendingLeads), label: "Leads dentro" }, note: null };
+    return { ...base, tone, stateLabel, metric: { value: String(b.pendingLeads), label: "Leads dentro" }, secondary: null, note: null };
   }
 
   // regras
   const b = ov.regras;
-  if (!b.ok) return { ...base, dot: "muted", stateLabel: "Indisponível", metric: null, note: INDISPONIVEL_NOTE };
+  if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
   const total = b.gatilhosAtivos + b.rotinasAtivas;
   return {
     ...base,
-    dot: total > 0 ? "on" : "off",
+    tone: total > 0 ? "ligado" : "pausado",
     stateLabel: total > 0 ? "Ativo" : "Nada ligado",
     metric: {
       value: String(total),
       label: `${b.gatilhosAtivos} gatilho${b.gatilhosAtivos === 1 ? "" : "s"} · ${b.rotinasAtivas} rotina${b.rotinasAtivas === 1 ? "" : "s"}`,
     },
+    secondary: null,
     note: null,
   };
 }
+
+// Mapas estáticos de apresentação por objetivo (S02) — a ilustração (kit/
+// ilustracoes.tsx) e o mini-fluxo compacto (kit/mini-fluxo.tsx) NÃO vêm do
+// overview: são a FORMA fixa de cada objetivo (o dado real vira StatusChip +
+// número-chave, via buildCard acima). Ficam fora de SECAO_META por serem
+// puramente visuais, não meta de conteúdo.
+const SECAO_ILUSTRACAO: Record<SecaoKey, (props: { className?: string }) => React.ReactElement> = {
+  atendente: IlustracaoAtender,
+  cobranca: IlustracaoCobrar,
+  prospeccao: IlustracaoBuscar,
+  regras: IlustracaoReagir,
+};
+
+const SECAO_FLUXO: Record<SecaoKey, MiniFluxoNode[]> = {
+  atendente: [
+    { icon: "msg", label: "Mensagem" },
+    { icon: "atend", label: "Bot/IA" },
+    { icon: "check", label: "Resposta" },
+  ],
+  cobranca: [
+    { icon: "clock", label: "Vencido" },
+    { icon: "send", label: "Lembrete" },
+    { icon: "money", label: "Recebido" },
+  ],
+  prospeccao: [
+    { icon: "search", label: "Lead" },
+    { icon: "send", label: "Cadência" },
+    { icon: "users", label: "Funil" },
+  ],
+  regras: [
+    { icon: "bolt", label: "Gatilho" },
+    { icon: "clock", label: "Rotina" },
+    { icon: "users", label: "Funil" },
+  ],
+};
 
 // ================================================================
 // RAIZ
@@ -309,20 +365,15 @@ export function AutomacaoHubClient() {
       <header className="auto-hero">
         <div className="auto-hero__id">
           <span className="auto-hero__badge"><I d={ICONS.automacao} size={22} /></span>
-          <div style={{ minWidth: 0 }}>
-            <div className="auto-hero__title">Automação</div>
-            <div className="auto-hero__sub">Uma superfície só, entrada por objetivo — atender, cobrar, buscar e reagir sozinhos.</div>
-          </div>
+          <div className="auto-hero__title">Automação</div>
         </div>
+        {/* S02 (PADRAO-MERCADO) — hero enxuto: a frase "Uma superfície só..."
+            e a explicação à direita saíram sem substituto (Lei nº1). O
+            StatusChip fala sozinho: tone `ligado`/`atencao` já diz o estado;
+            a AÇÃO (conectar o WhatsApp) vira tooltip, só quando falta chip. */}
         <div className="auto-engine">
-          <span className={"auto-engine__chip " + (motorOn ? "is-on" : "is-off")}>
-            <span className="auto-engine__dot" />
-            {motorOn ? "WhatsApp conectado" : "Sem chip conectado"}
-          </span>
-          <span className="auto-engine__hint">
-            {motorOn
-              ? "O chip está pronto — cada cartão abaixo mostra se o objetivo está ligado de verdade."
-              : "Conecte o WhatsApp em qualquer seção com chip pros objetivos saírem do papel."}
+          <span title={motorOn ? undefined : "Conecte o WhatsApp em qualquer seção com chip para os objetivos saírem do papel."}>
+            <StatusChip tone={motorOn ? "ligado" : "atencao"} label={motorOn ? "WhatsApp conectado" : "Sem chip"} />
           </span>
         </div>
       </header>
@@ -362,28 +413,37 @@ export function AutomacaoHubClient() {
 }
 
 function ObjetivoCard({ card, onAbrir }: { card: CardVM; onAbrir: () => void }) {
+  const Ilustracao = SECAO_ILUSTRACAO[card.key];
   return (
     <div className="aut-obj-card">
       <div className="aut-obj-card__head">
-        <span className="aut-obj-card__icon"><I d={ICONS[card.icon]} size={18} /></span>
-        <div style={{ minWidth: 0 }}>
+        <span className="aut-obj-card__illus" aria-hidden="true"><Ilustracao /></span>
+        <div className="aut-obj-card__head-text">
           <div className="aut-obj-card__title">{card.titulo}</div>
-          <div className="aut-obj-card__sub">{card.sub}</div>
+          <MiniFluxo nodes={SECAO_FLUXO[card.key]} compact />
         </div>
       </div>
 
       <div className="aut-obj-card__status">
-        <span className={"aut-obj-dot is-" + card.dot} />
-        <span>{card.stateLabel}</span>
+        <StatusChip tone={card.tone} label={card.stateLabel} />
+        {/* Preflight ruim (S02, item 4): ícone+tooltip no lugar da frase
+            solta — o texto de `card.note` só existe no hover (`title`). */}
+        {card.note && (
+          <span className="aut-obj-card__notebadge" title={card.note}>
+            <I d={ICONS.bell} size={12} />
+          </span>
+        )}
       </div>
 
-      <div className="aut-obj-card__metric">
-        <span className="aut-obj-card__metric-n">{card.metric ? card.metric.value : "—"}</span>
-        <span className="aut-obj-card__metric-l">{card.metric ? card.metric.label : "Sem dado"}</span>
-      </div>
+      {/* A6 (S02, item 3): linha secundária — só existe quando diverge do
+          StatusChip acima; hoje só o cartão Cobrança preenche `secondary`. */}
+      {card.secondary && <div className="aut-obj-card__secondary">{card.secondary}</div>}
 
-      {card.note && (
-        <div className="aut-obj-card__note"><I d={ICONS.bell} size={13} /><span>{card.note}</span></div>
+      {card.metric && (
+        <div className="aut-obj-card__metric">
+          <span className="aut-obj-card__metric-n">{card.metric.value}</span>
+          <span className="aut-obj-card__metric-l">{card.metric.label}</span>
+        </div>
       )}
 
       <div className="aut-obj-card__foot">
