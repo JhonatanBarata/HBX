@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ModulesService } from '../modules/modules.service';
 import { AssistenteService } from '../assistente/assistente.service';
@@ -7,6 +7,7 @@ import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 import { VendasAutomationService } from '../vendas/vendas-automation.service';
 import { CadenciaGatilhoService } from '../cadencia/cadencia-gatilho.service';
 import { CadenciaRotinaService } from '../cadencia/cadencia-rotina.service';
+import { OutboundOrchestratorService, type OutboundExecutorTelemetry } from './outbound-orchestrator.service';
 
 // ============================================================================
 // S04 (MOTOR-ÚNICO) — AutomationOverviewService.
@@ -49,7 +50,15 @@ export type AutomationOverviewResponse = {
   // (runnerEnabled da cadência, publishEnabled do assistente) e identidade do
   // chip"). Não remove nem renomeia nenhum campo do contrato; só soma um
   // bloco novo, também fail-soft.
-  motor: OverviewBlock<{ runnerEnabled: boolean; publishEnabled: boolean; chipConectado: boolean }>;
+  // `executores` entrou na S07 (MOTOR-ÚNICO) — ADITIVO dentro do bloco `motor`
+  // já existente (nenhum campo anterior mudou de nome/tipo): telemetria do
+  // OutboundOrchestratorService (S07-outbound-orchestrator.md item 5).
+  motor: OverviewBlock<{
+    runnerEnabled: boolean;
+    publishEnabled: boolean;
+    chipConectado: boolean;
+    executores: OutboundExecutorTelemetry[];
+  }>;
 };
 
 function requireCompanyId(user: any): number {
@@ -88,6 +97,12 @@ export class AutomationOverviewService {
     private readonly vendasAutomationService: VendasAutomationService,
     private readonly cadenciaGatilhoService: CadenciaGatilhoService,
     private readonly cadenciaRotinaService: CadenciaRotinaService,
+    // S07: @Optional() de propósito — os testes existentes deste service
+    // (automation-overview.service.test.ts) instanciam via
+    // `Object.create(prototype)` sem passar por este construtor; o bloco
+    // `motor` precisa continuar `ok:true` mesmo com o orquestrador ausente
+    // (ver `buildMotor`, fallback `?? []`).
+    @Optional() private readonly outboundOrchestrator?: OutboundOrchestratorService,
   ) {}
 
   // GET /automation/overview
@@ -250,7 +265,14 @@ export class AutomationOverviewService {
   // ── motor: flags + identidade do chip (mesma fonte do preflight do bot) ─────
   private async buildMotor(
     activation: any,
-  ): Promise<OverviewBlock<{ runnerEnabled: boolean; publishEnabled: boolean; chipConectado: boolean }>> {
+  ): Promise<
+    OverviewBlock<{
+      runnerEnabled: boolean;
+      publishEnabled: boolean;
+      chipConectado: boolean;
+      executores: OutboundExecutorTelemetry[];
+    }>
+  > {
     try {
       const runnerEnabled = automationFlag(
         'HBX_AUTOMATION_PROSPECCAO_RUNNER_ENABLED',
@@ -261,7 +283,11 @@ export class AutomationOverviewService {
         'HBX_ASSISTENTE_PUBLISH_ENABLED',
       );
       const chipConectado = Boolean(activation?.types?.atendimento?.preflight?.chipConectado);
-      return { ok: true, runnerEnabled, publishEnabled, chipConectado };
+      // S07: telemetria do OutboundOrchestratorService. `?? []` cobre tanto o
+      // orquestrador ausente (testes antigos, ver construtor) quanto getTelemetry
+      // lançando por algum motivo inesperado — nunca derruba o bloco `motor`.
+      const executores = this.outboundOrchestrator?.getTelemetry?.() ?? [];
+      return { ok: true, runnerEnabled, publishEnabled, chipConectado, executores };
     } catch (e: any) {
       this.logger.warn(`[automation-overview] bloco motor falhou: ${String(e?.message || e)}`);
       return { ok: false, reason: 'motor_unavailable' };

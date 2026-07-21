@@ -11,6 +11,8 @@ import { AutomationController } from './automation.controller';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AgentService } from './agent.service';
 import { InboundRouterService } from './inbound-router.service';
+import { CadenciaSchedulerService } from '../cadencia/cadencia-scheduler.service';
+import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor } from './outbound-orchestrator.service';
 
 // S04 (MOTOR-ÚNICO) — módulo `automation`.
 //
@@ -39,6 +41,16 @@ import { InboundRouterService } from './inbound-router.service';
 // (`new InboundRouterService()`). Isso evita que MessagingModule precise
 // importar AutomationModule, o que fecharia um ciclo real:
 // AutomationModule -> CadenciaModule -> MessagingModule (CONTRATO.md §1.1).
+//
+// S07: OutboundOrchestratorService entra como provider aqui, junto do
+// provider de fábrica `OUTBOUND_EXECUTORS` — a lista de executores é montada
+// chamando `CadenciaSchedulerService.getExecutors()` (CadenciaModule já
+// exporta o service desde esta sprint). Prospecção (vendas-automation)
+// NÃO entra na lista — ver nota em vendas-automation.service.ts (onModuleInit)
+// e CONTRATO.md §"S07 — decisão prospecção fora do orquestrador": tem timer
+// próprio, mas é 15s (vs. os 60s default daqui) e é acionado diretamente por
+// 4+ pontos do próprio service (start/resume de campanha), não só pelo timer
+// — migrar mudaria a cadência real de disparo, o que a sprint proíbe.
 @Module({
   imports: [
     PrismaModule,
@@ -51,7 +63,17 @@ import { InboundRouterService } from './inbound-router.service';
     InboxModule,
   ],
   controllers: [AutomationController],
-  providers: [AutomationOverviewService, AgentService, InboundRouterService],
-  exports: [AutomationOverviewService, AgentService, InboundRouterService],
+  providers: [
+    AutomationOverviewService,
+    AgentService,
+    InboundRouterService,
+    {
+      provide: OUTBOUND_EXECUTORS,
+      useFactory: (cadenciaScheduler: CadenciaSchedulerService): OutboundExecutor[] => cadenciaScheduler.getExecutors(),
+      inject: [CadenciaSchedulerService],
+    },
+    OutboundOrchestratorService,
+  ],
+  exports: [AutomationOverviewService, AgentService, InboundRouterService, OutboundOrchestratorService],
 })
 export class AutomationModule {}

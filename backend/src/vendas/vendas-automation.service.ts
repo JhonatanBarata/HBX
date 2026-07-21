@@ -513,6 +513,36 @@ function normalizeWebsiteKey(value: unknown) {
     .replace(/\/+$/, '');
 }
 
+// S07 (MOTOR-ÚNICO, docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/S07-outbound-
+// orchestrator.md) — DECISÃO: este service NÃO foi migrado pro
+// OutboundOrchestratorService (backend/src/automation/outbound-orchestrator.
+// service.ts), mesmo tendo `workerTimer` (setInterval) próprio abaixo.
+// Investigado e descartado por 2 motivos, ambos do lado "não force, deixe
+// documentado" que o contrato da S07 previu:
+//   1. Cadência PRÓPRIA de 15s (`onModuleInit`, linha ~550), 4x mais rápida
+//      que o tick de 60s do orquestrador (HBX_CADENCIA_TICK_MS, default
+//      60000 — mesmo valor de sempre). Registrar aqui como executor
+//      significaria ou (a) desacelerar o worker de prospecção pra 60s — uma
+//      mudança REAL de comportamento numa automação de vendas AO VIVO, que a
+//      sprint proíbe ("Cadência tem que disparar EXATAMENTE como antes") —
+//      ou (b) acelerar o tick do orquestrador pra 15s, o que mudaria a
+//      cadência da CADÊNCIA (cadencia_steps/cadencia_rotinas) também, isso
+//      sim proibido explicitamente pelo critério de aceite da sprint.
+//   2. `runWorkerCycle()` (privado, ~linha 3378) já é chamado DIRETO — sem
+//      passar pelo timer — em pelo menos 4 pontos deste arquivo (start/resume
+//      de campanha, ex.: linhas ~2177, ~2266) como "kick" imediato após ação
+//      do usuário. Não é um agendador limpo isolável em tick()+isEnabled();
+//      extrair só o pedaço periódico deixaria o método com DOIS donos de
+//      disparo (orquestrador + chamadas diretas), sem ganho real e com risco
+//      de reescrever a máquina de estados da prospecção — expressamente
+//      proibido ("NÃO mexer em crédito/débito/governor da prospecção de
+//      jeito nenhum"; este worker é o coração desse governor).
+// Não há flag dedicada pra expor como `isEnabled()` sem inventar uma nova
+// (CONTRATO.md §5.1: "Motor de prospecção não tem flag dedicada hoje — só a
+// trava Company.prospectingBotLiveAt", checada por campanha lá dentro do
+// próprio ciclo, não globalmente). Zero mudança de comportamento nesta
+// classe nesta sprint — só este comentário. Revisável pelo orquestrador/dono
+// numa sprint futura se decidirem unificar a cadência de propósito.
 @Injectable()
 export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VendasAutomationService.name);

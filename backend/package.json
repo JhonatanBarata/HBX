@@ -38,7 +38,7 @@
     "lint:tenant-scope": "node ./scripts/check-tenant-scope.mjs",
     "test:tenant-guard": "npm run build && node --test dist/prisma/tenant-context.test.js dist/prisma/tenant-guard.extension.test.js",
     "test:company-deletion": "npm run build && node --test dist/companies/company-deletion-completeness.integration.test.js",
-    "test:automation": "npm run build && node --test dist/automation/characterization/inbound-precedence.test.js dist/automation/characterization/assistant-claim.test.js dist/automation/automation-overview.service.test.js dist/automation/agent.service.test.js",
+    "test:automation": "npm run build && node --test dist/automation/characterization/inbound-precedence.test.js dist/automation/characterization/assistant-claim.test.js dist/automation/automation-overview.service.test.js dist/automation/agent.service.test.js dist/automation/outbound-orchestrator.service.test.js",
     "prisma:migrate": "prisma migrate dev --name init --schema=./prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
     "prisma:migrate:status": "prisma migrate status --schema=./prisma/schema.prisma",

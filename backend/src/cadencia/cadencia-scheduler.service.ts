@@ -1,21 +1,27 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CadenciaService } from './cadencia.service';
 import { CadenciaRotinaService } from './cadencia-rotina.service';
+import type { OutboundExecutor, OutboundExecutorResult } from '../automation/outbound-orchestrator.service';
 
-// WORM-13 — scheduler UNICO que aciona os dois runners (cadencia + rotinas).
-// FREIO PRINCIPAL: so faz qualquer coisa se HBX_CADENCIA_RUNNER_ENABLED estiver
-// ON. Enquanto OFF (default), este timer acorda mas os runners retornam
-// 'runner_disabled' sem tocar em nada — nada auto-dispara em producao. O timer em
-// si e barato; o gate real vive dentro de cada runner (fonte unica da flag).
-const TICK_MS = Number(process.env.HBX_CADENCIA_TICK_MS || '60000') || 60000;
+// WORM-13 — S07 (MOTOR-ÚNICO): este service NÃO tem mais timer próprio. Quem
+// dá o tick agora é o OutboundOrchestratorService
+// (backend/src/automation/outbound-orchestrator.service.ts) — UM scheduler
+// central pra todos os executores de outbound, rodando em SÉRIE (chip é
+// recurso único). `AutomationModule` injeta `CadenciaSchedulerService` só pra
+// chamar `getExecutors()` e registrar os dois executores abaixo.
+//
+// O CORPO de `runDueSteps`/`runDueRoutines` (cadencia.service.ts,
+// cadencia-rotina.service.ts) NÃO foi tocado — só a assinatura de registro
+// mudou. FREIO PRINCIPAL preservado: os dois só fazem algo se
+// HBX_CADENCIA_RUNNER_ENABLED estiver ON. O getter `enabled` abaixo é a MESMA
+// checagem que o timer antigo fazia ANTES de sequer chamar os runners (evita
+// entrar na camada de serviço à toa quando a flag está OFF); cada runner
+// TAMBÉM checa a flag por dentro (fonte única do valor da flag — o env — não
+// muda; a dupla checagem já existia antes desta sprint, só mudou de dono).
 const RUNNER_FLAG = 'HBX_CADENCIA_RUNNER_ENABLED';
 
 @Injectable()
-export class CadenciaSchedulerService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(CadenciaSchedulerService.name);
-  private timer: NodeJS.Timeout | null = null;
-  private running = false;
-
+export class CadenciaSchedulerService {
   constructor(
     private readonly cadencia: CadenciaService,
     private readonly rotinas: CadenciaRotinaService,
@@ -26,34 +32,39 @@ export class CadenciaSchedulerService implements OnModuleInit, OnModuleDestroy {
     return v === '1' || v === 'true';
   }
 
-  onModuleInit() {
-    if (this.enabled) {
-      this.logger.log(`[cadencia] runner LIGADO (${RUNNER_FLAG}=1) — tick ${TICK_MS}ms`);
-    } else {
-      this.logger.log(`[cadencia] runner DESLIGADO (${RUNNER_FLAG} off) — nada auto-dispara`);
-    }
-    this.timer = setInterval(() => {
-      void this.tick().catch((e) => this.logger.warn(`[cadencia] tick falhou: ${String(e?.message || e)}`));
-    }, TICK_MS);
+  /** S07: os dois executores que o OutboundOrchestratorService registra no
+   * lugar do timer próprio que este service tinha antes. */
+  getExecutors(): OutboundExecutor[] {
+    return [this.buildStepsExecutor(), this.buildRoutinesExecutor()];
   }
 
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+  private buildStepsExecutor(): OutboundExecutor {
+    return {
+      key: 'cadencia_steps',
+      isEnabled: () => this.enabled,
+      tick: async (now: Date): Promise<OutboundExecutorResult> => {
+        const result: any = await this.cadencia.runDueSteps(now);
+        return {
+          ok: result?.ok !== false,
+          didWork: Boolean(result?.executed),
+          detail: result,
+        };
+      },
+    };
   }
 
-  private async tick() {
-    if (!this.enabled) return; // freio: nada roda enquanto a flag estiver OFF
-    if (this.running) return; // evita sobreposicao de ciclos
-    this.running = true;
-    try {
-      const steps = await this.cadencia.runDueSteps();
-      const routines = await this.rotinas.runDueRoutines();
-      if ((steps as any)?.executed || (routines as any)?.ran) {
-        this.logger.log(`[cadencia] tick — steps=${JSON.stringify(steps)} rotinas=${JSON.stringify(routines)}`);
-      }
-    } finally {
-      this.running = false;
-    }
+  private buildRoutinesExecutor(): OutboundExecutor {
+    return {
+      key: 'cadencia_rotinas',
+      isEnabled: () => this.enabled,
+      tick: async (now: Date): Promise<OutboundExecutorResult> => {
+        const result: any = await this.rotinas.runDueRoutines(now);
+        return {
+          ok: result?.ok !== false,
+          didWork: Boolean(result?.ran),
+          detail: result,
+        };
+      },
+    };
   }
 }

@@ -29,6 +29,10 @@ import { CadenciaSchedulerService } from './cadencia-scheduler.service';
   // aditivo (só abre a porta de DI, nenhum provider/behavior muda) pra o módulo
   // `automation` novo poder injetá-la e ler `rotinasAtivas` no GET /automation/overview
   // sem duplicar a query.
-  exports: [CadenciaService, CadenciaGatilhoService, CadenciaRotinaService],
+  // CadenciaSchedulerService entrou nos exports na S07 (MOTOR-ÚNICO) — aditivo
+  // igual: o timer próprio dele morreu (ver cadencia-scheduler.service.ts), ele
+  // agora só EXPÕE os executores (`getExecutors()`) pro AutomationModule
+  // registrar no OutboundOrchestratorService. Nenhum provider novo, só abre DI.
+  exports: [CadenciaService, CadenciaGatilhoService, CadenciaRotinaService, CadenciaSchedulerService],
 })
 export class CadenciaModule {}

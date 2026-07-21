@@ -496,7 +496,20 @@ uma transcrição fiel, não uma interpretação.
    duas flags como exemplo de mapa velha→nova; segui a leitura de que são flags de FEATURE
    (liga/desliga/comportamento), não envs de cliente de IA — e separei as duas famílias na
    seção 5 para não virarem a mesma rename na S20 por engano.
-5. **NÃO resolvido, sinalizado pro dono** (seção 3.2): `/inbox` e `/hbx-recovery` (onde vivem
+5. **S07 — decisão prospecção fora do orquestrador**: `vendas-automation.service.ts`
+   TEM timer próprio (`workerTimer`, `setInterval` de 15s em `onModuleInit`), mas NÃO foi
+   registrado no `OutboundOrchestratorService`. Achado: (a) a cadência própria é 15s, 4x mais
+   rápida que o tick de 60s do orquestrador (`HBX_CADENCIA_TICK_MS`, valor inalterado) —
+   compartilhar o tick ou desacelera a prospecção 4x (regressão real numa automação de vendas ao
+   vivo) ou acelera a cadência da cadência (proibido pelo critério de aceite "dispara exatamente
+   como antes"); (b) `runWorkerCycle()` já é chamado direto (fora do timer) em 4+ pontos do
+   arquivo como kick pós-ação do usuário (start/resume de campanha) — não é um agendador isolável
+   em `tick()+isEnabled()` sem tocar a máquina de estados que o guardrail "não mexer em
+   crédito/débito/governor da prospecção" protege; (c) não existe flag dedicada pra virar
+   `isEnabled()` sem inventar uma nova (só a trava `Company.prospectingBotLiveAt`, por campanha).
+   Documentado também no código (`vendas-automation.service.ts`, comentário acima da classe).
+   Revisável numa sprint futura se o dono decidir unificar a cadência de propósito.
+6. **NÃO resolvido, sinalizado pro dono** (seção 3.2): `/inbox` e `/hbx-recovery` (onde vivem
    `bot-config` do roteiro e do recovery) são gateados pela chave `atendimento`, uma terceira
    chave que a decisão nº2 do README (OR de `bot`/`vendas`) não cobre. Não decidi sozinho se o
    gate da `/automacao` nova vira OR de 3 chaves — fica registrado pro dono bater o martelo
