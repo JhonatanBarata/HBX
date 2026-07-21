@@ -8,22 +8,9 @@
 .ia-work { grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .ia-wrap { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; }
 
-/* ── Cabecalho da tela ─────────────────────────────────────────────────────── */
-.ia-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none; }
-.ia-head__badge {
-  display: grid; place-items: center; width: 42px; height: 42px; border-radius: var(--radius-md); flex: none;
-  color: var(--hbx-brand-strong);
-  background: linear-gradient(135deg, var(--hbx-brand-soft), color-mix(in srgb, var(--hbx-brand) 26%, transparent));
-  border: 1px solid color-mix(in srgb, var(--hbx-brand) 32%, transparent);
-  box-shadow: var(--shadow-sm);
-}
-.ia-head__title { font-size: 1.02rem; font-weight: 800; color: var(--text-strong); line-height: 1.2; }
-.ia-head__sub { font-size: 0.76rem; color: var(--text-muted); margin-top: 2px; }
-.ia-hot {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
-  border-radius: var(--radius-pill); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase;
-  color: var(--hbx-brand-contrast); background: var(--hbx-brand);
-}
+/* S19 (MOTOR-ÚNICO): .ia-head/.ia-head__badge/.ia-head__title/.ia-head__sub/
+   .ia-hot (cabeçalho do wizard antigo) removidos — zero uso fora da tela
+   /assistente antiga (grep provou morto); a casca nova usa .auto-hero. */
 
 /* ── Toolbar do editor (identidade + estado + ações) ───────────────────────── */
 .ia-toolbar {
@@ -258,7 +245,6 @@
 /* Zero-scroll em viewport baixa: compacta espaçamento, nunca o conteúdo. */
 @media (max-height: 900px) {
   .ia-wrap { gap: 10px; }
-  .ia-head__badge { width: 36px; height: 36px; }
   .ia-toolbar { padding: 8px 10px; }
   .ia-split { gap: 12px; }
   .ia-flow { gap: 12px; }

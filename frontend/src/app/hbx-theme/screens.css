@@ -202,49 +202,14 @@ html, body { height: 100%; }
 .stage-dots i.on { background: var(--login-accent); }
 
 /* ---------- Bot.html ---------- */
-.bot-head { display: flex; align-items: center; gap: 12px; padding: 14px 22px 0; flex-wrap: wrap; }
-.bot-head h1 { margin: 0; font-family: var(--font-display); font-size: var(--text-h2); font-weight: 800; letter-spacing: -0.01em; display: inline-flex; gap: 10px; align-items: center; }
 .saved { display: inline-flex; gap: 5px; align-items: center; font-size: 0.7rem; font-weight: 700; color: var(--hbx-brand-strong); }
 
-/* Faixa do pino (parte B) */
-.bot-pin-faixa { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border-strong); font-size: 0.72rem; font-weight: 700; color: var(--text-muted); background: var(--hbx-surface-raised); }
-.bot-pin-faixa--armed { color: var(--hbx-brand-strong); border-color: var(--hbx-brand); background: var(--hbx-brand-soft); }
-.bot-pin-aviso { margin: 8px 22px 0; padding: 9px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); font-size: 0.74rem; color: var(--text-muted); }
-
-/* Mensagem inline de ação (parte B) */
-.bot-act-msg { align-self: center; font-size: 0.7rem; font-weight: 700; }
-.bot-act-msg--ok  { color: var(--hbx-brand-strong); }
-.bot-act-msg--err { color: var(--hbx-danger); }
-
-/* 3 chavinhas (parte B) */
-.bot-type-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 12px 22px 0; }
-.bot-type-card { border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-xs); }
-.bot-type-card--disabled { opacity: 0.6; }
-.bot-type-card-head { display: flex; align-items: flex-start; gap: 10px; }
-.bot-type-card-info { flex: 1; min-width: 0; display: grid; gap: 3px; }
-.bot-type-card-name { font-size: 0.85rem; font-weight: 800; font-family: var(--font-display); color: var(--text-strong); display: block; }
-.bot-type-card-desc { font-size: 0.66rem; color: var(--text-muted); display: block; line-height: 1.4; }
-.bot-type-card-pf { display: flex; gap: 6px; flex-wrap: wrap; }
-.bot-type-card-blocked { font-size: 0.66rem; color: var(--hbx-danger); font-weight: 700; }
-
-/* Chips de pré-voo tri-cor (parte B/D) */
-.bot-pf-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 0.62rem; font-weight: 700; border: 1px solid var(--border-hairline); }
-.bot-pf-chip--ok   { color: var(--hbx-brand-strong); background: var(--hbx-brand-soft); border-color: var(--hbx-brand); }
-.bot-pf-chip--warn { color: var(--text-muted); background: var(--hbx-surface-raised); }
-
-/* Seletor de tipo na aba Configurações (parte C) */
-.bot-cfg-tipo-row { display: flex; align-items: center; gap: 8px; padding: 12px 16px; flex-wrap: wrap; }
-.bot-cfg-tipo-btn { padding: 7px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-hairline); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: 0.78rem; font-weight: 700; cursor: pointer; }
-.bot-cfg-tipo-btn:hover { background: var(--hbx-surface-raised); }
-.bot-cfg-tipo-btn.on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); border-color: var(--hbx-brand); }
-.bot-cfg-tipo-desc { font-size: 0.68rem; color: var(--text-muted); margin-left: 8px; }
-
-.bot-tabs { display: flex; gap: 2px; padding: 10px 22px 0; border-bottom: 1px solid var(--border-hairline); }
-.bot-tab { padding: 10px 14px; border: none; background: none; color: var(--text-muted); font-family: var(--font-body); font-size: 0.8rem; font-weight: 700; cursor: pointer; border-bottom: 2px solid transparent; }
-.bot-tab.on { color: var(--hbx-brand-strong); border-bottom-color: var(--login-accent); }
-.bot-tabs .right { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 0.7rem; color: var(--text-muted); padding-bottom: 6px; }
 /* Canvas decorativo do Bot REMOVIDO (rebuild /bot vira tela dividida + BotFlowCanvas).
-   .bicon segue vivo (avatar do chat + bot-empty-ring); test/qr sao do chat. */
+   .bicon segue vivo (avatar do chat); test/qr sao do chat. S19 (MOTOR-ÚNICO):
+   bot-head, bot-pin-faixa, bot-pin-aviso, bot-act-msg, bot-type-cards (e
+   variantes), bot-pf-chip (e variantes), bot-cfg-tipo (e variantes),
+   bot-tabs e bot-tab removidos — zero uso fora das telas bot/automacoes/
+   assistente antigas (S19 provou morto). */
 .bicon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius-md); flex: 0 0 auto; color: var(--hbx-action-ink); transition: transform var(--motion-fast); }
 .test { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface); display: flex; flex-direction: column; min-height: 0; }
 .test-head { display: flex; align-items: center; gap: 8px; padding: 13px 14px; border-bottom: 1px solid var(--border-hairline); }
@@ -252,30 +217,6 @@ html, body { height: 100%; }
 .qr { display: inline-flex; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); color: var(--text-body); font-size: 0.72rem; font-weight: 700; cursor: pointer; width: fit-content; }
 .qr:hover { border-color: var(--login-accent); color: var(--hbx-brand-strong); }
 .test-foot { padding: 8px 14px 12px; font-size: 0.62rem; color: var(--text-muted); }
-
-/* ---- Bot: ícone pulsa suavemente (parece vivo) — usado por .bot-empty-ring ---- */
-@keyframes node-bicon-pulse {
-  0%, 100% { transform: scale(1); }
-  50%       { transform: scale(1.1); }
-}
-
-/* ---- Bot: abas em breve ---- */
-@keyframes bot-ring-expand {
-  0%, 100% { transform: scale(1); opacity: 0.6; }
-  50%       { transform: scale(1.08); opacity: 1; }
-}
-@keyframes bot-ring-expand2 {
-  0%, 100% { transform: scale(1); opacity: 0.35; }
-  50%       { transform: scale(1.12); opacity: 0.7; }
-}
-.bot-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 60px 32px; text-align: center; }
-.bot-empty-ring { position: relative; display: grid; place-items: center; width: 80px; height: 80px; }
-.bot-empty-ring::before { content: ''; position: absolute; inset: -12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--ec, var(--login-accent)) 35%, transparent); animation: bot-ring-expand 2.6s ease-in-out infinite; }
-.bot-empty-ring::after  { content: ''; position: absolute; inset: -24px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--ec, var(--login-accent)) 18%, transparent); animation: bot-ring-expand2 2.6s ease-in-out infinite 0.55s; }
-.bot-empty-ring .bicon  { width: 56px !important; height: 56px !important; border-radius: 50% !important; animation: node-bicon-pulse 2.6s ease-in-out infinite; }
-.bot-empty-title { margin: 0; font-family: var(--font-display); font-size: 1.15rem; font-weight: 800; color: var(--text-strong); letter-spacing: -0.01em; }
-.bot-empty-desc  { margin: 0; font-size: 0.8rem; color: var(--text-muted); max-width: 360px; line-height: 1.6; }
-.bot-empty-badge { display: inline-flex; padding: 5px 16px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--login-accent) 30%, transparent); background: color-mix(in srgb, var(--login-accent) 8%, transparent); color: var(--hbx-brand-strong); font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
 
 /* ---------- Relatorios.html ---------- */
 .hbar { display: grid; gap: 10px; }

@@ -29,53 +29,10 @@
   color: var(--text-body);
 }
 
-/* ============================================================================
- * IA "painel integrado": 3 GUIAS por tipo + painel único (ativação + fluxo=config).
- * As guias substituem os 3 cards de ativação + o seletor "Tipo de bot" + as abas.
+/* S19 (MOTOR-ÚNICO): bloco "IA painel integrado" (.bot-guias/.bot-guia/
+ * .bot-guia__dot — as 3 guias Atendimento/Recovery/Prospecção do /bot velho)
+ * removido — zero uso fora da tela antiga (grep provou morto).
  * ==========================================================================*/
-
-/* ---- 3 guias (Atendimento / Recovery / Prospecção) ---- */
-.bot-guias {
-  display: flex;
-  gap: 6px;
-  padding: 0 4px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--border-hairline);
-}
-.bot-guia {
-  appearance: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-family: var(--font-display);
-  font-size: 0.84rem;
-  font-weight: 700;
-  transform: translateY(1px);
-  transition: background var(--motion-fast), color var(--motion-fast), border-color var(--motion-fast);
-}
-.bot-guia:hover { color: var(--text-strong); background: var(--hbx-surface-soft); }
-.bot-guia.on {
-  color: var(--text-strong);
-  background: var(--hbx-surface);
-  border-color: var(--border-hairline);
-}
-.bot-guia:disabled { cursor: default; opacity: 0.6; }
-.bot-guia__dot {
-  width: 8px; height: 8px; flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--border-strong);
-}
-.bot-guia__dot--on {
-  background: var(--hbx-success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-success) 22%, transparent);
-}
 
 /* ---- Painel integrado do tipo (ativação compacta + fluxo=config) ---- */
 .bot-panel {
@@ -131,17 +88,6 @@
   flex: 1;
   min-height: 0;
 }
-
-/* ativação compacta: o card do tipo numa única faixa (não 3 cards empilhados) */
-.bot-type-card--compact {
-  margin: 0 4px 12px;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-}
-.bot-type-card--compact .bot-type-card-head { flex: 1; min-width: 220px; }
-.bot-type-card--compact .bot-type-card-pf { margin-top: 0; }
 
 /* ============================================================================
  * MONTAGEM: Tabuleiro (organograma). Trilha e Bandeja morreram — S18
