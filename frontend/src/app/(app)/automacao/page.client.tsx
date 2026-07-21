@@ -9,11 +9,11 @@
 // automation-overview.service.ts).
 //
 // Navegação por seção fica NA MESMA rota via `?secao=`, estado LOCAL (sem
-// sub-rota Next — README "Regras de orquestração"). Nesta sprint cada seção
-// só mostra um placeholder "em migração" com link pra tela clássica
-// correspondente; S13-S16 substituem pelo conteúdo real, seção por seção.
-// As telas velhas (/bot, /automacoes, /assistente) continuam no ar e
-// intocadas — matar/redirecionar é trabalho da S17.
+// sub-rota Next — README "Regras de orquestração"). S13-S16 substituíram o
+// placeholder "em migração" pelo conteúdo real, seção por seção — S16 (a
+// última, "Reagir e abastecer") fecha a Fase 3. As telas velhas (/bot,
+// /automacoes, /assistente) continuam no ar e intocadas — matar/redirecionar
+// é trabalho da S17.
 //
 // Gates (README decisão nº2, revisada pós-S03 — S04-modulo-automation-
 // overview.md "Gate de 3 chaves"):
@@ -35,7 +35,6 @@
 // /automacoes v2 — Lei nº2, nunca repetir visual). CSS NOVO desta tela (grade
 // de cartões-objetivo + placeholder de seção) vive em hbx-theme/automacao.css.
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -44,6 +43,7 @@ import { apiFetch } from "@/lib/api";
 import { SecaoAtendente } from "./secao-atendente";
 import { SecaoCobranca } from "./secao-cobranca";
 import { SecaoProspeccao } from "./secao-prospeccao";
+import { SecaoRegras } from "./secao-regras";
 
 // ================================================================
 // Shape do GET /automation/overview — espelha
@@ -74,8 +74,7 @@ function isSecaoKey(v: string | null): v is SecaoKey {
   return v !== null && (SECOES as string[]).includes(v);
 }
 
-type LegacyLink = { href: string; label: string };
-type SecaoMeta = { key: SecaoKey; titulo: string; sub: string; icon: keyof typeof ICONS; legacy: LegacyLink[] };
+type SecaoMeta = { key: SecaoKey; titulo: string; sub: string; icon: keyof typeof ICONS };
 
 const SECAO_META: Record<SecaoKey, SecaoMeta> = {
   atendente: {
@@ -83,34 +82,24 @@ const SECAO_META: Record<SecaoKey, SecaoMeta> = {
     titulo: "Atender sozinho",
     icon: "atend",
     sub: "Roteiro de menu ou IA respondendo o cliente no seu lugar, sem vendedor no meio.",
-    legacy: [
-      { href: "/assistente", label: "Assistente IA" },
-      { href: "/bot", label: "Bot (roteiro)" },
-    ],
   },
   cobranca: {
     key: "cobranca",
     titulo: "Cobrar quem deve",
     icon: "money",
     sub: "Recovery: lembra o cliente que ficou devendo, no ritmo certo, sem constrangimento.",
-    legacy: [{ href: "/bot", label: "Bot — Cobrança" }],
   },
   prospeccao: {
     key: "prospeccao",
     titulo: "Buscar clientes",
     icon: "search",
     sub: "Cadência e prospecção ativa puxando leads pro funil sozinhas.",
-    legacy: [
-      { href: "/automacoes", label: "Automações — Cadências" },
-      { href: "/bot", label: "Bot — Prospecção" },
-    ],
   },
   regras: {
     key: "regras",
     titulo: "Reagir e abastecer",
     icon: "bolt",
     sub: "Gatilhos e rotinas cuidando do funil sozinhos, sem ninguém precisar lembrar.",
-    legacy: [{ href: "/automacoes", label: "Automações — Gatilhos e rotinas" }],
   },
 };
 
@@ -307,16 +296,7 @@ export function AutomacaoHubClient() {
         ) : secao === "prospeccao" ? (
           <SecaoProspeccao motor={overview.motor} onChanged={() => { void load(); }} />
         ) : (
-          <section className="panel aut-secao-placeholder">
-            <span className="aut-secao-placeholder__icon"><I d={ICONS[meta.icon]} size={26} /></span>
-            <h4>Em migração</h4>
-            <p>Esta seção ainda está sendo fundida na casca nova. Por enquanto, use a tela clássica abaixo — os dados são os mesmos.</p>
-            <div className="aut-legacy-links">
-              {meta.legacy.map((l) => (
-                <Link key={l.href} className="btn-ghost" href={l.href}>{l.label}</Link>
-              ))}
-            </div>
-          </section>
+          <SecaoRegras motor={overview.motor} onChanged={() => { void load(); }} />
         )}
       </div>
     );

@@ -74,8 +74,6 @@
 .aut-secao-placeholder h4 { margin: 0; font-family: var(--font-display); font-size: 1rem; font-weight: 800; color: var(--text-strong); }
 .aut-secao-placeholder p { margin: 0; font-size: 0.78rem; color: var(--text-muted); max-width: 420px; line-height: 1.55; }
 
-.aut-legacy-links { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
-
 /* ── S13 — seção Atendente: switch de cérebro (Roteiro | IA) na toolbar ────
    Vidro desliza por cima via Glass Pill (Lei nº2); a trilha é só o trilho
    neutro (mesma família visual de .ia-toolbar, que já vive em assistente.css —
@@ -119,3 +117,19 @@
   flex-direction: column;
   gap: 10px;
 }
+
+/* ── S16 — seção Regras (Gatilhos & Rotinas, última da Fase 3): ZERO classe
+   nova ── reusa .auto-tabs.glass-pill-track/.auto-tab (mesma trilha que a
+   raiz do /automacoes velho usava pras 3 abas, aqui só 2), .auto-bar/
+   .auto-grid/.auto-card/.auto-rule*/.auto-connector/.auto-chip/.auto-state/
+   .auto-add-card/.auto-empty*/.auto-flag-note/.auto-skel/.rot-week/.rot-day/
+   .rot-status/.auto-weekdays/.auto-weekday/.auto-form*/.hbx-veil/.hbx-modal/
+   .field-label/.field-dark (screens.css/kit.css) — a mesma superfície visual
+   que a tela velha /automacoes já usava pras abas Gatilhos/Rotinas (Lei nº2).
+   Nada a adicionar aqui.
+
+   Com as 4 seções completas (S13-S16), o placeholder "em migração" perdeu o
+   último chamador em page.client.tsx — `.aut-legacy-links` saiu (só ele
+   existia pra isso). `.aut-secao-placeholder*` continuam vivas: a seção
+   Atendente (secao-atendente.tsx) reusa essas classes pros PRÓPRIOS estados
+   vazios internos. */
