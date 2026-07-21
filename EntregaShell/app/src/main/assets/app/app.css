@@ -222,6 +222,26 @@ h3 { font-size: .95rem; }
 .rp2-order-row.rp2-order-flash { animation: rp2-order-flash .6s ease-out; }
 @keyframes rp2-order-flash { 0% { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); } 100% { background: var(--surface); border-color: var(--line); } }
 
+/* Editor da rota salva: toque na parada mexe nos itens, segurar tira da rota
+   (mesmo gesto de Clientes/Produtos/rota do dia — sem botão de excluir). */
+.rme-parada-main { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; color: inherit; background: none; text-align: left; }
+.rme-parada-main strong { display: block; }
+.rme-dica { margin: 10px 2px 0; text-align: center; }
+/* O ::after do "segurar" precisa de position/overflow no próprio card, igual ao
+   lead-card — senão o vermelho vaza pra folha inteira do modal. */
+.rp2-order-row[data-rme-parada] { position: relative; overflow: hidden; }
+.rp2-order-row[data-rme-parada]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.rp2-order-row[data-rme-parada].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.rp2-order-row[data-rme-parada].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
+.rp2-order-row[data-rme-parada].is-holding::after { transform: scaleX(1); }
+/* Mesmo gesto no produto fixado e na rota salva inteira (Salvos e Minhas rotas). */
+.lrt-produto-item[data-rme-item], .row-card[data-route-modelo-hold], .rp2-mode-card[data-route-modelo-hold] { position: relative; overflow: hidden; }
+.lrt-produto-item[data-rme-item]::after, .row-card[data-route-modelo-hold]::after, .rp2-mode-card[data-route-modelo-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.lrt-produto-item[data-rme-item].is-hold-arming::after, .row-card[data-route-modelo-hold].is-hold-arming::after, .rp2-mode-card[data-route-modelo-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.lrt-produto-item[data-rme-item].is-holding, .row-card[data-route-modelo-hold].is-holding, .rp2-mode-card[data-route-modelo-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
+.lrt-produto-item[data-rme-item].is-holding::after, .row-card[data-route-modelo-hold].is-holding::after, .rp2-mode-card[data-route-modelo-hold].is-holding::after { transform: scaleX(1); }
+.rme-remove { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+
 .overlay-host.is-opening .modal-wrap, .overlay-host.is-opening .sheet-wrap { animation: overlay-in .18s ease-out both; }
 .overlay-host.is-opening .app-confirm, .overlay-host.is-opening .day-home { animation: modal-in .22s cubic-bezier(.2,.8,.2,1) both; }
 .overlay-host.is-opening .sheet, .overlay-host.is-opening .modal:not(.app-confirm):not(.day-home) { animation: sheet-in .24s cubic-bezier(.2,.8,.2,1) both; }
@@ -593,6 +613,9 @@ h3 { font-size: .95rem; }
 .day-saved-row { display: flex; align-items: center; gap: 8px; }
 .day-saved-row .rp2-mode-card { flex: 1 1 auto; min-width: 0; }
 .day-saved-delete { flex: 0 0 auto; display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 13px; color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+/* Editar reusa a caixa da lixeira, mas é ação neutra — verde, nunca vermelho de
+   perigo. Precisa vir DEPOIS de .day-saved-delete pra vencer no desempate. */
+.day-saved-delete.day-saved-edit { border-color: color-mix(in srgb, var(--brand) 38%, var(--line)); color: var(--brand-strong); background: color-mix(in srgb, var(--brand) 12%, var(--surface)); }
 
 /* F4 — barra de progresso do auto-update. */
 .app-update-progress { height: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-3); }
@@ -725,7 +748,10 @@ html.keyboard-open #edit-product-form > .btn-primary:last-child {
 .hbx-selection-list, .selection-mode-list { display: grid; gap: 8px; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; }
 .hbx-selection-list .lead-card, .hbx-selection-list .row-card,
 .selection-mode-list .lead-card, .selection-mode-list .row-card { width: 100%; max-width: 100%; min-width: 0; }
-.hbx-selection-list .card-main, .selection-mode-list .card-main { flex: 1 1 auto; width: 0; min-width: 0; }
+/* `width:0` só funciona quando o card é FLEX. O .lead-card é GRID (auto 1fr auto):
+   zerar a largura apagava o nome do produto — card com ícone e nada escrito.
+   `min-width:0` dá a mesma ellipsis nos dois layouts. */
+.hbx-selection-list .card-main, .selection-mode-list .card-main { flex: 1 1 auto; min-width: 0; }
 .hbx-selection-item { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }
 .hbx-selection-item .card-main { min-width: 0; }
 .selection-mode-chevron { flex: 0 0 auto; color: var(--muted); font-size: 1rem; font-weight: 800; }

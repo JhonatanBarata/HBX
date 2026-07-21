@@ -63,6 +63,10 @@
     routeModelos: [],
     routeModelosLoading: false,
     routeModelosError: null,
+    // Editor da rota salva (21/07): { id, nome, paradas, step, paradaIndex, saving }.
+    // paradas = [{ customerProfileId, localId?, itens:[{productId,qtd,valorUnit}] }],
+    // MESMO formato que o PATCH /logistica/rota-modelos aceita.
+    routeModeloEditor: null,
     // ordem manual/salva ATIVA na rota planejada de hoje — sobrevive do
     // planejar até o "Iniciar rota" (ação separada, ver startPlannedRoute).
     routeOrdemManual: H.cache.get("logistica-route-ordem-manual", null),
@@ -162,7 +166,12 @@
   let clientProductHold = null;
   let ignoredClientProductClickId = null;
   let routeStopHold = null;
+  let rmeParadaHold = null;
+  let rmeItemHold = null;
+  let routeModeloHold = null;
   let ignoredRouteStopClickId = null;
+  let ignoredRmeParadaClickIndex = null;
+  let ignoredRouteModeloClickId = null;
   let productHold = null;
   let ignoredProductClickId = null;
   let dayPreviewRequestId = 0;
@@ -180,6 +189,7 @@
   const roadGeometryCache = new Map();
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
+    edit: "<path d='M12 20h9'/><path d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z'/>",
     users: "<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'/>",
     box: "<path d='m21 8-9 5-9-5 9-5z'/><path d='m3 8 9 5v9l9-5V8M12 13v9'/>",
     gear: "<circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1-2.8-2.8.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1 2.8-2.8.1.1a1.7 1.7 0 0 0 1.8.3 1.7 1.7 0 0 0 1-1.5V3h4v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1 2.8 2.8-.1.1a1.7 1.7 0 0 0-.3 1.8 1.7 1.7 0 0 0 1.5 1h.2v4h-.2a1.7 1.7 0 0 0-1.5 1z'/>",
@@ -2249,6 +2259,7 @@
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Saldo</span><strong>${Number(s.balanceCredits || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(totals.bonusCredits || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(totals.trackedDeliveries || 0)}</strong></div></div><div class="kpis"><div class="kpi"><span>Hoje</span><strong>${Number(usage.hoje || 0)}</strong></div><div class="kpi"><span>Semana</span><strong>${Number(usage.semana || 0)}</strong></div><div class="kpi"><span>Mês</span><strong>${Number(usage.mes || 0)}</strong></div></div><div class="list">${moves.length ? moves.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>Entrega rastreada</strong><span>${H.date(e.completedAt)}</span></div><strong>${Number(e.paidCredits || e.credits || 0)}</strong></div>`).join("") : empty("Sem entregas rastreadas", "")}</div></section></div>`;
     }
     if (state.modal === "route-modelos") return routeModelosModal();
+    if (state.modal === "route-modelo-editor") return routeModeloEditorModal();
     if (state.modal === "recarga") return recargaModal();
     if (state.modal === "financeiro") return financeiroModal();
     if (state.modal === "avancado") return avancadoModal();
@@ -2322,8 +2333,135 @@
   // modelos salvos com renomear (prompt simples) e excluir (2 toques).
   function routeModelosModal() {
     const modelos = state.routeModelos || [];
-    const rows = modelos.map(modelo => `<div class="row-card"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><div class="actions" style="margin:0;gap:6px"><button type="button" class="btn btn-secondary" data-action="rename-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Renomear</button><button type="button" class="btn btn-danger" data-action="delete-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Excluir</button></div></div>`).join("");
+    const rows = modelos.map(modelo => `<div class="row-card" data-route-modelo-hold="${H.escape(modelo.id)}"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><div class="actions" style="margin:0;gap:6px"><button type="button" class="btn btn-secondary" data-action="edit-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Editar</button><button type="button" class="btn btn-secondary" data-action="rename-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Renomear</button></div></div>`).join("");
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minhas rotas</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota ao montar no modo \"Minha ordem\".")}</div></section></div>`;
+  }
+  // ——— Editor da rota salva (21/07, pedido do dono): reordenar, remover, somar
+  // cliente e mexer nos itens de cada parada. Tudo em rascunho no estado; só o
+  // "Salvar" manda o PATCH — sair fora disso não escreve nada.
+  function rmeParadaResumo(parada) {
+    const itens = Array.isArray(parada.itens) ? parada.itens : [];
+    if (!itens.length) return "Leva o de sempre";
+    return itens.map(item => `${item.qtd}× ${produtoNome(item.productId)}`).join(" · ");
+  }
+  function produtoNome(productId) {
+    const produto = (state.products || []).find(p => String(p.id) === String(productId));
+    return produto ? (produto.nome || produto.name || "Produto") : "Produto";
+  }
+  function rmeClienteNome(parada) {
+    const cliente = clientById(parada.customerProfileId);
+    return cliente ? (cliente.nome || cliente.name || "Cliente") : "Cliente removido";
+  }
+  function routeModeloEditorParadasStep() {
+    const editor = state.routeModeloEditor;
+    const paradas = editor.paradas || [];
+    // Tirar da rota é SEGURAR PRESSIONADO (padrão do app: Clientes, Produtos e
+    // paradas da rota do dia). Sem lixeira — o dono não quer botão de excluir.
+    const rows = paradas.map((parada, index) => `<div class="row-card rp2-order-row" data-rme-parada="${index}"><div class="rp2-order-badge">${index + 1}</div><button type="button" class="card-main rme-parada-main" data-action="rme-editar-itens" data-index="${index}"><strong>${H.escape(rmeClienteNome(parada))}</strong><span>${H.escape(rmeParadaResumo(parada))}</span></button><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="-1" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="1" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div></div>`).join("");
+    const body = `<div class="list day-order-list">${rows || empty("Rota sem paradas", "Toque em adicionar cliente abaixo.")}</div><button class="delivery-add" type="button" data-action="rme-add-cliente">+ Adicionar cliente</button><p class="subtitle rme-dica">Toque na parada para mudar o que ele recebe · segure para tirar da rota</p>`;
+    return centerModal({
+      icon: "route",
+      title: H.escape(editor.nome || "Rota salva"),
+      resumo: `${paradas.length} parada(s)`,
+      body,
+      backAction: "rme-fechar",
+      backLabel: "Fechar",
+      nextAction: "rme-salvar",
+      nextLabel: editor.saving ? "Salvando…" : "Salvar",
+      nextDisabled: !!editor.saving,
+    });
+  }
+  function routeModeloEditorClienteStep() {
+    // Mesma lista/busca do seletor da leitura (server-side) — nada de inventar
+    // uma segunda régua de carregamento pro dono.
+    const jaNaRota = new Set((state.routeModeloEditor.paradas || []).map(p => String(p.customerProfileId)));
+    const pool = (state.clients || []).filter(client => client && client.id != null && !jaNaRota.has(String(client.id)));
+    const list = pool.length ? `<div class="list hbx-selection-list">${pool.map(client => clientCatalogCard(client, { selection: true })).join("")}</div>` : "";
+    const vazio = pool.length ? "" : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente", "Todos já estão nesta rota.");
+    const body = `<div class="hbx-selection-view"><label class="search hbx-selection-toolbar">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome, telefone ou endereço" value="${H.escape(state.leituraClienteQuery)}" autocomplete="off"></label>${list}${vazio}${clientsAutoLoad()}</div>`;
+    return centerModal({ icon: "users", title: "Adicionar cliente", resumo: "Quem entra na rota?", body, backAction: "rme-voltar-paradas", backLabel: "Voltar", nextAction: "" });
+  }
+  function routeModeloEditorItensStep() {
+    const editor = state.routeModeloEditor;
+    const parada = (editor.paradas || [])[editor.paradaIndex];
+    if (!parada) return routeModeloEditorParadasStep();
+    const itens = Array.isArray(parada.itens) ? parada.itens : [];
+    const selectedIds = new Set(itens.map(i => String(i.productId)));
+    const available = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !selectedIds.has(String(p.id)));
+    if (editor.produtoPicker) {
+      const list = available.length ? `<div class="list hbx-selection-list">${available.map(product => `<button type="button" class="lead-card hbx-selection-item" data-action="rme-produto-escolher" data-product-id="${H.escape(product.id)}"><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${H.escape(product.unidade || "unidade")}</span></div><span class="selection-mode-chevron">›</span></button>`).join("")}</div>` : empty("Todos os produtos já estão nesta parada", "");
+      return centerModal({ icon: "box", title: "Produtos", resumo: "Escolha no catálogo", body: `<div class="hbx-selection-view">${list}</div>`, backAction: "rme-produto-fechar-picker", backLabel: "Voltar", nextAction: "" });
+    }
+    const rows = itens.map(item => `<div class="lrt-produto-item" data-rme-item="${H.escape(item.productId)}"><div class="lrt-produto-head"><div><strong>${H.escape(produtoNome(item.productId))}</strong></div></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="rme-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="rme-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div></div></div>`).join("");
+    // Sem item fixo a parada "leva o de sempre" (o gerar cai no vínculo do
+    // cliente). Antes isso virava uma folha em branco com um aviso solto no meio:
+    // agora o catálogo já entra na tela pra escolher com um toque.
+    if (!itens.length) {
+      const catalogo = available.length
+        ? `<div class="list hbx-selection-list">${available.map(product => productCatalogCard(product, { selection: true })).join("")}</div>`
+        : empty("Nenhum produto no catálogo", "Cadastre um produto para fixar itens nesta rota.");
+      const body = `<p class="subtitle rme-dica">Hoje leva <strong>o de sempre</strong> — o que este cliente costuma receber. Toque num produto para fixar aqui.</p>${catalogo}`;
+      return centerModal({ icon: "box", title: H.escape(rmeClienteNome(parada)), resumo: "O que ele recebe nesta rota", body, backAction: "rme-voltar-paradas", backLabel: "Voltar", nextAction: "" });
+    }
+    const body = `${rows}${available.length ? `<button class="delivery-add" type="button" data-action="rme-produto-abrir-picker">+ Adicionar produto</button>` : ""}<p class="subtitle rme-dica">Segure um produto para tirar · sem nenhum, volta a levar o de sempre.</p>`;
+    return centerModal({ icon: "box", title: H.escape(rmeClienteNome(parada)), resumo: "O que ele recebe nesta rota", body, backAction: "rme-voltar-paradas", backLabel: "Voltar", nextAction: "" });
+  }
+  function routeModeloEditorModal() {
+    const editor = state.routeModeloEditor;
+    if (!editor) return "";
+    if (editor.step === "cliente") return routeModeloEditorClienteStep();
+    if (editor.step === "itens") return routeModeloEditorItensStep();
+    return routeModeloEditorParadasStep();
+  }
+  // Puxa TODAS as páginas de cliente: sem isso o editor mostra "Cliente removido"
+  // em quem ficou fora da 1ª página.
+  async function ensureAllClientsLoaded() {
+    if (state.clientsPage === 0 || state.query !== "") { state.query = ""; await loadClients(true, true); }
+    let guard = 0;
+    while (state.clientsPage < state.clientsTotalPages && guard < 40) { guard += 1; await loadClients(false, true); }
+  }
+  async function abrirRouteModeloEditor(modeloId) {
+    const modelo = (state.routeModelos || []).find(m => String(m.id) === String(modeloId));
+    if (!modelo) return;
+    state.routeModeloEditor = {
+      id: modelo.id,
+      nome: modelo.nome || "Rota salva",
+      paradas: (modelo.paradas || []).map(parada => ({
+        customerProfileId: String(parada.customerProfileId || ""),
+        ...(parada.localId ? { localId: String(parada.localId) } : {}),
+        itens: (Array.isArray(parada.itens) ? parada.itens : []).map(item => ({
+          productId: Number(item.productId),
+          qtd: Math.max(1, Number(item.qtd) || 1),
+          valorUnit: Number(item.valorUnit) || 0,
+        })),
+      })).filter(parada => parada.customerProfileId),
+      step: "paradas",
+      paradaIndex: -1,
+      produtoPicker: false,
+      saving: false,
+    };
+    state.leituraClienteQuery = "";
+    showModal("route-modelo-editor");
+    showLoading("Abrindo a rota…");
+    try { await ensureAllClientsLoaded(); } finally { hideLoading(); if (state.modal === "route-modelo-editor") render(); }
+  }
+  async function salvarRouteModeloEditor() {
+    const editor = state.routeModeloEditor;
+    if (!editor || editor.saving) return;
+    if (!editor.paradas.length) { toast("A rota precisa de pelo menos uma parada.", true); return; }
+    editor.saving = true; render();
+    try {
+      const paradas = editor.paradas.map(parada => ({
+        customerProfileId: parada.customerProfileId,
+        ...(parada.localId ? { localId: parada.localId } : {}),
+        ...(parada.itens && parada.itens.length ? { itens: parada.itens.map(item => ({ productId: item.productId, qtd: item.qtd, valorUnit: item.valorUnit })) } : {}),
+      }));
+      await H.api(`/logistica/rota-modelos/${encodeURIComponent(editor.id)}`, { method: "PATCH", body: { paradas } });
+      await loadRouteModelos(true);
+      state.routeModeloEditor = null;
+      await closeOverlay("modal");
+      toast("Rota salva atualizada.");
+    } catch (error) { editor.saving = false; toast(humanApiError(error), true); render(); }
   }
   // PR20072026 (feedback dono) — MENU de entrada centralizado. Duas portas:
   // "Por dia" (monta pela agenda) e "Salvos" (repete uma rota guardada). Enquanto
@@ -2376,7 +2514,8 @@
     // delete-route-modelo). Container + 2 botões (button aninhado é inválido).
     const modelos = [...(state.routeModelos || [])].sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || "")));
     const admin = isAdmin();
-    const rows = modelos.map(modelo => `<div class="day-saved-row"><button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}"><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${(modelo.paradas || []).length} parada(s)</span></span><span class="rp2-mode-chev">›</span></button>${admin ? `<button type="button" class="day-saved-delete" data-action="delete-route-modelo" data-modelo-id="${H.escape(modelo.id)}" aria-label="Excluir rota">${icon("trash", 16)}</button>` : ""}</div>`).join("");
+    // Excluir rota é SEGURAR PRESSIONADO — sem lixeira, igual ao resto do app.
+    const rows = modelos.map(modelo => `<div class="day-saved-row"><button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}" ${admin ? `data-route-modelo-hold="${H.escape(modelo.id)}"` : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${(modelo.paradas || []).length} parada(s)</span></span><span class="rp2-mode-chev">›</span></button>${admin ? `<button type="button" class="day-saved-delete day-saved-edit" data-action="edit-route-modelo" data-modelo-id="${H.escape(modelo.id)}" aria-label="Editar rota">${icon("edit", 16)}</button>` : ""}</div>`).join("");
     return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">☆</div><h2 id="day-saved-title">Rotas Salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota na Leitura de Rota primeiro.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   function clientScheduleLine(client) {
@@ -3287,6 +3426,8 @@
     if (action === "toggle-manual-save") { state.dayManualSave = !state.dayManualSave; render(); return; }
     if (action === "confirm-manual-order") { state.dayOrderStep = null; await beginManagedRoute(); return; }
     if (action === "apply-route-modelo") {
+      // O clique que fecha o toque-longo de excluir NÃO pode sair rodando a rota.
+      if (ignoredRouteModeloClickId !== null) { ignoredRouteModeloClickId = null; return; }
       const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
       if (!modelo) return;
       // F2 (PR20072026-ROTA-SALVA) — aplicar rota salva agora RODA A LISTA EXATA:
@@ -3329,6 +3470,53 @@
     if (action === "update-instalar") { startAppUpdate(); return; }
     // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
     if (action === "route-modelos") { if (!isAdmin()) return; showModal("route-modelos"); void loadRouteModelos(); return; }
+    // ——— Editor da rota salva. Só mexe no rascunho; PATCH só no "Salvar".
+    if (action === "edit-route-modelo") { if (!isAdmin()) return; await abrirRouteModeloEditor(target.dataset.modeloId); return; }
+    if (action === "rme-fechar") { state.routeModeloEditor = null; await closeOverlay("modal"); return; }
+    if (action === "rme-voltar-paradas") { const e = state.routeModeloEditor; if (!e) return; e.step = "paradas"; e.paradaIndex = -1; e.produtoPicker = false; render(); return; }
+    if (action === "rme-mover") {
+      const e = state.routeModeloEditor; if (!e) return;
+      const from = Number(target.dataset.index); const to = from + Number(target.dataset.delta);
+      if (!(from >= 0 && to >= 0 && to < e.paradas.length)) return;
+      const [movida] = e.paradas.splice(from, 1); e.paradas.splice(to, 0, movida);
+      H.vibrate(8); render(); return;
+    }
+    if (action === "rme-add-cliente") {
+      const e = state.routeModeloEditor; if (!e) return;
+      e.step = "cliente"; state.leituraClienteQuery = ""; render(); return;
+    }
+    if (action === "rme-editar-itens") {
+      const e = state.routeModeloEditor; if (!e) return;
+      // O clique que fecha o toque-longo não pode abrir os itens da parada que
+      // acabou de sair (os índices já andaram).
+      if (ignoredRmeParadaClickIndex !== null) { ignoredRmeParadaClickIndex = null; return; }
+      e.paradaIndex = Number(target.dataset.index); e.step = "itens"; e.produtoPicker = false; render(); return;
+    }
+    if (action === "rme-produto-abrir-picker") { const e = state.routeModeloEditor; if (!e) return; e.produtoPicker = true; render(); return; }
+    if (action === "rme-produto-fechar-picker") { const e = state.routeModeloEditor; if (!e) return; e.produtoPicker = false; render(); return; }
+    if (action === "rme-produto-escolher") {
+      const e = state.routeModeloEditor; if (!e) return;
+      const parada = e.paradas[e.paradaIndex]; if (!parada) return;
+      const productId = Number(target.dataset.productId);
+      const produto = (state.products || []).find(p => String(p.id) === String(productId));
+      if (!Array.isArray(parada.itens)) parada.itens = [];
+      parada.itens.push({ productId, qtd: 1, valorUnit: Number(produto && produto.precoCatalogo) || 0 });
+      e.produtoPicker = false; render(); return;
+    }
+    if (action === "rme-item-qtd") {
+      const e = state.routeModeloEditor; if (!e) return;
+      const parada = e.paradas[e.paradaIndex]; if (!parada) return;
+      const item = (parada.itens || []).find(i => String(i.productId) === String(target.dataset.productId));
+      if (!item) return;
+      item.qtd = Math.max(1, item.qtd + Number(target.dataset.delta)); render(); return;
+    }
+    if (action === "rme-item-remover") {
+      const e = state.routeModeloEditor; if (!e) return;
+      const parada = e.paradas[e.paradaIndex]; if (!parada) return;
+      parada.itens = (parada.itens || []).filter(i => String(i.productId) !== String(target.dataset.productId));
+      render(); return;
+    }
+    if (action === "rme-salvar") { await salvarRouteModeloEditor(); return; }
     if (action === "rename-route-modelo") {
       const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
       if (!modelo) return;
@@ -3424,6 +3612,17 @@
     if (action === "leitura-escolher-cliente") {
       const client = (state.clients || []).find(c => String(c.id) === String(target.dataset.clientId));
       if (!client) return;
+      // O card de cliente é o MESMO nos dois seletores; no editor de rota salva
+      // ele acrescenta uma parada em vez de abrir o passo da leitura.
+      const editor = state.routeModeloEditor;
+      if (state.modal === "route-modelo-editor" && editor && editor.step === "cliente") {
+        editor.paradas.push({ customerProfileId: String(client.id), itens: [] });
+        editor.step = "paradas";
+        state.leituraClienteQuery = "";
+        H.vibrate(8);
+        render();
+        return;
+      }
       chooseLeituraClient(client);
       return;
     }
@@ -3501,6 +3700,19 @@
     if (action === "leitura-item-adicionar") {
       const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
       if (!product) return;
+      // Mesmo card de produto do app; no editor de rota salva ele fixa o item na
+      // parada em vez de entrar na leitura em andamento.
+      const editorProduto = state.routeModeloEditor;
+      if (state.modal === "route-modelo-editor" && editorProduto) {
+        const parada = editorProduto.paradas[editorProduto.paradaIndex];
+        if (!parada) return;
+        if (!Array.isArray(parada.itens)) parada.itens = [];
+        parada.itens.push({ productId: Number(product.id), qtd: 1, valorUnit: Number(product.precoCatalogo) || 0 });
+        editorProduto.produtoPicker = false;
+        H.vibrate(10);
+        render();
+        return;
+      }
       state.leituraItens.push({ productId: product.id, nome: product.nome || product.name || "Produto", unidade: product.unidade || "unidade", qtd: 1, valorUnit: null });
       state.leituraProdutoPicker = false;
       state.leituraProdutoQuery = "";
@@ -3608,6 +3820,35 @@
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       clientProductHold = hold;
     }
+    // Parada do editor de rota salva: mesmo gesto de sempre (arma vermelho aos
+    // 950ms, vibra, e ao soltar tira da rota). Só no rascunho — nada de PATCH.
+    const rmeParada = event.target.closest("[data-rme-parada]");
+    if (rmeParada && event.touches.length === 1 && state.modal === "route-modelo-editor") {
+      // A trava vale SÓ pro clique que fecha o toque-longo. Um toque novo começa
+      // limpo — senão o hold que remove a parada engolia o próximo toque de boa fé.
+      ignoredRmeParadaClickIndex = null;
+      const touch = event.touches[0]; const hold = { id: rmeParada.dataset.rmeParada, el: rmeParada, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      rmeParadaHold = hold;
+    }
+    // Produto fixado na parada: segurar tira (não há X).
+    const rmeItem = event.target.closest("[data-rme-item]");
+    if (rmeItem && event.touches.length === 1 && state.modal === "route-modelo-editor") {
+      const touch = event.touches[0]; const hold = { id: rmeItem.dataset.rmeItem, el: rmeItem, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      rmeItemHold = hold;
+    }
+    // Rota salva (lista de Salvos e Minhas rotas): segurar exclui a rota inteira.
+    const routeModeloCard = event.target.closest("[data-route-modelo-hold]");
+    if (routeModeloCard && event.touches.length === 1) {
+      ignoredRouteModeloClickId = null;
+      const touch = event.touches[0]; const hold = { id: routeModeloCard.dataset.routeModeloHold, el: routeModeloCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      routeModeloHold = hold;
+    }
     const target = event.target;
     const routeStop = target.closest("[data-route-stop]");
     if (routeStop && event.touches.length === 1 && !state.modal && !state.selected) {
@@ -3635,6 +3876,9 @@
     if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); clientHold = null; }
     if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); clientProductHold = null; }
     if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); routeStopHold = null; }
+    if (rmeParadaHold && (Math.abs(touch.clientX - rmeParadaHold.x) > 12 || Math.abs(touch.clientY - rmeParadaHold.y) > 12)) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); rmeParadaHold = null; }
+    if (rmeItemHold && (Math.abs(touch.clientX - rmeItemHold.x) > 12 || Math.abs(touch.clientY - rmeItemHold.y) > 12)) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); rmeItemHold = null; }
+    if (routeModeloHold && (Math.abs(touch.clientX - routeModeloHold.x) > 12 || Math.abs(touch.clientY - routeModeloHold.y) > 12)) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); routeModeloHold = null; }
     if (productHold && (Math.abs(touch.clientX - productHold.x) > 12 || Math.abs(touch.clientY - productHold.y) > 12)) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); productHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
@@ -3651,6 +3895,49 @@
       clearTimeout(clientProductHold.timer);
       const hold = clientProductHold; clientProductHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredClientProductClickId = hold.id; void deleteClientProduct(state.clientProducts.find(item => item.id === hold.id)); return; }
+    }
+    if (rmeItemHold) {
+      clearTimeout(rmeItemHold.timer);
+      const hold = rmeItemHold; rmeItemHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      const editor = state.routeModeloEditor;
+      if (hold.triggered && editor) {
+        const parada = editor.paradas[editor.paradaIndex];
+        if (parada) {
+          parada.itens = (parada.itens || []).filter(i => String(i.productId) !== String(hold.id));
+          render();
+          toast("Produto tirado da parada.");
+        }
+        return;
+      }
+    }
+    if (routeModeloHold) {
+      clearTimeout(routeModeloHold.timer);
+      const hold = routeModeloHold; routeModeloHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      if (hold.triggered) {
+        ignoredRouteModeloClickId = hold.id;
+        const modelo = (state.routeModelos || []).find(m => String(m.id) === String(hold.id));
+        if (modelo) {
+          state.confirmation = { type: "delete-route-modelo", itemId: modelo.id, title: "Excluir rota salva?", message: `"${modelo.nome || "Esta rota"}" será excluída.`, confirmLabel: "Excluir", danger: true, icon: "route" };
+          render();
+        }
+        return;
+      }
+    }
+    if (rmeParadaHold) {
+      clearTimeout(rmeParadaHold.timer);
+      const hold = rmeParadaHold; rmeParadaHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      const editor = state.routeModeloEditor;
+      if (hold.triggered && editor) {
+        const index = Number(hold.id);
+        const parada = editor.paradas[index];
+        if (parada) {
+          ignoredRmeParadaClickIndex = hold.id;
+          editor.paradas.splice(index, 1);
+          render();
+          toast(`${rmeClienteNome(parada)} saiu da rota.`);
+        }
+        return;
+      }
     }
     if (routeStopHold) {
       clearTimeout(routeStopHold.timer);
@@ -3680,7 +3967,7 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) {
