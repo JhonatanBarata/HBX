@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AiGatewayService } from '../../ai-gateway/ai-gateway.service';
+import { callOllamaChat, OllamaGatewayRefusedError } from '../../ai-gateway/ollama-client';
 import { classifyProspectingAutoReply, classifyProspectingIntent } from '../../vendas/prospecting-safety';
 import type {
   ProspectingAutoReplyClassification,
@@ -17,6 +17,16 @@ import type {
  * Endpoint-agnóstico de propósito: roda contra o Ollama do host em dev
  * (`http://host.docker.internal:11434`) e contra qualquer outro endereço em
  * produção só trocando a env — sem mexer no código.
+ *
+ * S05B (docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/S05B-fundacao-ia-unica.md):
+ * o fetch ao Ollama foi extraído para o cliente ÚNICO (`ai-gateway/ollama-client.ts`,
+ * hardening herdado do concierge). Cadeia de env e comportamento em erro
+ * (SEMPRE cai no keyword, nunca lança pro chamador) continuam exatamente os
+ * mesmos; o texto de log da recusa cedo do governor também foi preservado
+ * (`OllamaGatewayRefusedError`). ⚠️ Único detalhe cosmético: a distinção entre
+ * "HTTP não-ok" e "rede/timeout" no texto de log se fundiu num único catch
+ * genérico (`classificador IA indisponível (<msg>)`) — comportamento
+ * observável (retorna null, cai no keyword) é idêntico, só a frase de log varia.
  */
 
 function envStr(name: string, fallback: string) {
@@ -154,42 +164,26 @@ export class AiIntentClassifierService {
     try {
       // GOVERNOR-IA: faixa realtime (prioridade absoluta). Recusa cedo (fila cheia/espera condenada)
       // → cai no MESMO fallback keyword de sempre (return null aqui = caller usa keyword).
-      // Contexto canônico da ação de crédito `ai_realtime`.
-      const gw = await AiGatewayService.run(
-        'realtime',
+      // Contexto canônico da ação de crédito `ai_realtime`. Cliente único (S05B) —
+      // `OllamaGatewayRefusedError` distingue a recusa cedo do governor de qualquer
+      // outra falha (HTTP/rede), preservando os DOIS textos de log distintos que
+      // este classificador já tinha antes da fusão.
+      const raw = await callOllamaChat({
+        baseUrl,
+        model,
         timeoutMs,
-        () =>
-          fetch(`${baseUrl}/api/chat`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              model,
-              stream: false,
-              think: false,
-              format: 'json',
-              options: { temperature: 0.1, num_predict: 80 },
-              messages: [
-                { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: `Resposta do lead: ${text}` },
-              ],
-            }),
-            signal: AbortSignal.timeout(timeoutMs),
-          }),
-        { companyId: input?.companyId, actionKey: 'ai_realtime' },
-      );
-      if (gw.refused) {
-        this.logger.warn('classificador IA recusado cedo pelo governor (fila cheia) — caindo no keyword');
-        return null;
-      }
-      const response = gw.value;
+        format: 'json',
+        temperature: 0.1,
+        numPredict: 80,
+        think: false,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: `Resposta do lead: ${text}` },
+        ],
+        companyId: input?.companyId,
+        actionKey: 'ai_realtime',
+      });
 
-      if (!response.ok) {
-        this.logger.warn(`classificador IA respondeu HTTP ${response.status} — caindo no keyword`);
-        return null;
-      }
-
-      const data = (await response.json()) as { message?: { content?: string } };
-      const raw = String(data?.message?.content || '');
       const parsed = safeParseJson(raw);
       if (!parsed) {
         this.logger.warn('classificador IA devolveu JSON inválido — caindo no keyword');
@@ -209,6 +203,10 @@ export class AiIntentClassifierService {
 
       return { source: 'ai', model, latencyMs, raw, bot: false, botKind: null, intent };
     } catch (error) {
+      if (error instanceof OllamaGatewayRefusedError) {
+        this.logger.warn('classificador IA recusado cedo pelo governor (fila cheia) — caindo no keyword');
+        return null;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`classificador IA indisponível (${message}) — caindo no keyword`);
       return null;

@@ -1,4 +1,4 @@
-import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import { callOllamaChat } from '../ai-gateway/ollama-client';
 
 // ============================================================================
 // Cliente Ollama LOCAL da FRENTE "assistente" (reuso, NAO IA nova).
@@ -9,9 +9,16 @@ import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 // assistente (modelo/timeout PROPRIOS, desacoplados do classificador do bot),
 // e passam pela MESMA faixa realtime do GOVERNOR-IA (AiGatewayService).
 //
+// S05B (docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/S05B-fundacao-ia-unica.md):
+// este arquivo virou WRAPPER FINO sobre o cliente Ollama UNICO
+// (`ai-gateway/ollama-client.ts`, hardening extraido do concierge-ollama.ts —
+// o mais maduro). Cadeia de env, exports e comportamento em erro CONTINUAM
+// EXATAMENTE os mesmos (Copiloto incluso) — so o fetch em si foi extraido.
+//
 // ⚠️ SEGURANCA: este arquivo NAO importa nem toca Webwhats/Conversations/
-// Messaging/socket. A UNICA saida de rede aqui e o fetch ao Ollama LOCAL. Nada
-// aqui envia WhatsApp, conecta chip ou reconecta motor.
+// Messaging/socket. A UNICA saida de rede aqui e o fetch ao Ollama LOCAL (agora
+// dentro de ai-gateway/ollama-client.ts). Nada aqui envia WhatsApp, conecta
+// chip ou reconecta motor.
 //
 // Cadeia de fallback (identica a que o sandbox ja usava em prod):
 //   HBX_ASSISTENTE_MODEL      -> HBX_LLM_CLASSIFIER_MODEL      -> 'qwen2.5:7b'
@@ -71,6 +78,8 @@ export type AssistenteOllamaOptions = {
  * pela faixa `realtime` do GOVERNOR-IA (prioridade absoluta; recusa cedo cai no
  * fallback do caller). LANCA quando: IA desligada, governor recusou, HTTP nao-ok
  * ou rede/timeout — o caller SEMPRE trata (nunca ha envio real como consequencia).
+ * Wrapper fino sobre `callOllamaChat` (cliente unico) — mesma cadeia de env e
+ * mesmo contrato de erro de sempre (usado pelo sandbox E pelo Copiloto).
  */
 export async function callAssistenteOllama(
   messages: OllamaMessage[],
@@ -79,36 +88,17 @@ export async function callAssistenteOllama(
   if (!assistenteOllamaEnabled()) {
     throw new Error('classificador IA desligado (HBX_LLM_CLASSIFIER_ENABLED)');
   }
-  const baseUrl = assistenteOllamaBaseUrl();
-  const model = assistenteModel();
   const timeoutMs = opts.timeoutMs && opts.timeoutMs > 0 ? opts.timeoutMs : assistenteTimeoutMs();
 
-  const gw = await AiGatewayService.run(
-    'realtime',
+  return callOllamaChat({
+    baseUrl: assistenteOllamaBaseUrl(),
+    model: assistenteModel(),
     timeoutMs,
-    () =>
-      fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          think: false,
-          options: {
-            temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.4,
-            num_predict: opts.numPredict && opts.numPredict > 0 ? opts.numPredict : 220,
-          },
-          messages,
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }),
-    { companyId: opts.companyId, actionKey: opts.actionKey || 'ai_realtime' },
-  );
-  if (gw.refused) {
-    throw new Error('governor recusou a chamada de IA (fila cheia) — caindo no fallback');
-  }
-  const response = gw.value;
-  if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
-  const data = (await response.json()) as { message?: { content?: string } };
-  return String(data?.message?.content || '');
+    messages,
+    temperature: typeof opts.temperature === 'number' ? opts.temperature : 0.4,
+    numPredict: opts.numPredict && opts.numPredict > 0 ? opts.numPredict : 220,
+    companyId: opts.companyId,
+    actionKey: opts.actionKey || 'ai_realtime',
+    refusedMessage: 'governor recusou a chamada de IA (fila cheia) — caindo no fallback',
+  });
 }

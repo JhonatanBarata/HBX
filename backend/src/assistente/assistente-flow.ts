@@ -8,6 +8,16 @@
 //      exatamente os exemplos que o classificador usa para casar a resposta do lead.
 //
 // Puro (sem I/O, sem Nest): testavel isolado e reusavel pelo sandbox.
+//
+// S05B (docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/S05B-fundacao-ia-unica.md):
+// o prompt-sistema compilado aqui agora inclui a guarda anti-injecao do
+// Concierge (utilitario compartilhado em ai-gateway/prompt-guards.ts) — este e
+// o cerebro que fala com CLIENTE FINAL (input HOSTIL por definicao), entao
+// herda a mesma blindagem 10/10 provada no Concierge. Regra de ouro: motor
+// unico, contexto ISOLADO — o Atendente continua recebendo SO a config do
+// agent (nome/tom/produtos/fluxo/few-shots), nunca ferramenta/dado interno.
+
+import { antiInjectionGuardLine } from '../ai-gateway/prompt-guards';
 
 export const ASSISTENTE_TONS = ['formal', 'normal', 'descontraido'] as const;
 export type AssistenteTom = (typeof ASSISTENTE_TONS)[number];
@@ -202,6 +212,7 @@ export function compileSystemPrompt(config: AssistenteConfigShape): string {
   );
   linhas.push('- Se o cliente pedir para falar com uma pessoa, confirme que vai chamar um atendente.');
   linhas.push(`- Voce fala em nome de ${empresa}; nunca diga que e uma IA de outra empresa.`);
+  linhas.push(`- ${antiInjectionGuardLine('msg_cliente')}`);
 
   const passos = config.fluxo.passos;
   if (passos.length) {

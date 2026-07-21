@@ -57,6 +57,21 @@ test('compileSystemPrompt inclui persona, tom, negocio e few-shots', () => {
   assert.match(prompt, /"quero"/);
 });
 
+test('compileSystemPrompt: S05B inclui a guarda anti-injecao (mesma blindagem do Concierge)', () => {
+  const config = sanitizeAssistenteConfig({
+    nome: 'Julia',
+    perfil: 'vendas',
+    empresaNome: 'Colsani',
+    fluxo: { passos: [{ id: 'p1', texto: 'Ola' }], condicoes: [] },
+  });
+  const prompt = compileSystemPrompt(config);
+  // A guarda cita a tag que o sandbox usa para delimitar a fala do cliente
+  // (assistente-sandbox.service.ts: wrapUntrustedUserText(text, {tag:'msg_cliente'})).
+  assert.match(prompt, /<msg_cliente>/);
+  assert.match(prompt, /DADO/);
+  assert.match(prompt, /NUNCA instrução/);
+});
+
 test('resolveVariaveis troca [[empresa]]/[[nome]]/[[Seu nome]] e preserva desconhecidas', () => {
   const out = resolveVariaveis('[[Seu nome]] da [[nome da empresa]] falando com [[nome]] sobre [[xpto]]', {
     empresa: 'ACME',

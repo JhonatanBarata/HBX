@@ -5,6 +5,12 @@
 // GOVERNOR-IA que o classificador do bot e o assistente já usam em prod. Saída
 // estruturada com `format:'json'` (precedente: ai-intent-classifier.service.ts).
 //
+// S05B (docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/S05B-fundacao-ia-unica.md):
+// este arquivo virou WRAPPER FINO sobre o cliente Ollama ÚNICO
+// (`ai-gateway/ollama-client.ts`, hardening extraído DESTE arquivo — era o
+// mais maduro). Cadeia de env, exports e comportamento em erro CONTINUAM
+// EXATAMENTE os mesmos — só o fetch em si foi extraído.
+//
 // Cadeia de env (bench sem código, igual o assistente fez):
 //   HBX_AI_CONCIERGE_MODEL      -> HBX_LLM_CLASSIFIER_MODEL      -> 'qwen2.5:7b'
 //   HBX_AI_CONCIERGE_TIMEOUT_MS -> HBX_LLM_CLASSIFIER_TIMEOUT_MS -> 12000
@@ -13,11 +19,12 @@
 // Flag da FEATURE (default OFF): HBX_AI_CONCIERGE_ENABLED.
 //
 // ⚠️ SEGURANÇA: zero Webwhats/Messaging/socket — a única saída de rede é o
-// fetch ao Ollama local. LANÇA em recusa do governor/HTTP/rede — o caller cai
-// no fallback determinístico (chips), nunca trava a feature.
+// fetch ao Ollama local (agora dentro de ai-gateway/ollama-client.ts). LANÇA
+// em recusa do governor/HTTP/rede — o caller cai no fallback determinístico
+// (chips), nunca trava a feature.
 // ============================================================================
 
-import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import { callOllamaChat } from '../ai-gateway/ollama-client';
 
 function envStr(name: string, fallback: string) {
   const value = String(process.env[name] || '').trim();
@@ -59,7 +66,9 @@ export function conciergeTimeoutMs() {
 
 /**
  * UMA chamada de extração: faixa realtime + budget do Concierge + autorização
- * da ação `ai_realtime` por empresa.
+ * da ação `ai_realtime` por empresa. Wrapper fino sobre `callOllamaChat`
+ * (cliente único) — model/timeout resolvidos por ESTA cadeia de env, erro
+ * sempre lançado pro caller decidir o fallback (idêntico a antes da S05B).
  */
 export async function callConciergeExtractor(
   messages: Array<{ role: string; content: string }>,
@@ -68,34 +77,17 @@ export async function callConciergeExtractor(
   if (!conciergeAiEnabled()) {
     throw new Error('IA local desligada (HBX_LLM_CLASSIFIER_ENABLED)');
   }
-  const baseUrl = conciergeOllamaBaseUrl();
-  const model = conciergeModel();
-  const timeoutMs = conciergeTimeoutMs();
-
-  const gw = await AiGatewayService.run(
-    'realtime',
-    timeoutMs,
-    () =>
-      fetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          think: false,
-          format: 'json',
-          options: { temperature: 0.1, num_predict: 220 },
-          messages,
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
-      }),
-    { companyId: opts.companyId, actionKey: 'ai_realtime' },
-  );
-  if (gw.refused) {
-    throw new Error('governor recusou a chamada de IA (fila cheia) — caindo no fluxo por chips');
-  }
-  const response = gw.value;
-  if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
-  const data = (await response.json()) as { message?: { content?: string } };
-  return String(data?.message?.content || '');
+  return callOllamaChat({
+    baseUrl: conciergeOllamaBaseUrl(),
+    model: conciergeModel(),
+    timeoutMs: conciergeTimeoutMs(),
+    messages,
+    format: 'json',
+    temperature: 0.1,
+    numPredict: 220,
+    think: false,
+    companyId: opts.companyId,
+    actionKey: 'ai_realtime',
+    refusedMessage: 'governor recusou a chamada de IA (fila cheia) — caindo no fluxo por chips',
+  });
 }

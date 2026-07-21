@@ -6,6 +6,7 @@ import {
   resolveVariaveis,
   type AssistenteConfigShape,
 } from './assistente-flow';
+import { wrapUntrustedUserText } from '../ai-gateway/prompt-guards';
 
 // ============================================================================
 // WORM-14 — SANDBOX "Teste sua IA".
@@ -97,10 +98,16 @@ export class AssistenteSandboxService {
     // Passo 2 — resposta via IA LOCAL (mesmo pipeline do bot). Chamada injetavel.
     const caller = chat ?? ((messages: Array<{ role: string; content: string }>) => this.defaultOllamaChat(messages, meta));
     const systemPrompt = compileSystemPrompt(config);
+    // S05B: a mensagem NOVA do cliente (o texto que ele acabou de digitar — o
+    // ponto de maior risco de injecao) e delimitada com a MESMA guarda do
+    // Concierge (`<msg_cliente>`, ver prompt-guards.ts). O systemPrompt ja
+    // instrui o modelo a tratar o conteudo dentro da tag como DADO, nunca
+    // comando. `guessCondicao` abaixo usa o `text` CRU (nao o delimitado) —
+    // a delimitacao e so para o modelo, nao muda o casamento de few-shots.
     const messages: Array<{ role: string; content: string }> = [
       { role: 'system', content: systemPrompt },
       ...history.map((t) => ({ role: t.role, content: t.content })),
-      { role: 'user', content: text },
+      { role: 'user', content: wrapUntrustedUserText(text, { tag: 'msg_cliente' }) },
     ];
 
     try {
