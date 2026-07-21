@@ -39,6 +39,12 @@ e — SÓ onde o inventário (S02) provou zero uso — DDL destrutivo. Regra de 
 ## Proibições
 - NÃO aplicar DDL destrutivo em banco nenhum nesta sprint. NÃO tocar env do VPS.
 - `Cadencia*` e `ConversationAssistantRun` NÃO se dropam (vivos no motor novo).
+- ⚠️ **COPILOTO É INTOCÁVEL** (achado da S02): `backend/src/assistente/copiloto.controller.ts` +
+  `copiloto.service.ts` + `copiloto.dto` são feature SEPARADA (redação assistida na tela de Leads,
+  flag `HBX_COPILOTO_ENABLED`) que só COMPARTILHA o prefixo `/assistente` e o cliente
+  `assistente-ollama.ts`. Ao aposentar o módulo `assistente`: PRESERVAR o CopilotoController/Service
+  (mover pra onde fizer sentido ou manter o módulo só com ele) e o cliente Ollama que ele usa.
+  Endpoints `/assistente/copiloto*` continuam vivos.
 
 ## DoD
 Commit local: `refactor(automation): S20 — aposentadoria de endpoints/flags legados + DDL em hold`

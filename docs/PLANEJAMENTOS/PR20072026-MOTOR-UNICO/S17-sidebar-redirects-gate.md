@@ -25,6 +25,8 @@ Rotas velhas viram redirect. É a sprint que muda o que o cliente vê — só ro
    quebrar o fail-closed dos demais itens.
 2. Redirects com secao certa: `/bot` → `/automacao?secao=atendente` · `/automacoes` →
    `/automacao?secao=prospeccao` · `/assistente` → `/automacao?secao=atendente&cerebro=ia`.
+   ⚠️ O redirect de `/assistente` é SÓ da página raiz — NÃO capturar `/assistente/copiloto*` nem
+   qualquer subrota do Copiloto (feature separada viva, achado S02). Conferir que o redirect é exato.
 3. Varredura de links: TODOS os `Link`/`href` do frontend atualizados (grep obrigatório nos 16
    arquivos que citam as rotas — lista de partida no relatório da S02 item 3).
 4. `sellerOnlyNav` (shell:862): substituir as 3 chaves velhas pela nova, preservando a regra de

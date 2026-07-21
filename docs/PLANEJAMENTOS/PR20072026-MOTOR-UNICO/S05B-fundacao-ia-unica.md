@@ -46,6 +46,9 @@ cada frente criou o seu. Unificar na fundação mais MADURA (a do Concierge: ben
 ## Proibições
 - Não tocar no produto/painel Concierge nem no seu gate (`concierge`, empresa 5).
 - Não mudar modelos default de ninguém (envs mandam, como hoje).
+- ⚠️ `assistente-ollama.ts` também alimenta o **Copiloto** (redação assistida no Lead — achado S02).
+  Ao transformá-lo em wrapper fino, o Copiloto tem que continuar funcionando IGUAL (mesmas envs
+  `HBX_ASSISTENTE_*`, mesmo comportamento em erro). Testar que o caminho do Copiloto não regride.
 
 ## DoD
 Commit local: `refactor(automation): S05B — cliente Ollama único com hardening do concierge`
