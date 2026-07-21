@@ -14,11 +14,13 @@ import {
 } from './cadencia-personas';
 import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from './dto/cadencia.dto';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
+import { automationFlag } from '../automation/automation-flags';
 
 // ================================================================
 // WORM-13 — CADENCIA (13a): CRUD das personas + aplicar a lista/filtro + runner
 // diario. O runner e a UNICA coisa que auto-dispara: fica atras da flag
-// HBX_CADENCIA_RUNNER_ENABLED (default OFF). Enquanto OFF, o motor NAO roda em
+// HBX_AUTOMATION_RUNNER_ENABLED (S20, MOTOR-ÚNICO — fallback pra
+// HBX_CADENCIA_RUNNER_ENABLED, default OFF). Enquanto OFF, o motor NAO roda em
 // producao — leads sao inscritos, mas nenhum passo dispara sozinho.
 //
 // CANAL WHATSAPP = reusa o caminho PROVADO do bot de prospeccao:
@@ -29,6 +31,7 @@ import { CommercialContactControlService } from '../vendas/commercial-contact-co
 // ================================================================
 
 const RUNNER_FLAG = 'HBX_CADENCIA_RUNNER_ENABLED';
+const RUNNER_FLAG_NEW = 'HBX_AUTOMATION_RUNNER_ENABLED';
 
 // E-mail automático da cadência atrás de flag própria (default OFF). Em produção
 // o passo entra na outbox durável; o worker possui kill-switch independente.
@@ -76,7 +79,7 @@ export class CadenciaService {
   }
 
   private get runnerEnabled(): boolean {
-    return String(process.env[RUNNER_FLAG] || '').trim() === '1' || String(process.env[RUNNER_FLAG] || '').trim().toLowerCase() === 'true';
+    return automationFlag(RUNNER_FLAG_NEW, RUNNER_FLAG);
   }
 
   // Flag propria do e-mail real (default OFF). Segue o padrao do runnerEnabled.

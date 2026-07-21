@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SavedSearchService } from '../saved-search/saved-search.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import type { CreateRotinaDto, UpdateRotinaDto } from './dto/cadencia.dto';
+import { automationFlag } from '../automation/automation-flags';
 
 // ================================================================
 // WORM-13 (13c) — ROTINAS recorrentes em cima do WORM-15 (SavedSearch).
@@ -13,6 +14,7 @@ import type { CreateRotinaDto, UpdateRotinaDto } from './dto/cadencia.dto';
 // ================================================================
 
 const RUNNER_FLAG = 'HBX_CADENCIA_RUNNER_ENABLED';
+const RUNNER_FLAG_NEW = 'HBX_AUTOMATION_RUNNER_ENABLED';
 
 type RotinaRow = {
   id: string;
@@ -46,8 +48,7 @@ export class CadenciaRotinaService {
   ) {}
 
   private get runnerEnabled(): boolean {
-    const v = String(process.env[RUNNER_FLAG] || '').trim().toLowerCase();
-    return v === '1' || v === 'true';
+    return automationFlag(RUNNER_FLAG_NEW, RUNNER_FLAG);
   }
 
   private async resolveContext(user: any): Promise<VendasAccessContext> {

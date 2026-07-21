@@ -1,11 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  sanitizeAssistenteConfig,
-  compileSystemPrompt,
-  compileConditions,
-  type AssistenteConfigShape,
-} from './assistente-flow';
+import { sanitizeAssistenteConfig, type AssistenteConfigShape } from './assistente-flow';
 import { getSeedFluxo, normalizeTemplate } from './assistente-seeds';
 import { normalizePerfil } from './assistente-flow';
 import {
@@ -14,16 +9,28 @@ import {
   type OllamaChat,
 } from './assistente-sandbox.service';
 import type { SandboxDto, SaveAssistenteDto } from './dto/assistente.dto';
+import { automationFlag } from '../automation/automation-flags';
 
 // ============================================================================
 // WORM-14 — Assistente IA (service). CRUD do AssistenteConfig por empresa +
-// compilador (fluxoJson->prompt) + sandbox seguro + publicar atras de flag.
+// sandbox seguro + publicar atras de flag.
 //
-// Ativar no WhatsApp fica atrás de HBX_ASSISTENTE_PUBLISH_ENABLED (default OFF).
-// Com a flag desligada, o endpoint não publica e o runtime não reivindica inbound.
+// Ativar no WhatsApp fica atrás de HBX_AUTOMATION_IA_LIVE (S20, MOTOR-ÚNICO —
+// fallback pra HBX_ASSISTENTE_PUBLISH_ENABLED com warn de deprecado, ver
+// automation/automation-flags.ts). Com a flag desligada, publish não publica
+// e o runtime não reivindica inbound.
+//
+// S20: `templates()`/`prompt()` (GET /assistente/templates, GET /assistente/
+// prompt) foram REMOVIDOS — existiam só pro wizard do front velho
+// (assistente/page.client.tsx, morto na S19) e não tinham NENHUM outro
+// chamador (nem o AgentService, que só usa .get/.save/.publish/.runSandbox).
+// `compileSystemPrompt`/`compileConditions` (usadas só por `prompt()`) saíram
+// junto deste arquivo — continuam vivas em `assistente-sandbox.service.ts`,
+// que é quem realmente as usa em runtime (compilação do prompt pro Ollama).
 // ============================================================================
 
 const PUBLISH_FLAG = 'HBX_ASSISTENTE_PUBLISH_ENABLED';
+const PUBLISH_FLAG_NEW = 'HBX_AUTOMATION_IA_LIVE';
 
 function requireCompanyId(user: any): number {
   const companyId = Number(
@@ -58,7 +65,7 @@ export class AssistenteService {
   ) {}
 
   private get publishEnabled(): boolean {
-    return ['true', '1', 'yes', 'on'].includes(String(process.env[PUBLISH_FLAG] || '').trim().toLowerCase());
+    return automationFlag(PUBLISH_FLAG_NEW, PUBLISH_FLAG);
   }
 
   private parseConfigFromRow(row: AssistenteRow): AssistenteConfigShape {
@@ -113,26 +120,6 @@ export class AssistenteService {
     };
   }
 
-  // GET /assistente/templates?perfil=vendas — seeds p/ o passo 3 do wizard.
-  templates(perfilRaw: unknown) {
-    const perfil = normalizePerfil(perfilRaw);
-    return {
-      ok: true,
-      perfil,
-      templates: (['agil', 'flexivel', 'avancado'] as const).map((tpl) => {
-        const fluxo = getSeedFluxo(perfil, tpl);
-        return {
-          key: tpl,
-          label:
-            tpl === 'agil' ? 'Ágil' : tpl === 'flexivel' ? 'Flexível' : 'Avançado',
-          passos: fluxo.passos.length,
-          condicoes: fluxo.condicoes.length,
-          fluxo,
-        };
-      }),
-    };
-  }
-
   // POST /assistente — cria/atualiza (upsert por empresa). Aceita `template` p/
   // materializar um seed quando o fluxo nao veio pronto do front.
   async save(user: any, dto: SaveAssistenteDto & { template?: string }) {
@@ -167,19 +154,6 @@ export class AssistenteService {
       update: { ...data, published: false },
     })) as AssistenteRow;
     return { ok: true, assistente: this.serialize(row) };
-  }
-
-  // GET /assistente/prompt — inspeciona o prompt-sistema compilado (debug/preview).
-  async prompt(user: any) {
-    const companyId = requireCompanyId(user);
-    const row = await this.findRow(companyId);
-    if (!row) throw new BadRequestException('Nenhum assistente configurado ainda.');
-    const config = this.parseConfigFromRow(row);
-    return {
-      ok: true,
-      systemPrompt: compileSystemPrompt(config),
-      conditions: compileConditions(config),
-    };
   }
 
   // POST /assistente/sandbox — TESTE SEGURO. Roda o mesmo pipeline do bot SEM

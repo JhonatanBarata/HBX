@@ -65,6 +65,14 @@ export class HbxRecoveryController {
     return this.recoveryService.listFlowStages(req.user);
   }
 
+  // S20 (MOTOR-ÚNICO): NÃO é legado, NÃO é candidato a deprecação — é o
+  // endpoint CANÔNICO ATUAL da seção Cobrança da casca nova (S14,
+  // frontend/src/app/(app)/automacao/secao-cobranca.tsx, cabeçalho do
+  // arquivo: "REEMBALAGEM do Recovery: motor e endpoints INTOCADOS — consome
+  // só GET/PATCH /hbx-recovery/bot-config"). Recovery não tem cérebro 'ia'/
+  // 'roteiro' unificado como o Atendente (AgentBrain) — não existe endpoint
+  // /automation/agent equivalente pra ele migrar. GET+PATCH aqui embaixo
+  // ficam como estão.
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.recoveryService.getBotConfig(req.user);

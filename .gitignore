@@ -67,6 +67,7 @@ __pycache__/
 *.sqlite3
 *.sql
 !backend/prisma/migrations/**/*.sql
+!backend/prisma/migrations-hold/**/*.sql
 !Webwhats/prisma/mysql-migrations/**/*.sql
 !Webwhats/prisma/postgresql-migrations/**/*.sql
 *.dump

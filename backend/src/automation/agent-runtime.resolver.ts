@@ -16,10 +16,17 @@ import type { AgentBrain } from './dto/agent.dto';
 //
 // FONTE ÚNICA da flag `HBX_AUTOMATION_AGENT` — nenhum outro arquivo deve ler
 // `process.env.HBX_AUTOMATION_AGENT` diretamente (S10.md "Regra da flag").
-// Nasce OFF (sem legado: CONTRATO.md §5.1 — "sem legado, gateia se o runtime
-// já lê o schema novo"). Com a flag ausente/off, `effectiveFor` devolve
-// SEMPRE `{source:'legacy'}` SEM tocar `prisma.automationAgent` — zero query
-// nova, zero diferença de comportamento (S01 é o juiz).
+//
+// S20 (MOTOR-ÚNICO, docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/
+// S20-backend-orfaos-flags-ddl.md item 2): a flag nasceu OFF na S10 — esta
+// sprint vira o default pra ON EM CÓDIGO (constante, não env do VPS — "a
+// fusão vira o caminho principal"). Kill-switch explícito:
+// `HBX_AUTOMATION_AGENT=0` (ou `false`/`no`/`off`) desliga e volta pro
+// legado byte a byte. Ausente/vazio = ON. Só um valor EXPLICITAMENTE falso
+// desativa — o oposto do padrão S10 original (que exigia opt-in explícito).
+// `effectiveFor` cai em `{source:'legacy'}` sempre que a empresa não tem
+// linha em `AutomationAgent` (não migrada) OU a leitura falhar — "empresa não
+// migrada não quebra" continua valendo (S10.md item 4).
 //
 // Desenho anti-ciclo (mesmo truque do InboundRouterService, S06, e do
 // EventRuleService, S08): esta classe só depende de PrismaService (que é
@@ -35,8 +42,12 @@ import type { AgentBrain } from './dto/agent.dto';
 
 const FLAG = 'HBX_AUTOMATION_AGENT';
 
+// S20: default ON — kill-switch é um valor EXPLICITAMENTE falso (0/false/no/
+// off). Ausente, vazio, ou qualquer outro valor -> ON.
 export function isAutomationAgentRuntimeEnabled(): boolean {
-  return ['true', '1', 'yes', 'on'].includes(String(process.env[FLAG] || '').trim().toLowerCase());
+  const raw = process.env[FLAG];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return true;
+  return !['false', '0', 'no', 'off'].includes(String(raw).trim().toLowerCase());
 }
 
 export type AgentRuntimeEffective =
@@ -68,7 +79,16 @@ export class AgentRuntimeResolver {
     const id = Number(companyId || 0);
     if (!id) return { source: 'legacy' };
 
-    const agent = await this.prisma.automationAgent.findUnique({ where: { companyId: id } });
+    // S20: encadeamento opcional + catch — flag agora é ON por default, então
+    // este caminho passa a rodar em MUITO mais lugares (inclusive testes
+    // antigos cujo mock de PrismaService nunca precisou ter `automationAgent`,
+    // porque a flag OFF garantia que nunca chegava aqui). Fail-soft pra
+    // `legacy` cobre tanto prisma real com erro transitório quanto mock
+    // incompleto — nunca derruba o runtime (mesma postura de todo o resto da
+    // sprint: "empresa/ambiente não migrado não quebra").
+    const agent = await this.prisma?.automationAgent
+      ?.findUnique({ where: { companyId: id } })
+      .catch(() => null);
     if (!agent) return { source: 'legacy' };
 
     const brain: AgentBrain = agent.brain === 'ia' ? 'ia' : 'roteiro';

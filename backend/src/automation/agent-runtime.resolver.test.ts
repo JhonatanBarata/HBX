@@ -11,6 +11,13 @@ import assert from 'node:assert/strict';
 //   2. flag on + brain 'ia' -> responde com a config do agente (não do AssistenteConfig legado).
 //   3. flag on + brain 'roteiro' -> a assistente não reivindica.
 //   4. flag on sem AutomationAgent na empresa -> cai no legado (empresa não migrada não quebra).
+//
+// S20 (MOTOR-ÚNICO): a flag virou default ON EM CÓDIGO (kill-switch é um
+// valor EXPLICITAMENTE falso — 0/false/no/off). Os testes "flag off" abaixo
+// que antes usavam `HBX_AUTOMATION_AGENT: undefined` pra representar "off"
+// agora usam `'0'` (kill-switch explícito) — "ausente" mudou de significado
+// (virou ON). Um teste novo (`isAutomationAgentRuntimeEnabled: flag ausente
+// -> true por default`) prova o novo default diretamente.
 
 import { AgentRuntimeResolver, isAutomationAgentRuntimeEnabled } from './agent-runtime.resolver';
 import { ConversationAssistantRuntimeService } from '../assistente/conversation-assistant-runtime.service';
@@ -38,13 +45,43 @@ function throwingAutomationAgentFindUnique() {
 
 // ── AgentRuntimeResolver.effectiveFor — puro ────────────────────────────────
 
-test('effectiveFor: flag ausente/off -> source legacy, SEM tocar prisma.automationAgent', async () =>
-  withFlags({ HBX_AUTOMATION_AGENT: undefined }, async () => {
+test('effectiveFor: flag explicitamente OFF (kill-switch "0") -> source legacy, SEM tocar prisma.automationAgent', async () =>
+  withFlags({ HBX_AUTOMATION_AGENT: '0' }, async () => {
     const prisma = { automationAgent: { findUnique: throwingAutomationAgentFindUnique() } };
     const resolver = new AgentRuntimeResolver(prisma as any);
     const result = await resolver.effectiveFor(7);
     assert.deepEqual(result, { source: 'legacy' });
     assert.equal(isAutomationAgentRuntimeEnabled(), false);
+  }));
+
+test('isAutomationAgentRuntimeEnabled: flag ausente -> true por default (S20, "a fusão vira o caminho principal")', async () =>
+  withFlags({ HBX_AUTOMATION_AGENT: undefined }, async () => {
+    assert.equal(isAutomationAgentRuntimeEnabled(), true);
+  }));
+
+test('effectiveFor: flag ausente (ON por default, S20) + empresa sem AutomationAgent -> source legacy (empresa não migrada não quebra)', async () =>
+  withFlags({ HBX_AUTOMATION_AGENT: undefined }, async () => {
+    let calls = 0;
+    const prisma = {
+      automationAgent: {
+        findUnique: async () => {
+          calls += 1;
+          return null;
+        },
+      },
+    };
+    const resolver = new AgentRuntimeResolver(prisma as any);
+    const result = await resolver.effectiveFor(7);
+    assert.deepEqual(result, { source: 'legacy' });
+    assert.equal(calls, 1, 'com o default ON, a consulta É feita (diferente do kill-switch, que nem chega a tentar)');
+  }));
+
+test('effectiveFor: flag ausente (ON por default, S20) + prisma sem model automationAgent (mock antigo) -> source legacy, sem crashar', async () =>
+  withFlags({ HBX_AUTOMATION_AGENT: undefined }, async () => {
+    const prisma = {}; // mock que nunca precisou de automationAgent (era escrito pra flag OFF)
+    const resolver = new AgentRuntimeResolver(prisma as any);
+    const result = await resolver.effectiveFor(7);
+    assert.deepEqual(result, { source: 'legacy' });
   }));
 
 test('effectiveFor: flag on + sem AutomationAgent pra empresa -> source legacy (empresa nao migrada)', async () =>
@@ -163,8 +200,8 @@ function basePrisma(overrides: Record<string, any> = {}) {
   };
 }
 
-test('prepareReply: flag HBX_AUTOMATION_AGENT off -> comportamento legado intacto (le AssistenteConfig, nao toca automationAgent)', async () =>
-  withFlags({ HBX_ASSISTENTE_PUBLISH_ENABLED: 'true', HBX_AUTOMATION_AGENT: undefined }, async () => {
+test('prepareReply: flag HBX_AUTOMATION_AGENT off (kill-switch "0") -> comportamento legado intacto (le AssistenteConfig, nao toca automationAgent)', async () =>
+  withFlags({ HBX_ASSISTENTE_PUBLISH_ENABLED: 'true', HBX_AUTOMATION_AGENT: '0' }, async () => {
     let automationAgentCalls = 0;
     let legacyConfigCalls = 0;
     const prisma = basePrisma({

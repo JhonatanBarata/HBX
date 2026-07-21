@@ -8,6 +8,7 @@ import { VendasAutomationService } from '../vendas/vendas-automation.service';
 import { CadenciaGatilhoService } from '../cadencia/cadencia-gatilho.service';
 import { CadenciaRotinaService } from '../cadencia/cadencia-rotina.service';
 import { OutboundOrchestratorService, type OutboundExecutorTelemetry } from './outbound-orchestrator.service';
+import { automationFlag } from './automation-flags';
 
 // ============================================================================
 // S04 (MOTOR-ÚNICO) — AutomationOverviewService.
@@ -75,14 +76,18 @@ function requireUserId(user: any): number {
   return id;
 }
 
-// Mesmo padrão documentado em CONTRATO.md §5.1 (flag nova, fallback pra
-// antiga). Uso aqui é SÓ LEITURA/relatório — não cria flag nova, não muda
-// comportamento de nenhum motor (README linha 85: "flags novas nascem OFF";
-// esta sprint não nasce nenhuma, só lê o valor já existente pra exibir).
-function automationFlag(newName: string, legacyName: string): boolean {
-  const raw = process.env[newName] ?? process.env[legacyName];
-  return ['true', '1', 'yes', 'on'].includes(String(raw || '').trim().toLowerCase());
-}
+// S20 (MOTOR-ÚNICO): `automationFlag` deixou de ser local — mora em
+// `./automation-flags.ts` (FONTE ÚNICA, mesmo helper que os pontos de leitura
+// REAIS usam: conversation-assistant-runtime.service.ts, cadencia*.ts,
+// messaging.service.ts, vendas.service.ts, assistente.service.ts). Uso aqui é
+// SÓ LEITURA/relatório — não muda comportamento de nenhum motor, só reflete o
+// valor efetivo (nova OU legada) no painel.
+//
+// Nomes das 2 flags desta seção FIXADOS na S20 (S20-backend-orfaos-flags-ddl.md
+// item 2) — supersedem a proposta provisória de CONTRATO.md §5.1
+// (`HBX_AUTOMATION_AGENT_PUBLISH_ENABLED`/`HBX_AUTOMATION_PROSPECCAO_RUNNER_
+// ENABLED`, que nunca chegou a ser lida em runtime): `HBX_AUTOMATION_IA_LIVE` e
+// `HBX_AUTOMATION_RUNNER_ENABLED`, ver `buildMotor` abaixo.
 
 @Injectable()
 export class AutomationOverviewService {
@@ -275,11 +280,11 @@ export class AutomationOverviewService {
   > {
     try {
       const runnerEnabled = automationFlag(
-        'HBX_AUTOMATION_PROSPECCAO_RUNNER_ENABLED',
+        'HBX_AUTOMATION_RUNNER_ENABLED',
         'HBX_CADENCIA_RUNNER_ENABLED',
       );
       const publishEnabled = automationFlag(
-        'HBX_AUTOMATION_AGENT_PUBLISH_ENABLED',
+        'HBX_AUTOMATION_IA_LIVE',
         'HBX_ASSISTENTE_PUBLISH_ENABLED',
       );
       const chipConectado = Boolean(activation?.types?.atendimento?.preflight?.chipConectado);

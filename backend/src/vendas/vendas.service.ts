@@ -29,6 +29,7 @@ import {
 } from '../companies/master-whatsapp-company.constants';
 import { COMPANY_KIND_PLATFORM_INFRA, isTenantCompany } from '../common/company-kind';
 import { pushMasterNotice } from '../common/push-master-notice';
+import { automationFlag } from '../automation/automation-flags';
 import { calculateLeadQualityV2, resolveRadarVisibilityFromQualityV2, type LeadQualityV2, type LeadQualityV2SalesProfile } from '../webscraping/lead-quality-v2';
 import {
   isGlobalBlockStatus,
@@ -8119,9 +8120,9 @@ export class VendasService {
         select: { botArmedAt: true },
       }).catch(() => null),
     ]);
-    const assistantRuntimeEnabled = ['true', '1', 'yes', 'on'].includes(
-      String(process.env.HBX_ASSISTENTE_PUBLISH_ENABLED || '').trim().toLowerCase(),
-    );
+    // S20 (MOTOR-ÚNICO): HBX_AUTOMATION_IA_LIVE, fallback pra
+    // HBX_ASSISTENTE_PUBLISH_ENABLED (automation/automation-flags.ts).
+    const assistantRuntimeEnabled = automationFlag('HBX_AUTOMATION_IA_LIVE', 'HBX_ASSISTENTE_PUBLISH_ENABLED');
     const assistant = {
       configured: Boolean(assistantConfig),
       publicName: assistantConfig?.nome ? String(assistantConfig.nome) : null,

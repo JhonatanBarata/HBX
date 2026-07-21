@@ -3,12 +3,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { sanitizeAssistenteConfig, type AssistenteConfigShape } from './assistente-flow';
 import { AssistenteSandboxService, type SandboxTurn } from './assistente-sandbox.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
+import { automationFlag } from '../automation/automation-flags';
 
 const PUBLISH_FLAG = 'HBX_ASSISTENTE_PUBLISH_ENABLED';
-
-function isEnabled(value: unknown): boolean {
-  return ['true', '1', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-}
+const PUBLISH_FLAG_NEW = 'HBX_AUTOMATION_IA_LIVE';
 
 function isUniqueConstraint(error: any): boolean {
   return String(error?.code || '').trim().toUpperCase() === 'P2002';
@@ -24,7 +22,10 @@ export class ConversationAssistantRuntimeService {
   ) {}
 
   private get enabled(): boolean {
-    return isEnabled(process.env[PUBLISH_FLAG]);
+    // S20 (MOTOR-ÚNICO): lê HBX_AUTOMATION_IA_LIVE, fallback pra
+    // HBX_ASSISTENTE_PUBLISH_ENABLED com warn de deprecado — mesma flag, novo
+    // nome (automation/automation-flags.ts é a FONTE ÚNICA do fallback).
+    return automationFlag(PUBLISH_FLAG_NEW, PUBLISH_FLAG);
   }
 
   async prepareReply(input: {

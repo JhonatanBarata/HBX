@@ -86,11 +86,30 @@ export class InboxController {
     return this.inboxService.disconnectMemberWhatsapp(req.user, Number(dto?.userId || 0));
   }
 
+  // S20 (MOTOR-ÚNICO): MANTIDO — em uso ATIVO, fora da fusão. GET é chamado
+  // direto pelo front (frontend/src/components/hbx/bot-prospeccao-panel.tsx,
+  // dentro da seção Prospecção da casca /automacao) pra ler `variableCatalog`
+  // (catálogo de variáveis pro disparo frio, não é config do Atendente) —
+  // NÃO é candidato a remoção/deprecação (prova: grep confirma consumidor
+  // vivo no frontend atual, pós-S17/S19, não uma tela morta). Também
+  // continua sendo o dono real da leitura pro adapter legado do AgentService
+  // (automation/agent.service.ts::getViewLegacy -> inboxService.getBotConfig).
   @Get('bot-config')
   getBotConfig(@Req() req: any) {
     return this.inboxService.getBotConfig(req.user);
   }
 
+  // @deprecated (S20, MOTOR-ÚNICO): sem chamador HTTP vivo confirmado — a
+  // nova seção Atendente (frontend/src/app/(app)/automacao/secao-atendente.tsx,
+  // linha 10) documenta explicitamente "NUNCA chama /assistente ou
+  // /inbox/bot-config direto", editando o roteiro via `PUT /automation/agent`
+  // (automation/agent.service.ts::updateAgent) em vez desta rota. A rota
+  // FICA (regra de ouro "na dúvida não dropa" — pode haver integração externa/
+  // ops não mapeada) mas `InboxService.updateBotConfig` já é chamado
+  // internamente pelo AgentService via injeção de dependência, não por este
+  // endpoint HTTP. Não remover o MÉTODO do service (é o dono real da
+  // validação/sanitização); só esta rota é candidata a sumir num publish
+  // futuro se continuar sem tráfego.
   @Patch('bot-config')
   updateBotConfig(@Req() req: any, @Body() dto: UpdateAtendimentoBotConfigDto) {
     return this.inboxService.updateBotConfig(req.user, dto);

@@ -119,8 +119,12 @@ test('overview feliz: todos os blocos ok com dado real dos services injetados', 
     {
       HBX_ASSISTENTE_PUBLISH_ENABLED: 'true',
       HBX_CADENCIA_RUNNER_ENABLED: 'true',
-      HBX_AUTOMATION_AGENT_PUBLISH_ENABLED: undefined,
-      HBX_AUTOMATION_PROSPECCAO_RUNNER_ENABLED: undefined,
+      // S20: nomes finais são HBX_AUTOMATION_IA_LIVE/HBX_AUTOMATION_RUNNER_ENABLED
+      // (supersedem a proposta provisória HBX_AUTOMATION_AGENT_PUBLISH_ENABLED/
+      // HBX_AUTOMATION_PROSPECCAO_RUNNER_ENABLED do CONTRATO.md §5.1) — undefined
+      // aqui prova que o fallback pra flag legada funciona.
+      HBX_AUTOMATION_IA_LIVE: undefined,
+      HBX_AUTOMATION_RUNNER_ENABLED: undefined,
       HBX_RECOVERY_AUTOMATION_WORKER_ENABLED: 'true',
       HBX_AUTOMATION_COBRANCA_WORKER_ENABLED: undefined,
     },

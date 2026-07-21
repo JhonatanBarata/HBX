@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { CadenciaService } from './cadencia.service';
 import { CadenciaRotinaService } from './cadencia-rotina.service';
 import type { OutboundExecutor, OutboundExecutorResult } from '../automation/outbound-orchestrator.service';
+import { automationFlag } from '../automation/automation-flags';
 
 // WORM-13 — S07 (MOTOR-ÚNICO): este service NÃO tem mais timer próprio. Quem
 // dá o tick agora é o OutboundOrchestratorService
@@ -19,6 +20,7 @@ import type { OutboundExecutor, OutboundExecutorResult } from '../automation/out
 // TAMBÉM checa a flag por dentro (fonte única do valor da flag — o env — não
 // muda; a dupla checagem já existia antes desta sprint, só mudou de dono).
 const RUNNER_FLAG = 'HBX_CADENCIA_RUNNER_ENABLED';
+const RUNNER_FLAG_NEW = 'HBX_AUTOMATION_RUNNER_ENABLED';
 
 @Injectable()
 export class CadenciaSchedulerService {
@@ -27,9 +29,10 @@ export class CadenciaSchedulerService {
     private readonly rotinas: CadenciaRotinaService,
   ) {}
 
+  // S20 (MOTOR-ÚNICO): HBX_AUTOMATION_RUNNER_ENABLED, fallback pra
+  // HBX_CADENCIA_RUNNER_ENABLED (automation/automation-flags.ts).
   private get enabled(): boolean {
-    const v = String(process.env[RUNNER_FLAG] || '').trim().toLowerCase();
-    return v === '1' || v === 'true';
+    return automationFlag(RUNNER_FLAG_NEW, RUNNER_FLAG);
   }
 
   /** S07: os dois executores que o OutboundOrchestratorService registra no

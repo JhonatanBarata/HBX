@@ -38,10 +38,10 @@ export type SandboxDto = {
   config?: SaveAssistenteDto;
 };
 
-// Publicar no chip (atras de flag). Body pode trazer on:boolean.
-export type PublishDto = {
-  on?: boolean;
-};
+// PublishDto foi removido na S20 (MOTOR-ÚNICO) junto com AssistenteController
+// — era usado só pelo @Body() de POST /assistente/publish (rota removida, zero
+// consumidor vivo). `AssistenteService.publish(user, on: boolean)` recebe o
+// booleano direto, nunca usou este tipo.
 
 // ── COPILOTO NO LEAD (LEADS-FINAL/05) ──────────────────────────────────────
 // O front manda o CONTEXTO pronto (ultimas mensagens + ficha RFB) — o backend

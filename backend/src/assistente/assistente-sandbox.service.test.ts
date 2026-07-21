@@ -213,7 +213,10 @@ test('sandbox: fonte NAO referencia Webwhats/Conversations/Messaging/socket', ()
   const files = [
     'assistente-sandbox.service.ts',
     'assistente.service.ts',
-    'assistente.controller.ts',
+    // assistente.controller.ts REMOVIDO na S20 (MOTOR-ÚNICO) — zero
+    // consumidor HTTP vivo (AssistenteController demolido, AssistenteService
+    // segue vivo/testado, usado internamente pelo AgentService). Nada aqui
+    // pra escanear mais.
     'assistente.module.ts',
     'assistente-flow.ts',
     'assistente-seeds.ts',

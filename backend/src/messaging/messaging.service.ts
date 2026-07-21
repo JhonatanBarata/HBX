@@ -89,6 +89,7 @@ import {
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 import { InboundRouterService } from '../automation/inbound-router.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
+import { automationFlag } from '../automation/automation-flags';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -436,9 +437,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       }
     }
     if (String(input.sourceModule || '').trim().toLowerCase() === 'conversation_assistant') {
-      const runtimeEnabled = ['true', '1', 'yes', 'on'].includes(
-        String(process.env.HBX_ASSISTENTE_PUBLISH_ENABLED || '').trim().toLowerCase(),
-      );
+      // S20 (MOTOR-ÚNICO): HBX_AUTOMATION_IA_LIVE, fallback pra
+      // HBX_ASSISTENTE_PUBLISH_ENABLED (automation/automation-flags.ts).
+      const runtimeEnabled = automationFlag('HBX_AUTOMATION_IA_LIVE', 'HBX_ASSISTENTE_PUBLISH_ENABLED');
       const config = runtimeEnabled
         ? await this.prisma.assistenteConfig.findUnique({
             where: { companyId: input.companyId },

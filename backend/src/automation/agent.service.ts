@@ -207,11 +207,18 @@ export class AgentService {
     private readonly inboxService: InboxService,
     private readonly botActivationService: BotActivationService,
     private readonly botConfigStore: BotConfigStoreService,
-    // S10 (MOTOR-ÚNICO): só usado atrás de `isAutomationAgentRuntimeEnabled()`
-    // (flag OFF por default — README linha 85). PrismaModule é @Global(), sem
-    // risco de ciclo. Testes existentes (agent.service.test.ts) instanciam
-    // via `Object.create(AgentService.prototype)` sem setar `svc.prisma` — a
-    // flag desligada garante que nenhum caminho abaixo toca `this.prisma`.
+    // S10 (MOTOR-ÚNICO): só usado atrás de `isAutomationAgentRuntimeEnabled()`.
+    // PrismaModule é @Global(), sem risco de ciclo.
+    //
+    // S20: a flag virou default ON — `this.prisma?.automationAgent?...` (ver
+    // getView/sandbox abaixo) usa encadeamento opcional de propósito, porque
+    // os testes existentes (agent.service.test.ts) instanciam via
+    // `Object.create(AgentService.prototype)` SEM setar `svc.prisma` (nunca
+    // precisaram, com a flag OFF por default da S10). Com o default ON, esse
+    // encadeamento faz o mesmo papel que a flag OFF fazia antes: cair no
+    // adapter legado sem tocar `this.prisma` de verdade quando ele não
+    // existe/falha — zero mudança de comportamento pros testes/ambientes que
+    // não migraram pro schema novo.
     private readonly prisma: PrismaService,
   ) {}
 
@@ -374,15 +381,19 @@ export class AgentService {
     const companyId = requireCompanyId(user);
     const canManage = isAdminOrMaster(user);
 
-    // S10: flag ON + empresa já migrada (linha em AutomationAgent) -> lê do
-    // schema novo. Flag OFF ou empresa ainda não migrada -> cai no adapter
-    // legado abaixo, SEM NENHUMA mudança de comportamento (fallback, README
-    // linha 85).
+    // S10/S20: flag ON (default desde a S20) + empresa já migrada (linha em
+    // AutomationAgent) -> lê do schema novo. Flag OFF (kill-switch) ou
+    // empresa ainda não migrada -> cai no adapter legado abaixo, SEM NENHUMA
+    // mudança de comportamento (fallback). `this.prisma?.automationAgent?.`
+    // (encadeamento opcional, S20) protege contra `this.prisma` ausente —
+    // ver doc-comment do construtor acima.
     if (isAutomationAgentRuntimeEnabled()) {
-      const row = await this.prisma.automationAgent.findUnique({ where: { companyId } }).catch((e: any) => {
-        this.logger.warn(`[agent] leitura de AutomationAgent indisponível companyId=${companyId}: ${String(e?.message || e)}`);
-        return null;
-      });
+      const row = await this.prisma?.automationAgent
+        ?.findUnique({ where: { companyId } })
+        .catch((e: any) => {
+          this.logger.warn(`[agent] leitura de AutomationAgent indisponível companyId=${companyId}: ${String(e?.message || e)}`);
+          return null;
+        });
       if (row) return this.viewFromAutomationAgentRow(user, row, companyId, canManage);
     }
 
@@ -498,14 +509,18 @@ export class AgentService {
   async sandbox(user: any, dto: AutomationAgentSandboxRequest): Promise<AutomationAgentSandboxResponse> {
     const companyId = requireCompanyId(user);
 
-    // S10: flag ON -> lê a linha de AutomationAgent (se existir) pra servir
-    // de default quando o request não trouxe `dto.agent` em edição — mesma
-    // regra de precedência de antes (override do request sempre vence).
+    // S10/S20: flag ON (default) -> lê a linha de AutomationAgent (se
+    // existir) pra servir de default quando o request não trouxe `dto.agent`
+    // em edição — mesma regra de precedência de antes (override do request
+    // sempre vence). `this.prisma?.automationAgent?.` protege contra
+    // `this.prisma` ausente (ver doc-comment do construtor).
     const automationAgentRow = isAutomationAgentRuntimeEnabled()
-      ? await this.prisma.automationAgent.findUnique({ where: { companyId } }).catch((e: any) => {
-          this.logger.warn(`[agent] sandbox: leitura de AutomationAgent indisponível companyId=${companyId}: ${String(e?.message || e)}`);
-          return null;
-        })
+      ? await this.prisma?.automationAgent
+          ?.findUnique({ where: { companyId } })
+          .catch((e: any) => {
+            this.logger.warn(`[agent] sandbox: leitura de AutomationAgent indisponível companyId=${companyId}: ${String(e?.message || e)}`);
+            return null;
+          })
       : null;
 
     const requestedBrain = dto?.agent?.brain;
