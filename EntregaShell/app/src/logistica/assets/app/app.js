@@ -721,6 +721,67 @@
     document.body.classList.remove("keyboard-open");
     document.documentElement.style.setProperty("--hbx-visible-height", `${Math.round(window.innerHeight || keyboardBaselineHeight)}px`);
   }
+  // Mede o cromo REAL (topbar + nav) e publica em CSS vars. É o que deixa o mapa
+  // da Rota crescer até encostar o play no rodapé em QUALQUER tela/densidade, sem
+  // altura chutada: muda o aparelho, muda a fonte do sistema, gira a tela — a
+  // conta do .route-hero acompanha. Só escreve quando o valor muda (não suja o
+  // style a cada render).
+  // Encaixa o mapa da Rota no espaço real que sobra entre o topo dele e a nav,
+  // deixando o play com a MESMA folga em cima e embaixo. Mede a nav de verdade
+  // (getBoundingClientRect) em vez de descontar altura chutada, então funciona em
+  // qualquer resolução/densidade e depois de girar a tela.
+  function fitRouteMap() {
+    const shell = app.querySelector(".route-hero > .route-map-shell");
+    const controls = app.querySelector(".route-hero > .route-controls");
+    const nav = app.querySelector(".bottom-nav");
+    if (!shell || !controls || !nav) return;
+    const play = controls.querySelector(".route-transmux-wrap");
+    const navTop = nav.getBoundingClientRect().top;
+    const shellTop = shell.getBoundingClientRect().top;
+    const livre = navTop - shellTop;
+    if (!(livre > 0)) return;
+    // Rota pausada troca o play por uma faixa de altura própria: aí só se dá ao
+    // mapa o que sobra, sem mexer na faixa.
+    if (!play) {
+      controls.style.height = "";
+      const altura = `${Math.max(180, Math.round(livre - controls.getBoundingClientRect().height))}px`;
+      if (shell.style.height !== altura) shell.style.height = altura;
+      return;
+    }
+    // A faixa do play recebe a altura do próprio play + a MESMA folga dos dois
+    // lados, e termina exatamente na nav. Como o play é centrado nela, o espaço
+    // acima e abaixo dele fica igual por construção — em qualquer tela.
+    const playH = Math.round(play.getBoundingClientRect().height) || 112;
+    const folga = Math.max(10, Math.min(28, Math.round((livre - playH) * 0.18)));
+    const controlsH = playH + folga * 2;
+    const alturaMapa = Math.max(180, Math.round(livre - controlsH));
+    const alvoControls = `${controlsH}px`;
+    const alvoMapa = `${alturaMapa}px`;
+    if (controls.style.height !== alvoControls) controls.style.height = alvoControls;
+    if (shell.style.height !== alvoMapa) shell.style.height = alvoMapa;
+  }
+  function syncChromeMetrics() {
+    const root = document.documentElement;
+    // Marca a tela Rota no próprio .content (o seletor :has não é confiável em
+    // todo WebView; a classe é). É ela que troca a folga de rodapé grande do app
+    // pela folga curta que encosta o play na nav.
+    // Só quando a Rota está SEM paradas: aí a tela fecha exatamente na altura
+    // visível (play encostado na nav, nada pra rolar). Com rota traçada volta a
+    // folga normal de rodapé, senão o último card da lista encostaria na nav.
+    const content = app.querySelector(".content");
+    const rotaSolo = state.screen === "route" && !items().length;
+    if (content) content.classList.toggle("is-rota", rotaSolo);
+    // Sem paradas a tela fecha na altura exata: trava o arrasto vertical pra não
+    // sobrar aquele resto de rolagem (o padding do topo aparecendo). Com rota
+    // traçada volta ao normal, senão a lista não rolaria.
+    document.body.style.overflowY = rotaSolo ? "hidden" : "";
+    [[".topbar", "--hbx-topbar-h"], [".bottom-nav", "--hbx-nav-h"]].forEach(([selector, prop]) => {
+      const node = app.querySelector(selector);
+      if (!node) return;
+      const height = Math.round(node.getBoundingClientRect().height);
+      if (height > 0 && root.style.getPropertyValue(prop) !== `${height}px`) root.style.setProperty(prop, `${height}px`);
+    });
+  }
 
   // ==========================================================================
   // F6 — loading overlay escurecido, leve (spinner CSS puro, 1 nó reaproveitado
@@ -3113,6 +3174,8 @@
     enhancePaymentForms();
     enhanceMoneyInputs();
     enhanceKeyboardFields();
+    syncChromeMetrics();
+    requestAnimationFrame(fitRouteMap);
     syncHeaderChips();
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
@@ -3698,7 +3761,8 @@
     window.visualViewport.addEventListener("resize", () => { syncKeyboardViewport(); revealFocusedForKeyboard(); });
     window.visualViewport.addEventListener("scroll", syncKeyboardViewport);
   }
-  window.addEventListener("resize", syncKeyboardViewport);
+  window.addEventListener("resize", () => { syncKeyboardViewport(); syncChromeMetrics(); fitRouteMap(); });
+  window.addEventListener("orientationchange", () => requestAnimationFrame(() => { syncChromeMetrics(); fitRouteMap(); }));
 
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
