@@ -910,6 +910,12 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .delivery-hero-obs { margin: 8px 0 0; font-weight: 700; color: var(--brand-strong); }
 .delivery-deve-wrap { margin: 14px 0 0; }
 .delivery-deve { font-size: 2rem; color: var(--danger); }
+/* O que descarregar, em cima do valor (pedido do dono 21/07). */
+.delivery-entregar { margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); text-align: left; }
+.delivery-entregar > .subtitle { display: block; margin-bottom: 6px; text-align: center; }
+.delivery-entregar ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.delivery-entregar li { display: flex; align-items: baseline; gap: 8px; font-size: 1.05rem; font-weight: 700; }
+.delivery-entregar b { min-width: 34px; color: var(--brand-strong); font-size: 1.15rem; font-weight: 850; }
 .delivery-hero-actions { display: flex; flex-direction: column; gap: 10px; }
 .delivery-big-btn { margin-top: 0; min-height: 64px; font-size: 1.05rem; }
 .delivery-detail-link { display: block; margin: 16px auto 0; }
