@@ -278,12 +278,25 @@ function buildGerarPrisma(
           const t = new Date(r.scheduledAt).getTime();
           return t >= where.scheduledAt.gte.getTime() && t <= where.scheduledAt.lte.getTime();
         });
-        return row ? { id: row.id } : null;
+        return row ? { id: row.id, entregadorId: row.entregadorId ?? null, status: row.status ?? 'agendada' } : null;
       },
       create: async ({ data }: any) => {
         const id = `entrega-${++entregaSeq}`;
         entregas.set(id, { id, ...data });
         return { id };
+      },
+      update: async ({ where, data }: any) => {
+        const row = entregas.get(where.id);
+        if (!row) throw new Error('entrega inexistente');
+        entregas.set(where.id, { ...row, ...data });
+        return { id: where.id };
+      },
+      updateMany: async ({ where, data }: any) => {
+        const row = entregas.get(where.id);
+        if (!row) return { count: 0 };
+        if (where.entregadorId === null && row.entregadorId != null) return { count: 0 };
+        entregas.set(where.id, { ...row, ...data });
+        return { count: 1 };
       },
     },
     contato: {
@@ -344,6 +357,59 @@ test('gerar: cliente COM vínculo ativo → Entrega criada com itens "de sempre"
   assert.equal(entrega.itens.create[0].productId, 1);
   assert.equal(entrega.itens.create[0].qtdPrevista, 2);
   assert.equal(entrega.itens.create[0].valorUnit, 7);
+});
+
+// FIX 21/07 — o dono limpava o dia (tudo vira 'cancelada') e a rota salva parava
+// de montar: gerar devolvia o id da cancelada e o planejar descartava. Sem erro na
+// tela, rota vazia. Cancelada agora REABRE a mesma linha (não duplica, não cobra 2x).
+test('gerar: entrega CANCELADA do dia → reabre a MESMA linha em vez de devolver rota vazia', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    produtos: [{ id: 1, price: 7, priceCents: null }],
+    clienteProdutos: [
+      { id: 'cp1', companyId: COMPANY, customerProfileId: 'c1', productId: 1, qtdPadrao: 2, precoAcordado: null, ativo: true, diasSemana: null, proximaData: null },
+    ],
+    entregas: [
+      {
+        id: 'e-cancelada',
+        companyId: COMPANY,
+        customerProfileId: 'c1',
+        localId: null,
+        scheduledAt: new Date(2026, 6, 20, 0, 0, 0, 0),
+        status: 'cancelada',
+        entregadorId: USER,
+        rotaOrdem: 3,
+      },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.deepEqual(res.deliveryIds, ['e-cancelada']);
+  assert.equal(entregas.size, 1, 'não cria entrega nova — reaproveita a cancelada');
+  const entrega = entregas.get('e-cancelada')!;
+  assert.equal(entrega.status, 'agendada');
+  assert.equal(entrega.rotaOrdem, null, 'não sobra rastro da rota antiga');
+  assert.equal(entrega.entregadorId, USER);
+  assert.equal(entrega.quantidade, 2);
+  assert.equal(entrega.valor, 14);
+});
+
+test('gerar: entrega JÁ ENTREGUE do dia → aviso e parada ignorada (não vira rota fantasma)', async () => {
+  const { prisma } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    entregas: [
+      { id: 'e-entregue', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 0, 0, 0, 0), status: 'entregue', entregadorId: USER },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.deepEqual(res.deliveryIds, []);
+  assert.equal(res.avisos.length, 1);
+  assert.match(res.avisos[0], /já foi entregue hoje/);
 });
 
 test('gerar: cliente SEM vínculo ativo → Entrega SEM itens (valor 0)', async () => {

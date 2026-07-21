@@ -502,10 +502,33 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
             localId,
             scheduledAt: { gte: dia, lte: dayEnd },
           },
-          select: { id: true },
+          select: { id: true, status: true },
         });
 
-        if (existente) {
+        // FIX 21/07 — entrega 'cancelada' não vale como "já existe": ela não entra
+        // na rota (logistica-rota.service.ts), então pular por causa dela travava o
+        // dia inteiro depois de um "limpar dia". Reabre a MESMA linha (não duplica
+        // a entrega e não debita crédito de novo).
+        if (existente && existente.status === 'cancelada') {
+          const itensReabrir = vencidosDoLocal.map((v) => ({
+            productId: v.productId,
+            qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+            valorUnit: resolveValorUnit(v),
+          }));
+          await this.prisma.entrega.update({
+            where: { id: existente.id },
+            data: {
+              status: 'agendada',
+              rotaOrdem: null,
+              etaAt: null,
+              startedAt: null,
+              quantidade: itensReabrir.reduce((soma, it) => soma + it.qtdPrevista, 0),
+              valor: itensReabrir.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0),
+              itens: { deleteMany: {}, ...(itensReabrir.length ? { create: itensReabrir } : {}) },
+            },
+          });
+          deliveryIds.push(existente.id);
+        } else if (existente) {
           deliveryIds.push(existente.id);
           puladas++;
         } else {

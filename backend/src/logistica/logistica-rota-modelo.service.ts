@@ -179,8 +179,44 @@ export class LogisticaRotaModeloService {
       // Idempotência IGUAL ao gerarDia: já existe Entrega (cliente, local, dia)?
       const existente = await this.prisma.entrega.findFirst({
         where: { companyId, customerProfileId, localId, scheduledAt: { gte: dia, lte: dayEnd } },
-        select: { id: true, entregadorId: true },
+        select: { id: true, entregadorId: true, status: true },
       });
+      // FIX 21/07 — 'entregue' e 'cancelada' NÃO entram na rota (ver
+      // logistica-rota.service.ts). Reaproveitar o id delas devolvia deliveryIds
+      // que o planejar descartava: a rota salva "montava" e vinha vazia, sem erro.
+      // Depois de limpar o dia uma vez, NENHUMA rota salva voltava a montar.
+      if (existente && existente.status === 'entregue') {
+        avisos.push(`${cliente.name || 'Um cliente'} já foi entregue hoje — parada ignorada.`);
+        continue;
+      }
+      if (existente && existente.status === 'cancelada') {
+        // Reabre a MESMA linha em vez de criar outra: não duplica a entrega do dia
+        // e não debita crédito de novo (criar entrega é que cobra).
+        if (existente.entregadorId != null && existente.entregadorId !== userId) {
+          throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
+        }
+        const itensReabrir = Array.isArray(parada.itens)
+          ? await resolveSnapshotItens(this.prisma, companyId, parada.itens)
+          : await this.resolveLegacyItens(companyId, customerProfileId);
+        await this.prisma.entrega.update({
+          where: { id: existente.id },
+          data: {
+            status: 'agendada',
+            rotaOrdem: null,
+            etaAt: null,
+            startedAt: null,
+            entregadorId: userId,
+            atribuidoPorUserId: userId,
+            atribuidoAt,
+            productId: itensReabrir[0]?.productId ?? null,
+            quantidade: itensReabrir.reduce((soma, it) => soma + it.qtdPrevista, 0),
+            valor: itensReabrir.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0),
+            itens: { deleteMany: {}, ...(itensReabrir.length ? { create: itensReabrir } : {}) },
+          },
+        });
+        deliveryIds.push(existente.id);
+        continue;
+      }
       if (existente) {
         if (existente.entregadorId != null && existente.entregadorId !== userId) {
           throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
