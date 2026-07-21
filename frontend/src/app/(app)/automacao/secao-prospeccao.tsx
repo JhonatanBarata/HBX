@@ -54,6 +54,8 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotProspeccaoPanel } from "@/components/hbx/bot-prospeccao-panel";
@@ -62,6 +64,9 @@ import type { WAMessage } from "@/components/hbx/whatsapp-preview";
 import { PhonePreview } from "./kit/phone-preview";
 // S05 (PADRAO-MERCADO): StatusChip único pro estado do motor e das plays (Lei nº3) — telemetria crua sai da tela.
 import { StatusChip, type StatusTone } from "./kit/status-chip";
+// S06 (PADRAO-MERCADO): EmptyState do kit pro funil vazio no picker de leads (Lei nº4 do README, nunca pedir ID) + a MESMA ilustração de busca já usada nesta seção (Lei nº2, nunca duplicar símbolo).
+import { EmptyState } from "./kit/empty-state";
+import { IlustracaoBuscar } from "./kit/ilustracoes";
 import { apiFetch } from "@/lib/api";
 
 // ================================================================
@@ -95,6 +100,26 @@ type CadenciaResponse = { ok?: boolean; canManage?: boolean; cadencias?: Cadenci
 
 type SavedSearch = { id: string; nome: string };
 
+// S06 (PADRAO-MERCADO) — picker de leads do modal Aplicar: reusa GET
+// /vendas/board (zero endpoint novo, Lei nº6 do README). Shape real
+// verificado em vendas/page.client.tsx (BoardResponse local, não exportado)
+// e vendas.service.ts (getBoardForUser) — o board é um TETO de 240 leads
+// (Prisma take:240, sem paginação de verdade), cabe inteiro num filtro
+// client-side. Só os campos que a lista usa; `automation` é a MESMA
+// projeção canônica (Fase 3, activeCommercialSlot) que também gera o
+// `conflitosAutomacao` da S00 — mostrar aqui é aviso PRÉVIO do mesmo
+// conflito, não uma checagem nova.
+type BoardPickLead = {
+  id: string;
+  name: string | null;
+  city: string | null;
+  segment: string | null;
+  automation?: { label: string } | null;
+};
+type BoardPickResponse = {
+  blocks: { today: BoardPickLead[]; overdue: BoardPickLead[]; scheduled: BoardPickLead[]; closed: BoardPickLead[] };
+} | null;
+
 const PLAY_TIPO_META: Record<AutomationPlayTipo, { label: string; icon: keyof typeof ICONS }> = {
   prospeccao: { label: "Prospecção", icon: "search" },
   cadencia: { label: "Cadência", icon: "send" },
@@ -119,6 +144,20 @@ function canalLabel(canal: string): string {
 }
 function fmtData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
+}
+// S06 (PADRAO-MERCADO) — busca do picker: minúsculas + remove acento, pra
+// "joao" bater em "João". Mesmo espírito do normalizador de
+// casca-picker-sheet.tsx (mobile-casca) — reescrito aqui pra não acoplar
+// telas de módulos diferentes (tipos re-declarados, mesmo padrão do topo
+// deste arquivo).
+function normalizeBusca(texto: string): string {
+  const semAcento = texto.trim().toLowerCase().normalize("NFD");
+  let out = "";
+  for (const ch of semAcento) {
+    const code = ch.codePointAt(0) || 0;
+    if (code < 0x0300 || code > 0x036f) out += ch;
+  }
+  return out;
 }
 // S05 (PADRAO-MERCADO) — item 3: "X leads na fila/dentro" virava frase
 // corrida dentro de .auto-card__meta; separa em número GRANDE (reusa
@@ -521,11 +560,35 @@ function PersonaPreviewModal({ cadencia, onClose }: { cadencia: Cadencia; onClos
 function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClose: () => void; onDone: (msg: string, tone?: "ok" | "warn") => void }) {
   const [modo, setModo] = useState<"lista" | "pesquisa">("lista");
   const modoPill = useGlassPill<HTMLButtonElement>(modo);
-  const [leadIdsRaw, setLeadIdsRaw] = useState("");
+  // S06 (PADRAO-MERCADO) — mata o achado A4: textarea de IDs colados à mão
+  // vira seletor visual (busca + checkbox) sobre o MESMO GET /vendas/board
+  // que a tela de Vendas já consome (Lei nº4 do README, nunca pedir ID; Lei
+  // nº6, zero endpoint novo).
+  const [board, setBoard] = useState<BoardPickLead[] | null>(null);
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [boardError, setBoardError] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [savedSearchId, setSavedSearchId] = useState("");
   const [searches, setSearches] = useState<SavedSearch[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadBoard = useCallback(async () => {
+    try {
+      const res = await apiFetch<BoardPickResponse>("/vendas/board");
+      const blocks = res?.blocks;
+      setBoard(blocks ? [...blocks.today, ...blocks.overdue, ...blocks.scheduled, ...blocks.closed] : []);
+      setBoardError(null);
+    } catch (err) {
+      setBoardError(err instanceof Error ? err.message : "Não foi possível carregar os leads.");
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch único ao abrir o modal (mesmo padrão de loadPlays/loadCad na raiz); loading só vira false depois do fetch resolver.
+    void loadBoard().then(() => setBoardLoading(false));
+  }, [loadBoard]);
 
   useEffect(() => {
     void apiFetch<{ searches?: SavedSearch[] }>("/saved-search")
@@ -533,12 +596,38 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
       .catch(() => setSearches([]));
   }, []);
 
+  // Busca client-side por nome (só o campo que o README pede) — board cabe
+  // inteiro (teto de 240), zero necessidade de debounce/paginação aqui.
+  const buscaKey = normalizeBusca(busca);
+  const filteredLeads = board
+    ? (buscaKey ? board.filter((l) => normalizeBusca(l.name || "").includes(buscaKey)) : board)
+    : [];
+  const todosVisiveisSelecionados = filteredLeads.length > 0 && filteredLeads.every((l) => selectedIds.has(l.id));
+
+  function toggleLead(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  // "Selecionar visíveis" só liga/desliga o que a busca ATUAL mostra — nunca
+  // perde a seleção feita antes de trocar o termo de busca.
+  function toggleVisiveis() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (todosVisiveisSelecionados) filteredLeads.forEach((l) => next.delete(l.id));
+      else filteredLeads.forEach((l) => next.add(l.id));
+      return next;
+    });
+  }
+
   async function aplicar() {
     setError(null);
     const body: Record<string, unknown> = {};
     if (modo === "lista") {
-      const ids = leadIdsRaw.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-      if (!ids.length) return setError("Cole ao menos um ID de card (lead).");
+      const ids = Array.from(selectedIds);
+      if (!ids.length) return setError("Selecione ao menos um lead da lista.");
       body.leadIds = ids;
     } else {
       if (!savedSearchId) return setError("Escolha uma pesquisa salva.");
@@ -592,8 +681,71 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
 
           {modo === "lista" ? (
             <div className="auto-form__row">
-              <label className="field-label" htmlFor="prosp-apl-ids">IDs dos cards (um por linha ou separados por vírgula)</label>
-              <textarea id="prosp-apl-ids" className="field-dark" rows={4} value={leadIdsRaw} onChange={(e) => setLeadIdsRaw(e.target.value)} placeholder="Cole os IDs dos cards do funil" />
+              {boardLoading && <span className="hint">Carregando leads do funil…</span>}
+
+              {!boardLoading && boardError && (
+                <div style={{ display: "grid", gap: 8, justifyItems: "start" }}>
+                  <span className="hint">{boardError}</span>
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => { setBoardLoading(true); void loadBoard().then(() => setBoardLoading(false)); }}>Tentar novamente</button>
+                </div>
+              )}
+
+              {!boardLoading && !boardError && board && board.length === 0 && (
+                <EmptyState
+                  illustration={<IlustracaoBuscar />}
+                  title="Funil vazio"
+                  line="Cadastre leads em Vendas para aplicar a cadência."
+                  cta={<Link className="btn-teal btn-xs" href="/vendas">Ir para Vendas</Link>}
+                />
+              )}
+
+              {!boardLoading && !boardError && board && board.length > 0 && (
+                <>
+                  <div className="emp-toolbar">
+                    <input
+                      className="field-dark emp-search"
+                      value={busca}
+                      onChange={(e) => setBusca(e.target.value)}
+                      placeholder="Buscar lead por nome…"
+                      aria-label="Buscar lead por nome"
+                    />
+                    <button type="button" className="btn-ghost btn-xs" onClick={toggleVisiveis} disabled={!filteredLeads.length}>
+                      {todosVisiveisSelecionados ? "Desmarcar visíveis" : "Selecionar visíveis"}
+                    </button>
+                    <span className="emp-count">{selectedIds.size} selecionado{selectedIds.size === 1 ? "" : "s"}</span>
+                  </div>
+
+                  {filteredLeads.length === 0 ? (
+                    <span className="hint">Nenhum lead bate com a busca.</span>
+                  ) : (
+                    <div className="emp-list aut-pick-list">
+                      {filteredLeads.map((lead) => {
+                        const checked = selectedIds.has(lead.id);
+                        const sub = [lead.city, lead.segment].filter(Boolean).join(" · ");
+                        return (
+                          <label key={lead.id} className={"emp-row" + (checked ? " is-active" : "")}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleLead(lead.id)}
+                              aria-label={`Selecionar ${lead.name || "lead"}`}
+                            />
+                            <span className="emp-row__main">
+                              <span className="emp-row__name">{lead.name || "Sem nome"}</span>
+                              {sub && <span className="emp-row__sub"><I d={ICONS.mapin} size={10} /> {sub}</span>}
+                            </span>
+                            {lead.automation && (
+                              <span className="emp-row__side">
+                                <StatusChip tone="atencao" label={lead.automation.label} size="s" />
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           ) : (
             <div className="auto-form__row">

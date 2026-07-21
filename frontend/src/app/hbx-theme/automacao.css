@@ -259,3 +259,15 @@
    do kit dentro de .hbx-veil/.hbx-modal (kit.css) — a MESMA casca que
    <AplicarModal> já usa nesta seção, só troca o conteúdo. Nada a adicionar
    aqui. */
+
+/* ── S06 (PADRAO-MERCADO) — picker de leads do Aplicar (AplicarModal): mata
+   o achado A4 (colar ID de card à mão). Reusa inteiro o conjunto emp-toolbar/
+   emp-search/emp-count/emp-list/emp-row (screens.css, nasceu pra "lista
+   buscável com linha clicável" na janela Empresas do NÚCLEO-CRM) — Lei nº2,
+   nunca duplicar visual só porque o consumidor é outro módulo. Só o que é
+   NOVO aqui: o teto de altura da lista (o board cabe até 240 leads — vendas
+   .service.ts, getBoardForUser, take:240 — e este picker mora dentro de um
+   modal estreito, não a página inteira) e o accent-color do checkbox
+   (token central, Lei nº5), sem repintar o resto do emp-row. */
+.aut-pick-list { max-height: 320px; overflow-y: auto; }
+.aut-pick-list input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--hbx-brand); flex: none; }
