@@ -262,12 +262,19 @@ h3 { font-size: .95rem; }
 .rp2-order-row[data-rme-parada].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
 .rp2-order-row[data-rme-parada].is-holding::after { transform: scaleX(1); }
 /* Mesmo gesto no produto fixado e na rota salva inteira (Salvos e Minhas rotas). */
-.lrt-produto-item[data-rme-item], .row-card[data-route-modelo-hold], .rp2-mode-card[data-route-modelo-hold] { position: relative; overflow: hidden; }
-.lrt-produto-item[data-rme-item]::after, .row-card[data-route-modelo-hold]::after, .rp2-mode-card[data-route-modelo-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
-.lrt-produto-item[data-rme-item].is-hold-arming::after, .row-card[data-route-modelo-hold].is-hold-arming::after, .rp2-mode-card[data-route-modelo-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
-.lrt-produto-item[data-rme-item].is-holding, .row-card[data-route-modelo-hold].is-holding, .rp2-mode-card[data-route-modelo-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
-.lrt-produto-item[data-rme-item].is-holding::after, .row-card[data-route-modelo-hold].is-holding::after, .rp2-mode-card[data-route-modelo-hold].is-holding::after { transform: scaleX(1); }
+.lrt-produto-item[data-rme-item], .row-card[data-route-modelo-hold], .rp2-mode-card[data-route-modelo-hold], .lrt-produto-item[data-lrt-item-hold] { position: relative; overflow: hidden; }
+.lrt-produto-item[data-rme-item]::after, .row-card[data-route-modelo-hold]::after, .rp2-mode-card[data-route-modelo-hold]::after, .lrt-produto-item[data-lrt-item-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.lrt-produto-item[data-rme-item].is-hold-arming::after, .row-card[data-route-modelo-hold].is-hold-arming::after, .rp2-mode-card[data-route-modelo-hold].is-hold-arming::after, .lrt-produto-item[data-lrt-item-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.lrt-produto-item[data-rme-item].is-holding, .row-card[data-route-modelo-hold].is-holding, .rp2-mode-card[data-route-modelo-hold].is-holding, .lrt-produto-item[data-lrt-item-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
+.lrt-produto-item[data-rme-item].is-holding::after, .row-card[data-route-modelo-hold].is-holding::after, .rp2-mode-card[data-route-modelo-hold].is-holding::after, .lrt-produto-item[data-lrt-item-hold].is-holding::after { transform: scaleX(1); }
 .rme-remove { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+/* S3 21/07 — parada do resumo da leitura (Resumo/finalizar): mesmo gesto de
+   segurar, na linha inteira; troca o "Remover" que era link-btn/texto. */
+.lrt-timeline-row[data-lrt-parada-hold] { position: relative; overflow: hidden; -webkit-user-select: none; user-select: none; touch-action: pan-y; transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease; }
+.lrt-timeline-row[data-lrt-parada-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.lrt-timeline-row[data-lrt-parada-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.lrt-timeline-row[data-lrt-parada-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
+.lrt-timeline-row[data-lrt-parada-hold].is-holding::after { transform: scaleX(1); }
 
 .overlay-host.is-opening .modal-wrap, .overlay-host.is-opening .sheet-wrap { animation: overlay-in .18s ease-out both; }
 .overlay-host.is-opening .app-confirm, .overlay-host.is-opening .day-home { animation: modal-in .22s cubic-bezier(.2,.8,.2,1) both; }
@@ -854,8 +861,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .app-update-actions { margin-top: 14px; }
 /* Campo "Número da casa" da Leitura de Rota. */
 .lrt-input-lg { font-size: 1.3rem; }
-/* Botão remover item da Leitura (versão pequena do .close). */
-.lrt-produto-remove { width: 32px; height: 32px; }
 /* Campo/botão de valor no editor de parada da Leitura (mais estreito que o
    padrão .lrt-produto-valor pra caber ao lado do stepper no modal central). */
 .lrt-produto-valor--edit { flex: 0 0 120px; max-width: 120px; padding: 0 10px; }
@@ -865,7 +870,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .lrt-timeline-edit-item-name { display: block; font-size: .82rem; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lrt-timeline-edit-item-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
 .lrt-timeline-edit-actions { gap: 10px; margin-top: 10px; }
-.lrt-timeline-remove { color: var(--danger); }
 /* Observação em destaque no card de parada da rota (stopCard). */
 .stop-obs { display: block; margin-top: 2px; font-weight: 700; color: var(--brand-strong); }
 /* Reaproveitável: item "apagado" (produto arquivado, pacote de recarga pausado). */

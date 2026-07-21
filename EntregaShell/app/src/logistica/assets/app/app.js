@@ -174,6 +174,13 @@
   let ignoredRouteModeloClickId = null;
   let productHold = null;
   let ignoredProductClickId = null;
+  // S3 21/07 — dois holds novos, mesmo padrão dos outros 7 (ver bloco touchstart/
+  // touchmove/touchend/touchcancel abaixo): parada do resumo da leitura (tem
+  // confirmação, porque já foi persistida via DELETE) e produto do passo
+  // "Produto" da leitura (sem confirmação, é rascunho local igual ao rme-item).
+  let lrtParadaHold = null;
+  let ignoredLrtParadaClickId = null;
+  let lrtItemHold = null;
   let dayPreviewRequestId = 0;
   let dayReviewTimer = null;
   // PR18072026 L4-E — cache só de RENDER (não é estado de negócio) pra detectar,
@@ -1138,6 +1145,18 @@
       toast("Produto arquivado.");
     } catch (error) { toast(humanApiError(error), true); }
   }
+  // S3 21/07 — mesma ação de performArchiveProduct, mas chamada de dentro da
+  // ficha "Editar produto" (fecha o modal em vez de só dar refresh na lista).
+  async function performArchiveProductFromEdit(product) {
+    if (!product) return;
+    try {
+      await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body: { ativo: false } });
+      product.ativo = false;
+      H.cache.set("logistica-products", state.products);
+      await closeOverlay("modal");
+      toast("Produto arquivado.");
+    } catch (error) { toast(humanApiError(error), true); }
+  }
   async function deleteClientProduct(item) {
     if (!item || !item.id) return;
     const name = item.produto && item.produto.nome || "este produto";
@@ -1860,7 +1879,10 @@
       const valorField = financeiroOn
         ? `<label class="lrt-produto-valor"><span>R$</span><input type="text" inputmode="numeric" class="lrt-produto-valor-input" data-leitura-preco="${H.escape(item.productId)}" data-enter-action="leitura-proximo" value="${H.escape(moneyCentsToBRL(Math.round(Number(item.valorUnit || 0) * 100)))}"></label>`
         : `<button type="button" class="lrt-produto-valor lrt-produto-valor-locked" data-action="leitura-preco-bloqueado" aria-label="Preço bloqueado">${icon("lock", 14)}<span>R$ —</span></button>`;
-      return `<div class="lrt-produto-item"><div class="lrt-produto-head"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><button type="button" class="close lrt-produto-remove" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div>${valorField}</div></div>`;
+      // S3 21/07 — o X de remover virou segurar o item (data-lrt-item-hold), sem
+      // confirmação (é rascunho local, mesma régua do produto fixado na rota
+      // salva/rme-item: pequeno e refazível, "+ Adicionar produto" devolve).
+      return `<div class="lrt-produto-item" data-lrt-item-hold="${H.escape(item.productId)}"><div class="lrt-produto-head"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div>${valorField}</div></div>`;
     }).join("");
     const picker = available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "";
     const body = `${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}`;
@@ -1959,10 +1981,13 @@
         }).join("");
         return `<div class="lrt-timeline-row lrt-timeline-editing"><div class="lrt-timeline-edit-body">${itemRows}</div><div class="actions lrt-timeline-edit-actions"><button type="button" class="btn btn-secondary" data-action="leitura-parada-editar-cancelar">Cancelar</button><button type="button" class="btn btn-primary" data-action="leitura-parada-editar-salvar">Salvar</button></div></div>`;
       }
-      const main = `<span class="lrt-timeline-time">${isManual ? "—" : H.escape(parada.hora || "")}</span><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${H.escape((parada.itens || []).map(i => { const p = (state.products || []).find(pr => String(pr.id) === String(i.productId)); return `${i.qtd} ${(p && (p.unidade || p.nome || p.name)) || i.unidade || i.nome || "item"}`; }).join(", "))}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong><div class="lrt-timeline-actions"><button type="button" class="link-btn" data-action="leitura-parada-editar" data-parada-id="${H.escape(parada.id)}">Editar</button><button type="button" class="link-btn lrt-timeline-remove" data-action="leitura-parada-remover" data-parada-id="${H.escape(parada.id)}">Remover</button></div>`;
-      if (!isManual) return `<div class="lrt-timeline-row">${main}</div>`;
+      // S3 21/07 — "Remover" era texto/botão (violava Lei 1); agora é segurar a
+      // própria linha (data-lrt-parada-hold), mesmo gesto dos outros 7 holds.
+      // "Editar" continua toque curto normal.
+      const main = `<span class="lrt-timeline-time">${isManual ? "—" : H.escape(parada.hora || "")}</span><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${H.escape((parada.itens || []).map(i => { const p = (state.products || []).find(pr => String(pr.id) === String(i.productId)); return `${i.qtd} ${(p && (p.unidade || p.nome || p.name)) || i.unidade || i.nome || "item"}`; }).join(", "))}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong><div class="lrt-timeline-actions"><button type="button" class="link-btn" data-action="leitura-parada-editar" data-parada-id="${H.escape(parada.id)}">Editar</button></div>`;
+      if (!isManual) return `<div class="lrt-timeline-row" data-lrt-parada-hold="${H.escape(parada.id)}">${main}</div>`;
       const arrows = `<div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-cima" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-baixo" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div>`;
-      return `<div class="lrt-timeline-row lrt-timeline-row--manual"><div class="lrt-timeline-main">${main}</div>${arrows}</div>`;
+      return `<div class="lrt-timeline-row lrt-timeline-row--manual" data-lrt-parada-hold="${H.escape(parada.id)}"><div class="lrt-timeline-main">${main}</div>${arrows}</div>`;
     }).join("");
     const total = `Total: ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"} · ${H.money(resumo.total || 0)}`;
     const body = state.leituraResumoLoading ? loading() : state.leituraResumoError ? empty("Não foi possível carregar", state.leituraResumoError) : (rows ? `<div class="lrt-timeline">${rows}</div><p class="lrt-timeline-total">${total}</p>` : empty("Nenhuma parada", "Cadastre paradas antes de finalizar."));
@@ -3325,6 +3350,7 @@
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
       if (confirmation.type === "archive-product") await performArchiveProduct((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
+      if (confirmation.type === "archive-product-edit") await performArchiveProductFromEdit((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
       if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
       if (confirmation.type === "cancel-route" || confirmation.type === "finish-route") await performEncerrarRota(confirmation.type === "cancel-route" ? "Planejamento cancelado pelo administrador." : "Rota encerrada pelo motorista.", confirmation.type === "finish-route");
       if (confirmation.type === "limpar-dia") await performLimparDia();
@@ -3367,12 +3393,20 @@
       const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
       if (!product) return;
       const nextActive = product.ativo === false;
+      // S3 21/07 — arquivar (nextActive===false) é a MESMA ação do hold na lista
+      // de Produtos, que já confirma; este botão da ficha executava direto, sem
+      // confirmação. Reativar continua imediato (não é destrutivo).
+      if (!nextActive) {
+        state.confirmation = { type: "archive-product-edit", itemId: product.id, title: "Arquivar produto?", message: `${product.nome || product.name || "Produto"} sai do catálogo ativo. Você pode reativar depois.`, confirmLabel: "Arquivar", danger: true, icon: "box" };
+        render();
+        return;
+      }
       try {
-        await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body: { ativo: nextActive } });
-        product.ativo = nextActive;
+        await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body: { ativo: true } });
+        product.ativo = true;
         H.cache.set("logistica-products", state.products);
         await closeOverlay("modal");
-        toast(nextActive ? "Produto reativado." : "Produto arquivado.");
+        toast("Produto reativado.");
       } catch (error) { toast(humanApiError(error), true); }
       return;
     }
@@ -3726,7 +3760,6 @@
       if (item) { item.qtd = Math.max(1, Number(item.qtd || 1) + Number(target.dataset.delta || 0)); render(); }
       return;
     }
-    if (action === "leitura-item-remover") { state.leituraItens = state.leituraItens.filter(i => String(i.productId) !== String(target.dataset.productId)); render(); return; }
     if (action === "leitura-proximo") {
       if (!state.leitura || !state.leituraItens.length || !state.leituraCapture) return;
       await startLeituraObs();
@@ -3765,6 +3798,11 @@
     }
     if (action === "leitura-novo-consultar-local") { await locateLeituraNovoAddress(); return; }
     if (action === "leitura-parada-editar") {
+      // Guarda o clique-fantasma do touchend quando ESTA parada específica virou
+      // hold (mesmo motivo do ignoredClientClickId — comparar o id, não só "não
+      // é null": senão um hold em QUALQUER parada travava o Editar de todas as
+      // outras até o próximo toque, porque a flag nunca era limpa por elas).
+      if (ignoredLrtParadaClickId === target.dataset.paradaId) { ignoredLrtParadaClickId = null; return; }
       const parada = (state.leituraResumo && state.leituraResumo.paradas || []).find(p => String(p.id) === String(target.dataset.paradaId));
       if (!parada) return;
       state.leituraEditParadaId = parada.id;
@@ -3789,11 +3827,6 @@
         syncLeituraManualOrder();
         toast("Parada atualizada.");
       } catch (error) { toast(humanApiError(error), true); }
-      render();
-      return;
-    }
-    if (action === "leitura-parada-remover") {
-      state.confirmation = { type: "remove-leitura-parada", itemId: target.dataset.paradaId, title: "Remover parada?", message: "Esta parada será removida do resumo.", confirmLabel: "Remover", danger: true, icon: "route" };
       render();
       return;
     }
@@ -3867,6 +3900,26 @@
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       productHold = hold;
     }
+    // Parada do resumo da leitura (state.modal === "leitura-finalizar"): segurar
+    // remove (com confirmação, porque já foi persistida via DELETE no backend).
+    const lrtParada = target.closest("[data-lrt-parada-hold]");
+    if (lrtParada && event.touches.length === 1 && state.modal === "leitura-finalizar") {
+      const touch = event.touches[0]; const hold = { id: lrtParada.dataset.lrtParadaHold, el: lrtParada, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      lrtParadaHold = hold;
+    }
+    // Produto do passo "Produto" da leitura (state.leituraItens, rascunho local
+    // antes de salvar a parada): segurar tira, sem confirmação — mesma régua do
+    // rme-item. Toque começando no campo de preço NÃO arma o hold (o campo é
+    // input de texto; segurar nele é seleção de texto do teclado, não exclusão).
+    const lrtItem = target.closest("[data-lrt-item-hold]");
+    if (lrtItem && event.touches.length === 1 && !target.closest("input")) {
+      const touch = event.touches[0]; const hold = { id: lrtItem.dataset.lrtItemHold, el: lrtItem, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      lrtItemHold = hold;
+    }
     if (event.touches.length !== 1 || state.modal || state.selected || !target.closest("[data-route-current]")) { touchStart = null; return; }
     const touch = event.touches[0];
     touchStart = { x: touch.clientX, y: touch.clientY, currentStopId: target.closest("[data-route-current]")?.dataset.routeCurrent || null };
@@ -3881,6 +3934,8 @@
     if (rmeItemHold && (Math.abs(touch.clientX - rmeItemHold.x) > 12 || Math.abs(touch.clientY - rmeItemHold.y) > 12)) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); rmeItemHold = null; }
     if (routeModeloHold && (Math.abs(touch.clientX - routeModeloHold.x) > 12 || Math.abs(touch.clientY - routeModeloHold.y) > 12)) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); routeModeloHold = null; }
     if (productHold && (Math.abs(touch.clientX - productHold.x) > 12 || Math.abs(touch.clientY - productHold.y) > 12)) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); productHold = null; }
+    if (lrtParadaHold && (Math.abs(touch.clientX - lrtParadaHold.x) > 12 || Math.abs(touch.clientY - lrtParadaHold.y) > 12)) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); lrtParadaHold = null; }
+    if (lrtItemHold && (Math.abs(touch.clientX - lrtItemHold.x) > 12 || Math.abs(touch.clientY - lrtItemHold.y) > 12)) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); lrtItemHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
       current?.classList.toggle("is-swiping-skip", touch.clientX - touchStart.x < -24 && Math.abs(touch.clientX - touchStart.x) > Math.abs(touch.clientY - touchStart.y));
@@ -3955,6 +4010,26 @@
       const hold = productHold; productHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredProductClickId = hold.id; archiveProductByHold((state.products || []).find(p => String(p.id) === String(hold.id))); return; }
     }
+    if (lrtParadaHold) {
+      clearTimeout(lrtParadaHold.timer);
+      const hold = lrtParadaHold; lrtParadaHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      if (hold.triggered) {
+        ignoredLrtParadaClickId = hold.id;
+        state.confirmation = { type: "remove-leitura-parada", itemId: hold.id, title: "Remover parada?", message: "Esta parada será removida do resumo.", confirmLabel: "Remover", danger: true, icon: "route" };
+        render();
+        return;
+      }
+    }
+    if (lrtItemHold) {
+      clearTimeout(lrtItemHold.timer);
+      const hold = lrtItemHold; lrtItemHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      if (hold.triggered) {
+        state.leituraItens = state.leituraItens.filter(i => String(i.productId) !== String(hold.id));
+        render();
+        toast("Produto tirado.");
+        return;
+      }
+    }
     if (!touchStart || state.modal || state.selected || event.changedTouches.length !== 1) { touchStart = null; return; }
     const touch = event.changedTouches[0];
     const dx = touch.clientX - touchStart.x;
@@ -3968,7 +4043,7 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) {
