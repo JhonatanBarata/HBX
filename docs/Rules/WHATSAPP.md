@@ -40,6 +40,20 @@ o caso entre empresas quanto o caso dentro da mesma empresa.
 - `whatsappStatus=confirmed` de um lead só nasce do Webwhats ou de dado já confirmado
   (ver docs/Rules/MOTOR.md) — nenhuma outra fonte promove para confirmado.
 
+## Precedência de resposta automática (motor único, fusão 20-21/07)
+
+- Quem responde um inbound humano — interrupt de contato comercial → cadência
+  (fire-and-forget) → assistente IA → atendimento/menu → recovery — é decidido
+  em `backend/src/automation/inbound-router.service.ts` (extração LITERAL do
+  que já vivia em `messaging.service.ts`; mesma ordem, mesmo `void` no
+  `dispatchCadenciaInbound`). Detalhe completo: docs/Rules/BACKEND.md
+  ("Automação — bot + IA + cadência") e
+  `docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/CONTRATO.md`.
+- Guardrails desta seção (número único, disjuntor, `queueOutboundForCompany`
+  como porta única) continuam INTOCADOS pela fusão — ela só reorganiza QUEM
+  decide a resposta, nunca COMO o WhatsApp é acessado. `Webwhats/` não foi
+  tocado (`git diff` vazio, conferido na revisão final S21).
+
 ## Frontend (conexão)
 
 - O fluxo completo de conexão (modal QR / start / status / disconnect) vive em

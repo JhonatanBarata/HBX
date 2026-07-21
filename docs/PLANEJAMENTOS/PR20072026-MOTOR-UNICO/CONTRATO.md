@@ -395,11 +395,23 @@ seção), NÃO entram no rename da S20. Não confundir as duas.
 
 ### 5.1 (A) Flags de feature — mapa velha → nova
 
-`HBX_AUTOMATION_AGENT` (sem legado — nasce OFF na S10, gateia se o runtime já lê o schema novo
-`AutomationAgent` em vez do par legado `BotConfig`+`AssistenteConfig`) é a primeira da família.
-As demais, hoje soltas por motor, migram assim (⚠️ **nomes abaixo são PROPOSTA desta sprint —
-o contrato do S03 deixou "?" de propósito; resolvido aqui para não travar S04-S08, mas é
-decisão revisável pelo orquestrador antes da S20 executar o rename de fato**):
+`HBX_AUTOMATION_AGENT` (nasceu OFF na S10; a S20 virou o default pra **ON** em código —
+kill-switch é setar explicitamente `0`/`false`/`no`/`off` — gateia se o runtime lê o schema
+novo `AutomationAgent` em vez do par legado `BotConfig`+`AssistenteConfig`) é a primeira da
+família. As demais, hoje soltas por motor, migram assim:
+
+> ⚠️ **Atualização S22 (pós-execução real da S20) — os nomes abaixo eram PROPOSTA desta
+> sprint (S03) e só PARTE deles foi adotada como está.** Nomes que a S20 efetivamente
+> implementou em código (conferir sempre em `automation-flags.ts`/grep, não neste doc):
+> `HBX_AUTOMATION_IA_LIVE` (não `_AGENT_PUBLISH_ENABLED`), `HBX_AUTOMATION_RUNNER_ENABLED`
+> (não `_PROSPECCAO_RUNNER_ENABLED`), `HBX_AUTOMATION_COBRANCA_WORKER_ENABLED` (como
+> proposto — mas só é lido pelo `automation-overview.service.ts`; o worker real,
+> `recovery-automation-worker.service.ts:14`, AINDA lê só a flag velha — P1-1 do
+> `RELATORIO-S21.md`, corrigir antes de trocar o valor no VPS). As demais linhas da tabela
+> (`_PROSPECCAO_EMAIL_ENABLED`, `_TICK_MS`, `_WHATS_DAILY_CAP`, `_EMAIL_DAILY_CAP`,
+> `_AGENTE_NLU_*`) **NÃO foram renomeadas** — o código ainda lê só o nome velho da coluna
+> "Flag velha", sem par novo nenhum. Não setar no VPS os nomes novos destas linhas
+> esperando efeito: eles não são lidos em lugar nenhum ainda.
 
 | Flag velha | Valor no VPS hoje (S02) | Flag nova proposta | O que controla |
 |---|---|---|---|

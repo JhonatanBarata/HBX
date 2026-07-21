@@ -39,6 +39,50 @@
 - Envio via padrão Outbox com retry (backoff exponencial + jitter) e integração
   por webhook. Não trocar o mecanismo sem plano próprio (ver docs/Rules/WHATSAPP.md).
 
+## Automação — bot + IA + cadência (motor único, fusão 20-21/07)
+
+`/bot` + `/automacoes` + `/assistente` viraram **1 módulo**, `backend/src/automation/`.
+Vocabulário/contratos completos: `docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/CONTRATO.md`.
+
+- **Espinha**: `AgentService` (config única do Atendente — 2 cérebros, `roteiro` OU
+  `ia`, nunca terceiro sem decisão do dono) · `InboundRouterService` (decide quem
+  responde um inbound: `interruptForInbound` → cadência fire-and-forget → assistente
+  IA → atendimento/menu → recovery — extração LITERAL da precedência antiga; JUIZ é
+  `automation/characterization/*.test.ts`, qualquer mudança de ordem tem que continuar
+  passando neles) · `OutboundOrchestratorService` (1 scheduler, N executores
+  registrados rodando em SÉRIE — nunca paralelo, chip é recurso único) ·
+  `EventRuleService` (gatilhos generalizados, motor de execução continua em
+  `cadencia-gatilho.service.ts`).
+- **O agente é DA EMPRESA, não do usuário** (regra de produto, dono 20/07): 1
+  `AutomationAgent` por `companyId` (`@unique`). Só Admin/USERMASTER configura
+  (`canManage`, `PUT/POST /automation/agent*`); vendedor herda — só lê e testa no
+  sandbox. Nunca criar config por vendedor aqui (vira bagunça de marca).
+- `queueOutboundForCompany` continua a ÚNICA porta de saída WhatsApp — o
+  orquestrador novo decide QUEM dispara e QUANDO, nunca substitui a porta nem o
+  disjuntor/teto/warmup que já existem nela.
+- Flags novas nascem na família `HBX_AUTOMATION_*` e SEMPRE caem pra flag legada
+  como fallback — usar `automationFlag(nova, legada)` de
+  `backend/src/automation/automation-flags.ts`, nunca reimplementar o fallback
+  inline. `HBX_AUTOMATION_AGENT` é a única flag default **ON** em código
+  (kill-switch = valor explicitamente `0`/`false`/`no`/`off`; ausente/vazio/qualquer
+  outro valor = ON e volta tudo pro legado byte a byte se a empresa não tiver linha
+  em `AutomationAgent`).
+- `Copiloto` (`backend/src/assistente/copiloto.controller.ts`, prefixo
+  `/assistente/copiloto`) **NÃO faz parte desta fusão** — feature separada de
+  redação assistida pro vendedor (tela do Lead), flag própria
+  `HBX_COPILOTO_ENABLED`, preservada intacta mesmo com `/assistente` virando
+  redirect.
+- `prisma/migrations-hold/` guarda o DDL destrutivo (drop de `AssistenteConfig` +
+  `BotConfig`) **fora** do caminho de deploy (`prisma migrate deploy` não a
+  enxerga) — tem guarda de paridade própria, mas **NUNCA mover essa migration pra
+  `prisma/migrations/` sem antes**: (1) rodar
+  `backend/scripts/automation-pre-drop-dump.sh` (dump seletivo, NUNCA
+  `cnpj_public*`), e (2) remover as leituras legadas que ainda são o kill-switch e
+  o dual-write em runtime (`messaging.service.ts`, `vendas.service.ts`,
+  `conversation-assistant-runtime.service.ts`, `assistente.service.ts`) — a
+  paridade da migration pode passar e o runtime quebrar do mesmo jeito (P1-2,
+  `docs/PLANEJAMENTOS/PR20072026-MOTOR-UNICO/RELATORIO-S21.md`).
+
 ## Proibido sem ordem explícita do dono
 
 Vale a lista única de segurança do [CLAUDE.md](../../CLAUDE.md): auth/autorização,

@@ -127,6 +127,12 @@
   registrar service worker novo sem ordem do dono.
 - Webfonts via `<link>` no `src/app/layout.tsx` (nunca `@import` em CSS — o
   bundler descarta em silêncio).
+- **Gotcha recorrente: `*/` dentro de comentário CSS derruba o build.** Se o
+  texto de um `/* ... */` contém a sequência `*/` (ex.: comentário explicando
+  um trecho de código que termina em `*/`), o comentário fecha ANTES do
+  previsto e o resto vira CSS inválido — derrubou o build 2x nesta frente
+  (MOTOR-ÚNICO, jul/26). Nunca escrever `*/` no texto de um comentário CSS;
+  se precisar citar a sequência, quebrar (`* /`) ou reescrever a frase.
 
 ## Layout — Zero scroll em desktop (100% zoom)
 
@@ -209,7 +215,12 @@ uma variação.
 - Aliases ativos: `/dashboard/master` → `/dashboard`; `/workspace` → `/dashboard` (app paralelo
   friendly morto na unificação); `/webscraping` → `/leads` (Radar unificada); `/login` → `/?entrar`
   (W1 10/07: 1 login só, o card embutido na landing — logout/401 caem em `/` e `/?entrar` via
-  `lib/logout.ts`/`lib/leave.ts`, com transição).
+  `lib/logout.ts`/`lib/leave.ts`, com transição); `/bot` → `/automacao?secao=atendente`,
+  `/automacoes` → `/automacao?secao=prospeccao`, `/assistente` → `/automacao?secao=atendente`
+  (fusão MOTOR-ÚNICO, S17/21-07 — as 3 telas velhas viraram 1 hub por objetivo em
+  `/automacao`, 4 seções: `atendente`/`cobranca`/`prospeccao`/`regras`; o sub-recurso
+  `/assistente/copiloto/*` — redação assistida na tela do Lead — NÃO é alias, continua
+  onde está).
   (`/boasvindas`, `/pre-checkout`, `/precheckout` removidos em F8/19/06 — rotas mortas deletadas.)
 - **Sem legado (regra dura, dono 17/06).** Merge/substituição de tela apaga a velha NO
   MESMO passo — ela vira alias `redirect()` (ex.: `/workspace`→`/dashboard`,
