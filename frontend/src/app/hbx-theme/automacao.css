@@ -93,3 +93,9 @@
 .atd-brain-btn:hover { color: var(--text-strong); }
 .atd-brain-btn.active { color: var(--hbx-brand-strong); }
 .atd-brain-btn svg { width: 13px; height: 13px; }
+
+/* ── S14 — seção Cobrança (Recovery reembalado): ZERO classe nova ──────────
+   Reusa .ia-toolbar/.ia-pub-pill/.ia-split/.ia-chat-dock* (assistente.css),
+   .bot-panel/.bot-montagem/.bot-modo-view--tabuleiro/.bot-board-canvas
+   (bot-builder.css) e .auto-flag-note (screens.css) tal qual a seção
+   Atendente (Lei nº2 — nunca repetir visual). Nada a adicionar aqui. */

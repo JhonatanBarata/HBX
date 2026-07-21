@@ -42,6 +42,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { SecaoAtendente } from "./secao-atendente";
+import { SecaoCobranca } from "./secao-cobranca";
 
 // ================================================================
 // Shape do GET /automation/overview — espelha
@@ -276,8 +277,9 @@ export function AutomacaoHubClient() {
 
   // Seção aberta: só renderiza se o gate DAQUELA seção ainda passa (empresa
   // pode ter perdido acesso entre o deep-link e agora) — senão cai pro hub.
-  // S13: "atendente" já tem conteúdo real (SecaoAtendente); as demais (S14-S16)
-  // continuam no placeholder "em migração" até a sprint delas chegar.
+  // S13: "atendente" já tem conteúdo real (SecaoAtendente). S14: "cobranca"
+  // idem (SecaoCobranca, Recovery reembalado). As demais (S15-S16) continuam
+  // no placeholder "em migração" até a sprint delas chegar.
   if (secao && overview && secaoGateOk(secao, moduleAccess)) {
     const meta = SECAO_META[secao];
     return (
@@ -294,6 +296,8 @@ export function AutomacaoHubClient() {
             iaPublishEnabled={Boolean(overview.motor.ok && overview.motor.publishEnabled)}
             onChanged={() => { void load(); }}
           />
+        ) : secao === "cobranca" ? (
+          <SecaoCobranca onChanged={() => { void load(); }} />
         ) : (
           <section className="panel aut-secao-placeholder">
             <span className="aut-secao-placeholder__icon"><I d={ICONS[meta.icon]} size={26} /></span>
