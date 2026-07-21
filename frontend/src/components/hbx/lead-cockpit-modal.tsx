@@ -12,6 +12,7 @@ import {
   LockGate,
   formatPhoneDisplay,
   humanize,
+  vendasEngagementMeta,
 } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
@@ -389,7 +390,8 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     ? intelligence.messageTemplate
     : String((intelligence?.messageTemplate as { text?: string } | null | undefined)?.text || "");
   const opportunityScore = Math.max(0, Math.min(100, Math.round(Number(lead.opportunityScore) || 0)));
-  const hasConversation = Boolean(lead.conversation?.id || lead.conversation?.exists);
+  const conversationState = vendasEngagementMeta(lead.engagement, lead.conversation).state;
+  const hasConversation = conversationState !== "no_conversation" && conversationState !== "no_messages";
   const phones = [lead.phone, ...(Array.isArray(lead.phones) ? lead.phones : [])]
     .filter((item): item is string => Boolean(item))
     .filter((item, index, all) => all.findIndex((other) => onlyDigits(other) === onlyDigits(item)) === index);

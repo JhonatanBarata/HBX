@@ -1209,9 +1209,8 @@ export function ConversationPanel({
     }
   }, [messages, tab]);
 
-  const hasExistingConversation = Boolean(
-    convoId || snapshot.conversation?.id || snapshot.conversation?.exists,
-  );
+  const conversationState = normalizeEngagementState(snapshot.engagement, snapshot.conversation);
+  const hasExistingConversation = conversationState !== "no_conversation" && conversationState !== "no_messages";
 
   // Copiloto (LEADS-FINAL/05): rascunho vindo de fora → preenche o campo de
   // digitação. Em Vendas, ele só abre automaticamente quando a conversa JÁ
