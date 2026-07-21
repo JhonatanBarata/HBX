@@ -736,7 +736,12 @@
     const nav = app.querySelector(".bottom-nav");
     if (!shell || !controls || !nav) return;
     const play = controls.querySelector(".route-transmux-wrap");
-    const navTop = nav.getBoundingClientRect().top;
+    const measuredNavTop = nav.getBoundingClientRect().top;
+    // Na Leitura a nav já foi transicionada para fora da tela. Usar a posição
+    // transformada dela faria o mapa crescer por baixo da barra do Android e
+    // cortaria os controles; o limite passa a ser o viewport realmente visível.
+    const visibleBottom = Number(window.visualViewport && window.visualViewport.height || window.innerHeight || measuredNavTop);
+    const navTop = leituraRouteActive() ? Math.min(measuredNavTop, visibleBottom) : measuredNavTop;
     const shellTop = shell.getBoundingClientRect().top;
     const livre = navTop - shellTop;
     if (!(livre > 0)) return;
@@ -1181,9 +1186,9 @@
     // S1 21/07 — sessão MANUAL já aberta: o Play não mostra mais o menu de 4
     // opções, reabre o wizard do S1.3 direto no passo Paradas.
     if (state.leitura && state.leitura.modo === "MANUAL") { void openManualWizard("paradas"); return; }
-    // S3 21/07 — sessão LEITURA (GPS) já ativa: reabre a tela viva em vez do
-    // menu de 4 opções (mesmo padrão do MANUAL logo acima).
-    if (state.leitura && state.leitura.modo === "LEITURA") { openLeituraAtiva(); return; }
+    // Sessão LEITURA (GPS) já ativa: volta para a própria tela Rota, onde os
+    // controles de gravação ocupam o lugar do Play.
+    if (state.leitura && state.leitura.modo === "LEITURA") { void openLeituraAtiva(); return; }
     clearInterval(dayReviewTimer);
     state.dayMode = mode || "start";
     // Uma geração anterior pode ter terminado com o painel fechado. O estado
@@ -1702,12 +1707,15 @@
     if (snapshot.ultimaAmostra) state.leituraUltimaAmostra = snapshot.ultimaAmostra;
     if (snapshot.pausaPendente) state.leituraPausaPendente = snapshot.pausaPendente;
   }
-  // Abre (ou reabre) a tela viva da Leitura: chama leituraStatus() 1x pra
-  // pintar o que já existe (S2-CONTRATO-PONTE §1 — "depois só escutar o
-  // evento pros pontos novos, não fazer polling").
-  function openLeituraAtiva() {
-    showModal("leitura-ativa");
+  function leituraRouteActive() {
+    return state.screen === "route" && !!(state.leitura && state.leitura.modo === "LEITURA");
+  }
+  // Abre (ou reabre) a leitura na própria tela Rota. O snapshot nativo continua
+  // sendo sincronizado, mas não existe mais um segundo mapa/modal para exibi-lo.
+  async function openLeituraAtiva() {
     applyLeituraSnapshot(leituraStatusSnapshot());
+    state.screen = "route";
+    if (state.modal) { await closeOverlay("modal"); return; }
     render();
   }
   let leituraFlushing = false;
@@ -1957,9 +1965,8 @@
   async function closeLeituraParadaModal() {
     await closeOverlay("modal");
     if (state.leitura && state.leitura.modo === "MANUAL") await openManualWizard("paradas");
-    // S3 21/07 — sessão LEITURA (GPS): mesmo padrão, volta pra tela viva em
-    // vez de fechar pra tela Rota crua (a faixa que fazia isso antes saiu).
-    else if (state.leitura && state.leitura.modo === "LEITURA") openLeituraAtiva();
+    // Sessão LEITURA (GPS): volta para a Rota com os controles de gravação.
+    else if (state.leitura && state.leitura.modo === "LEITURA") await openLeituraAtiva();
   }
   // Voltar do wizard (seta ‹, X, fundo, físico do Android): passo 3→2→1; no
   // passo 1, parada já registrada pede confirmação antes de cancelar a sessão
@@ -2509,12 +2516,13 @@
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
+    const leituraAtiva = leituraRouteActive();
     // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
     const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
     // S1 21/07 — sessão MANUAL não tem mais faixa (leituraBanner devolve "");
     // sem o wrapper condicional sobrava uma margem vazia sobre a tela Rota.
     const lrtBannerHtml = leituraBanner();
-    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${lrtBannerHtml ? `<div class="lrt-banner">${lrtBannerHtml}</div>` : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
@@ -2522,7 +2530,15 @@
         <button type="button" class="route-filter-btn ${state.routeFilter === "avulsos" ? "active" : ""}" data-action="route-filter" data-filter="avulsos">Avulsos <b>${avulsos.length}</b></button>
       </div>` : ""}
       ${state.routeFilter === "fila" && next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : empty("Nada aqui", "")) : ""}`, `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => stopCard(item, false, index + 1)).join("")}</div>` : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+  }
+  function leituraRouteControls() {
+    const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
+    return `<div class="leitura-route-controls" aria-label="Leitura de rota em andamento">
+      <button type="button" class="leitura-route-action leitura-route-action--cancel" data-action="leitura-cancelar" aria-label="Cancelar leitura">${icon("trash", 22)}<strong>Cancelar</strong></button>
+      <button type="button" class="leitura-route-recording" data-action="leitura-finalizar-iniciar" aria-label="Gravando rota"><span class="leitura-route-recording-dot" aria-hidden="true"></span><strong>Gravando</strong></button>
+      <button type="button" class="leitura-route-action leitura-route-action--checkpoint" data-action="leitura-cadastrar-local" aria-label="${checkpointLabel}" ${state.leituraCapturing ? "disabled" : ""}>${icon("gps", 22)}<strong>${checkpointLabel}</strong></button>
+    </div>`;
   }
   function routePausedBanner() {
     return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">Encerrar rota</button></div></div>`;
@@ -3163,6 +3179,9 @@
   }
   function render() {
     if (!moduleActive) return;
+    const leituraAtivaNaRota = leituraRouteActive();
+    document.documentElement.classList.toggle("leitura-route-active", leituraAtivaNaRota);
+    document.body.classList.toggle("leitura-route-active", leituraAtivaNaRota);
     const focusedControl = focusedControlSnapshot();
     const modalScroll = app.querySelector(".modal")?.scrollTop || 0;
     const centerModalBodyScroll = app.querySelector(".center-modal-body")?.scrollTop || 0;
@@ -3999,7 +4018,7 @@
     // gravava a trilha ZERO em silêncio. Checar antes do POST evita sessão
     // órfã no backend caso o usuário negue (nada é criado se não tem GPS).
     if (action === "day-entry-leitura") {
-      if (state.leitura && state.leitura.modo === "LEITURA") { openLeituraAtiva(); return; }
+      if (state.leitura && state.leitura.modo === "LEITURA") { await openLeituraAtiva(); return; }
       if (state.leituraStarting) return;
       state.leituraStarting = true; render();
       const podeGravar = await ensureLeituraTrilhaLocationPermission();
@@ -4011,7 +4030,7 @@
         leituraTrilhaIniciar(result.id);
       } catch (error) { toast(humanApiError(error), true); state.leituraStarting = false; render(); return; }
       state.leituraStarting = false;
-      openLeituraAtiva();
+      await openLeituraAtiva();
       return;
     }
     if (action === "manual-wizard-ir-ordem") { await changeManualWizardStep("ordem"); return; }
@@ -4942,9 +4961,9 @@
         // S1 21/07 — wizard "Criar Rota Manual" (Lei 10): passo 3→2→1; no
         // passo 1, pede confirmação se já houver parada (manualWizardGoBack).
         if (state.modal === "leitura-manual") { void manualWizardGoBack(); return true; }
-        // S3.2 — tela viva da Leitura (Lei 10): sem popup de pausa aberto (já
-        // tratado acima), voltar pede a MESMA confirmação do botão "Cancelar".
-        if (state.modal === "leitura-ativa") { promptCancelLeitura(); return true; }
+        // Leitura ativa mora na própria Rota: voltar pede a mesma confirmação
+        // do controle "Cancelar" antes de sair do app.
+        if (leituraRouteActive()) { promptCancelLeitura(); return true; }
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
