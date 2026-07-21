@@ -41,6 +41,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { SecaoAtendente } from "./secao-atendente";
 
 // ================================================================
 // Shape do GET /automation/overview — espelha
@@ -275,10 +276,36 @@ export function AutomacaoHubClient() {
 
   // Seção aberta: só renderiza se o gate DAQUELA seção ainda passa (empresa
   // pode ter perdido acesso entre o deep-link e agora) — senão cai pro hub.
+  // S13: "atendente" já tem conteúdo real (SecaoAtendente); as demais (S14-S16)
+  // continuam no placeholder "em migração" até a sprint delas chegar.
   if (secao && overview && secaoGateOk(secao, moduleAccess)) {
+    const meta = SECAO_META[secao];
     return (
       <div className="work" style={{ flex: 1 }}>
-        <SecaoPlaceholder meta={SECAO_META[secao]} onVoltar={voltar} />
+        <div className="aut-secao-head">
+          <button type="button" className="btn-ghost" onClick={voltar}><I d={ICONS.back} size={14} /> Voltar</button>
+          <div style={{ minWidth: 0 }}>
+            <div className="auto-hero__title">{meta.titulo}</div>
+            <div className="auto-hero__sub">{meta.sub}</div>
+          </div>
+        </div>
+        {secao === "atendente" ? (
+          <SecaoAtendente
+            iaPublishEnabled={Boolean(overview.motor.ok && overview.motor.publishEnabled)}
+            onChanged={() => { void load(); }}
+          />
+        ) : (
+          <section className="panel aut-secao-placeholder">
+            <span className="aut-secao-placeholder__icon"><I d={ICONS[meta.icon]} size={26} /></span>
+            <h4>Em migração</h4>
+            <p>Esta seção ainda está sendo fundida na casca nova. Por enquanto, use a tela clássica abaixo — os dados são os mesmos.</p>
+            <div className="aut-legacy-links">
+              {meta.legacy.map((l) => (
+                <Link key={l.href} className="btn-ghost" href={l.href}>{l.label}</Link>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     );
   }
@@ -371,30 +398,5 @@ function ObjetivoCard({ card, onAbrir }: { card: CardVM; onAbrir: () => void }) 
         <button type="button" className="btn-teal" onClick={onAbrir}>Abrir</button>
       </div>
     </div>
-  );
-}
-
-function SecaoPlaceholder({ meta, onVoltar }: { meta: SecaoMeta; onVoltar: () => void }) {
-  return (
-    <>
-      <div className="aut-secao-head">
-        <button type="button" className="btn-ghost" onClick={onVoltar}><I d={ICONS.back} size={14} /> Voltar</button>
-        <div style={{ minWidth: 0 }}>
-          <div className="auto-hero__title">{meta.titulo}</div>
-          <div className="auto-hero__sub">{meta.sub}</div>
-        </div>
-      </div>
-
-      <section className="panel aut-secao-placeholder">
-        <span className="aut-secao-placeholder__icon"><I d={ICONS[meta.icon]} size={26} /></span>
-        <h4>Em migração</h4>
-        <p>Esta seção ainda está sendo fundida na casca nova. Por enquanto, use a tela clássica abaixo — os dados são os mesmos.</p>
-        <div className="aut-legacy-links">
-          {meta.legacy.map((l) => (
-            <Link key={l.href} className="btn-ghost" href={l.href}>{l.label}</Link>
-          ))}
-        </div>
-      </section>
-    </>
   );
 }

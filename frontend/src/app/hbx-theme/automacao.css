@@ -75,3 +75,21 @@
 .aut-secao-placeholder p { margin: 0; font-size: 0.78rem; color: var(--text-muted); max-width: 420px; line-height: 1.55; }
 
 .aut-legacy-links { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+
+/* ── S13 — seção Atendente: switch de cérebro (Roteiro | IA) na toolbar ────
+   Vidro desliza por cima via Glass Pill (Lei nº2); a trilha é só o trilho
+   neutro (mesma família visual de .ia-toolbar, que já vive em assistente.css —
+   aqui só o pedaço NOVO desta sprint). */
+.atd-brain-switch {
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border-radius: var(--radius-pill); border: 1px solid var(--border-hairline);
+  background: var(--hbx-field-surface);
+}
+.atd-brain-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
+  border-radius: var(--radius-pill); font-size: 0.7rem; font-weight: 800;
+  color: var(--text-muted); background: transparent; border: none; cursor: pointer;
+}
+.atd-brain-btn:hover { color: var(--text-strong); }
+.atd-brain-btn.active { color: var(--hbx-brand-strong); }
+.atd-brain-btn svg { width: 13px; height: 13px; }
