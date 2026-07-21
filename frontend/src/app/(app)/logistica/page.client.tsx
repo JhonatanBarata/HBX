@@ -22,6 +22,8 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
+import { RouteBuilderDialog } from "./route-builder";
+
 type Cliente = {
   id: string;
   nome: string | null;
@@ -360,6 +362,7 @@ export function LogisticaClient() {
   const [gerarMsg, setGerarMsg] = useState<string | null>(null);
   const [entregadores, setEntregadores] = useState<Entregador[]>([]);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
+  const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -427,6 +430,11 @@ export function LogisticaClient() {
             {admin && (
               <button type="button" className="btn-ghost btn-xs" onClick={gerarDia} disabled={gerando}>
                 <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
+              </button>
+            )}
+            {admin && (
+              <button type="button" className="btn-ghost btn-xs" onClick={() => setRouteBuilderOpen(true)}>
+                <I d={ICONS.logistica} size={13} /> Montar rota
               </button>
             )}
             {admin && (
@@ -510,6 +518,17 @@ export function LogisticaClient() {
             setRota((atual) => atual
               ? { ...atual, items: atual.items.map((item) => item.id === open.id ? { ...item, entregador } : item) }
               : atual);
+          }}
+        />
+      )}
+
+      {routeBuilderOpen && (
+        <RouteBuilderDialog
+          onClose={() => setRouteBuilderOpen(false)}
+          onCompleted={(message) => {
+            setRouteBuilderOpen(false);
+            setGerarMsg(message);
+            void load();
           }}
         />
       )}
