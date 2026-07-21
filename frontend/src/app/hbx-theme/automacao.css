@@ -99,3 +99,23 @@
    .bot-panel/.bot-montagem/.bot-modo-view--tabuleiro/.bot-board-canvas
    (bot-builder.css) e .auto-flag-note (screens.css) tal qual a seção
    Atendente (Lei nº2 — nunca repetir visual). Nada a adicionar aqui. */
+
+/* ── S15 — seção Prospecção & Cadência: drawer largo pro motor de disparo frio
+   (<BotProspeccaoPanel> importado, não copiado — passa a viver fora do /bot).
+   A casca (véu + entrada deslizante) vem 100% da central (.hbx-veil.to-right +
+   .hbx-drawer, mesma animação de kit.css/transitions.css) — só a LARGURA é
+   desta sprint: o painel tem grid de 3 colunas (peças/resumo/prévia) e não
+   cabe na gaveta estreita de 360px que as outras gavetas usam (bot-vars). O
+   resto da seção (grade de plays no topo + persona-grid do "Ritmo de toques")
+   reusa as classes auto-card/auto-grid/persona-card/step-flow que já existem
+   (prefixos genéricos — sem asterisco+barra aqui perto, isso fecha comentário
+   CSS antes da hora). Zero classe nova ali. */
+.prosp-drawer {
+  width: min(1180px, 96vw);
+  height: 100vh;
+  max-height: 100vh;
+  padding: 16px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

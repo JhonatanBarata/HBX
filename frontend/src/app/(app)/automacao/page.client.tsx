@@ -43,6 +43,7 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { SecaoAtendente } from "./secao-atendente";
 import { SecaoCobranca } from "./secao-cobranca";
+import { SecaoProspeccao } from "./secao-prospeccao";
 
 // ================================================================
 // Shape do GET /automation/overview — espelha
@@ -50,6 +51,11 @@ import { SecaoCobranca } from "./secao-cobranca";
 // ================================================================
 type AgentBrain = "roteiro" | "ia";
 type Block<T extends Record<string, unknown>> = ({ ok: true } & T) | { ok: false; reason: string };
+
+// S15: campos reais (não mais `unknown[]`) — a seção Prospecção & Cadência
+// consome a telemetria por executor (backend/src/automation/outbound-
+// orchestrator.service.ts OutboundExecutorTelemetry) pro chip de motor.
+type ExecutorTelemetry = { key: string; enabled: boolean; lastTickAt: string | null; lastResult: "ok" | "skipped" | "error" | null };
 
 type Overview = {
   companyId: number;
@@ -59,7 +65,7 @@ type Overview = {
   cobranca: Block<{ live: boolean; workerEnabled: boolean }>;
   prospeccao: Block<{ live: boolean; campaignId: string | null; pendingLeads: number }>;
   regras: Block<{ gatilhosAtivos: number; rotinasAtivas: number }>;
-  motor: Block<{ runnerEnabled: boolean; publishEnabled: boolean; chipConectado: boolean; executores: unknown[] }>;
+  motor: Block<{ runnerEnabled: boolean; publishEnabled: boolean; chipConectado: boolean; executores: ExecutorTelemetry[] }>;
 };
 
 type SecaoKey = "atendente" | "cobranca" | "prospeccao" | "regras";
@@ -298,6 +304,8 @@ export function AutomacaoHubClient() {
           />
         ) : secao === "cobranca" ? (
           <SecaoCobranca onChanged={() => { void load(); }} />
+        ) : secao === "prospeccao" ? (
+          <SecaoProspeccao motor={overview.motor} onChanged={() => { void load(); }} />
         ) : (
           <section className="panel aut-secao-placeholder">
             <span className="aut-secao-placeholder__icon"><I d={ICONS[meta.icon]} size={26} /></span>
