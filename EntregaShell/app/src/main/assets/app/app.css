@@ -547,6 +547,19 @@ h3 { font-size: .95rem; }
 .center-arrow:disabled { cursor: default; }
 .center-arrow:disabled .center-arrow-glyph { opacity: .38; box-shadow: none; background: var(--surface-2); color: var(--muted); transform: none; }
 .center-arrow:disabled .center-arrow-label { opacity: .55; }
+.center-modal.leitura-step-exit { pointer-events: none; animation: leitura-step-exit .17s cubic-bezier(.4,0,1,1) both; }
+.center-modal.leitura-step-enter { animation: leitura-step-enter .24s cubic-bezier(.2,.8,.2,1) both; }
+.center-modal.leitura-step-enter > * { opacity: 0; animation: leitura-step-item-enter .22s cubic-bezier(.2,.8,.2,1) both; }
+.center-modal.leitura-step-enter > :nth-child(1) { animation-delay: .03s; }
+.center-modal.leitura-step-enter > :nth-child(2) { animation-delay: .07s; }
+.center-modal.leitura-step-enter > :nth-child(3) { animation-delay: .11s; }
+.center-modal.leitura-step-enter > :nth-child(4) { animation-delay: .15s; }
+@keyframes leitura-step-exit { from { opacity: 1; transform: translate3d(0,0,0) scale(1); } to { opacity: 0; transform: translate3d(-18px,0,0) scale(.985); } }
+@keyframes leitura-step-enter { from { opacity: 0; transform: translate3d(18px,0,0) scale(.985); } to { opacity: 1; transform: translate3d(0,0,0) scale(1); } }
+@keyframes leitura-step-item-enter { from { opacity: 0; transform: translate3d(0,8px,0); } to { opacity: 1; transform: translate3d(0,0,0); } }
+@media (prefers-reduced-motion: reduce) {
+  .center-modal.leitura-step-exit, .center-modal.leitura-step-enter, .center-modal.leitura-step-enter > * { animation-duration: .01ms; animation-delay: 0s; }
+}
 
 /* F3.1 — campo de moeda "estilo banco" (guarda centavos, caret sempre no fim). */
 .lrt-produto-valor-input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; padding: 12px 0; font-size: 1.05rem; font-weight: 800; text-align: right; caret-color: transparent; }

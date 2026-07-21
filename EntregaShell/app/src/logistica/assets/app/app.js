@@ -39,6 +39,8 @@
     navMotionFrom: null,
     closingOverlay: null,
     openingOverlay: null,
+    leituraStepMotion: "",
+    leituraStepChanging: false,
     daySelection: [],
     dayPreview: [],
     dayPreviewEnteringIds: [],
@@ -447,7 +449,8 @@
   function centerModal(opts) {
     const o = opts || {};
     const closeAction = o.closeAction === false ? null : (o.closeAction || "leitura-voltar");
-    return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal" role="dialog" aria-modal="true">
+    const stepMotion = state.modal === "leitura-parada" && state.leituraStepMotion ? ` leitura-step-${state.leituraStepMotion}` : "";
+    return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal${stepMotion}" role="dialog" aria-modal="true">
       <div class="center-modal-head">
         <div class="day-home-icon">${icon(o.icon || "route", 22)}</div>
         <h2>${H.escape(o.title || "")}</h2>
@@ -1371,25 +1374,40 @@
     state.leituraEndNovo = false;
     const cap = state.leituraCapture;
     const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
-    if (temGps) { state.leituraStep = "endereco"; render(); void startLeituraEndereco(client, cap); }
-    else { state.leituraStep = "telefone"; render(); }
+    if (temGps) { void changeLeituraStep("endereco").then(() => startLeituraEndereco(client, cap)); }
+    else void changeLeituraStep("telefone");
+  }
+  async function changeLeituraStep(nextStep, beforeEnter) {
+    if (!nextStep || state.leituraStepChanging) return false;
+    state.leituraStepChanging = true;
+    state.leituraStepMotion = "exit";
+    render();
+    await new Promise(resolve => setTimeout(resolve, 170));
+    if (typeof beforeEnter === "function") beforeEnter();
+    state.leituraStep = nextStep;
+    state.leituraStepMotion = "enter";
+    render();
+    await new Promise(resolve => setTimeout(resolve, 240));
+    state.leituraStepMotion = "";
+    state.leituraStepChanging = false;
+    return true;
   }
   // Passo do wizard "Cadastrar Local" que o Voltar (físico ou botão) deve
   // reabrir; devolve false quando já está no primeiro passo (tipo) — o chamador
   // fecha a folha inteira nesse caso.
-  function leituraGoBack() {
+  async function leituraGoBack() {
     const step = state.leituraStep;
     if (!step || step === "tipo") return false;
-    if (step === "existente" || step === "novo") { state.leituraStep = "tipo"; render(); return true; }
+    if (step === "existente" || step === "novo") { await changeLeituraStep("tipo"); return true; }
     // F3.2 — cliente existente na LEITURA passa por endereço → número antes do telefone.
     // Bug#1: no sub-modo "Digitar endereço" o Voltar/X deve só SAIR da edição
     // (não pular 2 passos e perder o que foi digitado).
-    if (step === "endereco" && state.leituraEnd && state.leituraEnd.editing) { state.leituraEnd.editing = false; render(); return true; }
-    if (step === "endereco") { state.leituraStep = state.leituraEndNovo ? "novo" : "existente"; render(); return true; }
-    if (step === "numero") { state.leituraStep = "endereco"; render(); return true; }
-    if (step === "telefone") { state.leituraStep = state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo"); render(); return true; }
-    if (step === "produto") { state.leituraStep = "telefone"; render(); return true; }
-    if (step === "observacoes") { clearInterval(leituraObsTimer); state.leituraStep = "produto"; render(); return true; }
+    if (step === "endereco" && state.leituraEnd && state.leituraEnd.editing) { await changeLeituraStep("endereco", () => { state.leituraEnd.editing = false; }); return true; }
+    if (step === "endereco") { await changeLeituraStep(state.leituraEndNovo ? "novo" : "existente"); return true; }
+    if (step === "numero") { await changeLeituraStep("endereco"); return true; }
+    if (step === "telefone") { await changeLeituraStep(state.leituraEnd ? "numero" : (state.leituraSelectedClient ? "existente" : "novo")); return true; }
+    if (step === "produto") { await changeLeituraStep("telefone"); return true; }
+    if (step === "observacoes") { clearInterval(leituraObsTimer); await changeLeituraStep("produto"); return true; }
     return false;
   }
   async function performCancelLeitura() {
@@ -1694,13 +1712,12 @@
     return centerModal({ icon: "box", title: "Observações", resumo: leituraResumo() || "Lembrete pra entrega (opcional)", body, backAction: "leitura-voltar", nextAction: "leitura-obs-salvar", nextLabel: "Salvar" });
   }
   // Abre o passo Observações e liga a contagem de 5s (auto-salva ao zerar).
-  function startLeituraObs() {
+  async function startLeituraObs() {
     clearInterval(leituraObsTimer);
     state.leituraObsDraft = (state.leituraSelectedClient && state.leituraSelectedClient.observacoes) || "";
     state.leituraObsTyped = false;
     state.leituraObsCountdown = 5;
-    state.leituraStep = "observacoes";
-    render();
+    await changeLeituraStep("observacoes");
     leituraObsTimer = setInterval(() => {
       if (state.leituraStep !== "observacoes" || state.leituraObsTyped) { clearInterval(leituraObsTimer); return; }
       state.leituraObsCountdown = Math.max(0, state.leituraObsCountdown - 1);
@@ -3086,24 +3103,23 @@
       openLeituraParada({ lat: null, lng: null, accuracy: null, capturadoEm: new Date().toISOString() });
       return;
     }
-    if (action === "leitura-voltar") { if (!leituraGoBack()) await closeOverlay("modal"); return; }
-    if (action === "leitura-tipo-existente") { state.leituraStep = "existente"; render(); return; }
+    if (action === "leitura-voltar") { if (!(await leituraGoBack())) await closeOverlay("modal"); return; }
+    if (action === "leitura-tipo-existente") { await changeLeituraStep("existente"); return; }
     if (action === "leitura-tipo-novo") {
       // Modo MANUAL: sem GPS, então o endereço nasce vazio e editável de cara
       // (sem resumo de reverse-geocode pra mostrar) — reusa o mesmo passo.
       const isManual = state.leitura && state.leitura.modo === "MANUAL";
-      state.leituraStep = "novo"; state.leituraNovoEditing = isManual;
       const capture = state.leituraCapture;
       if (!isManual && capture) Object.assign(state.leituraNovoDraft, { lat: capture.lat, lng: capture.lng, geoFonte: "gps_cadastro" });
-      render();
+      await changeLeituraStep("novo", () => { state.leituraNovoEditing = isManual; });
       if (!isManual && capture && validCoordinates(capture.lat, capture.lng)) {
         const point = await reverseGeocodeLeitura(capture.lat, capture.lng);
         if (point && state.leituraStep === "novo") { Object.assign(state.leituraNovoDraft, point); render(); }
       }
       return;
     }
-    if (action === "leitura-novo-endereco-editar") { state.leituraNovoEditing = true; render(); return; }
-    if (action === "leitura-novo-endereco-fechar") { state.leituraNovoEditing = false; render(); return; }
+    if (action === "leitura-novo-endereco-editar") { await changeLeituraStep("novo", () => { state.leituraNovoEditing = true; }); return; }
+    if (action === "leitura-novo-endereco-fechar") { await changeLeituraStep("novo", () => { state.leituraNovoEditing = false; }); return; }
     if (action === "leitura-escolher-cliente") {
       const client = (state.clients || []).find(c => String(c.id) === String(target.dataset.clientId));
       if (!client) return;
@@ -3117,17 +3133,17 @@
       e.chosen = { endereco: r.endereco || "", bairro: r.bairro || "", cidade: r.cidade || "", uf: String(r.uf || "").toUpperCase(), cep: r.cep || "" };
       e.chosenTyped = false;
       e.decision = "atualizar"; state.leituraEnd = e;
-      state.leituraStep = "numero"; render(); return;
+      await changeLeituraStep("numero"); return;
     }
-    if (action === "leitura-end-manter") { const e = state.leituraEnd || {}; e.decision = "manter"; e.chosen = null; state.leituraEnd = e; state.leituraStep = "numero"; render(); return; }
+    if (action === "leitura-end-manter") { const e = state.leituraEnd || {}; e.decision = "manter"; e.chosen = null; state.leituraEnd = e; await changeLeituraStep("numero"); return; }
     // Digitar/corrigir endereço à mão: semeia o formulário com o GPS/cadastro.
     if (action === "leitura-end-digitar") {
-      const e = state.leituraEnd || {}; const r = e.reverse || {}; const c = state.leituraSelectedClient || {};
+      const e = { ...(state.leituraEnd || {}) }; const r = e.reverse || {}; const c = state.leituraSelectedClient || {};
       const seed = (r.endereco || r.cidade) ? r : c;
       e.form = { endereco: seed.endereco || "", bairro: seed.bairro || "", cidade: seed.cidade || "", uf: String(seed.uf || "").toUpperCase(), cep: seed.cep || "" };
-      e.editing = true; state.leituraEnd = e; render(); return;
+      e.editing = true; await changeLeituraStep("endereco", () => { state.leituraEnd = e; }); return;
     }
-    if (action === "leitura-end-cancelar-digitar") { const e = state.leituraEnd || {}; e.editing = false; state.leituraEnd = e; render(); return; }
+    if (action === "leitura-end-cancelar-digitar") { const e = { ...(state.leituraEnd || {}), editing: false }; await changeLeituraStep("endereco", () => { state.leituraEnd = e; }); return; }
     if (action === "leitura-end-salvar-digitado") {
       const e = state.leituraEnd || {};
       const val = id => { const el = document.getElementById(id); return el ? String(el.value || "").trim() : ""; };
@@ -3135,18 +3151,18 @@
       e.form = { ...e.chosen };
       e.chosenTyped = true;
       e.decision = "atualizar"; e.editing = false; state.leituraEnd = e;
-      state.leituraStep = "numero"; render(); return;
+      await changeLeituraStep("numero"); return;
     }
-    if (action === "leitura-end-voltar-numero") { state.leituraStep = "endereco"; render(); return; }
+    if (action === "leitura-end-voltar-numero") { await changeLeituraStep("endereco"); return; }
     if (action === "leitura-numero-confirmar") {
       const input = document.getElementById("leitura-numero-input");
       const numero = String(input ? input.value : (state.leituraEnd && state.leituraEnd.numero) || "").trim();
       if (state.leituraEnd) state.leituraEnd.numero = numero;
       await persistLeituraEndereco(numero);
-      state.leituraStep = "telefone"; render(); return;
+      await changeLeituraStep("telefone"); return;
     }
-    if (action === "leitura-telefone-corrigir") { state.leituraTelefoneCorrigindo = true; render(); return; }
-    if (action === "leitura-telefone-confirmar") { state.leituraTelefoneConfirmado = true; state.leituraStep = "produto"; render(); return; }
+    if (action === "leitura-telefone-corrigir") { await changeLeituraStep("telefone", () => { state.leituraTelefoneCorrigindo = true; }); return; }
+    if (action === "leitura-telefone-confirmar") { state.leituraTelefoneConfirmado = true; await changeLeituraStep("produto"); return; }
     if (action === "leitura-telefone-salvar") {
       const input = document.getElementById("leitura-telefone-input");
       const value = formatPhone(input ? input.value : state.leituraTelefoneValue);
@@ -3155,12 +3171,11 @@
       state.leituraTelefoneCorrigindo = false;
       if (state.leituraSelectedClient) state.leituraSelectedClient = { ...state.leituraSelectedClient, phone: value };
       else state.leituraNovoDraft.telefone = value;
-      state.leituraStep = "produto";
-      render();
+      await changeLeituraStep("produto");
       return;
     }
-    if (action === "leitura-produto-abrir-picker") { state.leituraProdutoPicker = true; render(); return; }
-    if (action === "leitura-produto-fechar-picker") { state.leituraProdutoPicker = false; render(); return; }
+    if (action === "leitura-produto-abrir-picker") { await changeLeituraStep("produto", () => { state.leituraProdutoPicker = true; }); return; }
+    if (action === "leitura-produto-fechar-picker") { await changeLeituraStep("produto", () => { state.leituraProdutoPicker = false; }); return; }
     // F3.3 — tocou no preço travado (módulo Financeiro desligado). Admin: oferece
     // ativar na hora; não-admin: só orienta (Lei do Vendedor — preço é admin-only).
     if (action === "leitura-preco-bloqueado") {
@@ -3189,7 +3204,7 @@
     if (action === "leitura-item-remover") { state.leituraItens = state.leituraItens.filter(i => String(i.productId) !== String(target.dataset.productId)); render(); return; }
     if (action === "leitura-proximo") {
       if (!state.leitura || !state.leituraItens.length || !state.leituraCapture) return;
-      startLeituraObs();
+      await startLeituraObs();
       return;
     }
     if (action === "leitura-obs-salvar") { await saveLeituraParada(); return; }
@@ -3550,13 +3565,11 @@
         const temGpsNovo = state.leitura && state.leitura.modo !== "MANUAL" && capNovo && Number.isFinite(Number(capNovo.lat)) && Number.isFinite(Number(capNovo.lng));
         if (temGpsNovo) {
           state.leituraEndNovo = true;
-          state.leituraStep = "endereco";
-          render();
+          await changeLeituraStep("endereco");
           void startLeituraEndereco({ numero: draft.numero || "" }, capNovo);
         } else {
           state.leituraEndNovo = false;
-          state.leituraStep = "telefone";
-          render();
+          await changeLeituraStep("telefone");
         }
       }
       if (form.id === "leitura-nome-form" && state.leitura) {
