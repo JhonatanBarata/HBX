@@ -124,4 +124,4 @@ exclusões reais e ações de peso (linhas 1, 2, 3, 5, 9, 10, 11, 12) com confir
 
 ## Commit
 
-`fix(apk): S3 exclusao padrao unico` — hash preenchido após o commit (ver mensagem final).
+`fix(apk): S3 exclusao padrao unico` — `d2422347`.
