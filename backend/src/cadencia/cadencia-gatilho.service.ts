@@ -4,6 +4,7 @@ import { AtividadesService } from '../atividades/atividades.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
+import { EventRuleService, type EventRuleRow } from '../automation/event-rule.service';
 import type { CreateGatilhoDto, UpdateGatilhoDto } from './dto/cadencia.dto';
 
 // ================================================================
@@ -17,6 +18,21 @@ import type { CreateGatilhoDto, UpdateGatilhoDto } from './dto/cadencia.dto';
 // processPersistedInbound (o inbound ja e detectado ali — nao criamos detector
 // novo). O relay NAO tem flag: ele so REAGE a um humano real que respondeu, e as
 // acoes sao no proprio funil/agenda (nada auto-envia mensagem).
+//
+// S08 (MOTOR-ÚNICO): a partir desta sprint, este service é PRODUTOR/CONSUMIDOR
+// do evento genérico `lead_respondeu_whatsapp` no `EventRuleService`
+// (backend/src/automation/event-rule.service.ts) — o motor genérico que busca
+// as regras ativas, itera e isola erro por regra. A resolução do lead pelo
+// telefone e a EXECUÇÃO das ações (mover_status/criar_atividade/
+// notificar_vendedor) continuam 100% aqui, delegadas pelo `EventRuleService`
+// via `registerActionHandler` — nada foi duplicado. `EventRuleService` é
+// instanciado à mão (`new EventRuleService(this.prisma)`, ver comentário no
+// próprio arquivo) para não criar um ciclo de módulo Nest
+// (AutomationModule -> CadenciaModule -> AutomationModule).
+// `InboundRouterService`/`ConversationsService.dispatchCadenciaInbound`
+// continuam com o MESMO nome/assinatura de sempre — só o que acontece por
+// baixo do hook mudou; isso preserva os testes de caracterização S01, que
+// mockam `conversations.dispatchCadenciaInbound` diretamente.
 // ================================================================
 
 const VALID_EVENTS = ['lead_respondeu_whatsapp', 'email_lido'] as const;
@@ -56,15 +72,29 @@ export type CadenciaInboundEvent = {
 @Injectable()
 export class CadenciaGatilhoService implements OnModuleInit {
   private readonly logger = new Logger(CadenciaGatilhoService.name);
+  private readonly eventRules: EventRuleService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly atividades: AtividadesService,
     private readonly conversations: ConversationsService,
     private readonly inboxRealtime: InboxRealtimeService,
-  ) {}
+  ) {
+    // Instanciado à mão de propósito (não injetado via Nest DI) — ver
+    // comentário S08 no topo do arquivo e no próprio event-rule.service.ts:
+    // evita ciclo de módulo (AutomationModule já importa CadenciaModule).
+    this.eventRules = new EventRuleService(this.prisma);
+  }
 
   onModuleInit() {
+    // S08: registra este domínio como o único produtor/consumidor do evento
+    // 'lead_respondeu_whatsapp' no motor genérico. O EventRuleService busca
+    // as regras ativas e itera; quem resolve o lead pelo telefone e executa
+    // as ações é este service, delegado por aqui.
+    this.eventRules.registerActionHandler('lead_respondeu_whatsapp', (companyId, rule, payload) =>
+      this.applyGatilhoToInboundPayload(companyId, rule, payload),
+    );
+
     // Registra o relay no ConversationsService: o MessagingService o chama de
     // dentro de processPersistedInbound (best-effort, sem bloquear o inbound).
     (this.conversations as any).setCadenciaInboundHook?.(async (evt: CadenciaInboundEvent) => {
@@ -216,40 +246,63 @@ export class CadenciaGatilhoService implements OnModuleInit {
 
   // ================================================================
   // REAÇÃO ao inbound (chamada pelo relay do MessagingService).
-  // Casa o telefone com um VendasLead da empresa e executa as acoes dos gatilhos
-  // ativos do evento 'lead_respondeu_whatsapp'. Best-effort: nunca lanca.
+  // S08: vira um wrapper fino sobre o EventRuleService — a validação de
+  // companyId/phone continua aqui de propósito (evita até a query de regras
+  // quando o payload é inútil, "no-op barato" também neste nível). Quem busca
+  // as regras ativas do evento, itera e isola erro por regra é o
+  // EventRuleService.emit; quem resolve o lead e executa as ações continua
+  // sendo este service (applyGatilhoToInboundPayload/applyGatilhoActions,
+  // abaixo). Best-effort: nunca lança.
   // ================================================================
   async handleInbound(evt: CadenciaInboundEvent) {
     const companyId = Number(evt?.companyId || 0);
     const phone = String(evt?.fromPhone || '').replace(/\D/g, '');
     if (!companyId || !phone) return;
+    await this.eventRules.emit(companyId, 'lead_respondeu_whatsapp', evt as unknown as Record<string, unknown>);
+  }
 
-    const gatilhos = (await (this.prisma as any).cadenciaGatilho.findMany({
-      where: { companyId, evento: 'lead_respondeu_whatsapp', ativo: true },
-      take: 20,
-    })) as GatilhoRow[];
-    if (!gatilhos.length) return;
+  // Handler registrado no EventRuleService para 'lead_respondeu_whatsapp'
+  // (ver onModuleInit). Recebe UMA regra ativa já filtrada por empresa+evento
+  // e o payload cru do inbound; casa o telefone com um VendasLead da empresa
+  // e, se achar, delega a execução das ações para applyGatilhoActions.
+  private async applyGatilhoToInboundPayload(
+    companyId: number,
+    rule: EventRuleRow,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const evt = payload as unknown as CadenciaInboundEvent;
+    const phone = String(evt?.fromPhone || '').replace(/\D/g, '');
+    if (!phone) return;
 
     // Casa o lead pelo telefone (sufixo — WhatsApp normaliza com/sem 9).
     const lead = await this.matchLeadByPhone(companyId, phone);
     if (!lead) return;
 
-    for (const gatilho of gatilhos) {
-      let acoes: GatilhoAcao[] = [];
-      try {
-        acoes = this.sanitizeAcoes(JSON.parse(gatilho.acoesJson || '[]'));
-      } catch {
-        acoes = [];
-      }
-      for (const acao of acoes) {
-        await this.executeAcao(companyId, lead, acao, gatilho).catch((e) =>
-          this.logger.warn(`[cadencia-gatilho] acao ${acao.tipo} falhou lead=${lead.id}: ${String(e?.message || e)}`),
-        );
-      }
-      await (this.prisma as any).cadenciaGatilho
-        .update({ where: { id: gatilho.id }, data: { lastFiredAt: new Date(), fireCount: { increment: 1 } } })
-        .catch(() => null);
+    await this.applyGatilhoActions(companyId, rule, lead);
+  }
+
+  // Executa TODAS as ações de UMA regra (mesmo corpo de loop que existia
+  // dentro do handleInbound antes da S08 — só extraído, não duplicado) e
+  // incrementa fireCount/lastFiredAt, como sempre foi feito.
+  private async applyGatilhoActions(
+    companyId: number,
+    gatilho: EventRuleRow,
+    lead: { id: string; assignedUserId: number | null; status: string },
+  ): Promise<void> {
+    let acoes: GatilhoAcao[] = [];
+    try {
+      acoes = this.sanitizeAcoes(JSON.parse(gatilho.acoesJson || '[]'));
+    } catch {
+      acoes = [];
     }
+    for (const acao of acoes) {
+      await this.executeAcao(companyId, lead, acao, gatilho).catch((e) =>
+        this.logger.warn(`[cadencia-gatilho] acao ${acao.tipo} falhou lead=${lead.id}: ${String(e?.message || e)}`),
+      );
+    }
+    await (this.prisma as any).cadenciaGatilho
+      .update({ where: { id: gatilho.id }, data: { lastFiredAt: new Date(), fireCount: { increment: 1 } } })
+      .catch(() => null);
   }
 
   private async matchLeadByPhone(companyId: number, digits: string) {
@@ -268,7 +321,7 @@ export class CadenciaGatilhoService implements OnModuleInit {
     companyId: number,
     lead: { id: string; assignedUserId: number | null; status: string },
     acao: GatilhoAcao,
-    gatilho: GatilhoRow,
+    gatilho: EventRuleRow,
   ) {
     if (acao.tipo === 'mover_status' && acao.status && acao.status !== lead.status) {
       const now = new Date();

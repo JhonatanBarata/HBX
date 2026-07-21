@@ -20,6 +20,18 @@ import { classifyProspectingAutoReply } from '../vendas/prospecting-safety';
 //      forma e precisa ficar EXATAMENTE entre o interrupt e a cadência.
 //   4. dispatchCadenciaInbound — fire-and-forget, `void`, NUNCA `await`
 //      (medir latência antes de mudar isso é decisão de outra sprint).
+//      S08 (MOTOR-ÚNICO): por baixo, `ConversationsService.dispatchCadenciaInbound`
+//      agora aciona o hook de `CadenciaGatilhoService`, que passou a emitir
+//      via `EventRuleService.emit(companyId, 'lead_respondeu_whatsapp', ...)`
+//      (backend/src/automation/event-rule.service.ts) — o motor genérico de
+//      regras que busca/itera/isola erro por regra, delegando a execução das
+//      ações pra quem sempre executou (cadencia-gatilho.service.ts). O NOME e
+//      a ASSINATURA da chamada abaixo (`conversations.dispatchCadenciaInbound`)
+//      de propósito NÃO mudam nesta sprint: são exatamente o que os testes de
+//      caracterização S01 mockam e verificam
+//      (characterization/inbound-precedence.test.ts, caso "dispatchCadenciaInbound
+//      roda para inbound humano valido..."), e o contrato da S08 proíbe tocar
+//      nesses testes. Comportamento observável do router é IDÊNTICO a antes.
 //   5. findRecoveryCustomerByPhone — SEMPRE chamado, mesmo com inbound
 //      não-humano (usado pelo chamador no fallback de recovery/atendimento).
 //   6. assistente IA (`prepareReply` + enfileirar via `queueOutboundForCompany`

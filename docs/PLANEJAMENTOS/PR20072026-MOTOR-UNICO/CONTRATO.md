@@ -184,6 +184,25 @@ atendimento/recovery não são interrompidos por inbound do MESMO fluxo).
 - `vendas-automation.service.ts` — o executor de prospecção continua com este nome; só ganha um
   orquestrador novo por cima (`OutboundOrchestratorService`), não é reescrito.
 
+### 2.4 Eventos candidatos ao `EventRuleService` (S08 — só doc, NÃO implementados)
+
+`EventRuleService.emit(companyId, evento, payload)` (`backend/src/automation/event-rule.service.ts`)
+já é genérico o bastante pra receber novos produtores sem virar outro motor — cada domínio só
+precisa registrar `registerActionHandler(evento, handler)` no próprio `onModuleInit`, igual
+`CadenciaGatilhoService` faz hoje para `lead_respondeu_whatsapp`. Os três abaixo são candidatos
+levantados na S08; nenhum tem produtor implementado ainda (sem `emit()` sendo chamado pra eles em
+lugar nenhum do código) — registrados aqui pra quem implementar não reabrir a pergunta "que
+eventos fazem sentido":
+
+| Evento | Payload esperado (proposta) | Quem emitiria | Observação |
+|---|---|---|---|
+| `etapa_mudou` | `{ leadId, statusFrom, statusTo }` | `vendas.service.ts` / `vendas-conversation.service.ts` (onde `VendasLead.status` muda hoje) | Fora do WhatsApp — cobre mudança de etapa manual (vendedor arrasta o card) e automática (outros gatilhos movendo status). Cuidado óbvio: um `mover_status` de gatilho não pode reemitir `etapa_mudou` e criar um loop de regra disparando regra — quem implementar decide o corte (ex.: só emite quando a origem é humana). |
+| `atividade_vencida` | `{ atividadeId, leadId }` | `atividades/*.ts` (job/checagem de vencimento, ainda não existe um scheduler pra isso) | Precisaria de um scheduler novo (ou aproveitar o tick do `OutboundOrchestratorService`, S07) pra detectar atividades vencidas — não existe hoje nenhum processo que varre `Atividade` por `vencimento < now`. |
+| `email_lido` | `{ leadId, emailId }` | Módulo de e-mail de cadência (`CONTRATO.md §5.2`, ainda flag OFF) | Já é um `VALID_EVENTS` aceito pelo CRUD de gatilhos (`cadencia-gatilho.service.ts:38` — dá pra criar hoje um gatilho com este evento pela UI), mas **zero produtor emite** — a regra fica cadastrada e nunca dispara até alguém chamar `eventRules.emit(companyId, 'email_lido', ...)` de dentro do canal de e-mail. |
+
+Nenhum destes é implementado nesta sprint — só o registro de que o motor genérico já suporta,
+sem precisar de outro `EventRuleService`/tabela nova quando chegar a vez.
+
 ---
 
 ## 3. Contratos de API (request/response TS)

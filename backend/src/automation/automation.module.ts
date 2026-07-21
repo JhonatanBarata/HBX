@@ -13,6 +13,7 @@ import { AgentService } from './agent.service';
 import { InboundRouterService } from './inbound-router.service';
 import { CadenciaSchedulerService } from '../cadencia/cadencia-scheduler.service';
 import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor } from './outbound-orchestrator.service';
+import { EventRuleService } from './event-rule.service';
 
 // S04 (MOTOR-ÚNICO) — módulo `automation`.
 //
@@ -51,6 +52,14 @@ import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor 
 // próprio, mas é 15s (vs. os 60s default daqui) e é acionado diretamente por
 // 4+ pontos do próprio service (start/resume de campanha), não só pelo timer
 // — migrar mudaria a cadência real de disparo, o que a sprint proíbe.
+//
+// S08: EventRuleService entra como provider aqui (para DI dentro desta
+// frente/testes Nest), no mesmo espírito de InboundRouterService acima — mas
+// `CadenciaGatilhoService` (dentro de CadenciaModule) NÃO o injeta via Nest
+// DI: instancia à mão (`new EventRuleService(this.prisma)`) no próprio
+// construtor. Isso evita o ciclo real que existiria se CadenciaModule
+// precisasse importar AutomationModule de volta (AutomationModule já importa
+// CadenciaModule, ver comentário acima). Ver event-rule.service.ts.
 @Module({
   imports: [
     PrismaModule,
@@ -73,7 +82,8 @@ import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor 
       inject: [CadenciaSchedulerService],
     },
     OutboundOrchestratorService,
+    EventRuleService,
   ],
-  exports: [AutomationOverviewService, AgentService, InboundRouterService, OutboundOrchestratorService],
+  exports: [AutomationOverviewService, AgentService, InboundRouterService, OutboundOrchestratorService, EventRuleService],
 })
 export class AutomationModule {}

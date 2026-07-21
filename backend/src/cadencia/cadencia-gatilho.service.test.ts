@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { CadenciaGatilhoService } from './cadencia-gatilho.service';
+import { EventRuleService } from '../automation/event-rule.service';
 
+// S08 (MOTOR-ÚNICO): handleInbound() deixou de buscar/iterar os gatilhos
+// direto — agora delega pro EventRuleService (mesmo prisma mock, "busca
+// regras" acontece lá). Por isso o setup abaixo cria um EventRuleService de
+// verdade sobre o MESMO `svc.prisma` e chama `svc.onModuleInit()` (que
+// registra o handler 'lead_respondeu_whatsapp' nele) antes de exercitar os
+// cenários — SEM mudar nenhum cenário/asserção existente.
 function makeService(opts: { gatilhos: any[]; lead: any | null }) {
   const svc = Object.create(CadenciaGatilhoService.prototype) as any;
   const statusUpdates: any[] = [];
@@ -42,6 +49,8 @@ function makeService(opts: { gatilhos: any[]; lead: any | null }) {
     },
   };
   svc.logger = { log() {}, warn() {}, error() {} };
+  svc.eventRules = new EventRuleService(svc.prisma as any);
+  svc.onModuleInit();
 
   return { svc, statusUpdates, atividadeCalls, timelineCalls, realtimeCalls };
 }
