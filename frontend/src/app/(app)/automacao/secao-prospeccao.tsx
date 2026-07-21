@@ -57,6 +57,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotProspeccaoPanel } from "@/components/hbx/bot-prospeccao-panel";
+// S05 (PADRAO-MERCADO): prévia da abertura por persona via kit central — zero fork local (mesmo padrão de secao-atendente/cobranca, S01).
+import type { WAMessage } from "@/components/hbx/whatsapp-preview";
+import { PhonePreview } from "./kit/phone-preview";
+// S05 (PADRAO-MERCADO): StatusChip único pro estado do motor e das plays (Lei nº3) — telemetria crua sai da tela.
+import { StatusChip, type StatusTone } from "./kit/status-chip";
 import { apiFetch } from "@/lib/api";
 
 // ================================================================
@@ -115,10 +120,39 @@ function canalLabel(canal: string): string {
 function fmtData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
-function playContagemLabel(p: AutomationPlay): string {
-  if (p.tipo === "prospeccao") return `${p.contagem} lead${p.contagem === 1 ? "" : "s"} na fila`;
-  if (p.tipo === "rotina") return `até ${p.contagem} lead${p.contagem === 1 ? "" : "s"} por execução`;
-  return `${p.contagem} lead${p.contagem === 1 ? "" : "s"} dentro`;
+// S05 (PADRAO-MERCADO) — item 3: "X leads na fila/dentro" virava frase
+// corrida dentro de .auto-card__meta; separa em número GRANDE (reusa
+// .aut-obj-card__metric* do cartão do hub, S02 — Lei nº2, nunca duplicar
+// visual) + rótulo curto (≤2 palavras).
+function playMetric(p: AutomationPlay): { value: string; label: string } {
+  if (p.tipo === "prospeccao") return { value: String(p.contagem), label: "Na fila" };
+  if (p.tipo === "rotina") return { value: `≤${p.contagem}`, label: "Por execução" };
+  return { value: String(p.contagem), label: "Leads dentro" };
+}
+
+// S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1, ≤70 chars). A
+// descrição da persona vem do backend (cadencia-personas.ts, front-only não
+// edita) sem garantia de tamanho — corta na EXIBIÇÃO, no espaço mais
+// próximo, preservando o sentido (nunca no meio da palavra nem terminando
+// num conector solto tipo "e"/"de").
+function truncarDescricao(texto: string, max = 70): string {
+  const t = texto.trim();
+  if (t.length <= max) return t;
+  let corte = t.slice(0, max);
+  const ultimoEspaco = corte.lastIndexOf(" ");
+  if (ultimoEspaco > 0) corte = corte.slice(0, ultimoEspaco);
+  corte = corte.replace(/\s+(e|de|a|o|em|no|na|ou)$/i, "");
+  return corte.trimEnd() + "…";
+}
+
+// S05 (PADRAO-MERCADO) — item 2: mensagem de ABERTURA da persona — dado que
+// a tela JÁ TEM (passos[0], zero chamada nova de negócio). PhonePreview do
+// kit mostra só isso, nunca a timeline inteira (peso visual de 3 telefones
+// lado a lado — decisão do S05.md).
+function personaAberturaMessages(c: Cadencia): WAMessage[] {
+  const p0 = c.passos[0];
+  if (!p0 || !p0.corpo) return [];
+  return [{ dir: "in", text: p0.corpo, time: "agora" }];
 }
 
 // ================================================================
@@ -139,6 +173,9 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
   const [msgWarn, setMsgWarn] = useState(false);
   const [prospOpen, setProspOpen] = useState(false);
   const [aplicando, setAplicando] = useState<Cadencia | null>(null);
+  // S05 (PADRAO-MERCADO) — item 2: persona em foco no modal de prévia da
+  // abertura (1 por vez — nunca os 3 telefones lado a lado).
+  const [previewCad, setPreviewCad] = useState<Cadencia | null>(null);
 
   const loadPlays = useCallback(async () => {
     try { setPlays(await apiFetch<AutomationPlay[]>("/automation/plays")); setErrorPlays(null); }
@@ -180,29 +217,20 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
 
   const motorOk = motor.ok;
   const runnerOn = motorOk && motor.runnerEnabled;
-  const executores = motorOk ? motor.executores : [];
+  // S05 (PADRAO-MERCADO) — item 1: estado HUMANO do motor via StatusChip do
+  // kit (Lei nº3) — a telemetria por executor (`ex.key`/`lastResult` cru)
+  // sai da tela (decisão do README: remover, não esconder).
+  const motorTone: StatusTone = !motorOk ? "atencao" : runnerOn ? "ligado" : "pausado";
+  const motorLabel = !motorOk ? "Motor indisponível" : runnerOn ? "Disparo automático ativo" : "Disparo em espera";
 
   return (
     <div className="ia-wrap">
-      {/* ── Chip do motor (item 4) — telemetria por executor (S07) ── */}
-      <div className="auto-bar">
-        <span className="hint">Prospecção fria e cadência de toques saem pelo mesmo canal — o motor abaixo mostra o ritmo real.</span>
-        <span className={"auto-engine__chip " + (runnerOn ? "is-on" : "is-off")}>
-          <span className="auto-engine__dot" />
-          {motorOk ? (runnerOn ? "Disparo automático ATIVO" : "Disparo em espera") : "Motor indisponível"}
-        </span>
-      </div>
-      {executores.length > 0 && (
-        <div className="auto-bar">
-          {executores.map((ex) => (
-            <span key={ex.key} className="auto-chip">
-              <I d={ICONS.bolt} size={12} />
-              {ex.key} · {ex.enabled ? "ligado" : "desligado"}
-              {ex.lastResult ? ` · ${ex.lastResult}` : ""}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* S05 (PADRAO-MERCADO) — item 1: chips de telemetria por executor
+          (`cadencia_steps · ligado · skipped`) e a linha "o motor abaixo
+          mostra o ritmo real" SAEM da tela (README: remover, não esconder —
+          quem precisa do detalhe lê log). Fica só o estado humano do motor,
+          via StatusChip do kit (Lei nº3, vocabulário único). */}
+      <StatusChip tone={motorTone} label={motorLabel} />
 
       {/* S00 (PADRAO-MERCADO) — A3: aviso usa o MESMO .auto-flag-note, só troca
           o ícone p/ ICONS.help (convenção já usada em secao-atendente/cobranca
@@ -228,7 +256,8 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
         <div className="auto-empty">
           <span className="auto-empty__icon"><I d={ICONS.search} size={26} /></span>
           <h4>Nada disparando ainda</h4>
-          <p>Configure o disparo frio ou aplique uma cadência a um lead — os dois aparecem aqui assim que ligados.</p>
+          {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1). */}
+          <p>Configure o disparo frio ou aplique uma cadência a um lead.</p>
         </div>
       )}
 
@@ -251,7 +280,8 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
         <div className="auto-bar">
           <div style={{ display: "grid", gap: 2 }}>
             <strong>Disparo frio</strong>
-            <span className="hint">Motor de prospecção ativa — ritmo, limite diário e mensagens de 1º contato, com aviso de proativo e Termos.</span>
+            {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1, ≤70 chars); Termos/confirm continuam no drawer (BotProspeccaoPanel, intocado). */}
+            <span className="hint">Ritmo, limite diário e mensagens de abertura.</span>
           </div>
           <button className="btn-teal" onClick={() => setProspOpen(true)}>
             <I d={ICONS.search} size={13} /> Abrir configuração
@@ -261,8 +291,10 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
 
       {/* ── "Ritmo de toques" — item 3: cards de persona + aplicar, visual integrado ── */}
       <section style={{ display: "grid", gap: 14 }}>
+        {/* S05 (PADRAO-MERCADO) — item 4: título curto no lugar da frase
+            corrida (Lei nº1) — os cards + Aplicar já mostram a ação. */}
         <div className="auto-bar">
-          <span className="hint">Ritmo de toques — escolha uma personalidade de cadência e aplique a uma lista de leads ou pesquisa salva.</span>
+          <span className="hint">Ritmo de toques</span>
         </div>
 
         {errorCad && (
@@ -283,7 +315,8 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
           <div className="auto-empty">
             <span className="auto-empty__icon"><I d={ICONS.send} size={26} /></span>
             <h4>Nenhuma cadência ainda</h4>
-            <p>As personalidades padrão são criadas automaticamente na primeira visita. Recarregue a tela — se não aparecerem, chame o suporte.</p>
+            {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1). */}
+            <p>Criadas automaticamente na primeira visita — recarregue se faltar.</p>
             <button className="btn-ghost" onClick={() => { setLoadingCad(true); void loadCad().then(() => setLoadingCad(false)); }}>Recarregar</button>
           </div>
         )}
@@ -297,6 +330,7 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
                 canManage={canManage}
                 onToggle={() => void togglePlay("cadencia", c.id, c.ativa)}
                 onAplicar={() => { setAplicando(c); setMsg(null); setMsgWarn(false); }}
+                onPreview={() => setPreviewCad(c)}
               />
             ))}
           </div>
@@ -325,6 +359,8 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
           onDone={(txt, tone) => { setAplicando(null); setMsg(txt); setMsgWarn(tone === "warn"); void loadCad(); void loadPlays(); onChanged?.(); }}
         />
       )}
+
+      {previewCad && <PersonaPreviewModal cadencia={previewCad} onClose={() => setPreviewCad(null)} />}
     </div>
   );
 }
@@ -339,24 +375,33 @@ function PlayCard({ play, canManage, onToggle, onAbrirProspeccao }: {
   onAbrirProspeccao: () => void;
 }) {
   const meta = PLAY_TIPO_META[play.tipo];
+  const metric = playMetric(play);
   return (
     <div className={"auto-card" + (play.ativo ? "" : " is-inactive")}>
       <div className="auto-card__head">
         <span className="auto-card__ico"><I d={ICONS[meta.icon]} size={16} /></span>
         <span className="auto-card__title">{play.nome}</span>
-        <span className={"auto-state" + (play.ativo ? " is-on" : "")}>{play.ativo ? "Ativo" : "Pausado"}</span>
+        {/* S05 (PADRAO-MERCADO) — item 3: dot solto "Ativo/Pausado" vira StatusChip (Lei nº3, vocabulário único). */}
+        <StatusChip tone={play.ativo ? "ligado" : "pausado"} size="s" />
       </div>
 
       <span className="auto-chip"><I d={ICONS[meta.icon]} size={12} /> {meta.label}</span>
 
       <p className="hint" style={{ margin: 0 }}>{play.resumo}</p>
 
-      <div className="auto-card__meta">
-        <span>{playContagemLabel(play)}</span>
-        {play.ultimaExecucao.at && (
-          <span>Última execução <b>{fmtData(play.ultimaExecucao.at)}</b>{play.ultimaExecucao.count != null ? ` · ${play.ultimaExecucao.count}` : ""}</span>
-        )}
+      {/* S05 (PADRAO-MERCADO) — item 3: número-chave GRANDE, reusa
+          .aut-obj-card__metric* do cartão do hub (S02, kit) — zero classe
+          nova, rótulo ≤2 palavras. */}
+      <div className="aut-obj-card__metric">
+        <span className="aut-obj-card__metric-n">{metric.value}</span>
+        <span className="aut-obj-card__metric-l">{metric.label}</span>
       </div>
+
+      {play.ultimaExecucao.at && (
+        <div className="auto-card__meta">
+          <span>Última execução <b>{fmtData(play.ultimaExecucao.at)}</b>{play.ultimaExecucao.count != null ? ` · ${play.ultimaExecucao.count}` : ""}</span>
+        </div>
+      )}
 
       <div className="auto-card__foot">
         {play.tipo === "rotina" && <span className="hint">Leitura — gestão chega na próxima sprint.</span>}
@@ -375,11 +420,12 @@ function PlayCard({ play, canManage, onToggle, onAbrirProspeccao }: {
 // PERSONA CARD — "Ritmo de toques" (reimplantado do padrão /automacoes, mesmas
 // classes .persona-card*/.step-flow*/.touch-badge).
 // ============================================================================
-function PersonaCard({ c, canManage, onToggle, onAplicar }: {
+function PersonaCard({ c, canManage, onToggle, onAplicar, onPreview }: {
   c: Cadencia;
   canManage: boolean;
   onToggle: () => void;
   onAplicar: () => void;
+  onPreview: () => void;
 }) {
   return (
     <div className={"persona-card " + personaClass(c.persona) + (c.ativa ? "" : " is-inactive")}>
@@ -390,7 +436,10 @@ function PersonaCard({ c, canManage, onToggle, onAplicar }: {
           <div className="persona-card__persona">{c.persona}</div>
         </div>
       </div>
-      {c.descricao && <p className="persona-card__desc">{c.descricao}</p>}
+      {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1, ≤70 chars);
+          descrição vem do backend (cadencia-personas.ts, front-only não
+          edita) — corta na exibição, nunca na fonte. */}
+      {c.descricao && <p className="persona-card__desc">{truncarDescricao(c.descricao)}</p>}
 
       <div className="persona-card__touches">
         {(["whats", "email", "atividade"] as const).map((canal) => {
@@ -419,6 +468,12 @@ function PersonaCard({ c, canManage, onToggle, onAplicar }: {
 
       <div className="persona-card__foot">
         <span className="persona-card__count"><b>{c.inscritos ?? 0}</b><span>lead{(c.inscritos ?? 0) === 1 ? "" : "s"} dentro</span></span>
+        {/* S05 (PADRAO-MERCADO) — item 2: prévia da mensagem de ABERTURA em
+            foco próprio (modal, 1 por vez) — timeline de toques acima
+            continua igual; disponível pra qualquer papel (é leitura). */}
+        <button className="btn-ghost btn-xs" onClick={onPreview} disabled={!c.passos[0]?.corpo}>
+          <I d={ICONS.phone} size={12} /> Ver abertura
+        </button>
         {canManage && (
           <>
             <button className="btn-ghost btn-xs" onClick={onToggle}>{c.ativa ? "Desativar" : "Ativar"}</button>
@@ -427,6 +482,33 @@ function PersonaCard({ c, canManage, onToggle, onAplicar }: {
             </button>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// PRÉVIA DA ABERTURA — item 2 (S05): 1 persona em foco por vez (nunca 3
+// telefones lado a lado). PhonePreview do kit (zero fork local) mostra só a
+// mensagem de abertura (passos[0]); timeline completa continua no card.
+// ============================================================================
+function PersonaPreviewModal({ cadencia, onClose }: { cadencia: Cadencia; onClose: () => void }) {
+  const messages = personaAberturaMessages(cadencia);
+  const p0 = cadencia.passos[0];
+  return (
+    <div className="hbx-veil" onClick={onClose}>
+      <div className="hbx-modal" style={{ width: "min(380px, 92vw)", padding: 20 }} onClick={(e) => e.stopPropagation()}>
+        <h3>
+          {cadencia.nome}
+          <button className="btn-ghost btn-xs" onClick={onClose}>Fechar</button>
+        </h3>
+        <PhonePreview
+          title="Mensagem de abertura"
+          messages={messages}
+          header={{ name: cadencia.nome, status: "online" }}
+          emptyHint="Esta persona ainda não tem mensagem de abertura."
+          footerNote={p0 && p0.canal !== "whats" ? `Abertura por ${canalLabel(p0.canal)}.` : "Prévia — não dispara WhatsApp real."}
+        />
       </div>
     </div>
   );

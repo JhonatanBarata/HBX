@@ -248,3 +248,14 @@
    aplicado ao trilho. */
 .ia-flow-wrap { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
 .ia-flow-wrap > .ia-flow { flex: 1; }
+
+/* ── S05 (PADRAO-MERCADO) — seção Prospecção: ZERO classe nova ─────────────
+   Telemetria por executor (chips soltos em .auto-bar) e a linha "o motor
+   abaixo mostra o ritmo real" saíram da tela — no lugar, <StatusChip> do kit
+   (Lei nº3). O número-chave GRANDE do cartão do topo (.auto-card, "leads na
+   fila/dentro") reusa .aut-obj-card__metric* (definido acima, S02, pro
+   cartão do hub) — mesma classe, contexto novo, Lei nº2 (nunca duplicar
+   visual). A prévia da mensagem de abertura por persona usa <PhonePreview>
+   do kit dentro de .hbx-veil/.hbx-modal (kit.css) — a MESMA casca que
+   <AplicarModal> já usa nesta seção, só troca o conteúdo. Nada a adicionar
+   aqui. */
