@@ -698,14 +698,29 @@ html.keyboard-open .center-arrow { gap: 2px; }
 html.keyboard-open .center-arrow-glyph { width: 46px; height: 46px; font-size: 1.4rem; }
 html.keyboard-open .bottom-nav, html.keyboard-open .fab { display: none; }
 html.keyboard-open .content { padding-bottom: 14px; }
-html.keyboard-open #new-oneoff-form > .btn-primary:last-child,
-html.keyboard-open #leitura-novo-form > .btn-primary:last-child,
-html.keyboard-open #edit-product-form > .btn-primary:last-child {
+/* S2 21/07 — generalizado: qualquer form dentro de .modal/.sheet/.center-modal-body
+   fica com o botão final (ou a régua de ações do cliente) grudado embaixo quando o
+   teclado abre. Cobre os 3 casos antigos (new-oneoff/leitura-novo/edit-product) +
+   os outros 8 forms sem repetir id por id. .company-name-form fica de fora de
+   propósito: campo e botão já estão lado a lado na mesma linha (grid 1fr auto),
+   sticky ali botaria o botão longe do campo em vez de perto. */
+html.keyboard-open .modal form > .btn-primary:last-child,
+html.keyboard-open .sheet form > .btn-primary:last-child,
+html.keyboard-open .center-modal-body form > .btn-primary:last-child,
+html.keyboard-open .modal form > .client-primary-actions:last-child {
   position: sticky;
   z-index: 3;
   bottom: 0;
   margin-top: 8px;
   box-shadow: 0 -8px 18px color-mix(in srgb, var(--surface) 88%, transparent);
+}
+/* .client-primary-actions é grid com espaço ENTRE botões (não uma peça sólida
+   só) — sem fundo próprio o vão entre eles deixaria o conteúdo rolando aparecer
+   por trás. Só essa regra precisa de background+respiro; os .btn-primary sozinhos
+   já são opacos. */
+html.keyboard-open .modal form > .client-primary-actions:last-child {
+  background: var(--surface);
+  padding-block: 6px 2px;
 }
 
 /* Cliente existente: nenhuma coluna pode aumentar a largura do cartao/modal. */

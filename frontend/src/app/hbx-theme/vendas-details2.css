@@ -54,13 +54,20 @@
 }
 
 .hbx-modal.lead-cockpit.lead-cockpit--approved {
-  width: min(1180px, calc(100vw - 44px));
-  height: min(650px, calc(100dvh - 42px));
-  max-width: none;
-  max-height: none;
+  /* 21/07: a altura/largura saem do ESPAÇO REAL do véu (100%), não de 100dvh.
+     Quando algum ancestral cria contexto (transform/filter), o .hbx-veil deixa
+     de valer a viewport inteira e o dvh estourava por baixo — a ficha aparecia
+     cortada. Com 100% + max-height a moldura sempre cabe e nada rola. */
+  width: min(1180px, 100%);
+  height: min(650px, 100%);
+  max-width: 100%;
+  max-height: 100%;
   min-width: 0;
   min-height: 0;
   padding: 0;
+  /* Letra padrão do sistema em toda a ficha (quem precisa de número tabular
+     pede --font-mono na própria regra). */
+  font-family: var(--font-body);
   display: grid;
   grid-template-rows: 62px 42px minmax(0, 1fr);
   overflow: hidden;
@@ -121,11 +128,12 @@
   margin: 0;
   overflow: hidden;
   color: var(--text-strong);
-  font-family: var(--font-display);
+  /* 21/07: nome do cliente na letra PADRÃO do sistema (--font-body). A
+     display + letter-spacing negativo destoava do resto das telas. */
+  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 900;
-  line-height: 1;
-  letter-spacing: -0.025em;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1316,8 +1324,8 @@
   .lead-cockpit__veil { padding: 12px; }
 
   .hbx-modal.lead-cockpit.lead-cockpit--approved {
-    width: calc(100vw - 24px);
-    height: min(650px, calc(100dvh - 24px));
+    width: 100%;
+    height: min(650px, 100%);
   }
 
   .lead-cockpit__approved-actions .btn-ghost span {
@@ -1342,8 +1350,8 @@
   .lead-cockpit__veil { padding: 8px; }
 
   .hbx-modal.lead-cockpit.lead-cockpit--approved {
-    width: min(1180px, calc(100vw - 16px));
-    height: calc(100dvh - 16px);
+    width: min(1180px, 100%);
+    height: 100%;
     grid-template-rows: 56px 38px minmax(0, 1fr);
   }
 
@@ -1376,8 +1384,8 @@
   }
 
   .hbx-modal.lead-cockpit.lead-cockpit--approved {
-    width: calc(100vw - 10px);
-    height: calc(100dvh - 10px);
+    width: 100%;
+    height: 100%;
     grid-template-rows: auto auto minmax(0, 1fr);
     border-radius: 15px;
   }
