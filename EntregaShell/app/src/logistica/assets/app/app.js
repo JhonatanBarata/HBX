@@ -145,6 +145,7 @@
   const app = document.getElementById("app");
   let moduleActive = true;
   let clientsRequestId = 0;
+  let clientsLoadObserver = null;
   let clientCepRequestId = 0;
   let clientsSearchTimer = null;
   let productsSearchTimer = null;
@@ -1443,7 +1444,9 @@
     state.leituraItens = [];
     state.leituraProdutoPicker = false;
     showModal("leitura-parada");
-    if (state.clientsPage === 0) void loadClients(true, true);
+    if (state.clientsPage === 0) void loadClients(true, true).then(() => {
+      if (state.modal === "leitura-parada") render();
+    });
   }
   // PR20072026 fix 20/07 — "não foi possível obter sua localização": a WebView
   // precisa da permissão nativa (H.requestLocationPermission) ANTES do
@@ -1647,7 +1650,7 @@
     // é ordem alfabética — não mentir pro motorista (F3.5).
     const temDistancia = rows.some(r => r.dist !== null);
     const list = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
-    const body = `<label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label>${list}`;
+    const body = `<label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label>${list}${clientsAutoLoad()}`;
     return centerModal({ icon: "users", title: "Cliente existente", resumo: temDistancia ? "Mais perto primeiro" : "Ordem alfabética", body, backAction: "leitura-voltar" });
   }
   function leituraNovoStep() {
@@ -1873,7 +1876,7 @@
     const total = Number(state.clientsTotal || 0);
     const firstLoad = state.clientsLoading && state.clientsPage === 0;
     const emptyText = state.clientsError || (state.query.trim() ? "Nenhum resultado." : "");
-    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card ${clientPendingKeys(c).length ? "has-pending" : ""}" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><div class="client-balance">${configFlag("moduloFinanceiroAtivo") ? `<small>Saldo ${H.money(Number(c.debitoAtual || 0))}</small>` : ""}${clientMissingLabels(c)}</div></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${state.clientsPage < state.clientsTotalPages ? `<button class="btn btn-secondary btn-block" data-action="load-more-clients" ${state.clientsLoading ? "disabled" : ""}>${state.clientsLoading ? "Carregando…" : "Carregar mais"}</button>` : ""}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
+    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card ${clientPendingKeys(c).length ? "has-pending" : ""}" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><div class="client-balance">${configFlag("moduloFinanceiroAtivo") ? `<small>Saldo ${H.money(Number(c.debitoAtual || 0))}</small>` : ""}${clientMissingLabels(c)}</div></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
   }
   function productsScreen() {
     const all = state.products || [];
@@ -2288,6 +2291,7 @@
   function render() {
     if (!moduleActive) return;
     const modalScroll = app.querySelector(".modal")?.scrollTop || 0;
+    const centerModalBodyScroll = app.querySelector(".center-modal-body")?.scrollTop || 0;
     const sheetScroll = app.querySelector(".sheet")?.scrollTop || 0;
     // PR18072026 L4-D — só descarta o mapa vivo quando este render NÃO vai
     // reexibi-lo; se vai (mesma tela/mesmo passo), mountMap/mountDayReviewMap
@@ -2310,9 +2314,12 @@
       toggleManagedRouteDay(Number(button.dataset.day));
     }));
     const modal = app.querySelector(".modal");
+    const centerModalBody = app.querySelector(".center-modal-body");
     const sheet = app.querySelector(".sheet");
     if (modal && modalScroll) modal.scrollTop = modalScroll;
+    if (centerModalBody && centerModalBodyScroll) centerModalBody.scrollTop = centerModalBodyScroll;
     if (sheet && sheetScroll) sheet.scrollTop = sheetScroll;
+    setupClientsAutoLoad();
     const transmux = app.querySelector(".route-transmux[data-next-state]");
     if (transmux) {
       const nextTransmuxState = transmux.dataset.nextState;
@@ -2332,6 +2339,25 @@
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
     state.openingOverlay = null;
+  }
+
+  function clientsAutoLoad() {
+    if (state.clientsPage >= state.clientsTotalPages) return "";
+    const status = state.clientsError ? "Não foi possível carregar o restante." : state.clientsLoading ? "Carregando…" : "";
+    return `<div class="clients-auto-load" data-clients-auto-load aria-live="polite">${H.escape(status)}</div>`;
+  }
+
+  function setupClientsAutoLoad() {
+    if (clientsLoadObserver) clientsLoadObserver.disconnect();
+    clientsLoadObserver = null;
+    const sentinel = app.querySelector("[data-clients-auto-load]");
+    if (!sentinel || state.clientsError || !("IntersectionObserver" in window)) return;
+    const scrollRoot = sentinel.closest(".center-modal-body");
+    clientsLoadObserver = new IntersectionObserver(entries => {
+      if (!moduleActive || !entries.some(entry => entry.isIntersecting)) return;
+      void loadClients(false);
+    }, { root: scrollRoot, rootMargin: "0px 0px 180px 0px" });
+    clientsLoadObserver.observe(sentinel);
   }
 
   async function loadClients(reset, silent) {
@@ -2876,7 +2902,6 @@
     if (action === "route-filter") { state.routeFilter = target.dataset.filter || "fila"; render(); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
-    if (action === "load-more-clients") loadClients(false);
     if (action === "close-modal") { await closeOverlay("modal"); return; }
     if (action === "close-sheet") { await closeOverlay("sheet"); return; }
     if (action === "cancel-confirmation") { state.confirmation = null; render(); return; }

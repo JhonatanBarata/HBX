@@ -376,6 +376,7 @@ h3 { font-size: .95rem; }
 .toast.error { background: #a92e2e; }
 .loading { position: relative; overflow: hidden; min-height: 58px; background: var(--surface-2); }
 .loading::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent); animation: shimmer 1.25s infinite; }
+.clients-auto-load { display: grid; place-items: center; min-height: 24px; color: var(--muted); font-size: .72rem; font-weight: 700; }
 @keyframes shimmer { to { transform: translateX(100%); } }
 .fab { position: fixed; z-index: 35; right: 16px; bottom: 66px; left: auto; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--brand-strong) 14%, transparent); border-radius: 14px; color: #142000; background: color-mix(in srgb, var(--brand) 38%, transparent); box-shadow: 0 3px 10px rgba(79,148,0,.08); backdrop-filter: blur(9px); font-size: 1.2rem; font-weight: 900; }
 /* L4-F — trava de créditos esgotados: cobre telas/nav (z 70) mas fica ABAIXO dos
