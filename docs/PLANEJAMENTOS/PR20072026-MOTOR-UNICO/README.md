@@ -78,7 +78,7 @@ de liga/desliga sem visão conjunta (pino+chavinhas, `published`, `ativa`+runner
 ## Regras de orquestração (como esta frente roda)
 
 1. **1 worker (Sonnet) por sprint**, contrato = o `.md` da sprint. Worker NÃO decide escopo: executa o contrato.
-2. **Ordem estrita** S01→S22 dentro de fase; fases em sequência. Orquestrador (Opus) revisa o diff de CADA sprint antes de liberar a próxima (revisão adversarial nas marcadas ⚠).
+2. **Ordem estrita** S01→S22 dentro de fase; fases em sequência. Orquestrador revisa o diff de CADA sprint antes de liberar a próxima (revisão adversarial nas marcadas ⚠). **A revisão FINAL (S21) é feita em FABLE** — ordem do dono 20/07: subir pro modelo mais forte pra auditar o diff acumulado inteiro antes do publish.
 3. Cada sprint termina com **commit local** (`feat(automation): S{NN} — {resumo}`). NUNCA `git push`, NUNCA `npm run publish` — publish é do dono, 1 vez, após S22.
 4. **Gates entre fases** (no fim de cada fase, orquestrador roda): `cd backend && npm run build` +
    testes da fase + `cd frontend && npm run lint && npm run build`. Vermelho = para tudo, conserta antes.

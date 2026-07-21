@@ -1,6 +1,10 @@
 # S21 — Verde total + revisão adversarial do diff completo ⚠
 
-**Fase 5 · Worker: Sonnet (verificação) + Orquestrador (revisão) · Depende de: S01-S20**
+**Fase 5 · Worker: Sonnet (verificação) + Orquestrador em FABLE (revisão) · Depende de: S01-S20**
+
+> ORDEM DO DONO 20/07: a revisão final de TUDO é feita em **Fable** (modelo mais forte pra
+> auditar o diff acumulado inteiro), não em Sonnet nem Opus. O orquestrador sobe pra Fable antes
+> de rodar as tarefas de revisão (itens 6-7) e antes de liberar a S22.
 
 ## Objetivo
 Prova de que o pacote inteiro está são ANTES do publish do dono. Nada de "verde técnico" — verde
