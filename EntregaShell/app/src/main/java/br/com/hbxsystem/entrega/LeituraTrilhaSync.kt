@@ -13,9 +13,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * fundo (nunca no callback do GPS nem na UI).
  *
  * DELIBERADAMENTE não reusa `TrackingOutbox`/`TrackingApiClient`/`TrackingSync`:
- * aquele trio fala com `/mobile/logistica/tracking/*` autenticando por
+ * aquele trio fala com as rotas `/mobile/logistica/tracking/…` autenticando por
  * deviceToken direto (domínio da rota TRACKED). A Leitura de Rota fala com
- * `/logistica/leitura/*` pela MESMA sessão JWT web que o resto do app usa
+ * `/logistica/leitura/…` pela MESMA sessão JWT web que o resto do app usa
  * (`NativeApiClient`, o mesmo cliente por trás da ponte `HBXAndroid.request`).
  * Misturar os dois filas/autenticação seria trocar o contrato de backend por
  * engano, não "reaproveitar fila offline".
