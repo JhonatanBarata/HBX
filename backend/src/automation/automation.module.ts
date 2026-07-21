@@ -10,6 +10,7 @@ import { InboxModule } from '../inbox/inbox.module';
 import { AutomationController } from './automation.controller';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AgentService } from './agent.service';
+import { InboundRouterService } from './inbound-router.service';
 
 // S04 (MOTOR-ÚNICO) — módulo `automation`.
 //
@@ -30,6 +31,14 @@ import { AgentService } from './agent.service';
 // roteiro — dono real da validação/sanitização tenant-aware, por isso o
 // AgentService delega pros métodos PÚBLICOS dele em vez de reimplementar).
 // InboxModule não importa AutomationModule (sem ciclo) — ver S05.
+//
+// S06: InboundRouterService entra como provider aqui (para DI dentro desta
+// frente / testes Nest), mas NÃO é usado via DI por MessagingService — o
+// router não tem estado nem dependência de construtor (colaboradores passados
+// em cada `route()`), então messaging.service.ts instancia direto
+// (`new InboundRouterService()`). Isso evita que MessagingModule precise
+// importar AutomationModule, o que fecharia um ciclo real:
+// AutomationModule -> CadenciaModule -> MessagingModule (CONTRATO.md §1.1).
 @Module({
   imports: [
     PrismaModule,
@@ -42,7 +51,7 @@ import { AgentService } from './agent.service';
     InboxModule,
   ],
   controllers: [AutomationController],
-  providers: [AutomationOverviewService, AgentService],
-  exports: [AutomationOverviewService, AgentService],
+  providers: [AutomationOverviewService, AgentService, InboundRouterService],
+  exports: [AutomationOverviewService, AgentService, InboundRouterService],
 })
 export class AutomationModule {}

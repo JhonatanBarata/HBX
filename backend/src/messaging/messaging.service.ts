@@ -87,6 +87,7 @@ import {
   type HbxPresentationEmailIntent,
 } from '../mail/hbx-email-intent.util';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
+import { InboundRouterService } from '../automation/inbound-router.service';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -10038,110 +10039,41 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return { matched: false, source: 'webwhats_sync_startup', botSuppressed: true };
     }
 
-    const isValidHumanInbound = ['text', 'button', 'interactive', 'image', 'video', 'document', 'audio']
-      .includes(input.inboundType) && classifyProspectingAutoReply(text) === null;
-    if (isValidHumanInbound && inboundConversationId > 0 && Number(input.inboundRow?.id || 0) > 0) {
-      // Barreira obrigatoria antes de IA e gatilhos: um inbound real invalida os
-      // proximos contatos comerciais. O metodo e idempotente pelo id da mensagem.
-      await this.commercialContactControl.interruptForInbound({
+    // S06 (MOTOR-ÚNICO): a precedência "quem responde este inbound" (interrupt
+    // -> cockpit -> cadência -> assistente IA) saiu daqui e virou
+    // InboundRouterService.route (backend/src/automation/inbound-router.service.ts),
+    // extração LITERAL — mesma ordem, mesmo `void` no dispatchCadenciaInbound.
+    // Instanciado direto (sem DI) porque o router não tem estado nem
+    // dependência de construtor — evita ciclo de módulo messaging<->automation
+    // (ver doc-comment no topo do arquivo do router e CONTRATO.md §1.1/§1.2).
+    // handleAtendimentoInbound (passo 7) e o fallback mais profundo (passo 8)
+    // FICAM aqui por ora (Opção A do contrato da S06): o router devolve
+    // `{action:'fallthrough_atendimento', recoveryCustomer}` e este método
+    // executa o resto exatamente como antes.
+    const inboundMessageId = Number(input.inboundRow?.id || 0);
+    const routed = await new InboundRouterService().route(
+      {
+        commercialContactControl: this.commercialContactControl,
+        conversations: this.conversations,
+        conversationAssistant: this.conversationAssistant,
+        findRecoveryCustomerByPhone: (id, phone) => this.findRecoveryCustomerByPhone(id, phone),
+        logWhatsAppEvent: (evt) => this.logWhatsAppEvent(evt),
+        logger: this.logger,
+      },
+      {
         companyId,
-        conversationId: inboundConversationId,
-        inboundMessageId: Number(input.inboundRow.id),
         from,
+        text,
+        inboundType: input.inboundType,
+        inboundConversationId,
+        inboundMessageId,
         timestamp: input.timestamp,
-      });
+      },
+    );
+    if (routed.action === 'handled') {
+      return routed.result;
     }
-    if (inboundConversationId > 0 && Number(input.inboundRow?.id || 0) > 0) {
-      await this.conversations.dispatchVendasCockpitProjection?.({
-        companyId,
-        conversationId: inboundConversationId,
-        event: 'inbound',
-        messageId: Number(input.inboundRow.id),
-        validHumanInbound: isValidHumanInbound,
-      });
-    }
-
-    // WORM-13 (13b) — apenas resposta humana valida aciona a cadencia. Recibo,
-    // sincronizacao historica e auto-reply nao podem mover estado comercial.
-    if (isValidHumanInbound) {
-      void this.conversations.dispatchCadenciaInbound({
-        companyId,
-        fromPhone: from,
-        conversationId: inboundConversationId || null,
-        text,
-      });
-    }
-
-    const recoveryCustomer = await this.findRecoveryCustomerByPhone(companyId, from);
-    if (isValidHumanInbound && !recoveryCustomer && this.conversationAssistant) {
-      const prepared = await this.conversationAssistant.prepareReply({
-        companyId,
-        conversationId: inboundConversationId,
-        inboundMessageId: Number(input.inboundRow?.id || 0),
-        text,
-      });
-      if (prepared.handled) {
-        if (prepared.runId && prepared.reply) {
-          try {
-            const queued = await this.conversations.queueOutboundForCompany(companyId, {
-              conversationId: inboundConversationId,
-              to: from,
-              contactId: from,
-              body: prepared.reply,
-              messageType: 'text',
-              sourceModule: 'conversation_assistant',
-              senderType: 'bot',
-              variables: {
-                purpose: 'conversation_reply',
-                assistantRunId: prepared.runId,
-                inboundMessageId: Number(input.inboundRow?.id || 0),
-                vendasLeadId: prepared.vendasLeadId || null,
-              },
-              flowState: { botActive: true, humanAssigned: false, flowResult: null },
-            });
-            await this.conversationAssistant.markQueued({
-              companyId,
-              runId: prepared.runId,
-              outboundMessageId: Number(queued.outboundMessageId),
-              source: prepared.source || null,
-            });
-            await this.logWhatsAppEvent({
-              companyId,
-              scope: 'conversation_assistant',
-              event: 'assistant_reply_queued',
-              message: `Resposta de ${prepared.publicName || 'assistente'} enfileirada.`,
-              conversationId: inboundConversationId,
-              phone: from,
-              messageType: 'text',
-              result: 'queued',
-              extra: {
-                assistantRunId: prepared.runId,
-                inboundMessageId: Number(input.inboundRow?.id || 0),
-                outboundMessageId: Number(queued.outboundMessageId),
-              },
-            });
-          } catch (error) {
-            await this.conversationAssistant.markQueueFailed({
-              companyId,
-              runId: prepared.runId,
-              error,
-            }).catch(() => null);
-            this.logger.warn(
-              `Falha ao enfileirar resposta da assistente company=${companyId} conversation=${inboundConversationId}: ${String((error as any)?.message || error)}`,
-            );
-          }
-        }
-        // Claim, falha ou duplicata da Assistente não cai também no Atendimento:
-        // apenas um motor conversacional pode responder ao mesmo inbound.
-        return {
-          matched: true,
-          source: 'conversation_assistant',
-          assistantRunId: prepared.runId || null,
-          duplicate: prepared.duplicate === true,
-          failed: prepared.failed === true,
-        };
-      }
-    }
+    const { recoveryCustomer } = routed;
     if (['text', 'button', 'interactive', 'image', 'video', 'document', 'audio'].includes(input.inboundType)) {
       const atendimentoResult = await this.handleAtendimentoInbound({
         companyId,
