@@ -77,6 +77,7 @@
     // operador tocar "+ Novo" ou um produto já salvo (fix do botão morto).
     clientProductFormOpen: false,
     productQuery: "",
+    editProductDraft: null,
     clientDetail: null,
     clientPaymentDraft: { phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", lat: null, lng: null, geoFonte: null, limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", observacoes: "" },
     clientCepStatus: "",
@@ -125,12 +126,13 @@
     leituraTelefoneCorrigindo: false,
     leituraItens: [],
     leituraProdutoPicker: false,
+    leituraProdutoQuery: "",
     // PR20072026 (feedback dono) — passo "Observações" (última tela da parada):
-    // abre o campo do cliente, 5s de contagem pra digitar (digitar PARA a
-    // contagem e revela Salvar; sem digitar, salva sozinho ao zerar).
+    // abre o campo do cliente, 7s de contagem pra interagir (foco/toque PARA a
+    // contagem e revela Salvar; sem interação, salva sozinho ao zerar).
     leituraObsDraft: "",
     leituraObsTyped: false,
-    leituraObsCountdown: 5,
+    leituraObsCountdown: 7,
     leituraFinalStep: null,
     leituraResumo: null,
     leituraResumoLoading: false,
@@ -150,6 +152,10 @@
   let clientsSearchTimer = null;
   let productsSearchTimer = null;
   let leituraObsTimer = null;
+  let leituraEnderecoRequestId = 0;
+  let keyboardBaselineHeight = Math.max(window.innerHeight || 0, window.visualViewport && window.visualViewport.height || 0);
+  let lastKeyboardAction = { name: "", at: 0 };
+  let keyboardRevealTimer = null;
   let touchStart = null;
   let clientHold = null;
   let ignoredClientClickId = null;
@@ -423,7 +429,7 @@
     // PR18072026 Onda 3 — extraAction/extraLabel: botão perigoso opcional
     // dentro do próprio popup (ex.: "Limpar o dia" dentro de cancelar
     // planejamento); cancelLabel troca o texto do botão neutro (ex.: "Agora não").
-    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title"><div class="app-confirm-icon">${icon(confirmation.icon || "box", 24)}</div><h2 id="app-confirm-title">${H.escape(confirmation.title || "Confirmar")}</h2><p>${H.escape(confirmation.message || "Deseja continuar?")}</p>${confirmation.extraAction ? `<button class="btn btn-danger btn-block" type="button" style="margin-top:14px" data-action="${H.escape(confirmation.extraAction)}">${H.escape(confirmation.extraLabel || "")}</button>` : ""}<div class="actions"><button class="btn btn-secondary" data-action="cancel-confirmation">${H.escape(confirmation.cancelLabel || "Cancelar")}</button><button class="btn ${confirmation.danger ? "btn-danger" : "btn-primary"}" data-action="accept-confirmation">${H.escape(confirmation.confirmLabel || "Confirmar")}</button></div></section></div>`;
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="app-confirm-title"><div class="app-confirm-icon">${icon(confirmation.icon || "box", 24)}</div><h2 id="app-confirm-title">${H.escape(confirmation.title || "Confirmar")}</h2><p>${H.escape(confirmation.message || "Deseja continuar?")}</p>${confirmation.extraAction ? `<button class="btn ${confirmation.extraDanger === false ? "btn-secondary" : "btn-danger"} btn-block" type="button" style="margin-top:14px" data-action="${H.escape(confirmation.extraAction)}">${H.escape(confirmation.extraLabel || "")}</button>` : ""}<div class="actions"><button class="btn btn-secondary" data-action="cancel-confirmation">${H.escape(confirmation.cancelLabel || "Cancelar")}</button><button class="btn ${confirmation.danger ? "btn-danger" : "btn-primary"}" data-action="accept-confirmation">${H.escape(confirmation.confirmLabel || "Confirmar")}</button></div></section></div>`;
   }
   // PR20072026 (feedback dono) — pop-up que PERGUNTA o DDD do número sem DDD,
   // já sugerindo o da região do CEP (ViaCEP devolve `ddd`). O motorista confirma
@@ -433,7 +439,7 @@
     if (!p) return "";
     const localFmt = displayPhone(p.local);
     const sug = p.suggesting ? "Buscando DDD pelo CEP…" : (p.suggested ? `Sugerido pelo CEP: ${p.suggested}` : "Informe o DDD (2 dígitos)");
-    return `<div class="modal-wrap app-confirm-wrap ddd-wrap"><section class="modal app-confirm ddd-prompt" role="dialog" aria-modal="true" aria-labelledby="ddd-title"><div class="app-confirm-icon ddd-icon">${icon("phone", 24)}</div><h2 id="ddd-title">Qual o DDD?</h2><p>${H.escape(p.name || "Cliente")} · ${H.escape(localFmt)}</p><div class="ddd-row"><input id="ddd-input" class="ddd-input" inputmode="numeric" maxlength="2" value="${H.escape(p.ddd || "")}" placeholder="00" aria-label="DDD"><span class="ddd-preview">${H.escape(localFmt)}</span></div><p class="ddd-sug">${H.escape(sug)}</p><div class="actions"><button class="btn btn-secondary" type="button" data-action="cancel-ddd">Cancelar</button><button class="btn btn-primary" type="button" data-action="confirm-ddd" ${p.saving ? "disabled" : ""}>${p.saving ? "Salvando…" : "Salvar"}</button></div></section></div>`;
+    return `<div class="modal-wrap app-confirm-wrap ddd-wrap"><section class="modal app-confirm ddd-prompt" role="dialog" aria-modal="true" aria-labelledby="ddd-title"><div class="app-confirm-icon ddd-icon">${icon("phone", 24)}</div><h2 id="ddd-title">Qual o DDD?</h2><p>${H.escape(p.name || "Cliente")} · ${H.escape(localFmt)}</p><div class="ddd-row"><input id="ddd-input" class="ddd-input" data-enter-action="confirm-ddd" inputmode="numeric" maxlength="2" value="${H.escape(p.ddd || "")}" placeholder="00" aria-label="DDD"><span class="ddd-preview">${H.escape(localFmt)}</span></div><p class="ddd-sug">${H.escape(sug)}</p><div class="actions"><button class="btn btn-secondary" type="button" data-action="cancel-ddd">Cancelar</button><button class="btn btn-primary" type="button" data-action="confirm-ddd" ${p.saving ? "disabled" : ""}>${p.saving ? "Salvando…" : "Salvar"}</button></div></section></div>`;
   }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
@@ -465,6 +471,97 @@
         <button type="button" class="center-arrow center-arrow--next" data-action="${o.nextAction || ""}" ${o.nextDisabled || !o.nextAction ? "disabled" : ""} aria-label="${H.escape(o.nextLabel || "Próximo")}"><span class="center-arrow-glyph">›</span><span class="center-arrow-label">${H.escape(o.nextLabel || "Próximo")}</span></button>
       </div>
     </section></div>`;
+  }
+
+  // Teclado x UI — contrato único da Logística. O visualViewport informa a
+  // altura realmente livre no Android; as classes são consumidas pelo CSS do
+  // shell para esconder a navegação fixa e manter campo/CTA acima do teclado.
+  function keyboardEditable(element) {
+    return !!(element && element.matches && element.matches("input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea,select"));
+  }
+  function focusKeyboardField(element) {
+    if (!keyboardEditable(element) || element.disabled || element.readOnly) return;
+    try { element.focus({ preventScroll: true }); } catch (_) { element.focus(); }
+    if (typeof element.setSelectionRange === "function" && element.tagName !== "SELECT") {
+      const end = String(element.value || "").length;
+      try { element.setSelectionRange(end, end); } catch (_) {}
+    }
+    requestAnimationFrame(() => {
+      try { element.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch (_) {}
+    });
+  }
+  function keyboardControls(scope) {
+    return [...scope.querySelectorAll("input:not([type=hidden]):not([type=button]):not([type=submit]):not([type=checkbox]):not([type=radio]),textarea,select")]
+      .filter(element => !element.disabled && !element.readOnly && !element.hidden && element.getAttribute("aria-hidden") !== "true");
+  }
+  function enhanceKeyboardFields() {
+    app.querySelectorAll("form,[data-enter-scope],.center-modal-body").forEach(scope => {
+      const controls = keyboardControls(scope);
+      controls.forEach((control, index) => {
+        const last = index === controls.length - 1;
+        control.setAttribute("enterkeyhint", last ? "done" : "next");
+      });
+    });
+    app.querySelectorAll("input[data-enter-action],textarea[data-enter-action],select[data-enter-action]").forEach(control => {
+      if (!control.hasAttribute("enterkeyhint")) control.setAttribute("enterkeyhint", "done");
+    });
+    app.querySelectorAll("#leitura-cliente-search,#leitura-produto-search").forEach(control => control.setAttribute("enterkeyhint", "go"));
+  }
+  function focusedControlSnapshot() {
+    const element = document.activeElement;
+    if (!keyboardEditable(element) || !app.contains(element)) return null;
+    let key = null;
+    if (element.id) key = { id: element.id };
+    else if (element.form && element.form.id && element.name) key = { formId: element.form.id, name: element.name };
+    if (!key) return null;
+    return {
+      key,
+      start: typeof element.selectionStart === "number" ? element.selectionStart : null,
+      end: typeof element.selectionEnd === "number" ? element.selectionEnd : null,
+    };
+  }
+  function restoreFocusedControl(snapshot) {
+    if (!snapshot) return;
+    requestAnimationFrame(() => {
+      let element = snapshot.key.id ? document.getElementById(snapshot.key.id) : null;
+      if (!element && snapshot.key.formId) {
+        const form = document.getElementById(snapshot.key.formId);
+        element = form && form.elements && form.elements.namedItem(snapshot.key.name);
+      }
+      if (!keyboardEditable(element) || !app.contains(element)) return;
+      try { element.focus({ preventScroll: true }); } catch (_) { element.focus(); }
+      if (snapshot.start !== null && typeof element.setSelectionRange === "function") {
+        const length = String(element.value || "").length;
+        try { element.setSelectionRange(Math.min(snapshot.start, length), Math.min(snapshot.end, length)); } catch (_) {}
+      }
+    });
+  }
+  function syncKeyboardViewport() {
+    const viewport = window.visualViewport;
+    const visibleHeight = Math.max(0, Number(viewport && viewport.height || window.innerHeight || 0));
+    const active = document.activeElement;
+    const editing = moduleActive && keyboardEditable(active) && app.contains(active);
+    if (!editing) keyboardBaselineHeight = Math.max(visibleHeight, window.innerHeight || 0);
+    else if (visibleHeight > keyboardBaselineHeight) keyboardBaselineHeight = Math.max(visibleHeight, window.innerHeight || 0);
+    const keyboardOpen = editing && keyboardBaselineHeight - visibleHeight > 120;
+    const height = keyboardOpen ? visibleHeight : Math.max(visibleHeight, window.innerHeight || 0);
+    document.documentElement.style.setProperty("--hbx-visible-height", `${Math.round(height)}px`);
+    document.documentElement.classList.toggle("keyboard-open", keyboardOpen);
+    document.body.classList.toggle("keyboard-open", keyboardOpen);
+  }
+  function revealFocusedForKeyboard() {
+    clearTimeout(keyboardRevealTimer);
+    keyboardRevealTimer = setTimeout(() => {
+      const active = document.activeElement;
+      if (!document.documentElement.classList.contains("keyboard-open") || !keyboardEditable(active) || !app.contains(active)) return;
+      try { active.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" }); } catch (_) {}
+    }, 80);
+  }
+  function clearKeyboardViewport() {
+    clearTimeout(keyboardRevealTimer);
+    document.documentElement.classList.remove("keyboard-open");
+    document.body.classList.remove("keyboard-open");
+    document.documentElement.style.setProperty("--hbx-visible-height", `${Math.round(window.innerHeight || keyboardBaselineHeight)}px`);
   }
 
   // ==========================================================================
@@ -1341,14 +1438,9 @@
     } catch (_) { state.leituraClienteProdutos = {}; }
   }
   function leituraExistenteResults() {
-    const query = state.leituraClienteQuery.trim().toLowerCase();
     const capture = state.leituraCapture;
     const hasGps = capture && validCoordinates(capture.lat, capture.lng);
-    const pool = (state.clients || []).filter(c => {
-      if (!query) return true;
-      const haystack = `${c.nome || c.name || ""} ${c.phone || c.whatsapp || c.phoneNormalized || ""}`.toLowerCase();
-      return haystack.includes(query);
-    });
+    const pool = state.clients || [];
     const withDistance = pool.map(client => {
       const lat = Number(client.lat); const lng = Number(client.lng);
       const dist = hasGps && validCoordinates(lat, lng) ? distanceMeters(capture, { lat, lng }) : null;
@@ -1375,8 +1467,33 @@
     state.leituraEndNovo = false;
     const cap = state.leituraCapture;
     const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
-    if (temGps) { void changeLeituraStep("endereco").then(() => startLeituraEndereco(client, cap)); }
+    if (temGps) {
+      const requestId = ++leituraEnderecoRequestId;
+      state.leituraEnd = { loading: true, loadingStage: "signal", reverse: null, decision: null, numero: String(client.numero || "") };
+      void changeLeituraStep("endereco").then(changed => { if (changed) void startLeituraEndereco(client, cap, requestId); });
+    }
     else void changeLeituraStep("telefone");
+  }
+  async function advanceLeituraNovoDraft() {
+    const draft = state.leituraNovoDraft;
+    state.leituraSelectedClient = null;
+    state.leituraClienteProdutos = {};
+    state.leituraTelefoneValue = draft.telefone || "";
+    state.leituraTelefoneConfirmado = !!draft.telefone;
+    state.leituraTelefoneCorrigindo = false;
+    const cap = state.leituraCapture;
+    const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
+    if (temGps) {
+      state.leituraEndNovo = true;
+      const requestId = ++leituraEnderecoRequestId;
+      state.leituraEnd = { loading: true, loadingStage: "signal", reverse: null, decision: null, numero: String(draft.numero || "") };
+      const changed = await changeLeituraStep("endereco");
+      if (changed) void startLeituraEndereco({ numero: draft.numero || "" }, cap, requestId);
+    } else {
+      state.leituraEndNovo = false;
+      state.leituraEnd = null;
+      await changeLeituraStep("telefone");
+    }
   }
   async function changeLeituraStep(nextStep, beforeEnter) {
     if (!nextStep || state.leituraStepChanging) return false;
@@ -1443,6 +1560,7 @@
     state.leituraTelefoneCorrigindo = false;
     state.leituraItens = [];
     state.leituraProdutoPicker = false;
+    state.leituraProdutoQuery = "";
     showModal("leitura-parada");
     if (state.clientsPage === 0) void loadClients(true, true).then(() => {
       if (state.modal === "leitura-parada") render();
@@ -1535,11 +1653,19 @@
   }
   // F3.2 — abre o passo ENDEREÇO: busca o reverse do GPS e mede a distância pro
   // pino do cadastro (se houver), pro passo decidir "confere" × "diverge".
-  async function startLeituraEndereco(client, cap) {
-    state.leituraEnd = { loading: true, reverse: null, decision: null, numero: String(client.numero || "") };
+  async function startLeituraEndereco(client, cap, activeRequestId) {
+    const requestId = activeRequestId || ++leituraEnderecoRequestId;
+    if (!state.leituraEnd || !state.leituraEnd.loading) {
+      state.leituraEnd = { loading: true, loadingStage: "signal", reverse: null, decision: null, numero: String(client.numero || "") };
+      render();
+    }
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (requestId !== leituraEnderecoRequestId || state.leituraStep !== "endereco") return;
+    state.leituraEnd.loadingStage = "address";
     render();
     let rev = null;
     try { rev = await leituraReverse(cap.lat, cap.lng); } catch (_) {}
+    if (requestId !== leituraEnderecoRequestId || state.leituraStep !== "endereco") return;
     const clat = Number(client.lat), clng = Number(client.lng);
     const dist = validCoordinates(clat, clng) ? distanceMeters({ lat: cap.lat, lng: cap.lng }, { lat: clat, lng: clng }) : null;
     state.leituraEnd = { loading: false, reverse: rev, dist, decision: null, numero: String(client.numero || (rev && rev.numero) || "") };
@@ -1600,12 +1726,16 @@
     const e = state.leituraEnd || {};
     const temEndereco = !!(client.endereco || client.cidade);
     const resumo = leituraResumo() || client.nome || "";
-    if (e.loading) return centerModal({ icon: "map", title: "Endereço", resumo, body: loading(), backAction: "leitura-voltar", nextAction: "" });
+    if (e.loading) {
+      const receiving = e.loadingStage !== "address";
+      const body = `<div class="lrt-endereco-loading lrt-gps-loading" role="status" aria-live="polite"><div class="lrt-endereco-loading-icon">${icon("gps", 24)}</div><strong>${receiving ? "Recebendo sinal do GPS…" : "Localizando endereço…"}</strong><span>${receiving ? "Aguarde só um instante." : "Conferindo o endereço deste local."}</span></div>`;
+      return centerModal({ icon: "map", title: "Endereço", resumo, body, backAction: "leitura-voltar", nextAction: "" });
+    }
     // Modo DIGITAR — campos editáveis (pré-preenchidos com o que o GPS achou ou o
     // que já estava no cadastro). O dono pediu: sempre poder digitar/corrigir.
     if (e.editing) {
       const f = e.form || {};
-      const body = `<div class="field"><label>Rua / Avenida</label><input id="lend-endereco" maxlength="240" value="${H.escape(f.endereco || "")}" placeholder="Ex.: Rua 16"></div><div class="field"><label>Bairro</label><input id="lend-bairro" maxlength="120" value="${H.escape(f.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input id="lend-cidade" maxlength="120" value="${H.escape(f.cidade || "")}"></div><div class="field"><label>UF</label><input id="lend-uf" maxlength="2" autocapitalize="characters" value="${H.escape(f.uf || "")}"></div></div><div class="field"><label>CEP</label><input id="lend-cep" inputmode="numeric" maxlength="10" value="${H.escape(f.cep || "")}"></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-salvar-digitado">Usar este endereço</button></div>`;
+      const body = `<div data-enter-scope data-enter-action="leitura-end-salvar-digitado"><div class="field"><label>Rua / Avenida</label><input id="lend-endereco" maxlength="240" value="${H.escape(f.endereco || "")}" placeholder="Ex.: Rua 16"></div><div class="field"><label>Bairro</label><input id="lend-bairro" maxlength="120" value="${H.escape(f.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input id="lend-cidade" maxlength="120" value="${H.escape(f.cidade || "")}"></div><div class="field"><label>UF</label><input id="lend-uf" maxlength="2" autocapitalize="characters" value="${H.escape(f.uf || "")}"></div></div><div class="field"><label>CEP</label><input id="lend-cep" inputmode="numeric" maxlength="10" value="${H.escape(f.cep || "")}"></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-salvar-digitado">Usar este endereço</button></div></div>`;
       return centerModal({ icon: "map", title: "Digitar endereço", resumo, body, backAction: "leitura-end-cancelar-digitar", backLabel: "Voltar", nextAction: "" });
     }
     const rev = e.reverse;
@@ -1613,20 +1743,22 @@
     const confere = temEndereco && e.dist !== null && e.dist <= 120;
     const digitarBtn = `<button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-digitar">${icon("map", 15)} Digitar endereço</button>`;
     let body;
-    if (!temEndereco) {
+    if (!rev) {
+      body = `<div class="lrt-endereco-options"><div class="lrt-endereco-option"><strong>Não foi possível identificar o endereço</strong><span>Tente localizar novamente ou digite o endereço.</span></div></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-retry">Localizar novamente</button>${digitarBtn}</div>`;
+    } else if (!temEndereco) {
       const titulo = state.leituraEndNovo ? "Endereço do local (pelo GPS):" : "Cliente sem endereço.";
-      body = `<div class="lrt-endereco-compare"><p><b>${titulo}</b></p><p>${H.escape(reverseAddressText(rev))}</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-usar">Usar este endereço</button>${digitarBtn}</div>`;
+      body = `<div class="lrt-endereco-options"><div class="lrt-endereco-option lrt-endereco-option--gps"><strong>${titulo}</strong><span>${H.escape(reverseAddressText(rev))}</span></div></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-usar">Usar este endereço</button>${digitarBtn}</div>`;
     } else if (confere) {
       body = `<div class="lrt-endereco-card lrt-endereco-ok">${icon("check", 16)} Endereço confere${e.dist !== null ? ` · a ${Math.round(e.dist)} m` : ""}</div><p class="day-home-sub">${H.escape(clientAddressText(client))}</p><div class="center-modal-extra">${digitarBtn}</div>`;
     } else {
-      body = `<div class="lrt-endereco-compare"><p><b>Cadastrado:</b> ${H.escape(clientAddressText(client) || "—")}</p><p><b>Você está em:</b> ${H.escape(reverseAddressText(rev))}${e.dist !== null ? ` (a ${Math.round(e.dist)} m)` : ""}</p><p style="color:var(--warning)">Atualizar substitui o endereço anterior.</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-atualizar">Atualizar (usar o GPS)</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-manter">Manter o cadastrado</button>${digitarBtn}</div>`;
+      body = `<div class="lrt-endereco-options"><div class="lrt-endereco-option"><strong>Endereço cadastrado</strong><span>${H.escape(clientAddressText(client) || "—")}</span></div><div class="lrt-endereco-option lrt-endereco-option--gps"><strong>Endereço encontrado pelo GPS</strong><span>${H.escape(reverseAddressText(rev))}${e.dist !== null ? ` · ${Math.round(e.dist)} m do cadastro` : ""}</span></div><p class="lrt-endereco-warning">Atualizar substitui o endereço anterior.</p></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-atualizar">Atualizar com GPS</button><button class="btn btn-secondary btn-block" type="button" data-action="leitura-end-manter">Manter o cadastrado</button>${digitarBtn}</div>`;
     }
     // Quando confere, o › avança direto pro número; senão o avanço é pelos botões.
     return centerModal({ icon: "map", title: "Endereço", resumo, body, backAction: "leitura-voltar", nextAction: confere ? "leitura-end-manter" : "", nextLabel: "Próximo" });
   }
   function leituraNumeroStep() {
     const e = state.leituraEnd || {};
-    const body = `<div class="field"><label>Número da casa</label><input id="leitura-numero-input" inputmode="numeric" maxlength="30" value="${H.escape(String(e.numero || ""))}" placeholder="Ex.: 1079" style="font-size:1.3rem"></div>`;
+    const body = `<div class="field" data-enter-scope data-enter-action="leitura-numero-confirmar"><label>Número da casa</label><input id="leitura-numero-input" inputmode="numeric" maxlength="30" value="${H.escape(String(e.numero || ""))}" placeholder="Ex.: 1079" style="font-size:1.3rem"></div>`;
     return centerModal({ icon: "map", title: "Número", resumo: leituraResumo() || (state.leituraSelectedClient && state.leituraSelectedClient.nome) || "", body, backAction: "leitura-end-voltar-numero", nextAction: "leitura-numero-confirmar", nextLabel: "Próximo" });
   }
   // Resumo curto do que já foi escolhido nesta parada (cliente · itens) — some no
@@ -1649,8 +1781,11 @@
     // "Mais perto primeiro" só quando há distância real (cliente com GPS); senão
     // é ordem alfabética — não mentir pro motorista (F3.5).
     const temDistancia = rows.some(r => r.dist !== null);
-    const list = rows.length ? `<div class="list">${rows.map(({ client, dist }) => `<button type="button" class="row-card lrt-client-row ${dist !== null && dist <= 200 ? "lrt-client-near" : ""}" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}"><div class="avatar">${H.escape(initials(client.nome || client.name))}</div><div class="card-main"><strong>${H.escape(client.nome || client.name || "Cliente")}</strong><span>${H.escape(savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "") || address(client))}</span></div>${dist !== null ? `<span class="lrt-distance">${dist < 1000 ? `${Math.round(dist)} m` : `${(dist / 1000).toFixed(1)} km`}</span>` : ""}</button>`).join("")}</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
-    const body = `<label class="search">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome ou telefone" value="${H.escape(state.leituraClienteQuery)}"></label>${list}${clientsAutoLoad()}`;
+    const query = duplicateTextKey(state.leituraClienteQuery);
+    const visibleCount = rows.filter(({ client }) => duplicateTextKey(`${client.nome || client.name || ""} ${client.phone || client.whatsapp || client.phoneNormalized || ""} ${address(client)}`).includes(query)).length;
+    const list = rows.length ? `<div class="list hbx-selection-list" id="leitura-cliente-list">${rows.map(({ client, dist }) => clientCatalogCard(client, { selection: true, distance: dist, hidden: !!query && !duplicateTextKey(`${client.nome || client.name || ""} ${client.phone || client.whatsapp || client.phoneNormalized || ""} ${address(client)}`).includes(query) })).join("")}</div>` : "";
+    const noResults = rows.length ? `<div class="empty hbx-selection-state" id="leitura-cliente-empty"${visibleCount ? " hidden" : ""}><strong>Nenhum cliente encontrado</strong>Tente outro nome, telefone ou endereço.</div>` : empty(state.clientsLoading ? "Carregando…" : "Nenhum cliente encontrado", "");
+    const body = `<div class="hbx-selection-view"><label class="search hbx-selection-toolbar">${icon("search", 16)}<input id="leitura-cliente-search" placeholder="Buscar por nome, telefone ou endereço" value="${H.escape(state.leituraClienteQuery)}" autocomplete="off"></label>${list}${noResults}${clientsAutoLoad()}</div>`;
     return centerModal({ icon: "users", title: "Cliente existente", resumo: temDistancia ? "Mais perto primeiro" : "Ordem alfabética", body, backAction: "leitura-voltar" });
   }
   function leituraNovoStep() {
@@ -1663,7 +1798,7 @@
     const hasPhone = !!state.leituraTelefoneValue;
     const editing = state.leituraTelefoneCorrigindo || !hasPhone;
     const body = editing
-      ? `<div class="field"><label>Telefone</label><input id="leitura-telefone-input" inputmode="tel" maxlength="15" value="${H.escape(state.leituraTelefoneValue)}" placeholder="(00) 00000-0000"></div>`
+      ? `<div class="field" data-enter-scope data-enter-action="leitura-telefone-salvar"><label>Telefone</label><input id="leitura-telefone-input" inputmode="tel" maxlength="15" value="${H.escape(state.leituraTelefoneValue)}" placeholder="(00) 00000-0000"></div>`
       : `<p class="lrt-phone-display">${H.escape(state.leituraTelefoneValue)}</p>`;
     // Ação extra (Salvar / Corrigir) acima das setas: o "Próximo" (›) confirma.
     const extra = editing
@@ -1678,17 +1813,25 @@
   function leituraProdutoStep() {
     const selectedIds = new Set(state.leituraItens.map(i => String(i.productId)));
     const available = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !selectedIds.has(String(p.id)));
+    if (state.leituraProdutoPicker) {
+      const query = duplicateTextKey(state.leituraProdutoQuery);
+      const visibleCount = available.filter(product => duplicateTextKey(product.nome || product.name || "").includes(query)).length;
+      const list = available.length ? `<div class="list hbx-selection-list" id="leitura-produto-list">${available.map(product => productCatalogCard(product, { selection: true, hidden: !!query && !duplicateTextKey(product.nome || product.name || "").includes(query) })).join("")}</div>` : "";
+      const noResults = available.length ? `<div class="empty hbx-selection-state" id="leitura-produto-empty"${visibleCount ? " hidden" : ""}><strong>Nenhum produto encontrado</strong>Tente outro nome.</div>` : empty("Todos os produtos já foram adicionados", "Volte para ajustar quantidade e preço.");
+      const body = `<div class="hbx-selection-view"><label class="search hbx-selection-toolbar">${icon("search", 16)}<input id="leitura-produto-search" placeholder="Buscar produto" value="${H.escape(state.leituraProdutoQuery)}" autocomplete="off"></label><div class="section-title"><strong>Catálogo</strong><span>${available.length}</span></div>${list}${noResults}</div>`;
+      return centerModal({ icon: "box", title: "Produtos", resumo: "Escolha no catálogo", body, backAction: "leitura-produto-fechar-picker", backLabel: "Voltar", nextAction: "" });
+    }
     // F3.3 — sem módulo Financeiro, preço fica TRAVADO (cadeado): tocar abre o
     // popup "configurar financeiro?". Com financeiro, campo moeda estilo banco.
     const financeiroOn = configFlag("moduloFinanceiroAtivo");
     const rows = state.leituraItens.map(item => {
       if (item.valorUnit === null || item.valorUnit === undefined) item.valorUnit = leituraDefaultValor(item.productId);
       const valorField = financeiroOn
-        ? `<label class="lrt-produto-valor"><span>R$</span><input type="text" inputmode="numeric" class="lrt-produto-valor-input" data-leitura-preco="${H.escape(item.productId)}" value="${H.escape(moneyCentsToBRL(Math.round(Number(item.valorUnit || 0) * 100)))}"></label>`
+        ? `<label class="lrt-produto-valor"><span>R$</span><input type="text" inputmode="numeric" class="lrt-produto-valor-input" data-leitura-preco="${H.escape(item.productId)}" data-enter-action="leitura-proximo" value="${H.escape(moneyCentsToBRL(Math.round(Number(item.valorUnit || 0) * 100)))}"></label>`
         : `<button type="button" class="lrt-produto-valor lrt-produto-valor-locked" data-action="leitura-preco-bloqueado" aria-label="Preço bloqueado">${icon("lock", 14)}<span>R$ —</span></button>`;
       return `<div class="lrt-produto-item"><div class="lrt-produto-head"><div><strong>${H.escape(item.nome)}</strong><small>${H.escape(item.unidade)}</small></div><button type="button" class="close" style="width:32px;height:32px" data-action="leitura-item-remover" data-product-id="${H.escape(item.productId)}" aria-label="Remover">${icon("close", 14)}</button></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="leitura-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div>${valorField}</div></div>`;
     }).join("");
-    const picker = state.leituraProdutoPicker ? `<div class="delivery-picker"><strong>Escolher produto</strong>${available.map(p => `<button type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name)} · ${H.escape(p.unidade || "unidade")}</button>`).join("") || `<p class="subtitle">Sem mais produtos.</p>`}<button class="btn btn-secondary" type="button" data-action="leitura-produto-fechar-picker">Fechar</button></div>` : (available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "");
+    const picker = available.length ? `<button class="delivery-add" type="button" data-action="leitura-produto-abrir-picker">+ Adicionar produto</button>` : "";
     const body = `${rows || empty("Nenhum produto ainda", "Toque em adicionar produto abaixo.")}${picker}`;
     return centerModal({ icon: "box", title: "Produto", resumo: leituraResumo() || "O que ele recebe?", body, backAction: "leitura-voltar", nextAction: "leitura-proximo", nextLabel: "Próximo", nextDisabled: !state.leituraItens.length });
   }
@@ -1705,21 +1848,21 @@
   }
   // PR20072026 (feedback dono) — última tela da parada: SÓ abre o campo de
   // observações do cliente (o mesmo do /cliente) pra lembrar o motorista na
-  // entrega (escadas, cliente chato, horário X). 5s de contagem: se ninguém
-  // digita, salva sozinho; ao digitar, a contagem para e aparece o Salvar.
+  // entrega (escadas, cliente chato, horário X). 7s de contagem: se ninguém
+  // interage, salva sozinho; foco/toque para a contagem antes mesmo de digitar.
   function leituraObsStep() {
     // Contagem só enquanto ninguém digitou (ao digitar ela some via DOM, sem
     // re-render, pra não roubar o foco do textarea no 1º caractere).
     const hint = state.leituraObsTyped ? "" : `<p class="lrt-obs-count">Salvando em <b class="lrt-obs-secs">${Math.max(0, Number(state.leituraObsCountdown || 0))}</b>s… <span>ou escreva um lembrete</span></p>`;
-    const body = `<div class="field"><textarea id="leitura-obs-input" maxlength="500" rows="4" placeholder="Ex.: subir escadas, cachorro bravo, entregar após 18h…">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}`;
+    const body = `<div class="field"><textarea id="leitura-obs-input" data-enter-action="leitura-obs-salvar" maxlength="500" rows="4" placeholder="Ex.: subir escadas, cachorro bravo, entregar após 18h…">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}`;
     return centerModal({ icon: "box", title: "Observações", resumo: leituraResumo() || "Lembrete pra entrega (opcional)", body, backAction: "leitura-voltar", nextAction: "leitura-obs-salvar", nextLabel: "Salvar" });
   }
-  // Abre o passo Observações e liga a contagem de 5s (auto-salva ao zerar).
+  // Abre o passo Observações e liga a contagem de 7s (auto-salva ao zerar).
   async function startLeituraObs() {
     clearInterval(leituraObsTimer);
     state.leituraObsDraft = (state.leituraSelectedClient && state.leituraSelectedClient.observacoes) || "";
     state.leituraObsTyped = false;
-    state.leituraObsCountdown = 5;
+    state.leituraObsCountdown = 7;
     await changeLeituraStep("observacoes");
     leituraObsTimer = setInterval(() => {
       if (state.leituraStep !== "observacoes" || state.leituraObsTyped) { clearInterval(leituraObsTimer); return; }
@@ -1871,12 +2014,46 @@
     return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${c.observacoes ? `<small style="display:block;margin-top:2px;font-weight:700;color:var(--brand-strong)">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
   }
 
+  // Os catálogos e o wizard usam o mesmo cartão. Em modo seleção, só mudam a
+  // ação e o complemento contextual (distância/selecionar); cadastro e edição
+  // continuam pertencendo às telas administrativas reais.
+  function clientCatalogCard(client, options) {
+    const opts = options || {};
+    const selection = !!opts.selection;
+    const pending = clientPendingKeys(client);
+    const name = client.name || client.nome || "Cliente";
+    const phone = savedPhone(client.phone || client.phoneNormalized || client.whatsapp || "");
+    const location = address(client);
+    const subtitle = selection ? [phone, location].filter(Boolean).join(" · ") || "Sem telefone ou endereço" : location;
+    const distance = Number.isFinite(opts.distance) ? opts.distance : null;
+    const trailing = selection
+      ? (distance !== null ? `<span class="lrt-distance">${distance < 1000 ? `${Math.round(distance)} m` : `${(distance / 1000).toFixed(1)} km`}</span>` : `<span class="selection-mode-chevron">›</span>`)
+      : `<span>›</span>`;
+    const searchText = duplicateTextKey(`${name} ${phone} ${location}`);
+    const attrs = selection
+      ? `type="button" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}" data-selection-search="${H.escape(searchText)}"${opts.hidden ? " hidden" : ""}`
+      : `data-client="${H.escape(client.id)}"`;
+    return `<button class="lead-card ${pending.length ? "has-pending" : ""}${selection ? " hbx-selection-item lrt-client-row" : ""}${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${selection ? "" : `<div class="client-balance">${configFlag("moduloFinanceiroAtivo") ? `<small>Saldo ${H.money(Number(client.debitoAtual || 0))}</small>` : ""}${clientMissingLabels(client)}</div>`}</div>${trailing}</button>`;
+  }
+  function productCatalogCard(product, options) {
+    const opts = options || {};
+    const selection = !!opts.selection;
+    const admin = isAdmin();
+    const archived = product.ativo === false;
+    const tag = selection || admin ? "button" : "article";
+    const attrs = selection
+      ? `type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(product.id)}" data-selection-search="${H.escape(duplicateTextKey(product.nome || product.name || ""))}"${opts.hidden ? " hidden" : ""}`
+      : (admin ? `type="button" data-action="edit-product" data-product-id="${H.escape(product.id)}"` : "");
+    const subtitle = admin && !selection && product.precoCatalogo != null ? `${H.escape(product.unidade || "unidade")} · ${H.money(product.precoCatalogo)}` : H.escape(product.unidade || "unidade");
+    return `<${tag} class="lead-card${selection ? " hbx-selection-item" : ""}" ${attrs}${archived ? ` style="opacity:.45"` : ""}><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${subtitle}${archived ? ` · <span class="badge">Arquivado</span>` : ""}</span></div>${selection || admin ? `<span class="selection-mode-chevron">›</span>` : ""}</${tag}>`;
+  }
+
   function clientsScreen() {
     const list = state.clients || [];
     const total = Number(state.clientsTotal || 0);
     const firstLoad = state.clientsLoading && state.clientsPage === 0;
     const emptyText = state.clientsError || (state.query.trim() ? "Nenhum resultado." : "");
-    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => `<button class="lead-card ${clientPendingKeys(c).length ? "has-pending" : ""}" data-client="${H.escape(c.id)}"><div class="avatar">${H.escape(initials(c.name || c.nome))}</div><div class="card-main"><strong>${H.escape(c.name || c.nome || "Cliente")}</strong><span>${H.escape(address(c))}</span><div class="client-balance">${configFlag("moduloFinanceiroAtivo") ? `<small>Saldo ${H.money(Number(c.debitoAtual || 0))}</small>` : ""}${clientMissingLabels(c)}</div></div><span>›</span></button>`).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
+    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
   }
   function productsScreen() {
     const all = state.products || [];
@@ -1884,13 +2061,7 @@
     const query = state.productQuery.trim().toLowerCase();
     const products = query ? all.filter(p => String(p.nome || p.name || "").toLowerCase().includes(query)) : all;
     const emptyText = all.length && query ? "Nenhum resultado." : "";
-    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => {
-      const archived = p.ativo === false;
-      const tag = admin ? "button" : "article";
-      const openAttrs = admin ? ` type="button" data-action="edit-product" data-product-id="${H.escape(p.id)}"` : "";
-      const subtitle = admin && p.precoCatalogo != null ? `${H.escape(p.unidade || "unidade")} · ${H.money(p.precoCatalogo)}` : H.escape(p.unidade || "unidade");
-      return `<${tag} class="lead-card"${openAttrs}${archived ? ` style="opacity:.45"` : ""}><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(p.nome || p.name)}</strong><span>${subtitle}${archived ? ` · <span class="badge">Arquivado</span>` : ""}</span></div>${admin ? `<span>›</span>` : ""}</${tag}>`;
-    }).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
+    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => productCatalogCard(p)).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
   }
   function settingsScreen() {
     const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED"; const modules = H.modules.get();
@@ -2012,8 +2183,9 @@
     if (state.modal === "new-product") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Novo produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="number" min="0" step="0.01"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block" type="submit">Cadastrar</button></form></section></div>`;
     if (state.modal === "edit-product") {
       const p = state.modalProduct || {};
+      const d = state.editProductDraft || { nome: p.nome || p.name || "", unidade: p.unidade || "", precoCatalogo: p.precoCatalogo != null ? String(p.precoCatalogo) : "", estoque: p.estoque != null ? String(p.estoque) : "" };
       const active = p.ativo !== false;
-      return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Editar produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(p.nome || p.name || "")}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(p.unidade || "")}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="number" min="0" step="0.01" value="${p.precoCatalogo != null ? H.escape(String(p.precoCatalogo)) : ""}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" value="${p.estoque != null ? H.escape(String(p.estoque)) : ""}"></div></div><button class="btn btn-primary btn-block" type="submit">Salvar</button></form><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}" style="margin-top:10px">${active ? "Arquivar" : "Reativar"}</button></section></div>`;
+      return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="edit-product-title">Editar produto</h2><p class="center-modal-resumo">${H.escape(p.nome || p.name || "Produto")}</p><button class="close center-modal-close" type="button" data-action="close-modal">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(d.nome)}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(d.unidade)}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(d.precoCatalogo)}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" inputmode="numeric" value="${H.escape(d.estoque)}"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Salvar</button></form><div class="product-edit-danger"><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}">${active ? "Arquivar produto" : "Reativar produto"}</button></div></div></section></div>`;
     }
     if (state.modal === "new-delivery") {
       const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${new Date(Date.now() + 3600000).toISOString().slice(0,16)}"></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
@@ -2021,7 +2193,7 @@
     // L4-F fix — o form da avulsa agora renderiza do rascunho (state.oneoffDraft):
     // qualquer re-render do shell (toast expirando, saldo chegando) apagava o que
     // o motorista tinha digitado. Rascunho zera no submit com sucesso.
-    if (state.modal === "new-oneoff") { const d = state.oneoffDraft || {}; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente</label><select name="customerProfileId"><option value="">Novo cliente abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}" ${String(d.customerProfileId || "") === String(c.id) ? "selected" : ""}>${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome avulso</label><input name="clientName" maxlength="160" value="${H.escape(d.clientName || "")}"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30" value="${H.escape(d.clientPhone || "")}"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}" ${String(d.productId || "") === String(p.id) ? "selected" : ""}>${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="${H.escape(d.quantidade || "1")}" required></div></div><div class="field"><label>Observação</label><textarea name="notes" maxlength="500">${H.escape(d.notes || "")}</textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar</button></form></section></div>`; }
+    if (state.modal === "new-oneoff") { const d = state.oneoffDraft || {}; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente</label><select name="customerProfileId"><option value="">Novo cliente abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}" ${String(d.customerProfileId || "") === String(c.id) ? "selected" : ""}>${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome avulso</label><input name="clientName" maxlength="160" value="${H.escape(d.clientName || "")}"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30" value="${H.escape(d.clientPhone || "")}"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}" ${String(d.productId || "") === String(p.id) ? "selected" : ""}>${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="${H.escape(d.quantidade || "1")}" required></div></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500">${H.escape(d.notes || "")}</textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar</button></form></section></div>`; }
     if (state.modal === "manage-day") {
       // PR20072026 (feedback dono) — menu de entrada centralizado.
       if (state.dayOrderStep === "home") return dayHomeModal();
@@ -2243,14 +2415,16 @@
     const client = duplicate && duplicate.client;
     if (!client) return;
     const name = client.name || client.nome || "Este cliente";
+    const sameNameCanContinue = type === "duplicate-leitura-client" && duplicate.reason === "nome";
     state.confirmation = {
       type,
-      title: "Cliente já cadastrado",
-      message: `${name} já está cadastrado com o mesmo ${duplicate.reason}. Use o cadastro existente para evitar duplicidade.`,
+      title: sameNameCanContinue ? "Nome já cadastrado" : "Cliente já cadastrado",
+      message: sameNameCanContinue ? `${name} já está cadastrado com o mesmo nome. Se for outra pessoa, você pode cadastrar mesmo assim.` : `${name} já está cadastrado com o mesmo ${duplicate.reason}. Use o cadastro existente para evitar duplicidade.`,
       cancelLabel: "Voltar",
       confirmLabel: type === "duplicate-leitura-client" ? "Usar cliente" : "Abrir cliente",
       icon: "users",
-      payload: { client },
+      ...(sameNameCanContinue ? { extraAction: "duplicate-leitura-continue", extraLabel: "Cadastrar outro com o mesmo nome", extraDanger: false } : {}),
+      payload: { client, reason: duplicate.reason },
     };
     render();
   }
@@ -2290,6 +2464,7 @@
   }
   function render() {
     if (!moduleActive) return;
+    const focusedControl = focusedControlSnapshot();
     const modalScroll = app.querySelector(".modal")?.scrollTop || 0;
     const centerModalBodyScroll = app.querySelector(".center-modal-body")?.scrollTop || 0;
     const sheetScroll = app.querySelector(".sheet")?.scrollTop || 0;
@@ -2304,6 +2479,7 @@
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
     enhanceMoneyInputs();
+    enhanceKeyboardFields();
     syncHeaderChips();
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
@@ -2319,6 +2495,8 @@
     if (modal && modalScroll) modal.scrollTop = modalScroll;
     if (centerModalBody && centerModalBodyScroll) centerModalBody.scrollTop = centerModalBodyScroll;
     if (sheet && sheetScroll) sheet.scrollTop = sheetScroll;
+    restoreFocusedControl(focusedControl);
+    syncKeyboardViewport();
     setupClientsAutoLoad();
     const transmux = app.querySelector(".route-transmux[data-next-state]");
     if (transmux) {
@@ -2789,7 +2967,7 @@
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
-      if (kind === "modal") { state.modal = null; state.modalClient = null; state.clientProductFormOpen = false; state.dddPrompt = null; }
+      if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; }
       if (kind === "sheet") state.selected = null;
       state.closingOverlay = null;
       render();
@@ -2816,6 +2994,75 @@
   }
   function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const ring = document.querySelector(".next-stop-progress"); if (ring) ring.style.strokeDashoffset = (188.5 * state.nextCountdown / 5).toFixed(1); }, 1000); }
   function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; render(); }
+
+  function stopLeituraObsCountdown() {
+    if (state.leituraStep !== "observacoes" || state.leituraObsTyped) return;
+    state.leituraObsTyped = true;
+    clearInterval(leituraObsTimer);
+    const line = app.querySelector(".lrt-obs-count");
+    if (line) line.remove();
+  }
+  function filterSelectionList(input, listId, emptyId) {
+    const query = duplicateTextKey(input.value);
+    const list = document.getElementById(listId);
+    let visible = 0;
+    if (list) list.querySelectorAll("[data-selection-search]").forEach(row => {
+      const show = !query || String(row.dataset.selectionSearch || "").includes(query);
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+    const emptyState = document.getElementById(emptyId);
+    if (emptyState) emptyState.hidden = visible > 0;
+  }
+  app.addEventListener("keydown", event => {
+    if (!moduleActive || event.defaultPrevented || event.key !== "Enter" || event.isComposing || event.keyCode === 229 || event.repeat || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    const target = event.target;
+    if (!keyboardEditable(target)) return;
+    if (target.tagName === "TEXTAREA" && !target.dataset.enterAction && target.dataset.enterSubmit === undefined) return;
+    if (target.id === "leitura-cliente-search" || target.id === "leitura-produto-search") {
+      const listId = target.id === "leitura-cliente-search" ? "leitura-cliente-list" : "leitura-produto-list";
+      const list = document.getElementById(listId);
+      const first = list && [...list.querySelectorAll("[data-action]")].find(row => !row.hidden && !row.disabled);
+      if (first) { event.preventDefault(); event.stopPropagation(); target.blur(); first.click(); }
+      return;
+    }
+    const scope = target.closest("[data-enter-scope]") || target.form || target.closest(".center-modal-body") || target.parentElement;
+    const controls = scope ? keyboardControls(scope) : [target];
+    const index = controls.indexOf(target);
+    const next = index >= 0 ? controls.slice(index + 1).find(control => control !== target) : null;
+    const action = target.dataset.enterAction || scope && scope.dataset && scope.dataset.enterAction;
+    const form = target.form;
+    if (!next && !action && !form) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (next) { focusKeyboardField(next); return; }
+    if (action) {
+      const now = Date.now();
+      if (lastKeyboardAction.name === action && now - lastKeyboardAction.at < 800) return;
+      const button = [...app.querySelectorAll("[data-action]")].find(candidate => candidate.dataset.action === action && !candidate.disabled);
+      if (button) { target.blur(); lastKeyboardAction = { name: action, at: now }; button.click(); }
+      return;
+    }
+    if (!form) return;
+    const submit = form.querySelector("button[type=submit],input[type=submit]");
+    if (submit && submit.disabled) return;
+    target.blur();
+    if (typeof form.requestSubmit === "function") { if (submit) form.requestSubmit(submit); else form.requestSubmit(); }
+    else if (submit) submit.click();
+  });
+  app.addEventListener("pointerdown", event => {
+    if (event.target.closest && event.target.closest("#leitura-obs-input")) stopLeituraObsCountdown();
+  }, { passive: true });
+  app.addEventListener("focusin", event => {
+    if (event.target && event.target.id === "leitura-obs-input") stopLeituraObsCountdown();
+    requestAnimationFrame(() => { syncKeyboardViewport(); revealFocusedForKeyboard(); });
+  });
+  app.addEventListener("focusout", () => setTimeout(syncKeyboardViewport, 80));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", () => { syncKeyboardViewport(); revealFocusedForKeyboard(); });
+    window.visualViewport.addEventListener("scroll", syncKeyboardViewport);
+  }
+  window.addEventListener("resize", syncKeyboardViewport);
 
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
@@ -2905,6 +3152,14 @@
     if (action === "close-modal") { await closeOverlay("modal"); return; }
     if (action === "close-sheet") { await closeOverlay("sheet"); return; }
     if (action === "cancel-confirmation") { state.confirmation = null; render(); return; }
+    if (action === "duplicate-leitura-continue") {
+      const confirmation = state.confirmation;
+      if (!confirmation || confirmation.type !== "duplicate-leitura-client" || !confirmation.payload || confirmation.payload.reason !== "nome") return;
+      state.confirmation = null;
+      render();
+      await advanceLeituraNovoDraft();
+      return;
+    }
     if (action === "accept-confirmation") {
       const confirmation = state.confirmation;
       state.confirmation = null;
@@ -2944,7 +3199,11 @@
       if (ignoredProductClickId === target.dataset.productId) { ignoredProductClickId = null; return; }
       if (!isAdmin()) return;
       const product = (state.products || []).find(p => String(p.id) === String(target.dataset.productId));
-      if (product) { state.modalProduct = product; showModal("edit-product"); }
+      if (product) {
+        state.modalProduct = product;
+        state.editProductDraft = { nome: product.nome || product.name || "", unidade: product.unidade || "", precoCatalogo: product.precoCatalogo != null ? String(product.precoCatalogo) : "", estoque: product.estoque != null ? String(product.estoque) : "" };
+        showModal("edit-product");
+      }
       return;
     }
     if (action === "toggle-product-active") {
@@ -3161,6 +3420,16 @@
       await changeLeituraStep("numero"); return;
     }
     if (action === "leitura-end-manter") { const e = state.leituraEnd || {}; e.decision = "manter"; e.chosen = null; state.leituraEnd = e; await changeLeituraStep("numero"); return; }
+    if (action === "leitura-end-retry") {
+      const cap = state.leituraCapture;
+      if (!cap || !validCoordinates(cap.lat, cap.lng)) return;
+      const client = state.leituraSelectedClient || { numero: state.leituraNovoDraft.numero || "" };
+      const requestId = ++leituraEnderecoRequestId;
+      state.leituraEnd = { loading: true, loadingStage: "signal", reverse: null, decision: null, numero: String((state.leituraEnd && state.leituraEnd.numero) || client.numero || "") };
+      render();
+      void startLeituraEndereco(client, cap, requestId);
+      return;
+    }
     // Digitar/corrigir endereço à mão: semeia o formulário com o GPS/cadastro.
     if (action === "leitura-end-digitar") {
       const e = { ...(state.leituraEnd || {}) }; const r = e.reverse || {}; const c = state.leituraSelectedClient || {};
@@ -3199,8 +3468,8 @@
       await changeLeituraStep("produto");
       return;
     }
-    if (action === "leitura-produto-abrir-picker") { await changeLeituraStep("produto", () => { state.leituraProdutoPicker = true; }); return; }
-    if (action === "leitura-produto-fechar-picker") { await changeLeituraStep("produto", () => { state.leituraProdutoPicker = false; }); return; }
+    if (action === "leitura-produto-abrir-picker") { await changeLeituraStep("produto", () => { state.leituraProdutoPicker = true; state.leituraProdutoQuery = ""; }); return; }
+    if (action === "leitura-produto-fechar-picker") { await changeLeituraStep("produto", () => { state.leituraProdutoPicker = false; state.leituraProdutoQuery = ""; }); return; }
     // F3.3 — tocou no preço travado (módulo Financeiro desligado). Admin: oferece
     // ativar na hora; não-admin: só orienta (Lei do Vendedor — preço é admin-only).
     if (action === "leitura-preco-bloqueado") {
@@ -3217,6 +3486,7 @@
       if (!product) return;
       state.leituraItens.push({ productId: product.id, nome: product.nome || product.name || "Produto", unidade: product.unidade || "unidade", qtd: 1, valorUnit: null });
       state.leituraProdutoPicker = false;
+      state.leituraProdutoQuery = "";
       H.vibrate(10);
       render();
       return;
@@ -3396,6 +3666,10 @@
   app.addEventListener("touchcancel", () => { if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
+    if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) {
+      state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value };
+      return;
+    }
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "new-client-form" && ["productId", "qtdPadrao", "proximaData", "frequenciaDias", "scheduledAt", "precoAcordado"].includes(event.target.name)) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { if (event.target.name === "phone") event.target.value = formatPhone(event.target.value); if (event.target.name === "cep") event.target.value = formatCep(event.target.value); if (event.target.name === "uf") event.target.value = event.target.value.toUpperCase(); state.clientPaymentDraft[event.target.name] = event.target.value; if (event.target.name === "cep") { if (onlyDigits(event.target.value).length === 8) void lookupClientCep(event.target.value); else { clientCepRequestId += 1; setClientCepStatus(""); } } return; }
@@ -3418,14 +3692,23 @@
       return;
     }
     if (event.target.form && event.target.form.id === "leitura-nome-form" && event.target.name === "nome") { state.leituraNomeRota = event.target.value; state.leituraNomeError = ""; return; }
-    if (event.target.id === "leitura-telefone-input") { event.target.value = formatPhone(event.target.value); return; }
-    // Observações da parada: guarda o texto e, no 1º toque, PARA a contagem e
-    // remove a linha do contador via DOM (sem re-render, pra não perder o foco).
-    if (event.target.id === "leitura-obs-input") { state.leituraObsDraft = event.target.value; if (!state.leituraObsTyped) { state.leituraObsTyped = true; clearInterval(leituraObsTimer); const line = document.querySelector(".lrt-obs-count"); if (line) line.remove(); } return; }
+    if (["lend-endereco", "lend-bairro", "lend-cidade", "lend-uf", "lend-cep"].includes(event.target.id)) {
+      const key = ({ "lend-endereco": "endereco", "lend-bairro": "bairro", "lend-cidade": "cidade", "lend-uf": "uf", "lend-cep": "cep" })[event.target.id];
+      const value = key === "uf" ? event.target.value.toUpperCase() : key === "cep" ? formatCep(event.target.value) : event.target.value;
+      event.target.value = value;
+      if (state.leituraEnd) state.leituraEnd.form = { ...(state.leituraEnd.form || {}), [key]: value };
+      return;
+    }
+    if (event.target.id === "leitura-numero-input") { if (state.leituraEnd) state.leituraEnd.numero = event.target.value; return; }
+    if (event.target.id === "leitura-telefone-input") { event.target.value = formatPhone(event.target.value); state.leituraTelefoneValue = event.target.value; return; }
+    // Observações da parada: foco/toque já parou a contagem; input só persiste o
+    // rascunho sem renderizar e sem derrubar o teclado.
+    if (event.target.id === "leitura-obs-input") { state.leituraObsDraft = event.target.value; stopLeituraObsCountdown(); return; }
     // DDD do pop-up: mantém só dígitos e guarda no estado (pra não perder o que
     // foi digitado se a sugestão do CEP chegar e re-renderizar).
     if (event.target.id === "ddd-input") { const v = onlyDigits(event.target.value).slice(0, 2); event.target.value = v; if (state.dddPrompt) state.dddPrompt.ddd = v; return; }
-    if (event.target.id === "leitura-cliente-search") { state.leituraClienteQuery = event.target.value; render(); return; }
+    if (event.target.id === "leitura-cliente-search") { state.leituraClienteQuery = event.target.value; filterSelectionList(event.target, "leitura-cliente-list", "leitura-cliente-empty"); return; }
+    if (event.target.id === "leitura-produto-search") { state.leituraProdutoQuery = event.target.value; filterSelectionList(event.target, "leitura-produto-list", "leitura-produto-empty"); return; }
     if (event.target.dataset.leituraValor !== undefined) {
       const item = state.leituraItens.find(i => String(i.productId) === String(event.target.dataset.leituraValor));
       if (item) item.valorUnit = event.target.value === "" ? null : Number(event.target.value);
@@ -3449,6 +3732,8 @@
     clientsSearchTimer = setTimeout(() => loadClients(true), 300);
   });
   app.addEventListener("change", event => {
+    if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { state.oneoffDraft[event.target.name] = event.target.value; return; }
+    if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) { state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value }; return; }
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { state.clientPaymentDraft[event.target.name] = event.target.value; return; }
     if (!state.selected || !event.target.files || !event.target.files[0]) return;
@@ -3577,25 +3862,10 @@
         if (data.uf !== undefined) draft.uf = String(data.uf).toUpperCase();
         const duplicate = await findDuplicateClient(draft);
         if (duplicate) { showDuplicateClient(duplicate, "duplicate-leitura-client"); return; }
-        state.leituraSelectedClient = null;
-        state.leituraClienteProdutos = {};
-        state.leituraTelefoneValue = draft.telefone || "";
-        state.leituraTelefoneConfirmado = !!draft.telefone;
-        state.leituraTelefoneCorrigindo = false;
         button.disabled = false;
-        // F3.2 — cliente NOVO na leitura também passa pela tela de ENDEREÇO (usa o
-        // GPS do lugar) → NÚMERO, igual ao existente. Sem GPS (manual) vai direto
-        // pro telefone. O endereço confirmado é gravado no rascunho (clienteNovo).
-        const capNovo = state.leituraCapture;
-        const temGpsNovo = state.leitura && state.leitura.modo !== "MANUAL" && capNovo && Number.isFinite(Number(capNovo.lat)) && Number.isFinite(Number(capNovo.lng));
-        if (temGpsNovo) {
-          state.leituraEndNovo = true;
-          await changeLeituraStep("endereco");
-          void startLeituraEndereco({ numero: draft.numero || "" }, capNovo);
-        } else {
-          state.leituraEndNovo = false;
-          await changeLeituraStep("telefone");
-        }
+        // Cliente novo usa a mesma transição atômica do existente: o estado de
+        // GPS já nasce carregando antes de a tela de endereço aparecer.
+        await advanceLeituraNovoDraft();
       }
       if (form.id === "leitura-nome-form" && state.leitura) {
         const nome = String(data.nome || "").trim() || rotaDefaultName();
@@ -3698,8 +3968,9 @@
       moduleActive = true;
       H.salesModule && H.salesModule.deactivate();
       navigateTo(screen || "route", motion || "back");
+      syncKeyboardViewport();
     },
-    deactivate() { moduleActive = false; },
+    deactivate() { moduleActive = false; clearKeyboardViewport(); },
   };
   if (!H.modules.get().logistica && state.screen !== "settings") {
     moduleActive = false;

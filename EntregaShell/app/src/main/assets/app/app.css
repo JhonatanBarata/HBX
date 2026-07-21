@@ -599,4 +599,166 @@ h3 { font-size: .95rem; }
 .lrt-endereco-compare { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); font-size: .82rem; }
 .lrt-endereco-compare p { margin: 0; }
 
+/* Ajustes do fluxo guiado no APK: o JS informa a altura realmente visivel pelo
+   VisualViewport em --hbx-visible-height e liga .keyboard-open no html. */
+:root { --hbx-visible-height: 100dvh; }
+.sheet-wrap, .modal-wrap { max-width: 100%; overflow: hidden; }
+.sheet, .modal { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scroll-padding-block: 76px; }
+.center-modal { max-width: 420px; overflow: hidden; }
+.center-modal-head, .center-modal-nav, .center-modal-extra { flex: 0 0 auto; }
+.center-modal-body { width: 100%; max-width: 100%; min-width: 0; padding-inline: 1px; overflow-x: hidden; overscroll-behavior: contain; scroll-padding-block: 72px; }
+.center-modal-body > *, .center-modal-body form, .center-modal-body .list, .center-modal-body .search { width: 100%; max-width: 100%; min-width: 0; }
+.center-modal-body .field, .modal .field { scroll-margin-block: 72px; }
+.center-modal-extra { display: grid; gap: 8px; min-width: 0; }
+
+html.keyboard-open, html.keyboard-open body, html.keyboard-open .app { height: var(--hbx-visible-height); min-height: var(--hbx-visible-height); }
+html.keyboard-open .sheet-wrap, html.keyboard-open .modal-wrap {
+  inset: 0 0 auto;
+  height: var(--hbx-visible-height);
+  max-height: var(--hbx-visible-height);
+  align-items: center;
+  padding: 8px;
+}
+html.keyboard-open .sheet, html.keyboard-open .modal {
+  width: min(100%, 620px);
+  max-height: 100%;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 20px;
+}
+html.keyboard-open .day-home.center-modal { max-height: 100%; gap: 9px; padding: 12px 14px; }
+html.keyboard-open .center-modal-head .day-home-icon { width: 42px; height: 42px; border-radius: 14px; }
+html.keyboard-open .center-modal-resumo { padding-block: 6px; }
+html.keyboard-open .center-modal-nav { margin-top: 0; }
+html.keyboard-open .center-arrow { gap: 2px; }
+html.keyboard-open .center-arrow-glyph { width: 46px; height: 46px; font-size: 1.4rem; }
+html.keyboard-open .bottom-nav, html.keyboard-open .fab { display: none; }
+html.keyboard-open .content { padding-bottom: 14px; }
+html.keyboard-open #new-oneoff-form > .btn-primary:last-child,
+html.keyboard-open #leitura-novo-form > .btn-primary:last-child,
+html.keyboard-open #edit-product-form > .btn-primary:last-child {
+  position: sticky;
+  z-index: 3;
+  bottom: 0;
+  margin-top: 8px;
+  box-shadow: 0 -8px 18px color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+/* Cliente existente: nenhuma coluna pode aumentar a largura do cartao/modal. */
+.lrt-client-row { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }
+.lrt-client-row .card-main { flex: 1 1 auto; width: 0; min-width: 0; }
+.lrt-client-row .avatar, .lrt-client-row .lrt-distance { flex: 0 0 auto; }
+.lrt-client-row .lrt-distance { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.center-modal-body > .search { flex: 0 0 auto; margin-bottom: 10px; }
+.center-modal-body > .list { padding-right: 2px; overflow-x: hidden; }
+
+/* Endereco: estado GPS e escolhas com hierarquia clara, sem cor fixa nova. */
+.lrt-endereco-loading, .lrt-gps-loading {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  min-height: 168px;
+  padding: 24px 18px;
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
+  border-radius: 17px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--brand-soft) 52%, var(--surface));
+  text-align: center;
+}
+.lrt-endereco-loading::before, .lrt-gps-loading::before {
+  content: "";
+  width: 34px;
+  height: 34px;
+  border: 3px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+  border-top-color: var(--brand-strong);
+  border-radius: 50%;
+  animation: hbx-loading-spin .72s linear infinite;
+}
+.lrt-endereco-loading:has(.lrt-endereco-loading-icon)::before { display: none; }
+.lrt-endereco-loading-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--line));
+  border-radius: 17px;
+  color: var(--brand-strong);
+  background: var(--surface);
+  animation: lrt-gps-pulse 1.15s ease-in-out infinite;
+}
+.lrt-endereco-loading strong, .lrt-gps-loading strong { color: var(--ink); font-size: .86rem; }
+.lrt-endereco-loading p, .lrt-gps-loading p, .lrt-endereco-loading > span, .lrt-gps-loading > span { margin: 0; font-size: .74rem; }
+.lrt-endereco-options { display: grid; gap: 9px; }
+.lrt-endereco-option {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  color: var(--ink);
+  background: var(--surface-2);
+  text-align: left;
+}
+.lrt-endereco-option.is-current { border-color: color-mix(in srgb, var(--brand) 46%, var(--line)); background: var(--brand-soft); }
+.lrt-endereco-option--gps { border-color: color-mix(in srgb, var(--brand) 46%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 72%, var(--surface)); }
+.lrt-endereco-option-kicker { color: var(--brand-strong); font-size: .66rem; font-weight: 800; }
+.lrt-endereco-option strong { font-size: .8rem; }
+.lrt-endereco-option small, .lrt-endereco-option > span { color: var(--muted); font-size: .69rem; }
+.lrt-endereco-warning { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); border-radius: 11px; color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); font-size: .7rem; text-align: center; }
+.lrt-endereco-card, .lrt-endereco-compare { border-radius: 16px; box-shadow: 0 6px 18px color-mix(in srgb, var(--ink) 5%, transparent); }
+.lrt-endereco-compare { gap: 7px; padding: 8px; background: var(--surface); }
+.lrt-endereco-compare p { padding: 10px 11px; border-radius: 11px; background: var(--surface-2); line-height: 1.45; }
+.lrt-endereco-compare p[style*="--warning"] { border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); }
+@keyframes lrt-gps-pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 20%, transparent); } 50% { transform: scale(1.04); box-shadow: 0 0 0 8px color-mix(in srgb, var(--brand) 0%, transparent); } }
+
+/* Clientes/Produtos reaproveitados em modo selecao. O modo muda a acao do card,
+   mas conserva busca, avatar e texto das listas reais. */
+.hbx-selection-view, .selection-mode-view { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 100%; min-width: 0; }
+.hbx-selection-toolbar, .selection-mode-toolbar { flex: 0 0 auto; display: grid; gap: 8px; min-width: 0; }
+.hbx-selection-list, .selection-mode-list { display: grid; gap: 8px; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; }
+.hbx-selection-list .lead-card, .hbx-selection-list .row-card,
+.selection-mode-list .lead-card, .selection-mode-list .row-card { width: 100%; max-width: 100%; min-width: 0; }
+.hbx-selection-list .card-main, .selection-mode-list .card-main { flex: 1 1 auto; width: 0; min-width: 0; }
+.hbx-selection-item { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }
+.hbx-selection-item .card-main { min-width: 0; }
+.selection-mode-chevron { flex: 0 0 auto; color: var(--muted); font-size: 1rem; font-weight: 800; }
+.hbx-selection-list .lead-card[aria-selected="true"], .hbx-selection-list .row-card[aria-selected="true"],
+.selection-mode-list .lead-card[aria-selected="true"], .selection-mode-list .row-card[aria-selected="true"] {
+  border-color: var(--brand-strong);
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.hbx-selection-state, .selection-mode-state { display: grid; place-items: center; min-height: 100px; padding: 18px; color: var(--muted); text-align: center; }
+
+/* Editar produto segue a mesma moldura central do wizard, preservando o form. */
+.product-edit-modal, .modal:has(#edit-product-form) {
+  display: flex;
+  flex-direction: column;
+  width: min(calc(100% - 24px), 420px);
+  max-height: min(86dvh, var(--hbx-visible-height));
+  padding: 22px 18px calc(18px + var(--safe-bottom));
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.product-edit-modal .sheet-head, .modal:has(#edit-product-form) .sheet-head { position: relative; flex-direction: column; justify-content: center; gap: 7px; margin-bottom: 14px; text-align: center; }
+.product-edit-modal .sheet-head .avatar, .modal:has(#edit-product-form) .sheet-head .avatar { width: 52px; height: 52px; border-radius: 17px; color: var(--brand-strong); }
+.product-edit-modal .sheet-head .close, .modal:has(#edit-product-form) .sheet-head .close { position: absolute; top: -8px; right: -4px; }
+.product-edit-modal #edit-product-form, .modal:has(#edit-product-form) #edit-product-form { display: grid; gap: 2px; min-width: 0; }
+.product-edit-modal #edit-product-form .form-grid, .modal:has(#edit-product-form) #edit-product-form .form-grid { grid-template-columns: 1fr; }
+.product-edit-body { display: flex; flex-direction: column; gap: 14px; }
+.product-edit-save { min-height: 48px; margin-top: 4px; }
+.product-edit-danger { padding-top: 14px; border-top: 1px solid var(--line); }
+.product-edit-danger .btn { border-color: color-mix(in srgb, var(--danger) 38%, var(--line)); }
+
+@media (max-height: 560px) {
+  html.keyboard-open .center-modal-head .day-home-icon, html.keyboard-open .center-arrow-label { display: none; }
+  html.keyboard-open .center-modal-head h2 { font-size: .94rem; }
+  html.keyboard-open .center-modal-resumo { margin-top: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
