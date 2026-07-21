@@ -141,9 +141,16 @@ canManage), S13 (UI: editor só Admin; vendedor read-only + sandbox).
 ## Decisões em aberto (dono bate o martelo — recomendação marcada)
 
 1. **Nome do módulo na sidebar**: recomendo **"Automação"** (1 item, grupo Facilidades).
-2. **Gate de acesso**: recomendo **manter as chaves `bot` e `vendas` com OR** (item aparece se a
-   empresa tem qualquer uma; cada seção interna respeita seu gate). Zero migração de acesso, nenhuma
-   empresa perde nada. Alternativa (chave nova `automation`) exige master religar empresa a empresa.
+2. **Gate de acesso**: recomendo **OR de TRÊS chaves — `atendimento`, `bot`, `vendas`** (item
+   aparece se a empresa tem QUALQUER uma; cada seção interna respeita a(s) chave(s) dela). CORREÇÃO
+   pós-S03: a config do bot de MENU é gateada por `atendimento` (`inbox.controller.ts:37
+   @ModuleAccess('atendimento')`), não por `bot` — a decisão anterior "bot+vendas" deixava a seção
+   Atendente-roteiro fora pra quem só tem `atendimento`. Mapa por seção: Atendente = `atendimento`
+   (roteiro/menu) OU `bot` (IA/pino); Cobrança = `bot`+`atendimento` (recovery bot-config é
+   `atendimento`; activation é `bot`); Prospecção/Regras = `vendas`. Zero migração, ninguém perde
+   nada. Na prática `atendimento`+`bot` já viajam juntos (OOBE categoria "WhatsApp + IA" liga os
+   dois — `module-categories.ts:22`), mas são CompanyModule distintos. **Dono: pode vetar e voltar
+   pra 2 chaves, mas aí quem só tem `atendimento` perde a config de menu.**
 3. **Recovery entra na casca nova?** Recomendo **sim** (só reembalagem; motor intocado).
 4. **Rotas velhas**: recomendo **redirect permanente** `/bot|/automacoes|/assistente → /automacao#secao`.
 5. **E-mail de cadência (F1, flag OFF)**: recomendo **manter estrutura** (mercado é multicanal), flag continua OFF.

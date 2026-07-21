@@ -26,9 +26,10 @@ painel único de status que o produto nunca teve. As telas velhas continuam no a
 2. Navegação interna por seção: cartão → `?secao=atendente|cobranca|prospeccao|regras` na MESMA
    rota (estado local; sem sub-rotas Next). Nesta sprint as seções renderizam placeholder mínimo
    "em migração" com link pra tela velha correspondente (S13-S16 preenchem).
-3. Gate de visibilidade (decisão nº2): item nav visível se módulo `bot` OU `vendas` acessível
-   (`useMyModules`); dentro, cartão de seção só aparece se o gate DAQUELA seção passa
-   (atendente/cobranca → `bot`; prospeccao/regras → `vendas`). Fail-closed mantido.
+3. Gate de visibilidade (decisão nº2 REVISADA pós-S03 — 3 chaves): item nav visível se
+   `atendimento` OU `bot` OU `vendas` acessível (`useMyModules`); dentro, cartão de seção só aparece
+   se o gate DAQUELA seção passa — atendente → `atendimento` OU `bot`; cobranca → `bot`/`atendimento`;
+   prospeccao/regras → `vendas`. Fail-closed mantido (ver README decisão nº2 pro mapa completo).
 4. CSS 100% token/classe central (5 Leis; `check-pele` verde). Sem hex, sem inline style além dos
    padrões já usados nas telas irmãs (gap/minWidth utilitários seguem o padrão existente).
 5. Testar local (`npm run dev` frontend): tela abre com dados reais do overview, cartões refletem

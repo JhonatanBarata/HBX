@@ -21,8 +21,10 @@ Rotas velhas viram redirect. É a sprint que muda o que o cliente vê — só ro
    `automacaoHub` "Automação" (S12) permanece, grupo Facilidades. ATENÇÃO às armadilhas documentadas
    no shell: todo nav id PRECISA de ícone em ICONS (P0 de 02/07) e entrada EXPLÍCITA nos mapas
    `NAV_ENTITLEMENT`/`NAV_MODULE_KEY` (fail-closed) — atualizar os DOIS mapas, removendo as chaves
-   velhas e registrando a nova com o gate OR (bot|vendas) implementado em `isModuleVisible` sem
-   quebrar o fail-closed dos demais itens.
+   velhas e registrando a nova com o gate OR de 3 chaves (`atendimento`|`bot`|`vendas` — decisão nº2
+   revisada pós-S03) implementado em `isModuleVisible` sem quebrar o fail-closed dos demais itens.
+   NOTA: `NAV_MODULE_KEY` hoje mapeia 1 nav→1 chave; o OR de 3 chaves exige lógica dedicada pra este
+   item (não força os outros a mudar de forma).
 2. Redirects com secao certa: `/bot` → `/automacao?secao=atendente` · `/automacoes` →
    `/automacao?secao=prospeccao` · `/assistente` → `/automacao?secao=atendente&cerebro=ia`.
    ⚠️ O redirect de `/assistente` é SÓ da página raiz — NÃO capturar `/assistente/copiloto*` nem

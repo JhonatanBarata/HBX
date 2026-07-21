@@ -14,6 +14,19 @@ painel único (S12) vai consumir. Nada é migrado ainda — o overview LÊ os mo
 - EDITAR `backend/src/app.module.ts` (registrar módulo)
 - EDITAR `backend/package.json` (incluir o novo test no `test:automation`)
 
+## ⚠️ Convivência com código existente na pasta (achado S03)
+`backend/src/automation/` JÁ TEM `commercial-automation-state.service.ts` (classe pura
+`CommercialAutomationStateService`, instanciada À MÃO em `commercial-contact-control.service.ts:74`
+— NÃO é provider Nest hoje). NÃO renomear, NÃO mover, NÃO transformar em provider do módulo novo:
+ela é da exclusividade bot×cadência e o `commercial-contact-control` depende dela como classe solta.
+O `automation.module.ts` novo apenas COEXISTE na mesma pasta. Também há
+`automation/characterization/*.test.ts` (S01) — não tocar.
+
+## ⚠️ Gate de 3 chaves (decisão nº2 revisada pós-S03)
+O overview responde se a empresa tem `atendimento` OU `bot` OU `vendas` (não só bot|vendas). Cada
+BLOCO do overview respeita a(s) chave(s) da sua seção (ver README decisão nº2). Implementar o OR no
+controller checando os módulos existentes — sem guard novo, sem chave nova.
+
 ## Tarefas
 1. `GET /automation/overview` (shape exato no CONTRATO.md) agregando, por empresa autenticada:
    - `atendente`: existe AssistenteConfig? published? existe BotConfig atendimento? bot armado
