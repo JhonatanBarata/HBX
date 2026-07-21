@@ -673,7 +673,8 @@ export class LogisticaController {
   @Post('rota-modelos/:id/gerar')
   gerarRotaModelo(@Req() req: any, @Param('id') id: string, @Body() dto: GerarRotaModeloDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.rotaModelo.gerar(companyId, id, dto?.date);
+    const userId = this.ensureUserId(req.user);
+    return this.rotaModelo.gerar(companyId, id, dto?.date, userId);
   }
 
   // ── PR20072026 W1 — "Leitura de Rota" (docs/PLANEJAMENTOS/PR20072026/

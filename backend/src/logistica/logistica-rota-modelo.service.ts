@@ -127,8 +127,9 @@ export class LogisticaRotaModeloService {
    * service). Parada sem cliente / cliente de outra empresa / excluído → pula
    * e entra em `avisos[]`, sem travar o restante da lista.
    */
-  async gerar(companyId: number, id: string, dateInput?: string): Promise<GerarRotaModeloResult> {
+  async gerar(companyId: number, id: string, dateInput: string | undefined, userId: number): Promise<GerarRotaModeloResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
+    if (!Number.isInteger(userId) || userId <= 0) throw new BadRequestException('Usuário não identificado');
     const modelo = await this.prisma.logisticaRotaModelo.findFirst({
       where: { id: String(id ?? '').trim(), companyId },
       select: { id: true, paradasJson: true },
@@ -144,6 +145,7 @@ export class LogisticaRotaModeloService {
 
     const avisos: string[] = [];
     const deliveryIds: string[] = [];
+    const atribuidoAt = new Date();
 
     for (const parada of paradas) {
       const customerProfileId = String((parada as any)?.customerProfileId ?? '').trim();
@@ -177,28 +179,48 @@ export class LogisticaRotaModeloService {
       // Idempotência IGUAL ao gerarDia: já existe Entrega (cliente, local, dia)?
       const existente = await this.prisma.entrega.findFirst({
         where: { companyId, customerProfileId, localId, scheduledAt: { gte: dia, lte: dayEnd } },
-        select: { id: true },
+        select: { id: true, entregadorId: true },
       });
       if (existente) {
+        if (existente.entregadorId != null && existente.entregadorId !== userId) {
+          throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
+        }
+        if (existente.entregadorId == null) {
+          const assigned = await this.prisma.entrega.updateMany({
+            where: { id: existente.id, companyId, entregadorId: null },
+            data: { entregadorId: userId, atribuidoPorUserId: userId, atribuidoAt },
+          });
+          if (assigned.count !== 1) {
+            const current = await this.prisma.entrega.findFirst({
+              where: { id: existente.id, companyId },
+              select: { entregadorId: true },
+            });
+            if (current?.entregadorId !== userId) {
+              throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} foi atribuída a outro motorista.`);
+            }
+          }
+        }
+        if (Array.isArray(parada.itens)) {
+          const itens = await resolveSnapshotItens(this.prisma, companyId, parada.itens);
+          const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
+          const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
+          await this.prisma.entrega.update({
+            where: { id: existente.id },
+            data: {
+              productId: itens[0]?.productId ?? null,
+              quantidade,
+              valor,
+              itens: { deleteMany: {}, ...(itens.length ? { create: itens } : {}) },
+            },
+          });
+        }
         deliveryIds.push(existente.id);
         continue;
       }
 
-      const vinculos = await this.prisma.clienteProduto.findMany({
-        where: { companyId, customerProfileId, ativo: true },
-        select: {
-          productId: true,
-          qtdPadrao: true,
-          precoAcordado: true,
-          product: { select: { price: true, priceCents: true } },
-        },
-      });
-
-      const itens = vinculos.map((v: any) => ({
-        productId: v.productId,
-        qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
-        valorUnit: resolveValorUnit(v),
-      }));
+      const itens = Array.isArray(parada.itens)
+        ? await resolveSnapshotItens(this.prisma, companyId, parada.itens)
+        : await this.resolveLegacyItens(companyId, customerProfileId);
       const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
       const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
 
@@ -219,6 +241,9 @@ export class LogisticaRotaModeloService {
           customerProfileId,
           contatoId,
           localId,
+          entregadorId: userId,
+          atribuidoPorUserId: userId,
+          atribuidoAt,
           productId: itens[0]?.productId ?? null,
           quantidade,
           valor,
@@ -238,6 +263,43 @@ export class LogisticaRotaModeloService {
     );
     return { deliveryIds, avisos };
   }
+
+  private async resolveLegacyItens(companyId: number, customerProfileId: string): Promise<EntregaItemCreate[]> {
+    const vinculos = await this.prisma.clienteProduto.findMany({
+      where: { companyId, customerProfileId, ativo: true },
+      select: {
+        productId: true,
+        qtdPadrao: true,
+        precoAcordado: true,
+        product: { select: { price: true, priceCents: true } },
+      },
+    });
+    return vinculos.map((v: any) => ({
+      productId: v.productId,
+      qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+      valorUnit: resolveValorUnit(v),
+    }));
+  }
+}
+
+async function resolveSnapshotItens(
+  prisma: Pick<PrismaService, 'product'>,
+  companyId: number,
+  snapshot: RotaModeloItem[],
+): Promise<EntregaItemCreate[]> {
+  const itens = snapshot.map((item) => ({
+    productId: Math.trunc(Number(item.productId)),
+    qtdPrevista: Math.trunc(Number(item.qtd)),
+    valorUnit: Number(item.valorUnit),
+  }));
+  const productIds = [...new Set(itens.map((item) => item.productId))];
+  const produtos = productIds.length
+    ? await prisma.product.findMany({ where: { companyId, id: { in: productIds } }, select: { id: true } })
+    : [];
+  if (produtos.length !== productIds.length) {
+    throw new BadRequestException('Um produto salvo nesta rota não pertence mais a esta empresa.');
+  }
+  return itens;
 }
 
 function startOfDay(d: Date): Date {
@@ -284,10 +346,33 @@ export function normalizeParadas(value: unknown): RotaModeloParada[] {
     const localId = localIdRaw != null ? String(localIdRaw).trim() : null;
     const horaRefRaw = (item as any)?.horaRef;
     const horaRef = horaRefRaw != null ? String(horaRefRaw).trim() : null;
+    const itensRaw = (item as any)?.itens;
+    let itens: RotaModeloItem[] | undefined;
+    if (itensRaw !== undefined) {
+      if (!Array.isArray(itensRaw) || itensRaw.length > 50) {
+        throw new BadRequestException(`paradas[${index}].itens deve ter no máximo 50 itens.`);
+      }
+      itens = itensRaw.map((raw: any, itemIndex: number) => {
+        const productId = Math.trunc(Number(raw?.productId));
+        const qtd = Math.trunc(Number(raw?.qtd));
+        const valorUnit = Number(raw?.valorUnit);
+        if (!Number.isInteger(productId) || productId <= 0) {
+          throw new BadRequestException(`paradas[${index}].itens[${itemIndex}].productId inválido.`);
+        }
+        if (!Number.isInteger(qtd) || qtd < 1) {
+          throw new BadRequestException(`paradas[${index}].itens[${itemIndex}].qtd deve ser ao menos 1.`);
+        }
+        if (!Number.isFinite(valorUnit) || valorUnit < 0) {
+          throw new BadRequestException(`paradas[${index}].itens[${itemIndex}].valorUnit inválido.`);
+        }
+        return { productId, qtd, valorUnit };
+      });
+    }
     return {
       customerProfileId,
       ...(localId ? { localId } : {}),
       ...(horaRef ? { horaRef } : {}),
+      ...(itens ? { itens } : {}),
     };
   });
 }
@@ -306,6 +391,19 @@ export interface RotaModeloParada {
   localId?: string;
   // PR20072026 W1 — hora de referência ("HH:MM") da parada na captura original.
   horaRef?: string;
+  itens?: RotaModeloItem[];
+}
+
+export interface RotaModeloItem {
+  productId: number;
+  qtd: number;
+  valorUnit: number;
+}
+
+interface EntregaItemCreate {
+  productId: number;
+  qtdPrevista: number;
+  valorUnit: number;
 }
 
 export interface RotaModeloInput {

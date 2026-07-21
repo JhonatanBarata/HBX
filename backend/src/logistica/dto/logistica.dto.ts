@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -674,6 +675,26 @@ export class RotaModeloParadaDto {
   @IsString()
   @MaxLength(80)
   localId?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => RotaModeloParadaItemDto)
+  itens?: RotaModeloParadaItemDto[];
+}
+
+export class RotaModeloParadaItemDto {
+  @IsInt()
+  productId!: number;
+
+  @IsInt()
+  @Min(1)
+  qtd!: number;
+
+  @IsNumber()
+  @Min(0)
+  valorUnit!: number;
 }
 
 export class CreateRotaModeloDto {

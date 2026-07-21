@@ -350,6 +350,7 @@ export class LogisticaLeituraService {
             customerProfileId: p.customerProfileId as string,
             ...(p.localEntregaId ? { localId: p.localEntregaId as string } : {}),
             horaRef: formatHora(p.capturadoEm),
+            itens: Array.isArray(p.itensJson) ? p.itensJson : [],
           };
         })
         .filter(Boolean);
@@ -496,7 +497,10 @@ async function ensureVinculoSemDia(
     select: { id: true },
   });
   if (existente) {
-    await tx.clienteProduto.update({ where: { id: existente.id }, data: { precoAcordado: valorUnit } });
+    await tx.clienteProduto.update({
+      where: { id: existente.id },
+      data: { qtdPadrao: qtd || 1, precoAcordado: valorUnit },
+    });
   } else {
     await tx.clienteProduto.create({
       data: {

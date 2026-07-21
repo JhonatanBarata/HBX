@@ -187,7 +187,7 @@ export class LogisticaRotaService {
     includeCommercialMode = false,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date));
+    const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date, input.deliveryIds));
     // Re-planeja a partir da origem atual (mesmo caminho do planejar).
     const plan = await this.planejarRota(companyId, {
       date: input.date,
@@ -530,19 +530,24 @@ export class LogisticaRotaService {
     return { ok: true, resumo };
   }
 
-  private async resolveSingleDriver(companyId: number, date?: string): Promise<number> {
+  private async resolveSingleDriver(companyId: number, date?: string, deliveryIds?: string[]): Promise<number> {
     const { start, end } = resolveDayRange(date);
+    const selectedIds = normalizeDeliveryIds(deliveryIds);
     const rows = await this.prisma.entrega.findMany({
       where: {
         companyId,
+        ...(selectedIds?.length ? { id: { in: selectedIds } } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },
-      select: { entregadorId: true },
-      distinct: ['entregadorId'],
+      select: { id: true, entregadorId: true },
     });
-    const drivers = Array.from(new Set(rows.map((row) => row.entregadorId).filter((id): id is number => Number.isInteger(id))));
-    if (drivers.length !== 1) {
+    const hasMissingSelection = Boolean(selectedIds?.length && rows.length !== selectedIds.length);
+    const hasUnassigned = rows.some((row) => !Number.isInteger(row.entregadorId));
+    const drivers = Array.from(
+      new Set(rows.map((row) => row.entregadorId).filter((id): id is number => Number.isInteger(id))),
+    );
+    if (hasMissingSelection || hasUnassigned || drivers.length !== 1) {
       throw new BadRequestException('Atribua as entregas a exatamente um motorista antes de iniciar a rota.');
     }
     return drivers[0];
