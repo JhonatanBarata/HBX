@@ -28,14 +28,20 @@
 // das 7 peças do canvas têm campo real por trás (mainMenuPrompt, humanAckMessage,
 // closeTopicMessage) e só 1 dos 2 grupos de botão (mainMenuButtons; welcomeButtons
 // não existe no schema real). As outras 4 peças (Boas-vindas, Retorno, Pós-ação,
-// Bloqueado) ficam "peça vazia" que nunca acende — o backend ignora esses
-// campos em silêncio no PATCH (normalizeRecoveryBotConfig não os lê). Isto é
-// um comportamento PRÉ-EXISTENTE da guia Recovery do /bot velho, não algo
-// introduzido aqui — reproduzido tal qual (reembalagem = motor/endpoints
-// intocados; cobrir o vocabulário REAL do Recovery exigiria tornar o
-// BotFlowCanvas genérico, o que é trabalho de produto, fora do escopo desta
-// sprint). `mainMenuPrompt`/`mainMenuButtons` — a peça que decide o pré-voo
-// real (`resolveConfigCompleta` no backend) — está coberta e funcional.
+// Bloqueado) ficam "peça vazia" que nunca acende — e esses campos NÃO PODEM
+// ir no PATCH: o DTO (update-recovery-bot-config.dto.ts) não os tem e o
+// ValidationPipe global (whitelist+forbidNonWhitelisted, main.ts) rejeita a
+// request INTEIRA com 400 ("property welcomeMessage should not exist"),
+// perdendo junto as edições válidas do mesmo Salvar. (A versão anterior deste
+// comentário dizia "o backend ignora em silêncio" — ERRADO, e o /bot velho
+// enviava tudo, ou seja, o Salvar da guia Recovery já quebrava lá igual.)
+// Por isso buildBody() filtra por RECOVERY_REAL_MSG_FIELDS/BTN_GROUPS; texto
+// digitado nas 4 peças vive só na prévia local e não persiste (decisão do
+// dono 21/07: fix mínimo front-only, motor intocado — dar função real às
+// peças é trabalho de produto; cobrir o vocabulário REAL do Recovery exigiria
+// tornar o BotFlowCanvas genérico). `mainMenuPrompt`/`mainMenuButtons` — a
+// peça que decide o pré-voo real (`resolveConfigCompleta` no backend) — está
+// coberta e funcional.
 //
 // D2. `buildBody()` NUNCA escreve `routingRules` (diferente do /bot velho, que
 // mandava um objeto no VOCABULÁRIO do Atendimento — globalBotEnabled,
@@ -150,6 +156,11 @@ const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string; hint: string }[] = [
   { key: "welcomeButtons", label: "Botões de boas-vindas", hint: "aparecem na primeira mensagem" },
   { key: "mainMenuButtons", label: "Botões do menu principal", hint: "opções do menu" },
 ];
+// Subconjunto com contraparte REAL no RecoveryBotConfig/DTO (D1) — o único
+// que buildBody() pode enviar; qualquer chave fora disso derruba o PATCH
+// inteiro com 400 (forbidNonWhitelisted global).
+const RECOVERY_REAL_MSG_FIELDS: ReadonlySet<MsgFieldKey> = new Set(["mainMenuPrompt", "humanAckMessage", "closeTopicMessage"]);
+const RECOVERY_REAL_BTN_GROUPS: ReadonlySet<BotaoGrupo> = new Set(["mainMenuButtons"]);
 
 // ================================================================
 // RAIZ da seção — GET /hbx-recovery/bot-config + GET /bot/activation.
@@ -239,10 +250,12 @@ export function SecaoCobranca({ onChanged }: { onChanged?: () => void }) {
   function buildBody(): Record<string, unknown> {
     const body: Record<string, unknown> = config ? { ...config } : {};
     for (const f of BOT_MSG_FIELDS) {
+      if (!RECOVERY_REAL_MSG_FIELDS.has(f.key)) continue; // D1: fora do DTO → 400 na request inteira
       const v = cfgValue(f.key);
       if (v.trim()) body[f.key] = v;
     }
     for (const g of BOT_BTN_GROUPS) {
+      if (!RECOVERY_REAL_BTN_GROUPS.has(g.key)) continue; // D1: welcomeButtons não existe no schema real
       const edited = cfgBotoes[g.key];
       if (!edited) continue;
       body[g.key] = edited.map((b) => ({
