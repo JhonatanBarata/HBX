@@ -225,3 +225,17 @@
 .aut-minifluxo--compact .aut-minifluxo__node { padding: 0; border: none; background: none; min-width: 0; }
 .aut-minifluxo--compact .aut-minifluxo__dot { width: 7px; height: 7px; border-radius: 999px; background: var(--hbx-brand-strong); flex: none; }
 .aut-minifluxo--compact .aut-minifluxo__conn svg { width: 8px; height: 6px; }
+
+/* S03 (PADRAO-MERCADO) - secao Atendente, cerebro IA: o painel "Ajustes"
+   (persona pos-wizard, ver secao-atendente.tsx IaAjustesDrawer) reusa 100%
+   da casca do editor de peca do Roteiro (.hbx-veil.to-right + .hbx-drawer +
+   .bot-phase-editor, bot-builder.css) e dos campos do wizard (.ia-field,
+   .ia-choice-row, .ia-choice, acima) - zero classe nova pro conteudo do
+   painel (Lei no 2, nunca duplicar visual). O UNICO novo aqui e o wrap que
+   hospeda o botao flutuante "Ajustes" (mesma peca .bot-board-settings que o
+   Roteiro ja usa no canvas) sobre o trilho da IA: o trilho (.ia-flow)
+   continua rolando por dentro enquanto o botao fica fixo no canto - mesmo
+   truque estrutural do .bot-board-canvas (posicionado + overflow proprio),
+   aplicado ao trilho. */
+.ia-flow-wrap { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.ia-flow-wrap > .ia-flow { flex: 1; }

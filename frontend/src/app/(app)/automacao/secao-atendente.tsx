@@ -66,6 +66,8 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 // S01 (PADRAO-MERCADO): telefone (dock + <WhatsAppPreview>) extraído pro kit central — zero duplicação (era igual em secao-cobranca.tsx).
 import type { WAMessage } from "@/components/hbx/whatsapp-preview";
 import { PhonePreview } from "./kit/phone-preview";
+// S03 (PADRAO-MERCADO): StatusChip pro aviso do fallback do sandbox — Lei nº3 (vocabulário único de status).
+import { StatusChip } from "./kit/status-chip";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
 import { BotPhaseEditor, type PhaseRuleDef } from "@/components/hbx/bot-phase-editor";
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
@@ -153,9 +155,10 @@ const PERFIS: { key: Perfil; title: string; desc: string }[] = [
   { key: "vendas", title: "Vendas", desc: "Desperta interesse e conduz para o próximo passo" },
   { key: "suporte", title: "Suporte", desc: "Entende o problema e ajuda ou encaminha" },
 ];
+// S03 (PADRAO-MERCADO): descs no teto da Lei nº1 (≤70 chars, 1 linha — eram parágrafo de 2 frases).
 const BRAIN_CHOICES: { key: AgentBrain; icon: keyof typeof ICONS; title: string; tag: string; desc: string }[] = [
-  { key: "roteiro", icon: "bot", title: "Roteiro de botões", tag: "Recomendado pra começar", desc: "Resposta fixa, zero surpresa — você escreve as mensagens e os botões do menu." },
-  { key: "ia", icon: "assistente", title: "Inteligência Artificial", tag: "Conversa natural", desc: "IA local conduz a conversa sozinha. Teste grátis no sandbox antes de publicar." },
+  { key: "roteiro", icon: "bot", title: "Roteiro de botões", tag: "Recomendado pra começar", desc: "Resposta fixa — você escreve as mensagens e os botões do menu." },
+  { key: "ia", icon: "assistente", title: "Inteligência Artificial", tag: "Conversa natural", desc: "IA local conduz a conversa — teste grátis no sandbox antes." },
 ];
 
 type MsgFieldKey =
@@ -317,11 +320,12 @@ export function SecaoAtendente({ iaPublishEnabled, onChanged }: { iaPublishEnabl
 }
 
 function AguardandoConfigPanel() {
+  // S03 (PADRAO-MERCADO): parágrafo de 2 frases virou 1 linha (Lei nº1).
   return (
     <div className="panel aut-secao-placeholder">
       <span className="aut-secao-placeholder__icon"><I d={ICONS.atend} size={26} /></span>
       <h4>Nenhum atendente configurado ainda</h4>
-      <p>A configuração é feita pelo Admin da empresa. Assim que ele configurar, o Atendente aparece aqui — e já dá pra testar o comportamento padrão no sandbox ao lado.</p>
+      <p>Configuração é do Admin — teste o padrão no sandbox.</p>
     </div>
   );
 }
@@ -394,7 +398,8 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
             <label className="field-label">Nome do atendente</label>
             <input className="field-dark" maxLength={60} placeholder="Ex.: Júlia, Leonardo, Bia…"
               value={nome} onChange={(e) => setNome(e.target.value)} />
-            <span className="ia-field__hint">Se você escolher o cérebro de IA, seus clientes conversam com esse nome.</span>
+            {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 72 chars). */}
+            <span className="ia-field__hint">Se escolher IA, seus clientes conversam com esse nome.</span>
           </div>
           <div className="ia-field">
             <label className="field-label">Estilo de comunicação</label>
@@ -451,7 +456,8 @@ function Wizard({ empresaPadrao, onCreated, onCancel }: {
             <label className="field-label">Produtos ou serviços</label>
             <textarea className="field-dark" rows={3} maxLength={600} placeholder="Ex.: instalação e manutenção de ar-condicionado, PMOC, contratos para empresas…"
               value={produtos} onChange={(e) => setProdutos(e.target.value)} />
-            <span className="ia-field__hint">Vale só pro cérebro de IA — o roteiro usa as mensagens que você escrever na próxima tela.</span>
+            {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 90 chars). */}
+            <span className="ia-field__hint">Vale só pra IA — o roteiro usa as mensagens da próxima tela.</span>
           </div>
           <div className="ia-actions">
             <button className="btn-ghost" onClick={() => setStep(1)}>Voltar</button>
@@ -521,6 +527,10 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
   const [seedingRoteiro, setSeedingRoteiro] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [termsOpen, setTermsOpen] = useState(false);
+  // S03 (PADRAO-MERCADO): painel "Ajustes" do cérebro IA (persona pós-wizard) — espelha o
+  // `editorKey==="ajustes"` que o Roteiro já tem; estado próprio, PUT próprio (ver salvarAjustesIa).
+  const [iaAjustesOpen, setIaAjustesOpen] = useState(false);
+  const [savingAjustes, setSavingAjustes] = useState(false);
 
   // Resincroniza edições locais quando uma releitura fresca chega (salvar,
   // seed ou publicar) — mesmo padrão de assistente/page.client.tsx Editor.
@@ -601,6 +611,30 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
       setNote(e instanceof Error ? e.message : "Não foi possível salvar.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // S03 (PADRAO-MERCADO): Ajustes da IA (persona pós-wizard) — MESMO PUT que
+  // salvarIa()/seedIa()/wizard.finalizar() já usam, {ia:{...}}, zero rota nova.
+  // CUIDADO (S03.md): manda `fluxo: iaFluxo` (o vivo, com edições locais ainda
+  // não salvas) — NUNCA `view.ia.fluxo` (o do servidor) — porque o backend
+  // (AssistenteService.save) faz upsert de substituição inteira; mandar sem
+  // `fluxo` ou com a versão velha ZERARIA mensagens/condições em edição.
+  async function salvarAjustesIa(persona: { nome: string; tom: Tom; perfil: Perfil; produtos: string; empresaNome: string }) {
+    setSavingAjustes(true);
+    setNote(null);
+    try {
+      const res = await apiFetch<AgentView>("/automation/agent", {
+        method: "PUT",
+        body: JSON.stringify({ ia: { ...persona, fluxo: iaFluxo } }),
+      });
+      onChanged(res);
+      setNote("Ajustes da IA salvos.");
+      setIaAjustesOpen(false);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : "Não foi possível salvar os ajustes.");
+    } finally {
+      setSavingAjustes(false);
     }
   }
 
@@ -727,8 +761,10 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
           ))}
         </div>
 
+        {/* S03 (PADRAO-MERCADO): "Refazer"→"Recomeçar" e reordenado pro FIM — deixa
+            de ser a 1ª ação da barra (não pode mais parecer "o jeito de editar",
+            papel que agora é do botão Ajustes dentro do próprio cérebro IA). */}
         <div className="ia-toolbar__actions">
-          {canManage && <button className="btn-ghost btn-xs" onClick={onRefazer}>Refazer</button>}
           {canManage && (
             <button
               className="btn-ghost btn-xs"
@@ -745,25 +781,26 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
               <button className="btn-teal btn-xs" disabled={saving || currentDirty || !view.armed} onClick={requestPublish}>Publicar</button>
             )
           )}
+          {canManage && <button className="btn-ghost btn-xs" onClick={onRefazer} title="Recomeçar o wizard do zero">Recomeçar</button>}
         </div>
       </div>
 
       {!canManage && (
         <div className="auto-flag-note">
           <I d={ICONS.help} size={14} />
-          Modo leitura — a configuração é feita pelo Admin da empresa. Teste à vontade no sandbox ao lado.
+          Modo leitura — configuração é do Admin; teste à vontade no sandbox.
         </div>
       )}
       {selectedBrain === "ia" && !iaPublishEnabled && (
         <div className="auto-flag-note">
           <I d={ICONS.help} size={14} />
-          Ativação da IA no WhatsApp está desligada nesta instalação. Teste à vontade no sandbox — nada é enviado no WhatsApp.
+          IA desligada aqui — teste à vontade, nada sai no WhatsApp.
         </div>
       )}
       {view.preflight && !view.preflight.chipConectado && (
         <div className="auto-flag-note">
           <I d={ICONS.help} size={14} />
-          WhatsApp ainda não conectado — conecte o chip para publicar de verdade.
+          WhatsApp não conectado — conecte o chip para publicar de verdade.
         </div>
       )}
       {note && <div className="auto-flag-note"><I d={ICONS.check} size={14} />{note}</div>}
@@ -771,12 +808,18 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
       <div className="ia-split has-chat">
         {selectedBrain === "ia" ? (
           view.ia ? (
-            <IaPane fluxo={iaFluxo} onChange={(f) => { setIaFluxo(f); setIaDirty(true); }} canManage={canManage} />
+            <IaPane
+              fluxo={iaFluxo}
+              onChange={(f) => { setIaFluxo(f); setIaDirty(true); }}
+              canManage={canManage}
+              ajustesOpen={iaAjustesOpen}
+              onOpenAjustes={() => setIaAjustesOpen(true)}
+            />
           ) : (
             <EmptyBrainCta
               icon="assistente"
               title="Configurar a IA"
-              desc="Dá o pontapé inicial no cérebro de Inteligência Artificial do Atendente — você ajusta o fluxo na hora."
+              desc="IA conduz a conversa — você ajusta o fluxo na hora."
               canManage={canManage}
               busy={seedingIa}
               onStart={() => void seedIa()}
@@ -800,7 +843,7 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
             <EmptyBrainCta
               icon="bot"
               title="Configurar o Roteiro"
-              desc="Começa com as mensagens padrão prontas — você ajusta do seu jeito na hora."
+              desc="Mensagens padrão prontas — ajuste do seu jeito."
               canManage={canManage}
               busy={seedingRoteiro}
               onStart={() => void seedRoteiro()}
@@ -824,6 +867,19 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
         onAccept={() => { setBotTermsAccepted("atendimento"); setTermsOpen(false); void doPublish(true); }}
         onClose={() => setTermsOpen(false)}
       />
+
+      {/* S03 (PADRAO-MERCADO): Ajustes da IA — só existe com o cérebro IA em foco
+          e já configurado (o botão que abre vive dentro do próprio IaPane). */}
+      {selectedBrain === "ia" && view.ia && (
+        <IaAjustesDrawer
+          open={iaAjustesOpen}
+          ia={view.ia}
+          empresaPadrao={empresaNome}
+          saving={savingAjustes}
+          onSave={(persona) => void salvarAjustesIa(persona)}
+          onClose={() => setIaAjustesOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -854,7 +910,13 @@ function EmptyBrainCta({ icon, title, desc, canManage, busy, onStart }: {
 // IA PANE — fluxo em trilho (mensagens + condições), mesmo padrão de
 // /assistente/page.client.tsx, sem a identidade (isso é só no wizard).
 // ============================================================================
-function IaPane({ fluxo, onChange, canManage }: { fluxo: Fluxo; onChange: (next: Fluxo) => void; canManage: boolean }) {
+function IaPane({ fluxo, onChange, canManage, ajustesOpen, onOpenAjustes }: {
+  fluxo: Fluxo;
+  onChange: (next: Fluxo) => void;
+  canManage: boolean;
+  ajustesOpen: boolean;
+  onOpenAjustes: () => void;
+}) {
   function updatePasso(id: string, texto: string) {
     onChange({ ...fluxo, passos: fluxo.passos.map((p) => (p.id === id ? { ...p, texto } : p)) });
   }
@@ -889,7 +951,12 @@ function IaPane({ fluxo, onChange, canManage }: { fluxo: Fluxo; onChange: (next:
   }
 
   return (
-    <div className="ia-flow">
+    // S03 (PADRAO-MERCADO): wrap posicionado (mesmo truque estrutural do
+    // .bot-board-canvas do Roteiro) — o botão "Ajustes" fica fixo no canto
+    // enquanto o trilho (.ia-flow) rola por dentro; espelha o
+    // .bot-board-settings que o Roteiro já tem no canvas (mesma peça visual).
+    <div className="ia-flow-wrap">
+      <div className="ia-flow">
       <div className="ia-rail">
         <div className="ia-rail__sec">
           <span className="ia-rail__sec-tag"><I d={ICONS.msg} size={12} /> Mensagens</span>
@@ -949,6 +1016,18 @@ function IaPane({ fluxo, onChange, canManage }: { fluxo: Fluxo; onChange: (next:
           </div>
         )}
       </div>
+      </div>
+      {canManage && (
+        <button
+          type="button"
+          className={"bot-board-settings" + (ajustesOpen ? " on" : "")}
+          onClick={onOpenAjustes}
+          title="Ajustes da persona (nome, tom, perfil, produtos)"
+        >
+          <span className="bot-board-settings__icon"><I d={ICONS.config} size={14} /></span>
+          <span className="bot-board-settings__txt">Ajustes</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -1008,6 +1087,184 @@ function CondicaoEditor({ cond, passos, canManage, onChange, onRemove, onAddExem
             </select>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// AJUSTES DA IA — painel deslizante da persona pós-wizard (achado A2 do
+// README: "mudar = Refazer do zero"). Espelha 100% a casca do editor de peça
+// do Roteiro (.hbx-veil.to-right + .hbx-drawer + .bot-phase-editor,
+// bot-builder.css) e reusa os MESMOS campos/classes do wizard (nome/tom
+// pills/perfil pills/produtos/nome da empresa — .ia-field/.ia-choice-row/
+// .ia-choice, assistente.css) — zero classe nova pro conteúdo (Lei nº2).
+// Estado de abertura/fechamento espelha EXATAMENTE BotPhaseEditor (mesmo
+// `closing` + finishClose/requestClose + onAnimationEnd + timeout de
+// fallback) — gotcha documentado no cabeçalho de bot-phase-editor.tsx: sem
+// isso o véu trava aberto ao fechar.
+// ============================================================================
+function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
+  open: boolean;
+  ia: IaConfig;
+  empresaPadrao: string;
+  saving: boolean;
+  onSave: (persona: { nome: string; tom: Tom; perfil: Perfil; produtos: string; empresaNome: string }) => void;
+  onClose: () => void;
+}) {
+  // Seedado 1x na abertura (o componente desmonta ao fechar de vez — mesmo
+  // padrão de BotPhaseEditor) — reabrir sempre parte dos valores atuais de `ia`.
+  const [nome, setNome] = useState(ia.nome);
+  const [tom, setTom] = useState<Tom>(ia.tom);
+  const [perfil, setPerfil] = useState<Perfil>(ia.perfil);
+  const [produtos, setProdutos] = useState(ia.produtos);
+  const [empresaNome, setEmpresaNome] = useState(ia.empresaNome || empresaPadrao);
+
+  const tomPill = useGlassPill<HTMLButtonElement>(tom);
+  const perfilPill = useGlassPill<HTMLButtonElement>(perfil);
+  const fraseExemplo = useMemo(() => TONS.find((t) => t.key === tom)?.frase ?? "", [tom]);
+  const canSave = nome.trim().length >= 2;
+
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [closing, setClosing] = useState(false);
+
+  // Reset SEM effect ao reabrir (mesmo padrão de BotPhaseEditor).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open && closing) setClosing(false);
+  }
+
+  const finishClose = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    setClosing(false);
+    onClose();
+  }, [onClose]);
+
+  const requestClose = useCallback(() => {
+    setClosing(true);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(finishClose, 360);
+  }, [finishClose]);
+
+  const handleAnimEnd = useCallback(() => {
+    if (!closing) return;
+    finishClose();
+  }, [closing, finishClose]);
+
+  useEffect(() => {
+    return () => { if (closeTimer.current) clearTimeout(closeTimer.current); };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.stopPropagation(); requestClose(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, requestClose]);
+
+  useEffect(() => {
+    if (open) {
+      if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+      panelRef.current?.focus();
+    }
+  }, [open]);
+
+  if (!open && !closing) return null;
+
+  return (
+    <div
+      className={"hbx-veil to-right" + (closing ? " bot-phase-veil--closing" : "")}
+      onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
+    >
+      <div
+        ref={panelRef}
+        className={"hbx-drawer bot-phase-editor" + (closing ? " bot-phase-editor--closing" : "")}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ajustes da IA"
+        tabIndex={-1}
+        onAnimationEnd={handleAnimEnd}
+      >
+        <header className="bot-phase-editor__head">
+          <span className="bot-phase-editor__icon" style={{ ["--bot-phase-color" as string]: "var(--hbx-secondary)" }}>
+            <I d={ICONS.config} size={16} />
+          </span>
+          <span className="bot-phase-editor__titles">
+            <span className="bot-phase-editor__title">Ajustes da IA</span>
+            <span className="bot-phase-editor__hint">Persona do cérebro — nome, tom, perfil</span>
+          </span>
+          <button type="button" className="bot-phase-editor__close" aria-label="Fechar" title="Fechar" onClick={requestClose}>✕</button>
+        </header>
+
+        <div className="bot-phase-editor__body">
+          <div className="ia-field">
+            <label className="field-label">Nome do atendente</label>
+            <input className="field-dark" maxLength={60} placeholder="Ex.: Júlia, Leonardo, Bia…"
+              value={nome} onChange={(e) => setNome(e.target.value)} />
+          </div>
+
+          <div className="ia-field">
+            <label className="field-label">Estilo de comunicação</label>
+            <div className="ia-choice-row">
+              <GlassPill {...tomPill} />
+              {TONS.map((t) => (
+                <button key={t.key} ref={tomPill.itemRef(t.key)} type="button" className={"ia-choice" + (tom === t.key ? " is-on" : "")} onClick={() => setTom(t.key)}>
+                  <span className="ia-choice__title">{t.title}</span>
+                  <span className="ia-choice__desc">{t.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="ia-style-preview">
+            <div className="wa-msg wa-msg--in">
+              <div className="wa-bubble">
+                <span className="wa-bubble__text">{fraseExemplo}</span>
+                <span className="wa-bubble__meta"><span className="wa-bubble__time">{nowTime()}</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div className="ia-field">
+            <label className="field-label">Perfil do atendente</label>
+            <div className="ia-choice-row">
+              <GlassPill {...perfilPill} />
+              {PERFIS.map((p) => (
+                <button key={p.key} ref={perfilPill.itemRef(p.key)} type="button" className={"ia-choice" + (perfil === p.key ? " is-on" : "")} onClick={() => setPerfil(p.key)}>
+                  <span className="ia-choice__title">{p.title}</span>
+                  <span className="ia-choice__desc">{p.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="ia-field">
+            <label className="field-label">Nome da empresa</label>
+            <input className="field-dark" maxLength={120} placeholder="Ex.: Colsani Ar-Condicionado"
+              value={empresaNome} onChange={(e) => setEmpresaNome(e.target.value)} />
+          </div>
+
+          <div className="ia-field">
+            <label className="field-label">Produtos ou serviços</label>
+            <textarea className="field-dark" rows={3} maxLength={600} placeholder="Ex.: instalação e manutenção de ar-condicionado…"
+              value={produtos} onChange={(e) => setProdutos(e.target.value)} />
+          </div>
+        </div>
+
+        <footer className="bot-phase-editor__foot">
+          <button
+            type="button"
+            className="btn-teal bot-phase-editor__done"
+            disabled={!canSave || saving}
+            onClick={() => onSave({ nome: nome.trim(), tom, perfil, produtos, empresaNome: empresaNome.trim() })}
+          >
+            <I d={ICONS.check} size={13} /> {saving ? "Salvando…" : "Salvar ajustes"}
+          </button>
+        </footer>
       </div>
     </div>
   );
@@ -1201,6 +1458,10 @@ function AtendenteSandbox({ brain, iaLive, roteiroLive, displayName, disabledRea
   const srcLabel = lastSource
     ? (SANDBOX_SOURCE_LABEL[lastSource.source] || lastSource.source) + (lastSource.source === "ia" && lastSource.ms > 0 ? ` · ${(lastSource.ms / 1000).toFixed(1)}s` : "")
     : null;
+  // S03 (PADRAO-MERCADO): fallback (timeout/erro da IA → roteiro de reserva,
+  // achado A1/S03.md item 4) precisa ser INCONFUNDÍVEL com resposta real da
+  // IA — StatusChip `atencao` + 1 linha, nunca o rodapé apagado de sempre.
+  const isFallback = lastSource?.source === "fallback";
 
   // S01 (PADRAO-MERCADO): dock + <WhatsAppPreview> viviam duplicados aqui e
   // em CobrancaPreview (secao-cobranca.tsx) — componente único agora
@@ -1213,7 +1474,7 @@ function AtendenteSandbox({ brain, iaLive, roteiroLive, displayName, disabledRea
       typing={busy}
       bodyRef={bodyRef}
       header={{ name: displayName, status: "online" }}
-      emptyHint={disabledReason || `Mande um "oi" para ver o Atendente responder. Nada sai pro WhatsApp de verdade.`}
+      emptyHint={disabledReason || `Mande um "oi" pra testar — nada sai pro WhatsApp de verdade.`}
       quickReplies={quick.length ? quick : undefined}
       onQuickReply={(q) => void send(q)}
       footer={
@@ -1231,7 +1492,15 @@ function AtendenteSandbox({ brain, iaLive, roteiroLive, displayName, disabledRea
           </button>
         </form>
       }
-      footerNote={srcLabel ? <><I d={ICONS.bolt} size={11} /> {srcLabel}</> : disabledReason || "O teste roda local — nada é enviado no WhatsApp."}
+      footerNote={
+        isFallback ? (
+          <><StatusChip tone="atencao" size="s" /> Isto é o roteiro de reserva, não a IA.</>
+        ) : srcLabel ? (
+          <><I d={ICONS.bolt} size={11} /> {srcLabel}</>
+        ) : (
+          disabledReason || "O teste roda local — nada é enviado no WhatsApp."
+        )
+      }
     />
   );
 }
