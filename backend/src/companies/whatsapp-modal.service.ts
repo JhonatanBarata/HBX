@@ -196,6 +196,11 @@ export class WhatsAppModalService {
   private readonly connectAttemptCooldownMs = 12000;
   private readonly webhookConfigureCooldownMs = 60000;
   private readonly webhookConfigureFailureRetryMs = 10000;
+  // PR21072026-S3: throttle do guard de saude do webhook (ensureProviderWebhookHealthy). O
+  // find/{tenantKey} e barato mas nao precisa rodar a cada poll de status do reconciler —
+  // 1x por tenant a cada janela (incidente 20/07: instancia open sem webhook ficava muda pra sempre).
+  private readonly recentWebhookHealthCheckAt = new Map<string, number>();
+  private readonly webhookHealthCheckCooldownMs = 5 * 60 * 1000;
   private readonly qrCodeCacheTtlMs = 45000;
   private readonly pairingCodeCooldownMs = 60_000;
   private readonly pairingCodeTtlSeconds = 120;
@@ -768,6 +773,13 @@ export class WhatsAppModalService {
 
       const snapshot = this.reconcileTransientSnapshot(tenantKey, await this.extractSnapshot(payload, fallback));
 
+      // PR21072026-S3: instancia open/connected no motor → guard de saude do webhook (throttled,
+      // fire-and-forget). Incidente 20/07: instancia open sem webhook ficava muda pra sempre porque
+      // nenhum cron/poll reconferia depois da conexao.
+      if (snapshot.status === 'connected') {
+        void this.ensureProviderWebhookHealthy(tenantKey); // fire-and-forget, nunca bloquear o reconcile
+      }
+
       // (b) Motor 'open' e banco caído → promove pra connected (o antigo self-heal).
       if (snapshot.status === 'connected' && bankSaysDown) {
         await this.persistSnapshot(company, snapshot, 'reconcile_provider_open', userId);
@@ -788,6 +800,53 @@ export class WhatsAppModalService {
         `Modal WhatsApp reconcile skipped for company ${company.id} tenant=${tenantKey}: ${providerError.message}`,
       );
       return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // PR21072026-S3 — Guard: instancia open/connected no motor sem webhook fica muda PARA SEMPRE
+  // ---------------------------------------------------------------------------
+  // Incidente 20/07: uma instancia que sobe 'open' sem a linha de Webhook nunca mais e conferida
+  // (nenhum cron/poll revalidava pos-conexao). Chamado fire-and-forget pelo reconciler central
+  // quando o estado vivo e 'open'/'connected'; NUNCA pode lancar nem atrasar o reconcile de status.
+  // Throttle proprio (webhookHealthCheckCooldownMs) — o find e barato mas nao precisa rodar a
+  // cada status poll.
+  private async ensureProviderWebhookHealthy(tenantKey: string): Promise<void> {
+    try {
+      const lastCheckedAt = this.recentWebhookHealthCheckAt.get(tenantKey);
+      if (typeof lastCheckedAt === 'number' && Date.now() - lastCheckedAt < this.webhookHealthCheckCooldownMs) {
+        return;
+      }
+      // So leitura (find) — pode carimbar o cooldown antes de chamar o motor.
+      this.recentWebhookHealthCheckAt.set(tenantKey, Date.now());
+
+      const webhookUrl = this.buildProviderWebhookUrl();
+      if (!webhookUrl) return;
+
+      const requiredEvents = this.buildProviderWebhookEvents();
+      const findResult = await this.requestProviderDiagnostic({
+        method: 'GET',
+        path: `/webhook/find/${encodeURIComponent(tenantKey)}`,
+        purpose: 'health-check do webhook da instancia (reconcile)',
+        instance: tenantKey,
+      });
+
+      const missingRow = findResult.status === 404;
+      const validation = this.validateProviderWebhookSettings(findResult.body, webhookUrl, requiredEvents);
+      if (missingRow || !validation.ok) {
+        this.logger.error(
+          `Webhook WebWhats AUSENTE em instancia open instance=${tenantKey} status=${findResult.status} ` +
+            `mismatches=${missingRow ? 'http_404_sem_webhook' : validation.mismatches.join('; ')} — reconfigurando (incidente-20-07)`,
+        );
+        // A cura nao pode ser engolida pelo cooldown de configure — e exatamente o bug original.
+        this.recentWebhookConfigureAt.delete(tenantKey);
+        await this.tryConfigureProviderWebhook(tenantKey, 'reconcile');
+      }
+    } catch (error) {
+      const providerError = this.toProviderError(error);
+      this.logger.warn(
+        `Webhook WebWhats health-check (reconcile) falhou transiente instance=${tenantKey}: ${providerError.message}`,
+      );
     }
   }
 
