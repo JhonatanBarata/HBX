@@ -1,8 +1,10 @@
 # QA-VPS — roteiro pós-publish da fusão MOTOR-ÚNICO (S22)
 
-> Só roda DEPOIS que o dono publicar do HEAD completo (`npm run publish`, a partir de
-> um estado com S15→S21 no local — ver `RELATORIO-FINAL.md` pro porquê). Ordem
-> estrita: cada passo assume o anterior verde. Ambiente: VPS (produção) —
+> **EXECUTADO EM 21/07/2026** contra produção (`083f1bf9` no VPS) — resultado no fim
+> do arquivo, seção "Execução 21/07". O texto abaixo é o roteiro; onde a execução
+> contrariou a expectativa, está corrigido em linha.
+>
+> Ordem estrita: cada passo assume o anterior verde. Ambiente: VPS (produção) —
 > `docker exec`/`docker logs` locais aqui rodam via `node scripts/vps-run.js "<comando>"`
 > a partir da raiz do repo (mesmo padrão usado na S02, `INVENTARIO.md`).
 
@@ -89,8 +91,11 @@ REAL dele, com `BotConfig`/`AssistenteConfig` editados ativamente — ver
    - `/bot` → deve cair em `/automacao?secao=atendente`
    - `/automacoes` → deve cair em `/automacao?secao=prospeccao`
    - `/assistente` → deve cair em `/automacao?secao=atendente`
-   Confirmar que `/assistente/copiloto` (painel do lead) **continua funcionando
-   direto**, sem redirect — é feature separada, preservada intacta.
+   ⚠️ CORRIGIDO 21/07: `/assistente/copiloto` **não é rota** — o Copiloto é painel
+   DENTRO do lead (`leads/[id]/copiloto-panel.tsx`). Essa URL dá 404, e isso é o
+   comportamento CERTO; o que importa é que ela **não** foi capturada pelo redirect
+   de `/assistente`. Pra provar o Copiloto vivo: abrir um lead em `/vendas` e
+   confirmar `GET /assistente/copiloto` 200 + `POST /assistente/copiloto/resumo` 201.
 
 ---
 
@@ -179,3 +184,49 @@ mover pra `prisma/migrations/`:**
       (recomendação: deixar ON)
 - [ ] (e) teste de chip real — só se o dono pedir, só em número descartável
 - [ ] (f) — fora de escopo deste publish; só quando uma sprint futura limpar o P1-2
+
+---
+
+## Execução 21/07/2026 (produção, `083f1bf9`)
+
+**Verde:** (a) boot limpo, 7 rotas `/automation/*` mapeadas, orquestrador iniciado
+(`tick 60000ms — executores: cadencia_steps, cadencia_rotinas`); (b) backfill dry-run
+= empresa 5 `skipped_up_to_date`, empresa 45 pendente (fail-soft, cai em legado);
+(c) hub + 4 seções abrem com dado real, sidebar com 1 item, 3 redirects OK, gatilho
+criado e listado, Copiloto intacto, console limpo, zero 500.
+
+**Achados (nenhum bloqueia — nada é regressão da fusão, exceto A3):**
+
+- **A1 — sandbox IA estoura no 1º disparo (herdado).** `HBX_ASSISTENTE_TIMEOUT_MS=20000`
+  contra Ollama CPU-only: 1ª chamada (fria) = timeout → cai no roteiro de reserva; 2ª
+  (quente) responde. Medido no VPS: 9s pra prompt trivial, 11,8s pra prompt realista —
+  margem fina demais, e sob concorrência estoura sempre. Vale pro Atendente AO VIVO
+  também, não só pro sandbox. Fix: subir o timeout (45–60s) ou manter o modelo quente.
+- **A2 — cérebro IA não tem "Ajustes" (herdado, não regressão).** `nome/tom/perfil/
+  produtos` só existem no wizard; depois de criado, o único jeito de mudar persona é
+  "Refazer". O Roteiro TEM painel de Ajustes. A tela velha `/assistente` era idêntica —
+  a fusão foi fiel. Oportunidade, não defeito.
+- **A3 — `Aplicar cadência` mente quando o contato é bloqueado.** Backend devolve
+  `{ok:true, inscritos:0, conflitosAutomacao:N}`; a UI (`secao-prospeccao.tsx:460-464`)
+  não lê `conflitosAutomacao` e mostra "✓ 0 lead(s) inscrito(s)" com check verde.
+  Reproduzido: POST 201, `CadenciaInscricao` = 0, usuário sem pista do porquê.
+  Fix de 1 linha: incluir `conflitosAutomacao` no tipo e na mensagem.
+- **A4 — `Aplicar` pede "IDs dos cards" colados à mão.** Nenhum usuário sabe o que é;
+  eu mesmo tive que garimpar o id numa chamada de rede. Padrão de mercado é seletor de
+  leads/pesquisa. Herdado do `/automacoes` velho.
+- **A5 — Rotina sem pesquisa salva = beco sem saída.** Combo vazio, valida com "Escolha
+  uma pesquisa salva" (sem 500, ok), mas não diz que a empresa não TEM nenhuma nem
+  aponta onde criar.
+- **A6 — vocabulário de status desencontrado.** Cartão Cobrança mostra dot "Pausado"
+  sobre número "Ligado" (são coisas diferentes: recovery da empresa × worker global —
+  `page.client.tsx:171-189`, semanticamente certo, visualmente contraditório). E os
+  chips do orquestrador expõem `skipped` cru (= rodou e não tinha o que fazer).
+
+**Fora do escopo da fusão, achado no caminho:**
+
+- **B1 — badge "WhatsApp ✓" é mentira.** `lead-cockpit-modal.tsx:671` renderiza o selo
+  para QUALQUER telefone preenchido, sem checagem — a linha 771 faz certo
+  (`whatsappMap[digits] === true`). Foi esse selo que indicou WhatsApp num telefone
+  FIXO (63 3414-5685); o envio real falhou com `Bad Request` do motor. O disjuntor
+  funcionou como projetado (3 tentativas, backoff 5s/11s, para e marca FAILED) e a UI
+  mostrou o erro cru — o defeito é só o selo otimista.
