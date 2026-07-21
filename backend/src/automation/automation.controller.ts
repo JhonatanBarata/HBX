@@ -1,14 +1,16 @@
-import { Body, Controller, Get, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AgentService } from './agent.service';
+import { PlaysService } from './plays.service';
 import type {
   AutomationAgentPublishRequest,
   AutomationAgentSandboxRequest,
   PutAutomationAgentRequest,
 } from './dto/agent.dto';
+import type { AplicarCadenciaDto } from '../cadencia/dto/cadencia.dto';
 
 // S04 (MOTOR-ÚNICO) — módulo `automation` novo, primeiro endpoint real.
 //
@@ -31,6 +33,7 @@ export class AutomationController {
   constructor(
     private readonly overviewService: AutomationOverviewService,
     private readonly agentService: AgentService,
+    private readonly playsService: PlaysService,
   ) {}
 
   @Get('overview')
@@ -56,5 +59,25 @@ export class AutomationController {
   @Post('agent/publish')
   publishAgent(@Req() req: any, @Body() dto: AutomationAgentPublishRequest) {
     return this.agentService.publish(req.user, dto || {});
+  }
+
+  // S11 — visão unificada dos "plays" proativos (prospecção/cadência/rotina).
+  // Permissão fina (canManage) é decidida DENTRO de cada service dono, ver
+  // plays.service.ts (header do arquivo) — GET é aberto a qualquer usuário do
+  // módulo (mesmo padrão de /automation/agent), toggle/aplicar exigem
+  // canManage do domínio correspondente.
+  @Get('plays')
+  listPlays(@Req() req: any) {
+    return this.playsService.listForUser(req.user);
+  }
+
+  @Post('plays/:tipo/:id/toggle')
+  togglePlay(@Req() req: any, @Param('tipo') tipo: string, @Param('id') id: string, @Body() dto: { ativo?: boolean }) {
+    return this.playsService.togglePlay(req.user, tipo, id, Boolean(dto?.ativo));
+  }
+
+  @Post('plays/cadencia/:id/aplicar')
+  aplicarCadenciaPlay(@Req() req: any, @Param('id') id: string, @Body() dto: AplicarCadenciaDto) {
+    return this.playsService.aplicarCadenciaPlay(req.user, id, dto || {});
   }
 }

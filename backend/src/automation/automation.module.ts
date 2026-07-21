@@ -10,6 +10,7 @@ import { InboxModule } from '../inbox/inbox.module';
 import { AutomationController } from './automation.controller';
 import { AutomationOverviewService } from './automation-overview.service';
 import { AgentService } from './agent.service';
+import { PlaysService } from './plays.service';
 import { InboundRouterService } from './inbound-router.service';
 import { CadenciaSchedulerService } from '../cadencia/cadencia-scheduler.service';
 import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor } from './outbound-orchestrator.service';
@@ -87,6 +88,13 @@ import { AgentRuntimeResolver } from './agent-runtime.resolver';
 // novo"), porque a leitura ali precisa dos DOIS cérebros populados ao mesmo
 // tempo (tela de configuração), enquanto o resolver devolve só o cérebro
 // ATIVO (contrato do runtime conversacional).
+// S11: PlaysService entra como provider aqui pelo MESMO motivo de
+// AutomationOverviewService/AgentService (S04/S05) — controller real
+// (AutomationController) injeta via DI normal. Nenhum import de módulo novo:
+// CadenciaModule (CadenciaService/CadenciaRotinaService), VendasModule
+// (VendasAutomationService) e BotModule (BotActivationService) já estavam
+// importados acima desde S04/S05/S07 — PlaysService só consome exports que já
+// existem, zero mudança na lista de `imports`.
 @Module({
   imports: [
     PrismaModule,
@@ -102,6 +110,7 @@ import { AgentRuntimeResolver } from './agent-runtime.resolver';
   providers: [
     AutomationOverviewService,
     AgentService,
+    PlaysService,
     InboundRouterService,
     AgentRuntimeResolver,
     {
@@ -116,6 +125,7 @@ import { AgentRuntimeResolver } from './agent-runtime.resolver';
   exports: [
     AutomationOverviewService,
     AgentService,
+    PlaysService,
     InboundRouterService,
     AgentRuntimeResolver,
     OutboundOrchestratorService,
