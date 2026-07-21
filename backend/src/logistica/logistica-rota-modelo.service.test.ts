@@ -203,6 +203,7 @@ test('update: renomear pro MESMO nome do próprio modelo não conflita', async (
 
 const COMPANY = 7;
 const GERAR_DATE = '2026-07-20';
+const USER = 1;
 
 function buildGerarPrisma(
   seed: {
@@ -304,7 +305,7 @@ test('gerar: modelo de OUTRA empresa → 404', async () => {
     modelos: [{ id: 'm1', companyId: 999, paradasJson: [] }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  await assert.rejects(() => svc.gerar(COMPANY, 'm1', GERAR_DATE), /não encontrado/);
+  await assert.rejects(() => svc.gerar(COMPANY, 'm1', GERAR_DATE, USER), /não encontrado/);
 });
 
 test('gerar: cliente COM vínculo ativo → Entrega criada com itens "de sempre" (ignora dia/vencimento)', async () => {
@@ -328,7 +329,7 @@ test('gerar: cliente COM vínculo ativo → Entrega criada com itens "de sempre"
     ],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
   assert.equal(res.deliveryIds.length, 1);
   assert.deepEqual(res.avisos, []);
@@ -351,7 +352,7 @@ test('gerar: cliente SEM vínculo ativo → Entrega SEM itens (valor 0)', async 
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
   assert.equal(res.deliveryIds.length, 1);
   const entrega = entregas.get(res.deliveryIds[0])!;
@@ -375,7 +376,7 @@ test('gerar: cliente já agendado HOJE (mesmo local) → REUSA o id, não duplic
     ],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
   assert.deepEqual(res.deliveryIds, ['entrega-ja-existe']);
   assert.equal(entregas.size, 1, 'não criou uma 2ª entrega');
@@ -387,8 +388,8 @@ test('gerar: rodar 2× no MESMO dia é idempotente', async () => {
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  const primeira = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
-  const segunda = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  const primeira = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+  const segunda = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
   assert.deepEqual(segunda.deliveryIds, primeira.deliveryIds);
   assert.equal(entregas.size, 1, '2ª chamada não duplica a entrega');
@@ -414,7 +415,7 @@ test('gerar: NÃO avança proximaData de nenhum vínculo (só a recorrência aut
     ],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
   const cp = clienteProdutos.get('cp1')!;
   assert.deepEqual(cp.proximaData, new Date(2026, 6, 15), 'proximaData intocada');
@@ -439,7 +440,7 @@ test('gerar: cliente de OUTRA empresa / excluído → pula com aviso; preserva O
     ],
   });
   const svc = new LogisticaRotaModeloService(prisma);
-  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
   assert.equal(res.avisos.length, 1);
   assert.equal(res.deliveryIds.length, 2);
