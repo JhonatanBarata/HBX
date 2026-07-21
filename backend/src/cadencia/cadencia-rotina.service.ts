@@ -113,6 +113,13 @@ export class CadenciaRotinaService {
     if (!found) throw new BadRequestException('Pesquisa salva inválida para esta empresa.');
   }
 
+  // ---------------- AUTOMATION S04 (leitura agregada, read-only) ----------------
+  // Alimenta o bloco `regras` do GET /automation/overview — contagem simples por
+  // empresa, sem contexto de permissão (ver nota equivalente em CadenciaGatilhoService).
+  async countActiveForCompany(companyId: number): Promise<number> {
+    return (this.prisma as any).cadenciaRotina.count({ where: { companyId, ativa: true } });
+  }
+
   // ---------------- CRUD ----------------
   async listForUser(user: any) {
     const context = await this.resolveContext(user);

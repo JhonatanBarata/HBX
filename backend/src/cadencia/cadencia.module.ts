@@ -25,6 +25,10 @@ import { CadenciaSchedulerService } from './cadencia-scheduler.service';
   imports: [PrismaModule, AuthModule, ModulesAccessModule, MessagingModule, AtividadesModule, SavedSearchModule, MailModule],
   controllers: [CadenciaController],
   providers: [CadenciaService, CadenciaGatilhoService, CadenciaRotinaService, CadenciaSchedulerService],
-  exports: [CadenciaService, CadenciaGatilhoService],
+  // CadenciaRotinaService entrou nos exports na S04 (MOTOR-ÚNICO) — puramente
+  // aditivo (só abre a porta de DI, nenhum provider/behavior muda) pra o módulo
+  // `automation` novo poder injetá-la e ler `rotinasAtivas` no GET /automation/overview
+  // sem duplicar a query.
+  exports: [CadenciaService, CadenciaGatilhoService, CadenciaRotinaService],
 })
 export class CadenciaModule {}

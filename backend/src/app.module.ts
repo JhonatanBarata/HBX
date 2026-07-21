@@ -52,6 +52,7 @@ import { CreditsModule } from './credits/credits.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TutorialMediaModule } from './tutorial-media/tutorial-media.module';
 import { FinanceiroTenantModule } from './financeiro-tenant/financeiro-tenant.module';
+import { AutomationModule } from './automation/automation.module';
 
 @Module({
   imports: [
@@ -115,6 +116,7 @@ import { FinanceiroTenantModule } from './financeiro-tenant/financeiro-tenant.mo
     CreditsModule,
     FinanceiroTenantModule,
     TutorialMediaModule,
+    AutomationModule,
   ],
   controllers: [AppController],
   providers: [

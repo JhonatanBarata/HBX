@@ -135,6 +135,14 @@ export class CadenciaGatilhoService implements OnModuleInit {
     };
   }
 
+  // ---------------- AUTOMATION S04 (leitura agregada, read-only) ----------------
+  // Alimenta o bloco `regras` do GET /automation/overview. Diferente de
+  // listForUser (que resolve contexto de permissão e devolve as linhas cheias),
+  // isto é só uma contagem por empresa — não expõe dado, não exige canManage.
+  async countActiveForCompany(companyId: number): Promise<number> {
+    return (this.prisma as any).cadenciaGatilho.count({ where: { companyId, ativo: true } });
+  }
+
   // ---------------- CRUD ----------------
   async listForUser(user: any) {
     const context = await this.resolveContext(user);
