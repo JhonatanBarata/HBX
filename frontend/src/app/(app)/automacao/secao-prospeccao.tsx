@@ -134,6 +134,9 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
   const [errorCad, setErrorCad] = useState<string | null>(null);
 
   const [msg, setMsg] = useState<string | null>(null);
+  // S00 (PADRAO-MERCADO) — A3: tom da nota (aviso quando "aplicar" não inscreveu
+  // ninguém de novo); default false preserva o ícone de check em todo o resto.
+  const [msgWarn, setMsgWarn] = useState(false);
   const [prospOpen, setProspOpen] = useState(false);
   const [aplicando, setAplicando] = useState<Cadencia | null>(null);
 
@@ -162,6 +165,7 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
   // (prospeccao não ganha toggle solto; rotina é leitura).
   async function togglePlay(tipo: AutomationPlayTipo, id: string, ativoAtual: boolean) {
     setMsg(null);
+    setMsgWarn(false);
     try {
       await apiFetch(`/automation/plays/${tipo}/${encodeURIComponent(id)}/toggle`, {
         method: "POST",
@@ -200,7 +204,10 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
         </div>
       )}
 
-      {msg && <div className="auto-flag-note"><I d={ICONS.check} size={14} />{msg}</div>}
+      {/* S00 (PADRAO-MERCADO) — A3: aviso usa o MESMO .auto-flag-note, só troca
+          o ícone p/ ICONS.help (convenção já usada em secao-atendente/cobranca
+          pra tom de aviso) — nada de check verde quando não há sucesso real. */}
+      {msg && <div className="auto-flag-note"><I d={ICONS[msgWarn ? "help" : "check"]} size={14} />{msg}</div>}
 
       {/* ── Topo: lista unificada de plays (item 1) ── */}
       {errorPlays && (
@@ -289,7 +296,7 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
                 c={c}
                 canManage={canManage}
                 onToggle={() => void togglePlay("cadencia", c.id, c.ativa)}
-                onAplicar={() => { setAplicando(c); setMsg(null); }}
+                onAplicar={() => { setAplicando(c); setMsg(null); setMsgWarn(false); }}
               />
             ))}
           </div>
@@ -315,7 +322,7 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
         <AplicarModal
           cadencia={aplicando}
           onClose={() => setAplicando(null)}
-          onDone={(txt) => { setAplicando(null); setMsg(txt); void loadCad(); void loadPlays(); onChanged?.(); }}
+          onDone={(txt, tone) => { setAplicando(null); setMsg(txt); setMsgWarn(tone === "warn"); void loadCad(); void loadPlays(); onChanged?.(); }}
         />
       )}
     </div>
@@ -429,7 +436,7 @@ function PersonaCard({ c, canManage, onToggle, onAplicar }: {
 // APLICAR MODAL — reimplantado do padrão /automacoes (mesmas classes), D3:
 // rota nova do adapter (POST /automation/plays/cadencia/:id/aplicar).
 // ============================================================================
-function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClose: () => void; onDone: (msg: string) => void }) {
+function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClose: () => void; onDone: (msg: string, tone?: "ok" | "warn") => void }) {
   const [modo, setModo] = useState<"lista" | "pesquisa">("lista");
   const modoPill = useGlassPill<HTMLButtonElement>(modo);
   const [leadIdsRaw, setLeadIdsRaw] = useState("");
@@ -457,11 +464,29 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
     }
     setBusy(true);
     try {
-      const res = await apiFetch<{ inscritos?: number; jaInscritos?: number; total?: number }>(
+      // S00 (PADRAO-MERCADO) — A3: backend também devolve `conflitosAutomacao`
+      // (cadencia.service.ts:317, leads já presos numa OUTRA automação) — a UI
+      // jogava esse dado fora e sempre mostrava "✓" verde mesmo quando nada de
+      // novo foi inscrito. Tipar o campo + decidir o tom da mensagem abaixo.
+      const res = await apiFetch<{ inscritos?: number; jaInscritos?: number; conflitosAutomacao?: number; total?: number }>(
         `/automation/plays/cadencia/${encodeURIComponent(cadencia.id)}/aplicar`,
         { method: "POST", body: JSON.stringify(body) },
       );
-      onDone(`✓ ${res?.inscritos ?? 0} lead(s) inscrito(s)${res?.jaInscritos ? ` · ${res.jaInscritos} já estavam` : ""}.`);
+      const inscritos = res?.inscritos ?? 0;
+      const jaInscritos = res?.jaInscritos ?? 0;
+      const conflitos = res?.conflitosAutomacao ?? 0;
+      const extras = [
+        jaInscritos > 0 ? `${jaInscritos} já estavam` : null,
+        conflitos > 0 ? `${conflitos} bloqueado${conflitos === 1 ? "" : "s"} por outra automação` : null,
+      ].filter(Boolean).join(" · ");
+      if (inscritos > 0) {
+        onDone(`✓ ${inscritos} lead(s) inscrito(s)${extras ? ` · ${extras}` : ""}.`, "ok");
+      } else if (extras) {
+        // Nada de novo: tom de AVISO, não de sucesso — sem "✓".
+        onDone(`Nenhum novo: ${extras}.`, "warn");
+      } else {
+        onDone("Nenhum lead novo para inscrever.", "warn");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível aplicar.");
     } finally {

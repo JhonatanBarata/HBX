@@ -668,7 +668,9 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         <div className="lead-cockpit__service-right">
           <div className="lead-cockpit__service-top-two">
             <section className="lead-cockpit__compact-card">
-              <CardTitle icon={ICONS.phone} title="Contato rápido" action={lead.phone ? <span className="tag teal">WhatsApp ✓</span> : undefined} />
+              {/* S00 (PADRAO-MERCADO) — B1: selo só com prova real (whatsappMap), não por telefone
+                  preenchido; mesma condição da linha ~771 deste arquivo (evita "check" falso). */}
+              <CardTitle icon={ICONS.phone} title="Contato rápido" action={whatsappMap[onlyDigits(lead.phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined} />
               <InfoRow label="Telefone" mono>{lead.phone ? formatPhoneDisplay(lead.phone) : "—"}</InfoRow>
               <InfoRow label="E-mail">{lead.email || "—"}</InfoRow>
             </section>
