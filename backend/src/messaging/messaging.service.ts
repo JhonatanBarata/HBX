@@ -88,6 +88,7 @@ import {
 } from '../mail/hbx-email-intent.util';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 import { InboundRouterService } from '../automation/inbound-router.service';
+import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -4392,14 +4393,28 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   // mágico) e passa pelo BotConfigStoreService (BotConfig versionada, dual-read com
   // fallback pro canal legado). Ver docs/PLANEJAMENTOS/INTENTENGINE/INTENTENGINE-sprint3.md.
 
+  // S10 (MOTOR-ÚNICO): ponto ÚNICO onde o handler de Atendimento carrega o
+  // bot-config do cérebro 'roteiro' (CONTRATO.md §"parametrizar a origem no
+  // ponto ÚNICO onde o handler carrega o bot-config"). Origem passa pelo
+  // AgentRuntimeResolver: flag `HBX_AUTOMATION_AGENT` OFF, empresa sem
+  // AutomationAgent migrado, cérebro atual não é 'roteiro', ou agente ainda
+  // sem roteiro real configurado -> devolve `roteiro:null` e a leitura segue
+  // EXATAMENTE como antes (BotConfigStoreService, domain 'atendimento_bot').
+  // Instanciado sem DI (mesmo padrão do InboundRouterService, S06, e do
+  // AgentRuntimeResolver dentro de ConversationAssistantRuntimeService) —
+  // resolver só depende de PrismaService, já disponível neste service.
   private async getAtendimentoBotConfig(
     companyId: number,
     tenantContext?: { providerCapabilities: ProviderCapabilities; recoveryEnabled: boolean },
   ): Promise<AtendimentoBotConfig> {
     const context = tenantContext || (await this.resolveAtendimentoBotSanitizationContext(companyId));
-    const payload = this.botConfigStore
-      ? await this.botConfigStore.get(companyId, 'atendimento_bot')
-      : null;
+    const effective = await new AgentRuntimeResolver(this.prisma).effectiveFor(companyId);
+    const payload =
+      effective.source === 'agent' && effective.roteiro
+        ? effective.roteiro
+        : this.botConfigStore
+          ? await this.botConfigStore.get(companyId, 'atendimento_bot')
+          : null;
     return sanitizeAtendimentoBotConfigForTenant(
       normalizeAtendimentoBotConfig((payload as any) ?? null),
       context,

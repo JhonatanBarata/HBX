@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { sanitizeAssistenteConfig } from './assistente-flow';
+import { sanitizeAssistenteConfig, type AssistenteConfigShape } from './assistente-flow';
 import { AssistenteSandboxService, type SandboxTurn } from './assistente-sandbox.service';
+import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
 
 const PUBLISH_FLAG = 'HBX_ASSISTENTE_PUBLISH_ENABLED';
 
@@ -54,19 +55,44 @@ export class ConversationAssistantRuntimeService {
       return { handled: false, reason: 'assistant_input_ineligible' };
     }
 
+    // S10 (MOTOR-ÚNICO): origem da config passa pelo AgentRuntimeResolver —
+    // flag `HBX_AUTOMATION_AGENT` OFF (default), empresa sem AutomationAgent
+    // migrado, ou erro qualquer devolve `{source:'legacy'}` e TODO o resto
+    // deste método segue byte a byte igual ao pré-S10 (lê AssistenteConfig
+    // direto). Instanciado sem DI (mesmo truque do InboundRouterService,
+    // S06) — o resolver só depende de PrismaService (@Global()), evitando
+    // que AssistenteModule precise importar AutomationModule de volta
+    // (ciclo real: AutomationModule já importa AssistenteModule).
+    const effective = await new AgentRuntimeResolver(this.prisma).effectiveFor(companyId);
+    if (effective.source === 'agent' && effective.brain === 'roteiro') {
+      // Regra de produto (S10.md item 2): agente no cérebro 'roteiro' não é
+      // respondido pela IA — o atendimento de menu segue seu próprio
+      // caminho (messaging.service.ts::getAtendimentoBotConfig, também
+      // atrás do resolver). A assistente simplesmente não reivindica.
+      return { handled: false, reason: 'assistant_agent_brain_roteiro' };
+    }
+    const agentIaConfig: AssistenteConfigShape | null =
+      effective.source === 'agent' && effective.brain === 'ia' ? effective.ia : null;
+
     const [configRow, company, conversation] = await Promise.all([
-      this.prisma.assistenteConfig.findUnique({ where: { companyId } }),
+      agentIaConfig ? Promise.resolve(null) : this.prisma.assistenteConfig.findUnique({ where: { companyId } }),
       this.prisma.company.findUnique({ where: { id: companyId }, select: { botArmedAt: true } }),
       this.prisma.companyConversation.findFirst({
         where: { id: conversationId, companyId },
         select: { id: true, botActive: true, humanAssigned: true, vendasLeadId: true },
       }),
     ]);
-    if (!configRow?.published) return { handled: false, reason: 'assistant_not_published' };
+    // Guarda `published` IDÊNTICA (S10.md "claim/guards intocados") — só a
+    // ORIGEM muda: `agent.published` quando o cérebro é o agente novo,
+    // `AssistenteConfig.published` no legado (comportamento pré-S10).
+    const published = agentIaConfig ? Boolean((effective as any).published) : Boolean(configRow?.published);
+    if (!published) return { handled: false, reason: 'assistant_not_published' };
     if (!company?.botArmedAt) return { handled: false, reason: 'assistant_not_entitled' };
     if (!conversation || conversation.botActive !== true || conversation.humanAssigned === true) {
       return { handled: false, reason: 'assistant_conversation_inactive' };
     }
+
+    const publicNameSnapshot = agentIaConfig ? agentIaConfig.nome : String(configRow!.nome);
 
     let run: any;
     try {
@@ -77,7 +103,7 @@ export class ConversationAssistantRuntimeService {
           inboundMessageId,
           vendasLeadId: conversation.vendasLeadId || null,
           status: 'claimed',
-          publicNameSnapshot: configRow.nome,
+          publicNameSnapshot,
         },
       });
     } catch (error: any) {
@@ -91,20 +117,16 @@ export class ConversationAssistantRuntimeService {
     }
 
     try {
-      let fluxo: unknown = {};
-      try {
-        fluxo = JSON.parse(configRow.fluxoJson || '{}');
-      } catch {
-        fluxo = {};
-      }
-      const config = sanitizeAssistenteConfig({
-        nome: configRow.nome,
-        tom: configRow.tom,
-        perfil: configRow.perfil,
-        produtos: configRow.produtos || '',
-        empresaNome: configRow.empresaNome || '',
-        fluxo,
-      });
+      const config: AssistenteConfigShape =
+        agentIaConfig ??
+        sanitizeAssistenteConfig({
+          nome: configRow!.nome,
+          tom: configRow!.tom,
+          perfil: configRow!.perfil,
+          produtos: configRow!.produtos || '',
+          empresaNome: configRow!.empresaNome || '',
+          fluxo: this.parseLegacyFluxo(configRow!.fluxoJson),
+        });
       const rows = await this.prisma.companyMessage.findMany({
         where: {
           companyId,
@@ -145,9 +167,21 @@ export class ConversationAssistantRuntimeService {
         handled: true,
         failed: true,
         runId: String(run.id),
-        publicName: String(configRow.nome || 'Assistente'),
+        publicName: publicNameSnapshot || 'Assistente',
         reason: 'assistant_generation_failed',
       };
+    }
+  }
+
+  // S10: extraído do trecho que antes vivia inline no bloco legado do
+  // `prepareReply` — mesmo comportamento (JSON quebrado nunca derruba o
+  // runtime, cai em `{}`), só nomeado pra não duplicar o try/catch nos dois
+  // ramos (config do agente já vem parseada pelo AgentRuntimeResolver).
+  private parseLegacyFluxo(json: string | null | undefined): unknown {
+    try {
+      return JSON.parse(json || '{}');
+    } catch {
+      return {};
     }
   }
 

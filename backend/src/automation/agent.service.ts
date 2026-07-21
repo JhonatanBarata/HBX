@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { AssistenteService } from '../assistente/assistente.service';
-import type { AssistenteConfigShape } from '../assistente/assistente-flow';
+import { sanitizeAssistenteConfig, type AssistenteConfigShape } from '../assistente/assistente-flow';
 import type { SandboxDto } from '../assistente/dto/assistente.dto';
 import { InboxService } from '../inbox/inbox.service';
 import {
@@ -10,6 +11,7 @@ import {
 } from '../inbox/atendimento-config';
 import { BotActivationService } from '../bot/bot-activation.service';
 import { BotConfigStoreService, type BotConfigVersionInfo } from '../bot/config/bot-config-store.service';
+import { isAutomationAgentRuntimeEnabled } from './agent-runtime.resolver';
 import type {
   AgentBrain,
   AutomationAgentPublishRequest,
@@ -205,6 +207,12 @@ export class AgentService {
     private readonly inboxService: InboxService,
     private readonly botActivationService: BotActivationService,
     private readonly botConfigStore: BotConfigStoreService,
+    // S10 (MOTOR-ÚNICO): só usado atrás de `isAutomationAgentRuntimeEnabled()`
+    // (flag OFF por default — README linha 85). PrismaModule é @Global(), sem
+    // risco de ciclo. Testes existentes (agent.service.test.ts) instanciam
+    // via `Object.create(AgentService.prototype)` sem setar `svc.prisma` — a
+    // flag desligada garante que nenhum caminho abaixo toca `this.prisma`.
+    private readonly prisma: PrismaService,
   ) {}
 
   // Lê os 2 stores em paralelo e resolve o `brain` — base compartilhada por
@@ -220,11 +228,172 @@ export class AgentService {
     return { assistente, hasRoteiro, roteiroVersions, brain };
   }
 
+  // ── S10 (MOTOR-ÚNICO) — leitura/escrita do schema novo `AutomationAgent` ──
+  //
+  // Item 3 do contrato da sprint ("flag ON -> GET/PUT/publish/sandbox leem e
+  // gravam AutomationAgent... write só no novo; leitura legada é fallback")
+  // esbarra num limite real de escopo: `InboxService.updateBotConfig` e
+  // `AssistenteService.publish/save` são os DONOS da validação/sanitização
+  // tenant-aware e dos gates de segurança (BOT_NOT_ARMED, preflight,
+  // HBX_ASSISTENTE_PUBLISH_ENABLED, validação de botão/ação) — nenhum dos
+  // dois arquivos está na lista "Arquivos" desta sprint (S10.md), e o
+  // guardrail duro "freios são features, remoção proibida" veta reimplementar
+  // essa validação aqui só pra poder parar de chamá-los. Solução adotada
+  // (documentada como desvio no relatório final do worker):
+  //   - GET/sandbox: quando a empresa já tem uma linha em `AutomationAgent`,
+  //     LEEM dela em vez de remontar dos 2 stores legados (substituição pura
+  //     de leitura, zero risco).
+  //   - PUT/publish: continuam delegando pros services donos (única forma
+  //     seguro/no-escopo de manter os gates), e ADICIONALMENTE sincronizam
+  //     (best-effort, nunca bloqueia a resposta) o resultado JÁ VALIDADO pra
+  //     `AutomationAgent` — a tabela nova fica fresca sem reimplementar
+  //     validação nem afrouxar gate nenhum.
+  private iaConfigFromRow(row: {
+    nome: string;
+    tom: string;
+    perfil: string;
+    produtos: string | null;
+    empresaNome: string | null;
+    fluxoJson: string;
+  }): AssistenteConfigShape {
+    let fluxo: unknown = {};
+    try {
+      fluxo = JSON.parse(row.fluxoJson || '{}');
+    } catch {
+      fluxo = {};
+    }
+    return sanitizeAssistenteConfig({
+      nome: row.nome,
+      tom: row.tom,
+      perfil: row.perfil,
+      produtos: row.produtos || '',
+      empresaNome: row.empresaNome || '',
+      fluxo,
+    });
+  }
+
+  private roteiroConfigFromRow(row: { roteiroJson: string }): AtendimentoBotConfig {
+    let parsed: unknown = {};
+    try {
+      parsed = JSON.parse(row.roteiroJson || '{}');
+    } catch {
+      parsed = {};
+    }
+    return normalizeAtendimentoBotConfig(parsed as any);
+  }
+
+  // GET/sandbox — monta o AgentView inteiramente a partir da linha nova (os
+  // dois cérebros populados a partir das colunas do MESMO row, igual ao
+  // adapter legado permite "os dois existirem ao mesmo tempo" — CONTRATO.md
+  // §3.1). `published` segue a MESMA regra por cérebro do adapter (S05):
+  // 'ia' reflete a coluna própria; 'roteiro' não tem coluna própria, reflete
+  // o pino ao vivo do BotActivationService (leitura, não escrita).
+  private async viewFromAutomationAgentRow(
+    user: any,
+    row: {
+      brain: string;
+      nome: string;
+      tom: string;
+      perfil: string;
+      produtos: string | null;
+      empresaNome: string | null;
+      fluxoJson: string;
+      roteiroJson: string;
+      published: boolean;
+      updatedAt: Date;
+    },
+    companyId: number,
+    canManage: boolean,
+  ): Promise<AutomationAgentViewResponse> {
+    const brain: AgentBrain = row.brain === 'ia' ? 'ia' : 'roteiro';
+    const ia = this.iaConfigFromRow(row);
+    const roteiro = this.roteiroConfigFromRow(row);
+
+    const activation = await this.botActivationService.getActivation(user).catch((e: any) => {
+      this.logger.warn(`[agent] getActivation indisponível: ${String(e?.message || e)}`);
+      return null;
+    });
+    const published =
+      brain === 'ia' ? Boolean(row.published) : Boolean((activation as any)?.types?.atendimento?.live);
+
+    return {
+      companyId,
+      brain,
+      published,
+      updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+      // AutomationAgent (S09) ainda não grava "quem editou" — mesma lacuna
+      // documentada no adapter legado (S05); fica pra sprint futura preencher.
+      updatedByUserId: null,
+      roteiro,
+      ia,
+      canManage,
+      armed: Boolean((activation as any)?.armed),
+      preflight: (activation as any)?.types?.atendimento?.preflight ?? null,
+    };
+  }
+
+  // PUT/publish (best-effort, nunca lança): espelha o estado JÁ VALIDADO
+  // pelos services donos (getViewLegacy roda DEPOIS do save/updateBotConfig
+  // terem sido aceitos) pra dentro de `AutomationAgent`. `published:false`
+  // sempre — mesma regra WORM-14 que `AssistenteService.save` já aplica
+  // ("toda edição volta a rascunho"); publicar é ação exclusiva do
+  // POST /publish (syncAutomationAgentPublished abaixo).
+  private async syncAutomationAgentFromLegacy(user: any, companyId: number): Promise<void> {
+    const legacyView = await this.getViewLegacy(user, companyId, false);
+    const fields = {
+      nome: legacyView.ia?.nome ?? 'Assistente',
+      tom: legacyView.ia?.tom ?? 'normal',
+      perfil: legacyView.ia?.perfil ?? 'vendas',
+      produtos: legacyView.ia?.produtos ?? null,
+      empresaNome: legacyView.ia?.empresaNome ?? null,
+      brain: legacyView.brain,
+      fluxoJson: legacyView.ia ? JSON.stringify(legacyView.ia.fluxo) : '{}',
+      roteiroJson: legacyView.roteiro ? JSON.stringify(legacyView.roteiro) : '{}',
+      published: false,
+    };
+    await this.prisma.automationAgent.upsert({
+      where: { companyId },
+      create: { companyId, ...fields, testCounter: 0, migratedFrom: null },
+      update: fields,
+    });
+  }
+
+  // Só atualiza `published` numa linha JÁ existente — publish sozinho nunca
+  // "migra" uma empresa pro schema novo (quem cria a linha é o PUT ou o
+  // backfill, S09). Coluna só é lida quando `brain==='ia'` (ver
+  // viewFromAutomationAgentRow); sincronizar também no 'roteiro' é inofensivo
+  // (coluna inerte nesse ramo) e mantém o dado coerente se o brain mudar depois.
+  private async syncAutomationAgentPublished(companyId: number, published: boolean): Promise<void> {
+    const existing = await this.prisma.automationAgent.findUnique({ where: { companyId } });
+    if (!existing) return;
+    await this.prisma.automationAgent.update({ where: { companyId }, data: { published } });
+  }
+
   // GET /automation/agent
   async getView(user: any): Promise<AutomationAgentViewResponse> {
     const companyId = requireCompanyId(user);
     const canManage = isAdminOrMaster(user);
 
+    // S10: flag ON + empresa já migrada (linha em AutomationAgent) -> lê do
+    // schema novo. Flag OFF ou empresa ainda não migrada -> cai no adapter
+    // legado abaixo, SEM NENHUMA mudança de comportamento (fallback, README
+    // linha 85).
+    if (isAutomationAgentRuntimeEnabled()) {
+      const row = await this.prisma.automationAgent.findUnique({ where: { companyId } }).catch((e: any) => {
+        this.logger.warn(`[agent] leitura de AutomationAgent indisponível companyId=${companyId}: ${String(e?.message || e)}`);
+        return null;
+      });
+      if (row) return this.viewFromAutomationAgentRow(user, row, companyId, canManage);
+    }
+
+    return this.getViewLegacy(user, companyId, canManage);
+  }
+
+  // Corpo ORIGINAL do adapter (S05), extraído sem nenhuma alteração de
+  // comportamento — chamado tanto pelo fallback de `getView` quanto pelo
+  // `syncAutomationAgentFromLegacy` (que precisa do estado já validado e
+  // recém-gravado pelos services donos).
+  private async getViewLegacy(user: any, companyId: number, canManage: boolean): Promise<AutomationAgentViewResponse> {
     const [state, activation, roteiroConfig] = await Promise.all([
       this.loadBrainState(user, companyId),
       this.botActivationService.getActivation(user).catch((e: any) => {
@@ -284,7 +453,7 @@ export class AgentService {
   // dois campos ao mesmo tempo (empresa pode ter configurado os dois cérebros
   // em momentos diferentes — nenhum dos dois stores é destruído pelo outro).
   async updateAgent(user: any, dto: PutAutomationAgentRequest): Promise<AutomationAgentViewResponse> {
-    requireCompanyId(user);
+    const companyId = requireCompanyId(user);
     if (!isAdminOrMaster(user)) {
       throw new ForbiddenException(
         'Sem permissão para editar o agente. Regra de produto: o agente é da empresa, só Admin/USERMASTER configura.',
@@ -311,6 +480,17 @@ export class AgentService {
       await this.inboxService.updateBotConfig(user, dto.roteiro as any);
     }
 
+    // S10: flag ON -> sincroniza AutomationAgent com o estado JÁ VALIDADO
+    // pelos services donos acima (best-effort — nunca derruba a resposta do
+    // PUT por causa de uma falha de sincronização com a tabela nova).
+    if (isAutomationAgentRuntimeEnabled()) {
+      await this.syncAutomationAgentFromLegacy(user, companyId).catch((error: any) => {
+        this.logger.warn(
+          `[agent] sync pós-PUT em AutomationAgent falhou (não bloqueia a resposta) companyId=${companyId}: ${String(error?.message || error)}`,
+        );
+      });
+    }
+
     return this.getView(user);
   }
 
@@ -318,11 +498,23 @@ export class AgentService {
   async sandbox(user: any, dto: AutomationAgentSandboxRequest): Promise<AutomationAgentSandboxResponse> {
     const companyId = requireCompanyId(user);
 
+    // S10: flag ON -> lê a linha de AutomationAgent (se existir) pra servir
+    // de default quando o request não trouxe `dto.agent` em edição — mesma
+    // regra de precedência de antes (override do request sempre vence).
+    const automationAgentRow = isAutomationAgentRuntimeEnabled()
+      ? await this.prisma.automationAgent.findUnique({ where: { companyId } }).catch((e: any) => {
+          this.logger.warn(`[agent] sandbox: leitura de AutomationAgent indisponível companyId=${companyId}: ${String(e?.message || e)}`);
+          return null;
+        })
+      : null;
+
     const requestedBrain = dto?.agent?.brain;
     const brain: AgentBrain =
       requestedBrain === 'ia' || requestedBrain === 'roteiro'
         ? requestedBrain
-        : (await this.loadBrainState(user, companyId)).brain;
+        : automationAgentRow
+          ? (automationAgentRow.brain === 'ia' ? 'ia' : 'roteiro')
+          : (await this.loadBrainState(user, companyId)).brain;
 
     if (brain === 'ia') {
       // Delega pro MESMO caminho do POST /assistente/sandbox (que por sua vez
@@ -330,7 +522,8 @@ export class AgentService {
       const assistenteDto: SandboxDto = {
         message: dto?.message,
         history: dto?.history,
-        config: dto?.agent?.ia as any,
+        config: ((dto?.agent?.ia as any) ??
+          (automationAgentRow ? this.iaConfigFromRow(automationAgentRow) : undefined)) as any,
       };
       const result = await this.assistenteService.runSandbox(user, assistenteDto);
       return {
@@ -349,7 +542,9 @@ export class AgentService {
     // brain 'roteiro' — replay determinístico local, sem IA e sem WhatsApp.
     const roteiroConfig = dto?.agent?.roteiro
       ? normalizeAtendimentoBotConfig(dto.agent.roteiro as any)
-      : ((await this.inboxService.getBotConfig(user)) as AtendimentoBotConfig);
+      : automationAgentRow
+        ? this.roteiroConfigFromRow(automationAgentRow)
+        : ((await this.inboxService.getBotConfig(user)) as AtendimentoBotConfig);
     const replay = replayRoteiroSandbox(
       roteiroConfig,
       Array.isArray(dto?.history) ? (dto.history as any) : [],
@@ -389,15 +584,34 @@ export class AgentService {
 
     if (brain === 'ia') {
       const result = await this.assistenteService.publish(user, on);
-      return {
+      const response = {
         published: Boolean(result.published),
         brain,
         ok: Boolean(result.ok),
         message: (result as any).message ?? null,
       };
+      await this.syncAutomationAgentPublishedIfEnabled(companyId, response.published);
+      return response;
     }
 
     const result = await this.botActivationService.putActivation(user, { type: 'atendimento', live: on });
-    return { published: Boolean(result.live), brain, ok: Boolean((result as any).ok) };
+    const response = { published: Boolean(result.live), brain, ok: Boolean((result as any).ok) };
+    await this.syncAutomationAgentPublishedIfEnabled(companyId, response.published);
+    return response;
+  }
+
+  // S10: sync best-effort — o gate (BOT_NOT_ARMED, preflight,
+  // HBX_ASSISTENTE_PUBLISH_ENABLED) já rodou DENTRO de
+  // assistenteService.publish/botActivationService.putActivation acima; se
+  // algum deles lançou, este método nem é chamado (erro propaga normal). Uma
+  // falha AQUI (ex.: linha ainda não migrada) nunca derruba a resposta do
+  // publish.
+  private async syncAutomationAgentPublishedIfEnabled(companyId: number, published: boolean): Promise<void> {
+    if (!isAutomationAgentRuntimeEnabled()) return;
+    await this.syncAutomationAgentPublished(companyId, published).catch((error: any) => {
+      this.logger.warn(
+        `[agent] sync pós-publish em AutomationAgent falhou (não bloqueia a resposta) companyId=${companyId}: ${String(error?.message || error)}`,
+      );
+    });
   }
 }

@@ -45,6 +45,17 @@ import { classifyProspectingAutoReply } from '../vendas/prospecting-safety';
 // `{action:'fallthrough_atendimento', recoveryCustomer}` e quem chama executa
 // o resto.
 //
+// S10 (MOTOR-ÚNICO): listado no "Arquivos" da sprint, mas SEM diff funcional
+// aqui — este router é agnóstico à ORIGEM da config (não lê AssistenteConfig/
+// AutomationAgent, só interpreta o `handled` que `conversationAssistant.
+// prepareReply` devolve). A troca de origem (AgentRuntimeResolver, flag
+// `HBX_AUTOMATION_AGENT`) mora inteira dentro de
+// `ConversationAssistantRuntimeService.prepareReply` — quando o cérebro
+// efetivo é 'roteiro', `prepareReply` já devolve `handled:false` (a
+// assistente "não reivindica"), e este router cai no MESMO caminho
+// `fallthrough_atendimento` de sempre, sem precisar saber por quê. Zero
+// mudança de comportamento aqui, byte a byte.
+//
 // Desenho anti-ciclo: esta classe NÃO tem dependência de construtor (não
 // injeta ConversationsService/CommercialContactControlService/etc via Nest
 // DI) — os colaboradores são passados em CADA chamada de `route()`. Isso

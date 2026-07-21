@@ -15,6 +15,7 @@ import { CadenciaSchedulerService } from '../cadencia/cadencia-scheduler.service
 import { OUTBOUND_EXECUTORS, OutboundOrchestratorService, type OutboundExecutor } from './outbound-orchestrator.service';
 import { EventRuleService } from './event-rule.service';
 import { AgentBackfillService } from './agent-backfill.service';
+import { AgentRuntimeResolver } from './agent-runtime.resolver';
 
 // S04 (MOTOR-ÚNICO) — módulo `automation`.
 //
@@ -72,6 +73,20 @@ import { AgentBackfillService } from './agent-backfill.service';
 // mesmo padrão de `scripts/f2-fabrica-stop-resume.js`. Registrar aqui só
 // mantém o módulo como fonte única de DI da frente, sem duplicar o
 // construtor em dois lugares.
+//
+// S10: AgentRuntimeResolver entra como provider aqui pro MESMO motivo de
+// InboundRouterService acima (DI dentro desta frente/testes Nest) — mas os
+// consumidores reais (ConversationAssistantRuntimeService em AssistenteModule,
+// MessagingService em MessagingModule) instanciam direto
+// (`new AgentRuntimeResolver(prisma)`), sem DI — só depende de PrismaService
+// (@Global()), então nenhum módulo precisa importar AutomationModule pra
+// usá-lo, evitando o ciclo real documentado acima (AutomationModule ->
+// CadenciaModule -> MessagingModule). AgentService (aqui mesmo) NÃO usa o
+// resolver — flag ON, ele lê `AutomationAgent` direto via PrismaService (ver
+// doc-comment em agent.service.ts, seção "S10 — leitura/escrita do schema
+// novo"), porque a leitura ali precisa dos DOIS cérebros populados ao mesmo
+// tempo (tela de configuração), enquanto o resolver devolve só o cérebro
+// ATIVO (contrato do runtime conversacional).
 @Module({
   imports: [
     PrismaModule,
@@ -88,6 +103,7 @@ import { AgentBackfillService } from './agent-backfill.service';
     AutomationOverviewService,
     AgentService,
     InboundRouterService,
+    AgentRuntimeResolver,
     {
       provide: OUTBOUND_EXECUTORS,
       useFactory: (cadenciaScheduler: CadenciaSchedulerService): OutboundExecutor[] => cadenciaScheduler.getExecutors(),
@@ -101,6 +117,7 @@ import { AgentBackfillService } from './agent-backfill.service';
     AutomationOverviewService,
     AgentService,
     InboundRouterService,
+    AgentRuntimeResolver,
     OutboundOrchestratorService,
     EventRuleService,
     AgentBackfillService,
