@@ -70,6 +70,15 @@ class NativeApiClientPathPolicyTest {
     }
 
     @Test
+    fun reverseGeocodeDaLeituraPassaPelaPolitica() {
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo/reverse"))
+        // Só leitura: o app nunca escreve em /logistica/geo.
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/geo/reverse"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo"))
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/geo/reverse"))
+    }
+
+    @Test
     fun recargaExposesOnlyThePublicCatalogReadOnly() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/credits/public-catalog"))
         // A COMPRA nunca passa pelo app: recarga por cartão é só no painel web.

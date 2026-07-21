@@ -42,6 +42,11 @@
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* `hidden` e o contrato de filtro das buscas (seletor de cliente/produto). Qualquer
+   classe com `display` do tema vence a regra do navegador e deixa a linha na tela —
+   foi o que quebrou a busca do seletor de cliente (`.lrt-client-row{display:flex}`)
+   e prendeu o "Nenhum cliente encontrado" (`.hbx-selection-state{display:grid}`). */
+[hidden] { display: none !important; }
 html, body { width: 100%; max-width: 100%; margin: 0; min-height: 100%; overflow-x: clip; background: var(--bg); color: var(--ink); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { min-height: 100dvh; font-size: .875rem; line-height: 1.4; overscroll-behavior-y: none; }
 button, input, select, textarea { font: inherit; color: inherit; }

@@ -516,6 +516,10 @@
     if (!key) return null;
     return {
       key,
+      // O que ESTÁ na tela vence o que o estado sabe: entre o render e o próximo
+      // quadro o campo é trocado, e a tecla digitada nessa fresta caía no elemento
+      // velho ("wellen" virava "wel" na busca do seletor).
+      value: typeof element.value === "string" ? element.value : null,
       start: typeof element.selectionStart === "number" ? element.selectionStart : null,
       end: typeof element.selectionEnd === "number" ? element.selectionEnd : null,
     };
@@ -530,6 +534,12 @@
       }
       if (!keyboardEditable(element) || !app.contains(element)) return;
       try { element.focus({ preventScroll: true }); } catch (_) { element.focus(); }
+      // Devolve o texto perdido no troca-troca do DOM e reavisa quem escuta, pra
+      // busca e estado voltarem a falar a mesma língua.
+      if (snapshot.value !== null && element.value !== snapshot.value) {
+        element.value = snapshot.value;
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+      }
       if (snapshot.start !== null && typeof element.setSelectionRange === "function") {
         const length = String(element.value || "").length;
         try { element.setSelectionRange(Math.min(snapshot.start, length), Math.min(snapshot.end, length)); } catch (_) {}
@@ -1562,7 +1572,12 @@
     state.leituraProdutoPicker = false;
     state.leituraProdutoQuery = "";
     showModal("leitura-parada");
-    if (state.clientsPage === 0) void loadClients(true, true).then(() => {
+    // O seletor e a tela Clientes dividem a mesma lista e a mesma busca: abrir o
+    // seletor com o termo herdado da outra tela mostraria lista filtrada e caixa
+    // de busca vazia. Zera o termo e recarrega quando havia filtro.
+    const precisaRecarregar = state.clientsPage === 0 || state.query !== "";
+    state.query = "";
+    if (precisaRecarregar) void loadClients(true, true).then(() => {
       if (state.modal === "leitura-parada") render();
     });
   }
@@ -2959,7 +2974,9 @@
     state.screenMotion = "";
     clearTimeout(navMotionTimer);
     navMotionTimer = setTimeout(() => { state.navMotionFrom = null; }, 360);
-    if (nextScreen === "clients" && state.clientsPage === 0) loadClients(true);
+    // Lista e busca são as MESMAS do seletor da rota: entrar em Clientes com o
+    // termo herdado de lá mostraria a lista já filtrada. Chega sempre limpa.
+    if (nextScreen === "clients" && (state.clientsPage === 0 || state.query !== "")) { state.query = ""; loadClients(true); }
   }
   function closeOverlay(kind) {
     if (state.closingOverlay) return Promise.resolve();
@@ -3707,7 +3724,17 @@
     // DDD do pop-up: mantém só dígitos e guarda no estado (pra não perder o que
     // foi digitado se a sugestão do CEP chegar e re-renderizar).
     if (event.target.id === "ddd-input") { const v = onlyDigits(event.target.value).slice(0, 2); event.target.value = v; if (state.dddPrompt) state.dddPrompt.ddd = v; return; }
-    if (event.target.id === "leitura-cliente-search") { state.leituraClienteQuery = event.target.value; filterSelectionList(event.target, "leitura-cliente-list", "leitura-cliente-empty"); return; }
+    // Seletor de cliente da rota = MESMA busca da tela Clientes (pedido do dono,
+    // 21/07). O filtro local é só o alívio imediato enquanto o servidor responde;
+    // sozinho ele só enxergava a página já carregada e "sumia" com o resto.
+    if (event.target.id === "leitura-cliente-search") {
+      state.leituraClienteQuery = event.target.value;
+      filterSelectionList(event.target, "leitura-cliente-list", "leitura-cliente-empty");
+      state.query = event.target.value;
+      clearTimeout(clientsSearchTimer);
+      clientsSearchTimer = setTimeout(() => { void loadClients(true); }, 300);
+      return;
+    }
     if (event.target.id === "leitura-produto-search") { state.leituraProdutoQuery = event.target.value; filterSelectionList(event.target, "leitura-produto-list", "leitura-produto-empty"); return; }
     if (event.target.dataset.leituraValor !== undefined) {
       const item = state.leituraItens.find(i => String(i.productId) === String(event.target.dataset.leituraValor));

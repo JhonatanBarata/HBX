@@ -270,6 +270,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "leitura", "atual"),
         ) -> true
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
+        // Reverse geocode do ponto capturado na leitura de rota. Sem isto o app
+        // caía sempre no Nominatim: o backend respondia, a política é que barrava.
+        method == "GET" && segments == listOf("logistica", "geo", "reverse") -> true
         // PR20072026 W2 — GET /logistica/leitura/:id/resumo.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "resumo" -> true
         method == "POST" && segments in listOf(
