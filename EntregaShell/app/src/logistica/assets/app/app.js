@@ -758,7 +758,17 @@
     const alvoControls = `${controlsH}px`;
     const alvoMapa = `${alturaMapa}px`;
     if (controls.style.height !== alvoControls) controls.style.height = alvoControls;
-    if (shell.style.height !== alvoMapa) shell.style.height = alvoMapa;
+    if (shell.style.height !== alvoMapa) {
+      shell.style.height = alvoMapa;
+      // O canvas do MapLibre não acompanha o container sozinho: sem este resize
+      // os tiles ficam do tamanho antigo e sobra uma faixa morta dentro da
+      // moldura (o "mapa cortado"). Vai no frame seguinte, com a altura já valendo.
+      requestAnimationFrame(() => {
+        const map = shell.querySelector(".route-live-map");
+        const instancia = (map && map.__hbxMap) || routeMap;
+        if (instancia && typeof instancia.resize === "function") { try { instancia.resize(); } catch (_) {} }
+      });
+    }
   }
   function syncChromeMetrics() {
     const root = document.documentElement;
