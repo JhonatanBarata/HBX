@@ -67,7 +67,8 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import type { WAMessage } from "@/components/hbx/whatsapp-preview";
 import { PhonePreview } from "./kit/phone-preview";
 // S03 (PADRAO-MERCADO): StatusChip pro aviso do fallback do sandbox — Lei nº3 (vocabulário único de status).
-import { StatusChip } from "./kit/status-chip";
+// S09 (PADRAO-MERCADO): StatusTone junto — a toolbar passa a usar o MESMO StatusChip (ver `status` abaixo).
+import { StatusChip, type StatusTone } from "./kit/status-chip";
 // S08 (PADRAO-MERCADO): card de template padrão (kit central, ver seu cabeçalho) — a galeria do passo 3 usa.
 import { TemplateCard, type TemplateCardOption } from "./kit/template-card";
 import { BotFlowCanvas } from "@/components/hbx/bot-flow-canvas";
@@ -819,8 +820,20 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
   }
 
   const displayName = selectedBrain === "ia" ? (view.ia?.nome || "IA") : (empresaNome || "Atendente");
-  const stateLabel = !view.armed ? "Aguardando suporte" : currentPublished ? "Ativo no WhatsApp" : currentDirty ? "Alterações não salvas" : "Rascunho";
-  const stateIcon = !view.armed ? ICONS.help : currentPublished ? ICONS.check : ICONS.edit;
+  // S09 (PADRAO-MERCADO) — auditoria de status (Lei nº3, "zero tolerância"):
+  // esta toolbar desenhava o pill de estado por conta própria (`.ia-pub-pill`,
+  // span cru com ícone+texto) em vez do <StatusChip> central — a MESMA
+  // inconsistência que a S04 já tinha corrigido no toolbar da Cobrança
+  // (secao-cobranca.tsx `status`, achado A6: nunca 2 fatos com o mesmo peso
+  // visual). Alinhado ao mesmo padrão: StatusChip reflete só a verdade do
+  // servidor (armado/publicado); "edição não salva" vira linha secundária
+  // (`.aut-obj-card__secondary`, já usada por page.client.tsx/secao-cobranca)
+  // e só aparece quando existe.
+  const status: { tone: StatusTone; label: string } = !view.armed
+    ? { tone: "atencao", label: "Aguardando suporte" }
+    : currentPublished
+      ? { tone: "ligado", label: "Ativo no WhatsApp" }
+      : { tone: "rascunho", label: "Rascunho" };
 
   return (
     <>
@@ -830,10 +843,10 @@ function Editor({ view, canManage, iaPublishEnabled, empresaNome, onRefazer, onC
           <span className="ia-toolbar__name">{displayName}</span>
           <span className="ia-toolbar__meta">{selectedBrain === "ia" ? "Cérebro: Inteligência Artificial" : "Cérebro: Roteiro de botões"}</span>
         </div>
-        <span className={"ia-pub-pill" + (currentPublished ? " is-on" : "")}>
-          <I d={stateIcon} size={11} />
-          {stateLabel}
-        </span>
+        <div className="ia-toolbar__status">
+          <StatusChip tone={status.tone} label={status.label} />
+          {currentDirty && <span className="aut-obj-card__secondary">Alterações não salvas</span>}
+        </div>
 
         <div className="atd-brain-switch glass-pill-track">
           <GlassPill {...brainSwitchPill} />

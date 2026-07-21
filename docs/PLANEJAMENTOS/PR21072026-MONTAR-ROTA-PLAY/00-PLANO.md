@@ -1,5 +1,32 @@
 # PR21072026 — MONTAR ROTA (Play) com 4 opções + Leitura GPS de verdade
 
+> ## ✅ EXECUTADO E PUBLICADO EM 21/07/2026
+> Commits no master/origin: **`87af90ba`** (frente inteira) + **`40bd0454`** (fix do build).
+> APK assinado publicado e validado no VPS (SHA-256 conferido entre build e destino);
+> `version-logistica.json` no ar (auto-update do APK); backend/frontend recriados e
+> saudáveis; migration `20260721210000_logistica_leitura_trilha` aplicada
+> (`prisma migrate status` = "Database schema is up to date!"); Nest subiu limpo.
+>
+> **Como foi publicado:** `npm run publish` (full) **trava** enquanto existir worktree
+> ativo em `.claude/worktrees/` — a etapa `removeNonMasterBranches` faz `git branch -D`
+> e o git recusa apagar branch presa a worktree, abortando o deploy inteiro ANTES do
+> build. Contornado com `npm run new` (selective), que pula essa limpeza e faz o mesmo
+> commit→build→push→deploy→APK. **Não remover worktree de sessão paralela pra destravar.**
+>
+> **Bug de build achado e corrigido:** `LeituraTrilhaSync.kt` não compilava —
+> **Kotlin aceita comentário de bloco ANINHADO**, e o KDoc citava rotas com glob
+> (`tracking/*`, `leitura/*`); cada `/*` abria um nível novo que nunca fechava e o
+> compilador engolia o arquivo até o EOF ("Unclosed comment"), derrubando as
+> referências a `LeituraTrilhaSync` em `RotaService`/`NativeAppBridge`. Trocado por
+> `tracking/…`. É o primo do já conhecido "`*/` em comentário CSS derruba o app".
+>
+> ### ⬜ Pendente
+> **Nada foi testado no aparelho** (o dono pediu teste só no fim). Conferir no moto g15:
+> (1) os 4 botões do menu cabem sem scroll; (2) transição menu→wizard manual; (3) jornada
+> real de Leitura com trilha + popup de pausa; (4) primeira instalação pedindo permissão
+> de GPS na hora do "Iniciar Leitura".
+
+
 Escopo: APK entregador (`EntregaShell/app/src/logistica/assets/app/app.js` + `app.css` +
 `RotaService.kt`). Seguir a CONSTITUIÇÃO (10 Leis) de `androidapk.md` à risca.
 NÃO tocar nas edições paralelas do dono no working tree.

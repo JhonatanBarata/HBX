@@ -311,13 +311,17 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
         <div className="auto-grid">{[0, 1, 2].map((i) => <div key={i} className="auto-skel" />)}</div>
       )}
 
+      {/* S09 (PADRAO-MERCADO) — consistência de kit: este empty desenhava
+          `.auto-empty` cru (h4+p, padrão pré-kit) em vez do <EmptyState>
+          central — a MESMA tela já usa <EmptyState> pro "Funil vazio" do
+          Aplicar (S06, mais abaixo); alinhado, mesma ilustração (Lei nº2,
+          nunca duplicar símbolo — a seção inteira já é "Buscar clientes"). */}
       {!errorPlays && !loadingPlays && plays && plays.length === 0 && (
-        <div className="auto-empty">
-          <span className="auto-empty__icon"><I d={ICONS.search} size={26} /></span>
-          <h4>Nada disparando ainda</h4>
-          {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1). */}
-          <p>Configure o disparo frio ou aplique uma cadência a um lead.</p>
-        </div>
+        <EmptyState
+          illustration={<IlustracaoBuscar />}
+          title="Nada disparando ainda"
+          line="Configure o disparo frio ou aplique uma cadência a um lead."
+        />
       )}
 
       {!errorPlays && plays && plays.length > 0 && (
@@ -370,14 +374,14 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
           <div className="persona-grid">{[0, 1, 2].map((i) => <div key={i} className="auto-skel" />)}</div>
         )}
 
+        {/* S09 (PADRAO-MERCADO) — consistência de kit: idem acima, `.auto-empty` cru → <EmptyState>. */}
         {!errorCad && !loadingCad && cadencias.length === 0 && (
-          <div className="auto-empty">
-            <span className="auto-empty__icon"><I d={ICONS.send} size={26} /></span>
-            <h4>Nenhuma cadência ainda</h4>
-            {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1). */}
-            <p>Criadas automaticamente na primeira visita — recarregue se faltar.</p>
-            <button className="btn-ghost" onClick={() => { setLoadingCad(true); void loadCad().then(() => setLoadingCad(false)); }}>Recarregar</button>
-          </div>
+          <EmptyState
+            illustration={<IlustracaoBuscar />}
+            title="Nenhuma cadência ainda"
+            line="Criadas automaticamente na primeira visita — recarregue se faltar."
+            cta={<button className="btn-ghost" onClick={() => { setLoadingCad(true); void loadCad().then(() => setLoadingCad(false)); }}>Recarregar</button>}
+          />
         )}
 
         {cadencias.length > 0 && (
@@ -463,7 +467,11 @@ function PlayCard({ play, canManage, onToggle, onAbrirProspeccao }: {
       )}
 
       <div className="auto-card__foot">
-        {play.tipo === "rotina" && <span className="hint">Leitura — gestão chega na próxima sprint.</span>}
+        {/* S09 (PADRAO-MERCADO) — jargão + copy velha: "próxima sprint" era
+            termo interno de processo (proibido na UI) E ficou desatualizado
+            — a gestão de rotina já existe (S16, seção Reagir e abastecer);
+            aponta pra lá em vez de prometer algo que já chegou. */}
+        {play.tipo === "rotina" && <span className="hint">Leitura — gerencie em Reagir e abastecer.</span>}
         {play.tipo === "prospeccao" && (
           <button className="btn-ghost btn-xs" onClick={onAbrirProspeccao}>Configurar</button>
         )}
@@ -784,7 +792,8 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
                 <option value="">Selecione…</option>
                 {searches.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
-              <span className="hint">Inscreve os leads do funil que batem com o filtro (cidade/segmento) da pesquisa.</span>
+              {/* S09 (PADRAO-MERCADO): frase original estourava o teto de copy (80 chars, Lei nº1 ≤70). */}
+              <span className="hint">Inscreve os leads do funil que batem com o filtro da pesquisa.</span>
             </div>
           )}
 

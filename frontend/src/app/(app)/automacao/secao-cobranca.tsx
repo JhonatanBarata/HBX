@@ -575,7 +575,8 @@ function CobrancaPreview({ config }: { config: RecoveryConfig }) {
       }
       messages={messages}
       header={{ name: "Cobrança", status: "online" }}
-      emptyHint="A prévia aparece quando você escrever a Boas-vindas ou o Menu principal"
+      // S09 (PADRAO-MERCADO): frase original estourava o teto de copy (71 chars, Lei nº1 ≤70).
+      emptyHint="A prévia aparece ao escrever a Boas-vindas ou o Menu principal."
       quickReplies={quick.length ? quick : undefined}
       footerNote="Roteiro fixo — não simula resposta."
     />

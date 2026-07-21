@@ -86,7 +86,9 @@ const SECAO_META: Record<SecaoKey, SecaoMeta> = {
     key: "atendente",
     titulo: "Atender sozinho",
     icon: "atend",
-    sub: "Roteiro de menu ou IA respondendo o cliente no seu lugar, sem vendedor no meio.",
+    // S09 (PADRAO-MERCADO): frase original estourava o teto de copy (79
+    // chars, Lei nº1 ≤70) — mesmo corte que a S04 já fez pro sub de Cobrança.
+    sub: "Roteiro de menu ou IA respondendo o cliente sem vendedor no meio.",
   },
   cobranca: {
     key: "cobranca",
@@ -107,7 +109,9 @@ const SECAO_META: Record<SecaoKey, SecaoMeta> = {
     key: "regras",
     titulo: "Reagir e abastecer",
     icon: "bolt",
-    sub: "Gatilhos e rotinas cuidando do funil sozinhos, sem ninguém precisar lembrar.",
+    // S09 (PADRAO-MERCADO): frase original estourava o teto de copy (76
+    // chars, Lei nº1 ≤70) — "abastecem" ecoa o título da seção.
+    sub: "Gatilhos e rotinas abastecem o funil sozinhos, sem ninguém lembrar.",
   },
 };
 
@@ -426,7 +430,8 @@ export function AutomacaoHubClient() {
         <section className="panel">
           <div style={{ padding: 18, display: "grid", gap: 6, justifyItems: "start" }}>
             <strong>Nenhum objetivo liberado</strong>
-            <span className="hint">Sua empresa ainda não tem atendimento, bot ou vendas liberado — fale com o suporte.</span>
+            {/* S09 (PADRAO-MERCADO): frase original estourava o teto de copy (83 chars, Lei nº1 ≤70). */}
+            <span className="hint">Atendimento, bot e vendas ainda não liberados — fale com o suporte.</span>
           </div>
         </section>
       )}
