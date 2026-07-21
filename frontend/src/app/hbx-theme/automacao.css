@@ -271,3 +271,17 @@
    (token central, Lei nº5), sem repintar o resto do emp-row. */
 .aut-pick-list { max-height: 320px; overflow-y: auto; }
 .aut-pick-list input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--hbx-brand); flex: none; }
+
+/* ── S07 (PADRAO-MERCADO) — seção Regras: empties de Gatilhos/Rotinas usam
+   <MiniFluxo> GRANDE (não compact) no slot `illustration` do <EmptyState>
+   no lugar do medalhão de 1 ícone (S01/S06). O box fixo de 88px só fazia
+   sentido pra 1 svg — quando o filho é um diagrama (largura própria, 3
+   nós), o container vira auto pra não espremer/cortar. Os ÍCONES internos
+   do diagrama já têm tamanho próprio definido no bloco MiniFluxo acima
+   (.aut-minifluxo__icon/__conn svg vencem o empate de especificidade contra
+   .aut-empty-illus svg por virem depois no arquivo) — nada muda ali, só o
+   CONTAINER precisa da exceção de tamanho aqui. Zero classe nova pro resto
+   da seção: cards de gatilho/rotina reusam .aut-obj-card__metric* (número
+   grande, já em uso desde a S05 pro card de play) e <StatusChip size="s">
+   sem label custom (mesmo padrão da S05 pro dot solto "Ativo/Pausado"). */
+.aut-empty-illus:has(.aut-minifluxo) { width: auto; height: auto; }

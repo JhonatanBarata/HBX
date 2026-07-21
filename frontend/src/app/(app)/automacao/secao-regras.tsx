@@ -54,11 +54,40 @@
 // sprint, igual à S14). Zero import de `automacoes/page.client.tsx` (tela
 // velha) — tipos e componentes reimplantados aqui, mesmo padrão de
 // secao-atendente.tsx/secao-cobranca.tsx/secao-prospeccao.tsx.
+//
+// Nota (S07, PADRAO-MERCADO): empties de Gatilhos/Rotinas trocam o parágrafo
+// didático por <EmptyState> (kit/empty-state.tsx, S01) com <MiniFluxo>
+// GRANDE (kit/mini-fluxo.tsx, não compact) no slot de ilustração — o
+// diagrama fala por si (Lei nº2). Cards existentes trocam `.auto-state` por
+// <StatusChip size="s"> sem label custom (mesmo padrão da S05 pro dot solto
+// "Ativo/Pausado" em secao-prospeccao.tsx — Lei nº3) e a caixa "Quando"/
+// "Então" do gatilho por outro <MiniFluxo> (D4 abaixo). A5 (rotina sem
+// pesquisa salva): o combo cede lugar a `.auto-flag-note` + link pra
+// `/leads` — rota REAL confirmada por grep: leads/redirect.client.tsx seta
+// sessionStorage "hbx:vendas-modo"="buscar" e manda pra /vendas, que abre
+// a aba "Buscar empresas" (LeadsClient embutido) onde vive o botão "Salvar
+// atual"; é o MESMO alias que dashboard/page.client.tsx já usa pro card
+// "Leads na base (Radar)". Import novo: `next/link` (zero rota nova).
+//
+// D4. Item 4 do contrato (S07.md) pede "MiniFluxo compacto" pro QUANDO/
+// ENTÃO do card — mas o modo `compact` (kit/mini-fluxo.tsx) rende só um DOT
+// por nó (o ícone vira só `title`, hover). Num card que É o conteúdo
+// principal (ao contrário do teaser do hub em page.client.tsx, S02, onde o
+// detalhe mora 1 clique adiante), esconder o ícone atrás de hover falha a
+// Lei nº2 ("se precisa de texto pra entender, a forma falhou" — aqui seria
+// hover, pior que texto). Usa-se o MiniFluxo NÃO-compact (ícone+rótulo
+// visíveis) — ainda assim mais compacto que a caixa "Quando"/"Então" antiga
+// (1 linha corrida no lugar de 2 blocos empilhados), só não é o modo
+// `compact` ao pé da letra.
 
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
+import { EmptyState } from "./kit/empty-state";
+import { MiniFluxo, type MiniFluxoNode } from "./kit/mini-fluxo";
+import { StatusChip } from "./kit/status-chip";
 import { apiFetch } from "@/lib/api";
 
 // ================================================================
@@ -111,6 +140,31 @@ function acaoLabel(a: AcaoGatilho): string {
   if (a.tipo === "notificar_vendedor") return "notificar vendedor";
   return a.tipo;
 }
+
+// S07 (PADRAO-MERCADO) — item 4: QUANDO/ENTÃO do card vira <MiniFluxo> (D4 no
+// cabeçalho do arquivo justifica o não-compact). 1º nó é o evento; os
+// seguintes são as ações (fallback "sem ação" quando a lista vem vazia —
+// mesmo caso que o antigo `.auto-chip` cobria).
+function gatilhoFluxo(g: Gatilho): MiniFluxoNode[] {
+  const nodes: MiniFluxoNode[] = [{ icon: "msg", label: eventoLabel(g.evento) }];
+  if (g.acoes.length === 0) nodes.push({ icon: "check", label: "sem ação" });
+  else for (const a of g.acoes) nodes.push({ icon: ACAO_META[a.tipo]?.icon || "check", label: acaoLabel(a) });
+  return nodes;
+}
+
+// S07 (PADRAO-MERCADO) — itens 1/2: diagramas GRANDES dos 2 empties (o
+// "embrião" já eram os pills do .auto-empty__demo antigo — só promovidos
+// pro componente central em vez de HTML solto).
+const GATILHO_EMPTY_FLUXO: MiniFluxoNode[] = [
+  { icon: "msg", label: "Lead responde" },
+  { icon: "arrow", label: "mover p/ retorno" },
+  { icon: "bell", label: "notificar vendedor" },
+];
+const ROTINA_EMPTY_FLUXO: MiniFluxoNode[] = [
+  { icon: "clock", label: "Toda segunda" },
+  { icon: "search", label: "Pesquisa salva" },
+  { icon: "vendas", label: "50 no funil" },
+];
 
 function LoadErrorPanel({ error, retry }: { error: string; retry: () => void }) {
   return (
@@ -207,7 +261,10 @@ function GatilhosTab({ data, loading, error, reload }: {
   return (
     <>
       <div className="auto-bar">
-        <span className="hint">Quando o lead responde no WhatsApp, dispara ações no funil — sem enviar mensagem automática.</span>
+        {/* S07 (PADRAO-MERCADO) — item 5: linha encurtada pro teto (≤70 chars,
+            Lei nº1) — "sem enviar mensagem automática" é a única frase de
+            SEGURANÇA que a forma não carrega, então fica (só mais curta). */}
+        <span className="hint">Reage ao lead no funil — sem enviar mensagem automática.</span>
         {canManage && gatilhos.length > 0 && (
           <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Novo gatilho</button>
         )}
@@ -222,20 +279,14 @@ function GatilhosTab({ data, loading, error, reload }: {
       )}
 
       {!error && !loading && gatilhos.length === 0 && (
-        <div className="auto-empty">
-          <span className="auto-empty__icon"><I d={ICONS.bolt} size={26} /></span>
-          <h4>Nenhum gatilho ainda</h4>
-          <p>Gatilho é o reflexo do funil: o lead respondeu no WhatsApp e o sistema reage na hora — move a etapa, cria a atividade de retorno e avisa o vendedor. Nada de lead respondido ficar esquecido.</p>
-          <div className="auto-empty__demo">
-            <span className="auto-chip"><I d={ICONS.msg} size={12} /> Lead responde</span>
-            <I d={ICONS.arrow} size={13} />
-            <span className="auto-chip"><I d={ICONS.arrow} size={12} /> mover p/ retorno</span>
-            <span className="auto-chip"><I d={ICONS.bell} size={12} /> notificar vendedor</span>
-          </div>
-          {canManage && (
+        <EmptyState
+          illustration={<MiniFluxo nodes={GATILHO_EMPTY_FLUXO} />}
+          title="Nenhum gatilho ainda"
+          line="Lead responde no WhatsApp, o funil reage sozinho."
+          cta={canManage && (
             <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Criar meu primeiro gatilho</button>
           )}
-        </div>
+        />
       )}
 
       {gatilhos.length > 0 && (
@@ -245,33 +296,20 @@ function GatilhosTab({ data, loading, error, reload }: {
               <div className="auto-card__head">
                 <span className="auto-card__ico"><I d={ICONS.bolt} size={16} /></span>
                 <span className="auto-card__title">{g.nome}</span>
-                <span className={"auto-state" + (g.ativo ? " is-on" : "")}>{g.ativo ? "Ativo" : "Pausado"}</span>
+                <StatusChip tone={g.ativo ? "ligado" : "pausado"} size="s" />
               </div>
 
-              <div className="auto-rule">
-                <span className="auto-rule__k">Quando</span>
-                <span className="auto-rule__v">
-                  <I d={ICONS.msg} size={14} />
-                  {eventoLabel(g.evento)}
-                </span>
+              <MiniFluxo nodes={gatilhoFluxo(g)} />
+
+              <div className="aut-obj-card__metric">
+                <span className="aut-obj-card__metric-n">{g.fireCount}</span>
+                <span className="aut-obj-card__metric-l">Disparos</span>
               </div>
-              <span className="auto-connector"><I d={ICONS.chevronDown} size={14} /></span>
-              <div className="auto-rule is-then">
-                <span className="auto-rule__k">Então</span>
-                <div className="auto-rule__chips">
-                  {g.acoes.length === 0 && <span className="auto-chip">sem ações</span>}
-                  {g.acoes.map((a, i) => (
-                    <span key={i} className="auto-chip">
-                      <I d={ICONS[ACAO_META[a.tipo]?.icon || "check"]} size={12} /> {acaoLabel(a)}
-                    </span>
-                  ))}
+              {g.lastFiredAt && (
+                <div className="auto-card__meta">
+                  <span>Último disparo <b>{new Date(g.lastFiredAt).toLocaleDateString("pt-BR")}</b></span>
                 </div>
-              </div>
-
-              <div className="auto-card__meta">
-                <span>Disparos <b>{g.fireCount}</b></span>
-                {g.lastFiredAt && <span>Último <b>{new Date(g.lastFiredAt).toLocaleDateString("pt-BR")}</b></span>}
-              </div>
+              )}
 
               {canManage && (
                 <div className="auto-card__foot">
@@ -386,7 +424,8 @@ function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
   return (
     <>
       <div className="auto-bar">
-        <span className="hint">Recorrência sobre uma pesquisa salva: puxa leads pro funil nos dias escolhidos.</span>
+        {/* S07 (PADRAO-MERCADO) — item 5: linha encurtada pro teto (≤70 chars, Lei nº1). */}
+        <span className="hint">Recorrência sobre pesquisa salva, direto pro funil.</span>
         {canManage && rotinas.length > 0 && (
           <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Nova rotina</button>
         )}
@@ -405,21 +444,14 @@ function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
       )}
 
       {!error && !loading && rotinas.length === 0 && (
-        <div className="auto-empty">
-          <span className="auto-empty__icon"><I d={ICONS.clock} size={26} /></span>
-          <h4>Nenhuma rotina ainda</h4>
-          <p>Rotina é o abastecimento automático do funil: toda segunda (ou nos dias que você marcar) ela puxa até N leads de uma pesquisa salva e entrega pro vendedor — sem ninguém precisar lembrar.</p>
-          <div className="auto-empty__demo">
-            <span className="auto-chip"><I d={ICONS.clock} size={12} /> Toda segunda</span>
-            <I d={ICONS.arrow} size={13} />
-            <span className="auto-chip"><I d={ICONS.search} size={12} /> Pesquisa salva</span>
-            <I d={ICONS.arrow} size={13} />
-            <span className="auto-chip"><I d={ICONS.vendas} size={12} /> 50 leads no funil</span>
-          </div>
-          {canManage && (
+        <EmptyState
+          illustration={<MiniFluxo nodes={ROTINA_EMPTY_FLUXO} />}
+          title="Nenhuma rotina ainda"
+          line="Toda semana, puxa leads de uma pesquisa salva pro funil."
+          cta={canManage && (
             <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Criar minha primeira rotina</button>
           )}
-        </div>
+        />
       )}
 
       {rotinas.length > 0 && (
@@ -429,7 +461,7 @@ function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
               <div className="auto-card__head">
                 <span className="auto-card__ico"><I d={ICONS.clock} size={16} /></span>
                 <span className="auto-card__title">{r.nome}</span>
-                <span className={"auto-state" + (r.ativa ? " is-on" : "")}>{r.ativa ? "Ativa" : "Pausada"}</span>
+                <StatusChip tone={r.ativa ? "ligado" : "pausado"} size="s" />
               </div>
 
               <div className="rot-week" title={r.weekdays.map((d) => WEEKDAY_FULL[d]).join(", ") || "Sem dias"}>
@@ -438,10 +470,13 @@ function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
                 ))}
               </div>
 
-              <div className="auto-card__meta">
-                <span>Até <b>{r.maxLeads}</b> leads por execução</span>
-                {r.everyWeeks > 1 && <span>a cada <b>{r.everyWeeks}</b> semanas</span>}
+              <div className="aut-obj-card__metric">
+                <span className="aut-obj-card__metric-n">{r.maxLeads}</span>
+                <span className="aut-obj-card__metric-l">Por execução</span>
               </div>
+              {r.everyWeeks > 1 && (
+                <div className="auto-card__meta"><span>A cada <b>{r.everyWeeks}</b> semanas</span></div>
+              )}
               <div className="auto-card__meta">
                 {r.lastRunAt ? (
                   <span className={"rot-status " + (r.lastRunStatus === "erro" ? "is-err" : "is-ok")}>
@@ -484,11 +519,16 @@ function NovaRotinaModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   const [maxLeads, setMaxLeads] = useState(50);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // S07 (PADRAO-MERCADO) — A5: só depois que o fetch termina é que sabemos
+  // se a empresa tem 0 pesquisas de verdade; sem esta flag o mini-empty
+  // piscaria antes da 1ª resposta chegar (falso "sem pesquisa").
+  const [searchesLoading, setSearchesLoading] = useState(true);
 
   useEffect(() => {
     void apiFetch<{ searches?: SavedSearch[] }>("/saved-search")
       .then((r) => setSearches(r?.searches ?? []))
-      .catch(() => setSearches([]));
+      .catch(() => setSearches([]))
+      .finally(() => setSearchesLoading(false));
   }, []);
 
   function toggleDay(d: number) {
@@ -528,10 +568,28 @@ function NovaRotinaModal({ onClose, onDone }: { onClose: () => void; onDone: () 
           </div>
           <div className="auto-form__row">
             <label className="field-label" htmlFor="rr-search">Pesquisa salva</label>
-            <select id="rr-search" className="field-dark" value={savedSearchId} onChange={(e) => setSavedSearchId(e.target.value)}>
-              <option value="">Selecione…</option>
-              {searches.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-            </select>
+            {searchesLoading ? (
+              <span className="hint">Carregando pesquisas…</span>
+            ) : searches.length === 0 ? (
+              // S07 (PADRAO-MERCADO) — A5: sem pesquisa salva, o combo vazio
+              // era beco sem saída (achado A5, README). `/leads` é a rota
+              // REAL — alias já existente (leads/redirect.client.tsx) que
+              // seta sessionStorage "hbx:vendas-modo"="buscar" e manda pro
+              // /vendas, que abre direto na aba "Buscar empresas" (onde vive
+              // o botão "Salvar atual", leads/page.client.tsx) — MESMO link
+              // que dashboard/page.client.tsx já usa pro card "Leads na
+              // base (Radar)".
+              <div className="auto-flag-note">
+                <I d={ICONS.search} size={14} />
+                Nenhuma pesquisa salva — crie um filtro em Vendas.
+                <Link className="btn-teal btn-xs" href="/leads">Criar pesquisa</Link>
+              </div>
+            ) : (
+              <select id="rr-search" className="field-dark" value={savedSearchId} onChange={(e) => setSavedSearchId(e.target.value)}>
+                <option value="">Selecione…</option>
+                {searches.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+            )}
           </div>
           <div className="auto-form__row">
             <span className="field-label">Dias da semana</span>
