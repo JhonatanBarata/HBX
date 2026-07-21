@@ -65,6 +65,11 @@ export const ICONS: Record<string, string[]> = {
   agenda: ["M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z", "M4 9h16", "M8 3v3M16 3v3", "M9 14l2 2 4-4"],
   // WORM-13 — Automações (raio: cadência que dispara sozinha).
   automacao: ["M13 2 4 14h6l-1 8 9-12h-6l1-8Z"],
+  // S12 (MOTOR-ÚNICO) — hub /automacao: reusa o MESMO raio de `automacao`
+  // (pedido do contrato "reusar ICONS.automacao"). Chave PRÓPRIA porque
+  // ICONS[n.id] busca pelo id do nav ("automacaoHub" ≠ "automacao") — sem
+  // esta entrada o nav id novo derruba a Sidebar (regra do P0 de 02/07).
+  automacaoHub: ["M13 2 4 14h6l-1 8 9-12h-6l1-8Z"],
   atend: ["M4.5 13.8v-2.2a7.5 7.5 0 0 1 15 0v2.2", "M7.5 17.5h-1a2 2 0 0 1-2-2v-1.1a2 2 0 0 1 2-2h1v5.1Z", "M16.5 17.5h1a2 2 0 0 0 2-2v-1.1a2 2 0 0 0-2-2h-1v5.1Z"],
   bot: ["M8 4L7 7M16 4L17 7", "M7 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z", "M9 11l2 2M11 11l-2 2M13 11l2 2M15 11l-2 2", "M9.5 15c1-1.5 4-1.5 5 0", "M9 17v2M15 17v2"],
   // WORM-14 — Assistente IA (faísca): faltava a chave e ICONS["assistente"] undefined
@@ -333,6 +338,13 @@ export const NAV_LINKS = [
   // MISSÃO F (RELEASE-20X S5): Concierge IA — busca do Radar guiada por conversa.
   // Gate próprio 'concierge' (defaultEnabled=false, master liga por empresa).
   { id: "concierge", label: "Concierge IA", href: "/concierge", group: "Facilidades" },
+  // S12 (MOTOR-ÚNICO) — casca única /automacao: hub por objetivo + painel de
+  // status, funde /bot + /automacoes + /assistente (README PR20072026-MOTOR-
+  // ÚNICO). Nasce AO LADO dos 3 itens velhos abaixo (nenhum sai daqui ainda —
+  // matar/redirect é trabalho da S17); gate próprio (OR de 3 chaves) calculado
+  // no Sidebar, não pelo mecanismo padrão de 1 chave (ver isModuleVisible
+  // abaixo + comentário no filtro `visible`).
+  { id: "automacaoHub", label: "Automação", href: "/automacao", group: "Facilidades" },
   // WORM-13: automações (cadência com persona + gatilhos + rotinas) — superfície Vendas.
   { id: "automacao", label: "Automações", href: "/automacoes", group: "Facilidades" },
   { id: "bot", label: "Bot", href: "/bot", group: "Facilidades" },
@@ -640,6 +652,10 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   scrape: "webscraping",
   vendas: "vendas",
   agenda: "vendas",
+  // S12: hub /automacao é kill-switch por MÓDULO (OR de atendimento/bot/vendas
+  // via /modules/me, calculado à parte no Sidebar — ver `visible` abaixo), não
+  // paywall de plano — null aqui, igual bot/assistente/concierge.
+  automacaoHub: null,
   automacao: "vendas",
   atend: "atendimento_chat",
   // NÚCLEO-CRM N3: Empresas = kill-switch, NÃO paywall → sem gate de plano
@@ -677,6 +693,12 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   scrape: "webscraping",
   vendas: "vendas",
   agenda: "vendas",
+  // S12: sem chave ÚNICA aqui de propósito — o gate real (atendimento OU bot
+  // OU vendas acessível) é um OR de 3 chaves que este mapa de 1-chave-só não
+  // representa. null = o mecanismo padrão (isModuleVisible) libera; o OR de
+  // verdade é uma condição A MAIS no filtro `visible` do Sidebar (mesmo padrão
+  // já usado por sellerOnlyNav/deliveryNav logo abaixo — extra gate por cima).
+  automacaoHub: null,
   automacao: "vendas",
   atend: "atendimento",
   // Cadastros básicos (empresas/contatos/produtos) = SEM gate (null, sempre
@@ -764,6 +786,17 @@ export function isModuleVisible(
   }
 
   return true;
+}
+
+// S12 (MOTOR-ÚNICO) — gate de 3 chaves do hub /automacao (README decisão nº2
+// revisada: item visível se `atendimento` OU `bot` OU `vendas` acessível).
+// NAV_ENTITLEMENT/NAV_MODULE_KEY só representam UMA chave por id — por isso o
+// OR de verdade mora aqui, como condição extra ANDada no filtro `visible` do
+// Sidebar (mesmo padrão de sellerOnlyNav/deliveryNav). Fail-closed: enquanto
+// `/modules/me` não carregou, ninguém vê o item.
+function hasAnyModuleAccess(mods: MyModulesState, keys: string[]): boolean {
+  if (!mods.loaded) return false;
+  return keys.some((k) => mods.byKey[k]?.accessible === true);
 }
 
 // Modelo crédito: o card leva à seção "Créditos" de Configurações (carteira +
@@ -859,13 +892,17 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   const soLog = soLogistica(mods);
   const canSell = canUseOperationalWorkspace(user, "SELLER");
   const canDeliver = canUseOperationalWorkspace(user, "DRIVER");
-  const sellerOnlyNav = new Set(["vendas", "agenda", "atend", "website", "empresas", "contatos", "produtos", "assistente", "concierge", "automacao", "bot"]);
+  const sellerOnlyNav = new Set(["vendas", "agenda", "atend", "website", "empresas", "contatos", "produtos", "assistente", "concierge", "automacao", "automacaoHub", "bot"]);
   const deliveryNav = new Set(["logistica", "clientes"]);
+  // S12: hub /automacao usa o OR de 3 chaves (hasAnyModuleAccess), não o gate
+  // padrão de 1 chave — master continua vendo tudo via isModuleVisible acima.
+  const automacaoHubOk = Boolean(user?.isSystemMaster) || hasAnyModuleAccess(mods, ["atendimento", "bot", "vendas"]);
   const visible = NAV_LINKS.filter((n) =>
     isModuleVisible(n.id, ent, user, mods) &&
     !(soLog && n.id === "dash") &&
     (!sellerOnlyNav.has(n.id) || canSell) &&
-    (!deliveryNav.has(n.id) || canDeliver)
+    (!deliveryNav.has(n.id) || canDeliver) &&
+    (n.id !== "automacaoHub" || automacaoHubOk)
   );
   const visibleKey = visible.map(n => n.id).join(",");
   // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula

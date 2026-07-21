@@ -35,6 +35,12 @@ import { soLogistica } from "@/lib/so-logistica";
 const ROTAS_MODULO: ReadonlyArray<readonly [string, string]> = [
   ["/vendas", "vendas"],
   ["/agenda", "vendas"],
+  // S12 (MOTOR-ÚNICO): hub /automacao — o gate REAL é OR de 3 chaves
+  // (atendimento/bot/vendas), mas soLogistica() já garante que as 3 estão
+  // INACESSÍVEIS quando soLog=true (definição do helper, so-logistica.ts) —
+  // então qualquer uma das 3 aqui redireciona certo; "bot" só por ser a mesma
+  // chave já usada por /bot e /assistente abaixo (consistência, não é AND).
+  ["/automacao", "bot"],
   ["/automacoes", "vendas"],
   ["/relatorios", "vendas"],
   ["/atendimento", "atendimento"],

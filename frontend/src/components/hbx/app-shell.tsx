@@ -47,6 +47,10 @@ const META: Record<string, Meta> = {
   "/vendas": { active: "vendas", title: "Vendas", crumbs: crumb("Vendas") },
   // WORM-12: agenda do vendedor ("Hoje") — realça o próprio item na sidebar.
   "/agenda": { active: "agenda", title: "Agenda", crumbs: crumb("Agenda") },
+  // S12 (MOTOR-ÚNICO): casca única /automacao (hub por objetivo + status) —
+  // sem esta linha a rota caía no fallback active:"" (pill da sidebar apagada
+  // e título "HBX" vazando, mesmo bug documentado abaixo pro NÚCLEO-CRM).
+  "/automacao": { active: "automacaoHub", title: "Automação", crumbs: crumb("Automação") },
   // WORM-13: automações (cadência com persona + gatilhos + rotinas).
   "/automacoes": { active: "automacao", title: "Automações", crumbs: crumb("Automações", "Vendas") },
   "/atendimento": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
