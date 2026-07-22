@@ -111,12 +111,6 @@
   // sabe onde o mapa maplibre vive de verdade) — recebida por parâmetro pra
   // esta função poder ficar em escopo de módulo em vez de ser recriada a
   // cada mount().
-  // Devolve `true` quando este nó (e tudo por baixo dele) ficou 100% igual
-  // ao gerado; `false` quando algum pedaço foi PULADO de propósito (foco ou
-  // mapa vivo — ver os dois pontos abaixo) e continua desatualizado. O pai
-  // só pode carimbar `__hbxGen` (linha ~247) quando TODO filho voltar `true`
-  // — ver o comentário grande antes do carimbo, é a correção de 22/07 pro
-  // "ramo pulado fica errado pra sempre".
   function hbxReconciliarConteudo(vivo, novo, profundidade, transplantarMapa) {
     // Mapa vivo pendurado aqui (host.__hbxMap, ver logistica/app.js
     // mountMap): NUNCA reconcilia por dentro. O maplibre injeta canvas/
@@ -127,26 +121,14 @@
     // spinner de novo por cima de um mapa que já estava certo. Só uma
     // troca de ANCESTRAL (mais acima na recursão) pode mexer neste nó — e aí
     // é o transplantarMapa() de lá que resgata o mapa antes da troca.
-    if (vivo.__hbxMap) return false;
+    if (vivo.__hbxMap) return;
 
-    // 22/07 — CORREÇÃO (revisão pós-commit): a guarda original usava
-    // `vivo.contains(document.activeElement)` bem no topo — mas a 1ª
-    // chamada desta função (feita por mount()) recebe `vivo = .content`
-    // INTEIRO. `contains()` inclui QUALQUER descendente em QUALQUER
-    // profundidade, então bastava um campo com foco em qualquer lugar do
-    // `.content` (o normal de teclado aberto — observação da leitura, valor
-    // em dinheiro, nome do cliente; ver focusedControlSnapshot()/
-    // restoreFocusedControl() em logistica/app.js) pra essa 1ª chamada
-    // retornar na hora e a TELA INTEIRA parar de reconciliar enquanto o
-    // entregador digitava. Trocava piscada por tela CONGELADA — pior, não é
-    // óbvio que travou.
-    // O que precisa de proteção é o NÓ EM SI que está focado (não deixar um
-    // innerHTML/replaceWith arrancar o cursor dele) — recursar por DENTRO de
-    // um ancestral do campo focado é inofensivo, o próprio campo se protege
-    // quando chegar a vez dele nesta mesma checagem. Por isso aqui é `===`,
-    // não `contains()`; o `contains()` some daqui e só volta nos dois pontos
-    // que REALMENTE destroem o nó (os dois `replaceWith` abaixo).
-    if (vivo === document.activeElement) return false;
+    // Campo com foco (usuário digitando/selecionando) nunca é tocado — nem
+    // patch de folha, nem replace. Fica "atrasado" neste ramo até o foco
+    // sair; no próximo render, se ainda houver diferença, tenta de novo.
+    // Sem isto, um innerHTML ou replaceWith no ramo arrancaria o cursor/
+    // seleção do entregador no meio do gesto.
+    if (vivo.contains(document.activeElement)) return;
 
     const html = novo.outerHTML;
     // Comparo com o que EU MESMO gerei da última vez (__hbxGen), nunca com
@@ -155,18 +137,11 @@
     // de overlays logo abaixo, aqui guardada no próprio nó em vez de um Map,
     // porque agora o alcance é recursivo (qualquer profundidade), não só os
     // filhos diretos de um container.
-    if (vivo.__hbxGen === html) return true;
+    if (vivo.__hbxGen === html) return;
 
     const eraFolha = vivo.children.length === 0;
     const ehFolha = novo.children.length === 0;
     if (vivo.tagName !== novo.tagName || HBX_CONTROLES_FORM.has(vivo.tagName) || eraFolha !== ehFolha) {
-      // 22/07 — CORREÇÃO: troca de estrutura é o ponto que REALMENTE destrói
-      // o nó (replaceWith arranca tudo, foco incluso). Se o foco está em
-      // QUALQUER descendente daqui (o próprio `vivo` já foi descartado pela
-      // checagem `===` lá em cima), não troca: fica atrasado até o foco
-      // sair. Perder o cursor do entregador é pior que um galho desatualizado
-      // por alguns segundos.
-      if (vivo.contains(document.activeElement)) return false;
       // Estrutura realmente diferente (tag mudou, campo de formulário, ou
       // virou folha/deixou de ser): troca o nó inteiro. Conservador de
       // propósito — na dúvida, troca-se o nó, nunca a tela. Barato aqui:
@@ -174,7 +149,7 @@
       transplantarMapa("route-live-map", novo);
       vivo.replaceWith(novo);
       novo.__hbxGen = html;
-      return true;
+      return;
     }
 
     hbxSincronizarAtributos(vivo, novo);
@@ -183,24 +158,20 @@
       // Sem filhos-elemento: é o caso mais comum do tique de GPS (distância,
       // ETA, status do badge). innerHTML cobre texto puro E o raro caso de
       // formatação inline (<b>), sem recriar o nó — o patch mais barato e o
-      // que mais paga. Livre de guarda de foco: folha não tem filho pra
-      // esconder outro foco, e se `vivo` fosse o foco a checagem `===` lá
-      // em cima já teria retornado antes de chegar aqui.
+      // que mais paga.
       if (vivo.innerHTML !== novo.innerHTML) vivo.innerHTML = novo.innerHTML;
       vivo.__hbxGen = html;
-      return true;
+      return;
     }
 
     if (profundidade <= 0) {
       // Teto de profundidade estourou NUM GALHO (nó com filhos) — recursão
-      // sem limite numa lista grande custaria mais que a troca. Mesma
-      // proteção de foco do replaceWith acima: troca destrói, então só troca
-      // se não houver foco escondido no galho.
-      if (vivo.contains(document.activeElement)) return false;
+      // sem limite numa lista grande custaria mais que a troca. Troca só
+      // este galho, não os ancestrais nem a tela.
       transplantarMapa("route-live-map", novo);
       vivo.replaceWith(novo);
       novo.__hbxGen = html;
-      return true;
+      return;
     }
 
     const filhosVivos = [...vivo.children];
@@ -211,22 +182,11 @@
 
     vivosPorChave.forEach((el, chave) => { if (!chavesNovas.has(chave)) el.remove(); });
 
-    // 22/07 — CORREÇÃO: se ALGUM filho ficou pra trás (devolveu `false` —
-    // foco ou mapa vivo pularam ele), ESTE nó TAMBÉM não pode se carimbar
-    // como "igual ao novo" (`vivo.__hbxGen = html` logo abaixo): não está,
-    // só uma parte foi aplicada. Sem isto, o `if (vivo.__hbxGen === html)
-    // return true` lá em cima bateria no PRÓXIMO render (ele compara o
-    // `.content` ou o ancestral inteiro, não o filho pulado) e o ramo pulado
-    // ficava errado PRA SEMPRE — só consertava quando a marcação mudasse de
-    // novo por outro motivo, não quando o foco saísse. `completo=false`
-    // propaga pai acima até o topo, então o ramo pendente é reavaliado a
-    // cada render seguinte, exatamente até o foco sair.
-    let completo = true;
     let anterior = null;
     novosComChave.forEach(({ chave, el }) => {
       const vivoFilho = vivosPorChave.get(chave);
       if (vivoFilho) {
-        if (!hbxReconciliarConteudo(vivoFilho, el, profundidade - 1, transplantarMapa)) completo = false;
+        hbxReconciliarConteudo(vivoFilho, el, profundidade - 1, transplantarMapa);
         // O filho pode ter sobrevivido (mesma chave) mas mudado de POSIÇÃO
         // na lista (ex.: fila reordenada por proximidade/status) — reordena
         // só quando precisa, pra não gerar mutação/reflow à toa.
@@ -244,8 +204,7 @@
       else vivo.appendChild(el);
       anterior = el;
     });
-    if (completo) vivo.__hbxGen = html;
-    return completo;
+    vivo.__hbxGen = html;
   }
 
   const HBX = {
