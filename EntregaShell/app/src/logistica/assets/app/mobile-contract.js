@@ -146,8 +146,16 @@
       if (anchor) anchor.insertAdjacentElement("beforebegin", panel);
     }
     if (confirm) {
-      confirm.disabled = !selected;
-      confirm.classList.toggle("hbx-payment-pending", !selected);
+      // 22/07 S3b — escreve só quando muda. `disabled` é ATRIBUTO refletido
+      // (o MutationObserver lá embaixo nem escuta atributo, então isto não
+      // evita reentrância), mas a atribuição redundante ainda invalida
+      // estilo/pintura do pseudo-:disabled no WebView a cada chamada, e com
+      // o observer rodando a cada mutação do app essa chamada é frequente.
+      const deveDesabilitar = !selected;
+      if (confirm.disabled !== deveDesabilitar) confirm.disabled = deveDesabilitar;
+      // classList.toggle(cls, force) já é idempotente por spec (não toca o
+      // atributo quando o estado pedido já é o atual) — sem guarda extra aqui.
+      confirm.classList.toggle("hbx-payment-pending", deveDesabilitar);
     }
   }
 
@@ -248,6 +256,40 @@
   }, true);
 
   addStyles();
-  const observer = new MutationObserver(() => refreshVisibleSheet());
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  // 22/07 S3b (PR22072026-APK-PROFISSIONAL) — o observador se auto-
+  // alimentava: observava O DOCUMENTO INTEIRO, em profundidade, e chamava
+  // refreshVisibleSheet() a CADA mutação; e renderReceiptPanel() (acima)
+  // MUTA o DOM (innerHTML do painel, insertAdjacentElement, disabled/
+  // classList do botão) — ou seja, o próprio callback provoca a mutação que
+  // o dispara de novo. O guarda de `signature` em renderReceiptPanel já
+  // impedia virar loop infinito de repintura, mas o callback ainda rodava a
+  // cada mutação do app inteiro — inclusive durante um render() inteiro
+  // (antes da reconciliação fina do native.js S3a, um render trocava a tela
+  // inteira: centenas de childList mutations, cada uma acordando este
+  // observer e cada uma pagando um document.querySelector(".delivery-sheet")
+  // document-wide). Duas correções, mesmo comportamento visível:
+  // 1) coalescer em requestAnimationFrame — não importa quantas mutações
+  //    aconteçam no mesmo quadro, refreshVisibleSheet() roda no máximo 1x;
+  // 2) estreitar o alvo do observe pro container do app (#app — existe
+  //    estático no HTML antes destes scripts carregarem, ver index.html) em
+  //    vez do documentElement inteiro: mutação em <html>/<head> (ex.: o
+  //    dataset.theme que applyTheme mexe em native.js) nunca precisou
+  //    acordar isto, e a própria árvore que o MutationObserver acompanha
+  //    fica menor.
+  let hbxRefreshSheetAgendado = false;
+  function agendarRefreshVisibleSheet() {
+    if (hbxRefreshSheetAgendado) return;
+    hbxRefreshSheetAgendado = true;
+    requestAnimationFrame(() => {
+      hbxRefreshSheetAgendado = false;
+      // refreshVisibleSheet() já sai cedo (document.querySelector retorna
+      // null) quando não há folha de entrega na tela — nada extra a fazer
+      // aqui antes de chamar.
+      refreshVisibleSheet();
+    });
+  }
+  const observerRoot = document.getElementById("app") || document.documentElement;
+  const observer = new MutationObserver(agendarRefreshVisibleSheet);
+  observer.observe(observerRoot, { childList: true, subtree: true });
 })();
