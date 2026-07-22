@@ -275,6 +275,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments == listOf("logistica", "geo", "reverse") -> true
         // PR20072026 W2 — GET /logistica/leitura/:id/resumo.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "resumo" -> true
+        // S4 (PR21072026-NAVEGACAO-HBX) — proxy OSRM: coords vai em query string,
+        // não afeta os segments de path; allowlist trava só route/table.
+        method == "GET" && segments == listOf("logistica", "osrm", "route") -> true
+        method == "GET" && segments == listOf("logistica", "osrm", "table") -> true
         method == "POST" && segments in listOf(
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "mobile", "materialize"),

@@ -15,6 +15,8 @@ import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
+import { LogisticaOsrmService } from './logistica-osrm.service';
+import { LogisticaOsrmController } from './logistica-osrm.controller';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
@@ -87,6 +89,12 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
  * entrega ao motorista apenas as instruções de recebimento necessárias. A mesma
  * superfície materializa datas de origem na data operacional escolhida, sem
  * reabrir histórico nem duplicar ocorrência.
+ *
+ * S4 OSRM-BACKEND (21/07, PR21072026-NAVEGACAO-HBX): LogisticaOsrmController
+ * expõe `/logistica/osrm/route|table` como proxy do OSRM público (servidor de
+ * DEMONSTRAÇÃO, sem SLA) — cache + rate-limit por empresa em
+ * LogisticaOsrmService, stateless (sem Prisma). O app mantém fallback direto
+ * pro público em qualquer erro daqui; self-host futuro = trocar OSRM_BASE_URL.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
@@ -97,6 +105,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaPedidoPublicoController,
     LogisticaTrackingMobileController,
     LogisticaOfflineController,
+    LogisticaOsrmController,
   ],
   providers: [
     LogisticaService,
@@ -113,6 +122,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaRotaModeloService,
     LogisticaLeituraService,
     LogisticaGeoService,
+    LogisticaOsrmService,
     LogisticaConfigService,
     LogisticaRecoveryService,
     LogisticaCobrancaAvisoService,

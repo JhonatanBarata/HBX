@@ -382,22 +382,44 @@
       } catch (_) {}
     });
   }
-  async function roadGeometry(points) {
-    const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
-    if (coordinates.length < 2) return [];
-    const key = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
-    if (roadGeometryCache.has(key)) return roadGeometryCache.get(key);
+  // S4 21/07 (PR21072026-NAVEGACAO-HBX) — router.project-osrm.org é servidor de
+  // DEMONSTRAÇÃO (sem SLA, pode bloquear a qualquer momento). roadGeometry e
+  // roadOptimizedPoints agora tentam o backend primeiro (cache + rate-limit
+  // compartilhados por empresa); QUALQUER erro (offline, 429, 502
+  // OSRM_INDISPONIVEL, timeout) cai direto no público, exatamente como antes
+  // desta sprint — o público nunca deixa de ser a rede de segurança.
+  function osrmRouteCoordinates(payload) {
+    return payload && payload.code === "Ok" && payload.routes && payload.routes[0] && payload.routes[0].geometry && payload.routes[0].geometry.coordinates;
+  }
+  async function fetchOsrmRoutePublic(key) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
       const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${key}?overview=full&geometries=geojson&steps=false`, { signal: controller.signal });
       if (!response.ok) throw new Error("Roteamento indisponível.");
-      const payload = await response.json();
-      const routed = payload && payload.code === "Ok" && payload.routes && payload.routes[0] && payload.routes[0].geometry && payload.routes[0].geometry.coordinates;
-      if (!Array.isArray(routed) || routed.length < 2) throw new Error("Rota viária não encontrada.");
-      roadGeometryCache.set(key, routed);
-      if (roadGeometryCache.size > 12) roadGeometryCache.delete(roadGeometryCache.keys().next().value);
-      return routed;
+      return await response.json();
+    } finally { clearTimeout(timeout); }
+  }
+  async function roadGeometry(points) {
+    const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
+    if (coordinates.length < 2) return [];
+    const key = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
+    if (roadGeometryCache.has(key)) return roadGeometryCache.get(key);
+    let payload;
+    try { payload = await H.api(`/logistica/osrm/route?coords=${encodeURIComponent(key)}`); }
+    catch (_) { payload = await fetchOsrmRoutePublic(key); }
+    const routed = osrmRouteCoordinates(payload);
+    if (!Array.isArray(routed) || routed.length < 2) throw new Error("Rota viária não encontrada.");
+    roadGeometryCache.set(key, routed);
+    if (roadGeometryCache.size > 12) roadGeometryCache.delete(roadGeometryCache.keys().next().value);
+    return routed;
+  }
+  async function fetchOsrmTablePublic(encoded) {
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`https://router.project-osrm.org/table/v1/driving/${encoded}?annotations=duration`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Matriz viária indisponível.");
+      return await response.json();
     } finally { clearTimeout(timeout); }
   }
   async function roadOptimizedPoints(points) {
@@ -406,11 +428,11 @@
     const matrixPoints = [...(origin && validCoordinates(origin.lat, origin.lng) ? [{ lat: origin.lat, lng: origin.lng }] : []), ...points];
     const offset = matrixPoints.length > points.length ? 1 : 0;
     const encoded = matrixPoints.map(point => `${Number(point.lng)},${Number(point.lat)}`).join(";");
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response = await fetch(`https://router.project-osrm.org/table/v1/driving/${encoded}?annotations=duration`, { signal: controller.signal });
-      if (!response.ok) throw new Error("Matriz viária indisponível.");
-      const payload = await response.json(); const matrix = payload && payload.durations;
+      let payload;
+      try { payload = await H.api(`/logistica/osrm/table?coords=${encodeURIComponent(encoded)}`); }
+      catch (_) { payload = await fetchOsrmTablePublic(encoded); }
+      const matrix = payload && payload.durations;
       if (payload.code !== "Ok" || !Array.isArray(matrix) || matrix.length !== matrixPoints.length) throw new Error("Matriz viária inválida.");
       const remaining = new Set(points.map((_, index) => index)); const order = []; let current = offset ? 0 : 0;
       if (!offset) { order.push(0); remaining.delete(0); }
@@ -425,7 +447,6 @@
       for (let pass = 0; pass < 8; pass++) { let changed = false; for (let from = offset ? 0 : 1; from < improved.length - 1; from++) for (let to = from + 1; to < improved.length; to++) { const candidate = [...improved.slice(0, from), ...improved.slice(from, to + 1).reverse(), ...improved.slice(to + 1)]; const total = cost(candidate); if (total + .5 < bestTotal) { improved = candidate; bestTotal = total; changed = true; } } if (!changed) break; }
       return improved.map((index, position) => ({ ...points[index], number: position + 1 }));
     } catch (_) { return points; }
-    finally { clearTimeout(timeout); }
   }
   function dayPreviewCoordinates(client) {
     const routeItems = allRouteItems();
