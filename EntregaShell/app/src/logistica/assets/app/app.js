@@ -182,6 +182,11 @@
     // encerrar rota limpa (ver performEncerrarRota/performLimparDia).
     navTrilha: [],
     navPosicao: null,
+    // S3 21/07 (PR21072026-NAVEGAÇÃO) — rota viária da navegação em pernas:
+    // {geometry, cortes} onde cortes é [{id, index}] (id da PARADA, não a
+    // posição na lista — ver navRouteOpenPoints/recomputeNavRoute). Some no
+    // mesmo ponto em que a trilha zera (encerrar rota / limpar o dia).
+    navRota: null,
   };
   const app = document.getElementById("app");
   let moduleActive = true;
@@ -251,6 +256,12 @@
   // (re)início do watch (fresh start ou retomada pós-pausa).
   let navWatchId = null;
   let navWatchSeq = 0;
+  // S3 21/07 — disjuntor do recálculo de pernas (regra dura da frente): mínimo
+  // 30s entre tentativas + teto de 10 por rota/dia; zera só junto com a trilha
+  // (encerrar rota / limpar o dia — ver resetNavRecalcBudget).
+  let navRecalcState = { count: 0, lastAt: 0 };
+  let navOffPathStreak = 0;
+  let navRecalcToastAt = 0;
   const roadGeometryCache = new Map();
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
@@ -706,8 +717,174 @@
       attribution.classList.remove("maplibregl-compact-show");
     });
   }
+  // ==========================================================================
+  // S3 21/07 (PR21072026-NAVEGAÇÃO) — pernas da rota em 3 cores: percorrido
+  // (trilha azul, já existente), perna ATUAL (esmeralda, do motorista até a
+  // próxima parada aberta roteável) e RESTANTE (limão apagado). state.navRota
+  // {geometry, cortes} vem de UMA chamada roadGeometry(motorista → paradas
+  // abertas com coordenadas válidas, na ordem do backend); cortes é
+  // [{id, index}] — chaveado pelo ID da parada, não pela posição na lista, de
+  // propósito: "avançar de perna" ao confirmar entrega (S3 #2) normalmente só
+  // relê o corte da nova primeira parada aberta no MESMO cortes, sem chamar o
+  // OSRM de novo. Só pede rota nova quando aparece uma parada com ID que o
+  // cortes atual não conhece (1ª ativação, ou entrega avulsa nova no meio do
+  // dia) ou quando o disjuntor de "saiu do caminho" dispara (S3 #4). Ordem
+  // final das camadas de paint: hbx-nav-leg-resto < hbx-nav-leg-atual(+casing)
+  // < hbx-reading-trail(+casing) — raiseRouteReadingTrail (já existente,
+  // compartilhado com a Leitura) sempre traz a trilha pro topo por cima
+  // delas; marcador é DOM (Marker), sempre acima de qualquer layer de canvas.
+  // ==========================================================================
+  function navRouteOpenPoints() {
+    return openItems().map(item => {
+      const client = item.cliente || {};
+      return validCoordinates(client.lat, client.lng) ? { id: item.id, lat: Number(client.lat), lng: Number(client.lng) } : null;
+    }).filter(Boolean);
+  }
+  function navCurrentLegCutIndex() {
+    const rota = state.navRota;
+    if (!rota || !Array.isArray(rota.cortes)) return null;
+    const first = navRouteOpenPoints()[0];
+    if (!first) return null;
+    const entry = rota.cortes.find(corte => String(corte.id) === String(first.id));
+    return entry ? entry.index : null;
+  }
+  // Painel S1 (distância da linha 2): soma distanceMeters ponto-a-ponto da
+  // geometria até o corte da perna atual. null = sem rota viária ainda
+  // (chamador cai pro fallback reta, spec "Fallback: reta").
+  function navLegAtualMeters() {
+    const rota = state.navRota;
+    const cut = navCurrentLegCutIndex();
+    if (!rota || !Number.isFinite(cut) || cut < 1) return null;
+    let total = 0;
+    for (let i = 1; i <= cut; i++) total += distanceMeters({ lat: rota.geometry[i - 1][1], lng: rota.geometry[i - 1][0] }, { lat: rota.geometry[i][1], lng: rota.geometry[i][0] });
+    return total;
+  }
+  function nearestGeometryIndex(geometry, stop) {
+    let bestIndex = 0; let bestDist = Infinity;
+    for (let i = 0; i < geometry.length; i++) {
+      const dist = distanceMeters({ lat: geometry[i][1], lng: geometry[i][0] }, stop);
+      if (dist < bestDist) { bestDist = dist; bestIndex = i; }
+    }
+    return bestIndex;
+  }
+  // Projeção local plana (metros por grau na latitude do ponto A do segmento)
+  // — precisa o bastante pra ruas curtas; evita 2 haversine por segmento num
+  // loop rodado a cada fix de GPS (checkNavOffPath varre a perna inteira).
+  function pointToSegmentMeters(point, a, b) {
+    const latM = 111320; const lngM = 111320 * Math.max(.05, Math.cos(a.lat * Math.PI / 180));
+    const px = (point.lng - a.lng) * lngM; const py = (point.lat - a.lat) * latM;
+    const bx = (b.lng - a.lng) * lngM; const by = (b.lat - a.lat) * latM;
+    const lenSq = bx * bx + by * by;
+    const t = lenSq > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / lenSq)) : 0;
+    const dx = px - bx * t; const dy = py - by * t;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function distanceToPolylineMeters(point, coordinates) {
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
+    let best = Infinity;
+    for (let i = 1; i < coordinates.length; i++) {
+      const a = { lat: coordinates[i - 1][1], lng: coordinates[i - 1][0] };
+      const b = { lat: coordinates[i][1], lng: coordinates[i][0] };
+      const dist = pointToSegmentMeters(point, a, b);
+      if (dist < best) best = dist;
+    }
+    return Number.isFinite(best) ? best : null;
+  }
+  // Pede motorista→paradas abertas de uma vez (mesma roadGeometry/cache do
+  // resto do app) e recorta os cortes por ID. NUNCA reordena `stops` — a
+  // ordem já chega do backend via openItems()/navRouteOpenPoints().
+  async function recomputeNavRoute(stops) {
+    const origin = state.navPosicao;
+    if (!origin || !validCoordinates(origin.lat, origin.lng) || !stops.length) return false;
+    try {
+      const geometry = await roadGeometry([{ lat: origin.lat, lng: origin.lng }, ...stops]);
+      if (geometry.length < 2) return false;
+      state.navRota = { geometry, cortes: stops.map(stop => ({ id: stop.id, index: nearestGeometryIndex(geometry, stop) })) };
+      return true;
+    } catch (_) { return false; } // OSRM fora do ar: mantém o desenho atual (state.navRota intocado).
+  }
+  function navRecalcAllowed() {
+    if (navRecalcState.count >= 10) return false; // disjuntor: teto por rota/dia
+    if (navRecalcState.lastAt && Date.now() - navRecalcState.lastAt < 30000) return false; // disjuntor: mínimo 30s
+    return true;
+  }
+  function markNavRecalc() { navRecalcState.count += 1; navRecalcState.lastAt = Date.now(); }
+  function resetNavRecalcBudget() { navRecalcState = { count: 0, lastAt: 0 }; navOffPathStreak = 0; navRecalcToastAt = 0; }
+  // S3 #4 — "saiu do caminho": > 120m do segmento mais próximo da perna ATUAL
+  // por 3 fixes seguidos (chamado a cada tick do watch, ver startNavWatch).
+  function checkNavOffPath(point) {
+    const cut = navCurrentLegCutIndex();
+    const rota = state.navRota;
+    if (!rota || !Number.isFinite(cut) || cut < 1) { navOffPathStreak = 0; return; }
+    const distance = distanceToPolylineMeters(point, rota.geometry.slice(0, cut + 1));
+    if (distance == null || distance <= 120) { navOffPathStreak = 0; return; }
+    navOffPathStreak += 1;
+    if (navOffPathStreak < 3) return;
+    navOffPathStreak = 0;
+    triggerNavOffPathRecalc();
+  }
+  function triggerNavOffPathRecalc() {
+    if (!navRecalcAllowed()) return; // teto/backoff estourado: log silencioso, mantém a última geometria (sem toast repetido — Lei 8).
+    markNavRecalc();
+    const stops = navRouteOpenPoints();
+    if (!stops.length) return;
+    recomputeNavRoute(stops).then(ok => {
+      if (!ok || !routeMap || !routeMapHost) return; // falha do OSRM: mantém o desenho atual, tenta no próximo gatilho.
+      drawNavLegLayers(routeMap);
+      raiseRouteReadingTrail(routeMap);
+      const now = Date.now();
+      if (now - navRecalcToastAt >= 60000) { navRecalcToastAt = now; toast("Rota atualizada."); }
+    });
+  }
+  function setNavLegLine(map, id, coordinates, paint) {
+    const data = coordinates.length >= 2 ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } : { type: "FeatureCollection", features: [] };
+    const source = map.getSource(id);
+    if (source) source.setData(data);
+    else { map.addSource(id, { type: "geojson", data }); map.addLayer({ id, type: "line", source: id, layout: { "line-cap": "round", "line-join": "round" }, paint }); }
+  }
+  function removeNavLegLayers(map) {
+    ["hbx-nav-leg-atual", "hbx-nav-leg-atual-casing", "hbx-nav-leg-resto"].forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {} });
+    ["hbx-nav-leg-atual", "hbx-nav-leg-atual-casing", "hbx-nav-leg-resto"].forEach(id => { try { if (map.getSource(id)) map.removeSource(id); } catch (_) {} });
+  }
+  function drawNavLegLayers(map) {
+    const rota = state.navRota; const cut = navCurrentLegCutIndex();
+    if (!rota || !Number.isFinite(cut) || cut < 1) { removeNavLegLayers(map); return; }
+    // Ordem de criação = ordem de empilhamento (quem nasce depois fica por
+    // cima): resto primeiro (base), casing branco fino, esmeralda por cima —
+    // mesmo padrão casing/core da trilha (hbx-reading-trail-casing/-trail).
+    setNavLegLine(map, "hbx-nav-leg-resto", rota.geometry.slice(cut), { "line-color": "#78c900", "line-width": 4, "line-opacity": .35 });
+    setNavLegLine(map, "hbx-nav-leg-atual-casing", rota.geometry.slice(0, cut + 1), { "line-color": "rgba(255,255,255,.9)", "line-width": 7, "line-opacity": .9 });
+    setNavLegLine(map, "hbx-nav-leg-atual", rota.geometry.slice(0, cut + 1), { "line-color": "#07a93f", "line-width": 5, "line-opacity": .96 });
+    // A linha única planejada não convive com as pernas — nav mode substitui.
+    if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
+    if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line");
+  }
+  // Chamada por applyRouteLine (todo render/mount) e pelo bootstrap do 1º fix
+  // (startNavWatch). Barata quando não há nada novo: só entra no OSRM quando
+  // ainda não existe navRota OU aparece uma parada de ID desconhecido — nunca
+  // por causa só do motorista ter andado um pouco (isso é o watch/trilha).
+  async function applyNavLegRoute(host, map) {
+    const stops = navRouteOpenPoints();
+    const originValid = state.navPosicao && validCoordinates(state.navPosicao.lat, state.navPosicao.lng);
+    if (!stops.length || !originValid) { removeNavLegLayers(map); return; }
+    const knownIds = new Set(((state.navRota && state.navRota.cortes) || []).map(corte => String(corte.id)));
+    const hasUnknownStop = stops.some(stop => !knownIds.has(String(stop.id)));
+    if ((!state.navRota || hasUnknownStop) && navRecalcAllowed()) {
+      markNavRecalc();
+      await recomputeNavRoute(stops);
+      if (routeMap !== map || routeMapHost !== host) return;
+    }
+    if (!state.navRota) { removeNavLegLayers(map); return; }
+    drawNavLegLayers(map);
+    raiseRouteReadingTrail(map);
+  }
   async function applyRouteLine(host, map, points) {
     try {
+      // S3 21/07 — em navegação ativa a linha única vira 3 cores (pernas);
+      // Leitura e rota planejada (não ativa) continuam com a linha única de
+      // sempre, comportamento intocado (invariante da frente).
+      if (navModeActive()) { await applyNavLegRoute(host, map); return; }
+      removeNavLegLayers(map);
       const coordinates = points.length >= 2 ? await roadGeometry(points) : [];
       if (routeMap !== map || routeMapHost !== host) return;
       if (coordinates.length < 2) {
@@ -2930,7 +3107,10 @@
     const c = next.cliente || {};
     const n = orderedItems().indexOf(next) + 1;
     const total = items().length;
-    const distanceTxt = lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "";
+    // S3 21/07 — em navegação ativa a distância vira a da PERNA (viária, soma
+    // da geometria até o corte); fallback reta (lastKnownPosition) igual antes.
+    const viaria = navModeActive() ? navLegAtualMeters() : null;
+    const distanceTxt = viaria != null ? formatRouteDistance(viaria) : (lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "");
     return `<div class="route-next-panel" data-delivery="${H.escape(next.id)}" role="button" tabindex="0" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(address(c))}${distanceTxt ? ` · aproximadamente ${H.escape(distanceTxt)}` : ""}</span></div>`;
   }
   function routeTransmuxControl(planned) {
@@ -3783,7 +3963,10 @@
     const next = openItems()[0];
     if (!next) return;
     const c = next.cliente || {};
-    const distanceTxt = lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "";
+    // S3 21/07 — mesma regra do routeNextStopPanel: viária em nav mode, reta
+    // de fallback (esta função é o patch AO VIVO da mesma linha 2 do painel).
+    const viaria = navModeActive() ? navLegAtualMeters() : null;
+    const distanceTxt = viaria != null ? formatRouteDistance(viaria) : (lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "");
     sub.textContent = `${address(c)}${distanceTxt ? ` · aproximadamente ${distanceTxt}` : ""}`;
   }
   // S2 21/07 (PR21072026-NAVEGAÇÃO) — watch da navegação normal (rota já em
@@ -3818,6 +4001,12 @@
       }
       updateNextStopPanelDistance();
       if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap, { moveCamera: true });
+      // S3 21/07 — desenha as pernas assim que o 1º fix chega (sem esperar um
+      // render() completo); depois disso só redesenha por gatilho real (perna
+      // avançou, parada nova ou saiu do caminho — applyNavLegRoute/
+      // checkNavOffPath cuidam disso), nunca a cada tick de GPS.
+      if (!state.navRota && routeMap && routeMapHost) void applyNavLegRoute(routeMapHost, routeMap);
+      checkNavOffPath(point);
     }, err => { markGpsError(err); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
   }
   function stopNavWatch() {
@@ -4055,6 +4244,11 @@
       // desliga o watch sozinho (syncNavWatch, routeActive() vira false).
       state.navTrilha = [];
       state.navPosicao = null;
+      // S3 21/07 — a rota viária em pernas e o disjuntor de recálculo são "por
+      // rota/dia" igual à trilha: zeram junto (senão a próxima rota herdava
+      // cortes de paradas que não existem mais e um orçamento já gasto).
+      state.navRota = null;
+      resetNavRecalcBudget();
       await refresh(true);
       toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`);
       if (offerSaveRoute && snapshot && snapshot.length >= 2) offerSaveTodayRoute(snapshot);
@@ -4125,6 +4319,9 @@
       // sobrar pro próximo dia/sessão.
       state.navTrilha = [];
       state.navPosicao = null;
+      // S3 21/07 — mesma lógica de performEncerrarRota: zera junto com a trilha.
+      state.navRota = null;
+      resetNavRecalcBudget();
       await refresh(true);
       toast(canceladas > 0 ? `${canceladas} entrega(s) cancelada(s).` : "Nenhuma entrega aberta para cancelar.");
     } catch (error) {
