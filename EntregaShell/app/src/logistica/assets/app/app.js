@@ -3708,7 +3708,11 @@
   // de hoje muda. Aqui só resta formatar data e dinheiro.
   function historicoLinha(linha) {
     const quando = linha.createdAt ? H.date(linha.createdAt, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
-    const detalhe = [linha.itensResumo, linha.receiptMethod, linha.motivo].filter(Boolean).join(" · ");
+    // 22/07 (dono) — o método vinha CRU do banco e escrevia "fiado" na tela, do
+    // lado de um título que já dizia a mesma coisa. Pix/Dinheiro viram nome
+    // próprio; "fiado" não vira palavra nenhuma (o título já diz "a receber").
+    const metodo = { pix: "Pix", dinheiro: "Dinheiro" }[String(linha.receiptMethod || "").toLowerCase()] || "";
+    const detalhe = [linha.itensResumo, metodo, linha.motivo].filter(Boolean).join(" · ");
     const pago = linha.tipo === "pago";
     const valor = Number(linha.valorEvento || 0);
     return `<article class="historico-item ${linha.tipo === "sem_atendimento" ? "is-sem-atendimento" : ""}" data-historico-hold="${H.escape(linha.id)}">
@@ -3791,24 +3795,26 @@
     const linhas = draft.items.filter(row => !row.zeradoPorTroca).map(row => {
       const preco = unitPriceFor(item, row);
       const editandoPreco = state.deliveryPriceEdit === row.key;
+      // Layout escolhido pelo dono (22/07, "opção A"): SEM moldura nenhuma. As três
+      // caixas com borda (setas / produto / valor) dentro da caixa do bloco eram o
+      // que deixava a chegada pesada. Aqui é uma linha só, centralizada: setas
+      // discretas, número grande, produto · valor no mesmo tamanho.
       return `<div class="chegada-linha" data-draft-row="${H.escape(row.key)}">
         <div class="chegada-stepper">
-          <button type="button" class="chegada-seta" data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" aria-label="Aumentar quantidade">${icon("chevronUp", 26)}</button>
-          <b class="chegada-qtd">${Number(row.qtd || 0)}</b>
-          <button type="button" class="chegada-seta" data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" aria-label="Diminuir quantidade">${icon("chevronDown", 26)}</button>
+          <button type="button" class="chegada-seta" data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" aria-label="Aumentar quantidade">${icon("chevronUp", 24)}</button>
+          <button type="button" class="chegada-seta" data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" aria-label="Diminuir quantidade">${icon("chevronDown", 24)}</button>
         </div>
-        <div class="chegada-produto-col">
-          <button type="button" class="chegada-produto" data-action="delivery-swap" data-draft-item="${H.escape(row.key)}">${H.escape(row.nome)}</button>
-          ${editandoPreco
-            ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor de hoje" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}">${icon("check", 18)}</button></form>`
-            : `<button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}${row.valorUnit !== undefined && row.valorUnit !== null ? ` <i>hoje</i>` : ""}</button>`}
-        </div>
+        <b class="chegada-qtd">${Number(row.qtd || 0)}</b>
+        <button type="button" class="chegada-produto" data-action="delivery-swap" data-draft-item="${H.escape(row.key)}">${H.escape(row.nome)}</button>
+        ${editandoPreco
+          ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}">${icon("check", 18)}</button></form>`
+          : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`}
       </div>`;
     }).join("");
     const picker = state.deliveryProductPicker && state.deliverySwapKey
       ? `<div class="chegada-picker"><strong>Trocar produto</strong>${produtosDisponiveis.map(p => `<button type="button" data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("") || `<p class="subtitle">Nenhum produto no catálogo.</p>`}<button type="button" class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`
       : "";
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span>${linhas}${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor agora</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago">${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo">${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span>${linhas}${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago">${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo">${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}</section></div>`;
   }
   // PR18072026 Módulo Financeiro — nível 1 do contrato (financeiro OFF): nome
   // grande + observações + "Não atendeu"/"Entregue", ZERO dinheiro na tela.

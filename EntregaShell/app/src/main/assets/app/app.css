@@ -1211,22 +1211,26 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
    Tudo por token (Lei 2). Os dois verdes mantêm o papel fixo: esmeralda (--cta) só
    na ação principal [Pago]; limão (--brand) na confirmação [Entregue]. Alvos de
    toque >= 48px porque isto é operação de rua, com o celular numa mão só. */
-.chegada-box { margin: 16px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); }
-.chegada-box-titulo { display: block; margin-bottom: 10px; text-align: center; }
-.chegada-linha { display: flex; align-items: center; gap: 12px; }
-.chegada-linha + .chegada-linha { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-.chegada-stepper { display: grid; justify-items: center; gap: 2px; }
-.chegada-seta { display: grid; place-items: center; width: 58px; height: 40px; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--brand-strong); }
+/* BLOCO "ENTREGAR" — opção A escolhida pelo dono (22/07): SEM moldura nenhuma.
+   O que estava feio eram 3 caixas com borda (setas / produto / valor) dentro da
+   caixa do bloco, dentro da folha. Aqui sobra só texto: uma linha centralizada,
+   número grande, produto · valor no mesmo peso. Alvo de toque vem do padding,
+   não de borda. */
+.chegada-box { margin: 18px 0 0; padding: 0; border: 0; background: none; }
+.chegada-box-titulo { display: block; margin-bottom: 8px; text-align: center; }
+.chegada-linha { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.chegada-linha + .chegada-linha { margin-top: 12px; }
+.chegada-stepper { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+.chegada-seta { display: grid; place-items: center; min-width: 44px; min-height: 38px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: var(--brand-strong); }
 .chegada-seta:active { background: var(--brand-soft); }
-.chegada-qtd { min-width: 58px; text-align: center; font-size: 1.9rem; font-weight: 850; color: var(--brand-strong); }
-.chegada-produto-col { display: grid; flex: 1; min-width: 0; gap: 6px; }
-.chegada-produto { min-height: 54px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 1.05rem; font-weight: 800; text-align: left; }
-.chegada-preco { min-height: 44px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 1.05rem; font-weight: 800; text-align: left; }
-.chegada-preco i { font-style: normal; font-size: .72rem; font-weight: 700; color: var(--brand-strong); }
-.chegada-preco-form { display: flex; gap: 8px; }
-.chegada-preco-input { flex: 1; min-width: 0; min-height: 44px; }
-.chegada-preco-ok { display: grid; place-items: center; width: 48px; min-height: 44px; padding: 0; border: 0; border-radius: 12px; background: var(--brand); color: #17210f; }
-.chegada-picker { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chegada-qtd { flex: 0 0 auto; min-width: 36px; text-align: center; font-size: 2rem; font-weight: 850; color: var(--brand-strong); }
+.chegada-produto { flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 8px 2px; border: 0; background: none; color: var(--ink); font-size: 1.18rem; font-weight: 800; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.chegada-sep { flex: 0 0 auto; color: var(--line); }
+.chegada-preco { flex: 0 0 auto; padding: 8px 2px; border: 0; background: none; color: var(--brand-strong); font-size: 1.18rem; font-weight: 800; }
+.chegada-preco-form { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 8px; }
+.chegada-preco-input { flex: 1 1 auto; width: 110px; min-width: 0; min-height: 44px; padding: 4px 2px; border: 0; border-bottom: 2px solid var(--brand); border-radius: 0; background: none; color: var(--ink); font-size: 1.18rem; font-weight: 800; text-align: center; }
+.chegada-preco-ok { flex: 0 0 auto; display: grid; place-items: center; width: 46px; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: var(--brand-soft); color: var(--brand-strong); }
+.chegada-picker { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .chegada-picker button { min-height: 48px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-weight: 700; }
 .chegada-conta { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); text-align: left; }
 .chegada-conta-linha { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 3px 0; color: var(--muted); font-size: .92rem; }

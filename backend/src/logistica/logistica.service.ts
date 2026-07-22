@@ -2413,11 +2413,14 @@ export class LogisticaService {
     try {
       if (!companyId || !input.customerProfileId) return;
       const metodo = normalizeReceipt(input.receiptMethod);
+      // NOMENCLATURA (22/07, cobrado pelo dono): nada de acusar o cliente. "Ficou
+      // devendo"/"fiado" é o vocabulário que sobra na tela quando ELE está do lado
+      // do entregador lendo. O fato é o mesmo, a palavra é comercial: a receber.
       const titulo =
         input.tipo === 'pago'
-          ? 'Entregue e pagou'
+          ? 'Entregue e pago'
           : input.tipo === 'entregue'
-            ? 'Entregue, ficou devendo'
+            ? 'Entregue, a receber'
             : 'Sem atendimento';
       // Resumo dos itens: a MESMA frase que o app mostrou na chegada ("1× Galão
       // 20L"), congelada. Sem isto o histórico de amanhã leria o produto de hoje.

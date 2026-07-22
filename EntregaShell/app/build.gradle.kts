@@ -24,7 +24,11 @@ plugins {
 // 8 → 15 em 22/07: o servidor estava servindo um APK já corrigido carimbado
 // como 14, o mesmo código que os aparelhos tinham — ninguém via atualização e
 // a digital publicada já era a do tree, então o publish repetia "inalterado".
-val hbxLogisticaVersionCodeFloor = 15
+// 15 → 18 em 22/07 (tarde): o publish carimbou 16 e, testando a chegada nova no
+// moto g15, instalei à mão um build 17. Sem subir o piso, o próximo publish
+// carimbaria 17 — MESMO número que já está no aparelho — e o celular jamais
+// veria atualização (repetição exata do caso 8→15 acima).
+val hbxLogisticaVersionCodeFloor = 18
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
