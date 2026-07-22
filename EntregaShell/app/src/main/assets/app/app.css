@@ -482,6 +482,9 @@ h3 { font-size: .95rem; }
 .route-live-map.is-ready > .route-map-loading { display: none; }
 .route-live-map .maplibregl-ctrl-attrib { background: rgba(255,255,255,.78); font-size: 9px; }
 .route-map-pin { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 2px solid white; border-radius: 99px; color: #172116; background: var(--brand); box-shadow: 0 3px 12px rgba(0,0,0,.28); font-size: .68rem; font-weight: 900; }
+.route-current-location { display: block; width: 20px; height: 20px; border: 3px solid white; border-radius: 50%; background: var(--info); box-shadow: 0 3px 11px rgba(0,0,0,.32); }
+.route-current-location::after { content: ""; position: absolute; inset: -7px; border: 3px solid color-mix(in srgb, var(--info) 58%, transparent); border-radius: inherit; pointer-events: none; animation: route-current-location-pulse 1.7s ease-out infinite; }
+@keyframes route-current-location-pulse { from { opacity: .8; transform: scale(.56); } to { opacity: 0; transform: scale(1.65); } }
 /* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
    mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados
    via classe), só mais baixo pra caber no cartão central junto do cabeçalho/CTA/
@@ -979,4 +982,5 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  .route-current-location::after { animation: none !important; opacity: .38; transform: scale(1.1); }
 }

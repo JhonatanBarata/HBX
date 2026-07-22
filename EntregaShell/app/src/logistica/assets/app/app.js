@@ -310,6 +310,8 @@
     // e o próximo mountMap nunca leiam uma instância morta como se estivesse viva.
     if (routeMapHost) {
       ((routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.markers) || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
+      const currentLocationMarker = routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.currentLocationMarker;
+      if (currentLocationMarker) { try { currentLocationMarker.remove(); } catch (_) {} }
       routeMapHost.__hbxMap = null;
       routeMapHost.__hbxMapParts = null;
     }
@@ -404,6 +406,33 @@
     });
     const bounds = new window.maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat]));
     if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
+    if (interactive && host.id === "route-live-map") applyRouteReadingLocation(host, map);
+  }
+  function applyRouteReadingLocation(host, map) {
+    const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
+    const point = leituraRouteActive() ? leituraLiveLastPoint() : null;
+    if (!point) {
+      if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
+      parts.currentLocationMarker = null;
+      return;
+    }
+    if (parts.currentLocationMarker) parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
+    else {
+      const dot = document.createElement("span");
+      dot.className = "route-current-location";
+      dot.setAttribute("role", "img");
+      dot.setAttribute("aria-label", "Sua localização atual");
+      parts.currentLocationMarker = new window.maplibregl.Marker({ element: dot, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
+    }
+  }
+  function collapseMapAttribution(host) {
+    requestAnimationFrame(() => {
+      const attribution = host && host.querySelector(".maplibregl-ctrl-attrib.maplibregl-compact");
+      if (!attribution) return;
+      attribution.open = false;
+      attribution.removeAttribute("open");
+      attribution.classList.remove("maplibregl-compact-show");
+    });
   }
   async function applyRouteLine(host, map, points) {
     try {
@@ -441,6 +470,7 @@
           applyRouteMarkers(host, host.__hbxMap, points, interactive);
           host.classList.add("is-ready");
           void applyRouteLine(host, host.__hbxMap, points);
+          collapseMapAttribution(host);
         } else {
           // Mapa recém-criado, estilo ainda carregando: o handler "load" logo
           // abaixo aplica os pontos mais recentes quando disparar.
@@ -463,6 +493,7 @@
         const latest = (host.__hbxMapParts && host.__hbxMapParts.pendingPoints) || points;
         applyRouteMarkers(host, map, latest, interactive);
         host.classList.add("is-ready");
+        collapseMapAttribution(host);
         await applyRouteLine(host, map, latest);
       });
       map.on("error", () => {});
@@ -4900,7 +4931,8 @@
     if (!validCoordinates(lat, lng)) return;
     state.leituraTrilha = [...(state.leituraTrilha || []), [lat, lng]];
     state.leituraUltimaAmostra = { lat, lng, ts: detail.ts };
-    if (state.modal === "leitura-ativa") render();
+    if (leituraRouteActive() && routeMap && routeMapHost) applyRouteReadingLocation(routeMapHost, routeMap);
+    else if (state.modal === "leitura-ativa") render();
   });
   // hbx:leitura-pausa: overlay GLOBAL (leituraPausaOverlay, dentro de shell())
   // — pode chegar com o app em qualquer tela, inclusive re-disparado sozinho
