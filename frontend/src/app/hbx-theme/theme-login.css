@@ -4,9 +4,15 @@
    ============================================================ */
 
 [data-theme="login"] {
-  --hbx-brand: #8FCF16; --hbx-brand-strong: #8FCF16; --hbx-brand-soft: #E3E7DC; --hbx-brand-contrast: #121A05;
-  --hbx-primary: #8FCF16; --hbx-secondary: #667064; --hbx-success: #8FCF16; --hbx-accent: #C8FF5A;
-  --hbx-info: #8FCF16; --hbx-warning: #667064; --hbx-danger: #667064; --hbx-danger-soft: #E3E7DC;
+  /* No CLARO o verde fluorescente é PREENCHIMENTO, nunca tinta: #8FCF16 sobre
+     as superfícies quase-brancas dá 1.83:1 (reprova ícone 3:1 e texto 4.5:1).
+     `brand` segue vibrante (botão/anel/gradiente); `brand-strong`/`success`/`info`
+     — que o app usa como cor de texto, ícone e dot — viram verde-tinta 5.44:1.
+     `warning`/`danger` saem de cima do `muted` (eram o MESMO #667064: aviso ficava
+     igual a "pausado"); espelha o que o bloco escuro já fazia por luminosidade. */
+  --hbx-brand: #8FCF16; --hbx-brand-strong: #4A7307; --hbx-brand-soft: #E3E7DC; --hbx-brand-contrast: #121A05;
+  --hbx-primary: #8FCF16; --hbx-secondary: #667064; --hbx-success: #4A7307; --hbx-accent: #C8FF5A;
+  --hbx-info: #4A7307; --hbx-warning: #3F4B3D; --hbx-danger: #3F4B3D; --hbx-danger-soft: #E3E7DC;
   --hbx-background: #EFF1E9; --hbx-background-alt: #E3E7DC;
   --hbx-surface: #FBFCF7; --hbx-surface-soft: #EEF1E8; --hbx-surface-raised: #E3E7DC;
   --hbx-header-surface: rgba(255,255,252,0.76); --hbx-nav-surface: rgba(238,241,232,0.9);
@@ -57,6 +63,11 @@
   background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
   box-shadow: var(--shadow-inset), 0 16px 30px -18px color-mix(in srgb, var(--hbx-brand) 75%, transparent);
 }
+/* Estes dois pintam `brand-strong` como FUNDO com `action-ink` (quase preto) em
+   cima — com o verde-tinta o texto sumiria. Sob esta pele o fundo é o `brand`
+   vibrante (9.45:1 com a tinta), que é o papel certo do token. */
+[data-theme="login"] .casca-fallback__cta,
+[data-theme="login"] .casca-toast { background: var(--hbx-brand); }
 [data-theme="login"] .btn-ghost,
 [data-theme="login"] .field-dark,
 [data-theme="login"] .select-dark { border-radius: var(--radius-sm); box-shadow: var(--shadow-inset); }
