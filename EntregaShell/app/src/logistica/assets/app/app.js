@@ -3561,17 +3561,32 @@
     // (abrirNavegacao(openItems()[0])).
     const navVisible = openItems().length > 0 && (active || planned);
     const navIcon = navVisible ? routeSatellite("route-nav-external", "show-map", "Abrir no Waze ou Google Maps", "navigation") : "";
+    // S5 22/07 (APK-PROFISSIONAL) — os 3 símbolos do disco (play/gps/stop) saem
+    // da MESMA geometria do catálogo `paths` (play/stop/navigation), escalada
+    // da grade 24 pro viewBox 120 (fator 5) — cada glifo aqui era desenhado à
+    // mão com hex cravado (#fff, #168be8, #e10a1d, rgba(8,101,223,.22),
+    // rgba(223,7,26,.14)); a cor agora vem 100% de app.css (--route-icon-on/
+    // --route-icon-nav via classe, nunca atributo `fill=` solto). `stop` era
+    // um octógono de placa com barra vermelha — vira o `rect rx` do catálogo,
+    // igual ao ícone `stop` do resto do app. `gps` usa o glifo `navigation`
+    // (seta de "me leve", mesma linguagem do satélite "Abrir no Waze/Maps"
+    // acima) — girado pelas MESMAS regras de rotação por estado que já
+    // existiam em app.css; a orientação de repouso da seta pode pedir ajuste
+    // fino de grau depois de ver no aparelho (ver ressalva no RESULTADO).
+    // O pin (marcador de local, estado "gps") e a linha/ponto da rota
+    // continuam com a geometria própria de cena — não são "o símbolo do
+    // estado", só perderam o hex.
     return `<div class="route-transmux-wrap"><span class="route-satellites">${destrutivo}${navIcon}</span><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
       <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
         <filter id="routeSoftShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity=".22"/></filter>
       </defs>
       <circle class="transmux-disc play" cx="60" cy="60" r="54"/><circle class="transmux-disc gps" cx="60" cy="60" r="54"/><circle class="transmux-disc stop" cx="60" cy="60" r="54"/>
       <circle class="transmux-pulse" cx="60" cy="60" r="51"/>
-      <path class="transmux-route" d="M26 79c10 16 26 20 43 14 12-4 16-14 24-22"/><circle class="transmux-route" cx="26" cy="79" r="4.2" fill="#fff" stroke="none"/>
-      <g class="transmux-symbol play-symbol" filter="url(#routeSoftShadow)"><path d="M45 35.5c0-3.5 3.8-5.7 6.8-3.8l31.4 20.2c2.8 1.8 2.8 6 0 7.8L51.8 79.9c-3 1.9-6.8-.3-6.8-3.8z" fill="#fff"/></g>
-      <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><path d="M60 27 79 77.5c1.1 3-2.2 5.7-4.9 4L60 73.4l-14.1 8.1c-2.7 1.6-6-1-4.9-4z" fill="#fff"/><path d="M60 34 68 67l-8-4.7L52 67z" fill="rgba(8,101,223,.22)"/></g>
-      <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z" fill="#fff"/><circle cx="88" cy="42" r="5.2" fill="#168be8"/></g>
-      <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><path d="M44 28h32l16 16v32L76 92H44L28 76V44z" fill="#fff"/><path d="M47 35h26l12 12v26L73 85H47L35 73V47z" fill="rgba(223,7,26,.14)"/><rect x="41" y="55" width="38" height="10" rx="5" fill="#e10a1d"/></g></svg>
+      <path class="transmux-route" d="M26 79c10 16 26 20 43 14 12-4 16-14 24-22"/><circle class="transmux-route" cx="26" cy="79" r="4.2"/>
+      <g class="transmux-symbol play-symbol" filter="url(#routeSoftShadow)"><polygon points="40 25 97.5 60 40 95"/></g>
+      <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><polygon points="15 55 110 10 65 105 55 65 15 55"/></g>
+      <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z"/><circle cx="88" cy="42" r="5.2"/></g>
+      <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><rect x="30" y="30" width="60" height="60" rx="12.5"/></g></svg>
     </button></div>`;
   }
   function stopCard(item, featured, sequenceNumber) {

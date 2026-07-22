@@ -361,6 +361,12 @@ h3 { font-size: .95rem; }
 :root {
   --route-icon-nav: #0e6fd6;
   --route-icon-stop: #c0392b;
+  /* S5 22/07 (APK-PROFISSIONAL) — o glifo/rota/pulso do disco é sempre branco
+     POR CIMA de um disco de cor fixa (--cta-to/--route-icon-nav/--route-icon-
+     stop, nenhum dos três tem par dark — são cor de marca do botão, não de
+     tema, mesmo padrão já usado por --cta acima). Sem par dark por não
+     precisar mudar: o disco continua o mesmo chapado em qualquer tema. */
+  --route-icon-on: #fff;
 }
 .rp2-mode-icon--saved { color: var(--warning); background: color-mix(in srgb, var(--warning) 18%, var(--surface)); }
 .rp2-mode-chev { flex: 0 0 auto; color: var(--muted); }
@@ -699,9 +705,21 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
 .transmux-disc, .transmux-symbol, .transmux-route, .transmux-pin, .transmux-pulse { transform-box: fill-box; transform-origin: center; }
 .transmux-disc, .transmux-symbol, .transmux-pin { transition: opacity .63s cubic-bezier(.2,.8,.2,1), transform .78s cubic-bezier(.2,.85,.18,1.12); }
 .transmux-disc { opacity: 0; }
-.transmux-route { fill: none; stroke: #fff; stroke-width: 4.2; stroke-linecap: round; stroke-dasharray: 4 8; opacity: .92; transition: opacity .51s ease, transform .75s cubic-bezier(.2,.85,.18,1.12), stroke-dashoffset 1.05s cubic-bezier(.2,.8,.2,1); }
-.route-transmux circle.transmux-route { fill: #fff; stroke: none; }
-.transmux-pulse { fill: none; stroke: rgba(255,255,255,.68); stroke-width: 2; opacity: 0; }
+/* S5 22/07 (APK-PROFISSIONAL) — play/gps/stop passam a ser a MESMA silhueta do
+   catálogo `paths` (app.js), escalada da grade 24 pro viewBox 120 do disco
+   (fator 5), em vez de 3 SVGs desenhados à mão com hex cravado (#fff,
+   #168be8, #e10a1d, rgba(8,101,223,.22), rgba(223,7,26,.14)). "Disco sólido é
+   papel do COMPONENTE": o catálogo dá só a silhueta (fill:none no glifo
+   solto), quem preenche sólido é esta classe — não empurramos o contorno de
+   traço 1.8 pra dentro do disco (ficaria fino e fraco num CTA de 90px). O
+   detalhe de sombreado interno que gps/stop tinham (o path/rect em opacidade
+   baixa) saiu: o disco já é chapado por decisão de 22/07 (comentário acima),
+   então o símbolo chapado por cima é consistente, não um corte. */
+.play-symbol polygon, .gps-symbol polygon, .stop-symbol rect, .transmux-pin path { fill: var(--route-icon-on); }
+.transmux-pin circle { fill: var(--route-icon-nav); }
+.transmux-route { fill: none; stroke: var(--route-icon-on); stroke-width: 4.2; stroke-linecap: round; stroke-dasharray: 4 8; opacity: .92; transition: opacity .51s ease, transform .75s cubic-bezier(.2,.85,.18,1.12), stroke-dashoffset 1.05s cubic-bezier(.2,.8,.2,1); }
+.route-transmux circle.transmux-route { fill: var(--route-icon-on); stroke: none; }
+.transmux-pulse { fill: none; stroke: color-mix(in srgb, var(--route-icon-on) 68%, transparent); stroke-width: 2; opacity: 0; }
 .route-transmux.clicked .transmux-pulse { animation: route-transmux-pulse .78s ease-out; }
 @keyframes route-transmux-pulse { 0% { opacity: .85; transform: scale(.72); } 100% { opacity: 0; transform: scale(1.16); } }
 .route-transmux[data-state="play"] .transmux-disc.play { opacity: 1; transform: scale(1); }
