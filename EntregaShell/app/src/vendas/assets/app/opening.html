@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <!-- theme-color é atributo de <meta>, não CSS: não aceita var(). Mantém o MESMO
+       valor de --bg abaixo por convenção — se a paleta da casca mudar, atualizar os dois. -->
   <meta name="theme-color" content="#050713">
   <title>HBX Mobile</title>
   <script>
@@ -16,16 +18,36 @@
     }
   </script>
   <style>
+    /* PALETA DA CASCA DE ABERTURA — decisão do dono (oobe-casca-isolada, PR22072026-
+       APK-PROFISSIONAL/C5): a abertura tem visual PRÓPRIO e CONSTANTE, nunca os
+       tokens do app (--brand/--surface/--ink do app.css). Contrato: toda cor que a
+       casca usa nasce AQUI; o resto do arquivo só referencia var(--nome). Isso NÃO
+       converge com o tema do app — são paletas propositalmente diferentes. */
     :root {
       color-scheme: dark;
       --bg:#050713;
       --bg-deep:#02040b;
+      --bg-top:#080d20;
+      --bg-floor:#03050d;
       --ink:#f7fbff;
       --muted:#91a0bd;
       --blue:#2e5bff;
       --cyan:#00e5ff;
       --violet:#8a5cff;
       --lime:#9aea35;
+      --white:#fff;
+      --mask-ink:#000;
+      --pulse-ink:#efffff;
+      --node-off:#071020;
+      --node-on:#eaffff;
+      --orb-icon-ink:#f0faff;
+      --headline-mid:#d8efff;
+      --headline-end:#aebdff;
+      --module-ready-ink:#e1faff;
+      --handoff-top:#080d1e;
+      --packet-car-ink:#e1e8ff;
+      --packet-bike-ink:#ecffd4;
+      --packet-package-ink:#f0e7ff;
       --spring:cubic-bezier(.22,1,.36,1);
     }
     * { box-sizing:border-box; }
@@ -47,7 +69,7 @@
         radial-gradient(circle at 50% 35%,rgba(46,91,255,.22),transparent 28%),
         radial-gradient(circle at 88% 13%,rgba(0,229,255,.10),transparent 23%),
         radial-gradient(circle at 10% 78%,rgba(138,92,255,.13),transparent 27%),
-        linear-gradient(180deg,#080d20 0%,var(--bg) 64%,#03050d 100%);
+        linear-gradient(180deg,var(--bg-top) 0%,var(--bg) 64%,var(--bg-floor) 100%);
     }
     .stage::before {
       content:"";
@@ -61,8 +83,8 @@
       background-size:29px 29px;
       transform:perspective(560px) rotateX(62deg);
       transform-origin:50% 100%;
-      -webkit-mask-image:linear-gradient(to top,#000,transparent 82%);
-      mask-image:linear-gradient(to top,#000,transparent 82%);
+      -webkit-mask-image:linear-gradient(to top,var(--mask-ink),transparent 82%);
+      mask-image:linear-gradient(to top,var(--mask-ink),transparent 82%);
     }
     .stage::after {
       content:"";
@@ -126,7 +148,7 @@
     @keyframes routeWake { 8% { opacity:1; } 100% { opacity:.9; stroke-dashoffset:0; } }
     .stream {
       fill:none;
-      stroke:#efffff;
+      stroke:var(--pulse-ink);
       stroke-width:4.4;
       stroke-linecap:round;
       stroke-dasharray:.13 1;
@@ -145,7 +167,7 @@
     .packet.d4 { animation:packet 1s 2.72s linear forwards; }
     @keyframes packet { 8%,86% { opacity:1; } 100% { opacity:0; } }
     .node {
-      fill:#071020;
+      fill:var(--node-off);
       stroke:rgba(0,229,255,.78);
       stroke-width:1.25;
       opacity:0;
@@ -157,7 +179,7 @@
     .node.n2 { animation:nodeOn .5s 2.42s var(--spring) forwards; }
     .node.n3 { animation:nodeOn .5s 3.02s var(--spring) forwards; }
     .node.n4 { animation:nodeOn .5s 3.67s var(--spring) forwards; }
-    @keyframes nodeOn { 55% { opacity:1; transform:scale(1.55); fill:#eaffff; } 100% { opacity:1; transform:scale(1); fill:#071020; } }
+    @keyframes nodeOn { 55% { opacity:1; transform:scale(1.55); fill:var(--node-on); } 100% { opacity:1; transform:scale(1); fill:var(--node-off); } }
 
     .hub-wrap {
       position:absolute;
@@ -293,7 +315,7 @@
       100% { border-color:rgba(var(--rgb),.42); box-shadow:0 0 22px rgba(var(--rgb),.18),0 14px 32px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.08); }
     }
     @keyframes arrivalRing { 22% { opacity:.92; } 100% { opacity:0; transform:scale(1.42); } }
-    .orb svg { width:35px; height:35px; fill:none; stroke:#f0faff; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    .orb svg { width:35px; height:35px; fill:none; stroke:var(--orb-icon-ink); stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
     .vehicle small { display:block; margin-top:7px; color:rgba(205,225,247,.68); font-size:7px; font-weight:750; letter-spacing:.14em; }
 
     .copy {
@@ -308,7 +330,7 @@
       animation:copyIn .62s 3.46s var(--spring) forwards;
     }
     .copy h1 { margin:0; font-size:clamp(39px,11vw,50px); line-height:.92; letter-spacing:-.06em; font-weight:800; }
-    .copy h1 b { font-weight:800; background:linear-gradient(90deg,#fff 10%,#d8efff 48%,#aebdff); -webkit-background-clip:text; background-clip:text; color:transparent; }
+    .copy h1 b { font-weight:800; background:linear-gradient(90deg,var(--white) 10%,var(--headline-mid) 48%,var(--headline-end)); -webkit-background-clip:text; background-clip:text; color:transparent; }
     .copy h1 span { display:block; margin-top:10px; color:rgba(211,226,248,.75); font-size:11px; font-weight:700; letter-spacing:.44em; text-indent:.44em; }
     @keyframes copyIn { to { opacity:1; transform:none; } }
 
@@ -334,7 +356,7 @@
     .module:nth-child(4) { animation:moduleOn .35s 4.41s ease forwards; }
     @keyframes systemsIn { to { opacity:1; transform:none; } }
     @keyframes load { to { transform:scaleX(1); } }
-    @keyframes moduleOn { to { color:#e1faff; border-color:rgba(0,229,255,.27); background:rgba(0,229,255,.052); box-shadow:inset 0 0 13px rgba(0,229,255,.045); } }
+    @keyframes moduleOn { to { color:var(--module-ready-ink); border-color:rgba(0,229,255,.27); background:rgba(0,229,255,.052); box-shadow:inset 0 0 13px rgba(0,229,255,.045); } }
 
     .handoff {
       position:absolute;
@@ -342,7 +364,7 @@
       z-index:20;
       pointer-events:none;
       opacity:0;
-      background:radial-gradient(circle at 50% 31.6%,rgba(0,229,255,.09),transparent 24%),linear-gradient(180deg,#080d1e,#050713);
+      background:radial-gradient(circle at 50% 31.6%,rgba(0,229,255,.09),transparent 24%),linear-gradient(180deg,var(--handoff-top),var(--bg));
       animation:handoff .45s 5.08s ease forwards;
     }
     .scene { position:absolute; inset:0; animation:sceneOut .5s 5.12s ease forwards; }
@@ -379,7 +401,7 @@
     .exit .copy { animation:copyOff .42s .02s ease forwards; }
     .exit .systems { animation:systemsOff 1.25s .02s ease forwards; }
     .exit .rail i { transform:scaleX(1); animation:unload 1.05s .06s ease-in forwards; }
-    .exit .module { color:#e1faff; border-color:rgba(0,229,255,.27); background:rgba(0,229,255,.052); }
+    .exit .module { color:var(--module-ready-ink); border-color:rgba(0,229,255,.27); background:rgba(0,229,255,.052); }
     .exit .module:nth-child(4) { animation:moduleOff .25s .08s ease forwards; }
     .exit .module:nth-child(3) { animation:moduleOff .25s .23s ease forwards; }
     .exit .module:nth-child(2) { animation:moduleOff .25s .38s ease forwards; }
@@ -393,7 +415,7 @@
     @keyframes routeSleep { to { opacity:0; stroke-dashoffset:1; } }
     @keyframes streamBack { 8% { opacity:1; } 88% { opacity:1; } 100% { opacity:0; stroke-dashoffset:1; } }
     @keyframes vehicleOff { 45% { opacity:1; transform:scale(.9); filter:saturate(.25) brightness(.7); } 100% { opacity:0; transform:scale(.66) translateY(7px); filter:saturate(0) brightness(.4); } }
-    @keyframes nodeOff { 45% { fill:#eaffff; transform:scale(1.55); } 100% { opacity:0; transform:scale(.1); } }
+    @keyframes nodeOff { 45% { fill:var(--node-on); transform:scale(1.55); } 100% { opacity:0; transform:scale(.1); } }
     @keyframes copyOff { to { opacity:0; transform:translateY(12px); } }
     @keyframes systemsOff { 84% { opacity:1; transform:none; } 100% { opacity:0; transform:translateY(9px); } }
     @keyframes unload { to { transform:scaleX(0); } }
@@ -421,8 +443,8 @@
 
       <svg class="network" viewBox="0 0 390 844" preserveAspectRatio="none" aria-hidden="true">
         <defs>
-          <linearGradient id="flow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2e5bff"/><stop offset=".55" stop-color="#00e5ff"/><stop offset="1" stop-color="#9aea35"/></linearGradient>
-          <linearGradient id="logo" x1="8" y1="8" x2="104" y2="104"><stop stop-color="#2e5bff"/><stop offset=".48" stop-color="#00e5ff"/><stop offset="1" stop-color="#8a5cff"/></linearGradient>
+          <linearGradient id="flow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="var(--blue)"/><stop offset=".55" stop-color="var(--cyan)"/><stop offset="1" stop-color="var(--lime)"/></linearGradient>
+          <linearGradient id="logo" x1="8" y1="8" x2="104" y2="104"><stop stop-color="var(--blue)"/><stop offset=".48" stop-color="var(--cyan)"/><stop offset="1" stop-color="var(--violet)"/></linearGradient>
           <filter id="lineGlow" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
           <filter id="dotGlow" x="-180%" y="-180%" width="460%" height="460%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
           <filter id="logoGlow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="2.8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
@@ -435,10 +457,10 @@
         <path class="route r1" pathLength="1" d="M195 267 C230 238 259 197 310 159"/><path class="route r2" pathLength="1" d="M195 267 C162 246 135 225 76 220"/><path class="route r3" pathLength="1" d="M195 267 C239 310 261 365 315 441"/><path class="route r4" pathLength="1" d="M195 267 C154 315 123 366 77 453"/>
         <path class="stream s1" pathLength="1" d="M195 267 C230 238 259 197 310 159"/><path class="stream s2" pathLength="1" d="M195 267 C162 246 135 225 76 220"/><path class="stream s3" pathLength="1" d="M195 267 C239 310 261 365 315 441"/><path class="stream s4" pathLength="1" d="M195 267 C154 315 123 366 77 453"/>
         <circle class="node n1" cx="310" cy="159" r="4"/><circle class="node n2" cx="76" cy="220" r="4"/><circle class="node n3" cx="315" cy="441" r="4"/><circle class="node n4" cx="77" cy="453" r="4"/>
-        <circle class="packet d1" r="3.1" fill="#efffff"><animateMotion dur=".95s" begin=".92s" fill="freeze"><mpath href="#toTruck"/></animateMotion></circle>
-        <circle class="packet d2" r="3" fill="#e1e8ff"><animateMotion dur=".95s" begin="1.52s" fill="freeze"><mpath href="#toCar"/></animateMotion></circle>
-        <circle class="packet d3" r="3.1" fill="#ecffd4"><animateMotion dur=".95s" begin="2.12s" fill="freeze"><mpath href="#toBike"/></animateMotion></circle>
-        <circle class="packet d4" r="3" fill="#f0e7ff"><animateMotion dur="1s" begin="2.72s" fill="freeze"><mpath href="#toPack"/></animateMotion></circle>
+        <circle class="packet d1" r="3.1" fill="var(--pulse-ink)"><animateMotion dur=".95s" begin=".92s" fill="freeze"><mpath href="#toTruck"/></animateMotion></circle>
+        <circle class="packet d2" r="3" fill="var(--packet-car-ink)"><animateMotion dur=".95s" begin="1.52s" fill="freeze"><mpath href="#toCar"/></animateMotion></circle>
+        <circle class="packet d3" r="3.1" fill="var(--packet-bike-ink)"><animateMotion dur=".95s" begin="2.12s" fill="freeze"><mpath href="#toBike"/></animateMotion></circle>
+        <circle class="packet d4" r="3" fill="var(--packet-package-ink)"><animateMotion dur="1s" begin="2.72s" fill="freeze"><mpath href="#toPack"/></animateMotion></circle>
       </svg>
 
       <div class="vehicle truck"><div class="orb"><svg viewBox="0 0 40 40"><path d="M5.5 12.5h18.2v14H5.5zM23.7 17h5.7l4.6 5.2v4.3H23.7z"/><circle cx="12" cy="28" r="3.2"/><circle cx="29" cy="28" r="3.2"/></svg></div><small>CAMINHÃO</small></div>
@@ -451,7 +473,7 @@
         <div class="hub">
           <svg viewBox="0 0 112 112" aria-label="HBX">
             <circle class="ring-base" cx="56" cy="56" r="27"/><circle class="ring-main" cx="56" cy="56" r="27"/><circle class="ring-spark" cx="56" cy="56" r="27"/>
-            <g class="hbx-word" fill="#fff"><path d="M34 47h4v7h4.3v-7h4v18h-4v-7h-4.3v7h-4z"/><path d="M49.5 47h4v18h-4z"/><path d="M51.5 49h5.3c3.1 0 5 1.5 5 4.1 0 1.6-.8 2.8-2.2 3.4 1.8.5 2.8 1.8 2.8 3.7 0 3-2.1 4.8-5.7 4.8h-5.2v-3.5h5c1.2 0 1.9-.6 1.9-1.6s-.7-1.6-1.9-1.6h-5v-3.4h4.8c1 0 1.6-.5 1.6-1.4s-.6-1.4-1.6-1.4h-4.8z"/><path d="M64 47h4.2l2.4 5.5L73 47h4.2l-4.5 9 4.5 9H73l-2.4-5.5-2.4 5.5H64l4.5-9z"/></g>
+            <g class="hbx-word" fill="var(--white)"><path d="M34 47h4v7h4.3v-7h4v18h-4v-7h-4.3v7h-4z"/><path d="M49.5 47h4v18h-4z"/><path d="M51.5 49h5.3c3.1 0 5 1.5 5 4.1 0 1.6-.8 2.8-2.2 3.4 1.8.5 2.8 1.8 2.8 3.7 0 3-2.1 4.8-5.7 4.8h-5.2v-3.5h5c1.2 0 1.9-.6 1.9-1.6s-.7-1.6-1.9-1.6h-5v-3.4h4.8c1 0 1.6-.5 1.6-1.4s-.6-1.4-1.6-1.4h-4.8z"/><path d="M64 47h4.2l2.4 5.5L73 47h4.2l-4.5 9 4.5 9H73l-2.4-5.5-2.4 5.5H64l4.5-9z"/></g>
           </svg>
         </div>
       </div>
