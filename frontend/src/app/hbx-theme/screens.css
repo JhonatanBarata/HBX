@@ -2423,34 +2423,21 @@ html, body { height: 100%; }
 }
 .auto-card__ico svg { width: 16px; height: 16px; }
 .auto-card__title { flex: 1; min-width: 0; font-size: 0.88rem; font-weight: 800; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.auto-state {
-  font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em;
-  padding: 4px 10px; border-radius: var(--radius-pill); border: 1px solid var(--border-hairline);
-  color: var(--text-muted); background: var(--hbx-field-surface);
-}
-.auto-state.is-on {
-  color: var(--hbx-success); border-color: color-mix(in srgb, var(--hbx-success) 40%, transparent);
-  background: color-mix(in srgb, var(--hbx-success) 9%, transparent);
-}
-
-/* Regra QUANDO → ENTÃO (gatilhos) */
-.auto-rule {
-  display: grid; gap: 7px; padding: 12px 14px;
-  border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-field-surface);
-}
-.auto-rule__k { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em; color: var(--hbx-info); }
-.auto-rule.is-then .auto-rule__k { color: var(--hbx-brand-strong); }
-.auto-rule__v { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 700; color: var(--text-strong); }
-.auto-rule__v svg { width: 14px; height: 14px; flex: none; color: var(--hbx-info); }
-.auto-rule__chips { display: flex; gap: 6px; flex-wrap: wrap; }
+/* S09 (PADRAO-MERCADO) — CSS morto removido daqui: `.auto-state`/
+   `.auto-state.is-on` (StatusChip assumiu o dot de status, S05/S07 — Lei
+   nº3) e `.auto-rule`/`.auto-rule__k`/`.auto-rule__v`/`.auto-rule__chips`/
+   `.auto-connector` (MiniFluxo assumiu o desenho QUANDO/ENTÃO, S07 — Lei
+   nº2). Zero consumidor em todo frontend/src (confirmado por grep antes de
+   apagar) — só existiam como comentário "REUSA" desatualizado. `.auto-chip`
+   CONTINUA vivo (tag de TIPO no PlayCard, secao-prospeccao.tsx — categoria,
+   não status; não confundir com `.aut-chip` do StatusChip, prefixo
+   diferente) — mantido tal qual. */
 .auto-chip {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: var(--radius-pill);
   font-size: 0.68rem; font-weight: 700; color: var(--text-strong);
   border: 1px solid var(--border-hairline); background: var(--hbx-surface);
 }
 .auto-chip svg { width: 12px; height: 12px; color: var(--hbx-brand-strong); }
-.auto-connector { display: grid; place-items: center; color: var(--text-muted); margin: -5px 0; }
-.auto-connector svg { width: 14px; height: 14px; }
 
 /* Meta (contadores) + rodapé dos cards */
 .auto-card__meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.68rem; color: var(--text-muted); }

@@ -541,7 +541,10 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
           </div>
           <div className="ia-field">
             <label className="field-label">Produtos ou serviços</label>
-            <textarea className="field-dark" rows={3} maxLength={600} placeholder="Ex.: instalação e manutenção de ar-condicionado, PMOC, contratos para empresas…"
+            {/* S09 (PADRAO-MERCADO): placeholder estourava o teto de copy (79
+                chars, Lei nº1 ≤70) — mesmo corte que o campo gêmeo do drawer
+                de Ajustes (IaAjustesDrawer, abaixo) já usava. */}
+            <textarea className="field-dark" rows={3} maxLength={600} placeholder="Ex.: instalação e manutenção de ar-condicionado…"
               value={produtos} onChange={(e) => setProdutos(e.target.value)} />
             {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 90 chars). */}
             <span className="ia-field__hint">Vale só pra IA — o roteiro usa as mensagens da próxima tela.</span>
