@@ -1480,6 +1480,9 @@
   // resto). Contador de refs: várias chamadas simultâneas não piscam; debounce
   // de 150ms pra não aparecer em requests rápidos.
   // ==========================================================================
+  // Auto-update: cache do appInfo() nativo e trava da rechecagem periódica.
+  let appInfoCache;
+  let lastUpdateCheckAt = 0;
   let hbxLoadingRefs = 0;
   let hbxLoadingTimer = null;
   let hbxLoadingEl = null;
@@ -1648,22 +1651,39 @@
   }
   // F4 — checa a versão publicada (version-logistica.json no site) contra a do
   // APK (via ponte nativa). Maior no servidor → acende o chip "Atualizar".
-  async function checkAppUpdate() {
+  // Dados do próprio APK (versão instalada), lidos 1x da ponte nativa. Fora do
+  // Android (preview) fica null e a linha de versão em Ajustes não aparece.
+  function appInfo() {
+    if (appInfoCache !== undefined) return appInfoCache;
+    try { appInfoCache = typeof HBXAndroid !== "undefined" && HBXAndroid.appInfo ? JSON.parse(HBXAndroid.appInfo() || "{}") : null; }
+    catch (_) { appInfoCache = null; }
+    return appInfoCache;
+  }
+  // 22/07 — a checagem rodava SÓ no boot frio. O motorista deixa o app aberto o
+  // dia inteiro na rota: passava dias sem nunca reabrir do zero e nunca via
+  // versão nova. Agora também roda ao voltar do fundo (visibilitychange, com
+  // trava de 30min pra não bater no servidor a cada troca de app) e no toque da
+  // linha "Versão" em Ajustes (forced=true, aí sempre checa e responde).
+  async function checkAppUpdate(forced) {
+    if (!forced && Date.now() - lastUpdateCheckAt < 1800000) return;
     try {
-      if (typeof HBXAndroid === "undefined" || !HBXAndroid.appInfo) return;
-      if (typeof HBXAndroid.downloadAndInstall !== "function") return; // nativo antigo → sem auto-update
-      const info = JSON.parse(HBXAndroid.appInfo() || "{}");
+      const info = appInfo();
+      if (!info) return;
+      if (typeof HBXAndroid.downloadAndInstall !== "function") { if (forced) toast("Atualização automática indisponível nesta versão.", true); return; } // nativo antigo → sem auto-update
       const base = String(info.webBaseUrl || "").replace(/\/+$/, "");
       if (!base) return;
+      lastUpdateCheckAt = Date.now();
       const resp = await fetch(`${base}/downloads/version-logistica.json`, { cache: "no-store" });
-      if (!resp.ok) return;
+      if (!resp.ok) throw new Error("manifesto indisponível");
       const v = await resp.json();
       if (v && Number(v.versionCode) > Number(info.versionCode || 0)) {
         state.updateInfo = { versionName: v.versionName, versionCode: v.versionCode, url: v.url, sha256: v.sha256, obrigatoria: !!v.obrigatoria, nota: v.nota || "", outdated: true };
         syncHeaderChips();
-        if (state.updateInfo.obrigatoria) showModal("app-update");
+        if (state.updateInfo.obrigatoria || forced) showModal("app-update");
+      } else if (forced) {
+        toast("Você já está na versão mais recente.");
       }
-    } catch (_) {}
+    } catch (_) { if (forced) toast("Não foi possível verificar agora.", true); }
   }
   function appUpdateModal() {
     const u = state.updateInfo || {};
@@ -3382,9 +3402,19 @@
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button></section>`);
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
   }
 
+  // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá
+  // pra saber, olhando o celular do motorista, se ele está com o app certo.
+  // Tocar força a checagem de atualização (checkAppUpdate(true) responde
+  // sempre: abre o modal se tiver nova, ou avisa que já está na mais recente).
+  function versionSettingsRow() {
+    const info = appInfo();
+    if (!info || !info.versionName) return "";
+    const nova = state.updateInfo && state.updateInfo.outdated;
+    return `<button class="settings-row" data-action="check-update"><div class="avatar">${icon("download", 18)}</div><div class="settings-copy"><strong>Versão</strong></div><strong>${H.escape(info.versionName)} · código ${H.escape(String(info.versionCode || "?"))}</strong>${nova ? `<span class="badge success">Nova</span>` : ""}<span>›</span></button>`;
+  }
   function simpleModeActive(item) {
     // Modo simples é camada opcional por cima do fluxo atual: só entra quando o
     // financeiro está ligado, o toggle "cobrança simples" também está ligado, a
@@ -4997,6 +5027,7 @@
     }
     // F4 — auto-update.
     if (action === "app-update") { if (state.updateInfo) showModal("app-update"); return; }
+    if (action === "check-update") { toast("Verificando…"); void checkAppUpdate(true); return; }
     if (action === "update-permitir") { if (typeof HBXAndroid !== "undefined" && HBXAndroid.openInstallPermission) HBXAndroid.openInstallPermission(); return; }
     if (action === "update-instalar") { startAppUpdate(); return; }
     // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
@@ -5938,5 +5969,10 @@
     moduleActive = false;
     window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
   }
-  else { render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(); }
+  else {
+    render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(true);
+    // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
+    // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) void checkAppUpdate(); });
+  }
 })();

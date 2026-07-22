@@ -12,6 +12,19 @@ plugins {
 // ou HBX_ANDROID_STORE_FILE/HBX_ANDROID_STORE_PASSWORD/HBX_ANDROID_KEY_ALIAS/
 // HBX_ANDROID_KEY_PASSWORD no ambiente de CI. Sem uma das duas fontes completas,
 // qualquer task de release falha — nunca sai .aab sem assinatura por acidente.
+// Auto-update do APK Logística: o versionCode do flavor "logistica" pode ser
+// INJETADO pelo publish (-PhbxLogisticaVersionCode=N). Quem decide o número é
+// o scripts/ops/deploy-vps.js, que só incrementa quando o APK realmente mudou
+// (impressão digital dos fontes do EntregaShell contra a última publicada) —
+// publish de backend/frontend NÃO faz o motorista baixar 1,5 MB à toa.
+// O literal abaixo é o PISO: sem a propriedade (build local, Android Studio),
+// vale ele.
+val hbxLogisticaVersionCodeFloor = 8
+val hbxLogisticaVersionCode =
+    (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
+        ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
+        ?: hbxLogisticaVersionCodeFloor
+
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) {
@@ -97,7 +110,7 @@ android {
         create("logistica") {
             dimension = "experience"
             applicationId = "br.com.hbxsystem.logistica"
-            versionCode = 8
+            versionCode = hbxLogisticaVersionCode
             versionName = "beta1.3.2"
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
             manifestPlaceholders["hbxAppLabel"] = "HBX Mobile"

@@ -167,18 +167,131 @@ function loadConfig() {
   };
 }
 
-function buildAndroidApk() {
+// ---------------------------------------------------------------------------
+// Auto-update do APK: quem decide o versionCode
+// ---------------------------------------------------------------------------
+// Regra do dono (22/07): "se o app não alterou não tem que ter incrementação".
+// Publish de backend/frontend não pode empurrar 1,5 MB de download pro celular
+// do motorista. Então o número só sobe quando os FONTES DO APK mudam.
+//
+// Como sabemos que mudou: impressão digital (SHA-256) dos arquivos que entram
+// no APK — tudo de EntregaShell/app/src + os arquivos de build do gradle.
+// Ela é publicada junto no version-logistica.json, então a comparação é sempre
+// contra o que está DE FATO no ar (fonte da verdade = servidor, não o repo).
+//
+// Nada de editar build.gradle.kts no meio do deploy (o commit já aconteceu
+// antes do build — arquivo mexido aqui viraria sujeira não commitada): o
+// número vai por propriedade do gradle, -PhbxLogisticaVersionCode.
+const apkFingerprintRoots = [
+  path.join('app', 'src'),
+  path.join('app', 'build.gradle.kts'),
+  'build.gradle.kts',
+  'settings.gradle.kts',
+  'gradle.properties',
+];
+
+function collectApkInputFiles(absolute, collected) {
+  if (!fs.existsSync(absolute)) return collected;
+  const stat = fs.statSync(absolute);
+  if (stat.isFile()) {
+    collected.push(absolute);
+    return collected;
+  }
+  if (!stat.isDirectory()) return collected;
+  for (const entry of fs.readdirSync(absolute).sort()) {
+    // `build`/`.gradle` são SAÍDA do compilador — entrariam na conta e fariam
+    // a digital mudar sozinha a cada build, quebrando a regra inteira.
+    if (entry === 'build' || entry === '.gradle') continue;
+    collectApkInputFiles(path.join(absolute, entry), collected);
+  }
+  return collected;
+}
+
+function computeApkFingerprint() {
+  const files = [];
+  for (const relative of apkFingerprintRoots) {
+    collectApkInputFiles(path.join(androidProjectDir, relative), files);
+  }
+  files.sort();
+  const hash = crypto.createHash('sha256');
+  for (const file of files) {
+    // Caminho + conteúdo: renomear arquivo também conta como mudança.
+    hash.update(path.relative(androidProjectDir, file).split(path.sep).join('/'));
+    hash.update('\0');
+    hash.update(fs.readFileSync(file));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+// Lê o version-logistica.json que está PUBLICADO. Sem rede/sem arquivo ainda,
+// devolve null e o chamador cai no piso do gradle (nunca inventa número).
+function readPublishedVersion(config) {
+  const url = resolveVersionJsonPublicUrl(config);
+  if (!url) return null;
+  // try/catch além do allowFailure: o helper `run` LANÇA quando o executável
+  // não existe (ENOENT). Esta leitura nunca pode derrubar o publish — sem
+  // resposta, o chamador cai no piso do gradle e avisa no log.
+  let result;
+  try {
+    result = run('curl', ['-fsSL', '--max-time', '20', url], {
+      cwd: repoRoot,
+      captureOutput: true,
+      allowFailure: true,
+    });
+  } catch (_) { return null; }
+  if (!result || result.status !== 0 || !result.stdout) return null;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return {
+      versionCode: Number(parsed.versionCode) || 0,
+      fingerprint: String(parsed.fingerprint || ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function resolveAndroidVersion(config) {
+  const gradle = readLogisticaFlavorVersion();
+  const fingerprint = computeApkFingerprint();
+  const published = readPublishedVersion(config);
+
+  if (!published) {
+    console.log(
+      `[apk] não consegui ler a versão publicada — mantendo o piso do gradle (código ${gradle.versionCode}). ` +
+        'Se o app mudou, o celular NÃO vai ver a atualização: confira o version-logistica.json no ar.',
+    );
+    return { ...gradle, fingerprint, bumped: false };
+  }
+  if (published.fingerprint && published.fingerprint === fingerprint) {
+    console.log(
+      `[apk] fontes do app INALTERADOS — versão mantida em ${published.versionCode}. Nenhum celular vai baixar nada.`,
+    );
+    return { versionCode: published.versionCode, versionName: gradle.versionName, fingerprint, bumped: false };
+  }
+  const versionCode = Math.max(published.versionCode, gradle.versionCode) + 1;
+  console.log(
+    `[apk] fontes do app MUDARAM — versão ${published.versionCode} → ${versionCode}. Os celulares vão atualizar sozinhos.`,
+  );
+  return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true };
+}
+
+function buildAndroidApk(version) {
+  const versionArg = version && version.versionCode
+    ? [`-PhbxLogisticaVersionCode=${version.versionCode}`]
+    : [];
   if (process.platform === 'win32') {
     // gradlew.bat pelo CAMINHO ABSOLUTO: ambientes com NoDefaultCurrentDirectoryInExePath=1
     // (sandbox/hardening) fazem o cmd.exe ignorar o diretório atual, então o nome puro
     // "gradlew.bat" não é encontrado mesmo com cwd correto. Caminho absoluto resolve sempre.
     runStep(
       process.env.comspec || 'cmd.exe',
-      ['/d', '/s', '/c', path.join(androidProjectDir, 'gradlew.bat'), ':app:assembleLogisticaRelease', '--stacktrace'],
+      ['/d', '/s', '/c', path.join(androidProjectDir, 'gradlew.bat'), ':app:assembleLogisticaRelease', ...versionArg, '--stacktrace'],
       { cwd: androidProjectDir },
     );
   } else {
-    runStep('./gradlew', [':app:assembleLogisticaRelease', '--stacktrace'], { cwd: androidProjectDir });
+    runStep('./gradlew', [':app:assembleLogisticaRelease', ...versionArg, '--stacktrace'], { cwd: androidProjectDir });
   }
 
   if (!fs.existsSync(androidApkPath)) {
@@ -338,8 +451,7 @@ function resolveVersionJsonPublicUrl(config) {
   }
 }
 
-function publishVersionJson(config, apk) {
-  const version = readLogisticaFlavorVersion();
+function publishVersionJson(config, apk, version) {
   const payload = {
     versionCode: version.versionCode,
     versionName: version.versionName,
@@ -347,6 +459,9 @@ function publishVersionJson(config, apk) {
     sha256: apk.sha256,
     obrigatoria: false,
     nota: '',
+    // Digital dos fontes do APK: é ela que o PRÓXIMO publish compara pra saber
+    // se precisa (ou não) subir o versionCode. O app ignora este campo.
+    fingerprint: version.fingerprint,
   };
   const content = JSON.stringify(payload);
 
@@ -410,7 +525,12 @@ function main(requestedMode) {
   commitEverything(mode === 'full' ? 'publish' : 'new');
   const changedFiles = changedFilesAheadOfRemote();
   const plan = classifyServices(changedFiles);
-  const androidApk = buildAndroidApk();
+  // Decide o versionCode ANTES do build (ele entra no binário): só sobe se a
+  // digital dos fontes do APK mudou desde a última publicação — ver
+  // resolveAndroidVersion(). Nunca deixa o publish cair se der ruim na leitura
+  // do que está no ar: cai no piso do gradle e avisa no log.
+  const androidVersion = resolveAndroidVersion(config);
+  const androidApk = buildAndroidApk(androidVersion);
   runStep('git', ['push', remote, branch]);
   deploy(config, mode === 'full' || plan.full, plan.services);
   publishAndroidApk(config, androidApk);
@@ -419,7 +539,7 @@ function main(requestedMode) {
   // NUNCA pode derrubar o publish: o APK já subiu e validou acima; isto é só
   // um adicional pro app checar update sozinho.
   try {
-    publishVersionJson(config, androidApk);
+    publishVersionJson(config, androidApk, androidVersion);
   } catch (error) {
     console.warn(
       `[version.json] pulado (não bloqueante): ${error && error.message ? error.message : error}`,
