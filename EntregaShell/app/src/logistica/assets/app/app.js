@@ -195,6 +195,14 @@
     // ponto em que navRota zera — ver performEncerrarRota/performLimparDia).
     navMudo: H.cache.get("nav-mudo", false) || false,
     navVoice: null,
+    // S5 22/07 (PR22072026-APP-SOUNDS) — Central de Sons: lido 1x aqui do
+    // SharedPreferences nativo via H.soundPrefs.get() (leitura SÍNCRONA pela
+    // ponte, mesmo padrão de H.info()/H.offline.status() acima). state.soundPrefs
+    // é só CACHE PRA PINTAR A TELA — a fonte da verdade é sempre o nativo
+    // (ChegadaActivity/RotaService leem de lá direto, nunca daqui); toda
+    // escrita (persistSoundPrefs) manda pro nativo e recebe de volta o que
+    // realmente foi gravado, nunca confia cegamente no otimista local.
+    soundPrefs: H.soundPrefs.get(),
   };
   const app = document.getElementById("app");
   let moduleActive = true;
@@ -299,6 +307,10 @@
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — botão mudo do painel de navegação.
     volume: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M15.5 8.5a5 5 0 0 1 0 7'/><path d='M18.5 5.5a9 9 0 0 1 0 13'/>",
     volumeOff: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M17 9l6 6M23 9l-6 6'/>",
+    // S5 22/07 (PR22072026-APP-SOUNDS) — ▶ da prévia na folha "Sons" (mesmo
+    // estilo outline dos demais: polygon com fill:none, igual o corpo do
+    // alto-falante do ícone `volume` acima).
+    play: "<polygon points='6 4 20 12 6 20 6 4'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -1628,6 +1640,26 @@
     if (state.gpsPerm === "granted") return "is-ok";
     return "is-warn"; // desconhecido/aguardando = amarelo (nunca vermelho sem certeza)
   }
+  // S5 (PR22072026-APP-SOUNDS) — leitura do cache local (state.soundPrefs é só
+  // pra pintar a tela, a fonte real é o SharedPreferences nativo — ver
+  // comentário no state inicial). `master`/`voz` ausentes = tudo ligado
+  // (mesmo default do nativo, nunca dois padrões divergentes).
+  function soundPrefsLocal() { return state.soundPrefs || { master: true, voz: true, off: [] }; }
+  function soundMasterOn() { return soundPrefsLocal().master !== false; }
+  function soundVozOn() { return soundPrefsLocal().voz !== false; }
+  function soundItemOn(key) { return (soundPrefsLocal().off || []).indexOf(key) === -1; }
+  // Escada de estado do chip do topo (mesma ideia de gpsChipClass acima): o
+  // motorista precisa VER que perdeu algum aviso sem abrir a folha — hoje ele
+  // só descobre tarde demais (S5-PREFERENCIA.md, "é isso que faz o chip valer
+  // a área nobre do topo").
+  function soundChipClass() {
+    if (!soundMasterOn()) return "is-off"; // mudo geral
+    return (soundPrefsLocal().off || []).length ? "is-warn" : "is-ok"; // algo desligado vs tudo ligado
+  }
+  // Grava no nativo (fonte da verdade) e recebe de volta o estado JÁ
+  // persistido — nunca confia cegamente no `next` otimista (mesmo padrão de
+  // H.offline.setPreferences). Chamador é responsável por render() depois.
+  function persistSoundPrefs(next) { state.soundPrefs = H.soundPrefs.set(next) || next; }
   function syncHeaderChips() {
     const toolbar = document.querySelector(".topbar .toolbar");
     if (!toolbar) return;
@@ -1641,6 +1673,8 @@
     const upd = state.updateInfo && state.updateInfo.outdated;
     box.innerHTML =
       (upd ? `<button class="hbx-chip hbx-chip-update" data-action="app-update" aria-label="Atualizar aplicativo">${icon("download", 13)}<span>Atualizar</span></button>` : "") +
+      // S5 — chip "Som" ENTRA à esquerda do GPS (S5-PREFERENCIA.md, "Porta 1").
+      `<button class="hbx-chip ${soundChipClass()}" data-action="chip-som" aria-label="Sons">${icon(soundMasterOn() ? "volume" : "volumeOff", 15)}</button>` +
       `<button class="hbx-chip ${gpsChipClass()}" data-action="chip-gps" aria-label="Sinal de GPS">${icon("gps", 15)}</button>` +
       `<button class="hbx-chip ${net ? "is-ok" : "is-off"}" data-action="chip-rede" aria-label="Conexão de rede">${icon(net ? "wifi" : "signal", 15)}</button>`;
   }
@@ -3450,7 +3484,7 @@
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
   }
 
   // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá
@@ -3633,6 +3667,7 @@
     if (state.modal === "route-modelo-editor") return routeModeloEditorModal();
     if (state.modal === "recarga") return recargaModal();
     if (state.modal === "financeiro") return financeiroModal();
+    if (state.modal === "sons") return sonsModal();
     if (state.modal === "avancado") return avancadoModal();
     if (state.modal === "leitura-parada") return leituraParadaModal();
     if (state.modal === "leitura-finalizar") return leituraFinalizarModal();
@@ -3688,6 +3723,65 @@
   function creditsLockOverlay() {
     if (!state.creditsLock) return "";
     return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon("wallet", 22)}</div><h2>Créditos esgotados</h2><p>Sem créditos a rota do dia não pode ser gerada. Recarregue para continuar usando o aplicativo.</p><button class="btn btn-primary btn-block" data-action="open-recarga">Recarregar créditos</button><button class="btn btn-secondary btn-block" data-action="credits-lock-refresh">Já recarreguei · atualizar</button></div></div>`;
+  }
+  // ==========================================================================
+  // S5 (PR22072026-APP-SOUNDS) — Central de Sons: chip no topo (syncHeaderChips
+  // acima) + linha "Sons" em Ajustes abrem A MESMA folha (sonsModal). Tabela
+  // PT-BR dos 16 sons que entram no APK (docs/APP SOUNDS/docs/sound-map.json),
+  // agrupada pelo MOMENTO em que o motorista ouve — nunca a key técnica
+  // (`delivery_complete` não diz nada a ninguém). `essencial` marca a ÚNICA
+  // linha que o dono pediu como "escolha consciente, não deslize de dedo"
+  // (S5-PREFERENCIA.md): por isso ela é a PRIMEIRA da lista.
+  // ==========================================================================
+  const SOUND_CATALOG = [
+    { group: "Chegada", key: "arrival_alert_loop", label: "Aviso de chegada", essencial: true },
+    { group: "Chegada", key: "arrival_confirm", label: "Chegada confirmada" },
+    { group: "Entrega", key: "delivery_complete", label: "Entrega concluída" },
+    { group: "Entrega", key: "proof_saved", label: "Comprovante salvo" },
+    { group: "Sincronia", key: "offline_saved", label: "Salvo sem internet" },
+    { group: "Sincronia", key: "sync_pending", label: "Sincronização pendente" },
+    { group: "Sincronia", key: "sync_complete", label: "Sincronização concluída" },
+    { group: "Rota", key: "pause_detected", label: "Parada detectada" },
+    { group: "Rota", key: "route_start", label: "Rota iniciada" },
+    { group: "Rota", key: "route_stop", label: "Rota encerrada" },
+    { group: "Rota", key: "navigation_open", label: "Navegação aberta" },
+    { group: "Sistema", key: "error", label: "Erro" },
+    { group: "Sistema", key: "warning", label: "Aviso" },
+    { group: "Sistema", key: "success", label: "Sucesso" },
+    { group: "Sistema", key: "update_complete", label: "Atualização concluída" },
+    { group: "Sistema", key: "pairing_success", label: "Pareamento concluído" },
+  ];
+  // Linha "Sons" em Ajustes › Aplicativo (Porta 2 do S5-PREFERENCIA.md), junto
+  // de Tema/Sincronizar/Sair — mesmo padrão de rótulo à esquerda + estado
+  // atual à direita que a linha "Tema" já usa.
+  function sonsSettingsRow() {
+    const off = (soundPrefsLocal().off || []).length;
+    const estado = !soundMasterOn() ? "Mudo" : off ? "Parcial" : "Ativo";
+    return `<button class="settings-row" data-action="open-sons"><div class="avatar">${icon(soundMasterOn() ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Sons</strong></div><span>${estado}</span><span>›</span></button>`;
+  }
+  // Cada item é um DIV (não button) com data-action próprio — precisa de DOIS
+  // alvos de toque independentes na mesma linha (o toggle do item inteiro E o
+  // ▶ da prévia), e <button> dentro de <button> é HTML inválido. O clique
+  // delegado do app (app.addEventListener("click", …)) já despacha por
+  // [data-action] em QUALQUER tag, então o div funciona igual a um botão —
+  // mesmo truque que stopCard() usa (article + role="button" + tabindex).
+  function soundItemRow(entry) {
+    const on = soundItemOn(entry.key);
+    return `<div class="settings-row" data-action="toggle-sound-item" data-sound-key="${entry.key}" role="switch" aria-checked="${on}" tabindex="0"><div class="settings-copy"><strong>${H.escape(entry.label)}</strong>${entry.essencial ? `<span>Essencial</span>` : ""}</div><button type="button" class="link-btn" data-action="preview-sound" data-sound-key="${entry.key}" aria-label="Ouvir ${H.escape(entry.label)}">${icon("play", 15)}</button><span class="module-switch ${on ? "active" : ""}" aria-hidden="true"><i></i></span></div>`;
+  }
+  function soundGroupSection(groupName) {
+    const rows = SOUND_CATALOG.filter(entry => entry.group === groupName).map(soundItemRow).join("");
+    return `<div class="section-title"><strong>${groupName}</strong></div><section class="card flat">${rows}</section>`;
+  }
+  function sonsModal() {
+    const master = soundMasterOn();
+    const voz = soundVozOn();
+    // Mestra desligada: a lista continua visível (o dono quer poder préconfigurar
+    // os itens mesmo mudo), só esmaece — mesma classe hbx-dimmed de produto
+    // arquivado/cliente pendente, sem `pointer-events` (os toggles continuam
+    // funcionando, só o SOM que não sai enquanto a mestra estiver off).
+    const groupsHtml = ["Chegada", "Entrega", "Sincronia", "Rota", "Sistema"].map(soundGroupSection).join("");
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon(master ? "volume" : "volumeOff", 18)}</div><div><h2>Sons</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-sound-master" role="switch" aria-checked="${master}"><div class="avatar">${icon(master ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Todos os sons</strong><span>Chave-mestra — desligar cala tudo</span></div><span class="module-switch ${master ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" type="button" data-action="toggle-sound-voz" role="switch" aria-checked="${voz}"><div class="avatar">${icon(voz ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Voz do GPS</strong><span>Fala da navegação — canal separado dos sons</span></div><span class="module-switch ${voz ? "active" : ""}" aria-hidden="true"><i></i></span></button></section><div class="${master ? "" : "hbx-dimmed"}">${groupsHtml}</div></section></div>`;
   }
   // PR18072026 — "Financeiro" (Ajustes › Administração): mestre liga/desliga o
   // módulo inteiro; sub-toggles só aparecem com o mestre ON. Cada linha é 1
@@ -5118,6 +5212,36 @@
       else toast("Ative a localização do aparelho.", true);
       return;
     }
+    // S5 (PR22072026-APP-SOUNDS) — "Duas portas, uma folha" (S5-PREFERENCIA.md):
+    // o chip do header e a linha "Sons" de Ajustes abrem o MESMO showModal.
+    if (action === "chip-som" || action === "open-sons") { showModal("sons"); return; }
+    if (action === "toggle-sound-master") {
+      persistSoundPrefs({ ...soundPrefsLocal(), master: !soundMasterOn() });
+      render();
+      return;
+    }
+    if (action === "toggle-sound-voz") {
+      const next = !soundVozOn();
+      persistSoundPrefs({ ...soundPrefsLocal(), voz: next });
+      // Mesma cortesia do "nav-mute-toggle" (ver mais abaixo): desligar cala
+      // NA HORA qualquer fala já em curso, não só as próximas — sem isto o
+      // motorista desliga e a voz continua terminando a frase sozinha.
+      if (!next) H.speakStop();
+      render();
+      return;
+    }
+    if (action === "toggle-sound-item") {
+      const key = target.dataset.soundKey; if (!key) return;
+      const atual = soundPrefsLocal(); const off = new Set(atual.off || []);
+      if (off.has(key)) off.delete(key); else off.add(key);
+      persistSoundPrefs({ ...atual, off: [...off] });
+      render();
+      return;
+    }
+    // Prévia (▶): não mexe em preferência nenhuma, só toca — o gate
+    // `preview=true` do HbxSoundEngine é quem decide o que ainda vale (nunca
+    // durante ligação/voz em curso, ver S5-PREFERENCIA.md).
+    if (action === "preview-sound") { const key = target.dataset.soundKey; if (key) H.soundPreview(key); return; }
     // F4 — auto-update.
     if (action === "app-update") { if (state.updateInfo) showModal("app-update"); return; }
     if (action === "check-update") { toast("Verificando…", false, { mudo: true }); void checkAppUpdate(true); return; }

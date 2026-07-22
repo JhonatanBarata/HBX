@@ -379,7 +379,16 @@ class RotaService : Service() {
         vozPendente.remove(paradaId)?.let { vozHandler.removeCallbacks(it) }
     }
 
+    /**
+     * S5 (PR22072026-APP-SOUNDS) — mesmo booleano (`voz`, SharedPreferences)
+     * que a `NativeAppBridge.speak()` obedece: esta é a SEGUNDA instância de
+     * TTS do app (a "Voz do GPS" da folha "Sons" precisa calar as DUAS, senão
+     * o motorista jura que desligou e continua ouvindo "Chegou: X" — o pior
+     * tipo de bug, o de confiança). `HbxSoundEngine.vozHabilitada` lê estático,
+     * sem precisar de uma instância do Engine (este serviço não tem uma).
+     */
     private fun falar(nome: String) {
+        if (!HbxSoundEngine.vozHabilitada(this)) return
         try {
             tts?.speak("Chegou: $nome", TextToSpeech.QUEUE_ADD, null, null)
         } catch (e: Exception) {

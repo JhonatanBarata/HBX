@@ -400,9 +400,19 @@ class NativeAppBridge(
     // QUEUE_FLUSH: a instrução mais nova sempre corta a anterior, nunca
     // empilha fala atrasada. Só existe no app logistica (motorista); vendas
     // nunca chama isto.
+    //
+    // S5 (PR22072026-APP-SOUNDS) — gate de "Voz do GPS" mora AQUI (na ponte),
+    // não no JS: é a ÚNICA forma de garantir que as DUAS instâncias de TTS do
+    // app (esta e a do `RotaService.falar()`) obedeçam ao MESMO booleano — se
+    // o gate vivesse só no `app.js`, a fala "Chegou: X" do `RotaService`
+    // (serviço em segundo plano, não passa pela ponte) ficaria destravada
+    // mesmo com a preferência desligada (S5-PREFERENCIA.md, "cuidado que
+    // decide o sprint": calar só uma das duas é o pior tipo de bug — de
+    // confiança).
     @JavascriptInterface
     fun speak(text: String) {
         if (BuildConfig.APP_MODE != "logistica") return
+        if (!HbxSoundEngine.vozHabilitada(activity)) return
         val safeText = text.filterNot(Char::isISOControl).take(300).trim()
         if (safeText.isEmpty()) return
         activity.runOnUiThread {
@@ -442,6 +452,40 @@ class NativeAppBridge(
         val safeKey = key.filter { it in 'a'..'z' || it == '_' }.take(40)
         if (safeKey.isEmpty()) return
         activity.runOnUiThread { soundEngine.stop(safeKey) }
+    }
+
+    // S5 (PR22072026-APP-SOUNDS) — a prévia da folha "Sons" (▶ ao lado de cada
+    // nome). Fura mestra E toggle do item de propósito (ver `play(preview =
+    // true)` no Engine): sem ouvir, ninguém sabe o que está desligando. Ainda
+    // assim respeita ligação em curso e voz falando — prévia não é "tocar
+    // custe o que custar", é "deixa eu ouvir agora", uma intenção explícita
+    // do motorista, nunca disparada sozinha pelo app.
+    @JavascriptInterface
+    fun previewSound(key: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        val safeKey = key.filter { it in 'a'..'z' || it == '_' }.take(40)
+        if (safeKey.isEmpty()) return
+        activity.runOnUiThread { soundEngine.play(safeKey, preview = true) }
+    }
+
+    // S5 — leitura síncrona (mesmo padrão de `offlineStatus()`/`appInfo()`):
+    // a folha "Sons" pinta o estado inicial com isto. Fonte da verdade é
+    // SEMPRE o SharedPreferences (nunca o cache do JS) — é o mesmo arquivo que
+    // `HbxSoundEngine.habilitado()`, `RotaService.falar()` e a
+    // `ChegadaActivity` leem, então JS/nativo nunca descombinam.
+    @JavascriptInterface
+    fun soundPrefs(): String = HbxSoundEngine.prefsJson(activity)
+
+    // S5 — grava o JSON que o JS montou (mestra + voz + off[]) e devolve o
+    // estado EFETIVO já persistido (mesmo padrão de `setOfflinePreferences`,
+    // que devolve `statusJson()` em vez de confiar no que o chamador mandou).
+    // Teto de payload — mesma cautela de `activateRoute`/`uploadProof`: nenhum
+    // @JavascriptInterface aceita string sem limite de tamanho.
+    @JavascriptInterface
+    fun setSoundPrefs(json: String): String {
+        if (BuildConfig.APP_MODE != "logistica") return soundPrefs()
+        if (json.length <= 4_000) HbxSoundEngine.salvarPrefs(activity, json)
+        return soundPrefs()
     }
 
     // Init LAZY: a 1a chamada de speak() cria o TextToSpeech; o callback de

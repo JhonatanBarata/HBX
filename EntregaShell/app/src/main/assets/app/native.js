@@ -75,6 +75,30 @@
     // não pode quebrar. Nenhum call site chama isto ainda — S1 é só o cano.
     sound(key) { try { bridge && bridge.playSound && bridge.playSound(String(key || "")); } catch (_) {} },
     soundStop(key) { try { bridge && bridge.stopSound && bridge.stopSound(String(key || "")); } catch (_) {} },
+    // S5 22/07 (PR22072026-APP-SOUNDS) — prévia da folha "Sons" (▶ ao lado de
+    // cada nome): fura mestra e toggle do item do lado nativo (ver
+    // `HbxSoundEngine.play(preview=true)`), aqui é só o mesmo guard de sempre.
+    soundPreview(key) { try { bridge && bridge.previewSound && bridge.previewSound(String(key || "")); } catch (_) {} },
+    // S5 — preferências de som/voz. Fonte da verdade é o SharedPreferences
+    // nativo (`hbx_sound_prefs`/`config_json`), NUNCA o localStorage: a
+    // ChegadaActivity toca com o WebView fora de foco e não pode perguntar
+    // nada ao JS (S5-PREFERENCIA.md). `get()`/`set()` são leitura/escrita
+    // SÍNCRONAS pela ponte (mesmo padrão de `offline.status()`/`appInfo()`) —
+    // o `set()` devolve o estado JÁ persistido, nunca confia às cegas no que
+    // o chamador mandou.
+    soundPrefs: {
+      get() {
+        return bridgeJson("soundPrefs", { master: true, voz: true, off: [] });
+      },
+      set(prefs) {
+        try {
+          if (!bridge || typeof bridge.setSoundPrefs !== "function") return prefs;
+          return parseBody(bridge.setSoundPrefs(JSON.stringify(prefs || {})));
+        } catch (_) {
+          return prefs;
+        }
+      },
+    },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },

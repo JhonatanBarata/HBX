@@ -252,7 +252,18 @@ class ChegadaActivity : AppCompatActivity() {
     // recurso apagado, codec do aparelho), `iniciarSomFallback()` entra e
     // repõe EXATAMENTE o comportamento de antes do S2. Chegada é crítica: o
     // motorista NUNCA pode ficar sem alarme por causa de um arquivo de som.
+    //
+    // S5 (PR22072026-APP-SOUNDS) — esta Activity roda com o WebView fora de
+    // foco (é a tela de chegada por cima de tudo, ver doc-comment da classe)
+    // e por isso NUNCA pode perguntar nada ao JS: lê o mesmo SharedPreferences
+    // que a folha "Sons" grava, via `habilitadoEstatico` (estático porque esta
+    // Activity não tem — e não pode ter — uma instância do `HbxSoundEngine`
+    // vivo). Mestra desligada OU só o item "Aviso de chegada" desligado = nem
+    // tenta o raw nem o fallback. Vibração (`iniciarVibracao`, chamada à parte
+    // no `onCreate`) segue INTOCADA — "mudo não silencia a vibração" é lei do
+    // S5-PREFERENCIA.md.
     private fun iniciarSom() {
+        if (!HbxSoundEngine.habilitadoEstatico(this, HbxSoundEngine.ARRIVAL_ALERT_KEY)) return
         if (!iniciarSomRaw()) iniciarSomFallback()
     }
 
@@ -322,6 +333,9 @@ class ChegadaActivity : AppCompatActivity() {
      * curtos do SoundPool.
      */
     private fun tocarConfirmacao() {
+        // S5 — mesmo gate de `iniciarSom()` acima, item próprio ("Chegada
+        // confirmada") na folha: desligar só este não deve mexer no alarme.
+        if (!HbxSoundEngine.habilitadoEstatico(this, HbxSoundEngine.ARRIVAL_CONFIRM_KEY)) return
         try {
             val player = MediaPlayer()
             player.setAudioAttributes(

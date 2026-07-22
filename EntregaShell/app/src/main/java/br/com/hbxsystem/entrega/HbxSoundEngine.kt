@@ -68,6 +68,76 @@ class HbxSoundEngine(
         // S1 só precisa SABER ler — nada existindo ainda = tudo ligado.
         private const val PREFS = "hbx_sound_prefs"
         private const val PREF_CONFIG = "config_json"
+
+        // S5 (PR22072026-APP-SOUNDS) — os únicos dois sons que a ChegadaActivity
+        // toca (ver classe lá: MediaPlayer avulso, não usa este Engine porque a
+        // Activity roda com o WebView fora de foco e o SoundPool é lazy por
+        // instância). Constantes públicas em vez da Activity repetir a string —
+        // erro de digitação aqui seria "item desliga e nada acontece".
+        const val ARRIVAL_ALERT_KEY = LOOP_KEY
+        const val ARRIVAL_CONFIRM_KEY = "arrival_confirm"
+
+        /**
+         * Leitura crua do JSON de preferências, sem instanciar o Engine — usada
+         * tanto pelo gate de instância (`habilitado`, abaixo) quanto pelas 3
+         * pontas que precisam ler o mesmo estado SEM ter (ou poder ter) uma
+         * instância viva: a ponte (`soundPrefs`/`setSoundPrefs`), o
+         * `RotaService` (fala "Chegou: X", processo/serviço separado) e a
+         * `ChegadaActivity` (WebView fora de foco, não pode perguntar ao JS —
+         * Lei "fonte da verdade = SharedPreferences" do S5-PREFERENCIA.md).
+         * `null` = nunca configurado OU JSON corrompido; quem chama decide o
+         * padrão (aqui sempre "tudo ligado", nunca trava o app por um JSON ruim).
+         */
+        private fun lerConfig(context: Context): JSONObject? {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PREF_CONFIG, null)
+                ?: return null
+            return runCatching { JSONObject(raw) }.getOrNull()
+        }
+
+        /** Mesmo gate mestra+item de `habilitado()` (instância), exposto estático
+         *  pra quem não tem o Engine à mão (hoje só a `ChegadaActivity`, ver
+         *  doc-comment acima). Não duplica a regra — só muda de onde é chamada. */
+        fun habilitadoEstatico(context: Context, key: String): Boolean {
+            val json = lerConfig(context) ?: return true
+            if (!json.optBoolean("master", true)) return false
+            val desligados = json.optJSONArray("off") ?: JSONArray()
+            for (i in 0 until desligados.length()) {
+                if (desligados.optString(i) == key) return false
+            }
+            return true
+        }
+
+        /**
+         * S5 — "Voz do GPS": campo `voz` no MESMO JSON (extensão do formato já
+         * gravado pelo S1, nunca uma chave solta nova). `true`/ausente = fala
+         * normal; `false` cala as DUAS instâncias de TTS do app —
+         * `NativeAppBridge.speak()` (instrução de rota) chama isto direto, e o
+         * `RotaService.falar()` (o "Chegou: X") também — é o mesmo booleano
+         * lido dos dois lugares, nunca dois booleanos que podem descombinar.
+         */
+        fun vozHabilitada(context: Context): Boolean = lerConfig(context)?.optBoolean("voz", true) ?: true
+
+        /**
+         * Persiste o JSON exatamente como o JS montou — o schema (`master`/
+         * `voz`/`off`) é decisão do front (S5-PREFERENCIA.md), o nativo só
+         * valida que é JSON de verdade e grava. JSON quebrado = no-op (Lei nº3
+         * do 00-PLANO, som é acessório: uma gravação ruim não pode travar a
+         * folha nem derrubar a ponte).
+         */
+        fun salvarPrefs(context: Context, json: String): Boolean = runCatching {
+            JSONObject(json) // só valida — se não parsear, cai no getOrDefault(false) abaixo
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(PREF_CONFIG, json).apply()
+            true
+        }.getOrDefault(false)
+
+        /** JSON efetivo pra ponte devolver ao JS depois de ler/gravar — sempre
+         *  com as 3 chaves presentes (nunca um objeto pela metade), mesmo no
+         *  1º boot sem nada salvo ainda. */
+        fun prefsJson(context: Context): String {
+            val existente = lerConfig(context)
+            if (existente != null) return existente.toString()
+            return JSONObject().put("master", true).put("voz", true).put("off", JSONArray()).toString()
+        }
     }
 
     // SoundPool + cache LAZY (igual ao TTS): criado na 1a chamada de play(),
@@ -192,19 +262,10 @@ class HbxSoundEngine(
         loopTocando = true
     }
 
-    private fun habilitado(key: String): Boolean {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val raw = prefs.getString(PREF_CONFIG, null) ?: return true
-        return runCatching {
-            val json = JSONObject(raw)
-            if (!json.optBoolean("master", true)) return@runCatching false
-            val desligados = json.optJSONArray("off") ?: JSONArray()
-            for (i in 0 until desligados.length()) {
-                if (desligados.optString(i) == key) return@runCatching false
-            }
-            true
-        }.getOrDefault(true)
-    }
+    // S5 — vira um repasse puro pro companion (`habilitadoEstatico`): mesma
+    // regra, agora também usável por quem não tem esta instância (ver
+    // doc-comment de `habilitadoEstatico`).
+    private fun habilitado(key: String): Boolean = habilitadoEstatico(context, key)
 
     private fun emLigacao(): Boolean = runCatching {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
