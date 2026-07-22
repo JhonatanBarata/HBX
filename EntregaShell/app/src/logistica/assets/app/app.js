@@ -474,17 +474,63 @@
   }
   function currentMapTheme() { return document.documentElement.dataset.theme === "dark" ? "dark" : "light"; }
   function currentMapStyle() { return `https://tiles.openfreemap.org/styles/${currentMapTheme() === "dark" ? "fiord" : "liberty"}`; }
+  // Fase 2 C7 22/07 (APK-PROFISSIONAL) — paint de camada MapLibre é WebGL puro
+  // (setPaintProperty/addLayer), NÃO aceita `var(--token)`: só DOM/CSS aceita.
+  // mapPaintToken lê o valor JÁ resolvido do token no :root em runtime
+  // (getComputedStyle) pra alimentar esses paints sem duplicar cor cravada.
+  // Fallback é a cor antiga (em rgb(), não hex — o R6 do check-pele mira hex
+  // solto; grafar o mesmo número em rgb() não reintroduz a duplicação que a
+  // sprint fecha, só preserva o valor de segurança) — WebView velho sem
+  // custom property, ou token ausente, devolve string vazia: cor errada é
+  // ruim, camada sem cor (linha invisível) é pior.
+  function mapPaintToken(name, fallback) {
+    try {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return value || fallback;
+    } catch (_) { return fallback; }
+  }
   function applyDarkMapStreetContrast(map) {
     if (currentMapTheme() !== "dark" || !map || !map.getStyle) return;
     const layers = (map.getStyle() && map.getStyle().layers) || [];
     layers.filter(layer => layer.type === "symbol" && /^highway_name/.test(layer.id)).forEach(layer => {
       try {
-        map.setPaintProperty(layer.id, "text-color", "#f7f9ff");
+        // A cor antiga deste rótulo não duplicava nenhum token existente com
+        // exatidão; a mais próxima no :root é --glass-ink (mesma família
+        // "tinta sobre o mapa" do chip/botão de GPS) — registrado no
+        // RESULTADO, não existe token dedicado a rótulo de rua.
+        map.setPaintProperty(layer.id, "text-color", mapPaintToken("--glass-ink", "rgb(247,249,255)"));
         map.setPaintProperty(layer.id, "text-halo-color", "rgba(24,32,51,.96)");
         map.setPaintProperty(layer.id, "text-halo-width", 1.6);
         map.setPaintProperty(layer.id, "text-halo-blur", .35);
       } catch (_) {}
     });
+  }
+  // Fase 2 C7 22/07 — troca de tema (Ajustes → data-action="theme") pode
+  // acontecer com o mapa da Rota/Leitura JÁ montado (instância viva sobrevive
+  // à troca de tela, ver comentário do L4-D em disposeRouteMap). Sem isto a
+  // trilha/pernas/precisão ficavam pintadas com a cor do tema ANTERIOR até o
+  // próximo remount. setPaintProperty só nas camadas que existirem agora
+  // (map.getLayer ausente lança) — a BASE de tiles (fiord/liberty) troca
+  // sozinha no próprio fluxo de remount de cada mapa (mountMap já detecta
+  // parts.mapTheme !== theme e chama setStyle); aqui é só a TINTA das
+  // camadas próprias, pra não depender de um remount acontecer primeiro.
+  function repaintThemedMapLayers() {
+    const repaint = map => {
+      if (!map || typeof map.getLayer !== "function") return;
+      const paint = (id, prop, token, fallback) => {
+        try { if (map.getLayer(id)) map.setPaintProperty(id, prop, mapPaintToken(token, fallback)); } catch (_) {}
+      };
+      paint("hbx-reading-trail", "line-color", "--info", "rgb(8,101,223)");
+      paint("hbx-reading-accuracy", "fill-color", "--info", "rgb(22,139,232)");
+      paint("hbx-reading-accuracy-outline", "line-color", "--info", "rgb(22,139,232)");
+      paint("hbx-nav-leg-resto", "line-color", "--brand", "rgb(120,201,0)");
+      paint("hbx-nav-leg-atual", "line-color", "--cta-to", "rgb(7,169,63)");
+      paint("hbx-route-line", "line-color", "--brand", "rgb(120,201,0)");
+      paint("hbx-leitura-trilha", "line-color", "--brand", "rgb(120,201,0)");
+      try { applyDarkMapStreetContrast(map); } catch (_) {}
+    };
+    repaint(routeMap);
+    repaint(leituraLiveMap);
   }
   // S4 21/07 (PR21072026-NAVEGACAO-HBX) — router.project-osrm.org é servidor de
   // DEMONSTRAÇÃO (sem SLA, pode bloquear a qualquer momento). roadGeometry e
@@ -837,7 +883,7 @@
       else {
         map.addSource("hbx-reading-trail", { type: "geojson", data: trailData });
         map.addLayer({ id: "hbx-reading-trail-casing", type: "line", source: "hbx-reading-trail", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "rgba(255,255,255,.92)", "line-width": 9, "line-opacity": .94 } });
-        map.addLayer({ id: "hbx-reading-trail", type: "line", source: "hbx-reading-trail", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0865df", "line-width": 5, "line-opacity": .96 } });
+        map.addLayer({ id: "hbx-reading-trail", type: "line", source: "hbx-reading-trail", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--info", "rgb(8,101,223)"), "line-width": 5, "line-opacity": .96 } });
       }
     } else {
       ["hbx-reading-trail", "hbx-reading-trail-casing"].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
@@ -848,8 +894,12 @@
     if (accuracySource) accuracySource.setData(accuracyData);
     else {
       map.addSource("hbx-reading-accuracy", { type: "geojson", data: accuracyData });
-      map.addLayer({ id: "hbx-reading-accuracy", type: "fill", source: "hbx-reading-accuracy", paint: { "fill-color": "#168be8", "fill-opacity": .12 } });
-      map.addLayer({ id: "hbx-reading-accuracy-outline", type: "line", source: "hbx-reading-accuracy", paint: { "line-color": "#168be8", "line-width": 1.5, "line-opacity": .3 } });
+      // Este azul de precisão (mais claro) não era o mesmo tom cravado da
+      // trilha (mais escuro) mas é da mesma família — sem token dedicado pro
+      // tom mais claro, converge no --info existente (mais próximo do
+      // :root), registrado no RESULTADO.
+      map.addLayer({ id: "hbx-reading-accuracy", type: "fill", source: "hbx-reading-accuracy", paint: { "fill-color": mapPaintToken("--info", "rgb(22,139,232)"), "fill-opacity": .12 } });
+      map.addLayer({ id: "hbx-reading-accuracy-outline", type: "line", source: "hbx-reading-accuracy", paint: { "line-color": mapPaintToken("--info", "rgb(22,139,232)"), "line-width": 1.5, "line-opacity": .3 } });
     }
     raiseRouteReadingTrail(map);
     if (!point) {
@@ -1097,9 +1147,9 @@
     // Ordem de criação = ordem de empilhamento (quem nasce depois fica por
     // cima): resto primeiro (base), casing branco fino, esmeralda por cima —
     // mesmo padrão casing/core da trilha (hbx-reading-trail-casing/-trail).
-    setNavLegLine(map, "hbx-nav-leg-resto", rota.geometry.slice(cut), { "line-color": "#78c900", "line-width": 4, "line-opacity": .35 });
+    setNavLegLine(map, "hbx-nav-leg-resto", rota.geometry.slice(cut), { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .35 });
     setNavLegLine(map, "hbx-nav-leg-atual-casing", rota.geometry.slice(0, cut + 1), { "line-color": "rgba(255,255,255,.9)", "line-width": 7, "line-opacity": .9 });
-    setNavLegLine(map, "hbx-nav-leg-atual", rota.geometry.slice(0, cut + 1), { "line-color": "#07a93f", "line-width": 5, "line-opacity": .96 });
+    setNavLegLine(map, "hbx-nav-leg-atual", rota.geometry.slice(0, cut + 1), { "line-color": mapPaintToken("--cta-to", "rgb(7,169,63)"), "line-width": 5, "line-opacity": .96 });
     // A linha única planejada não convive com as pernas — nav mode substitui.
     if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
     if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line");
@@ -1142,7 +1192,7 @@
       if (source) source.setData(data);
       else {
         map.addSource("hbx-route-line", { type: "geojson", data });
-        map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .9 } });
+        map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .9 } });
       }
       raiseRouteReadingTrail(map);
     } catch (_) {
@@ -1253,7 +1303,7 @@
     if (source) source.setData(data);
     else {
       map.addSource("hbx-leitura-trilha", { type: "geojson", data });
-      map.addLayer({ id: "hbx-leitura-trilha", type: "line", source: "hbx-leitura-trilha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .85 } });
+      map.addLayer({ id: "hbx-leitura-trilha", type: "line", source: "hbx-leitura-trilha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .85 } });
     }
   }
   function leituraLiveLastPoint() {
@@ -3564,8 +3614,8 @@
     // S5 22/07 (APK-PROFISSIONAL) — os 3 símbolos do disco (play/gps/stop) saem
     // da MESMA geometria do catálogo `paths` (play/stop/navigation), escalada
     // da grade 24 pro viewBox 120 (fator 5) — cada glifo aqui era desenhado à
-    // mão com hex cravado (#fff, #168be8, #e10a1d, rgba(8,101,223,.22),
-    // rgba(223,7,26,.14)); a cor agora vem 100% de app.css (--route-icon-on/
+    // mão com os 5 valores cravados (branco sólido, azul e vermelho sólidos
+    // + as versões translúcidas dos dois); a cor agora vem 100% de app.css (--route-icon-on/
     // --route-icon-nav via classe, nunca atributo `fill=` solto). `stop` era
     // um octógono de placa com barra vermelha — vira o `rect rx` do catálogo,
     // igual ao ícone `stop` do resto do app. `gps` usa o glifo `navigation`
@@ -3578,7 +3628,11 @@
     // estado", só perderam o hex.
     return `<div class="route-transmux-wrap"><span class="route-satellites">${destrutivo}${navIcon}</span><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
       <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
-        <filter id="routeSoftShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity=".22"/></filter>
+        <!-- flood-color é atributo de DOM/CSS (SVG real, não paint WebGL do maplibre) —
+             aceita var() direto. O preto sólido cravado antes não tem par exato no :root;
+             --navy (quase-preto nos dois temas) é o mais próximo pra sombra neutra,
+             registrado no RESULTADO. -->
+        <filter id="routeSoftShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="var(--navy)" flood-opacity=".22"/></filter>
       </defs>
       <circle class="transmux-disc play" cx="60" cy="60" r="54"/><circle class="transmux-disc gps" cx="60" cy="60" r="54"/><circle class="transmux-disc stop" cx="60" cy="60" r="54"/>
       <circle class="transmux-pulse" cx="60" cy="60" r="51"/>
@@ -5464,7 +5518,10 @@
     if (action === "next-stop") { openNextStop(); return; }
     if (action === "cancel-next-stop") { clearInterval(nextStopTimer); state.nextStop = null; render(); return; }
     if (action === "route-filter") { state.routeFilter = target.dataset.filter || "fila"; render(); return; }
-    if (action === "theme") { H.theme.toggle(); render(); }
+    // Fase 2 C7 22/07 — repaintThemedMapLayers reaplica a tinta das camadas
+    // vivas do mapa (trilha/precisão/pernas/rota) pro tema novo; ver
+    // comentário da função (mapa sobrevive à troca de tela).
+    if (action === "theme") { H.theme.toggle(); render(); repaintThemedMapLayers(); }
     if (action === "refresh") refresh(false);
     if (action === "close-modal") { await closeOverlay("modal"); return; }
     if (action === "close-sheet") { await closeOverlay("sheet"); return; }
