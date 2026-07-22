@@ -169,7 +169,10 @@
 .lead-cockpit__approved-head {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* 22/07: três zonas com as LATERAIS de mesma largura (1fr cada). É o que
+     faz a fileira de canais cair no centro real da ficha — com colunas
+     `auto 1fr auto` o meio escorregava conforme o tamanho do nome do lead. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   padding: 7px 12px;
@@ -180,8 +183,16 @@
     var(--hbx-surface);
 }
 
-.lead-cockpit__approved-head > .avatar,
-.lead-cockpit__approved-head > [class*="av"] {
+.lead-cockpit__approved-identity {
+  grid-column: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lead-cockpit__approved-identity > .avatar,
+.lead-cockpit__approved-identity > [class*="av"] {
   flex: 0 0 auto;
   width: var(--lc-avatar);
   height: var(--lc-avatar);
@@ -320,35 +331,85 @@
   color: var(--hbx-info);
 }
 
+/* FILEIRA DE CANAIS — o topo da ficha (22/07, ordem do dono). Fica no centro,
+   mostra só o que o lead tem e todo item é clicável: Ligar, WhatsApp, E-mail
+   abrem dentro do app; Instagram, Facebook e Site abrem fora. */
 .lead-cockpit__approved-channels {
+  grid-column: 2;
   min-width: 0;
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
+  justify-content: center;
+  gap: 6px;
 }
 
 .lead-cockpit__approved-channels > a,
 .lead-cockpit__approved-channels > button {
-  width: 28px;
-  height: 28px;
+  /* O alvo é 34px e o ícone dentro tem 28px: sobram 3px de respiro por lado,
+     ou seja, o ícone quase encosta na borda. Antes era alvo de 28 com ícone
+     de 16 — 6px de moldura vazia de cada lado, e o ícone parecia perdido
+     no meio do botão. */
+  --lc-chan-size: 34px;
+  position: relative;
+  width: var(--lc-chan-size);
+  height: var(--lc-chan-size);
   padding: 0;
   display: grid;
   place-items: center;
-  flex: 0 0 28px;
-  border: 1px solid var(--border-hairline);
-  border-radius: 9px;
-  background: var(--hbx-surface);
+  flex: 0 0 var(--lc-chan-size);
+  /* Sem borda e sem sombra: a moldura é que produzia o "recorte" — o quadrado
+     desenhado em volta de um ícone redondo. O fundo só aparece no hover. */
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  box-shadow: var(--shadow-xs);
+  transition:
+    transform var(--motion-fast),
+    background var(--motion-fast);
+  /* Entrada escalonada: cada ícone surge e se encaixa, na ordem da fileira.
+     `backwards` (nunca `both`): com `both` o transform fica congelado como
+     identidade no fim e o elemento vira containing-block de position:fixed,
+     o que já cortou pop-up dentro desta ficha antes. */
+  animation: lead-cockpit-channel-in 0.34s var(--ease-out-quint) backwards;
+}
+
+/* Escada de atraso por posição — 6 canais é o teto do catálogo (telefone,
+   WhatsApp, e-mail, Instagram, Facebook, site), então cabe listar. Fica no
+   CSS de propósito: nada de índice inline na tela. */
+.lead-cockpit__approved-channels > :nth-child(1) { animation-delay: 0.04s; }
+.lead-cockpit__approved-channels > :nth-child(2) { animation-delay: 0.09s; }
+.lead-cockpit__approved-channels > :nth-child(3) { animation-delay: 0.14s; }
+.lead-cockpit__approved-channels > :nth-child(4) { animation-delay: 0.19s; }
+.lead-cockpit__approved-channels > :nth-child(5) { animation-delay: 0.24s; }
+.lead-cockpit__approved-channels > :nth-child(6) { animation-delay: 0.29s; }
+
+@keyframes lead-cockpit-channel-in {
+  0% { opacity: 0; transform: translateY(-7px) scale(0.6); }
+  /* passa um pouco do ponto e volta: é o "encaixe" */
+  64% { opacity: 1; transform: translateY(0) scale(1.08); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .lead-cockpit__approved-channels > a:hover,
 .lead-cockpit__approved-channels > button:hover {
-  border-color: color-mix(in srgb, var(--hbx-info) 40%, var(--border-hairline));
-  background: color-mix(in srgb, var(--hbx-info) 7%, var(--hbx-surface));
+  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--hbx-info) 12%, transparent);
+}
+
+.lead-cockpit__approved-channels > a:active,
+.lead-cockpit__approved-channels > button:active {
+  transform: translateY(0) scale(0.94);
+}
+
+.lead-cockpit__approved-channels > a:focus-visible,
+.lead-cockpit__approved-channels > button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-info) 30%, transparent);
+}
+
+.lead-cockpit__approved-actions {
+  grid-column: 3;
 }
 
 .lead-cockpit__approved-body {

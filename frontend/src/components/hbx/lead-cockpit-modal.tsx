@@ -333,7 +333,11 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     facebook: lead.leadIntelligence?.facebookUrl || lead.ownerFacebook || undefined,
     site: lead.website ? (lead.website.startsWith("http") ? lead.website : `https://${lead.website}`) : undefined,
   };
-  const availableChannels = (["whatsapp", "telefone", "email", "instagram", "facebook", "site"] as Canal[])
+  // Ordem da fileira do topo: LIGAR sempre primeiro (ordem do dono), o resto
+  // depois. Só entra canal que o lead realmente tem — o filtro abaixo é o que
+  // garante isso, então a fileira nunca mostra um ícone que não leva a lugar
+  // nenhum.
+  const availableChannels = (["telefone", "whatsapp", "email", "instagram", "facebook", "site"] as Canal[])
     .filter((canal) => Boolean(channelTargets[canal]));
 
   useEffect(() => {
@@ -958,24 +962,48 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     <>
       <div className="hbx-veil lead-cockpit__veil" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
         <section className="hbx-modal lead-cockpit lead-cockpit--approved" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
+          {/* Topo em três zonas de largura simétrica: identidade à esquerda,
+              fileira de canais no CENTRO da ficha, ações à direita. As zonas
+              laterais são 1fr cada, então o centro é o centro de verdade —
+              não desloca quando o nome do lead é longo ou curto. */}
           <header className="lead-cockpit__approved-head">
-            <Av name={lead.name || "—"} size={44} />
-            <div className="lead-cockpit__approved-id">
-              <span className="lead-cockpit__approved-title-row">
-                <h2>{lead.name || "—"}</h2>
-                <span className="lead-cockpit__approved-badges">
-                  <RadarAiBadge status={aiStatus} />
-                  {lead.statusLabel && <span className="tag warn">{lead.statusLabel}</span>}
-                  {lead.leadTemperature && <span className="tag">{humanize(lead.leadTemperature)}</span>}
-                  {opportunityScore > 0 && <AnimatedScore score={opportunityScore} compact />}
+            <div className="lead-cockpit__approved-identity">
+              <Av name={lead.name || "—"} size={44} />
+              <div className="lead-cockpit__approved-id">
+                <span className="lead-cockpit__approved-title-row">
+                  <h2>{lead.name || "—"}</h2>
+                  <span className="lead-cockpit__approved-badges">
+                    <RadarAiBadge status={aiStatus} />
+                  </span>
                 </span>
-              </span>
-              <p title={[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ")}>
-                {[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ") || "—"}
-              </p>
+                <p title={[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ")}>
+                  {[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ") || "—"}
+                </p>
+              </div>
             </div>
+            {availableChannels.length > 0 && (
+              <span className="lead-cockpit__approved-channels" aria-label="Canais do lead">
+                {availableChannels.map((canal) => {
+                  if (canal === "whatsapp" || canal === "email") {
+                    return (
+                      <button key={canal} type="button" title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                        onClick={() => { setTab("atendimento"); setChannel(canal); }}>
+                        <CanalIcon canal={canal} size="xl" />
+                      </button>
+                    );
+                  }
+                  const href = channelTargets[canal]!;
+                  const external = canal === "instagram" || canal === "facebook" || canal === "site";
+                  return (
+                    <a key={canal} href={href} title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                      target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined}>
+                      <CanalIcon canal={canal} size="xl" />
+                    </a>
+                  );
+                })}
+              </span>
+            )}
             <div className="lead-cockpit__approved-actions">
-              {lead.phone && <a className="btn-ghost btn-xs" href={`tel:${onlyDigits(lead.phone)}`}><I d={ICONS.phone} size={12} /> <span>Ligar</span></a>}
               {cnpj && <button type="button" className="btn-ghost btn-xs" onClick={copyCnpj}><I d={cnpjCopied ? ICONS.check : ICONS.doc} size={12} /> <span>{cnpjCopied ? "Copiado" : "Copiar CNPJ"}</span></button>}
               {conciergeVisible && <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}><I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span></button>}
               <button type="button" className="lead-cockpit__approved-close" onClick={onClose} aria-label="Fechar">×</button>
@@ -997,28 +1025,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                 <I d={guide.icon} size={13} /> {guide.label}
               </button>
             ))}
-            {availableChannels.length > 0 && (
-              <span className="lead-cockpit__approved-channels" aria-label="Canais disponíveis">
-                {availableChannels.map((canal) => {
-                  if (canal === "whatsapp" || canal === "email") {
-                    return (
-                      <button key={canal} type="button" title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                        onClick={() => { setTab("atendimento"); setChannel(canal); }}>
-                        <CanalIcon canal={canal} size="md" />
-                      </button>
-                    );
-                  }
-                  const href = channelTargets[canal]!;
-                  const external = canal === "instagram" || canal === "facebook" || canal === "site";
-                  return (
-                    <a key={canal} href={href} title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                      target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined}>
-                      <CanalIcon canal={canal} size="md" />
-                    </a>
-                  );
-                })}
-              </span>
-            )}
           </nav>
 
           <div className="lead-cockpit__approved-body">
