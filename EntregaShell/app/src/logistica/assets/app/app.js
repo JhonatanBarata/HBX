@@ -4390,10 +4390,12 @@
       if (boot) H.boot.step("logistica");
     }
     state.loading = false; state.refreshing = false; render();
+    // RE-ARMAR o GPS nativo depois de recarregar os dados — não é início de
+    // rota, então vai sem a flag e SEM som (ver activateNativeRoute).
     if (routeActive()) activateNativeRoute();
     if (boot) H.boot.ready("logistica");
   }
-  function activateNativeRoute(startResult) {
+  function activateNativeRoute(startResult, inicioReal) {
     const route = startResult || state.route || {}; const open = openItems();
     // GPS não pode anunciar 25 clientes simultaneamente quando vários endereços
     // estão no mesmo raio. Ele acompanha somente a próxima parada geolocalizada;
@@ -4408,7 +4410,19 @@
     // no clique do botão (montar/planejar sozinho não passa por aqui, ver
     // startRoute com planOnly=true no fluxo de "aplicar rota salva"). Um único
     // ponto cobre os três fluxos sem duplicar H.sound em cada um.
-    H.sound("route_start");
+    //
+    // 22/07 — SOM TOCAVA 2x. O raciocínio acima esqueceu que esta função NÃO é
+    // só o portão de "a rota começou": ela é também a rotina de RE-ARMAR o GPS
+    // nativo, chamada no fim de todo refresh() com rota ativa (ver o
+    // `if (routeActive()) activateNativeRoute()` lá em cima). E os três fluxos
+    // de início fazem exatamente `activateNativeRoute(...)` e logo em seguida
+    // `await refresh(true)` — ou seja, sempre dois toques: o início e o
+    // re-armar. Iniciar e Continuar rota cantavam duas vezes, toda vez.
+    // Agora o som é OPT-IN: quem realmente está iniciando pede (inicioReal),
+    // o re-armar fica calado. Silêncio é o default de propósito — um caminho
+    // novo que esqueça a flag fica mudo, que é o erro barato; o caro é este
+    // aqui, cantar onde não devia.
+    if (inicioReal) H.sound("route_start");
     H.activateRoute({ raioM: Number(state.config && state.config.raioChegadaM || 60), paradas: stops, routeId: route.routeId || state.route.routeId || null, mode: route.trackingRequired || state.route.trackingRequired ? "TRACKED" : "ESSENTIAL", trackingSessionId: route.trackingSessionId || state.route.trackingSessionId || null });
   }
   // S1 21/07 — todo fluxo que já chamava currentPosition() (iniciar rota, dia,
@@ -4503,7 +4517,7 @@
       const manualOrder = activeRouteOrdemManual();
       if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
-      if (!planOnly) activateNativeRoute(result);
+      if (!planOnly) activateNativeRoute(result, true);
       await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
       // S2 21/07 (PR21072026-NAVEGAÇÃO) — fim do troca-troca: NÃO abre mais
       // Waze/Maps. Fica na tela Rota; navModeActive() vira true sozinho (rota
@@ -4547,7 +4561,7 @@
         : await H.api("/logistica/admin-route/start", { method: "POST", body });
       state.routePaused = false;
       H.cache.remove("logistica-route-paused");
-      activateNativeRoute(started);
+      activateNativeRoute(started, true);
       await refresh(true);
       toast("Rota iniciada.");
       // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
@@ -4628,7 +4642,7 @@
         const started = ordemManual && ordemManual.length
           ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
           : await H.api("/logistica/admin-route/start", { method: "POST", body: { operationalDate: today, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
-        activateNativeRoute(started);
+        activateNativeRoute(started, true);
         await refresh(true);
         toast("Rota iniciada.");
         // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
