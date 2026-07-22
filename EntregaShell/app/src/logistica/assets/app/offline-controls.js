@@ -7,28 +7,14 @@
   let lastSignature = "";
   let observerQueued = false;
 
-  const style = document.createElement("style");
-  style.textContent = `
-    .hbx-offline-banner{display:flex;align-items:center;gap:10px;margin:0 0 14px;padding:11px 13px;border:1px solid color-mix(in srgb,var(--border,#d8dfd0) 74%,transparent);border-radius:14px;background:color-mix(in srgb,var(--surface,#fff) 90%,#78c900 10%);font-size:.78rem;line-height:1.25;box-shadow:0 5px 18px rgba(0,0,0,.04)}
-    .hbx-offline-banner[data-tone="warning"]{background:color-mix(in srgb,var(--surface,#fff) 88%,#f2b52b 12%)}
-    .hbx-offline-banner[data-tone="danger"]{background:color-mix(in srgb,var(--surface,#fff) 88%,#e75353 12%)}
-    .hbx-offline-dot{width:9px;height:9px;border-radius:50%;flex:none;background:#78c900;box-shadow:0 0 0 4px rgba(120,201,0,.13)}
-    .hbx-offline-banner[data-tone="warning"] .hbx-offline-dot{background:#f2b52b;box-shadow:0 0 0 4px rgba(242,181,43,.14)}
-    .hbx-offline-banner[data-tone="danger"] .hbx-offline-dot{background:#e75353;box-shadow:0 0 0 4px rgba(231,83,83,.14)}
-    .hbx-offline-banner strong{display:block;font-size:.8rem}.hbx-offline-banner small{display:block;opacity:.72;margin-top:2px}
-    .hbx-offline-count{margin-left:auto;white-space:nowrap;font-weight:750;font-variant-numeric:tabular-nums}
-    .hbx-offline-settings{margin:0 0 16px;padding:16px;border:1px solid color-mix(in srgb,var(--border,#d8dfd0) 78%,transparent);border-radius:18px;background:var(--surface,#fff);box-shadow:0 9px 28px rgba(0,0,0,.045)}
-    .hbx-offline-settings h3{margin:0;font-size:1rem}.hbx-offline-settings>p{margin:5px 0 14px;opacity:.72;font-size:.79rem;line-height:1.4}
-    .hbx-offline-option{display:flex;align-items:flex-start;gap:11px;padding:12px 0;border-top:1px solid color-mix(in srgb,var(--border,#d8dfd0) 58%,transparent);cursor:pointer}
-    .hbx-offline-option input{width:20px;height:20px;margin:1px 0 0;accent-color:#78c900;flex:none}
-    .hbx-offline-option strong{display:block;font-size:.86rem}.hbx-offline-option small{display:block;margin-top:3px;opacity:.68;line-height:1.35}
-    .hbx-offline-actions{display:flex;align-items:center;gap:10px;margin-top:13px}.hbx-offline-actions button{flex:1}
-    .hbx-offline-metric{font-size:.72rem;opacity:.66;white-space:nowrap;font-variant-numeric:tabular-nums}
-    .hbx-route-schematic{position:relative;width:100%;min-height:190px;padding:8px 8px 28px;box-sizing:border-box;background:linear-gradient(145deg,color-mix(in srgb,var(--surface,#fff) 92%,#78c900 8%),var(--surface,#fff));border-radius:inherit;overflow:hidden}
-    .hbx-route-schematic svg{display:block;width:100%;height:160px}.hbx-route-schematic path{fill:none;stroke:#78c900;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;opacity:.82}.hbx-route-schematic circle{fill:var(--surface,#fff);stroke:#78c900;stroke-width:3}.hbx-route-schematic text{fill:currentColor;font:700 11px system-ui;text-anchor:middle;dominant-baseline:central}
-    .hbx-route-schematic small{position:absolute;left:12px;right:12px;bottom:8px;text-align:center;font-size:.68rem;opacity:.65}
-  `;
-  document.head.appendChild(style);
+  // Fase 2 C3 22/07 (APK-PROFISSIONAL) — a folha injetada em runtime
+  // (document.createElement("style"), 2ª causa raiz do "edito o CSS e não
+  // muda nada") saiu daqui. As classes .hbx-offline-*/.hbx-route-schematic*
+  // que este arquivo só manipula (innerHTML/dataset) agora são pintadas
+  // 100% por main/assets/app/app.css — ver bloco "Fase 2 C3" no fim daquele
+  // arquivo. Na migração, `var(--border,#d8dfd0)` (token que não existe no
+  // app, caía calado no fallback) virou `var(--line)` e o verde solto
+  // `#78c900` virou `var(--brand)` — ver C-RESULTADO.md pela convergência.
 
   function status() {
     const current = H.offline.status() || {};

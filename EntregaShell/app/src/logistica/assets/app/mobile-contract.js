@@ -85,24 +85,11 @@
     return String(value || "").replace(/[&<>"']/g, (char) => entities[char]);
   }
 
-  function addStyles() {
-    if (document.getElementById("hbx-mobile-contract-style")) return;
-    const style = document.createElement("style");
-    style.id = "hbx-mobile-contract-style";
-    style.textContent = `
-      .hbx-receipt-panel{margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:16px;background:var(--surface-2)}
-      .hbx-receipt-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
-      .hbx-receipt-head strong{font-size:.9rem}.hbx-receipt-head span{color:var(--muted);font-size:.72rem;text-align:right}
-      .hbx-receipt-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-      .hbx-receipt-option{min-height:44px;padding:8px;border:1px solid var(--line);border-radius:13px;background:var(--surface);font-weight:800}
-      .hbx-receipt-option.active{border-color:var(--brand-strong);background:var(--brand-soft);color:var(--brand-strong);box-shadow:0 0 0 2px color-mix(in srgb,var(--brand) 20%,transparent)}
-      .hbx-pix-key{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:10px;border-radius:12px;background:var(--surface)}
-      .hbx-pix-key code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem}
-      .hbx-pix-copy{flex:0 0 auto;border:0;border-radius:10px;padding:7px 10px;background:var(--brand);color:#17210f;font-weight:900}
-      .delivery-confirm.hbx-payment-pending{opacity:.55}
-    `;
-    document.head.appendChild(style);
-  }
+  // Fase 2 C3 22/07 (APK-PROFISSIONAL) — a folha injetada em runtime
+  // (document.createElement("style"), fonte da "edito o CSS e não muda
+  // nada") saiu daqui. As classes .hbx-receipt-*/.hbx-pix-* que este arquivo
+  // só manipula (innerHTML/classList) agora são pintadas 100% por
+  // main/assets/app/app.css — ver bloco "Fase 2 C3" no fim daquele arquivo.
 
   function renderReceiptPanel(sheet) {
     if (!sheet) return;
@@ -254,8 +241,6 @@
       }).catch(() => undefined);
     }
   }, true);
-
-  addStyles();
 
   // 22/07 S3b (PR22072026-APK-PROFISSIONAL) — o observador se auto-
   // alimentava: observava O DOCUMENTO INTEIRO, em profundidade, e chamava

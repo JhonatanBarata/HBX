@@ -1293,6 +1293,66 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 .historico-rodape { display: flex; justify-content: center; padding: 4px 0 2px; }
 .historico-limpar { color: var(--danger); }
 
+/* ==========================================================================
+   Fase 2 C3 22/07 (APK-PROFISSIONAL) — migradas pra cá as DUAS folhas que
+   viviam injetadas em runtime (`document.createElement("style")` em
+   mobile-contract.js e offline-controls.js). Eram a causa raiz do "edito o
+   CSS e não muda nada": elas entravam DEPOIS desta folha e venciam qualquer
+   ajuste feito aqui. Os dois arquivos agora só manipulam classe/atributo —
+   quem pinta é sempre esta folha. Ver C-RESULTADO.md pelas 3 convergências
+   feitas na migração (nunca silenciosas).
+   ========================================================================== */
+
+/* mobile-contract.js — painel "Como recebeu?" (Pix/Dinheiro/Fiado) na folha
+   de chegada, quando o financeiro da empresa exige forma de pagamento. */
+.hbx-receipt-panel { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); }
+.hbx-receipt-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.hbx-receipt-head strong { font-size: .9rem; }
+.hbx-receipt-head span { color: var(--muted); font-size: .72rem; text-align: right; }
+.hbx-receipt-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.hbx-receipt-option { min-height: 44px; padding: 8px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); font-weight: 800; }
+.hbx-receipt-option.active { border-color: var(--brand-strong); background: var(--brand-soft); color: var(--brand-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 20%, transparent); }
+.hbx-pix-key { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 10px; border-radius: 12px; background: var(--surface); }
+.hbx-pix-key code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
+/* Convergência (C3): cor #17210f (tinta sobre --brand) era o mesmo caso do
+   family --on-brand do app.css — só não tinha sido pega porque morava numa
+   folha injetada, fora do C2. */
+.hbx-pix-copy { flex: 0 0 auto; border: 0; border-radius: 10px; padding: 7px 10px; background: var(--brand); color: var(--on-brand); font-weight: 900; }
+.delivery-confirm.hbx-payment-pending { opacity: .55; }
+
+/* offline-controls.js — banner de status offline/sincronização + card de
+   ajustes da rota sem sinal + esquema de rota desenhado (fallback sem mapa). */
+.hbx-offline-banner { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--line) 74%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--surface) 90%, var(--brand) 10%); font-size: .78rem; line-height: 1.25; box-shadow: 0 5px 18px rgba(0, 0, 0, .04); }
+/* #f2b52b/#e75353 (aviso/perigo do banner) NÃO convergem pra --warning/
+   --danger nesta migração — são tons visivelmente diferentes (não é "10
+   tons da mesma coisa" como a família --on-brand) e essa troca de matiz não
+   estava no escopo do C1-C3. Migradas com o MESMO valor; decisão de token
+   fica pra um sprint futuro (ver C-RESULTADO.md). */
+.hbx-offline-banner[data-tone="warning"] { background: color-mix(in srgb, var(--surface) 88%, #f2b52b 12%); }
+.hbx-offline-banner[data-tone="danger"] { background: color-mix(in srgb, var(--surface) 88%, #e75353 12%); }
+.hbx-offline-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--brand); box-shadow: 0 0 0 4px rgba(120, 201, 0, .13); }
+.hbx-offline-banner[data-tone="warning"] .hbx-offline-dot { background: #f2b52b; box-shadow: 0 0 0 4px rgba(242, 181, 43, .14); }
+.hbx-offline-banner[data-tone="danger"] .hbx-offline-dot { background: #e75353; box-shadow: 0 0 0 4px rgba(231, 83, 83, .14); }
+.hbx-offline-banner strong { display: block; font-size: .8rem; }
+.hbx-offline-banner small { display: block; opacity: .72; margin-top: 2px; }
+.hbx-offline-count { margin-left: auto; white-space: nowrap; font-weight: 750; font-variant-numeric: tabular-nums; }
+.hbx-offline-settings { margin: 0 0 16px; padding: 16px; border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 18px; background: var(--surface); box-shadow: 0 9px 28px rgba(0, 0, 0, .045); }
+.hbx-offline-settings h3 { margin: 0; font-size: 1rem; }
+.hbx-offline-settings > p { margin: 5px 0 14px; opacity: .72; font-size: .79rem; line-height: 1.4; }
+.hbx-offline-option { display: flex; align-items: flex-start; gap: 11px; padding: 12px 0; border-top: 1px solid color-mix(in srgb, var(--line) 58%, transparent); cursor: pointer; }
+.hbx-offline-option input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--brand); flex: none; }
+.hbx-offline-option strong { display: block; font-size: .86rem; }
+.hbx-offline-option small { display: block; margin-top: 3px; opacity: .68; line-height: 1.35; }
+.hbx-offline-actions { display: flex; align-items: center; gap: 10px; margin-top: 13px; }
+.hbx-offline-actions button { flex: 1; }
+.hbx-offline-metric { font-size: .72rem; opacity: .66; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hbx-route-schematic { position: relative; width: 100%; min-height: 190px; padding: 8px 8px 28px; box-sizing: border-box; background: linear-gradient(145deg, color-mix(in srgb, var(--surface) 92%, var(--brand) 8%), var(--surface)); border-radius: inherit; overflow: hidden; }
+.hbx-route-schematic svg { display: block; width: 100%; height: 160px; }
+.hbx-route-schematic path { fill: none; stroke: var(--brand); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; opacity: .82; }
+.hbx-route-schematic circle { fill: var(--surface); stroke: var(--brand); stroke-width: 3; }
+.hbx-route-schematic text { fill: currentColor; font: 700 11px system-ui; text-anchor: middle; dominant-baseline: central; }
+.hbx-route-schematic small { position: absolute; left: 12px; right: 12px; bottom: 8px; text-align: center; font-size: .68rem; opacity: .65; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
   .route-current-location::after { animation: none !important; opacity: .38; transform: scale(1.1); }
