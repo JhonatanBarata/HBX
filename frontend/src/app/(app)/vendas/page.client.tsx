@@ -1422,7 +1422,7 @@ export function VendasClient() {
                             <div className="vnd-colspick__actions">
                               <button type="button" className="btn-ghost" onClick={cancelColumnPicker}>Cancelar</button>
                               <button type="button" className="btn-ghost" onClick={() => { setColumnDraft(GRID_DEFAULT_KEYS); setPinnedDraft([]); }}>Restaurar padrão</button>
-                              <button type="button" className="btn-primary" onClick={saveColumnPicker}>Salvar organização</button>
+                              <button type="button" className="btn-teal" onClick={saveColumnPicker}>Salvar</button>
                             </div>
                           </div>
                         </React.Fragment>

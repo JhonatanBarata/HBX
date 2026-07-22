@@ -291,6 +291,55 @@
   }
 }
 
+/* Meio-termo tipográfico do Detalhes: 0.90rem evita o salto entre o piso
+   compacto de 0.86rem e o passe amplo de 0.93rem; títulos ficam em 0.96rem,
+   preservando a hierarquia sem parecerem grandes demais. */
+@media (min-width: 821px) {
+  .lead-cockpit__approved-id > p,
+  .lead-cockpit__approved-badges .tag,
+  .lead-cockpit__approved-badges .radar-ai-badge,
+  .lead-cockpit__approved-actions .btn-ghost,
+  .lead-cockpit__micro-button,
+  .lead-cockpit__kv-key,
+  .lead-cockpit__kv-value,
+  .lead-cockpit__copy-value,
+  .lead-cockpit__person strong,
+  .lead-cockpit__person small,
+  .lead-cockpit__empty-state,
+  .lead-cockpit__smart-copy > .lead-cockpit__typed,
+  .lead-cockpit__channel-tabs > button,
+  .lead-cockpit__channel-status,
+  .lead-cockpit--approved .lead-cockpit__channel-body :where(.muted-note, p, small, button, input, textarea),
+  .lead-cockpit__email-preview-text,
+  .lead-cockpit__intelligence-main .lead-cockpit__typed,
+  .lead-cockpit__signals strong,
+  .lead-cockpit__template-card blockquote,
+  .lead-cockpit__quality-main small,
+  .lead-cockpit__compact-timeline strong,
+  .lead-cockpit__commercial-summary > small,
+  .lead-cockpit__metrics strong,
+  .lead-cockpit__finance-empty small,
+  .lead-cockpit__balance span,
+  .lead-cockpit__charge-row > span:first-child strong,
+  .lead-cockpit__charge-row > strong,
+  .lead-cockpit__steps b {
+    font-size: 0.9rem;
+  }
+
+  .lead-cockpit__approved-tab,
+  .lead-cockpit__compact-card-head > span:first-child,
+  .lead-cockpit__smart-copy > strong,
+  .lead-cockpit__email-generate,
+  .lead-cockpit__email-preview > strong,
+  .lead-cockpit__intelligence-main > span > strong,
+  .lead-cockpit__quality-main strong,
+  .lead-cockpit__finance-empty strong,
+  .lead-cockpit__balance strong,
+  .lead-cockpit__agenda-popover-head strong {
+    font-size: 0.96rem;
+  }
+}
+
 /* Piso de legibilidade dos selos DENTRO da ficha (22/07). `.tag`/`.badge-win`
    nascem em 0.64rem (≈9px) no kit — tamanho do app inteiro, que não é assunto
    desta tela. Aqui só se eleva o que aparece na ficha; o kit fica intocado. */
@@ -298,5 +347,5 @@
 .lead-cockpit--approved .badge-win,
 .lead-cockpit--approved .radar-ai-badge,
 .lead-cockpit--approved .muted-note {
-  font-size: 0.86rem;
+  font-size: 0.9rem;
 }
