@@ -19,8 +19,9 @@
   --cta-from: #38e95e;
   --cta-to: #07a93f;
   --cta: linear-gradient(180deg, var(--cta-from), var(--cta-to));
-  /* Azul solto do ícone "Minha ordem" (achado 21/07) — token único, sem par
-     dark dedicado ainda (mesma cor nos dois temas, igual já era antes). */
+  /* Azul solto do ícone "Minha ordem" (achado 21/07). S1 22/07: ganhou par
+     dark dedicado (ver bloco [data-theme="dark"] abaixo) — sem ele o azul de
+     tema claro caía sobre --surface escuro e o contraste desabava. */
   --info: #0865df;
   --shadow: 0 8px 28px rgba(31, 47, 25, .09);
   --radius: 16px;
@@ -46,6 +47,13 @@
   --danger: #ff8b85;
   --warning: #ffc266;
   --success: #73d69b;
+  /* S1 22/07 (APK-PROFISSIONAL, bug de tema confirmado) — o `--info` do :root
+     é azul de tema claro (#0865df); sem par aqui ele caía direto sobre
+     `--surface: #151c15` e o contraste desabava de ~5,3:1 pra ~3,3:1 (mesmo
+     problema que --danger/--warning/--success já resolvem acima). Mesma
+     família de azul, luminosidade alinhada com --success (~65% L) pra pesar
+     igual na tela ao lado dos outros pastéis do dark. */
+  --info: #4d9dff;
   --shadow: 0 12px 32px rgba(0, 0, 0, .3);
   color-scheme: dark;
 }
@@ -91,44 +99,23 @@ button:disabled { cursor: wait; opacity: .55; }
 .hbx-icon { display: block; flex: 0 0 auto; overflow: visible; transform-origin: center; }
 .hbx-icon > * { transform-box: fill-box; transform-origin: center; }
 
-/* Segunda cor: o traço principal continua herdando `currentColor`; somente a
-   parte semântica recebe um token. Em botão preenchido tudo volta a currentColor
-   para preservar contraste e o significado do componente. */
-.hbx-icon[data-hbx-icon="route"] > path,
-.hbx-icon[data-hbx-icon="refresh"] > path:first-of-type,
-.hbx-icon[data-hbx-icon="map"] > polygon,
-.hbx-icon[data-hbx-icon="gps"] > circle:last-of-type,
-.hbx-icon[data-hbx-icon="search"] > circle,
-.hbx-icon[data-hbx-icon="signal"] > path,
-.hbx-icon[data-hbx-icon="download"] > path:first-of-type,
-.hbx-icon[data-hbx-icon="wifi"] > path,
-.hbx-icon[data-hbx-icon="volume"] > path,
-.hbx-icon[data-hbx-icon="navigation"] > polygon { stroke: var(--info); }
-.hbx-icon[data-hbx-icon="route"] > circle:last-of-type,
-.hbx-icon[data-hbx-icon="users"] > path:last-of-type,
-.hbx-icon[data-hbx-icon="box"] > path:last-of-type,
-.hbx-icon[data-hbx-icon="gear"] > circle,
-.hbx-icon[data-hbx-icon="plus"] > path,
-.hbx-icon[data-hbx-icon="sales"] > path { stroke: var(--brand-strong); }
-.hbx-icon[data-hbx-icon="users"] > circle,
-.hbx-icon[data-hbx-icon="phone"] > path,
-.hbx-icon[data-hbx-icon="wa"] > path:first-of-type,
-.hbx-icon[data-hbx-icon="check"] > path,
-.hbx-icon[data-hbx-icon="wifi"] > circle,
-.hbx-icon[data-hbx-icon="play"] > polygon { stroke: var(--success); }
-.hbx-icon[data-hbx-icon="edit"] > path:last-of-type,
-.hbx-icon[data-hbx-icon="box"] > path:first-of-type,
-.hbx-icon[data-hbx-icon="moon"] > path,
-.hbx-icon[data-hbx-icon="wallet"] > path:last-of-type,
-.hbx-icon[data-hbx-icon="logout"] > path:last-of-type,
-.hbx-icon[data-hbx-icon="calendar"] > path,
-.hbx-icon[data-hbx-icon="lock"] > rect { stroke: var(--warning); }
-.hbx-icon[data-hbx-icon="trash"] > path,
-.hbx-icon[data-hbx-icon="volumeOff"] > path:last-of-type { stroke: var(--danger); }
-.hbx-icon[data-hbx-icon="calendar"] > rect,
-.hbx-icon[data-hbx-icon="gps"] > circle:first-of-type { stroke: var(--brand-strong); }
-.btn-primary .hbx-icon > *, .btn-danger .hbx-icon > *, .btn-dark .hbx-icon > *,
-.route-follow-control.is-following .hbx-icon > * { stroke: currentColor; }
+/* S1 22/07 (APK-PROFISSIONAL) — REMOVIDO o bloco de "segunda cor" que pintava
+   filho por filho por POSIÇÃO no DOM (`> path:first-of-type`, `> circle:last-
+   of-type`...). Dois problemas reais, não só estética: (1) um glifo novo do
+   Lucide muda a ordem interna dos elementos e a cor cai na parte errada, sem
+   erro nem aviso; (2) a cor tinha virado ESTADO FIXO por ícone (trash sempre
+   vermelho, lock/calendar/moon/wallet sempre âmbar) em vez de seguir o
+   COMPONENTE — provado ao vivo no chip de rede (`chip-rede`): o glifo
+   `wifi`/`signal` ficava sempre azul (--info) mesmo quando `.hbx-chip.is-off`
+   pintava o chip de vermelho, porque o `stroke:` no filho vencia o `color:`
+   do componente. Ícone volta a ser 100% `currentColor`: quem pinta é sempre
+   quem envolve (botão de perigo → ink vermelho; chip de sucesso → ink verde;
+   avatar de Ajustes → ink verde-escuro do próprio avatar). Conferido que os
+   usos soltos (delivery-arrived, day-home-icon, settings-row/avatar, chips,
+   search, botões secundários) já fixam `color` no componente — nenhum ficou
+   sem contraste. A regra de "reset pra currentColor em botão preenchido"
+   também saiu: sem pintura por sub-elemento pra desfazer, ela não tem mais
+   função. */
 
 /* Uma microanimação por toque. O repouso é sempre estático; cada ícone move a
    parte que explica sua ação, em vez de repetir o pulso do estado “Gravando”. */
