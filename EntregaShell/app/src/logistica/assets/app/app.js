@@ -311,6 +311,13 @@
     // estilo outline dos demais: polygon com fill:none, igual o corpo do
     // alto-falante do ícone `volume` acima).
     play: "<polygon points='6 4 20 12 6 20 6 4'/>",
+    // Quadrado CHEIO de propósito (os outros glifos são de traço): "parar" só
+    // é lido na hora, sem pensar, quando é sólido.
+    stop: "<rect x='7.5' y='7.5' width='9' height='9' rx='2' fill='currentColor' stroke='none'/>",
+    // Seta de navegação — é o que Waze e Google Maps usam pra "me leve".
+    // O "map" (mapa dobrado) virou ícone de mapa ESTÁTICO no mercado e lia
+    // como "ver o mapa", não como "abrir a navegação".
+    navigation: "<polygon points='3 11 22 2 13 21 11 13 3 11'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -3399,29 +3406,39 @@
     // cada render, então o rAF pendente apontava pro elemento antigo e o botão
     // novo já nascia com data-state === data-next-state, sem morfar).
     const clearDayVisible = !active && isAdmin() && openItems().length > 0;
-    // S1 21/07 (PR21072026-NAVEGAÇÃO, decisão do dono) — nova ordem VISUAL
-    // esquerda->direita: [excluir(s) já existentes] [GPS avançado] [DISCO PLAY].
-    // route-transmux-wrap virou linha flex (CSS); os 3 ícones de excluir são
-    // renderizados ANTES do disco no DOM agora (mesmas ações/confirmações,
-    // intocadas), e o novo route-nav-external entra entre eles e o disco.
-    const cancelIcon = planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : "";
-    const finishIcon = active ? `<button class="route-cancel-icon" type="button" data-action="finish-route" aria-label="Encerrar rota"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeFinishGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#5b6472"/><stop offset="1" stop-color="#20242b"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeFinishGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><rect x="16" y="16" width="16" height="16" rx="3" fill="#fff"/></svg></button>` : "";
-    const clearDayIcon = clearDayVisible ? `<button class="route-cancel-icon" type="button" data-action="clear-day-request" aria-label="Limpar o dia"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeClearDayGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeClearDayGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M17 18h14M20 18v-2.5c0-.8.7-1.5 1.5-1.5h1c.8 0 1.5.7 1.5 1.5V18M18.5 18 19.6 32c.06.9.8 1.6 1.7 1.6h5.4c.9 0 1.64-.7 1.7-1.6L29.5 18" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 22.5v7M27 22.5v7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></button>` : "";
+    // S1 21/07 (PR21072026-NAVEGAÇÃO, decisão do dono) — ordem VISUAL
+    // esquerda->direita: [destrutivo] [GPS avançado] [DISCO PLAY], numa linha
+    // flex (CSS), com as ações/confirmações originais intocadas.
+    // 22/07 (pedido do dono) — os satélites nasciam de 4 literais copiados, cada
+    // um com seu gradiente em hex, seu glifo desenhado à mão e sua espessura de
+    // traço: era isso o "cada um tem um layout". Agora existe UM gerador. Quem
+    // pede um botão diz só ação/rótulo/tom/glifo; disco, anel, brilho, paleta e
+    // tamanho vêm de um lugar só. O glifo sai do catálogo (icon()), então nenhum
+    // path solto sobrevive aqui.
+    const routeSatellite = (cls, action, label, glifo) => `<button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}">${icon(glifo, 21)}</button>`;
+    // TETO DE 3 ÍCONES na linha: [1 destrutivo] [rota externa] [principal].
+    // "Cancelar planejamento" e "Limpar o dia" podiam aparecer JUNTOS (rota
+    // planejada + entregas abertas) e a linha virava 4 — a "zona" reclamada.
+    // Com rota planejada, o destrutivo certo é cancelar o planejamento; sem
+    // planejamento, limpar o dia continua aparecendo normalmente. Nenhuma ação
+    // sumiu: cada uma manda no seu contexto.
+    const destrutivo = active
+      ? routeSatellite("route-cancel-icon", "finish-route", "Encerrar rota", "stop")
+      : planned && isAdmin()
+        ? routeSatellite("route-cancel-icon is-destructive", "cancel-route", "Cancelar planejamento", "close")
+        : clearDayVisible
+          ? routeSatellite("route-cancel-icon is-destructive", "clear-day-request", "Limpar o dia", "trash")
+          : "";
     // "Abrir GPS avançado" (Waze/Maps) — data-action="show-map" já existe
-    // (abrirNavegacao(openItems()[0])). Gradiente próprio (routeNavGradient,
-    // id único) reusando os stops do routeGpsGradient acima (#23c9f5→#0865df).
-    // Ícone interno pelo catálogo (icon("map")) — sem SVG solto fora dele.
+    // (abrirNavegacao(openItems()[0])).
     const navVisible = openItems().length > 0 && (active || planned);
-    const navIcon = navVisible ? `<button class="route-nav-external" type="button" data-action="show-map" aria-label="Abrir no Waze ou Google Maps"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeNavGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#23c9f5"/><stop offset="1" stop-color="#0865df"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeNavGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/></svg><span class="route-nav-external-icon">${icon("map", 20)}</span></button>` : "";
-    return `<div class="route-transmux-wrap">${cancelIcon}${finishIcon}${clearDayIcon}${navIcon}<button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
+    const navIcon = navVisible ? routeSatellite("route-nav-external", "show-map", "Abrir no Waze ou Google Maps", "navigation") : "";
+    return `<div class="route-transmux-wrap"><span class="route-satellites">${destrutivo}${navIcon}</span><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
       <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
-        <linearGradient id="routePlayGradient" x1="25" y1="12" x2="92" y2="112" gradientUnits="userSpaceOnUse"><stop class="cta-gradient-from"/><stop offset="1" class="cta-gradient-to"/></linearGradient>
-        <linearGradient id="routeGpsGradient" x1="18" y1="10" x2="101" y2="111" gradientUnits="userSpaceOnUse"><stop stop-color="#23c9f5"/><stop offset="1" stop-color="#0865df"/></linearGradient>
-        <linearGradient id="routeStopGradient" x1="24" y1="12" x2="95" y2="110" gradientUnits="userSpaceOnUse"><stop stop-color="#ff5a62"/><stop offset="1" stop-color="#df071a"/></linearGradient>
         <filter id="routeSoftShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity=".22"/></filter>
       </defs>
-      <circle class="transmux-disc play" cx="60" cy="60" r="54" fill="url(#routePlayGradient)"/><circle class="transmux-disc gps" cx="60" cy="60" r="54" fill="url(#routeGpsGradient)"/><circle class="transmux-disc stop" cx="60" cy="60" r="54" fill="url(#routeStopGradient)"/>
-      <circle class="transmux-inner-ring" cx="60" cy="60" r="50.5"/><circle class="transmux-ring" cx="60" cy="60" r="54"/><path class="transmux-shine" d="M29 28a43 43 0 0 1 57-5"/><circle class="transmux-pulse" cx="60" cy="60" r="51"/>
+      <circle class="transmux-disc play" cx="60" cy="60" r="54"/><circle class="transmux-disc gps" cx="60" cy="60" r="54"/><circle class="transmux-disc stop" cx="60" cy="60" r="54"/>
+      <circle class="transmux-pulse" cx="60" cy="60" r="51"/>
       <path class="transmux-route" d="M26 79c10 16 26 20 43 14 12-4 16-14 24-22"/><circle class="transmux-route" cx="26" cy="79" r="4.2" fill="#fff" stroke="none"/>
       <g class="transmux-symbol play-symbol" filter="url(#routeSoftShadow)"><path d="M45 35.5c0-3.5 3.8-5.7 6.8-3.8l31.4 20.2c2.8 1.8 2.8 6 0 7.8L51.8 79.9c-3 1.9-6.8-.3-6.8-3.8z" fill="#fff"/></g>
       <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><path d="M60 27 79 77.5c1.1 3-2.2 5.7-4.9 4L60 73.4l-14.1 8.1c-2.7 1.6-6-1-4.9-4z" fill="#fff"/><path d="M60 34 68 67l-8-4.7L52 67z" fill="rgba(8,101,223,.22)"/></g>
