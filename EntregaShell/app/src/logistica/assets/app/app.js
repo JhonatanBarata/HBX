@@ -4489,6 +4489,9 @@
     if (!routePlanned() || state.dayStarting) return;
     if (!isAdmin()) { await startRoute(false, false); return; }
     state.dayStarting = true; render();
+    // 22/07 — mesmo buraco do beginManagedRoute: iniciar uma rota já planejada
+    // faz GPS + admin-route/start + refresh sem véu nenhum.
+    showLoading("Iniciando a rota…");
     try {
       const position = await currentPosition();
       const body = { operationalDate: operationalDate() };
@@ -4509,7 +4512,7 @@
       // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
       // o watch/mapa sozinho (ver comentário em startRoute).
     } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
-    finally { state.dayStarting = false; }
+    finally { hideLoading(); state.dayStarting = false; }
   }
   function startDayReview() {
     if (!state.daySelection.length || state.dayStarting || (state.dayPreviewLoading && !state.dayPreview.length)) return;
@@ -4529,6 +4532,13 @@
     clearInterval(dayReviewTimer);
     state.dayReview = false;
     state.dayStarting = true; render();
+    // 22/07 — este caminho (Play › Por dia › Automático/Minha ordem › "Gerar
+    // agora") era o ÚNICO sem véu: só desabilitava o botão e ficava mudo por
+    // vários segundos (gerar-dia + prepare + refresh + planejar + OSRM), então
+    // a tela parecia travar/piscar e pulava seca pra Rota. O overlay já existia
+    // e só estava ligado em Rotas Salvas. Mesmo par showLoading/hideLoading:
+    // hide vai no finally porque o try tem vários `return` no meio.
+    showLoading("Montando a rota…");
     try {
       if (isAdmin()) {
         const today = operationalDate();
@@ -4598,7 +4608,7 @@
       await closeOverlay("modal");
       await startRoute(state.dayMode === "plan", false, deliveryIds);
     } catch (error) { if (!creditsLockFromRouteError(error)) { render(); toast(humanApiError(error), true); } }
-    finally { state.dayStarting = false; }
+    finally { hideLoading(); state.dayStarting = false; }
   }
   async function confirmDelivery(item, options) {
     const opts = options || {};
