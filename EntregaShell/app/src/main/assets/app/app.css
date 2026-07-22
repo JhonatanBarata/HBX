@@ -476,15 +476,31 @@ h3 { font-size: .95rem; }
 .route-hero > .route-controls { flex: 0 0 auto; }
 .route-map-shell { position: relative; height: 50dvh; min-height: 340px; max-height: 520px; overflow: hidden; border: 2px solid color-mix(in srgb, var(--brand) 42%, var(--line)); border-radius: 22px; background: #e5ece1; box-shadow: 0 10px 28px color-mix(in srgb, var(--brand-strong) 12%, transparent); }
 .route-live-map { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; margin: 0; border: 0; border-radius: inherit; background: #e5ece1; }
+:root[data-theme="dark"] .route-map-shell, :root[data-theme="dark"] .route-live-map { background: #45516e; }
 .route-hero > .progress { margin: 0 17px 12px; background: var(--surface-3); }
 .route-map-loading, .route-map-unavailable, .route-map-empty { display: grid; place-items: center; min-height: 100%; padding: 14px; color: #cbd5c6; font-size: .72rem; font-weight: 700; text-align: center; }
 .route-map-empty { min-height: 94px; margin-top: 13px; border: 1px dashed rgba(255,255,255,.25); border-radius: 16px; }
 .route-live-map.is-ready > .route-map-loading { display: none; }
 .route-live-map .maplibregl-ctrl-attrib { background: rgba(255,255,255,.78); font-size: 9px; }
+:root[data-theme="dark"] .route-live-map .maplibregl-ctrl-attrib { color: #dce5f2; background: rgba(11,16,32,.82); }
+:root[data-theme="dark"] .route-live-map .maplibregl-ctrl-attrib a { color: #dce5f2; }
 .route-map-pin { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 2px solid white; border-radius: 99px; color: #172116; background: var(--brand); box-shadow: 0 3px 12px rgba(0,0,0,.28); font-size: .68rem; font-weight: 900; }
-.route-current-location { display: block; width: 20px; height: 20px; border: 3px solid white; border-radius: 50%; background: var(--info); box-shadow: 0 3px 11px rgba(0,0,0,.32); }
-.route-current-location::after { content: ""; position: absolute; inset: -7px; border: 3px solid color-mix(in srgb, var(--info) 58%, transparent); border-radius: inherit; pointer-events: none; animation: route-current-location-pulse 1.7s ease-out infinite; }
+.route-current-location { position: relative; display: block; width: 38px; height: 38px; border-radius: 50%; }
+.route-current-core { position: absolute; z-index: 2; inset: 9px; display: block; border: 3px solid white; border-radius: 50%; background: var(--info); box-shadow: 0 3px 11px rgba(0,0,0,.34); }
+.route-current-heading { position: absolute; z-index: 1; top: -2px; left: 10px; display: block; width: 18px; height: 20px; opacity: 0; clip-path: polygon(50% 0, 100% 100%, 50% 76%, 0 100%); background: var(--info); filter: drop-shadow(0 2px 2px rgba(0,0,0,.28)); transition: opacity .2s ease; }
+.route-current-location.has-heading .route-current-heading { opacity: 1; }
+.route-current-location::after { content: ""; position: absolute; z-index: 0; inset: 3px; border: 3px solid color-mix(in srgb, var(--info) 58%, transparent); border-radius: 50%; pointer-events: none; animation: route-current-location-pulse 1.7s ease-out infinite; }
 @keyframes route-current-location-pulse { from { opacity: .8; transform: scale(.56); } to { opacity: 0; transform: scale(1.65); } }
+.route-gps-status { position: absolute; z-index: 5; top: 11px; left: 11px; min-height: 34px; display: inline-flex; align-items: center; padding: 7px 11px; border: 1px solid rgba(255,255,255,.76); border-radius: 999px; color: #162033; background: rgba(255,255,255,.9); box-shadow: 0 5px 16px rgba(17,28,43,.18); backdrop-filter: blur(10px); font-size: .68rem; font-weight: 850; letter-spacing: .01em; pointer-events: none; }
+.route-gps-status::before { content: ""; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--info); box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 18%, transparent); }
+.route-follow-control { position: absolute; z-index: 6; top: 10px; right: 10px; width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255,255,255,.78); border-radius: 14px; color: #243047; background: rgba(255,255,255,.92); box-shadow: 0 6px 18px rgba(17,28,43,.22); backdrop-filter: blur(10px); touch-action: manipulation; transition: color .2s ease, background .2s ease, transform .18s ease; }
+.route-follow-control:active { transform: scale(.94); }
+.route-follow-control.is-following { color: white; border-color: color-mix(in srgb, var(--info) 80%, white); background: var(--info); }
+.route-follow-control:focus-visible { outline: 3px solid color-mix(in srgb, var(--info) 46%, white); outline-offset: 3px; }
+:root[data-theme="dark"] .route-gps-status { color: #f4f7ff; border-color: rgba(255,255,255,.14); background: rgba(11,16,32,.86); }
+:root[data-theme="dark"] .route-follow-control { color: #f4f7ff; border-color: rgba(255,255,255,.14); background: rgba(11,16,32,.88); }
+:root[data-theme="dark"] .route-follow-control.is-following { border-color: color-mix(in srgb, var(--info) 78%, white); background: var(--info); }
+html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, var(--info) 58%, var(--line)); box-shadow: 0 12px 32px color-mix(in srgb, var(--info) 15%, transparent); }
 /* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
    mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados
    via classe), só mais baixo pra caber no cartão central junto do cabeçalho/CTA/

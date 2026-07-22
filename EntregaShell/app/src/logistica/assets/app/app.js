@@ -219,6 +219,7 @@
   let routeMap = null;
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
+  let routeMapLayoutTimers = [];
   let lastRouteTransmuxState = null;
   // S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal ===
   // "leitura-ativa"). Host PRÓPRIO ("leitura-live-map"), nunca o mesmo nó do
@@ -312,6 +313,10 @@
       ((routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.markers) || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
       const currentLocationMarker = routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.currentLocationMarker;
       if (currentLocationMarker) { try { currentLocationMarker.remove(); } catch (_) {} }
+      const resizeObserver = routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.resizeObserver;
+      if (resizeObserver) { try { resizeObserver.disconnect(); } catch (_) {} }
+      const resizeFrame = routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.resizeFrame;
+      if (resizeFrame) cancelAnimationFrame(resizeFrame);
       routeMapHost.__hbxMap = null;
       routeMapHost.__hbxMapParts = null;
     }
@@ -328,6 +333,8 @@
     });
     return routeMapLibraryPromise;
   }
+  function currentMapTheme() { return document.documentElement.dataset.theme === "dark" ? "dark" : "light"; }
+  function currentMapStyle() { return `https://tiles.openfreemap.org/styles/${currentMapTheme() === "dark" ? "fiord" : "liberty"}`; }
   async function roadGeometry(points) {
     const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
     if (coordinates.length < 2) return [];
@@ -405,25 +412,202 @@
       return new window.maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
     });
     const bounds = new window.maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat]));
-    if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
-    if (interactive && host.id === "route-live-map") applyRouteReadingLocation(host, map);
+    const reading = interactive && host.id === "route-live-map" && leituraRouteActive();
+    if (!reading && !bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
+    if (interactive && host.id === "route-live-map") updateRouteReadingMap(host, map);
   }
-  function applyRouteReadingLocation(host, map) {
+
+  function routeReadingTrailData() {
+    const coordinates = (state.leituraTrilha || [])
+      .map(point => Array.isArray(point) ? [Number(point[1]), Number(point[0])] : null)
+      .filter(point => point && validCoordinates(point[1], point[0]));
+    return coordinates.length >= 2
+      ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } }
+      : null;
+  }
+  function routeReadingAccuracyData(point) {
+    const radius = Number(point && point.accuracyM);
+    if (!point || !Number.isFinite(radius) || radius <= 0) return { type: "FeatureCollection", features: [] };
+    const latStep = radius / 111320;
+    const lngScale = Math.max(.08, Math.cos(Number(point.lat) * Math.PI / 180));
+    const lngStep = radius / (111320 * lngScale);
+    const ring = [];
+    for (let i = 0; i <= 48; i++) {
+      const angle = i / 48 * Math.PI * 2;
+      ring.push([Number(point.lng) + Math.cos(angle) * lngStep, Number(point.lat) + Math.sin(angle) * latStep]);
+    }
+    return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } };
+  }
+  function routeReadingBearing(point) {
+    const nativeBearing = point && point.bearingDeg;
+    if (nativeBearing != null && Number.isFinite(Number(nativeBearing))) return (Number(nativeBearing) % 360 + 360) % 360;
+    const trail = state.leituraTrilha || [];
+    if (trail.length < 2) return null;
+    const a = trail[trail.length - 2]; const b = trail[trail.length - 1];
+    if (!Array.isArray(a) || !Array.isArray(b) || !validCoordinates(a[0], a[1]) || !validCoordinates(b[0], b[1])) return null;
+    if (distanceMeters({ lat: Number(a[0]), lng: Number(a[1]) }, { lat: Number(b[0]), lng: Number(b[1]) }) < 4) return null;
+    const lat1 = Number(a[0]) * Math.PI / 180; const lat2 = Number(b[0]) * Math.PI / 180;
+    const dLng = (Number(b[1]) - Number(a[1])) * Math.PI / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+  function removeRouteReadingLayers(map) {
+    ["hbx-reading-trail", "hbx-reading-trail-casing", "hbx-reading-accuracy-outline", "hbx-reading-accuracy"].forEach(id => {
+      try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {}
+    });
+    ["hbx-reading-trail", "hbx-reading-accuracy"].forEach(id => {
+      try { if (map.getSource(id)) map.removeSource(id); } catch (_) {}
+    });
+  }
+  function raiseRouteReadingTrail(map) {
+    try { if (map.getLayer("hbx-reading-trail-casing")) map.moveLayer("hbx-reading-trail-casing"); } catch (_) {}
+    try { if (map.getLayer("hbx-reading-trail")) map.moveLayer("hbx-reading-trail"); } catch (_) {}
+  }
+  function syncRouteReadingFollowUi(parts) {
+    if (!parts || !parts.followControl) return;
+    const following = parts.following !== false;
+    parts.followControl.classList.toggle("is-following", following);
+    parts.followControl.setAttribute("aria-pressed", following ? "true" : "false");
+    parts.followControl.setAttribute("aria-label", following ? "GPS centralizado" : "Centralizar no GPS");
+  }
+  function followRouteReadingPosition(host, map, parts, point, resetZoom) {
+    if (!point || parts.following === false) return;
+    const bearing = routeReadingBearing(point);
+    const speed = Number(point.speedMps);
+    const moving = Number.isFinite(speed) && speed >= 1.8 && Number.isFinite(bearing);
+    const first = !parts.followCameraInitialized;
+    const options = {
+      center: [point.lng, point.lat],
+      offset: [0, Math.round(Math.min(54, Math.max(22, host.clientHeight * .1)))],
+      duration: first ? 620 : 820,
+      essential: false,
+    };
+    if (first || resetZoom || Number(map.getZoom()) < 15) options.zoom = 16.2;
+    if (moving) { options.bearing = bearing; options.pitch = 36; }
+    else if (first || resetZoom) { options.bearing = 0; options.pitch = 0; }
+    try { map.easeTo(options); parts.followCameraInitialized = true; } catch (_) {}
+  }
+  function ensureRouteReadingUi(host, map, parts) {
+    const sessionId = String(state.leitura && state.leitura.id || "");
+    if (parts.readingSessionId !== sessionId) {
+      parts.readingSessionId = sessionId;
+      parts.following = true;
+      parts.followCameraInitialized = false;
+    }
+    if (!parts.gpsStatus) {
+      parts.gpsStatus = document.createElement("span");
+      parts.gpsStatus.className = "route-gps-status";
+      host.appendChild(parts.gpsStatus);
+    }
+    if (!parts.followControl) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "route-follow-control";
+      button.innerHTML = icon("gps", 20);
+      button.addEventListener("pointerdown", event => event.stopPropagation());
+      button.addEventListener("click", event => {
+        event.preventDefault(); event.stopPropagation();
+        parts.following = true;
+        syncRouteReadingFollowUi(parts);
+        followRouteReadingPosition(host, map, parts, leituraLiveLastPoint(), true);
+        H.vibrate(10);
+      });
+      host.appendChild(button);
+      parts.followControl = button;
+    }
+    if (!parts.readingInteractionBound) {
+      const detach = event => {
+        if (!leituraRouteActive() || !event || !event.originalEvent) return;
+        parts.following = false;
+        syncRouteReadingFollowUi(parts);
+      };
+      map.on("dragstart", detach);
+      map.on("zoomstart", detach);
+      map.on("rotatestart", detach);
+      map.on("pitchstart", detach);
+      parts.readingInteractionBound = true;
+    }
+    host.classList.add("is-reading-route");
+    syncRouteReadingFollowUi(parts);
+  }
+  function ensureRouteMapResizeGuard(host, map) {
+    const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
+    if (!parts.resizeObserver && "ResizeObserver" in window) {
+      parts.resizeObserver = new ResizeObserver(() => {
+        if (parts.resizeFrame) cancelAnimationFrame(parts.resizeFrame);
+        parts.resizeFrame = requestAnimationFrame(() => {
+          parts.resizeFrame = null;
+          if (host.__hbxMap === map && typeof map.resize === "function") { try { map.resize(); } catch (_) {} }
+        });
+      });
+      parts.resizeObserver.observe(host);
+    }
+    requestAnimationFrame(() => {
+      if (host.__hbxMap === map && typeof map.resize === "function") { try { map.resize(); } catch (_) {} }
+    });
+  }
+  function updateRouteReadingMap(host, map, options) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
     const point = leituraRouteActive() ? leituraLiveLastPoint() : null;
+    if (!leituraRouteActive()) {
+      if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
+      parts.currentLocationMarker = null;
+      if (parts.gpsStatus) parts.gpsStatus.remove();
+      if (parts.followControl) parts.followControl.remove();
+      parts.gpsStatus = null; parts.followControl = null;
+      parts.readingSessionId = null; parts.followCameraInitialized = false; parts.following = true;
+      host.classList.remove("is-reading-route");
+      removeRouteReadingLayers(map);
+      return;
+    }
+    if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) return;
+    ensureRouteReadingUi(host, map, parts);
+    const trailData = routeReadingTrailData();
+    if (trailData) {
+      const trailSource = map.getSource("hbx-reading-trail");
+      if (trailSource) trailSource.setData(trailData);
+      else {
+        map.addSource("hbx-reading-trail", { type: "geojson", data: trailData });
+        map.addLayer({ id: "hbx-reading-trail-casing", type: "line", source: "hbx-reading-trail", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "rgba(255,255,255,.92)", "line-width": 9, "line-opacity": .94 } });
+        map.addLayer({ id: "hbx-reading-trail", type: "line", source: "hbx-reading-trail", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0865df", "line-width": 5, "line-opacity": .96 } });
+      }
+    } else {
+      ["hbx-reading-trail", "hbx-reading-trail-casing"].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+      if (map.getSource("hbx-reading-trail")) map.removeSource("hbx-reading-trail");
+    }
+    const accuracyData = routeReadingAccuracyData(point);
+    const accuracySource = map.getSource("hbx-reading-accuracy");
+    if (accuracySource) accuracySource.setData(accuracyData);
+    else {
+      map.addSource("hbx-reading-accuracy", { type: "geojson", data: accuracyData });
+      map.addLayer({ id: "hbx-reading-accuracy", type: "fill", source: "hbx-reading-accuracy", paint: { "fill-color": "#168be8", "fill-opacity": .12 } });
+      map.addLayer({ id: "hbx-reading-accuracy-outline", type: "line", source: "hbx-reading-accuracy", paint: { "line-color": "#168be8", "line-width": 1.5, "line-opacity": .3 } });
+    }
+    raiseRouteReadingTrail(map);
     if (!point) {
       if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
       parts.currentLocationMarker = null;
+      parts.gpsStatus.textContent = "Buscando GPS…";
       return;
     }
-    if (parts.currentLocationMarker) parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
-    else {
+    const bearing = routeReadingBearing(point);
+    if (parts.currentLocationMarker) {
+      parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
+    } else {
       const dot = document.createElement("span");
       dot.className = "route-current-location";
+      dot.innerHTML = '<i class="route-current-heading" aria-hidden="true"></i><i class="route-current-core" aria-hidden="true"></i>';
       dot.setAttribute("role", "img");
       dot.setAttribute("aria-label", "Sua localização atual");
-      parts.currentLocationMarker = new window.maplibregl.Marker({ element: dot, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
+      parts.currentLocationMarker = new window.maplibregl.Marker({ element: dot, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" }).setLngLat([point.lng, point.lat]).addTo(map);
     }
+    const markerElement = parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
+    if (markerElement) markerElement.classList.toggle("has-heading", Number.isFinite(bearing));
+    if (Number.isFinite(bearing) && typeof parts.currentLocationMarker.setRotation === "function") parts.currentLocationMarker.setRotation(bearing);
+    const accuracy = Number(point.accuracyM);
+    parts.gpsStatus.textContent = Number.isFinite(accuracy) && accuracy > 0 ? `GPS · ±${Math.round(accuracy)} m` : "GPS ativo";
+    if ((options && options.moveCamera) || !parts.followCameraInitialized) followRouteReadingPosition(host, map, parts, point, !!(options && options.resetZoom));
   }
   function collapseMapAttribution(host) {
     requestAnimationFrame(() => {
@@ -450,6 +634,7 @@
         map.addSource("hbx-route-line", { type: "geojson", data });
         map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#78c900", "line-width": 4, "line-opacity": .9 } });
       }
+      raiseRouteReadingTrail(map);
     } catch (_) {
       // Sem resposta viária, mantenha somente os pinos. Uma linha reta entre
       // casas seria visualmente falsa e não pode ser apresentada como rota.
@@ -465,6 +650,24 @@
       // pelo transplante do native.js entre renders), atualiza markers/rota/
       // fitBounds no lugar; o objeto map em si nunca é recriado à toa.
       if (host.__hbxMap && routeMap === host.__hbxMap && routeMapHost === host) {
+        ensureRouteMapResizeGuard(host, host.__hbxMap);
+        const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
+        const theme = currentMapTheme();
+        if (parts.mapTheme !== theme) {
+          parts.mapTheme = theme;
+          parts.pendingPoints = points;
+          host.__hbxMap.once("style.load", async () => {
+            if (routeMap !== host.__hbxMap || routeMapHost !== host) return;
+            const latest = (host.__hbxMapParts && host.__hbxMapParts.pendingPoints) || points;
+            applyRouteMarkers(host, host.__hbxMap, latest, interactive);
+            host.classList.add("is-ready");
+            collapseMapAttribution(host);
+            host.__hbxMap.resize();
+            await applyRouteLine(host, host.__hbxMap, latest);
+          });
+          host.__hbxMap.setStyle(currentMapStyle(), { diff: true });
+          return;
+        }
         const styleLoaded = !host.__hbxMap.isStyleLoaded || host.__hbxMap.isStyleLoaded();
         if (styleLoaded) {
           applyRouteMarkers(host, host.__hbxMap, points, interactive);
@@ -479,14 +682,16 @@
         return;
       }
       const pendingPosition = !points.length && interactive ? currentPosition() : Promise.resolve(null);
-      const center = points[0] || { lat: -14.235, lng: -51.9253 };
+      const readingPoint = interactive && leituraRouteActive() ? leituraLiveLastPoint() : null;
+      const center = readingPoint || points[0] || { lat: -14.235, lng: -51.9253 };
       const maplibregl = await loadRouteMapLibrary();
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
       disposeRouteMap(); routeMapHost = host;
-      const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [center.lng, center.lat], zoom: points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
-      routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [] };
+      const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.2 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
+      routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme() };
+      ensureRouteMapResizeGuard(host, map);
       if (!points.length) void pendingPosition.then(position => {
-        if (position && routeMap === map && routeMapHost === host) map.easeTo({ center: [position.lng, position.lat], zoom: 14, duration: 500 });
+        if (position && routeMap === map && routeMapHost === host && !leituraLiveLastPoint()) map.easeTo({ center: [position.lng, position.lat], zoom: leituraRouteActive() ? 16.2 : 14, duration: 500 });
       });
       map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
@@ -494,6 +699,7 @@
         applyRouteMarkers(host, map, latest, interactive);
         host.classList.add("is-ready");
         collapseMapAttribution(host);
+        map.resize();
         await applyRouteLine(host, map, latest);
       });
       map.on("error", () => {});
@@ -536,7 +742,12 @@
   }
   function leituraLiveLastPoint() {
     const amostra = state.leituraUltimaAmostra;
-    if (amostra && validCoordinates(amostra.lat, amostra.lng)) return { lat: Number(amostra.lat), lng: Number(amostra.lng) };
+    if (amostra && validCoordinates(amostra.lat, amostra.lng)) return {
+      lat: Number(amostra.lat), lng: Number(amostra.lng), ts: amostra.ts == null ? null : Number(amostra.ts),
+      accuracyM: amostra.accuracyM == null ? null : Number(amostra.accuracyM),
+      speedMps: amostra.speedMps == null ? null : Number(amostra.speedMps),
+      bearingDeg: amostra.bearingDeg == null ? null : Number(amostra.bearingDeg),
+    };
     const trilha = state.leituraTrilha || [];
     if (!trilha.length) return null;
     const [lat, lng] = trilha[trilha.length - 1];
@@ -567,7 +778,7 @@
       leituraLiveMapHost = host;
       const last = leituraLiveLastPoint();
       const center = last || { lat: -14.235, lng: -51.9253 };
-      const map = new maplibregl.Map({ container: host, style: "https://tiles.openfreemap.org/styles/liberty", center: [center.lng, center.lat], zoom: last ? 16 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
+      const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: last ? 16 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
       leituraLiveMap = map; host.__hbxMap = map; host.__hbxLeituraMarker = null;
       map.on("load", () => {
         if (leituraLiveMap !== map || leituraLiveMapHost !== host) return;
@@ -805,6 +1016,16 @@
         if (instancia && typeof instancia.resize === "function") { try { instancia.resize(); } catch (_) {} }
       });
     }
+  }
+  function stabilizeRouteMapLayout() {
+    routeMapLayoutTimers.forEach(clearTimeout);
+    routeMapLayoutTimers = [0, 90, 220, 420].map(delay => setTimeout(() => {
+      if (state.screen !== "route") return;
+      fitRouteMap();
+      if (routeMap && routeMapHost && typeof routeMap.resize === "function") {
+        try { routeMap.resize(); } catch (_) {}
+      }
+    }, delay));
   }
   function syncChromeMetrics() {
     const root = document.documentElement;
@@ -1728,6 +1949,16 @@
       return raw ? JSON.parse(raw) : null;
     } catch (_) { return null; }
   }
+  function leituraLocationSample(raw) {
+    const source = raw || {};
+    const lat = Number(source.lat); const lng = Number(source.lng);
+    if (!validCoordinates(lat, lng)) return null;
+    const optionalNumber = value => value == null || value === "" ? null : (Number.isFinite(Number(value)) ? Number(value) : null);
+    return {
+      lat, lng, ts: optionalNumber(source.ts), accuracyM: optionalNumber(source.accuracyM),
+      speedMps: optionalNumber(source.speedMps), bearingDeg: optionalNumber(source.bearingDeg),
+    };
+  }
   // Aplica o snapshot completo (leituraStatus(), chamado 1x ao abrir a tela
   // viva) no estado de desenho — é sempre um REPLACE (fonte da verdade do
   // nativo), nunca um merge; os pontos incrementais de hbx:leitura-ponto (ver
@@ -1735,7 +1966,8 @@
   function applyLeituraSnapshot(snapshot) {
     if (!snapshot) return;
     if (Array.isArray(snapshot.pontos)) state.leituraTrilha = snapshot.pontos.filter(p => Array.isArray(p) && p.length >= 2 && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))).map(p => [Number(p[0]), Number(p[1])]);
-    if (snapshot.ultimaAmostra) state.leituraUltimaAmostra = snapshot.ultimaAmostra;
+    const latest = leituraLocationSample(snapshot.ultimaAmostra);
+    state.leituraUltimaAmostra = latest || null;
     if (snapshot.pausaPendente) state.leituraPausaPendente = snapshot.pausaPendente;
   }
   function leituraRouteActive() {
@@ -3239,7 +3471,7 @@
     enhanceMoneyInputs();
     enhanceKeyboardFields();
     syncChromeMetrics();
-    requestAnimationFrame(fitRouteMap);
+    stabilizeRouteMapLayout();
     syncHeaderChips();
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
@@ -3825,8 +4057,8 @@
     window.visualViewport.addEventListener("resize", () => { syncKeyboardViewport(); revealFocusedForKeyboard(); });
     window.visualViewport.addEventListener("scroll", syncKeyboardViewport);
   }
-  window.addEventListener("resize", () => { syncKeyboardViewport(); syncChromeMetrics(); fitRouteMap(); });
-  window.addEventListener("orientationchange", () => requestAnimationFrame(() => { syncChromeMetrics(); fitRouteMap(); }));
+  window.addEventListener("resize", () => { syncKeyboardViewport(); syncChromeMetrics(); stabilizeRouteMapLayout(); });
+  window.addEventListener("orientationchange", () => requestAnimationFrame(() => { syncChromeMetrics(); stabilizeRouteMapLayout(); }));
 
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
@@ -4061,6 +4293,8 @@
       try {
         const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "LEITURA" } });
         state.leitura = { id: result.id, modo: result.modo || "LEITURA", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
+        state.leituraTrilha = [];
+        state.leituraUltimaAmostra = null;
         persistLeituraSession();
         leituraTrilhaIniciar(result.id);
       } catch (error) { toast(humanApiError(error), true); state.leituraStarting = false; render(); return; }
@@ -4921,17 +5155,30 @@
   });
   document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
   document.addEventListener("hbx:theme", render);
+  // Fix visual de alta frequência (~3s): move posição/precisão/câmera, mas não
+  // entra na trilha gravada. O nativo mantém a gravação filtrada em 8m/15s.
+  document.addEventListener("hbx:leitura-posicao", event => {
+    if (!state.leitura || state.leitura.modo !== "LEITURA") return;
+    const sample = leituraLocationSample(event && event.detail);
+    if (!sample) return;
+    state.leituraUltimaAmostra = sample;
+    if (leituraRouteActive() && routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap, { moveCamera: true });
+  });
   // S3 21/07 — S2-CONTRATO-PONTE §2. hbx:leitura-ponto: só desenha se a tela
   // viva estiver aberta (evita render à toa em qualquer outra tela); a trilha
   // em si é sempre ressincronizada do zero por leituraStatus() ao reabrir a
   // tela (applyLeituraSnapshot), então não precisa acumular fora dela.
   document.addEventListener("hbx:leitura-ponto", event => {
-    const detail = (event && event.detail) || {};
-    const lat = Number(detail.lat); const lng = Number(detail.lng);
-    if (!validCoordinates(lat, lng)) return;
-    state.leituraTrilha = [...(state.leituraTrilha || []), [lat, lng]];
-    state.leituraUltimaAmostra = { lat, lng, ts: detail.ts };
-    if (leituraRouteActive() && routeMap && routeMapHost) applyRouteReadingLocation(routeMapHost, routeMap);
+    if (!state.leitura || state.leitura.modo !== "LEITURA") return;
+    const sample = leituraLocationSample(event && event.detail);
+    if (!sample) return;
+    const current = state.leituraUltimaAmostra;
+    const alreadyAppliedLive = current && sample.ts != null && Number(current.ts) === Number(sample.ts);
+    const trail = state.leituraTrilha || [];
+    const last = trail[trail.length - 1];
+    if (!last || Number(last[0]) !== sample.lat || Number(last[1]) !== sample.lng) state.leituraTrilha = [...trail, [sample.lat, sample.lng]];
+    if (!current || current.ts == null || sample.ts == null || Number(sample.ts) >= Number(current.ts)) state.leituraUltimaAmostra = sample;
+    if (leituraRouteActive() && routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap, { moveCamera: !alreadyAppliedLive });
     else if (state.modal === "leitura-ativa") render();
   });
   // hbx:leitura-pausa: overlay GLOBAL (leituraPausaOverlay, dentro de shell())
