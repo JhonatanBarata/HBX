@@ -335,6 +335,18 @@
   }
   function currentMapTheme() { return document.documentElement.dataset.theme === "dark" ? "dark" : "light"; }
   function currentMapStyle() { return `https://tiles.openfreemap.org/styles/${currentMapTheme() === "dark" ? "fiord" : "liberty"}`; }
+  function applyDarkMapStreetContrast(map) {
+    if (currentMapTheme() !== "dark" || !map || !map.getStyle) return;
+    const layers = (map.getStyle() && map.getStyle().layers) || [];
+    layers.filter(layer => layer.type === "symbol" && /^highway_name/.test(layer.id)).forEach(layer => {
+      try {
+        map.setPaintProperty(layer.id, "text-color", "#f7f9ff");
+        map.setPaintProperty(layer.id, "text-halo-color", "rgba(24,32,51,.96)");
+        map.setPaintProperty(layer.id, "text-halo-width", 1.6);
+        map.setPaintProperty(layer.id, "text-halo-blur", .35);
+      } catch (_) {}
+    });
+  }
   async function roadGeometry(points) {
     const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
     if (coordinates.length < 2) return [];
@@ -659,6 +671,7 @@
           host.__hbxMap.once("style.load", async () => {
             if (routeMap !== host.__hbxMap || routeMapHost !== host) return;
             const latest = (host.__hbxMapParts && host.__hbxMapParts.pendingPoints) || points;
+            applyDarkMapStreetContrast(host.__hbxMap);
             applyRouteMarkers(host, host.__hbxMap, latest, interactive);
             host.classList.add("is-ready");
             collapseMapAttribution(host);
@@ -670,6 +683,7 @@
         }
         const styleLoaded = !host.__hbxMap.isStyleLoaded || host.__hbxMap.isStyleLoaded();
         if (styleLoaded) {
+          applyDarkMapStreetContrast(host.__hbxMap);
           applyRouteMarkers(host, host.__hbxMap, points, interactive);
           host.classList.add("is-ready");
           void applyRouteLine(host, host.__hbxMap, points);
@@ -696,6 +710,7 @@
       map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
         const latest = (host.__hbxMapParts && host.__hbxMapParts.pendingPoints) || points;
+        applyDarkMapStreetContrast(map);
         applyRouteMarkers(host, map, latest, interactive);
         host.classList.add("is-ready");
         collapseMapAttribution(host);
@@ -782,6 +797,7 @@
       leituraLiveMap = map; host.__hbxMap = map; host.__hbxLeituraMarker = null;
       map.on("load", () => {
         if (leituraLiveMap !== map || leituraLiveMapHost !== host) return;
+        applyDarkMapStreetContrast(map);
         applyLeituraLiveLayer(map);
         applyLeituraLiveMarker(host, map);
         host.classList.add("is-ready");
