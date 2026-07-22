@@ -49,6 +49,18 @@ reverter são 2 linhas de CSS.
 - [ ] Fallback do alarme (apagar o raw à força e ver voltar o RingtoneManager)
 - [ ] Trava de crédito do S7 com saldo 0 real (precisa de conta sem saldo)
 
+## Fora do escopo de som, feito na mesma noite (22/07)
+
+**Fim da piscada** (`7b72badd`) — o dono montou uma rota e a tela piscou ~5x. Causa: todo `render()`
+trocava o `.content` inteiro e removia+re-anexava TODOS os overlays; um toast entrando e saindo
+custava duas reconstruções completas, arrastando junto a folha da rota. Agora o `mount()` compara a
+marcação gerada com a do render anterior (content intacto quando nada mudou) e reconcilia overlays
+peça a peça. Os nós passam a sobreviver, então virou obrigatório que tudo depois do mount seja
+idempotente — guardas `__hbx*` em `[data-day]`, `attachMoneyInput` e `enhancePaymentForms`.
+
+⚠️ **Isto não é "loading bem feito", é a causa raiz por baixo dele.** A escada de loading discutida
+em 22/07 continua não implementada — e agora talvez nem seja necessária no mesmo tamanho.
+
 ## Pendências abertas herdadas dos outros sprints
 
 1. **`pairing_success` não toca** — `PairingActivity` é Activity nativa pura, não passa pelo
