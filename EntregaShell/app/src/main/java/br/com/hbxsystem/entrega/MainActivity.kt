@@ -353,6 +353,9 @@ class MainActivity : AppCompatActivity() {
             // Mapa ao vivo (S3.1): ponto a ponto, só em foreground (sem fila —
             // o acumulado completo já está em RotaState pra quando reabrir).
             RotaState.registrarPontoListener { ponto -> runOnUiThread { entregarPonto(ponto) } }
+            // Fix visual mais frequente: não grava nem envia ponto extra, apenas
+            // mantém posição, precisão e direção do mapa acompanhando o GPS.
+            RotaState.registrarPosicaoListener { ponto -> runOnUiThread { entregarPosicao(ponto) } }
         }
     }
 
@@ -361,6 +364,7 @@ class MainActivity : AppCompatActivity() {
             RotaState.registrarListener(null)
             RotaState.registrarPausaListener(null)
             RotaState.registrarPontoListener(null)
+            RotaState.registrarPosicaoListener(null)
         }
         super.onPause()
     }
@@ -441,10 +445,27 @@ class MainActivity : AppCompatActivity() {
     /** S2/S3.1 — mapa ao vivo: um ponto novo (já filtrado 8m/15s) pro front
      *  desenhar incremental na trilha, sem precisar de polling. */
     private fun entregarPonto(ponto: TrilhaPonto) {
-        val detail = JSONObject().put("lat", ponto.lat).put("lng", ponto.lng).put("ts", ponto.ts)
+        val detail = ponto.toLeituraLocationJson()
         val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-ponto',{detail:$detail}));"
         webView.evaluateJavascript(js, null)
     }
+
+    private fun entregarPosicao(ponto: TrilhaPonto) {
+        val detail = ponto.toLeituraLocationJson()
+        val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-posicao',{detail:$detail}));"
+        webView.evaluateJavascript(js, null)
+    }
+
+    private fun TrilhaPonto.toLeituraLocationJson(): JSONObject =
+        JSONObject()
+            .put("lat", lat)
+            .put("lng", lng)
+            .put("ts", ts)
+            .put("accuracyM", accuracyM)
+            .apply {
+                speedMps?.takeIf(Double::isFinite)?.let { put("speedMps", it) }
+                bearingDeg?.takeIf(Double::isFinite)?.let { put("bearingDeg", it) }
+            }
 
     private fun temPermissao(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED

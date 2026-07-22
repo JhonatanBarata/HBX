@@ -749,6 +749,9 @@
 }
 
 .lead-cockpit__channel-body > .dn-convo {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -759,13 +762,29 @@
   display: none;
 }
 
-.lead-cockpit__channel-body .dn-convo__body {
-  overflow: hidden;
+.lead-cockpit__channel-body > .dn-convo > .dn-convo__hint {
+  display: none;
+}
+
+.lead-cockpit__channel-body > .dn-convo > .dn-convo__body {
+  height: 100%;
+  flex: 1 1 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .lead-cockpit__channel-body .msgs {
+  height: auto;
+  flex: 1 1 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.lead-cockpit__channel-body .dn-convo__composer {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  flex: 0 0 auto;
 }
 
 .lead-cockpit__email-workspace {

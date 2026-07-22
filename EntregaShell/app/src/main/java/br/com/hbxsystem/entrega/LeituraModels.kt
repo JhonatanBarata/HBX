@@ -13,6 +13,7 @@ data class TrilhaPonto(
     val ts: Long, // epoch ms (Location.time)
     val accuracyM: Double,
     val speedMps: Double?,
+    val bearingDeg: Double? = null,
 )
 
 /** Cliente cadastrado mais próximo do ponto de pausa (raio RotaState.raioM). */

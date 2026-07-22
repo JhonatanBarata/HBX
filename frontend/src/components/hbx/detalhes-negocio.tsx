@@ -1511,7 +1511,6 @@ export function ConversationPanel({
               className="field-dark"
               rows={2}
               maxLength={4000}
-              placeholder={`Responder ${name || "o lead"} no WhatsApp…`}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {

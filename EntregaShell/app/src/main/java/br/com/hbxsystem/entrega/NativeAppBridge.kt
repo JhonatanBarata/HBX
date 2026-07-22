@@ -228,6 +228,7 @@ class NativeAppBridge(
                 "ultimaAmostra",
                 JSONObject().put("lat", p.lat).put("lng", p.lng).put("ts", p.ts).put("accuracyM", p.accuracyM).apply {
                     p.speedMps?.takeIf(Double::isFinite)?.let { put("speedMps", it) }
+                    p.bearingDeg?.takeIf(Double::isFinite)?.let { put("bearingDeg", it) }
                 },
             )
         }

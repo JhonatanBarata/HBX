@@ -379,7 +379,13 @@ class RotaService : Service() {
             ts = sample.capturedAtMs,
             accuracyM = sample.accuracyM,
             speedMps = sample.speedMps,
+            bearingDeg = sample.bearingDeg,
         )
+
+        // A posição visual acompanha cada fix aceito (~3s). A trilha enviada
+        // continua respeitando o filtro de 8m/15s logo abaixo, sem aumentar o
+        // volume persistido nem o payload do servidor.
+        RotaState.notificarPosicao(ponto)
 
         // Detector de pausa roda em TODA amostra aceita (independente do
         // filtro de gravação abaixo, que só decide o que fica na trilha).

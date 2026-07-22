@@ -238,6 +238,12 @@ object RotaState {
     @Volatile
     private var pontoListener: ((TrilhaPonto) -> Unit)? = null
 
+    // Posição visual do GPS: recebe toda amostra aceita, sem entrar na trilha
+    // persistida. Assim o mapa se move de forma fluida e a gravação mantém o
+    // filtro de qualidade/volume de 8m ou 15s.
+    @Volatile
+    private var posicaoListener: ((TrilhaPonto) -> Unit)? = null
+
     private val pausasPendentes = Collections.synchronizedList(mutableListOf<PausaDetectada>())
 
     /** Chamado pela ponte ao iniciar a sessão (leituraId vem do POST /leitura/iniciar). */
@@ -335,6 +341,14 @@ object RotaState {
     /** Chamado pelo RotaService a cada ponto GRAVADO (não a cada fix de GPS). */
     fun notificarPonto(ponto: TrilhaPonto) {
         pontoListener?.invoke(ponto)
+    }
+
+    fun registrarPosicaoListener(l: ((TrilhaPonto) -> Unit)?) {
+        posicaoListener = l
+    }
+
+    fun notificarPosicao(ponto: TrilhaPonto) {
+        posicaoListener?.invoke(ponto)
     }
 
     fun ultimaAmostraLeitura(): TrilhaPonto? = leituraUltimoPonto
@@ -446,6 +460,7 @@ object RotaState {
     private fun TrilhaPonto.toJson(): JSONObject =
         JSONObject().put("lat", lat).put("lng", lng).put("ts", ts).put("accuracyM", accuracyM).apply {
             speedMps?.takeIf(Double::isFinite)?.let { put("speedMps", it) }
+            bearingDeg?.takeIf(Double::isFinite)?.let { put("bearingDeg", it) }
         }
 
     private fun JSONObject.toTrilhaPonto(): TrilhaPonto? {
@@ -459,6 +474,7 @@ object RotaState {
             ts = ts,
             accuracyM = optDouble("accuracyM", Double.NaN),
             speedMps = if (has("speedMps")) optDouble("speedMps") else null,
+            bearingDeg = if (has("bearingDeg")) optDouble("bearingDeg") else null,
         )
     }
 
