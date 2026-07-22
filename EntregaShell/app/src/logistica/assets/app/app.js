@@ -221,6 +221,12 @@
   let routeMapLibraryPromise = null;
   let routeMapLayoutTimers = [];
   let lastRouteTransmuxState = null;
+  // S1 21/07 (PR21072026-NAVEGAÇÃO) — último fix de GPS conhecido, setado por
+  // currentPosition() sempre que qualquer fluxo do app pede localização. Usado
+  // pelo painel "Próxima parada" pra mostrar a distância reta até a parada sem
+  // abrir um watch novo (S2 assume via watch contínuo). Sem fix ainda -> null,
+  // o painel só omite a linha de distância (nunca inventa número).
+  let lastKnownPosition = null;
   // S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal ===
   // "leitura-ativa"). Host PRÓPRIO ("leitura-live-map"), nunca o mesmo nó do
   // mapa da Rota — cada um com seu transplante __hbxMap (regra que já quebrou:
@@ -2800,12 +2806,16 @@
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
     const leituraAtiva = leituraRouteActive();
+    // S1 21/07 (PR21072026-NAVEGAÇÃO) — painel compacto "Próxima parada" some na
+    // Leitura (ela tem os controles dela, e o topo do mapa já é o gpsStatus/
+    // followControl dela — nunca exibem juntos, ver ensureRouteReadingUi).
+    const showNextPanel = !!next && !leituraAtiva;
     // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
     const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
     // S1 21/07 — sessão MANUAL não tem mais faixa (leituraBanner devolve "");
     // sem o wrapper condicional sobrava uma margem vazia sobre a tela Rota.
     const lrtBannerHtml = leituraBanner();
-    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div></div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${lrtBannerHtml ? `<div class="lrt-banner">${lrtBannerHtml}</div>` : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
@@ -2826,6 +2836,18 @@
   function routePausedBanner() {
     return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">Encerrar rota</button></div></div>`;
   }
+  // S1 21/07 (PR21072026-NAVEGAÇÃO) — overlay compacto no topo do mapa da Rota,
+  // irmão do #route-live-map (o mapa é transplantado, este painel não — ele
+  // re-renderiza normal a cada render()). Copy EXATA do spec (Lei 8), 2 linhas.
+  // n/total = mesma numeração dos cards (orderedItems/items). Toque = showSheet
+  // (via data-delivery, mesmo dispatcher que os stopCard já usam).
+  function routeNextStopPanel(next) {
+    const c = next.cliente || {};
+    const n = orderedItems().indexOf(next) + 1;
+    const total = items().length;
+    const distanceTxt = lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "";
+    return `<div class="route-next-panel" data-delivery="${H.escape(next.id)}" role="button" tabindex="0" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(address(c))}${distanceTxt ? ` · aproximadamente ${H.escape(distanceTxt)}` : ""}</span></div>`;
+  }
   function routeTransmuxControl(planned) {
     // Chamada só quando a rota NÃO está pausada (routeScreen troca pra
     // routePausedBanner() nesse caso) — então esta seta nunca pode calcular um
@@ -2841,7 +2863,21 @@
     // cada render, então o rAF pendente apontava pro elemento antigo e o botão
     // novo já nascia com data-state === data-next-state, sem morfar).
     const clearDayVisible = !active && isAdmin() && openItems().length > 0;
-    return `<div class="route-transmux-wrap"><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
+    // S1 21/07 (PR21072026-NAVEGAÇÃO, decisão do dono) — nova ordem VISUAL
+    // esquerda->direita: [excluir(s) já existentes] [GPS avançado] [DISCO PLAY].
+    // route-transmux-wrap virou linha flex (CSS); os 3 ícones de excluir são
+    // renderizados ANTES do disco no DOM agora (mesmas ações/confirmações,
+    // intocadas), e o novo route-nav-external entra entre eles e o disco.
+    const cancelIcon = planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : "";
+    const finishIcon = active ? `<button class="route-cancel-icon" type="button" data-action="finish-route" aria-label="Encerrar rota"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeFinishGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#5b6472"/><stop offset="1" stop-color="#20242b"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeFinishGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><rect x="16" y="16" width="16" height="16" rx="3" fill="#fff"/></svg></button>` : "";
+    const clearDayIcon = clearDayVisible ? `<button class="route-cancel-icon" type="button" data-action="clear-day-request" aria-label="Limpar o dia"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeClearDayGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeClearDayGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M17 18h14M20 18v-2.5c0-.8.7-1.5 1.5-1.5h1c.8 0 1.5.7 1.5 1.5V18M18.5 18 19.6 32c.06.9.8 1.6 1.7 1.6h5.4c.9 0 1.64-.7 1.7-1.6L29.5 18" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 22.5v7M27 22.5v7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></button>` : "";
+    // "Abrir GPS avançado" (Waze/Maps) — data-action="show-map" já existe
+    // (abrirNavegacao(openItems()[0])). Gradiente próprio (routeNavGradient,
+    // id único) reusando os stops do routeGpsGradient acima (#23c9f5→#0865df).
+    // Ícone interno pelo catálogo (icon("map")) — sem SVG solto fora dele.
+    const navVisible = openItems().length > 0 && (active || planned);
+    const navIcon = navVisible ? `<button class="route-nav-external" type="button" data-action="show-map" aria-label="Abrir no Waze ou Google Maps"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeNavGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#23c9f5"/><stop offset="1" stop-color="#0865df"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeNavGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/></svg><span class="route-nav-external-icon">${icon("map", 20)}</span></button>` : "";
+    return `<div class="route-transmux-wrap">${cancelIcon}${finishIcon}${clearDayIcon}${navIcon}<button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
       <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
         <linearGradient id="routePlayGradient" x1="25" y1="12" x2="92" y2="112" gradientUnits="userSpaceOnUse"><stop class="cta-gradient-from"/><stop offset="1" class="cta-gradient-to"/></linearGradient>
         <linearGradient id="routeGpsGradient" x1="18" y1="10" x2="101" y2="111" gradientUnits="userSpaceOnUse"><stop stop-color="#23c9f5"/><stop offset="1" stop-color="#0865df"/></linearGradient>
@@ -2855,7 +2891,7 @@
       <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><path d="M60 27 79 77.5c1.1 3-2.2 5.7-4.9 4L60 73.4l-14.1 8.1c-2.7 1.6-6-1-4.9-4z" fill="#fff"/><path d="M60 34 68 67l-8-4.7L52 67z" fill="rgba(8,101,223,.22)"/></g>
       <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z" fill="#fff"/><circle cx="88" cy="42" r="5.2" fill="#168be8"/></g>
       <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><path d="M44 28h32l16 16v32L76 92H44L28 76V44z" fill="#fff"/><path d="M47 35h26l12 12v26L73 85H47L35 73V47z" fill="rgba(223,7,26,.14)"/><rect x="41" y="55" width="38" height="10" rx="5" fill="#e10a1d"/></g></svg>
-    </button>${planned && !active && isAdmin() ? `<button class="route-cancel-icon" type="button" data-action="cancel-route" aria-label="Cancelar planejamento"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeCancelGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeCancelGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M16.5 16.5 31.5 31.5M31.5 16.5 16.5 31.5" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/></svg></button>` : ""}${active ? `<button class="route-cancel-icon" type="button" data-action="finish-route" aria-label="Encerrar rota"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeFinishGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#5b6472"/><stop offset="1" stop-color="#20242b"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeFinishGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><rect x="16" y="16" width="16" height="16" rx="3" fill="#fff"/></svg></button>` : ""}${clearDayVisible ? `<button class="route-cancel-icon" type="button" data-action="clear-day-request" aria-label="Limpar o dia"><svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="routeClearDayGradient" x1="8" y1="5" x2="40" y2="44" gradientUnits="userSpaceOnUse"><stop stop-color="#ff6670"/><stop offset="1" stop-color="#c90719"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#routeClearDayGradient)"/><circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,.28)"/><path d="M17 18h14M20 18v-2.5c0-.8.7-1.5 1.5-1.5h1c.8 0 1.5.7 1.5 1.5V18M18.5 18 19.6 32c.06.9.8 1.6 1.7 1.6h5.4c.9 0 1.64-.7 1.7-1.6L29.5 18" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 22.5v7M27 22.5v7" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg></button>` : ""}</div>`;
+    </button></div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -3638,8 +3674,27 @@
     if (!stops.length) return;
     H.activateRoute({ raioM: Number(state.config && state.config.raioChegadaM || 60), paradas: stops, routeId: route.routeId || state.route.routeId || null, mode: route.trackingRequired || state.route.trackingRequired ? "TRACKED" : "ESSENTIAL", trackingSessionId: route.trackingSessionId || state.route.trackingSessionId || null });
   }
-  function currentPosition() { return new Promise(resolve => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition(p => { markGpsFix(); resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); }, err => { markGpsError(err); resolve(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }); }); }
+  // S1 21/07 — todo fluxo que já chamava currentPosition() (iniciar rota, dia,
+  // etc.) agora também alimenta lastKnownPosition e tenta um patch AO VIVO (sem
+  // render()) da linha 2 do painel "Próxima parada", se ele estiver na tela —
+  // padrão gpsStatus/nextStop count (querySelector, não re-render).
+  function currentPosition() { return new Promise(resolve => { if (!navigator.geolocation) return resolve(null); navigator.geolocation.getCurrentPosition(p => { markGpsFix(); const point = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }; lastKnownPosition = point; updateNextStopPanelDistance(); resolve(point); }, err => { markGpsError(err); resolve(null); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 }); }); }
   function distanceMeters(a, b) { const r = 6371000; const lat = Math.PI / 180; const dLat = (b.lat - a.lat) * lat; const dLng = (b.lng - a.lng) * lat; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * lat) * Math.cos(b.lat * lat) * Math.sin(dLng / 2) ** 2; return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)); }
+  // Formato padrão "lrt-distance" já usado em clientCatalogCard/leituraPausaOverlay.
+  function formatRouteDistance(meters) { return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`; }
+  // Patch por querySelector (sem render()) da linha 2 do painel "Próxima parada" —
+  // só mexe no textContent se o painel já estiver montado na tela Rota; nunca cria
+  // o painel sozinho (isso é papel do routeScreen/render normal).
+  function updateNextStopPanelDistance() {
+    const sub = app.querySelector(".route-next-panel-sub");
+    if (!sub) return;
+    if (state.screen !== "route" || leituraRouteActive()) return;
+    const next = openItems()[0];
+    if (!next) return;
+    const c = next.cliente || {};
+    const distanceTxt = lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "";
+    sub.textContent = `${address(c)}${distanceTxt ? ` · aproximadamente ${distanceTxt}` : ""}`;
+  }
   async function startRoute(planOnly, generateToday, deliveryIds) {
     try {
       state.routePaused = false; H.cache.remove("logistica-route-paused");
