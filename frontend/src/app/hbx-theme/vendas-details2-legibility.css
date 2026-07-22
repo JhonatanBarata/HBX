@@ -291,9 +291,9 @@
   }
 }
 
-/* Meio-termo tipográfico do Detalhes: 0.90rem evita o salto entre o piso
-   compacto de 0.86rem e o passe amplo de 0.93rem; títulos ficam em 0.96rem,
-   preservando a hierarquia sem parecerem grandes demais. */
+/* Meio-termo tipográfico do Detalhes em medidas explícitas: 14px no conteúdo
+   e 15px nos títulos. A diferença fica perceptível sem voltar ao aspecto
+   minúsculo nem disputar espaço com o nome da empresa. */
 @media (min-width: 821px) {
   .lead-cockpit__approved-id > p,
   .lead-cockpit__approved-badges .tag,
@@ -323,7 +323,7 @@
   .lead-cockpit__charge-row > span:first-child strong,
   .lead-cockpit__charge-row > strong,
   .lead-cockpit__steps b {
-    font-size: 0.9rem;
+    font-size: 14px;
   }
 
   .lead-cockpit__approved-tab,
@@ -336,7 +336,7 @@
   .lead-cockpit__finance-empty strong,
   .lead-cockpit__balance strong,
   .lead-cockpit__agenda-popover-head strong {
-    font-size: 0.96rem;
+    font-size: 15px;
   }
 }
 
@@ -347,5 +347,5 @@
 .lead-cockpit--approved .badge-win,
 .lead-cockpit--approved .radar-ai-badge,
 .lead-cockpit--approved .muted-note {
-  font-size: 0.9rem;
+  font-size: 14px;
 }

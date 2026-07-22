@@ -16,6 +16,7 @@ import {
 } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
+import { CANAL_LABEL, CanalIcon, type Canal } from "@/components/hbx/canal-icon";
 import {
   Av,
   I,
@@ -323,6 +324,17 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
       ];
   const tabPill = useGlassPill<HTMLButtonElement>(tab, guides.length);
+
+  const channelTargets: Partial<Record<Canal, string>> = {
+    whatsapp: lead.phone || undefined,
+    telefone: lead.phone ? `tel:${onlyDigits(lead.phone)}` : undefined,
+    email: lead.email || undefined,
+    instagram: lead.leadIntelligence?.instagramUrl || lead.ownerInstagram || undefined,
+    facebook: lead.leadIntelligence?.facebookUrl || lead.ownerFacebook || undefined,
+    site: lead.website ? (lead.website.startsWith("http") ? lead.website : `https://${lead.website}`) : undefined,
+  };
+  const availableChannels = (["whatsapp", "telefone", "email", "instagram", "facebook", "site"] as Canal[])
+    .filter((canal) => Boolean(channelTargets[canal]));
 
   useEffect(() => {
     if (!open) return;
@@ -985,6 +997,28 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                 <I d={guide.icon} size={13} /> {guide.label}
               </button>
             ))}
+            {availableChannels.length > 0 && (
+              <span className="lead-cockpit__approved-channels" aria-label="Canais disponíveis">
+                {availableChannels.map((canal) => {
+                  if (canal === "whatsapp" || canal === "email") {
+                    return (
+                      <button key={canal} type="button" title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                        onClick={() => { setTab("atendimento"); setChannel(canal); }}>
+                        <CanalIcon canal={canal} size="md" />
+                      </button>
+                    );
+                  }
+                  const href = channelTargets[canal]!;
+                  const external = canal === "instagram" || canal === "facebook" || canal === "site";
+                  return (
+                    <a key={canal} href={href} title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                      target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined}>
+                      <CanalIcon canal={canal} size="md" />
+                    </a>
+                  );
+                })}
+              </span>
+            )}
           </nav>
 
           <div className="lead-cockpit__approved-body">

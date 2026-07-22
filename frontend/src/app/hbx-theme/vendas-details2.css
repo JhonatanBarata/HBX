@@ -255,6 +255,37 @@
   color: var(--hbx-info);
 }
 
+.lead-cockpit__approved-channels {
+  min-width: 0;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.lead-cockpit__approved-channels > a,
+.lead-cockpit__approved-channels > button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 9px;
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-xs);
+}
+
+.lead-cockpit__approved-channels > a:hover,
+.lead-cockpit__approved-channels > button:hover {
+  border-color: color-mix(in srgb, var(--hbx-info) 40%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-info) 7%, var(--hbx-surface));
+}
+
 .lead-cockpit__approved-body {
   position: relative;
   min-width: 0;
