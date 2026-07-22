@@ -731,9 +731,11 @@ export class LogisticaService {
     // itens/quantidades, mas não cobra crédito rastreado nem dispara WhatsApp e
     // cobrança externa uma segunda vez.
     const reabertaParaCorrecao = !jaEntregue && entrega.deliveredAt != null;
+    // `preco` = preço de HOJE editado na chegada (22/07). Só entra quando veio
+    // número finito >= 0; undefined = mantém o valorUnit que já está no item.
     const itensValidos = Array.isArray(gps.itens)
       ? gps.itens
-          .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue) }))
+          .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue), preco: precoEditado((it as any)?.valorUnit) }))
           .filter((it) => it.id && Number.isFinite(it.qtd))
       : [];
     // F2 — produtos NOVOS a criar (qtd<=0 é no-op: nada a adicionar). productId
@@ -741,7 +743,7 @@ export class LogisticaService {
     // DENTRO da tx (company-scoped — regra de ouro do preço vem junto).
     const novosItensValidos = Array.isArray(gps.novosItens)
       ? gps.novosItens
-          .map((it) => ({ productId: Math.trunc(Number(it?.productId)), qtd: Number(it?.qtdEntregue) }))
+          .map((it) => ({ productId: Math.trunc(Number(it?.productId)), qtd: Number(it?.qtdEntregue), preco: precoEditado((it as any)?.valorUnit) }))
           .filter((it) => Number.isInteger(it.productId) && it.productId > 0 && Number.isFinite(it.qtd) && it.qtd > 0)
       : [];
     // M8 — grava a idempotencyKey (unique) JUNTO com o status/GPS. Só grava se ainda
@@ -797,7 +799,13 @@ export class LogisticaService {
         for (const it of itensValidos) {
           await tx.entregaItem.updateMany({
             where: { id: it.id, entregaId: entrega.id },
-            data: { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) },
+            data: {
+              qtdEntregue: Math.max(0, Math.trunc(it.qtd)),
+              // Preço de HOJE (22/07): escopo de UMA entrega, dentro da mesma tx da
+              // quantidade. Não existe caminho daqui pro catálogo nem pro preço
+              // acordado do cliente — o passado não é reescrito.
+              ...(it.preco !== undefined ? { valorUnit: it.preco } : {}),
+            },
           });
         }
         // F2 — produtos NOVOS incluídos/trocados NA folha de chegada. SÓ roda na 1ª
@@ -831,7 +839,9 @@ export class LogisticaService {
                 productId: product.id,
                 qtdPrevista: novo.qtd,
                 qtdEntregue: novo.qtd,
-                valorUnit: Math.max(0, precoCatalogo),
+                // Preço editado na chegada vence o catálogo — SÓ neste item desta
+                // entrega (22/07). Sem edição, segue a regra de ouro de sempre.
+                valorUnit: novo.preco !== undefined ? novo.preco : Math.max(0, precoCatalogo),
               },
             });
             itensNovosCriados += 1;
@@ -857,7 +867,13 @@ export class LogisticaService {
             where: { entregaId: entrega.id },
             select: { qtdPrevista: true, qtdEntregue: true, valorUnit: true },
           });
-          if (itensRows.length > 0 && itensRows.some((it) => (Number(it.valorUnit) || 0) > 0)) {
+          // 22/07 — o "algum item tem preço > 0" sozinho travava o caso legítimo de
+          // ZERAR o preço na chegada (cortesia/brinde do dia): a soma daria 0, a
+          // condição seria falsa e a entrega ficaria com o valor velho. Preço
+          // explicitamente editado no payload também libera o recálculo.
+          const houvePrecoEditado =
+            itensValidos.some((it) => it.preco !== undefined) || novosItensValidos.some((it) => it.preco !== undefined);
+          if (itensRows.length > 0 && (houvePrecoEditado || itensRows.some((it) => (Number(it.valorUnit) || 0) > 0))) {
             const somaItens = round2(
               itensRows.reduce(
                 (sum, it) => sum + Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0) * Math.max(0, Number(it.valorUnit) || 0),
@@ -916,6 +932,16 @@ export class LogisticaService {
     // (whatsappStatus/whatsappMotivo + cobrancaOutcome), não só logado. Se algum
     // efeito FALHA, emite UM MasterEvent (trilha do cockpit master). Best-effort:
     // gravar o desfecho/emitir o evento NUNCA pode derrubar o confirmar.
+    // HISTÓRICO (22/07) — o saldo ANTES desta entrega tem que ser lido AQUI, antes
+    // de lançar/quitar a cobrança: depois de lançar, o "valor antigo" já não existe
+    // mais em lugar nenhum. É a foto que a tela do APK mostra ("Valor antigo").
+    const saldoAntes = await this.saldoAbertoPorClientes(companyId, [entrega.customerProfileId])
+      .then((m) => {
+        const s = m.get(entrega.customerProfileId);
+        return round2((s?.pendente || 0) + (s?.aguardando || 0));
+      })
+      .catch(() => 0);
+
     let whatsappSent = false;
     let cobrancaLancada = false;
     if (this.effectsEnabled && !jaEntregue && !reabertaParaCorrecao) {
@@ -940,10 +966,71 @@ export class LogisticaService {
       }
     }
 
+    // BOTÃO "PAGO" (22/07) — quita TODAS as cobranças ainda pendentes deste cliente,
+    // não só a de hoje. Roda DEPOIS do lancarCobranca (a charge de hoje já existe e,
+    // sendo pix/dinheiro, já nasceu quitada) e só com método imediato: 'fiado' NUNCA
+    // quita nada. Reusa quitarCharge — mesma trava atômica, mesma trilha de log, e o
+    // gancho do recovery vem junto. Best-effort: falhar aqui não desfaz a entrega.
+    let quitadas = 0;
+    let valorQuitado = 0;
+    if (gps.quitarAberto === true && (receiptMethod === 'pix' || receiptMethod === 'dinheiro')) {
+      try {
+        const pendentes = await this.prisma.financeiroCharge.findMany({
+          where: {
+            companyId,
+            customerProfileId: entrega.customerProfileId,
+            status: 'pending',
+            sourceModule: { in: ['logistica_entrega', 'logistica_fechamento'] },
+          },
+          select: { id: true, amount: true },
+        });
+        for (const p of pendentes) {
+          const r = await this.quitarCharge(companyId, p.id, { userId: actorIdOrNull(actor) });
+          if (r && !r.alreadyPaid) {
+            quitadas += 1;
+            valorQuitado = round2(valorQuitado + (Number(p.amount) || 0));
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(
+          `[logistica] quitar-aberto best-effort falhou entrega=${entrega.id} company=${companyId}: ${String(e?.message || e)}`,
+        );
+      }
+    }
+
+    // HISTÓRICO DO CLIENTE (22/07) — a linha que o entregador mostra na porta.
+    // Best-effort por decisão: registro NUNCA pode derrubar operação de rua.
+    await this.registrarHistorico(companyId, {
+      customerProfileId: entrega.customerProfileId,
+      entregaId: entrega.id,
+      tipo: receiptMethod === 'pix' || receiptMethod === 'dinheiro' ? 'pago' : 'entregue',
+      valorAnterior: saldoAntes,
+      valorEvento: round2(valorCobranca),
+      // Pago quita o total (saldo velho + hoje) → sobra zero. Entregue soma.
+      valorTotal:
+        receiptMethod === 'pix' || receiptMethod === 'dinheiro'
+          ? gps.quitarAberto === true
+            ? 0
+            : round2(saldoAntes)
+          : round2(saldoAntes + valorCobranca),
+      receiptMethod,
+      lat,
+      lng,
+      actor,
+    });
+
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
     await this.recalcularEtaSilencioso(companyId, actor);
 
-    return { id: entrega.id, status: 'entregue', effectsEnabled: this.effectsEnabled, whatsappSent, cobrancaLancada };
+    return {
+      id: entrega.id,
+      status: 'entregue',
+      effectsEnabled: this.effectsEnabled,
+      whatsappSent,
+      cobrancaLancada,
+      quitadas,
+      valorQuitado,
+    };
   }
 
   // ── REABRIR ENTREGA CONCLUÍDA ─────────────────────────────────────────────
@@ -1170,7 +1257,7 @@ export class LogisticaService {
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId, ...actorWhere },
-      select: { id: true, status: true, notes: true },
+      select: { id: true, status: true, notes: true, customerProfileId: true },
     });
     if (!entrega) return null;
     if (entrega.status === 'entregue') {
@@ -1182,6 +1269,15 @@ export class LogisticaService {
     await this.prisma.entrega.update({
       where: { id: entrega.id },
       data: { status: 'cancelada', notes },
+    });
+    // HISTÓRICO (22/07) — "Sem atendimento" também é visita, e é a linha que evita
+    // a discussão "vocês nunca vieram". Best-effort, nunca derruba o cancelamento.
+    await this.registrarHistorico(companyId, {
+      customerProfileId: entrega.customerProfileId,
+      entregaId: entrega.id,
+      tipo: 'sem_atendimento',
+      motivo: motivo?.trim() || null,
+      actor,
     });
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
     await this.recalcularEtaSilencioso(companyId, actor);
@@ -2288,6 +2384,172 @@ export class LogisticaService {
     return { id: charge.id, status: 'approved', paidAt: now.toISOString(), alreadyPaid: false };
   }
 
+  // ── HISTÓRICO DO CLIENTE (22/07) — log de visita, apagável, sem dinheiro junto ─
+  /**
+   * Grava UMA linha do histórico do cliente. Chamado no desfecho da visita
+   * (confirmarEntrega / cancelarEntrega).
+   *
+   * BEST-EFFORT POR DECISÃO: qualquer erro aqui é logado e engolido. Histórico é
+   * REGISTRO; se virar bloqueio, uma falha de escrita trava o entregador na porta
+   * do cliente — o oposto do que ele serve. O título é montado aqui (e não na
+   * tela) pra que o texto do passado nunca mude quando a tela mudar.
+   */
+  private async registrarHistorico(
+    companyId: number,
+    input: {
+      customerProfileId: string;
+      entregaId?: string | null;
+      tipo: 'entregue' | 'pago' | 'sem_atendimento';
+      valorAnterior?: number;
+      valorEvento?: number;
+      valorTotal?: number;
+      receiptMethod?: string | null;
+      motivo?: string | null;
+      lat?: number | null;
+      lng?: number | null;
+      actor?: LogisticaActor | null;
+    },
+  ): Promise<void> {
+    try {
+      if (!companyId || !input.customerProfileId) return;
+      const metodo = normalizeReceipt(input.receiptMethod);
+      const titulo =
+        input.tipo === 'pago'
+          ? 'Entregue e pagou'
+          : input.tipo === 'entregue'
+            ? 'Entregue, ficou devendo'
+            : 'Sem atendimento';
+      // Resumo dos itens: a MESMA frase que o app mostrou na chegada ("1× Galão
+      // 20L"), congelada. Sem isto o histórico de amanhã leria o produto de hoje.
+      let itensResumo: string | null = null;
+      if (input.entregaId) {
+        const itens = await this.prisma.entregaItem.findMany({
+          where: { entregaId: input.entregaId },
+          select: { qtdEntregue: true, qtdPrevista: true, product: { select: { name: true } } },
+          take: 12,
+        });
+        const partes = itens
+          .map((it) => {
+            const qtd = Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0);
+            const nome = String(it.product?.name || 'item').trim();
+            return qtd > 0 ? `${qtd}× ${nome}` : '';
+          })
+          .filter(Boolean);
+        itensResumo = partes.length ? partes.join(', ').slice(0, 240) : null;
+      }
+      await this.prisma.clienteHistorico.create({
+        data: {
+          companyId,
+          customerProfileId: input.customerProfileId,
+          entregaId: input.entregaId || null,
+          tipo: input.tipo,
+          titulo: titulo.slice(0, 120),
+          itensResumo,
+          valorAnterior: round2(input.valorAnterior || 0),
+          valorEvento: round2(input.valorEvento || 0),
+          valorTotal: round2(input.valorTotal || 0),
+          receiptMethod: metodo,
+          motivo: input.motivo ? String(input.motivo).slice(0, 240) : null,
+          lat: typeof input.lat === 'number' ? input.lat : null,
+          lng: typeof input.lng === 'number' ? input.lng : null,
+          registradoPorUserId: actorIdOrNull(input.actor ?? null),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(
+        `[logistica] histórico best-effort falhou cliente=${input.customerProfileId} company=${companyId}: ${String(e?.message || e)}`,
+      );
+    }
+  }
+
+  /**
+   * Histórico de UM cliente pro app do entregador. Company-scoped; cliente de outra
+   * empresa → null (o controller vira 404). Ordem: mais novo primeiro.
+   *
+   * GATE DE VALORES: com o módulo financeiro do tenant OFF, dinheiro não aparece em
+   * lugar nenhum da logística (regra M4) — os campos de valor voltam zerados, mas as
+   * linhas continuam (o "quando eu vim aqui" não é dado financeiro).
+   */
+  async historicoCliente(
+    companyId: number,
+    clienteId: string,
+    opts: { limit?: number; cursor?: string | null } = {},
+  ): Promise<{ items: ClienteHistoricoItem[]; nextCursor: string | null } | null> {
+    if (!companyId || !clienteId) return null;
+    const cliente = await this.prisma.customerProfile.findFirst({
+      where: { id: String(clienteId).trim(), companyId },
+      select: { id: true },
+    });
+    if (!cliente) return null;
+
+    // Mesma leitura de config do historicoEntregasCliente (regra M4), com o mesmo
+    // default seguro quando a config não existe/falha.
+    let financeiroOn = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      financeiroOn = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] histórico-cliente loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+
+    const take = clampLimit(opts.limit, 30, 100);
+    const cursor = String(opts.cursor || '').trim() || null;
+    const rows = await this.prisma.clienteHistorico.findMany({
+      where: { companyId, customerProfileId: cliente.id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const temMais = rows.length > take;
+    const pagina = temMais ? rows.slice(0, take) : rows;
+
+    return {
+      items: pagina.map((r) => ({
+        id: r.id,
+        tipo: r.tipo,
+        titulo: r.titulo,
+        itensResumo: r.itensResumo,
+        valorAnterior: financeiroOn ? r.valorAnterior : 0,
+        valorEvento: financeiroOn ? r.valorEvento : 0,
+        valorTotal: financeiroOn ? r.valorTotal : 0,
+        receiptMethod: financeiroOn ? r.receiptMethod : null,
+        motivo: r.motivo,
+        entregaId: r.entregaId,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      nextCursor: temMais ? pagina[pagina.length - 1].id : null,
+    };
+  }
+
+  /**
+   * Apaga UMA linha do histórico. Só a linha: Entrega e FinanceiroCharge ficam
+   * intactas (é o motivo desta tabela existir separada). Company-scoped.
+   */
+  async apagarHistorico(companyId: number, clienteId: string, historicoId: string): Promise<{ ok: boolean } | null> {
+    if (!companyId || !clienteId || !historicoId) return null;
+    const res = await this.prisma.clienteHistorico.deleteMany({
+      where: { id: String(historicoId).trim(), companyId, customerProfileId: String(clienteId).trim() },
+    });
+    return res.count > 0 ? { ok: true } : null;
+  }
+
+  /** Limpa o histórico inteiro de UM cliente. Mesma regra: não toca em dinheiro. */
+  async limparHistorico(companyId: number, clienteId: string): Promise<{ ok: boolean; removidos: number } | null> {
+    if (!companyId || !clienteId) return null;
+    const cliente = await this.prisma.customerProfile.findFirst({
+      where: { id: String(clienteId).trim(), companyId },
+      select: { id: true },
+    });
+    if (!cliente) return null;
+    const res = await this.prisma.clienteHistorico.deleteMany({
+      where: { companyId, customerProfileId: cliente.id },
+    });
+    return { ok: true, removidos: res.count };
+  }
+
   // ── W2 (contrato nº6) — SALDOS em aberto por cliente (visão da empresa) ──────
   /**
    * "Quem me deve": todos os clientes da empresa com saldo em aberto — charges
@@ -2583,6 +2845,16 @@ function round2(v: number): number {
   return Math.round((Number(v) || 0) * 100) / 100;
 }
 
+// PREÇO DE HOJE (22/07) — normaliza o valorUnit opcional que a folha de chegada
+// passou a mandar. `undefined` (campo ausente) é diferente de 0 (zerado de
+// propósito): só o ausente mantém o preço que já estava no item.
+function precoEditado(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return round2(n);
+}
+
 // W2 — limite de página do histórico: default quando ausente/inválido, teto duro.
 function clampLimit(v: number | undefined, def: number, max: number): number {
   const n = Math.trunc(Number(v));
@@ -2805,6 +3077,21 @@ export interface RotaRequisitosComprovante {
   codigoObrigatorio: boolean;
 }
 
+// HISTÓRICO DO CLIENTE (22/07) — uma linha da lista que o APK mostra na ficha.
+export interface ClienteHistoricoItem {
+  id: string;
+  tipo: string; // entregue | pago | sem_atendimento
+  titulo: string;
+  itensResumo: string | null;
+  valorAnterior: number;
+  valorEvento: number;
+  valorTotal: number;
+  receiptMethod: string | null;
+  motivo: string | null;
+  entregaId: string | null;
+  createdAt: string;
+}
+
 export interface ConfirmarGps {
   lat?: number;
   lng?: number;
@@ -2812,11 +3099,16 @@ export interface ConfirmarGps {
   // da coordenada do cliente (accuracy<=60m); nunca bloqueia a confirmação.
   accuracy?: number;
   receiptMethod?: string;
-  itens?: Array<{ id: string; qtdEntregue: number }>;
+  // `valorUnit` = preço de HOJE editado na chegada (22/07). Escopo de UMA entrega
+  // (ver ConfirmarEntregaItemDto): nunca vai pro catálogo nem pro preço acordado.
+  itens?: Array<{ id: string; qtdEntregue: number; valorUnit?: number }>;
   // F2 (08/07) — produtos NOVOS incluídos/trocados na folha de chegada (não
-  // previstos). O preço SEMPRE vem do servidor (regra de ouro) — este payload só
-  // carrega productId + qtd; jamais um preço vindo do cliente.
-  novosItens?: Array<{ productId: number; qtdEntregue: number }>;
+  // previstos). O preço vem do servidor (regra de ouro), EXCETO quando o entregador
+  // editou o valor de hoje na tela (valorUnit explícito — 22/07).
+  novosItens?: Array<{ productId: number; qtdEntregue: number; valorUnit?: number }>;
+  // Botão [Pago] da chegada: quita todo o saldo em aberto do cliente, não só a
+  // entrega de hoje. Só vale com receiptMethod imediato (pix|dinheiro).
+  quitarAberto?: boolean;
   // M8 (offline-first) — chave de idempotência (uuid do celular). Se a MESMA key já
   // foi gravada nesta entrega, o confirmar é um REPLAY (fila offline) → devolve o
   // desfecho anterior SEM re-executar WhatsApp/charge.
@@ -2835,6 +3127,10 @@ export interface ConfirmarResult {
   // M8 — true quando este confirmar foi um replay idempotente (mesma key já gravada):
   // nada foi re-executado, o desfecho é o da confirmação original.
   replayed?: boolean;
+  // Botão [Pago] (22/07): quantas cobranças antigas foram quitadas junto e quanto
+  // isso somou. 0/0 quando o botão foi [Entregue] ou não havia dívida velha.
+  quitadas?: number;
+  valorQuitado?: number;
 }
 
 // R4 — desfecho RICO dos efeitos (persistido na Entrega + base do MasterEvent de falha).

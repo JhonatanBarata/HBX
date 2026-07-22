@@ -179,7 +179,13 @@
     const confirmation = /^\/logistica\/entregas\/([^/]+)\/confirmar$/.exec(url.split("?")[0]);
     if (method === "POST" && confirmation) {
       const deliveryId = decodeURIComponent(confirmation[1]);
-      const receipt = receipts.get(deliveryId);
+      // 22/07: a folha de cobrança simples ("Entregue e pagou"/"Entregue, ficou
+      // devendo") JÁ manda o receiptMethod no corpo, e não tem — nem cabe — o
+      // painel "Como recebeu?" (o painel só se ancora na folha completa). Só o
+      // mapa local contava aqui, então a confirmação morria num aviso pedindo
+      // uma escolha que a tela não oferecia. Quem já veio decidido passa.
+      const bodyMethod = options && options.body && options.body.receiptMethod;
+      const receipt = receipts.get(deliveryId) || (bodyMethod ? String(bodyMethod) : "");
       if (paymentRequired(deliveryId) && !receipt) {
         refreshVisibleSheet();
         throw new Error("Escolha Pix, Dinheiro ou Fiado antes de confirmar.");

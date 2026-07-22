@@ -290,6 +290,7 @@ model Company {
   websiteAdminEntryTokens WebsiteAdminEntryToken[]
   contatos               Contato[]
   entregas               Entrega[]
+  clienteHistoricos      ClienteHistorico[]
   entregaComprovantes    EntregaComprovante[]
   clienteProdutos        ClienteProduto[]
   logisticaRoutes        LogisticaRoute[]
@@ -1130,6 +1131,8 @@ model CustomerProfile {
   vendasLeads          VendasLead[]
   contatos             Contato[]
   entregas             Entrega[]
+  // 22/07 — log de visita do APK (entregue/pago/sem atendimento). Ver ClienteHistorico.
+  historicos           ClienteHistorico[]
   clienteProdutos      ClienteProduto[]
   // MULTILOCAL (10/07) — N endereços de entrega da mesma CONTA (cobrança segue 1 só,
   // por customerProfileId; multi-local é só ONDE se entrega). Back-relation aditiva.
@@ -1268,6 +1271,7 @@ model Entrega {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   itens             EntregaItem[]
+  historicos        ClienteHistorico[]
   comprovantes      EntregaComprovante[]
   logisticaRouteStop LogisticaRouteStop?
   logisticaTrackingPoints LogisticaTrackingPoint[]
@@ -1283,6 +1287,43 @@ model Entrega {
   // mesmo dia (a checagem real é feita no serviço; este índice acelera a varredura).
   @@index([companyId, customerProfileId, scheduledAt])
   @@index([companyId, entregadorId, status, scheduledAt])
+}
+
+// HISTÓRICO DO CLIENTE (22/07, pedido do dono) — LOG DE VISITA, não financeiro.
+// Nasceu da pergunta "se a cliente perguntar um dia, onde está que ela pagou?":
+// o dado existia (Entrega.receiptMethod + FinanceiroCharge.paidAt) mas não tinha
+// tela no APK, que é justamente quem está na porta discutindo com o cliente.
+//
+// POR QUE TABELA PRÓPRIA e não derivar de Entrega: o dono também pediu APAGAR o
+// histórico. Apagar Entrega/FinanceiroCharge seria apagar dinheiro — aqui a linha
+// some e a cobrança fica intacta. Append-only: escrita só no desfecho da visita
+// (confirmar/cancelar), nunca editada depois. Todos os valores são FOTOGRAFIA do
+// instante (o saldo de amanhã não reescreve o que aconteceu hoje).
+model ClienteHistorico {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  // SetNull de propósito: apagar/limpar a entrega não pode levar embora o
+  // registro de que o cliente foi atendido e pagou.
+  entrega           Entrega? @relation(fields: [entregaId], references: [id], onDelete: SetNull)
+  entregaId         String?
+  tipo              String   // entregue | pago | sem_atendimento
+  titulo            String   @db.VarChar(120)
+  itensResumo       String?  @db.VarChar(240)
+  valorAnterior     Float    @default(0)
+  valorEvento       Float    @default(0)
+  valorTotal        Float    @default(0)
+  receiptMethod     String?  // pix | dinheiro | fiado | null
+  motivo            String?  @db.VarChar(240)
+  lat               Float?
+  lng               Float?
+  registradoPor     User?    @relation("ClienteHistoricoAutor", fields: [registradoPorUserId], references: [id], onDelete: SetNull)
+  registradoPorUserId Int?
+  createdAt         DateTime @default(now())
+
+  @@index([companyId, customerProfileId, createdAt])
 }
 
 // LOGÍSTICA MODOS PR1 (13/07) — agregado diário da rota. O modo comercial é
@@ -2178,6 +2219,7 @@ model User {
   entregasAtribuidasPorMim Entrega[] @relation("EntregaAtribuidaPor")
   entregasConfirmadas Entrega[] @relation("EntregaConfirmadaPor")
   entregasCodigoGeradoPorMim Entrega[] @relation("EntregaCodigoGeradoPor")
+  clienteHistoricos ClienteHistorico[] @relation("ClienteHistoricoAutor")
   entregaComprovantesEnviados EntregaComprovante[] @relation("EntregaComprovanteEnviadoPor")
   logisticaRoutesComoEntregador LogisticaRoute[] @relation("LogisticaRouteDriver")
   logisticaEssentialClaimsComoEntregador LogisticaEssentialCreditClaim[] @relation("LogisticaEssentialClaimDriver")

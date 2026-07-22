@@ -137,6 +137,9 @@ function buildPrismaMock(
       updateMany: async (args: any) => {
         const alvo = entregaItens.find((it) => it.id === args?.where?.id);
         if (alvo && args?.data?.qtdEntregue !== undefined) alvo.qtdEntregue = args.data.qtdEntregue;
+        // 22/07 — preço de HOJE editado na chegada. O mock espelha o Prisma real:
+        // o recompute do valor (findMany logo abaixo) precisa enxergar o preço novo.
+        if (alvo && args?.data?.valorUnit !== undefined) alvo.valorUnit = args.data.valorUnit;
         return { count: alvo ? 1 : 0 };
       },
       findMany: async () => entregaItens,
@@ -2470,4 +2473,118 @@ test('listRota: valorHoje soma EntregaItem.qtdPrevista×valorUnit quando a entre
 
   assert.equal(result.items[0].valorHoje, 32, '2×12 + 1×8 = 32 (Σ itens, ignora o r.valor=999)');
   assert.equal('valor' in result.items[0], false, 'valor cru continua ausente pro ator sem billing');
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHEGADA EDITÁVEL (22/07) — os DOIS caminhos que mexem em dinheiro de verdade.
+// Pedido do dono, nas palavras dele: "clicou em cima do valor, altera — MAS É O
+// VALOR ATUAL: se ontem vendeu por 10 e hoje é 50, vai ficar 60" e "[Pago] =
+// Pagamento {Valor total}" (dívida velha junto, não só a entrega do dia).
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Preço de HOJE: vale pra ESTA entrega e é o que a cobrança usa ─────────────
+test('CHEGADA: valorUnit editado na chegada manda na cobrança (e não toca o catálogo)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const itens = [{ id: 'item-1', qtdPrevista: 1, qtdEntregue: 1, valorUnit: 10 }];
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega({ valor: 10 }),
+    { id: 'conta-1', name: 'Lucilene', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+    itens,
+    { products: [{ id: 9, companyId: 1, price: 10, priceCents: 1000 }] },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -22.4, lng: -47.5,
+    receiptMethod: 'dinheiro',
+    itens: [{ id: 'item-1', qtdEntregue: 1, valorUnit: 50 }],
+  });
+
+  assert.equal(itens[0].valorUnit, 50, 'o item DESTA entrega passa a valer 50');
+  assert.equal(chargesCreated.length, 1, 'lança 1 cobrança');
+  assert.equal(chargesCreated[0].amount, 50, 'a cobrança sai com o preço EDITADO, não com o de catálogo');
+  assert.equal(res?.cobrancaLancada, true);
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── [Pago] quita a dívida velha junto, e é idempotente ────────────────────────
+test('CHEGADA: [Pago] com quitarAberto quita as cobranças antigas do cliente (idempotente)', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Lucilene', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  // "Banco" de cobranças ANTIGAS em aberto deste cliente (2 fiados de outros dias).
+  const antigas: any[] = [
+    { id: 'ch-velha-1', companyId: 1, customerProfileId: 'conta-1', status: 'pending', lifecycle: 'in_progress', amount: 20, paidAt: null, sourceModule: 'logistica_entrega' },
+    { id: 'ch-velha-2', companyId: 1, customerProfileId: 'conta-1', status: 'pending', lifecycle: 'in_progress', amount: 15, paidAt: null, sourceModule: 'logistica_entrega' },
+  ];
+  const baseFindFirst = prisma.financeiroCharge.findFirst;
+  prisma.financeiroCharge.findFirst = async (args: any) => {
+    const id = args?.where?.id;
+    if (id) return antigas.find((c) => c.id === id) ?? null;
+    return baseFindFirst(args);
+  };
+  prisma.financeiroCharge.findMany = async (args: any) =>
+    antigas.filter((c) => c.status === (args?.where?.status ?? c.status));
+  prisma.financeiroCharge.updateMany = async (args: any) => {
+    const alvo = antigas.find((c) => c.id === args?.where?.id && c.status === 'pending');
+    if (!alvo) return { count: 0 };
+    Object.assign(alvo, args.data);
+    return { count: 1 };
+  };
+
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+  const service = new LogisticaService(prisma, conversations, rota, config);
+
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -22.4, lng: -47.5, receiptMethod: 'dinheiro', quitarAberto: true });
+
+  assert.equal(res?.quitadas, 2, 'as 2 cobranças velhas foram quitadas junto');
+  assert.equal(res?.valorQuitado, 35, '20 + 15 = 35 quitados além da entrega de hoje');
+  assert.ok(antigas.every((c) => c.status === 'approved' && c.lifecycle === 'paid' && c.paidAt), 'todas viraram pagas');
+  assert.equal(chargesCreated.length, 1, 'a entrega de hoje continua lançando 1 charge só');
+
+  // Idempotência: tocar [Pago] de novo cai no replay por status (entrega já
+  // 'entregue') e NÃO re-executa nada — nem a cobrança do dia, nem a baixa das
+  // velhas. É o que impede um toque a mais de mexer no financeiro do cliente.
+  const pagoAntes = antigas.map((c) => String(c.paidAt));
+  const res2 = await service.confirmarEntrega(1, 'entrega-1', { lat: -22.4, lng: -47.5, receiptMethod: 'dinheiro', quitarAberto: true });
+  assert.equal(res2?.replayed, true, '2ª passada é replay (entrega já concluída)');
+  assert.ok(!res2?.quitadas, '2ª passada não quita nada de novo');
+  assert.deepEqual(antigas.map((c) => String(c.paidAt)), pagoAntes, 'paidAt original preservado');
+  assert.equal(chargesCreated.length, 1, 'nenhuma cobrança nova na 2ª passada');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+// ── Histórico é REGISTRO, nunca freio: falhar ao gravar não derruba a entrega ──
+test('CHEGADA: falha ao gravar histórico NÃO derruba a confirmação da entrega', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const { prisma } = buildPrismaMock(
+    buildEntrega(),
+    { id: 'conta-1', name: 'Lucilene', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+  );
+  prisma.clienteHistorico = { create: async () => { throw new Error('banco fora do ar'); } };
+
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+  const service = new LogisticaService(prisma, conversations, rota, config);
+
+  const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -22.4, lng: -47.5, receiptMethod: 'dinheiro' });
+  assert.equal(res?.status, 'entregue', 'a entrega fecha mesmo com o histórico falhando');
 });

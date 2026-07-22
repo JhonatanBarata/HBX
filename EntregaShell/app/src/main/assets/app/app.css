@@ -85,6 +85,110 @@ button:disabled { cursor: wait; opacity: .55; }
 .company-name-form .field { margin: 0; }
 .company-name-form .btn { min-height: 43px; }
 .icon-btn { position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface); }
+/* Ícones HBX no APK: SVG local, cor por token e movimento curto disparado pelo
+   toque. A geometria continua no catálogo `paths`; não há GIF, Lottie, filtro
+   nem loop permanente. Só transform, opacity e stroke-dashoffset. */
+.hbx-icon { display: block; flex: 0 0 auto; overflow: visible; transform-origin: center; }
+.hbx-icon > * { transform-box: fill-box; transform-origin: center; }
+
+/* Segunda cor: o traço principal continua herdando `currentColor`; somente a
+   parte semântica recebe um token. Em botão preenchido tudo volta a currentColor
+   para preservar contraste e o significado do componente. */
+.hbx-icon[data-hbx-icon="route"] > path,
+.hbx-icon[data-hbx-icon="refresh"] > path:first-of-type,
+.hbx-icon[data-hbx-icon="map"] > polygon,
+.hbx-icon[data-hbx-icon="gps"] > circle:last-of-type,
+.hbx-icon[data-hbx-icon="search"] > circle,
+.hbx-icon[data-hbx-icon="signal"] > path,
+.hbx-icon[data-hbx-icon="download"] > path:first-of-type,
+.hbx-icon[data-hbx-icon="wifi"] > path,
+.hbx-icon[data-hbx-icon="volume"] > path,
+.hbx-icon[data-hbx-icon="navigation"] > polygon { stroke: var(--info); }
+.hbx-icon[data-hbx-icon="route"] > circle:last-of-type,
+.hbx-icon[data-hbx-icon="users"] > path:last-of-type,
+.hbx-icon[data-hbx-icon="box"] > path:last-of-type,
+.hbx-icon[data-hbx-icon="gear"] > circle,
+.hbx-icon[data-hbx-icon="plus"] > path,
+.hbx-icon[data-hbx-icon="sales"] > path { stroke: var(--brand-strong); }
+.hbx-icon[data-hbx-icon="users"] > circle,
+.hbx-icon[data-hbx-icon="phone"] > path,
+.hbx-icon[data-hbx-icon="wa"] > path:first-of-type,
+.hbx-icon[data-hbx-icon="check"] > path,
+.hbx-icon[data-hbx-icon="wifi"] > circle,
+.hbx-icon[data-hbx-icon="play"] > polygon { stroke: var(--success); }
+.hbx-icon[data-hbx-icon="edit"] > path:last-of-type,
+.hbx-icon[data-hbx-icon="box"] > path:first-of-type,
+.hbx-icon[data-hbx-icon="moon"] > path,
+.hbx-icon[data-hbx-icon="wallet"] > path:last-of-type,
+.hbx-icon[data-hbx-icon="logout"] > path:last-of-type,
+.hbx-icon[data-hbx-icon="calendar"] > path,
+.hbx-icon[data-hbx-icon="lock"] > rect { stroke: var(--warning); }
+.hbx-icon[data-hbx-icon="trash"] > path,
+.hbx-icon[data-hbx-icon="volumeOff"] > path:last-of-type { stroke: var(--danger); }
+.hbx-icon[data-hbx-icon="calendar"] > rect,
+.hbx-icon[data-hbx-icon="gps"] > circle:first-of-type { stroke: var(--brand-strong); }
+.btn-primary .hbx-icon > *, .btn-danger .hbx-icon > *, .btn-dark .hbx-icon > *,
+.route-follow-control.is-following .hbx-icon > * { stroke: currentColor; }
+
+/* Uma microanimação por toque. O repouso é sempre estático; cada ícone move a
+   parte que explica sua ação, em vez de repetir o pulso do estado “Gravando”. */
+.hbx-icon.is-animating { animation: hbx-icon-pop .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="gear"],
+.hbx-icon.is-animating[data-hbx-icon="refresh"] { animation-name: hbx-icon-turn; }
+.hbx-icon.is-animating[data-hbx-icon="plus"],
+.hbx-icon.is-animating[data-hbx-icon="close"] { animation-name: hbx-icon-quarter-turn; }
+.hbx-icon.is-animating[data-hbx-icon="phone"],
+.hbx-icon.is-animating[data-hbx-icon="wa"] { animation-name: hbx-icon-ring; }
+.hbx-icon.is-animating[data-hbx-icon="moon"] { animation-name: hbx-icon-float; }
+.hbx-icon.is-animating[data-hbx-icon="map"] { animation-name: hbx-icon-fold; }
+.hbx-icon.is-animating[data-hbx-icon="gps"],
+.hbx-icon.is-animating[data-hbx-icon="search"] { animation-name: hbx-icon-focus; }
+.hbx-icon.is-animating[data-hbx-icon="sales"],
+.hbx-icon.is-animating[data-hbx-icon="signal"] { animation-name: hbx-icon-bars; transform-origin: center bottom; }
+.hbx-icon.is-animating[data-hbx-icon="trash"] { animation-name: hbx-icon-shake; }
+.hbx-icon.is-animating[data-hbx-icon="play"] { animation-name: hbx-icon-play; }
+.hbx-icon.is-animating[data-hbx-icon="stop"] { animation-name: hbx-icon-stop; }
+.hbx-icon.is-animating[data-hbx-icon="navigation"] { animation-name: hbx-icon-flight; }
+.hbx-icon.is-animating[data-hbx-icon="route"] > path,
+.hbx-icon.is-animating[data-hbx-icon="check"] > path,
+.hbx-icon.is-animating[data-hbx-icon="volumeOff"] > path:last-of-type {
+  stroke-dasharray: 64; animation: hbx-icon-draw .56s cubic-bezier(.2,.78,.2,1) both;
+}
+.hbx-icon.is-animating[data-hbx-icon="route"] > circle { animation: hbx-icon-node .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="route"] > circle:last-of-type { animation-delay: .1s; }
+.hbx-icon.is-animating[data-hbx-icon="edit"] > path:last-of-type { animation: hbx-icon-write .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="users"] > path:last-of-type { animation: hbx-icon-part-right .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="box"] > path:first-of-type,
+.hbx-icon.is-animating[data-hbx-icon="calendar"] > path,
+.hbx-icon.is-animating[data-hbx-icon="lock"] > path:last-of-type { animation: hbx-icon-part-up .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="wallet"] > path:last-of-type,
+.hbx-icon.is-animating[data-hbx-icon="logout"] > path:last-of-type { animation: hbx-icon-part-right .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="download"] > path:first-of-type { animation: hbx-icon-drop .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="gps"] > circle:last-of-type,
+.hbx-icon.is-animating[data-hbx-icon="wifi"] > circle { animation: hbx-icon-node .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="wifi"] > path,
+.hbx-icon.is-animating[data-hbx-icon="volume"] > path { animation: hbx-icon-wave .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="volume"] > path:last-of-type { animation-delay: .08s; }
+
+@keyframes hbx-icon-pop { 0% { opacity: .45; transform: scale(.82); } 58% { opacity: 1; transform: scale(1.09); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes hbx-icon-turn { 0% { transform: rotate(-30deg) scale(.88); } 68% { transform: rotate(10deg) scale(1.05); } 100% { transform: rotate(0) scale(1); } }
+@keyframes hbx-icon-quarter-turn { 0% { transform: rotate(-68deg) scale(.84); } 64% { transform: rotate(7deg) scale(1.06); } 100% { transform: rotate(0) scale(1); } }
+@keyframes hbx-icon-ring { 0%, 100% { transform: rotate(0) scale(1); } 22% { transform: rotate(-10deg) scale(.94); } 46% { transform: rotate(8deg) scale(1.05); } 70% { transform: rotate(-4deg); } }
+@keyframes hbx-icon-float { 0% { opacity: .5; transform: translateY(2px) rotate(-5deg); } 62% { opacity: 1; transform: translateY(-2px) rotate(3deg); } 100% { transform: translateY(0) rotate(0); } }
+@keyframes hbx-icon-fold { 0% { opacity: .55; transform: scaleX(.72) skewY(-4deg); } 65% { opacity: 1; transform: scaleX(1.05) skewY(1deg); } 100% { transform: scaleX(1) skewY(0); } }
+@keyframes hbx-icon-focus { 0% { opacity: .45; transform: translate(-1px,-1px) scale(.76); } 58% { opacity: 1; transform: translate(0,0) scale(1.11); } 100% { transform: scale(1); } }
+@keyframes hbx-icon-bars { 0% { opacity: .4; transform: scaleY(.42); } 64% { opacity: 1; transform: scaleY(1.08); } 100% { transform: scaleY(1); } }
+@keyframes hbx-icon-shake { 0%, 100% { transform: translateX(0) rotate(0); } 24% { transform: translateX(-1.5px) rotate(-7deg); } 48% { transform: translateX(1.5px) rotate(6deg); } 72% { transform: translateX(-.5px) rotate(-2deg); } }
+@keyframes hbx-icon-play { 0% { opacity: .4; transform: translateX(-2px) scale(.76); } 62% { opacity: 1; transform: translateX(1px) scale(1.1); } 100% { transform: translateX(0) scale(1); } }
+@keyframes hbx-icon-stop { 0% { opacity: .45; transform: scale(1.18); } 55% { opacity: 1; transform: scale(.88); } 100% { transform: scale(1); } }
+@keyframes hbx-icon-flight { 0% { opacity: .4; transform: translate(-2px,2px) rotate(-8deg) scale(.82); } 62% { opacity: 1; transform: translate(1px,-1px) rotate(3deg) scale(1.06); } 100% { transform: translate(0,0) rotate(0) scale(1); } }
+@keyframes hbx-icon-draw { from { opacity: .3; stroke-dashoffset: 64; } to { opacity: 1; stroke-dashoffset: 0; } }
+@keyframes hbx-icon-node { 0% { opacity: .25; transform: scale(.35); } 62% { opacity: 1; transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes hbx-icon-write { 0% { opacity: .35; transform: translate(-2px,2px) rotate(-7deg); } 66% { opacity: 1; transform: translate(1px,-1px) rotate(2deg); } 100% { transform: translate(0,0) rotate(0); } }
+@keyframes hbx-icon-part-right { 0% { opacity: .25; transform: translateX(-3px); } 66% { opacity: 1; transform: translateX(1px); } 100% { transform: translateX(0); } }
+@keyframes hbx-icon-part-up { 0% { opacity: .35; transform: translateY(3px); } 62% { opacity: 1; transform: translateY(-1px); } 100% { transform: translateY(0); } }
+@keyframes hbx-icon-drop { 0% { opacity: .3; transform: translateY(-4px); } 65% { opacity: 1; transform: translateY(1px); } 100% { transform: translateY(0); } }
+@keyframes hbx-icon-wave { 0% { opacity: .15; transform: scale(.7); } 62% { opacity: 1; transform: scale(1.08); } 100% { transform: scale(1); } }
 .sync-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 18%, transparent); }
 .sync-dot.offline { background: var(--warning); }
 /* S1 21/07 (achado 8) — o FAB (bottom:66px, 44px de altura) tinha o topo a
@@ -1078,6 +1182,53 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 @media (min-width: 820px) {
   html.leitura-route-active .bottom-nav, html.leitura-route-active .bottom-nav.is-centered { transform: translateX(-110%); }
 }
+/* ── CHEGADA EDITÁVEL + HISTÓRICO (22/07, pedido do dono) ───────────────────────
+   Tudo por token (Lei 2). Os dois verdes mantêm o papel fixo: esmeralda (--cta) só
+   na ação principal [Pago]; limão (--brand) na confirmação [Entregue]. Alvos de
+   toque >= 48px porque isto é operação de rua, com o celular numa mão só. */
+.chegada-box { margin: 16px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); }
+.chegada-box-titulo { display: block; margin-bottom: 10px; text-align: center; }
+.chegada-linha { display: flex; align-items: center; gap: 12px; }
+.chegada-linha + .chegada-linha { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.chegada-stepper { display: grid; justify-items: center; gap: 2px; }
+.chegada-seta { display: grid; place-items: center; width: 58px; height: 40px; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--brand-strong); }
+.chegada-seta:active { background: var(--brand-soft); }
+.chegada-qtd { min-width: 58px; text-align: center; font-size: 1.9rem; font-weight: 850; color: var(--brand-strong); }
+.chegada-produto-col { display: grid; flex: 1; min-width: 0; gap: 6px; }
+.chegada-produto { min-height: 54px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 1.05rem; font-weight: 800; text-align: left; }
+.chegada-preco { min-height: 44px; padding: 6px 12px; border: 1px dashed var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 1.05rem; font-weight: 800; text-align: left; }
+.chegada-preco i { font-style: normal; font-size: .72rem; font-weight: 700; color: var(--brand-strong); }
+.chegada-preco-form { display: flex; gap: 8px; }
+.chegada-preco-input { flex: 1; min-width: 0; min-height: 44px; }
+.chegada-preco-ok { display: grid; place-items: center; width: 48px; min-height: 44px; padding: 0; border: 0; border-radius: 12px; background: var(--brand); color: #17210f; }
+.chegada-picker { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.chegada-picker button { min-height: 48px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-weight: 700; }
+.chegada-conta { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); text-align: left; }
+.chegada-conta-linha { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 3px 0; color: var(--muted); font-size: .92rem; }
+.chegada-conta-linha b { color: var(--ink); font-size: 1.05rem; }
+.chegada-conta-total { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.chegada-conta-total b { font-size: 1.6rem; color: var(--danger); }
+.chegada-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.chegada-btn { min-height: 64px; margin-top: 0; border: 0; border-radius: 16px; font-size: 1.05rem; }
+.chegada-btn-pago { background: var(--cta); color: #0a2a13; }
+.chegada-btn-entregue { background: var(--brand); color: #17210f; }
+.chegada-btn-sem { grid-column: 1 / -1; justify-self: center; width: 78%; min-height: 48px; border: 1px solid var(--line); border-radius: 14px; background: transparent; color: var(--muted); font-weight: 700; }
+.stop-actions-done { display: flex; justify-content: flex-end; margin-top: 10px; }
+.stop-actions-done .btn { min-height: 40px; padding: 0 14px; }
+.historico-abrir { margin-top: 10px; }
+.historico-lista { display: grid; gap: 8px; }
+.historico-item { position: relative; overflow: hidden; display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); text-align: left; -webkit-user-select: none; user-select: none; }
+.historico-item::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.historico-item.is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.historico-item.is-holding::after { transform: scaleX(1); }
+.historico-item.is-holding { border-color: var(--danger); }
+.historico-item-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: .98rem; }
+.historico-item small { color: var(--muted); font-size: .8rem; }
+.historico-item.is-sem-atendimento .historico-item-topo strong { color: var(--warning); }
+.historico-dica { margin: 10px 0 0; text-align: center; font-size: .78rem; }
+.historico-rodape { display: flex; justify-content: center; padding: 4px 0 2px; }
+.historico-limpar { color: var(--danger); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
   .route-current-location::after { animation: none !important; opacity: .38; transform: scale(1.1); }

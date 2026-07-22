@@ -279,6 +279,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // não afeta os segments de path; allowlist trava só route/table.
         method == "GET" && segments == listOf("logistica", "osrm", "route") -> true
         method == "GET" && segments == listOf("logistica", "osrm", "table") -> true
+        // HISTÓRICO DO CLIENTE (22/07) — GET /logistica/clientes/:id/historico.
+        method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
         method == "POST" && segments in listOf(
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "mobile", "materialize"),
@@ -309,6 +311,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "PATCH" && segments.size == 3 && segments[0] == "nucleo" && segments[1] in setOf("contas", "locais", "telefones") -> true
         // PR20072026 W2 — PATCH/DELETE de uma parada dentro da sessão de leitura.
         method == "PATCH" && segments.size == 5 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "parada" -> true
+        // HISTÓRICO (22/07) — apagar UMA linha (segurar pressionado) ou o histórico
+        // inteiro do cliente. Apaga só o registro da visita; dinheiro fica intacto.
+        method == "DELETE" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
+        method == "DELETE" && segments.size == 5 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("nucleo", "contas") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true

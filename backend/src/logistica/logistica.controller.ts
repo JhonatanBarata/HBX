@@ -171,6 +171,8 @@ export class LogisticaController {
       receiptMethod: dto?.receiptMethod,
       itens: dto?.itens,
       novosItens: dto?.novosItens,
+      // Botão [Pago] da chegada (22/07): quita o saldo em aberto junto.
+      quitarAberto: dto?.quitarAberto,
       idempotencyKey: dto?.idempotencyKey,
       comprovanteFotoId: dto?.comprovanteFotoId,
       comprovanteAssinaturaId: dto?.comprovanteAssinaturaId,
@@ -395,6 +397,55 @@ export class LogisticaController {
       limit: limit != null && String(limit).trim() !== '' ? Number(limit) : undefined,
       cursor,
     });
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  // ── HISTÓRICO DO CLIENTE (22/07) — a ficha que o entregador abre na porta ────
+
+  /**
+   * Log de VISITA de um cliente (entregue / pago / sem atendimento), alimentado
+   * pelo desfecho da chegada. Não confundir com `clientes/:id/entregas`, que é a
+   * visão gerencial ADMIN-only: este aqui é a resposta pro cliente na porta, então
+   * usa o MESMO gate do `GET rota` (sessão + escopo de empresa), sem @Admin — quem
+   * dirige a rota é justamente quem precisa responder "quando eu vim e o que pagou".
+   * Valores respeitam a regra M4 (financeiro do tenant OFF = sem dinheiro na tela).
+   * Cliente de outra empresa → 404.
+   */
+  @Get('clientes/:id/historico')
+  async historicoCliente(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.historicoCliente(companyId, id, {
+      limit: limit != null && String(limit).trim() !== '' ? Number(limit) : undefined,
+      cursor,
+    });
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  /**
+   * Apaga UMA linha do histórico (gesto de segurar pressionado no app). Apaga só o
+   * REGISTRO DA VISITA: a entrega e a cobrança continuam no financeiro — foi por
+   * isso que o histórico nasceu em tabela própria. Linha inexistente → 404.
+   */
+  @Delete('clientes/:id/historico/:historicoId')
+  async apagarHistorico(@Req() req: any, @Param('id') id: string, @Param('historicoId') historicoId: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.apagarHistorico(companyId, id, historicoId);
+    if (!res) throw new NotFoundException('Registro não encontrado');
+    return res;
+  }
+
+  /** Limpa o histórico inteiro de um cliente. Mesma regra: não toca em dinheiro. */
+  @Delete('clientes/:id/historico')
+  async limparHistorico(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.limparHistorico(companyId, id);
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
   }

@@ -151,6 +151,14 @@ export class ConfirmarEntregaDto {
   @IsString()
   @MaxLength(12)
   comprovanteCodigo?: string;
+
+  // BOTÃO "PAGO" DA CHEGADA (22/07) — o dono pediu que Pago cobrisse o VALOR
+  // TOTAL (dívida velha + entrega de hoje), não só a entrega do dia. Sem isto o
+  // app quitava só a cobrança nova e a dívida antiga ficava órfã no financeiro.
+  // Só tem efeito junto de receiptMethod imediato (pix|dinheiro): fiado não quita.
+  @IsOptional()
+  @IsBoolean()
+  quitarAberto?: boolean;
 }
 
 // Um item confirmado no stepper (id do EntregaItem + qtd entregue).
@@ -163,6 +171,19 @@ export class ConfirmarEntregaItemDto {
   @Min(0)
   @Max(9999)
   qtdEntregue!: number;
+
+  // PREÇO DE HOJE (22/07, pedido do dono: "clicou em cima do valor, altera —
+  // MAS É O VALOR ATUAL: se ontem vendeu por 10 e hoje é 50, vai ficar 60").
+  // ABERTURA CONSCIENTE da regra de ouro do preço: aqui o preço VEM do aparelho
+  // porque quem negocia na porta é o entregador. O alcance é UMA entrega: grava
+  // no EntregaItem DESTA entrega e nada mais — não toca Product.precoCatalogo
+  // nem ClienteProduto.precoAcordado, e não reescreve entrega passada. Ausente =
+  // comportamento de sempre (preço que já estava no item).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(999999)
+  valorUnit?: number;
 }
 
 // F2 (08/07) — um produto NOVO adicionado/trocado na folha de chegada. Só
@@ -176,6 +197,14 @@ export class ConfirmarNovoItemDto {
   @Min(0)
   @Max(9999)
   qtdEntregue!: number;
+
+  // Mesma abertura do ConfirmarEntregaItemDto.valorUnit (preço de HOJE, escopo
+  // de UMA entrega). Ausente = preço de catálogo, como sempre foi.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(999999)
+  valorUnit?: number;
 }
 
 // ── Cancelar entrega ─────────────────────────────────────────────────────────
