@@ -1443,8 +1443,21 @@
     // cortaria os controles; o limite passa a ser o viewport realmente visível.
     const visibleBottom = Number(window.visualViewport && window.visualViewport.height || window.innerHeight || measuredNavTop);
     const navTop = leituraRouteActive() ? Math.min(measuredNavTop, visibleBottom) : measuredNavTop;
-    const shellTop = shell.getBoundingClientRect().top;
-    const livre = navTop - shellTop;
+    // 22/07 — o topo do shell é medido em relação à JANELA, mas a nav é
+    // position:fixed e NÃO anda com a rolagem. Com a página rolada S px o
+    // shellTop vinha S menor e `livre` saía S MAIOR: o mapa crescia, a página
+    // passava a transbordar, e o fitRouteMap seguinte (são 4 por render, mais
+    // todo resize) media com um scroll ainda maior — bola de neve. Resultado:
+    // mapa gigante, controles e play empurrados pra fora e o resto da tela só
+    // aparecendo se rolar. Somar o scroll de volta devolve os dois lados ao
+    // mesmo referencial: a tela como ela fica SEM rolagem, que é o layout que a
+    // Rota quer. (Quem começa a rolagem é o scrollIntoView do teclado nos campos
+    // dos modais — buscar/editar cliente antes de excluir.)
+    const scrolled = Math.max(0, Math.round(window.scrollY || document.documentElement.scrollTop || 0));
+    const shellTop = shell.getBoundingClientRect().top + scrolled;
+    // Teto duro: erre a medição por onde errar, o mapa nunca passa do que cabe
+    // na tela visível. É o freio pra isto não virar transbordo de novo.
+    const livre = Math.min(navTop - shellTop, Math.max(0, visibleBottom - shellTop));
     if (!(livre > 0)) return;
     // Rota pausada troca o play por uma faixa de altura própria: aí só se dá ao
     // mapa o que sobra, sem mexer na faixa.
