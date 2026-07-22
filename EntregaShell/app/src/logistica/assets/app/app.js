@@ -262,7 +262,6 @@
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
   let routeMapLayoutTimers = [];
-  let lastRouteTransmuxState = null;
   // S1 21/07 (PR21072026-NAVEGAÇÃO) — último fix de GPS conhecido, setado por
   // currentPosition() sempre que qualquer fluxo do app pede localização. Usado
   // pelo painel "Próxima parada" pra mostrar a distância reta até a parada sem
@@ -403,7 +402,15 @@
   function storedRouteOrder(item) { const raw = item && item.rotaOrdem; return raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw)) ? Number(raw) : null; }
   function orderedItems() { return items().map((item, index) => ({ item, index, order: storedRouteOrder(item) })).sort((a, b) => a.order === null && b.order === null ? a.index - b.index : a.order === null ? 1 : b.order === null ? -1 : a.order - b.order).map(row => row.item); }
   function openItems() { return orderedItems().filter(item => item.status === "agendada" || item.status === "em_rota"); }
-  function routePlanned() { const open = openItems(); return open.length > 0 && open.every(item => storedRouteOrder(item) !== null); }
+  // Uma rota continua pronta quando já existem paradas ordenadas, mesmo que
+  // uma entrega nova ainda esteja sem ordem. Também continua pronta após um
+  // encerramento operacional com paradas abertas: o backend permite iniciar a
+  // segunda leva no mesmo dia e replaneja essas paradas. Nesses dois casos,
+  // "Montar rota" fica como ação lateral para adicionar e replanejar.
+  function routePlanned() {
+    const open = openItems();
+    return open.length > 0 && (open.some(item => storedRouteOrder(item) !== null) || state.route.routeStatus === "ENCERRADA");
+  }
   function deliveredItems() { return items().filter(item => item.status === "entregue"); }
   function isAdmin() { return !!state.config && Object.prototype.hasOwnProperty.call(state.config, "modoRotaPadrao"); }
   // PR18072026 Módulo Financeiro — chaves operacionais que o backend defaulta
@@ -1579,11 +1586,11 @@
     };
     // O herói inteiro (mapa + faixa de controles + barra de progresso) recebe o
     // espaço livre; o mapa é `flex: 1 1 auto` e fica com o que sobrar. Como esta
-    // conta só depende do topo do herói e da nav, ela NÃO muda quando a faixa
-    // troca de play pra "Rota pausada" — por isso o mapa não pula mais.
+    // conta só depende do topo do herói e da nav, ela não muda entre os quatro
+    // estados iconográficos da rota.
     escrever("--hbx-route-hero-h", `${Math.round(livre)}px`);
-    // Rota pausada troca o play por uma faixa de altura própria: aí a faixa fica
-    // com a altura natural dela e o mapa absorve o resto sozinho, no flex.
+    // Na Leitura de rota entra outro conjunto de controles, sem o disco central;
+    // nesse caso a altura continua natural e o mapa absorve o restante.
     if (!play) { escrever("--hbx-route-controls-h", "auto"); return; }
     // A faixa do play recebe a altura do próprio play + a MESMA folga dos dois
     // lados, e termina exatamente na nav. Como o play é centrado nela, o espaço
@@ -3513,7 +3520,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${lrtBannerHtml ? `<div class="lrt-banner">${lrtBannerHtml}</div>` : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
@@ -3530,14 +3537,6 @@
       <button type="button" class="leitura-route-recording" data-action="leitura-finalizar-iniciar" aria-label="Gravando rota"><span class="leitura-route-recording-dot" aria-hidden="true"></span><strong>Gravando</strong></button>
       <button type="button" class="leitura-route-action leitura-route-action--checkpoint" data-action="leitura-cadastrar-local" aria-label="${checkpointLabel}" ${state.leituraCapturing ? "disabled" : ""}>${icon("gps", 22)}<strong>${checkpointLabel}</strong></button>
     </div>`;
-  }
-  function routePausedBanner() {
-    // 22/07 — a faixa de pausada era o ÚNICO par de ações da tela sem glifo:
-    // ficava de texto puro no meio de uma tela onde todo botão tem ícone
-    // (`${icon(...)} Rótulo` dentro de .btn, que já é inline-flex com gap).
-    // play/stop são os mesmos glifos do disco de transmux, então a faixa fala a
-    // mesma língua do botão que ela substitui.
-    return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route" data-hbx-motion>${icon("play", 16)} Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route" data-hbx-motion>${icon("stop", 16)} Encerrar rota</button></div></div>`;
   }
   // S1 21/07 (PR21072026-NAVEGAÇÃO) — overlay compacto no topo do mapa da Rota,
   // irmão do #route-live-map (o mapa é transplantado, este painel não — ele
@@ -3566,82 +3565,37 @@
     const muteBtn = navModeActive() ? `<button type="button" class="route-next-panel-mute${state.navMudo ? " is-muted" : ""}" data-action="nav-mute-toggle" aria-label="${state.navMudo ? "Ativar voz da navegação" : "Silenciar voz da navegação"}">${icon(state.navMudo ? "volumeOff" : "volume", 18)}</button>` : "";
     return `<div class="route-next-panel" data-delivery="${H.escape(next.id)}" role="button" tabindex="0" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(routeNextStopSubText(next))}</span>${muteBtn}</div>`;
   }
-  function routeTransmuxControl(planned) {
-    // Chamada só quando a rota NÃO está pausada (routeScreen troca pra
-    // routePausedBanner() nesse caso) — então esta seta nunca pode calcular um
-    // estado "verde/planejar" fantasma com rota viva pausada no servidor.
+  function routeTransmuxControl(planned, paused) {
     const active = routeActive();
-    const current = active ? "stop" : planned ? "gps" : "play";
-    const initial = lastRouteTransmuxState && lastRouteTransmuxState !== current ? lastRouteTransmuxState : current;
-    const action = active ? "stop-route" : current === "gps" ? "start-planned-route" : "plan-route";
-    const label = active ? "Parar rota" : current === "gps" ? "Iniciar rota" : "Planejar rota";
-    // Commit de lastRouteTransmuxState foi movido pro render() (depois que a
-    // morfagem realmente dispara no rAF) — commitar aqui, na hora de montar o
-    // HTML, matava a transmorfagem no rebuild do botão (o .content é recriado a
-    // cada render, então o rAF pendente apontava pro elemento antigo e o botão
-    // novo já nascia com data-state === data-next-state, sem morfar).
-    const clearDayVisible = !active && isAdmin() && openItems().length > 0;
-    // S1 21/07 (PR21072026-NAVEGAÇÃO, decisão do dono) — ordem VISUAL
-    // esquerda->direita: [destrutivo] [GPS avançado] [DISCO PLAY], numa linha
-    // flex (CSS), com as ações/confirmações originais intocadas.
-    // 22/07 (pedido do dono) — os satélites nasciam de 4 literais copiados, cada
-    // um com seu gradiente em hex, seu glifo desenhado à mão e sua espessura de
-    // traço: era isso o "cada um tem um layout". Agora existe UM gerador. Quem
-    // pede um botão diz só ação/rótulo/tom/glifo; disco, anel, brilho, paleta e
-    // tamanho vêm de um lugar só. O glifo sai do catálogo (icon()), então nenhum
-    // path solto sobrevive aqui.
-    // S2 22/07 (APK-PROFISSIONAL) — `motion` é opt-in explícito por chamada,
-    // não um bônus automático de todo satélite: só o "Encerrar rota" (mesma
-    // ação do par play/stop do banner pausado) pede.
-    const routeSatellite = (cls, action, label, glifo, motion) => `<button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}"${motion ? " data-hbx-motion" : ""}>${icon(glifo, 21)}</button>`;
-    // TETO DE 3 ÍCONES na linha: [1 destrutivo] [rota externa] [principal].
-    // "Cancelar planejamento" e "Limpar o dia" podiam aparecer JUNTOS (rota
-    // planejada + entregas abertas) e a linha virava 4 — a "zona" reclamada.
-    // Com rota planejada, o destrutivo certo é cancelar o planejamento; sem
-    // planejamento, limpar o dia continua aparecendo normalmente. Nenhuma ação
-    // sumiu: cada uma manda no seu contexto.
-    const destrutivo = active
-      ? routeSatellite("route-cancel-icon", "finish-route", "Encerrar rota", "stop", true)
+    const main = paused
+      ? { state: "resume", action: "resume-route", label: "Continuar rota", caption: "Continuar", glifo: "play" }
+      : active
+        ? { state: "stop", action: "stop-route", label: "Parar rota", caption: "Parar", glifo: "stop" }
+        : planned
+          ? { state: "ready", action: "start-planned-route", label: "Continuar rota", caption: "Continuar", glifo: "play" }
+          : { state: "plan", action: "plan-route", label: "Planejar rota", caption: "Montar rota", glifo: "route" };
+    const clearDayVisible = !active && !paused && isAdmin() && openItems().length > 0;
+    const routeSatellite = (cls, action, label, caption, glifo, motion) => `<span class="route-control-unit route-control-unit--satellite"><button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}"${motion ? " data-hbx-motion" : ""}>${icon(glifo, 21)}</button><small class="route-control-label">${H.escape(caption)}</small></span>`;
+    // A ação de encerramento/cancelamento/limpeza fica sempre à esquerda. Ela
+    // continua protegida pela confirmação original, mas o glifo é neutro como
+    // os demais satélites — cor cheia pertence só ao estado principal.
+    const leftIcon = active || paused
+      ? routeSatellite("route-cancel-icon", "finish-route", "Encerrar rota", "Encerrar", "stop", true)
       : planned && isAdmin()
-        ? routeSatellite("route-cancel-icon is-destructive", "cancel-route", "Cancelar planejamento", "close")
+        ? routeSatellite("route-cancel-icon", "cancel-route", "Cancelar planejamento", "Cancelar", "close")
         : clearDayVisible
-          ? routeSatellite("route-cancel-icon is-destructive", "clear-day-request", "Limpar o dia", "trash")
+          ? routeSatellite("route-cancel-icon", "clear-day-request", "Limpar o dia", "Limpar", "trash")
           : "";
-    // "Abrir GPS avançado" (Waze/Maps) — data-action="show-map" já existe
-    // (abrirNavegacao(openItems()[0])).
-    const navVisible = openItems().length > 0 && (active || planned);
-    const navIcon = navVisible ? routeSatellite("route-nav-external", "show-map", "Abrir no Waze ou Google Maps", "navigation") : "";
-    // S5 22/07 (APK-PROFISSIONAL) — os 3 símbolos do disco (play/gps/stop) saem
-    // da MESMA geometria do catálogo `paths` (play/stop/navigation), escalada
-    // da grade 24 pro viewBox 120 (fator 5) — cada glifo aqui era desenhado à
-    // mão com os 5 valores cravados (branco sólido, azul e vermelho sólidos
-    // + as versões translúcidas dos dois); a cor agora vem 100% de app.css (--route-icon-on/
-    // --route-icon-nav via classe, nunca atributo `fill=` solto). `stop` era
-    // um octógono de placa com barra vermelha — vira o `rect rx` do catálogo,
-    // igual ao ícone `stop` do resto do app. `gps` usa o glifo `navigation`
-    // (seta de "me leve", mesma linguagem do satélite "Abrir no Waze/Maps"
-    // acima) — girado pelas MESMAS regras de rotação por estado que já
-    // existiam em app.css; a orientação de repouso da seta pode pedir ajuste
-    // fino de grau depois de ver no aparelho (ver ressalva no RESULTADO).
-    // O pin (marcador de local, estado "gps") e a linha/ponto da rota
-    // continuam com a geometria própria de cena — não são "o símbolo do
-    // estado", só perderam o hex.
-    return `<div class="route-transmux-wrap"><span class="route-satellites">${destrutivo}${navIcon}</span><button class="route-transmux" type="button" data-action="${action}" data-state="${initial}" data-next-state="${current}" aria-label="${label}" ${state.dayStarting ? "disabled" : ""}>
-      <svg viewBox="0 0 120 120" aria-hidden="true"><defs>
-        <!-- flood-color é atributo de DOM/CSS (SVG real, não paint WebGL do maplibre) —
-             aceita var() direto. O preto sólido cravado antes não tem par exato no :root;
-             --navy (quase-preto nos dois temas) é o mais próximo pra sombra neutra,
-             registrado no RESULTADO. -->
-        <filter id="routeSoftShadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="var(--navy)" flood-opacity=".22"/></filter>
-      </defs>
-      <circle class="transmux-disc play" cx="60" cy="60" r="54"/><circle class="transmux-disc gps" cx="60" cy="60" r="54"/><circle class="transmux-disc stop" cx="60" cy="60" r="54"/>
-      <circle class="transmux-pulse" cx="60" cy="60" r="51"/>
-      <path class="transmux-route" d="M26 79c10 16 26 20 43 14 12-4 16-14 24-22"/><circle class="transmux-route" cx="26" cy="79" r="4.2"/>
-      <g class="transmux-symbol play-symbol" filter="url(#routeSoftShadow)"><polygon points="40 25 97.5 60 40 95"/></g>
-      <g class="transmux-symbol gps-symbol" filter="url(#routeSoftShadow)"><polygon points="15 55 110 10 65 105 55 65 15 55"/></g>
-      <g class="transmux-pin" filter="url(#routeSoftShadow)"><path d="M88 27c-8.3 0-15 6.7-15 15 0 11.1 15 27 15 27s15-15.9 15-27c0-8.3-6.7-15-15-15Z"/><circle cx="88" cy="42" r="5.2"/></g>
-      <g class="transmux-symbol stop-symbol" filter="url(#routeSoftShadow)"><rect x="30" y="30" width="60" height="60" rx="12.5"/></g></svg>
-    </button></div>`;
+    // Rota pronta: o lado direito abre Montar Rota para acrescentar escolhas e
+    // replanejar a união, sem trocar a ação principal de Continuar. Durante a
+    // execução/pausa, volta a ser a navegação externa já existente. Sem rota
+    // pronta, o slot fica vazio.
+    const rightIcon = planned && !active && !paused
+      ? routeSatellite("route-nav-external", "plan-route", "Montar rota", "Montar rota", "route")
+      : openItems().length > 0 && (active || paused)
+        ? routeSatellite("route-nav-external", "show-map", "Abrir no Waze ou Google Maps", "Navegar", "navigation")
+        : "";
+    return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${leftIcon}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -4559,20 +4513,6 @@
     restoreFocusedControl(focusedControl);
     syncKeyboardViewport();
     setupClientsAutoLoad();
-    const transmux = app.querySelector(".route-transmux[data-next-state]");
-    if (transmux) {
-      const nextTransmuxState = transmux.dataset.nextState;
-      if (transmux.dataset.state !== nextTransmuxState) {
-        requestAnimationFrame(() => {
-          if (!transmux.isConnected) return;
-          transmux.dataset.state = nextTransmuxState;
-          transmux.classList.add("clicked");
-          lastRouteTransmuxState = nextTransmuxState;
-        });
-      } else {
-        lastRouteTransmuxState = nextTransmuxState;
-      }
-    }
     if (willShowRouteMap) void mountRouteMap();
     if (willShowDayReviewMap) void mountDayReviewMap();
     if (willShowLeituraLiveMap) void mountLeituraLiveMap();
