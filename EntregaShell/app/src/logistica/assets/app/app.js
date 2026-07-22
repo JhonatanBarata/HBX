@@ -1459,39 +1459,40 @@
     // na tela visível. É o freio pra isto não virar transbordo de novo.
     const livre = Math.min(navTop - shellTop, Math.max(0, visibleBottom - shellTop));
     if (!(livre > 0)) return;
-    // Rota pausada troca o play por uma faixa de altura própria: aí só se dá ao
-    // mapa o que sobra, sem mexer na faixa.
-    if (!play) {
-      controls.style.height = "";
-      const altura = `${Math.max(180, Math.round(livre - controls.getBoundingClientRect().height))}px`;
-      if (shell.style.height !== altura) shell.style.height = altura;
-      return;
-    }
+    // 22/07 — a altura vai em CSS var no <html>, NÃO no style do nó. Toda troca
+    // de conteúdo da Rota substitui o .content inteiro (native.js mount →
+    // content.replaceWith): o nó novo nasceria sem style e pintaria um frame com
+    // o fallback do CSS antes do setTimeout devolver a altura — a piscada em que
+    // o play "entra dentro do mapa". A var sobrevive à troca do nó, então o
+    // frame novo já nasce certo. Ver o bloco .route-hero no app.css.
+    const raiz = document.documentElement;
+    const escrever = (nome, valor) => {
+      if (raiz.style.getPropertyValue(nome) !== valor) raiz.style.setProperty(nome, valor);
+    };
+    // O herói inteiro (mapa + faixa de controles + barra de progresso) recebe o
+    // espaço livre; o mapa é `flex: 1 1 auto` e fica com o que sobrar. Como esta
+    // conta só depende do topo do herói e da nav, ela NÃO muda quando a faixa
+    // troca de play pra "Rota pausada" — por isso o mapa não pula mais.
+    escrever("--hbx-route-hero-h", `${Math.round(livre)}px`);
+    // Rota pausada troca o play por uma faixa de altura própria: aí a faixa fica
+    // com a altura natural dela e o mapa absorve o resto sozinho, no flex.
+    if (!play) { escrever("--hbx-route-controls-h", "auto"); return; }
     // A faixa do play recebe a altura do próprio play + a MESMA folga dos dois
     // lados, e termina exatamente na nav. Como o play é centrado nela, o espaço
     // acima e abaixo dele fica igual por construção — em qualquer tela.
     const playH = Math.round(play.getBoundingClientRect().height) || 112;
     const folga = Math.max(10, Math.min(28, Math.round((livre - playH) * 0.18)));
-    const controlsH = playH + folga * 2;
-    const alturaMapa = Math.max(180, Math.round(livre - controlsH));
-    const alvoControls = `${controlsH}px`;
-    const alvoMapa = `${alturaMapa}px`;
-    if (controls.style.height !== alvoControls) controls.style.height = alvoControls;
-    if (shell.style.height !== alvoMapa) {
-      shell.style.height = alvoMapa;
-      // O canvas do MapLibre não acompanha o container sozinho: sem este resize
-      // os tiles ficam do tamanho antigo e sobra uma faixa morta dentro da
-      // moldura (o "mapa cortado"). Vai no frame seguinte, com a altura já valendo.
-      requestAnimationFrame(() => {
-        const map = shell.querySelector(".route-live-map");
-        const instancia = (map && map.__hbxMap) || routeMap;
-        if (instancia && typeof instancia.resize === "function") { try { instancia.resize(); } catch (_) {} }
-      });
-    }
+    escrever("--hbx-route-controls-h", `${playH + folga * 2}px`);
   }
   function stabilizeRouteMapLayout() {
     routeMapLayoutTimers.forEach(clearTimeout);
-    routeMapLayoutTimers = [0, 90, 220, 420].map(delay => setTimeout(() => {
+    // 22/07 — a primeira medição é SÍNCRONA (era setTimeout 0). Entre o mount e
+    // um setTimeout cabe um paint, e era nele que a tela aparecia com a altura
+    // errada. Rodando aqui, a CSS var já está certa antes do primeiro pixel do
+    // conteúdo novo. As passadas seguintes só refinam (fonte do sistema, tiles,
+    // teclado fechando).
+    fitRouteMap();
+    routeMapLayoutTimers = [90, 220, 420].map(delay => setTimeout(() => {
       if (state.screen !== "route") return;
       fitRouteMap();
       if (routeMap && routeMapHost && typeof routeMap.resize === "function") {
@@ -3397,7 +3398,12 @@
     </div>`;
   }
   function routePausedBanner() {
-    return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">Encerrar rota</button></div></div>`;
+    // 22/07 — a faixa de pausada era o ÚNICO par de ações da tela sem glifo:
+    // ficava de texto puro no meio de uma tela onde todo botão tem ícone
+    // (`${icon(...)} Rótulo` dentro de .btn, que já é inline-flex com gap).
+    // play/stop são os mesmos glifos do disco de transmux, então a faixa fala a
+    // mesma língua do botão que ela substitui.
+    return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">${icon("play", 16)} Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">${icon("stop", 16)} Encerrar rota</button></div></div>`;
   }
   // S1 21/07 (PR21072026-NAVEGAÇÃO) — overlay compacto no topo do mapa da Rota,
   // irmão do #route-live-map (o mapa é transplantado, este painel não — ele
