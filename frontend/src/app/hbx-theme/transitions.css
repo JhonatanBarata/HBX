@@ -32,9 +32,20 @@
 }
 
 /* ---------- entrada de página (lê os tokens da pele) ---------- */
+/* ⚠️ LEI DO FILL (22/07, custou a ficha do lead cortada na tela da vendedora):
+   entrada de página/overlay usa `backwards`, NUNCA `both`.
+   Com `both` o navegador MANTÉM o estado final da animação como valor animado —
+   e `transform: none` preenchido computa `matrix(1,0,0,1,0,0)`, `filter: none`
+   computa `blur(0px)`. Identidade ainda é transform/filter: o elemento vira
+   containing-block ETERNO de `position: fixed`. Resultado: `.hbx-veil`
+   (fixed + inset:0) parava de valer a viewport e passava a valer o slot de
+   conteúdo — o modal nascia maior que o véu, era clipado embaixo e não dava
+   nem pra rolar. Com `backwards` a animação só preenche ANTES de começar; ao
+   terminar o elemento volta ao estilo base (transform/filter REALMENTE none) e
+   o véu volta a cobrir a tela inteira. Mesmo visual, zero resíduo. */
 /* Telas fora do app (login / site / fluxos soltos): o wrapper inteiro entra. */
 .hbx-page {
-  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
+  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) backwards;
 }
 
 /* CARA DE SISTEMA (ordem do dono 14/06): dentro do app o chrome — menu lateral e
@@ -43,11 +54,11 @@
    desliza pra dentro. O menu fica cravado no lugar; navegar parece o mesmo
    sistema respirando, nunca um reload que pisca. */
 /* Sem will-change/transform persistente de propósito: transform/filter só
-   existem DURANTE a animação (360ms) e voltam a none (fill: both). Assim o slot
-   NÃO vira containing-block de position:fixed depois da entrada — os modais
-   (.hbx-veil) seguem cobrindo a tela inteira, como antes. */
+   existem DURANTE a animação e voltam a none de verdade (fill: backwards — ver
+   LEI DO FILL acima). Assim o slot NÃO vira containing-block de position:fixed
+   depois da entrada — os modais (.hbx-veil) cobrem a tela inteira. */
 .app-page {
-  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) both;
+  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) backwards;
 }
 
 /* ---------- micro-transições discretas ---------- */
@@ -114,10 +125,13 @@ html.hbx-theme-anim::view-transition-new(root) { animation-name: hbx-theme-new-i
    auto) abaixo. Nada de corte seco. */
 html.hbx-leaving body { opacity: 0; transition: opacity 0.3s var(--ease-out-quint); }
 
-/* ---------- overlays (a pele dá o ritmo via --motion-base) ---------- */
-.hbx-veil { animation: hbx-enter-fade 0.2s ease both; }
-.hbx-modal, .hbx-pop { animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) both; }
-.hbx-drawer { animation: hbx-drawer-in var(--motion-base) var(--ease-out-quint) both; }
+/* ---------- overlays (a pele dá o ritmo via --motion-base) ----------
+   `backwards` (LEI DO FILL): o modal/gaveta também não pode ficar com transform
+   residual — senão vira containing-block dos filhos `position: fixed` (ex.: o
+   popover de Agenda do cockpit) e eles deixam de se centralizar na tela. */
+.hbx-veil { animation: hbx-enter-fade 0.2s ease backwards; }
+.hbx-modal, .hbx-pop { animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) backwards; }
+.hbx-drawer { animation: hbx-drawer-in var(--motion-base) var(--ease-out-quint) backwards; }
 @keyframes hbx-overlay-in {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }

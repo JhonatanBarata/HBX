@@ -9,6 +9,18 @@
    Espaçamentos em px não mudam (o esqueleto usa px pra grid/rail/aside). */
 html { font-size: 14px; }
 
+/* ESCADA DE ALTA RESOLUÇÃO (22/07) — a raiz de 14px é a densidade aprovada até
+   Full HD e NÃO muda lá. Acima disso o app parava de crescer: num monitor
+   grande a mesma tela virava um selo no meio, com letra de formiga. Como o kit
+   inteiro é rem, subir a raiz por degrau escala tipografia e tudo que depende
+   dela de uma vez.
+   Os degraus leem px de CSS, não px do painel: quem já usa escala do Windows
+   (150 por cento num 4K vira 2560 de CSS) pega o degrau certo em vez de dobrar
+   o aumento. 1368, HD e Full HD ficam exatamente como o dono aprovou. */
+@media (min-width: 2000px) { html { font-size: 15px; } }
+@media (min-width: 2560px) { html { font-size: 16.5px; } }
+@media (min-width: 3300px) { html { font-size: 18.5px; } }
+
 body {
   margin: 0;
   color: var(--text-strong);

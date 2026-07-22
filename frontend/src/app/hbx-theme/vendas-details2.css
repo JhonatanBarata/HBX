@@ -49,17 +49,36 @@
 }
 
 .lead-cockpit__veil {
-  padding: 21px;
+  /* Folga do véu é FLUIDA: 8px num notebook baixo, 24px em monitor grande. */
+  --lead-cockpit-gutter: clamp(8px, 1.4vh, 24px);
+  padding: var(--lead-cockpit-gutter);
+  /* 22/07: trilhas EXPLÍCITAS de 1fr. O .hbx-veil central é `display:grid` sem
+     template — a trilha implícita é `auto`, ou seja, cresce até o max-content da
+     moldura. Era por isso que a ficha ficava MAIOR que o véu (e o `100%` dela
+     media essa trilha inchada, não a tela) e sumia embaixo, sem rolagem. Com
+     minmax(0,1fr) a trilha é exatamente a área útil do véu: `100%` volta a
+     significar "a tela", e a moldura nunca pode passar disso. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
   overflow: hidden;
 }
 
 .hbx-modal.lead-cockpit.lead-cockpit--approved {
-  /* 21/07: a altura/largura saem do ESPAÇO REAL do véu (100%), não de 100dvh.
-     Quando algum ancestral cria contexto (transform/filter), o .hbx-veil deixa
-     de valer a viewport inteira e o dvh estourava por baixo — a ficha aparecia
-     cortada. Com 100% + max-height a moldura sempre cabe e nada rola. */
-  width: min(1180px, 100%);
-  height: min(650px, 100%);
+  /* MOLDURA ADAPTATIVA (22/07) — nenhum px de altura fixo, nunca mais.
+     A escada cresce com a tela em vez de virar um selo ilhado:
+       1368x648 útil → ~1180 x 624  (usa tudo o que existe, não corta)
+       Full HD      → ~1460 x 800
+       4K           → 2200 x 1500   (+ escada de tipografia em typography.css)
+     O `100%` no fim é o teto duro: o que a tela não tem, a ficha não usa. */
+  /* Diâmetro do anel de score: UMA medida só, usada pelo anel E pela coluna
+     que o segura. O passe de legibilidade crescia o anel (62 → 68px) e esquecia
+     a coluna em 62px — o anel vazava pra cima do texto e ficava desalinhado
+     dentro do card de INTELIGÊNCIA. Com token, não tem como divergir. */
+  --lead-cockpit-ring-size: 62px;
+  --lead-cockpit-ring-compact: 34px;
+  width: min(clamp(1300px, 76vw, 2200px), 100%);
+  height: min(clamp(650px, 84vh, 1500px), 100%);
   max-width: 100%;
   max-height: 100%;
   min-width: 0;
@@ -69,7 +88,10 @@
      pede --font-mono na própria regra). */
   font-family: var(--font-body);
   display: grid;
-  grid-template-rows: 62px 42px minmax(0, 1fr);
+  /* Cabeçalho e guias pedem a altura que precisam (auto) em vez de 62/42px
+     cravados — era o que cortava 4px do topo em tela baixa. O corpo fica com
+     todo o resto. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--hbx-info) 34%, var(--border-hairline));
   border-radius: 22px;
@@ -459,13 +481,13 @@
 
 .lead-cockpit__animated-score {
   --lead-cockpit-score: 0%;
-  width: 62px;
-  height: 62px;
+  width: var(--lead-cockpit-ring-size);
+  height: var(--lead-cockpit-ring-size);
   padding: 0;
   display: grid;
   place-items: center;
   align-content: center;
-  flex: 0 0 62px;
+  flex: 0 0 var(--lead-cockpit-ring-size);
   border-radius: 50%;
   background:
     radial-gradient(circle, var(--hbx-surface) 0 58%, transparent 59%),
@@ -491,9 +513,9 @@
 }
 
 .lead-cockpit__animated-score.is-compact {
-  width: 34px;
-  height: 34px;
-  flex-basis: 34px;
+  width: var(--lead-cockpit-ring-compact);
+  height: var(--lead-cockpit-ring-compact);
+  flex-basis: var(--lead-cockpit-ring-compact);
 }
 
 .lead-cockpit__animated-score.is-compact strong {
@@ -534,11 +556,14 @@
   grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
 }
 
+/* Colunas do Atendimento: cada bloco de cima pede o que precisa (auto) e a
+   conversa / mensagem sugerida ficam com a sobra. Antes eram 84/92/150px
+   cravados — em tela baixa o card de INTELIGÊNCIA perdia 16px por baixo. */
 .lead-cockpit__service-left {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 84px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   overflow: hidden;
 }
@@ -547,7 +572,7 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 92px 150px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 8px;
   overflow: hidden;
 }
@@ -681,7 +706,7 @@
 
 .lead-cockpit__chat-card {
   display: grid;
-  grid-template-rows: 35px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   background: color-mix(in srgb, var(--hbx-info) 5%, var(--hbx-surface));
 }
 
@@ -856,7 +881,7 @@
 .lead-cockpit__intelligence-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
+  grid-template-columns: var(--lead-cockpit-ring-size) minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
@@ -925,7 +950,7 @@
 }
 
 .lead-cockpit__template-card {
-  grid-template-rows: 24px minmax(0, 1fr) 20px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .lead-cockpit__template-card blockquote {
@@ -962,11 +987,11 @@
 }
 
 .lead-cockpit__registration-right {
-  grid-template-rows: 126px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .lead-cockpit__company-card {
-  grid-template-rows: 24px minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .lead-cockpit__company-kv {
@@ -989,7 +1014,7 @@
 .lead-cockpit__quality-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
+  grid-template-columns: var(--lead-cockpit-ring-size) minmax(0, 1fr);
   align-items: center;
   gap: 10px;
 }
@@ -1012,7 +1037,7 @@
 }
 
 .lead-cockpit__history-card {
-  grid-template-rows: 24px auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .lead-cockpit__compact-timeline {
@@ -1132,7 +1157,7 @@
 }
 
 .lead-cockpit__statement-card {
-  grid-template-rows: 24px auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .lead-cockpit__finance-empty {
@@ -1295,7 +1320,7 @@
   width: min(420px, calc(100vw - 32px));
   height: min(430px, calc(100dvh - 48px));
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--hbx-info) 28%, var(--border-hairline));
   border-radius: 16px;
@@ -1340,11 +1365,9 @@
 }
 
 @media (max-width: 1180px) {
-  .lead-cockpit__veil { padding: 12px; }
-
   .hbx-modal.lead-cockpit.lead-cockpit--approved {
     width: 100%;
-    height: min(650px, 100%);
+    height: 100%;
   }
 
   .lead-cockpit__approved-actions .btn-ghost span {
@@ -1366,14 +1389,9 @@
 }
 
 @media (max-height: 700px) and (min-width: 821px) {
-  .lead-cockpit__veil { padding: 8px; }
-
-  .hbx-modal.lead-cockpit.lead-cockpit--approved {
-    width: min(1180px, 100%);
-    height: 100%;
-    grid-template-rows: 56px 38px minmax(0, 1fr);
-  }
-
+  /* Notebook baixo (1368x768 da vendedora → ~648 úteis): a moldura já ocupa
+     100% pela escada acima; aqui só se COMPACTA o miolo, na ordem
+     padding/gap → alturas de barra → font-size (último caso). */
   .lead-cockpit__approved-head { padding-block: 6px; }
   .lead-cockpit__approved-tabs { min-height: 38px; padding-block: 3px; }
   .lead-cockpit__approved-tab { min-height: 29px; }
@@ -1386,8 +1404,6 @@
   .lead-cockpit__registration-right,
   .lead-cockpit__finance-left,
   .lead-cockpit__finance-right { gap: 6px; }
-  .lead-cockpit__service-left { grid-template-rows: 76px minmax(0, 1fr); }
-  .lead-cockpit__service-right { grid-template-rows: 84px 138px minmax(0, 1fr); }
   .lead-cockpit__compact-card { padding: 8px; gap: 5px; }
   .lead-cockpit__smart-card { padding: 8px; }
   .lead-cockpit__kv-row { padding: 3px 0; }
