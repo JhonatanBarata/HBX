@@ -750,7 +750,6 @@ export function VendasClient() {
   // {status|returnAt}). Só endpoints existentes — sem mexer no backend.
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
-  const [fecharMsg, setFecharMsg] = useState<string | null>(null);
   const [retornoData, setRetornoData] = useState("");
   const [obs, setObs] = useState("");
   // Popup de Retorno e Sem Interesse (substituem o clutter do cockpit)
@@ -1240,7 +1239,6 @@ export function VendasClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sortLeads é puro e recriado a cada render; entrar na lista re-registraria o listener à toa
   }, [view, board, searchQuery, gridSort, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen, cockpitOpen]);
 
   const summary = board?.summary;
@@ -1442,75 +1440,132 @@ export function VendasClient() {
                   </div>
                 </div>
               )}
-              {/* LISTA DENSA (padrão): varredura rápida de todos os leads —
-                  tabela central do kit, clique na linha abre o detalhe lateral. */}
+              {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. Clique
+                  simples abre o cockpit em tela cheia (VendasFullscreenBridge);
+                  no modo Editar a grade ganha data-cockpit-ignore e o clique
+                  passa a editar a célula. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
-                <>
-                  {/* Barra de seleção em massa: "Selecionar todos" + excluir em lote */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "0 16px 8px" }}>
-                    <button className="btn-ghost btn-xs" onClick={toggleTodos}>
-                      {todosSelecionados ? "Desmarcar todos" : "Selecionar todos"}
-                    </button>
-                    {selecionados.size > 0 && (
-                      <>
-                        <span className="sub2">{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</span>
-                        <button
-                          className="btn-ghost danger btn-xs"
-                          onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }}
-                          disabled={bulkDeleteBusy}
-                        >
-                          <I d={ICONS.trash} size={13} />{" "}
-                          {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
-                        </button>
-                      </>
-                    )}
-                    {bulkMsg && <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span>}
-                  </div>
+                <div className="vnd-grid-wrap" data-cockpit-ignore={editMode ? "" : undefined}>
+                  {(selecionados.size > 0 || bulkMsg || cellMsg) && (
+                    <div className="vnd-grid-bar">
+                      {selecionados.size > 0 && (
+                        <React.Fragment>
+                          <span className="sub2">{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</span>
+                          <button className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
+                            <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
+                          </button>
+                        </React.Fragment>
+                      )}
+                      {bulkMsg && <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span>}
+                      {cellMsg && <span className="ctx-msg err">{cellMsg}</span>}
+                    </div>
+                  )}
                   <div className="tbl-wrap">
-                  <table className="tbl" data-tut="vendas-funil">
+                  <table className="tbl vnd-grid" data-tut="vendas-funil" data-edit={editMode ? "on" : "off"}>
                     <thead>
                       <tr>
-                        <th style={{ width: 34 }}>
+                        <th className="vnd-grid__chk">
                           <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
                             aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
                         </th>
-                        <th>Empresa</th><th>Segmento</th><th>Etapa</th>{board.canViewValues && <th>Valor</th>}
-                        <th>Próximo passo</th><th>Responsável</th><th>Data</th>
+                        {gridCols.map(col => (
+                          <th key={col.key} className="vnd-grid__th" onClick={() => toggleGridSort(col.key)}
+                            title={`Ordenar por ${col.label}`} aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
+                            {col.label}
+                            {gridSort?.key === col.key && <span className="vnd-grid__sort">{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                          </th>
+                        ))}
+                        <th className="vnd-grid__acts" aria-label="Ações" />
                       </tr>
                     </thead>
                     <tbody>
-                      {(() => {
-                        const blockLbl: Record<string, string> = { today: "Hoje", overdue: "Atrasados", scheduled: "Agendados", closed: "Fechados" };
-                        return flatLeads.map(card => {
-                          const tagCls = card.block === "overdue" ? "tag warn" : card.block === "closed" ? "tag teal" : "tag";
-                          const engagement = vendasEngagementMeta(card.engagement, card.conversation);
-                          return (
-                            <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""} onClick={() => setSel(card)}
-                              onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}>
-                              <td onClick={e => e.stopPropagation()}>
-                                <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
-                                  aria-label={`Selecionar ${card.name || "card"}`} />
-                              </td>
-                              <td><div className="co"><strong>{card.name || "—"}</strong>{card.city && <div className="sub2"><I d={ICONS.mapin} size={10} /> {card.city}</div>}<RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} /></div></td>
-                              <td>{card.segment || "—"}</td>
-                              <td>
-                                <span className={tagCls}>{blockLbl[card.block] ?? card.block}</span>
-                                <span className={engagement.className} style={{ marginLeft: 6 }}>{engagement.label}</span>
-                                {card.automation && <span className="tag warn" style={{ marginLeft: 6 }} title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
-                                {card.saleConfirmedAt && <span className="badge-win" style={{ marginLeft: 6 }}>Ganho</span>}
-                              </td>
-                              {board.canViewValues && <td className="hbx-mono">{leadValueLabel(card)}</td>}
-                              <td><span className="nowrap-cell" style={{ maxWidth: 240, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }} title={card.nextAction || card.shortNote || ""}>{card.nextAction || card.statusLabel || "—"}</span></td>
-                              <td>{card.owner?.name ? <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}><Av name={card.owner.name} size={20} />{card.owner.name}</span> : "—"}</td>
-                              <td className="hbx-mono">{fmtWhen(card.block === "closed" ? card.closedAt : card.returnAt)}</td>
-                            </tr>
-                          );
-                        });
-                      })()}
+                      {flatLeads.map(card => {
+                        const engagement = vendasEngagementMeta(card.engagement, card.conversation);
+                        const ag = agendaInfo(card);
+                        const locked = card.block === "closed";
+                        return (
+                          <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""}
+                            onClick={() => setSel(card)}
+                            onDoubleClick={() => { if (!editMode) { setSel(card); setCockpitOpen(true); } }}
+                            onContextMenu={e => { e.preventDefault(); setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>
+                            <td className="vnd-grid__chk" onClick={e => e.stopPropagation()}>
+                              <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
+                                aria-label={`Selecionar ${card.name || "card"}`} />
+                            </td>
+                            {gridCols.map(col => {
+                              const editando = editCell?.id === card.id && editCell.key === col.key;
+                              const editavel = Boolean(col.edit) && !locked;
+                              const texto = col.text(card);
+                              if (editando && col.edit) {
+                                const fechar = () => setEditCell(null);
+                                const teclas = (e: React.KeyboardEvent) => {
+                                  if (e.key === "Escape") { e.preventDefault(); fechar(); }
+                                  else if (e.key === "Enter") { e.preventDefault(); void salvarCelula(card, col, editDraft); }
+                                  else if (e.key === "Tab") {
+                                    e.preventDefault();
+                                    const prox = proximaEditavel(col, e.shiftKey ? -1 : 1);
+                                    void salvarCelula(card, col, editDraft).then(() => { if (prox) abrirCelula(card, prox); });
+                                  }
+                                };
+                                return (
+                                  <td key={col.key} className="vnd-grid__td is-editing" onClick={e => e.stopPropagation()}>
+                                    {col.edit.type === "select" ? (
+                                      <select className="vnd-grid__input" autoFocus value={editDraft}
+                                        onChange={e => { setEditDraft(e.target.value); void salvarCelula(card, col, e.target.value); }}
+                                        onKeyDown={teclas} onBlur={fechar} aria-label={col.label}>
+                                        {STAGE_ORDER.map(s => <option key={s.key} value={s.key}>{STAGE_LABEL[s.key]}</option>)}
+                                      </select>
+                                    ) : (
+                                      <input className="vnd-grid__input" autoFocus
+                                        type={col.edit.type === "number" ? "number" : col.edit.type === "date" ? "date" : col.edit.type === "email" ? "email" : "text"}
+                                        maxLength={col.edit.max} value={editDraft}
+                                        onChange={e => setEditDraft(e.target.value)}
+                                        onKeyDown={teclas}
+                                        onBlur={() => void salvarCelula(card, col, editDraft)}
+                                        aria-label={col.label} />
+                                    )}
+                                  </td>
+                                );
+                              }
+                              return (
+                                <td key={col.key}
+                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (editavel ? " is-editable" : "") + (editMode && editavel ? " is-armed" : "")}
+                                  title={texto || undefined}
+                                  onClick={editMode && editavel ? (e => { e.stopPropagation(); abrirCelula(card, col); }) : undefined}>
+                                  {col.key === "name" ? (
+                                    <span className="vnd-grid__name">
+                                      <span className="vnd-grid__txt">{texto || "—"}</span>
+                                      <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
+                                      {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
+                                    </span>
+                                  ) : col.key === "agenda" ? (
+                                    <span className={"tag" + (card.block === "overdue" ? " warn" : card.block === "closed" ? " teal" : "")}>{ag.label}</span>
+                                  ) : col.key === "engage" ? (
+                                    <span className={engagement.className}>{engagement.label}</span>
+                                  ) : col.key === "stage" ? (
+                                    <React.Fragment>
+                                      <span className="tag">{texto}</span>
+                                      {card.automation && <span className="tag warn vnd-grid__gap" title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
+                                    </React.Fragment>
+                                  ) : col.key === "owner" && card.owner?.name ? (
+                                    <span className="vnd-grid__owner"><Av name={card.owner.name} size={18} />{card.owner.name}</span>
+                                  ) : (
+                                    <span className="vnd-grid__txt">{texto || "—"}</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="vnd-grid__acts" onClick={e => e.stopPropagation()}>
+                              <button type="button" className="vnd-grid__more" aria-label="Ações do lead"
+                                onClick={e => { setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>⋯</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                   </div>
-                </>
+                </div>
               )}
 
               {/* QUADRO — pipeline arrastável por ETAPA (status). Desktop only.
@@ -1662,6 +1717,55 @@ export function VendasClient() {
           </form>
         </div>
       )}
+
+      {/* Menu da linha (⋯ ou clique-direito). Guarda as ações que antes só
+          existiam no painel lateral desligado — sem ele, "Fechar venda",
+          Retorno, Sem interesse e excluir card ficavam inalcançáveis na lista. */}
+      {rowMenu && (() => {
+        const card = flatLeads.find(c => c.id === rowMenu.id);
+        if (!card) return null;
+        const fechar = () => setRowMenu(null);
+        return (
+          <React.Fragment>
+            <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={fechar} />
+            <div className="vnd-rowmenu" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}>
+              <span className="vnd-rowmenu__title">{card.name || "Lead"}</span>
+              <button type="button" role="menuitem" onClick={() => { fechar(); setSel(card); setCockpitOpen(true); }}>
+                Abrir detalhes
+              </button>
+              <button type="button" role="menuitem" disabled={card.block === "closed"}
+                onClick={() => { fechar(); setSel(card); abrirFechar(); }}>
+                <I d={ICONS.money} size={13} /> Fechar venda
+              </button>
+              <button type="button" role="menuitem" disabled={card.block === "closed"}
+                onClick={() => { fechar(); setSel(card); setRetornoData(""); setObs(""); setAcaoMsg(null); setRetornoOpen(true); }}>
+                <I d={ICONS.clock} size={13} /> Agendar retorno
+              </button>
+              <button type="button" role="menuitem" disabled={card.block === "closed"}
+                onClick={() => { fechar(); setSel(card); setSemInteresseMotivo(""); setAcaoMsg(null); setSemInteresseOpen(true); }}>
+                Sem interesse
+              </button>
+              {card.phone && (
+                <button type="button" role="menuitem"
+                  onClick={() => { fechar(); abrirWhatsAppExterno(card.phone, buildWaMessage({ name: card.name, segment: card.segment, city: card.city })); }}>
+                  <WhatsAppMark size={13} /> WhatsApp {waQrActive ? "(externo)" : ""}
+                </button>
+              )}
+              {card.phone && canAtendimento && (
+                <button type="button" role="menuitem" disabled={waStartBusy}
+                  onClick={() => { fechar(); void abrirWhatsAppInterno(card); }}>
+                  {waStartBusy ? "Abrindo…" : "Abrir no Atendimento"}
+                </button>
+              )}
+              <button type="button" role="menuitem" className="danger"
+                onClick={() => { fechar(); setSel(card); setAcaoMsg(null); setExcluirMotivoOpen("card"); }}>
+                <I d={ICONS.trash} size={13} /> Excluir card
+              </button>
+              {waStartError && <span className="ctx-msg err">{waStartError}</span>}
+            </div>
+          </React.Fragment>
+        );
+      })()}
 
       {fecharOpen && sel && (
         <FecharVendaModal

@@ -21,10 +21,6 @@
   min-width: 0 !important;
 }
 
-#vendas-panel-funil .content > .ctx.ctx--vendas-detail {
-  display: none !important;
-}
-
 #vendas-panel-funil .work > .panel,
 #vendas-panel-funil .tbl-wrap,
 #vendas-panel-funil .tbl {
