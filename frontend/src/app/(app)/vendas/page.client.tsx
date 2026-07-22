@@ -14,9 +14,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import {
-  DetalhesNegocio,
   vendasEngagementMeta,
-  type NegocioDetail,
   type VendasConversationRef,
   type VendasEngagementSnapshot,
 } from "@/components/hbx/detalhes-negocio";
@@ -316,6 +314,70 @@ function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): B
   };
 }
 
+// Move otimista genérico: aplica campos soltos no card sem esperar a rede
+// (edição inline da grade). Devolve o board novo; o rollback é o board antigo.
+function patchCardFields(board: BoardResponse, id: string, patch: Partial<VendasLead>): BoardResponse {
+  if (!board) return board;
+  const apply = (arr: VendasLead[]) => arr.map(c => (c.id === id ? { ...c, ...patch } : c));
+  return {
+    ...board,
+    blocks: {
+      today: apply(board.blocks.today),
+      overdue: apply(board.blocks.overdue),
+      scheduled: apply(board.blocks.scheduled),
+      closed: apply(board.blocks.closed),
+    },
+  };
+}
+
+// ── GRADE (planilha) ─────────────────────────────────────────────────────────
+// Catálogo ÚNICO de colunas da lista. Cada lead vira UMA linha; cada dado tem
+// sua coluna (nada empilhado dentro da célula). `edit` só existe nas colunas
+// que o PATCH /vendas/lead/:id realmente aceita — inventar campo aqui vira
+// erro 400 na cara do vendedor.
+type GridEdit = {
+  field: "name" | "phone" | "email" | "address" | "nextAction" | "shortNote" | "saleValue" | "status" | "returnAt";
+  type: "text" | "email" | "number" | "date" | "select";
+  max?: number;
+};
+type GridColumn = {
+  key: string;
+  label: string;
+  width: number;
+  mono?: boolean;
+  edit?: GridEdit;
+  gate?: "values";           // só aparece com canViewValues
+  text: (c: VendasLead) => string;   // valor cru: ordenação, busca e edição
+};
+
+const GRID_COLUMNS: GridColumn[] = [
+  { key: "name", label: "Empresa", width: 220, edit: { field: "name", type: "text", max: 120 }, text: c => c.name || "" },
+  { key: "phone", label: "Telefone", width: 140, mono: true, edit: { field: "phone", type: "text", max: 24 }, text: c => c.phone || "" },
+  { key: "city", label: "Cidade", width: 130, text: c => c.city || "" },
+  { key: "state", label: "UF", width: 52, text: c => c.state || "" },
+  { key: "segment", label: "Segmento", width: 160, text: c => c.segment || "" },
+  { key: "stage", label: "Etapa", width: 130, edit: { field: "status", type: "select" }, text: c => STAGE_LABEL[normalizeStage(c.status)] },
+  { key: "agenda", label: "Agenda", width: 110, text: c => agendaInfo(c).label },
+  { key: "engage", label: "Engajamento", width: 130, text: c => vendasEngagementMeta(c.engagement, c.conversation).label },
+  { key: "value", label: "Valor", width: 110, mono: true, gate: "values", edit: { field: "saleValue", type: "number" }, text: c => leadValueLabel(c) },
+  { key: "next", label: "Próximo passo", width: 200, edit: { field: "nextAction", type: "text", max: 140 }, text: c => c.nextAction || "" },
+  { key: "note", label: "Nota", width: 200, edit: { field: "shortNote", type: "text", max: 280 }, text: c => c.shortNote || "" },
+  { key: "owner", label: "Responsável", width: 150, text: c => c.owner?.name || "" },
+  { key: "date", label: "Data", width: 110, mono: true, edit: { field: "returnAt", type: "date" }, text: c => fmtWhen(c.block === "closed" ? c.closedAt : c.returnAt) },
+  { key: "email", label: "E-mail", width: 200, edit: { field: "email", type: "email" }, text: c => c.email || "" },
+  { key: "address", label: "Endereço", width: 220, edit: { field: "address", type: "text", max: 280 }, text: c => c.address || "" },
+  { key: "cnpj", label: "CNPJ", width: 150, mono: true, text: c => c.cnpj || "" },
+  { key: "razao", label: "Razão social", width: 200, text: c => c.razaoSocial || "" },
+  { key: "score", label: "Score", width: 70, mono: true, text: c => (c.opportunityScore != null ? String(c.opportunityScore) : "") },
+  { key: "temp", label: "Temperatura", width: 110, text: c => c.leadTemperature || "" },
+  { key: "attempts", label: "Contatos", width: 80, mono: true, text: c => String(c.attemptCount ?? 0) },
+  { key: "source", label: "Origem", width: 130, text: c => c.primarySource || c.sourceType || "" },
+  { key: "created", label: "Criado em", width: 110, mono: true, text: c => (c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : "") },
+];
+const GRID_DEFAULT_KEYS = ["name", "phone", "city", "state", "segment", "stage", "agenda", "engage", "value", "next", "owner", "date"];
+const GRID_COLS_STORAGE = "hbx:vendas-grid-cols";
+const GRID_SORT_STORAGE = "hbx:vendas-grid-sort";
+
 // Termômetro visual (1–5 estrelas) — nota derivada + tooltip do porquê. Só
 // classes/tokens centrais (Lei nº4): a cor nasce do .vnd-therm em screens.css.
 function Termometro({ score, why }: { score: number; why: string }) {
@@ -463,7 +525,52 @@ export function VendasClient() {
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
-  const [sortBy, setSortBy] = useState<"default" | "az" | "za">("default");
+  // ── Grade (planilha): colunas do usuário, ordenação por coluna, edição inline.
+  // Colunas e ordenação vivem em localStorage (por navegador/usuário logado).
+  const [gridKeys, setGridKeys] = useState<string[]>(() => {
+    if (typeof window === "undefined") return GRID_DEFAULT_KEYS;
+    try {
+      const raw = JSON.parse(localStorage.getItem(GRID_COLS_STORAGE) || "null");
+      if (Array.isArray(raw) && raw.length) {
+        const valid = raw.filter((k: unknown) => GRID_COLUMNS.some(c => c.key === k)) as string[];
+        if (valid.length) return valid;
+      }
+    } catch { /* sem storage */ }
+    return GRID_DEFAULT_KEYS;
+  });
+  const [gridSort, setGridSort] = useState<{ key: string; dir: 1 | -1 } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = JSON.parse(localStorage.getItem(GRID_SORT_STORAGE) || "null");
+      if (raw && typeof raw.key === "string" && GRID_COLUMNS.some(c => c.key === raw.key)) {
+        return { key: raw.key, dir: raw.dir === -1 ? -1 : 1 };
+      }
+    } catch { /* sem storage */ }
+    return null;
+  });
+  const [colsOpen, setColsOpen] = useState(false);
+  // Modo edição: com ele LIGADO a grade vira planilha e o clique na célula edita
+  // em vez de abrir o cockpit (a bridge de 1 clique respeita data-cockpit-ignore).
+  const [editMode, setEditMode] = useState(false);
+  const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [cellMsg, setCellMsg] = useState<string | null>(null);
+  // Menu da linha (botão ⋯ ou clique-direito): as ações que antes só existiam
+  // no painel morto — Fechar venda, Retorno, Sem interesse, WhatsApp, Excluir.
+  const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  const applyGridKeys = useCallback((keys: string[]) => {
+    setGridKeys(keys);
+    try { localStorage.setItem(GRID_COLS_STORAGE, JSON.stringify(keys)); } catch { /* sem storage */ }
+  }, []);
+  const applyGridSort = useCallback((next: { key: string; dir: 1 | -1 } | null) => {
+    setGridSort(next);
+    try {
+      if (next) localStorage.setItem(GRID_SORT_STORAGE, JSON.stringify(next));
+      else localStorage.removeItem(GRID_SORT_STORAGE);
+    } catch { /* sem storage */ }
+  }, []);
+
   // Filtro de texto: sincronizado com o campo de busca do topbar (hbx:search-query)
   const [searchQuery, setSearchQuery] = useState("");
   useEffect(() => {
@@ -954,103 +1061,6 @@ export function VendasClient() {
     }
   }
 
-  // Mapeia VendasLead → NegocioDetail (shape normalizado)
-  // Todos os campos disponíveis no payload do backend são mapeados aqui.
-  // Campos ausentes/null somem automaticamente no componente.
-  function toNegocioDetail(d: VendasLead): NegocioDetail {
-    return {
-      id: d.id,
-      enriched: Boolean(d.leadIntelligence?.enrichedAt),
-      name: d.name,
-      phone: d.phone,
-      email: d.email,
-      website: d.website,
-      cnpj: d.cnpj ?? null,
-      cnae: d.cnae ?? null,
-      razaoSocial: d.razaoSocial ?? null,
-      ownerName: d.ownerName ?? null,
-      ownerNames: d.ownerNames ?? null,
-      ownerPhone: d.ownerPhone ?? null,
-      ownerInstagram: d.ownerInstagram ?? null,
-      ownerFacebook: d.ownerFacebook ?? null,
-      companySituation: d.companySituation ?? null,
-      emails: d.emails ?? null,
-      phones: d.phones ?? null,
-      phonesWhatsapp: d.phonesWhatsapp ?? null,
-      address: d.address ?? null,
-      city: d.city,
-      state: d.state,
-      segment: d.segment,
-      statusLabel: d.statusLabel,
-      leadTemperature: d.leadTemperature,
-      opportunityScore: d.opportunityScore,
-      rating: d.rating,
-      reviews: d.reviews,
-      valueLabel: leadValueLabel(d),
-      productName: d.product?.name ?? null,
-      returnAt: d.returnAt,
-      lastContactAt: d.lastContactAt,
-      lastMessageAt: d.engagement?.lastMessageAt ?? null,
-      attemptCount: d.attemptCount,
-      nextAction: d.nextAction,
-      shortNote: d.shortNote,
-      lastResult: d.lastResult,
-      timesSeen: d.timesSeen,
-      isInInbox: d.isInInbox ?? null,
-      conversation: d.conversation ?? null,
-      engagement: d.engagement ?? null,
-      createdAt: d.createdAt ?? null,
-      updatedAt: d.updatedAt ?? null,
-      sourceType: d.sourceType ?? null,
-      primarySource: d.primarySource ?? null,
-      isFreshCompany: d.isFreshCompany ?? null,
-      daysSinceOpened: d.daysSinceOpened ?? null,
-      owner: d.owner ? { name: d.owner.name } : null,
-      leadIntelligence: d.leadIntelligence
-        ? {
-            whatsappStatus: d.leadIntelligence.whatsappStatus ?? null,
-            emailStatus: d.leadIntelligence.emailStatus ?? null,
-            websiteStatus: d.leadIntelligence.websiteStatus ?? null,
-            instagramUrl: d.leadIntelligence.instagramUrl ?? null,
-            facebookUrl: d.leadIntelligence.facebookUrl ?? null,
-            opportunityReason: d.leadIntelligence.opportunityReason ?? null,
-            leadReasonTags: d.leadIntelligence.leadReasonTags ?? null,
-            recommendedChannel: d.leadIntelligence.recommendedChannel ?? null,
-            painType: d.leadIntelligence.painType ?? null,
-            painPitch: d.leadIntelligence.painPitch ?? null,
-            messageTemplate: d.leadIntelligence.messageTemplate ?? null,
-            contactQuality: d.leadIntelligence.contactQuality ?? null,
-          }
-        : null,
-      sale: d.saleStatus && d.saleStatus !== "none"
-        ? {
-            status: d.saleStatus,
-            statusLabel: d.saleStatusLabel,
-            valueLabel: fmtMoney(d.saleValue),
-            commissionLabel: d.commissionStatusLabel ?? null,
-            commissionValueLabel: d.commissionAmount != null ? fmtMoney(d.commissionAmount) : null,
-            commissionDueAt: d.commissionDueAt ?? null,
-            commissionRecurring: d.commissionRecurring ?? null,
-            commissionNote: d.commissionNote ?? null,
-            setupLabel: d.setupValue != null && d.setupValue > 0
-              ? `${fmtMoney(d.setupValue)}${d.setupCommissionAmount != null ? ` · comissão: ${fmtMoney(d.setupCommissionAmount)}` : ""}`
-              : null,
-            setupValue: d.setupValue ?? null,
-            setupCommissionAmount: d.setupCommissionAmount ?? null,
-            setupCommissionStatusLabel: d.setupCommissionStatusLabel ?? null,
-          }
-        : null,
-      history: d.timeline?.map(ev => ({
-        id: ev.id,
-        title: ev.title ?? "Atualização",
-        description: ev.description,
-        resultLabel: ev.resultLabel,
-        returnAt: ev.returnAt,
-        createdAt: ev.createdAt,
-      })) ?? null,
-    };
-  }
-
   function matchSearch(card: VendasLead): boolean {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
@@ -1058,18 +1068,147 @@ export function VendasClient() {
       .some(v => v?.toLowerCase().includes(q));
   }
 
+  // Ordenação da grade: numérica quando a coluna é numérica, senão alfabética
+  // pt-BR. Vazio vai sempre pro fim, nas duas direções (linha sem dado não
+  // rouba o topo da tela).
+  function sortLeads(list: VendasLead[], sort: { key: string; dir: 1 | -1 } | null): VendasLead[] {
+    if (!sort) return list;
+    const col = GRID_COLUMNS.find(c => c.key === sort.key);
+    if (!col) return list;
+    const num = (v: string) => {
+      const n = Number(v.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+      return Number.isFinite(n) ? n : null;
+    };
+    return [...list].sort((a, b) => {
+      const va = col.text(a).trim();
+      const vb = col.text(b).trim();
+      if (!va && !vb) return 0;
+      if (!va) return 1;
+      if (!vb) return -1;
+      const na = num(va);
+      const nb = num(vb);
+      if (na != null && nb != null && na !== nb) return (na - nb) * sort.dir;
+      return va.localeCompare(vb, "pt-BR", { sensitivity: "base" }) * sort.dir;
+    });
+  }
+
   const flatLeads: VendasLead[] = (() => {
     if (!board) return [];
-    let list = BLOCK_ORDER.flatMap(({ key }) => (board.blocks?.[key] || []).filter(matchSearch));
-    if (sortBy === "az") list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" }));
-    else if (sortBy === "za") list = [...list].sort((a, b) => (b.name || "").localeCompare(a.name || "", "pt-BR", { sensitivity: "base" }));
-    return list;
+    const list = BLOCK_ORDER.flatMap(({ key }) => (board.blocks?.[key] || []).filter(matchSearch));
+    return sortLeads(list, gridSort);
   })();
 
   // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
   const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
     onTerminal: (radarLeadId) => { void refreshBoardLead(radarLeadId); },
   });
+
+  // Colunas efetivamente visíveis: respeita a ordem escolhida pelo usuário e o
+  // gate de valores (LEI DO VENDEDOR — sem canViewValues a coluna nem existe).
+  const gridCols: GridColumn[] = gridKeys
+    .map(k => GRID_COLUMNS.find(c => c.key === k))
+    .filter((c): c is GridColumn => Boolean(c) && (c!.gate !== "values" || Boolean(board?.canViewValues)));
+
+  function toggleGridCol(key: string) {
+    applyGridKeys(gridKeys.includes(key) ? gridKeys.filter(k => k !== key) : [...gridKeys, key]);
+  }
+  function moveGridCol(key: string, delta: -1 | 1) {
+    const i = gridKeys.indexOf(key);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= gridKeys.length) return;
+    const next = [...gridKeys];
+    [next[i], next[j]] = [next[j], next[i]];
+    applyGridKeys(next);
+  }
+  function resetGrid() {
+    applyGridKeys(GRID_DEFAULT_KEYS);
+    applyGridSort(null);
+    setColsOpen(false);
+  }
+  function toggleGridSort(key: string) {
+    applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
+  }
+
+  // Valor que entra no input ao abrir a célula: data vira YYYY-MM-DD (input
+  // date) e valor vira número puro — o resto é o texto cru do campo.
+  function draftFor(card: VendasLead, col: GridColumn): string {
+    const ed = col.edit;
+    if (!ed) return "";
+    if (ed.field === "returnAt") {
+      const iso = card.block === "closed" ? card.closedAt : card.returnAt;
+      return iso ? new Date(iso).toISOString().slice(0, 10) : "";
+    }
+    if (ed.field === "saleValue") return card.saleValue != null ? String(card.saleValue) : "";
+    if (ed.field === "status") return normalizeStage(card.status);
+    const raw = (card as unknown as Record<string, unknown>)[ed.field];
+    return raw == null ? "" : String(raw);
+  }
+
+  function abrirCelula(card: VendasLead, col: GridColumn) {
+    if (!col.edit || card.block === "closed") return;
+    setCellMsg(null);
+    setSel(card);
+    setEditDraft(draftFor(card, col));
+    setEditCell({ id: card.id, key: col.key });
+  }
+
+  // Salva UMA célula: otimista no board local + PATCH; erro devolve o board
+  // anterior (rollback) e mostra o motivo. Sem undo multi-célula — v1 é isso.
+  async function salvarCelula(card: VendasLead, col: GridColumn, raw: string) {
+    const ed = col.edit;
+    if (!ed) return;
+    const antes = boardRef.current;
+    const valor = raw.trim();
+    const body: Record<string, unknown> = {};
+    const local: Partial<VendasLead> = {};
+
+    if (ed.field === "returnAt") {
+      if (!valor) { setEditCell(null); return; }
+      const iso = new Date(`${valor}T09:00:00`).toISOString();
+      body.returnAt = iso;
+      local.returnAt = iso;
+    } else if (ed.field === "saleValue") {
+      const n = Number(valor.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+      if (!Number.isFinite(n) || n < 0) { setCellMsg("Valor inválido."); return; }
+      body.saleValue = n;
+      local.saleValue = n;
+    } else if (ed.field === "status") {
+      const stage = normalizeStage(valor);
+      if (stage === normalizeStage(card.status)) { setEditCell(null); return; }
+      body.status = stage;
+      local.status = stage;
+      local.statusLabel = STAGE_LABEL[stage];
+    } else {
+      const atual = String((card as unknown as Record<string, unknown>)[ed.field] ?? "");
+      if (valor === atual.trim()) { setEditCell(null); return; }
+      if (ed.max && valor.length > ed.max) { setCellMsg(`Máximo de ${ed.max} caracteres.`); return; }
+      body[ed.field] = valor;
+      (local as Record<string, unknown>)[ed.field] = valor || null;
+    }
+
+    setEditCell(null);
+    setBoard(prev => {
+      const next = patchCardFields(prev, card.id, local);
+      boardRef.current = next;
+      return next;
+    });
+    setSel(prev => (prev?.id === card.id ? { ...prev, ...local } : prev));
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(card.id)}`, { method: "PATCH", body: JSON.stringify(body) });
+      await loadBoard();
+    } catch (err) {
+      setBoard(antes);
+      boardRef.current = antes;
+      setCellMsg(err instanceof Error ? err.message : "Não foi possível salvar a célula.");
+    }
+  }
+
+  // Tab dentro da grade: salva e pula pra próxima coluna editável da MESMA linha.
+  function proximaEditavel(col: GridColumn, delta: -1 | 1): GridColumn | null {
+    const editaveis = gridCols.filter(c => c.edit);
+    const i = editaveis.findIndex(c => c.key === col.key);
+    return editaveis[i + delta] ?? null;
+  }
 
   // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
   const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
@@ -1087,11 +1226,9 @@ export function VendasClient() {
       if (fecharOpen || novoOpen || prospOpen || agendaOpen || retornoOpen || semInteresseOpen || cockpitOpen) return;
       e.preventDefault();
       const q = searchQuery.toLowerCase();
-      let list = BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
+      const list = sortLeads(BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
         !searchQuery || [card.name, card.phone, card.email, card.segment, card.city, card.state, card.nextAction, card.shortNote].some(v => v?.toLowerCase().includes(q))
-      ));
-      if (sortBy === "az") list = [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "pt-BR", { sensitivity: "base" }));
-      else if (sortBy === "za") list = [...list].sort((a, b) => (b.name || "").localeCompare(a.name || "", "pt-BR", { sensitivity: "base" }));
+      )), gridSort);
       const idx = sel ? list.findIndex(c => c.id === sel.id) : -1;
       const next = e.key === "ArrowDown"
         ? (idx < list.length - 1 ? list[idx + 1] : list[0]) ?? null
@@ -1103,10 +1240,10 @@ export function VendasClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view, board, searchQuery, sortBy, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen, cockpitOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sortLeads é puro e recriado a cada render; entrar na lista re-registraria o listener à toa
+  }, [view, board, searchQuery, gridSort, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen, cockpitOpen]);
 
   const summary = board?.summary;
-  const deal = sel;
 
   // Modos acoplados — vivem no topo persistente da casca ÚNICA,
   // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
@@ -1166,7 +1303,7 @@ export function VendasClient() {
           <div className="vnd-stage">
             <div id="vendas-panel-funil" role="tabpanel" aria-labelledby="vendas-tab-funil"
               className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <div className={"content" + (deal ? " vnd-content--detail-open" : "")}>
+                <div className="content">
                   <div className="work">
             <section className="panel">
               <div className="panel-head">
@@ -1178,10 +1315,57 @@ export function VendasClient() {
                     <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
                   </span>
                   {view === "list" && (
-                    <button className="btn-ghost" onClick={() => setSortBy(s => s === "default" ? "az" : s === "az" ? "za" : "default")}
-                      title="Ordenar por nome" aria-label="Ordenar por nome">
-                      {sortBy === "az" ? "A→Z" : sortBy === "za" ? "Z→A" : "A→Z"}
-                    </button>
+                    <React.Fragment>
+                      <button className={"btn-ghost" + (editMode ? " on" : "")} onClick={() => { setEditMode(m => !m); setEditCell(null); setCellMsg(null); }}
+                        title={editMode ? "Sair do modo edição (volta a abrir os detalhes no clique)" : "Editar as células como planilha"}
+                        aria-pressed={editMode}>
+                        <I d={ICONS.edit} size={14} /> {editMode ? "Editando" : "Editar"}
+                      </button>
+                      <div className="vnd-colspick">
+                        <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
+                          onClick={() => setColsOpen(o => !o)} title="Escolher colunas">
+                          Colunas ▾
+                        </button>
+                        {colsOpen && (
+                          <React.Fragment>
+                            <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={() => setColsOpen(false)} />
+                            <div className="vnd-colspick__menu" role="menu">
+                              <div className="vnd-colspick__head">
+                                <strong>Colunas da planilha</strong>
+                                <button type="button" className="btn-ghost btn-xs" onClick={resetGrid}>Reiniciar layout</button>
+                              </div>
+                              <div className="vnd-colspick__list">
+                                {gridKeys.map((key, i) => {
+                                  const col = GRID_COLUMNS.find(c => c.key === key);
+                                  if (!col) return null;
+                                  if (col.gate === "values" && !board?.canViewValues) return null;
+                                  return (
+                                    <div key={key} className="vnd-colspick__item is-on">
+                                      <label>
+                                        <input type="checkbox" checked onChange={() => toggleGridCol(key)} />
+                                        {col.label}
+                                      </label>
+                                      <span className="vnd-colspick__ord">
+                                        <button type="button" onClick={() => moveGridCol(key, -1)} disabled={i === 0} aria-label="Mover para a esquerda">↑</button>
+                                        <button type="button" onClick={() => moveGridCol(key, 1)} disabled={i === gridKeys.length - 1} aria-label="Mover para a direita">↓</button>
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                                {GRID_COLUMNS.filter(c => !gridKeys.includes(c.key) && (c.gate !== "values" || board?.canViewValues)).map(col => (
+                                  <div key={col.key} className="vnd-colspick__item">
+                                    <label>
+                                      <input type="checkbox" checked={false} onChange={() => toggleGridCol(col.key)} />
+                                      {col.label}
+                                    </label>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </React.Fragment>
+                        )}
+                      </div>
+                    </React.Fragment>
                   )}
                   <button className="icon-ghost" title="Automações comerciais" aria-label="Automações comerciais" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
@@ -1413,54 +1597,6 @@ export function VendasClient() {
             </section>
           </div>
 
-          <aside className={"ctx" + (deal ? " ctx--vendas-detail" : "")} data-tut="vendas-painel">
-            <div key={deal?.id ?? "empty"} className="ctx-body">
-              <DetalhesNegocio
-                detail={deal ? toNegocioDetail(deal) : null}
-                onClose={() => setSel(null)}
-                onExpand={deal ? () => setCockpitOpen(true) : undefined}
-                showAgenda
-                conversationLeadId={deal?.id ?? null}
-                onConversationChanged={loadBoard}
-                crownSlot={deal ? <RadarAiBadge status={aiStatusMap[deal.radarLeadId || ""]} /> : undefined}
-                onWaOpenExternal={deal?.phone ? () => abrirWhatsAppExterno(deal.phone, buildWaMessage({ name: deal.name, segment: deal.segment, city: deal.city })) : undefined}
-                onWaOpenInternal={deal?.phone ? () => abrirWhatsAppInterno(deal) : undefined}
-                waQrActive={waQrActive}
-                waCanInternal={canAtendimento}
-                onDelete={deal ? () => { setAcaoMsg(null); setExcluirMotivoOpen("card"); } : undefined}
-                actions={deal ? (
-                  <div className="dn-cockpit">
-                    {/* TIER 1 — Fechar venda (herói bonito, mesmo do Atendimento) */}
-                    <div className="dn-cockpit__group">
-                      <button className="fv-open-cta" onClick={abrirFechar} disabled={deal.block === "closed"} data-tut="vendas-fechar">
-                        <span className="fv-open-cta-ic"><I d={ICONS.money} size={18} /></span>
-                        <span className="fv-open-cta-txt">
-                          <b>{deal.block === "closed" ? "Card já fechado" : "Fechar venda"}</b>
-                          <small>Gere o link e garanta sua comissão</small>
-                        </span>
-                        <I d={ICONS.arrow} size={16} />
-                      </button>
-                    </div>
-
-                    {/* TIER 2 — Retorno + Sem Interesse */}
-                    <div className="dn-cockpit__group">
-                      {acaoMsg && (
-                        <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
-                      )}
-                      <div className="vnd-quick-acts">
-                        <button className="btn-result btn-result--ok" onClick={() => { setRetornoData(""); setObs(""); setAcaoMsg(null); setRetornoOpen(true); }} disabled={deal.block === "closed"}>
-                          <I d={ICONS.clock} size={14} /> Retorno
-                        </button>
-                        <button className="btn-result btn-result--cold" onClick={() => { setSemInteresseMotivo(""); setAcaoMsg(null); setSemInteresseOpen(true); }} disabled={deal.block === "closed"}>
-                          Sem Interesse
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : undefined}
-              />
-            </div>{/* /ctx-body */}
-          </aside>
                 </div>{/* /content (Meu funil) */}
             </div>{/* /vnd-layer funil */}
 
