@@ -714,15 +714,24 @@
   position: relative;
   padding: 10px;
   display: grid;
-  grid-template-columns: var(--lc-smart-icon) minmax(0, 1fr) auto;
+  /* 22/07: os 3 botões do copiloto e a frase da IA disputavam a MESMA linha.
+     A trilha dos botões é `auto` (pede o max-content: ~356px) e a do texto era
+     `minmax(0,1fr)`, que aceita encolher até zero — resultado: a frase ficava
+     com 35px de largura e virava "Pró…". Agora o texto tem a linha inteira e
+     os botões descem para a linha de baixo, onde há folga sobrando. */
+  grid-template-columns: var(--lc-smart-icon) minmax(0, 1fr);
+  grid-template-areas:
+    "icon copy"
+    "actions actions";
   align-items: center;
-  gap: 9px;
+  gap: 8px 9px;
   border-color: color-mix(in srgb, var(--hbx-info) 36%, var(--border-hairline));
   background:
     linear-gradient(120deg, color-mix(in srgb, var(--hbx-info) 8%, var(--hbx-surface)), var(--hbx-surface) 62%, color-mix(in srgb, var(--hbx-brand) 5%, var(--hbx-surface)));
 }
 
 .lead-cockpit__smart-icon {
+  grid-area: icon;
   width: var(--lc-smart-icon);
   height: var(--lc-smart-icon);
   display: grid;
@@ -734,6 +743,7 @@
 }
 
 .lead-cockpit__smart-copy {
+  grid-area: copy;
   min-width: 0;
   display: grid;
   gap: 3px;
@@ -749,20 +759,24 @@
 }
 
 .lead-cockpit__smart-copy > .lead-cockpit__typed {
+  /* Agora que a frase tem a linha inteira, ela cabe em duas — antes era uma
+     linha de 35px, ou seja, três letras e reticências. */
+  display: -webkit-box;
   min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--lc-fs-body);
   line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .lead-cockpit__smart-actions {
+  grid-area: actions;
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .lead-cockpit__smart-actions .copiloto {
@@ -913,6 +927,19 @@
   overscroll-behavior: contain;
 }
 
+/* Lead SEM conversa: o convite ("Veja e responda…" + Abrir conversa) somava
+   76px e ficava grudado no topo de um card de 370px — 294px de branco morto
+   embaixo, que era o que fazia a ficha parecer abandonada. Centralizado, o
+   vazio se divide em cima e embaixo e o convite cai no centro do card.
+   O `:has` prende isto ao estado vazio: assim que existe conversa, o corpo
+   volta a empilhar mensagens do topo, como tem de ser. */
+.lead-cockpit__channel-body > .dn-convo > .dn-convo__body:has(> .dn-convo__hint) {
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
 .lead-cockpit__channel-body .msgs {
   height: auto;
   flex: 1 1 0;
@@ -1029,7 +1056,12 @@
 .lead-cockpit__signals {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 22/07: eram 4 colunas de 99px. Descontado o padding, sobravam 87px para o
+     rótulo e "TEMPERATURA" pede 88 — cortava por UM pixel, virando
+     "TEMPERATU…". Em 2x2 cada selo tem o dobro da largura e nenhum rótulo
+     corta, agora ou quando entrar um nome mais longo. É também o que o
+     breakpoint de 1180px já fazia — a base só passou a concordar com ele. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
 }
 
@@ -1497,10 +1529,6 @@
   .lead-cockpit__service-far {
     grid-column: 1 / -1;
     grid-template-rows: auto auto;
-  }
-
-  .lead-cockpit__signals {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .lead-cockpit__smart-actions .copiloto__actions .btn-ghost {
