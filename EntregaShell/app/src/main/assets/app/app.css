@@ -503,13 +503,18 @@ h3 { font-size: .95rem; }
 /* S1 21/07 (PR21072026-NAVEGAÇÃO) — painel "Próxima parada" no topo do mapa da
    Rota. Só tokens (Lei 2): --surface translúcido via color-mix + blur, --line,
    --radius, --ink/--muted, --shadow — troca de tema é automática (nada hex
-   aqui, ao contrário do route-gps-status/route-follow-control ao lado, que são
-   da Leitura e nunca aparecem junto — gate em leituraRouteActive()). */
+   aqui). S2 21/07: route-gps-status/route-follow-control (ao lado) agora
+   também servem a navegação normal (não só a Leitura) e PODEM aparecer
+   junto com este painel — a regra .has-next-panel logo abaixo empurra os
+   dois pra baixo do painel nesse caso (classe no .route-map-shell, ver
+   routeScreen/showNextPanel em app.js). */
 .route-next-panel { position: absolute; z-index: 5; top: 12px; left: 12px; right: 12px; width: auto; max-width: calc(100% - 24px); padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); text-align: left; cursor: pointer; animation: route-next-panel-in .32s cubic-bezier(.2,.82,.2,1.1) both; }
 .route-next-panel:active { transform: scale(.985); }
 .route-next-panel-title { display: block; overflow: hidden; color: var(--ink); font-size: .78rem; font-weight: 800; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
 .route-next-panel-sub { display: block; overflow: hidden; margin-top: 2px; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes route-next-panel-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+.route-map-shell.has-next-panel .route-gps-status,
+.route-map-shell.has-next-panel .route-follow-control { top: 78px; }
 html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, var(--info) 58%, var(--line)); box-shadow: 0 12px 32px color-mix(in srgb, var(--info) 15%, transparent); }
 /* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
    mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados

@@ -174,6 +174,14 @@
     leituraTrilha: [],
     leituraUltimaAmostra: null,
     leituraPausaPendente: null,
+    // S2 21/07 (PR21072026-NAVEGAÇÃO) — trilha/posição da navegação NORMAL
+    // (rota já planejada, sem app externo). Mesmo shape de ponto da Leitura
+    // ({lat,lng,accuracyM,speedMps,bearingDeg}), mas alimentado por um
+    // navigator.geolocation.watchPosition em JS (ver startNavWatch), não pela
+    // gravação nativa em background. Sobrevive a pausa/retomada do mesmo dia;
+    // encerrar rota limpa (ver performEncerrarRota/performLimparDia).
+    navTrilha: [],
+    navPosicao: null,
   };
   const app = document.getElementById("app");
   let moduleActive = true;
@@ -233,6 +241,16 @@
   // remontar o nó mata o mapa vivo).
   let leituraLiveMap = null;
   let leituraLiveMapHost = null;
+  // S2 21/07 (PR21072026-NAVEGAÇÃO) — watch JS da navegação normal. Diferente
+  // da Leitura (gravação nativa em background via HBXAndroid): aqui é só um
+  // navigator.geolocation.watchPosition em primeiro plano, ligado/desligado
+  // por navModeActive() (ver syncNavWatch, chamado a cada render()). Guardar
+  // o id pra clear idempotente — nunca deixar 2 watchers vivos ao mesmo tempo
+  // (regra dura do Webwhats não se aplica aqui, mas o princípio "1 watcher
+  // por vez" é o mesmo). navWatchSeq muda a sessão de câmera a cada
+  // (re)início do watch (fresh start ou retomada pós-pausa).
+  let navWatchId = null;
+  let navWatchSeq = 0;
   const roadGeometryCache = new Map();
   const paths = {
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
@@ -430,13 +448,36 @@
       return new window.maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
     });
     const bounds = new window.maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat]));
-    const reading = interactive && host.id === "route-live-map" && leituraRouteActive();
+    // S2 21/07 — nav mode também tem câmera própria (fitBounds motorista+
+    // próxima parada, depois follow), então some da lista de quem pode pedir
+    // o fitBounds genérico "todas as paradas" (mesma regra que já valia só
+    // pra Leitura).
+    const reading = interactive && host.id === "route-live-map" && !!routeLiveMode();
     if (!reading && !bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
     if (interactive && host.id === "route-live-map") updateRouteReadingMap(host, map);
   }
 
-  function routeReadingTrailData() {
-    const coordinates = (state.leituraTrilha || [])
+  // S2 21/07 (PR21072026-NAVEGAÇÃO) — o mapa da Rota tem 2 modos "ao vivo"
+  // mutuamente exclusivos (navModeActive() já exclui leituraRouteActive():
+  // nunca os dois juntos): "leitura" (gravação nativa em background) e "nav"
+  // (rota planejada em execução, watch JS — ver startNavWatch). As funções
+  // routeReading*/ensureRouteReadingUi/followRouteReadingPosition/
+  // updateRouteReadingMap abaixo generalizaram pra receber esse modo; quando
+  // mode==="leitura" o comportamento é IDÊNTICO ao publicado ontem (mesma
+  // fonte de dados, state.leituraTrilha/leituraLiveLastPoint()).
+  function routeLiveMode() {
+    if (leituraRouteActive()) return "leitura";
+    if (navModeActive()) return "nav";
+    return null;
+  }
+  function routeLivePoint(mode) {
+    return mode === "nav" ? state.navPosicao : mode === "leitura" ? leituraLiveLastPoint() : null;
+  }
+  function routeLiveTrailSource(mode) {
+    return mode === "nav" ? (state.navTrilha || []) : (state.leituraTrilha || []);
+  }
+  function routeReadingTrailData(mode) {
+    const coordinates = routeLiveTrailSource(mode || "leitura")
       .map(point => Array.isArray(point) ? [Number(point[1]), Number(point[0])] : null)
       .filter(point => point && validCoordinates(point[1], point[0]));
     return coordinates.length >= 2
@@ -456,10 +497,10 @@
     }
     return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } };
   }
-  function routeReadingBearing(point) {
+  function routeReadingBearing(point, mode) {
     const nativeBearing = point && point.bearingDeg;
     if (nativeBearing != null && Number.isFinite(Number(nativeBearing))) return (Number(nativeBearing) % 360 + 360) % 360;
-    const trail = state.leituraTrilha || [];
+    const trail = routeLiveTrailSource(mode || "leitura");
     if (trail.length < 2) return null;
     const a = trail[trail.length - 2]; const b = trail[trail.length - 1];
     if (!Array.isArray(a) || !Array.isArray(b) || !validCoordinates(a[0], a[1]) || !validCoordinates(b[0], b[1])) return null;
@@ -489,9 +530,9 @@
     parts.followControl.setAttribute("aria-pressed", following ? "true" : "false");
     parts.followControl.setAttribute("aria-label", following ? "GPS centralizado" : "Centralizar no GPS");
   }
-  function followRouteReadingPosition(host, map, parts, point, resetZoom) {
+  function followRouteReadingPosition(host, map, parts, point, resetZoom, mode) {
     if (!point || parts.following === false) return;
-    const bearing = routeReadingBearing(point);
+    const bearing = routeReadingBearing(point, mode);
     const speed = Number(point.speedMps);
     const moving = Number.isFinite(speed) && speed >= 1.8 && Number.isFinite(bearing);
     const first = !parts.followCameraInitialized;
@@ -506,9 +547,27 @@
     else if (first || resetZoom) { options.bearing = 0; options.pitch = 0; }
     try { map.easeTo(options); parts.followCameraInitialized = true; } catch (_) {}
   }
-  function ensureRouteReadingUi(host, map, parts) {
-    const sessionId = String(state.leitura && state.leitura.id || "");
-    if (parts.readingSessionId !== sessionId) {
+  // S2 21/07 — câmera de abertura da navegação: motorista + próxima parada
+  // num fitBounds só, ANTES do follow tomar conta (spec S2 #2, "Câmera").
+  // Sem next com coordenada válida, devolve false e o follow de sempre
+  // (single-point, zoom 16.2) cobre o enquadramento.
+  function navInitialFitBounds(map, point) {
+    const next = openItems()[0];
+    const client = next && next.cliente || {};
+    if (!point || !validCoordinates(client.lat, client.lng)) return false;
+    try {
+      const bounds = new window.maplibregl.LngLatBounds();
+      bounds.extend([point.lng, point.lat]);
+      bounds.extend([Number(client.lng), Number(client.lat)]);
+      map.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: 500 });
+      return true;
+    } catch (_) { return false; }
+  }
+  function ensureRouteReadingUi(host, map, parts, mode, point) {
+    const liveMode = mode || routeLiveMode();
+    const sessionId = liveMode === "nav" ? `nav:${navWatchSeq}` : String(state.leitura && state.leitura.id || "");
+    const isNewSession = parts.readingSessionId !== sessionId;
+    if (isNewSession) {
       parts.readingSessionId = sessionId;
       parts.following = true;
       parts.followCameraInitialized = false;
@@ -524,11 +583,17 @@
       button.className = "route-follow-control";
       button.innerHTML = icon("gps", 20);
       button.addEventListener("pointerdown", event => event.stopPropagation());
+      // Recalcula o modo NA HORA do toque (em vez de fechar sobre o `mode`
+      // do momento em que o botão nasceu) — o botão é criado 1x e sobrevive
+      // a trocas de modo no mesmo host (ex.: Leitura termina e a navegação
+      // normal assume o mesmo mapa), então uma closure travada no mode antigo
+      // leria a fonte de dados errada.
       button.addEventListener("click", event => {
         event.preventDefault(); event.stopPropagation();
+        const clickMode = routeLiveMode();
         parts.following = true;
         syncRouteReadingFollowUi(parts);
-        followRouteReadingPosition(host, map, parts, leituraLiveLastPoint(), true);
+        followRouteReadingPosition(host, map, parts, routeLivePoint(clickMode), true, clickMode);
         H.vibrate(10);
       });
       host.appendChild(button);
@@ -536,7 +601,7 @@
     }
     if (!parts.readingInteractionBound) {
       const detach = event => {
-        if (!leituraRouteActive() || !event || !event.originalEvent) return;
+        if (!routeLiveMode() || !event || !event.originalEvent) return;
         parts.following = false;
         syncRouteReadingFollowUi(parts);
       };
@@ -547,6 +612,10 @@
       parts.readingInteractionBound = true;
     }
     host.classList.add("is-reading-route");
+    // Sessão de NAVEGAÇÃO nova: 1x fitBounds(motorista + próxima parada)
+    // antes do follow (spec S2 #2). A Leitura não entra aqui — não tem
+    // "próxima parada", desenha só a trilha andada (comportamento intocado).
+    if (isNewSession && liveMode === "nav" && point && navInitialFitBounds(map, point)) parts.followCameraInitialized = true;
     syncRouteReadingFollowUi(parts);
   }
   function ensureRouteMapResizeGuard(host, map) {
@@ -567,8 +636,9 @@
   }
   function updateRouteReadingMap(host, map, options) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
-    const point = leituraRouteActive() ? leituraLiveLastPoint() : null;
-    if (!leituraRouteActive()) {
+    const mode = routeLiveMode();
+    const point = routeLivePoint(mode);
+    if (!mode) {
       if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
       parts.currentLocationMarker = null;
       if (parts.gpsStatus) parts.gpsStatus.remove();
@@ -580,8 +650,8 @@
       return;
     }
     if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) return;
-    ensureRouteReadingUi(host, map, parts);
-    const trailData = routeReadingTrailData();
+    ensureRouteReadingUi(host, map, parts, mode, point);
+    const trailData = routeReadingTrailData(mode);
     if (trailData) {
       const trailSource = map.getSource("hbx-reading-trail");
       if (trailSource) trailSource.setData(trailData);
@@ -609,7 +679,7 @@
       parts.gpsStatus.textContent = "Buscando GPS…";
       return;
     }
-    const bearing = routeReadingBearing(point);
+    const bearing = routeReadingBearing(point, mode);
     if (parts.currentLocationMarker) {
       parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
     } else {
@@ -625,7 +695,7 @@
     if (Number.isFinite(bearing) && typeof parts.currentLocationMarker.setRotation === "function") parts.currentLocationMarker.setRotation(bearing);
     const accuracy = Number(point.accuracyM);
     parts.gpsStatus.textContent = Number.isFinite(accuracy) && accuracy > 0 ? `GPS · ±${Math.round(accuracy)} m` : "GPS ativo";
-    if ((options && options.moveCamera) || !parts.followCameraInitialized) followRouteReadingPosition(host, map, parts, point, !!(options && options.resetZoom));
+    if ((options && options.moveCamera) || !parts.followCameraInitialized) followRouteReadingPosition(host, map, parts, point, !!(options && options.resetZoom), mode);
   }
   function collapseMapAttribution(host) {
     requestAnimationFrame(() => {
@@ -702,7 +772,10 @@
         return;
       }
       const pendingPosition = !points.length && interactive ? currentPosition() : Promise.resolve(null);
-      const readingPoint = interactive && leituraRouteActive() ? leituraLiveLastPoint() : null;
+      // S2 21/07 — generaliza pro modo "nav" (ver routeLiveMode/routeLivePoint
+      // acima): leitura mantém a MESMA fonte/comportamento de antes.
+      const liveMode = interactive ? routeLiveMode() : null;
+      const readingPoint = routeLivePoint(liveMode);
       const center = readingPoint || points[0] || { lat: -14.235, lng: -51.9253 };
       const maplibregl = await loadRouteMapLibrary();
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
@@ -711,7 +784,7 @@
       routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme() };
       ensureRouteMapResizeGuard(host, map);
       if (!points.length) void pendingPosition.then(position => {
-        if (position && routeMap === map && routeMapHost === host && !leituraLiveLastPoint()) map.easeTo({ center: [position.lng, position.lat], zoom: leituraRouteActive() ? 16.2 : 14, duration: 500 });
+        if (position && routeMap === map && routeMapHost === host && !routeLivePoint(routeLiveMode())) map.easeTo({ center: [position.lng, position.lat], zoom: routeLiveMode() ? 16.2 : 14, duration: 500 });
       });
       map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
@@ -818,7 +891,7 @@
     const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Abrindo navegação para</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Abrir agora</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
+  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
   function confirmationOverlay() {
     const confirmation = state.confirmation;
     if (!confirmation) return "";
@@ -1995,6 +2068,15 @@
   function leituraRouteActive() {
     return state.screen === "route" && !!(state.leitura && state.leitura.modo === "LEITURA");
   }
+  // S2 21/07 (PR21072026-NAVEGAÇÃO) — mapa da Rota vira a navegação: ativo só
+  // quando a rota está rodando de verdade (routeActive() já é serverRouteActive()
+  // && openItems().length>0 && !routePaused — o !state.routePaused aqui é
+  // paranoia redundante, mantida pra bater com a leitura literal do spec) e
+  // NÃO há Leitura tomando conta do mesmo mapa — mutuamente exclusivos, nunca
+  // os dois watchers vivos ao mesmo tempo (ver routeLiveMode acima).
+  function navModeActive() {
+    return routeActive() && !state.routePaused && !leituraRouteActive();
+  }
   // Abre (ou reabre) a leitura na própria tela Rota. O snapshot nativo continua
   // sendo sincronizado, mas não existe mais um segundo mapa/modal para exibi-lo.
   async function openLeituraAtiva() {
@@ -2815,7 +2897,10 @@
     // S1 21/07 — sessão MANUAL não tem mais faixa (leituraBanner devolve "");
     // sem o wrapper condicional sobrava uma margem vazia sobre a tela Rota.
     const lrtBannerHtml = leituraBanner();
-    return shell(`<section class="hero route-hero"><div class="route-map-shell"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
+    // (agora também usados pela navegação normal, não só Leitura) pra baixo do
+    // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
+    return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : paused ? routePausedBanner() : routeTransmuxControl(planned)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${lrtBannerHtml ? `<div class="lrt-banner">${lrtBannerHtml}</div>` : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
@@ -3497,6 +3582,12 @@
     });
   }
   function render() {
+    // S2 21/07 (PR21072026-NAVEGAÇÃO) — sincroniza o watch da navegação a
+    // CADA render (o pulso central do app, roda depois de qualquer ação que
+    // possa mudar navModeActive()). Antes do early-return de moduleActive:
+    // syncNavWatch já checa moduleActive por dentro e desliga o watch se for
+    // o caso, então nenhuma chamada perdida de render() deixa watcher vivo.
+    syncNavWatch();
     if (!moduleActive) return;
     const leituraAtivaNaRota = leituraRouteActive();
     document.documentElement.classList.toggle("leitura-route-active", leituraAtivaNaRota);
@@ -3695,6 +3786,54 @@
     const distanceTxt = lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "";
     sub.textContent = `${address(c)}${distanceTxt ? ` · aproximadamente ${distanceTxt}` : ""}`;
   }
+  // S2 21/07 (PR21072026-NAVEGAÇÃO) — watch da navegação normal (rota já em
+  // execução, sem app externo). Mesmas options de currentPosition() (spec S2
+  // #2, item "Posição ao vivo"). Cada fix normaliza pro mesmo shape de ponto
+  // da Leitura ({lat,lng,accuracyM,speedMps,bearingDeg}), alimenta
+  // state.navPosicao + empurra em state.navTrilha (filtro ~8m de distância
+  // mínima, teto 2000 pontos — descarta do início, mesmo padrão do nativo da
+  // Leitura) e reaproveita updateNextStopPanelDistance()/updateRouteReadingMap
+  // pra atualizar painel e mapa sem esperar o próximo render() completo.
+  function startNavWatch() {
+    if (navWatchId != null || !navigator.geolocation) return;
+    navWatchSeq += 1;
+    navWatchId = navigator.geolocation.watchPosition(position => {
+      markGpsFix();
+      const coords = position.coords || {};
+      const point = {
+        lat: coords.latitude, lng: coords.longitude,
+        accuracyM: Number.isFinite(coords.accuracy) ? coords.accuracy : null,
+        speedMps: Number.isFinite(coords.speed) ? coords.speed : null,
+        bearingDeg: Number.isFinite(coords.heading) ? coords.heading : null,
+      };
+      if (!validCoordinates(point.lat, point.lng)) return;
+      state.navPosicao = point;
+      lastKnownPosition = { lat: point.lat, lng: point.lng, accuracy: point.accuracyM };
+      const trail = state.navTrilha || [];
+      const last = trail[trail.length - 1];
+      const movedEnough = !last || distanceMeters({ lat: last[0], lng: last[1] }, point) >= 8;
+      if (movedEnough) {
+        const nextTrail = [...trail, [point.lat, point.lng]];
+        state.navTrilha = nextTrail.length > 2000 ? nextTrail.slice(nextTrail.length - 2000) : nextTrail;
+      }
+      updateNextStopPanelDistance();
+      if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap, { moveCamera: true });
+    }, err => { markGpsError(err); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
+  }
+  function stopNavWatch() {
+    if (navWatchId == null) return;
+    try { navigator.geolocation.clearWatch(navWatchId); } catch (_) {}
+    navWatchId = null;
+  }
+  // Chamado no topo de todo render() (o pulso central do app — roda depois de
+  // qualquer ação que possa mudar navModeActive()). Start/stop são idempotentes
+  // (guard por navWatchId), então nunca vaza watcher nem duplica: pausar,
+  // encerrar, "Limpar o dia" e logout derrubam navModeActive() e o PRÓXIMO
+  // render desliga sozinho — logout também para explícito (não espera
+  // render), ver "accept-confirmation".
+  function syncNavWatch() {
+    if (moduleActive && navModeActive()) startNavWatch(); else stopNavWatch();
+  }
   async function startRoute(planOnly, generateToday, deliveryIds) {
     try {
       state.routePaused = false; H.cache.remove("logistica-route-paused");
@@ -3710,7 +3849,10 @@
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
       if (!planOnly) activateNativeRoute(result);
       await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
-      if (!planOnly) abrirNavegacao(openItems()[0]);
+      // S2 21/07 (PR21072026-NAVEGAÇÃO) — fim do troca-troca: NÃO abre mais
+      // Waze/Maps. Fica na tela Rota; navModeActive() vira true sozinho (rota
+      // ativa, não pausada, sem Leitura) e o render() acima (dentro do
+      // refresh) já liga o watch/mapa via syncNavWatch/updateRouteReadingMap.
     } catch (error) { toast(humanApiError(error), true); }
   }
   function pauseRouteOnDevice() {
@@ -3745,7 +3887,8 @@
       activateNativeRoute(started);
       await refresh(true);
       toast("Rota iniciada.");
-      abrirNavegacao(openItems()[0]);
+      // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
+      // o watch/mapa sozinho (ver comentário em startRoute).
     } catch (error) { toast(humanApiError(error), true); }
     finally { state.dayStarting = false; }
   }
@@ -3818,7 +3961,8 @@
         activateNativeRoute(started);
         await refresh(true);
         toast("Rota iniciada.");
-        abrirNavegacao(openItems()[0]);
+        // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
+        // o watch/mapa sozinho (ver comentário em startRoute).
         return;
       }
       const generatedDays = await Promise.all(state.daySelection.map(day => H.api("/logistica/gerar-dia", { method: "POST", body: { date: state.daySourceDates[day] || dateForIsoDay(day) } })));
@@ -3904,6 +4048,13 @@
       clearRouteSelection();
       clearRouteOrdemManual();
       H.stopRoute();
+      // S2 21/07 — "encerrar rota limpa" a trilha (spec S2 #4): não sobrevive
+      // de um dia pro outro (sobrevive só a pausa/retomada DO MESMO dia, ver
+      // comentário em state.navTrilha). stopNavWatch() explícito não é
+      // necessário aqui — o refresh(true) logo abaixo já chama render(), que
+      // desliga o watch sozinho (syncNavWatch, routeActive() vira false).
+      state.navTrilha = [];
+      state.navPosicao = null;
       await refresh(true);
       toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`);
       if (offerSaveRoute && snapshot && snapshot.length >= 2) offerSaveTodayRoute(snapshot);
@@ -3969,6 +4120,11 @@
       clearRouteSelection();
       clearRouteOrdemManual();
       H.stopRoute();
+      // S2 21/07 — mesma lógica de performEncerrarRota: "Limpar o dia" também
+      // encerra a execução de hoje, então a trilha da navegação não deve
+      // sobrar pro próximo dia/sessão.
+      state.navTrilha = [];
+      state.navPosicao = null;
       await refresh(true);
       toast(canceladas > 0 ? `${canceladas} entrega(s) cancelada(s).` : "Nenhuma entrega aberta para cancelar.");
     } catch (error) {
@@ -4043,19 +4199,38 @@
   function showModal(name) { state.openingOverlay = "modal"; state.modal = name; render(); }
   function makeDeliveryDraft(item) { const existing = (item.itens || []).map(x => ({ key: `item-${x.id}`, id: x.id, productId: x.produto && x.produto.id || x.produtoId || null, nome: x.produto && x.produto.nome || "Produto", qtd: Math.max(0, Number(x.qtdEntregue ?? x.qtdPrevista ?? 1)), novo: false })); if (existing.length) return { deliveryId: item.id, items: existing }; return { deliveryId: item.id, items: [{ key: `legacy-${item.id}`, id: item.id, productId: item.produto && item.produto.id || item.produtoId || null, nome: item.produto && item.produto.nome || "Entrega", qtd: Math.max(1, Number(item.quantidade || 1)), novo: false }] }; }
   function deliveryDraftFor(item) { if (!state.deliveryDraft || state.deliveryDraft.deliveryId !== item.id) state.deliveryDraft = makeDeliveryDraft(item); return state.deliveryDraft; }
+  // "GPS avançado" (S1, ícone à esquerda do play) e data-action="maps" da
+  // folha continuam chamando isto — único jeito de abrir Waze/Maps que sobra
+  // depois do S2 (fim do troca-troca automático).
   function abrirNavegacao(item) { if (!item) return; const client = item.cliente || {}; if (!validCoordinates(client.lat, client.lng) && !String(client.endereco || "").trim()) { toast("Destino sem coordenadas ou endereço cadastrado.", true); return; } H.maps(client.lat, client.lng, address(client)); }
+  // S2 21/07 — reengancha o follow e centraliza motorista+próxima parada no
+  // mapa da Rota (mesmo fitBounds de abertura da navegação, navInitialFitBounds;
+  // cai pro follow single-point de sempre se não der). Usado pelo fim do
+  // countdown de "Próxima parada" (openNextStop) — o foco muda de tela pra
+  // MAPA, nunca mais pra app externo.
+  function refocusNavCamera() {
+    if (!routeMap || !routeMapHost) return;
+    const parts = routeMapHost.__hbxMapParts || (routeMapHost.__hbxMapParts = { markers: [] });
+    parts.following = true;
+    syncRouteReadingFollowUi(parts);
+    const mode = routeLiveMode();
+    const point = routeLivePoint(mode);
+    if (!navInitialFitBounds(routeMap, point)) followRouteReadingPosition(routeMapHost, routeMap, parts, point, true, mode);
+  }
   function openNextStop() {
-    // Ponto único de abertura: o timer (countdown chega a 0) e o toque em "Abrir
-    // agora" caem os dois aqui. O guard evita abrir o Maps 2x se ambos disparam
-    // perto um do outro; nextStop é limpo ANTES de navegar, então uma segunda
-    // chamada encontra state.nextStop nulo e não faz nada.
+    // Ponto único: o timer (countdown chega a 0) e o toque em "Ver rota" caem
+    // os dois aqui. O guard evita disparar 2x se ambos acontecerem perto um
+    // do outro; nextStop é limpo ANTES, então uma segunda chamada encontra
+    // state.nextStop nulo e não faz nada.
+    // S2 21/07 — NÃO abre mais Waze/Maps: garante a tela Rota (navigateTo se
+    // preciso — o overlay pode ter ficado aberto sobre outra tela), fecha o
+    // overlay e foca o mapa na próxima parada (fitBounds + follow religado).
     if (!state.nextStop || state.nextStopOpening) return;
     state.nextStopOpening = true;
     clearInterval(nextStopTimer);
-    const next = state.nextStop;
     state.nextStop = null;
-    render();
-    abrirNavegacao(next);
+    if (state.screen !== "route") navigateTo("route"); else render();
+    refocusNavCamera();
     state.nextStopOpening = false;
   }
   function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const ring = document.querySelector(".next-stop-progress"); if (ring) ring.style.strokeDashoffset = (188.5 * state.nextCountdown / 5).toFixed(1); }, 1000); }
@@ -4243,7 +4418,7 @@
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
       if (confirmation.type === "cancel-leitura" || confirmation.type === "cancel-leitura-manual") await performCancelLeitura();
       if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
-      if (confirmation.type === "logout") H.logout();
+      if (confirmation.type === "logout") { stopNavWatch(); H.logout(); }
       if (confirmation.type === "ativar-financeiro") {
         try {
           await H.api("/logistica/config", { method: "PATCH", body: { moduloFinanceiroAtivo: true } });
@@ -5361,7 +5536,10 @@
       navigateTo(screen || "route", motion || "back");
       syncKeyboardViewport();
     },
-    deactivate() { moduleActive = false; clearKeyboardViewport(); },
+    // S2 21/07 — trocar de módulo (ex.: Vendas assume a tela) não passa mais
+    // por render() nenhum aqui — stopNavWatch() explícito, senão o watch da
+    // navegação ficaria vivo em segundo plano sem tela nenhuma pra atualizar.
+    deactivate() { moduleActive = false; stopNavWatch(); clearKeyboardViewport(); },
   };
   if (!H.modules.get().logistica && state.screen !== "settings") {
     moduleActive = false;
