@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
+import { CreditWalletService } from '../credits/credit-wallet.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
 import { isPedidoPublicoEnabled } from './logistica-pedido.flags';
@@ -29,7 +30,10 @@ import { isResumoDiarioEnabled } from './resumo-diario.flags';
 export class LogisticaConfigService {
   private readonly logger = new Logger(LogisticaConfigService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly wallet: CreditWalletService,
+  ) {}
 
   // ── LER (cria default se não existir) ────────────────────────────────────────
   /**
@@ -40,7 +44,30 @@ export class LogisticaConfigService {
   async getConfig(companyId: number, actor?: ActorKindUserLike): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const cfg = await this.ensureRow(companyId);
-    return serializeConfig(cfg, actor);
+    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
+    return serializeConfig(cfg, actor, creditosEsgotados);
+  }
+
+  /**
+   * S7 (PR22072026-APP-SOUNDS) — deriva o BOOLEANO "acabaram os créditos" a
+   * partir do MESMO saldo do extrato admin (CreditWalletService.getBalance),
+   * sem vazar o número: este método nunca devolve o saldo, só <= 0 ou não. É
+   * consumido por `/logistica/config`, que o app do entregador já lê SEM ser
+   * admin (GET sem @Admin()) — assim o motorista finalmente recebe o FATO
+   * ("não dá pra rodar hoje") sem precisar do endpoint admin-only do extrato
+   * (`/logistica/creditos/extrato`, que devolveria 403 pra ele).
+   * Fail-open: qualquer erro na consulta devolve `false` (não tranca) — igual
+   * ao `catch (_) { state.creditsLock = null; }` do app: uma falha de leitura
+   * de saldo nunca pode travar o app de quem está tentando trabalhar.
+   */
+  private async computeCreditosEsgotados(companyId: number): Promise<boolean> {
+    try {
+      const balance = await this.wallet.getBalance(companyId);
+      return Number.isFinite(balance) && balance <= 0;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] computeCreditosEsgotados company=${companyId} falhou: ${String(e?.message || e)}`);
+      return false;
+    }
   }
 
   /**
@@ -237,7 +264,11 @@ export class LogisticaConfigService {
       update: data,
       create: { companyId, ...data },
     });
-    return serializeConfig(cfg, actor);
+    // PATCH é admin-only (RolesGuard + @Admin() no controller), mas o DTO é o
+    // MESMO shape do GET — recalcula o booleano pra não devolver um valor
+    // desatualizado pro admin que acabou de editar a config.
+    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
+    return serializeConfig(cfg, actor, creditosEsgotados);
   }
 
   // ── TOGGLE "avisar entrega" POR CLIENTE ──────────────────────────────────────
@@ -410,8 +441,14 @@ function normalizeDiasTrabalho(raw: unknown): string | null {
   return dias.length > 0 ? dias.join(',') : null;
 }
 
-function serializeConfig(c: any, actor?: ActorKindUserLike): LogisticaConfigDTO {
+function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = false): LogisticaConfigDTO {
   const operational: LogisticaConfigDTO = {
+    // S7 (PR22072026-APP-SOUNDS) — BOOLEANO, nunca o saldo: vai pra TODO ator
+    // (inclusive motorista, que não é billing owner) porque é o único jeito de
+    // ele saber "não dá pra rodar hoje" sem bater no endpoint admin-only do
+    // extrato. Mesma linha da LEI DO VENDEDOR — o fato pode aparecer, o
+    // dinheiro da empresa não.
+    creditosEsgotados: !!creditosEsgotados,
     avisoWhatsEnabled: !!c.avisoWhatsEnabled,
     templateAviso: c.templateAviso ?? null,
     raioChegadaM: c.raioChegadaM,
@@ -522,6 +559,9 @@ export interface UpdateLogisticaConfigInput {
 }
 
 export interface LogisticaConfigDTO {
+  // S7 (PR22072026-APP-SOUNDS) — ver comentário em `serializeConfig`: booleano
+  // operacional (todo ator lê), nunca o saldo.
+  creditosEsgotados: boolean;
   avisoWhatsEnabled: boolean;
   templateAviso: string | null;
   raioChegadaM: number;

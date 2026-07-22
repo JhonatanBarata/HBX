@@ -65,8 +65,12 @@ function setup(initial = row()) {
       },
     },
   };
+  // S7 (PR22072026-APP-SOUNDS) — stub do CreditWalletService: saldo positivo
+  // fixo, só pra satisfazer o construtor (o booleano creditosEsgotados tem
+  // teste PRÓPRIO em logistica-config-creditos-esgotados.test.ts).
+  const wallet: any = { getBalance: async () => 100 };
   return {
-    service: new LogisticaConfigService(prisma),
+    service: new LogisticaConfigService(prisma, wallet),
     findUniqueCalls,
     upsertCalls,
   };

@@ -3712,16 +3712,57 @@
   // sem saldo cai na trava. Erro de rede NUNCA tranca (fail-open): trancar por
   // bug de conexão seria pior que deixar passar um dia de saldo negativo.
   async function refreshCreditsLock() {
+    const wasLocked = !!state.creditsLock;
     try {
       const statement = await H.api("/logistica/creditos/extrato");
       state.statement = statement;
       const balance = Number(statement && statement.balanceCredits);
       state.creditsLock = Number.isFinite(balance) && balance <= 0 && !routeActive() ? { balance } : null;
     } catch (_) { state.creditsLock = null; }
+    // S7 (PR22072026-APP-SOUNDS) — warning toca SÓ na TRANSIÇÃO destravado→
+    // travado, nunca a cada render(): refreshCreditsLock roda de novo a cada
+    // refresh() (isAdmin) e um re-toque a cada poll seria irritante/errado.
+    if (state.creditsLock && !wasLocked) H.sound("warning");
     render();
+  }
+  // S7 — espelho de refreshCreditsLock, mas para o MOTORISTA: ele não pode
+  // chamar /logistica/creditos/extrato (é @Admin(), leva 403), então deriva a
+  // trava do BOOLEANO `creditosEsgotados` que já veio dentro do
+  // `/logistica/config` que o refresh() comum já busca (results[2] em
+  // refresh()). Nunca lê nem guarda saldo — só o fato. `configFetchOk=false`
+  // (config falhou nesta rodada, ex. modo avião) é FAIL-OPEN: destrava, igual
+  // ao catch(_) do refreshCreditsLock acima — nunca tranca por bug de rede.
+  function applyDriverCreditsLock(configFetchOk) {
+    const wasLocked = !!state.creditsLock;
+    if (!configFetchOk) { state.creditsLock = null; return; }
+    const cfg = state.config;
+    state.creditsLock = !!(cfg && cfg.creditosEsgotados) && !routeActive() ? {} : null;
+    if (state.creditsLock && !wasLocked) H.sound("warning");
+  }
+  // S7 — gatilho SECUNDÁRIO (rede de segurança): se o saldo estourar ENTRE um
+  // boot e outro, o backend recusa a geração/início de rota na hora com o code
+  // LOGISTICA_ROUTE_UNAVAILABLE (commercialUnavailable() em
+  // logistica-route-billing.service.ts) — mostra a MESMA trava já, sem esperar
+  // o próximo refresh(). Devolve true quando tratou o erro (o chamador NÃO deve
+  // também jogar um toast técnico em cima).
+  function creditsLockFromRouteError(error) {
+    const code = error && error.body && error.body.code;
+    if (code !== "LOGISTICA_ROUTE_UNAVAILABLE") return false;
+    const wasLocked = !!state.creditsLock;
+    state.creditsLock = isAdmin() ? (state.creditsLock || { balance: 0 }) : {};
+    if (!wasLocked) H.sound("warning");
+    render();
+    return true;
   }
   function creditsLockOverlay() {
     if (!state.creditsLock) return "";
+    // S7 (PR22072026-APP-SOUNDS) — mesma casca (.credits-lock/.credits-lock-card,
+    // ícone carteira), DOIS textos por papel: o admin resolve (Recarregar), o
+    // motorista só tem UMA ação possível (falar com o Financeiro) — por isso
+    // ele nunca vê a palavra "créditos" nem número nenhum (LEI DO VENDEDOR).
+    if (!isAdmin()) {
+      return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon("wallet", 22)}</div><h2>Rota indisponível hoje</h2><p>Fale com o Financeiro para liberar as rotas.</p><button class="btn btn-primary btn-block" data-action="credits-lock-refresh">Atualizar</button></div></div>`;
+    }
     return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon("wallet", 22)}</div><h2>Créditos esgotados</h2><p>Sem créditos a rota do dia não pode ser gerada. Recarregue para continuar usando o aplicativo.</p><button class="btn btn-primary btn-block" data-action="open-recarga">Recarregar créditos</button><button class="btn btn-secondary btn-block" data-action="credits-lock-refresh">Já recarreguei · atualizar</button></div></div>`;
   }
   // ==========================================================================
@@ -4251,6 +4292,11 @@
     // (dirigindo termina o dia; falha de rede nunca tranca). Não bloqueia o boot.
     if (isAdmin()) void refreshCreditsLock();
     else {
+      // S7 (PR22072026-APP-SOUNDS) — o BURACO do sprint: só o admin rodava a
+      // trava (refreshCreditsLock, que o motorista não pode chamar — 403). O
+      // booleano já veio no results[2] (/logistica/config) acima; deriva a
+      // trava dele. results[2] não fulfilled (ex. modo avião) = fail-open.
+      applyDriverCreditsLock(results[2].status === "fulfilled");
       state.error = humanApiError(results[0].reason);
       // Primeiro login: a sessão nativa pode não estar pronta quando o boot já
       // dispara — em vez de mostrar "Rota indisponível" e obrigar o motorista a
@@ -4387,7 +4433,7 @@
       // Waze/Maps. Fica na tela Rota; navModeActive() vira true sozinho (rota
       // ativa, não pausada, sem Leitura) e o render() acima (dentro do
       // refresh) já liga o watch/mapa via syncNavWatch/updateRouteReadingMap.
-    } catch (error) { toast(humanApiError(error), true); }
+    } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
   }
   function pauseRouteOnDevice() {
     clearInterval(nextStopTimer);
@@ -4427,7 +4473,7 @@
       toast("Rota iniciada.");
       // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
       // o watch/mapa sozinho (ver comentário em startRoute).
-    } catch (error) { toast(humanApiError(error), true); }
+    } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
     finally { state.dayStarting = false; }
   }
   function startDayReview() {
@@ -4516,7 +4562,7 @@
       setRouteSelection(deliveryIds);
       await closeOverlay("modal");
       await startRoute(state.dayMode === "plan", false, deliveryIds);
-    } catch (error) { render(); toast(humanApiError(error), true); }
+    } catch (error) { if (!creditsLockFromRouteError(error)) { render(); toast(humanApiError(error), true); } }
     finally { state.dayStarting = false; }
   }
   async function confirmDelivery(item, options) {
@@ -5329,7 +5375,13 @@
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(humanApiError(error), true); } }
     if (action === "open-recarga") openRecarga();
-    if (action === "credits-lock-refresh") { toast("Atualizando saldo…", false, { mudo: true }); void refreshCreditsLock(); }
+    // S7 — "Atualizar" do motorista não tem extrato pra chamar (403 pra ele):
+    // dispara um refresh(true) normal, que já busca /logistica/config de novo e
+    // reaplica applyDriverCreditsLock — mesmo botão, caminho por papel.
+    if (action === "credits-lock-refresh") {
+      if (isAdmin()) { toast("Atualizando saldo…", false, { mudo: true }); void refreshCreditsLock(); }
+      else { toast("Atualizando…", false, { mudo: true }); void refresh(true); }
+    }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
     // ---- PR20072026 W2 — Leitura de Rota ----
     // S3 21/07 — "leitura-iniciar"/"leitura-iniciar-manual" (órfãos: nenhum

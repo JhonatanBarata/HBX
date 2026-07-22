@@ -132,7 +132,10 @@ test('config do tenant persiste qualquer combinação de requisitos', async () =
       },
     },
   };
-  const service = new LogisticaConfigService(prisma);
+  // S7 (PR22072026-APP-SOUNDS) — stub do CreditWalletService (só satisfaz o
+  // construtor; este teste não exercita creditosEsgotados).
+  const wallet: any = { getBalance: async () => 100 };
+  const service = new LogisticaConfigService(prisma, wallet);
   const result = await service.updateConfig(7, {
     comprovanteFotoObrigatoria: true,
     comprovanteAssinaturaObrigatoria: false,
