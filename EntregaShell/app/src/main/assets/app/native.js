@@ -70,6 +70,11 @@
     // app) = no-op silencioso, nunca quebra o fluxo de entrega.
     speak(text) { bridge && bridge.speak && bridge.speak(String(text || "")); },
     speakStop() { bridge && bridge.speakStop && bridge.speakStop(); },
+    // S1 22/07 (PR22072026-APP-SOUNDS) — motor de sons nativo. Mesmo guard de
+    // bridge ausente que speak/vibrate acima: preview fora do APK (browser)
+    // não pode quebrar. Nenhum call site chama isto ainda — S1 é só o cano.
+    sound(key) { try { bridge && bridge.playSound && bridge.playSound(String(key || "")); } catch (_) {} },
+    soundStop(key) { try { bridge && bridge.stopSound && bridge.stopSound(String(key || "")); } catch (_) {} },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },

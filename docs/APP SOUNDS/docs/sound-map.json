@@ -1,0 +1,162 @@
+[
+  {
+    "key": "opening_signature",
+    "file": "hbx_opening_signature.ogg",
+    "trigger": "OpeningActivity.startWebHandoffWhenReady()",
+    "loop": false,
+    "volume": 0.85,
+    "category": "brand"
+  },
+  {
+    "key": "sonic_logo",
+    "file": "hbx_sonic_logo.ogg",
+    "trigger": "Vídeos, login e comunicação da marca",
+    "loop": false,
+    "volume": 0.9,
+    "category": "brand"
+  },
+  {
+    "key": "route_start",
+    "file": "hbx_route_start.ogg",
+    "trigger": "Após routeActivated / iniciarLeituraTrilha",
+    "loop": false,
+    "volume": 0.78,
+    "category": "operation"
+  },
+  {
+    "key": "route_stop",
+    "file": "hbx_route_stop.ogg",
+    "trigger": "Após stopRoute / pararLeituraTrilha",
+    "loop": false,
+    "volume": 0.72,
+    "category": "operation"
+  },
+  {
+    "key": "arrival_alert",
+    "file": "hbx_arrival_alert_loop.ogg",
+    "trigger": "ChegadaActivity.iniciarSom() e canal de chegada",
+    "loop": true,
+    "volume": 1.0,
+    "category": "critical"
+  },
+  {
+    "key": "arrival_confirm",
+    "file": "hbx_arrival_confirm.ogg",
+    "trigger": "Abrir entrega / confirmar chegada",
+    "loop": false,
+    "volume": 0.82,
+    "category": "operation"
+  },
+  {
+    "key": "success",
+    "file": "hbx_success.ogg",
+    "trigger": "Confirmação simples",
+    "loop": false,
+    "volume": 0.55,
+    "category": "ui"
+  },
+  {
+    "key": "delivery_complete",
+    "file": "hbx_delivery_complete.ogg",
+    "trigger": "Entrega finalizada",
+    "loop": false,
+    "volume": 0.8,
+    "category": "operation"
+  },
+  {
+    "key": "proof_saved",
+    "file": "hbx_proof_saved.ogg",
+    "trigger": "Comprovante guardado localmente ou enviado",
+    "loop": false,
+    "volume": 0.65,
+    "category": "operation"
+  },
+  {
+    "key": "sync_complete",
+    "file": "hbx_sync_complete.ogg",
+    "trigger": "Fila offline zerada / sincronização concluída",
+    "loop": false,
+    "volume": 0.7,
+    "category": "operation"
+  },
+  {
+    "key": "offline_saved",
+    "file": "hbx_offline_saved.ogg",
+    "trigger": "Operação salva sem internet",
+    "loop": false,
+    "volume": 0.68,
+    "category": "operation"
+  },
+  {
+    "key": "sync_pending",
+    "file": "hbx_sync_pending.ogg",
+    "trigger": "Operação entrou na fila de sincronização",
+    "loop": false,
+    "volume": 0.55,
+    "category": "ui"
+  },
+  {
+    "key": "pause_detected",
+    "file": "hbx_pause_detected.ogg",
+    "trigger": "Evento hbx:leitura-pausa",
+    "loop": false,
+    "volume": 0.74,
+    "category": "operation"
+  },
+  {
+    "key": "warning",
+    "file": "hbx_warning.ogg",
+    "trigger": "Avisos que exigem atenção",
+    "loop": false,
+    "volume": 0.72,
+    "category": "warning"
+  },
+  {
+    "key": "error",
+    "file": "hbx_error.ogg",
+    "trigger": "Falha de operação ou comunicação",
+    "loop": false,
+    "volume": 0.78,
+    "category": "error"
+  },
+  {
+    "key": "pairing_success",
+    "file": "hbx_pairing_success.ogg",
+    "trigger": "Aparelho vinculado",
+    "loop": false,
+    "volume": 0.82,
+    "category": "brand"
+  },
+  {
+    "key": "update_complete",
+    "file": "hbx_update_complete.ogg",
+    "trigger": "Atualização instalada/concluída",
+    "loop": false,
+    "volume": 0.8,
+    "category": "operation"
+  },
+  {
+    "key": "navigation_open",
+    "file": "hbx_navigation_open.ogg",
+    "trigger": "Abrir Maps/Waze",
+    "loop": false,
+    "volume": 0.55,
+    "category": "ui"
+  },
+  {
+    "key": "tap_soft",
+    "file": "hbx_tap_soft.ogg",
+    "trigger": "Somente ações principais; não usar em todo botão",
+    "loop": false,
+    "volume": 0.28,
+    "category": "ui"
+  },
+  {
+    "key": "toggle",
+    "file": "hbx_toggle.ogg",
+    "trigger": "Alternar preferência importante",
+    "loop": false,
+    "volume": 0.35,
+    "category": "ui"
+  }
+]

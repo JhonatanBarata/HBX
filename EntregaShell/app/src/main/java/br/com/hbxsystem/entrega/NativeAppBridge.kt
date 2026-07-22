@@ -64,6 +64,12 @@ class NativeAppBridge(
     private var tts: TextToSpeech? = null
     private var ttsPronta = false
 
+    // S1 (PR22072026-APP-SOUNDS) — motor de sons: mesma LAZY que o TTS (não
+    // paga SoundPool em quem tem o app mudo), lambda pra `ttsFalando` porque o
+    // Engine não pode conhecer o TTS (Lei nº1/nº2 do 00-PLANO — ver
+    // HbxSoundEngine.kt). S1 só monta o cano; nenhum call site usa ainda.
+    private val soundEngine = HbxSoundEngine(activity) { runCatching { tts?.isSpeaking == true }.getOrDefault(false) }
+
     // Auto-update (F4): 1 atualização por vez, nunca em loop.
     private val updateEmAndamento = AtomicBoolean(false)
     private val updateStatusAction = "${activity.packageName}.HBX_UPDATE_STATUS"
@@ -416,6 +422,28 @@ class NativeAppBridge(
         }
     }
 
+    // S1 (PR22072026-APP-SOUNDS) — mesmo padrão de speak/speakStop acima: guard
+    // de APP_MODE aqui na ponte (o Engine também guarda, é cinto e suspensório,
+    // igual ao resto da classe) + runOnUiThread (SoundPool/MediaPlayer não são
+    // thread-safe) + sanitização da key ([a-z_], teto 40) antes de qualquer
+    // outra coisa. Key desconhecida é resolvida como no-op DENTRO do Engine
+    // (SONS[key] == null), nunca aqui.
+    @JavascriptInterface
+    fun playSound(key: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        val safeKey = key.filter { it in 'a'..'z' || it == '_' }.take(40)
+        if (safeKey.isEmpty()) return
+        activity.runOnUiThread { soundEngine.play(safeKey) }
+    }
+
+    @JavascriptInterface
+    fun stopSound(key: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        val safeKey = key.filter { it in 'a'..'z' || it == '_' }.take(40)
+        if (safeKey.isEmpty()) return
+        activity.runOnUiThread { soundEngine.stop(safeKey) }
+    }
+
     // Init LAZY: a 1a chamada de speak() cria o TextToSpeech; o callback de
     // init é assíncrono, então um speak() que chegue nesse meio-tempo cai no
     // "existing != null && !ttsPronta" e é descartado (voz é acessório, não
@@ -673,6 +701,9 @@ class NativeAppBridge(
         // do unregisterReceiver acima: close() já roda na UI thread, dentro
         // de onDestroy).
         shutdownTts()
+        // S1 (APP-SOUNDS) — mesmo lugar/thread: SoundPool vazado com o app em
+        // foreground o dia inteiro é buraco de memória (ver HbxSoundEngine).
+        soundEngine.release()
     }
 
     private fun resolve(id: String, status: Int, rawBody: String, error: String?) {
