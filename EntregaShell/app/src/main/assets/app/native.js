@@ -65,6 +65,11 @@
     vibrate(ms) { const d = Math.max(1, Math.min(200, Number(ms) || 12)); try { if (bridge && bridge.vibrate) { bridge.vibrate(d); return; } } catch (_) {} try { if (navigator.vibrate) navigator.vibrate(d); } catch (_) {} },
     whatsapp(phone, message) { bridge && bridge.openWhatsapp && bridge.openWhatsapp(String(phone || ""), String(message || "")); },
     maps(lat, lng, address) { bridge && bridge.openMaps && bridge.openMaps(lat == null ? null : String(lat), lng == null ? null : String(lng), String(address || "")); },
+    // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — TTS nativo pt-BR (android.speech.tts).
+    // Mesmo padrão de guard de maps()/vibrate: bridge ausente (preview fora do
+    // app) = no-op silencioso, nunca quebra o fluxo de entrega.
+    speak(text) { bridge && bridge.speak && bridge.speak(String(text || "")); },
+    speakStop() { bridge && bridge.speakStop && bridge.speakStop(); },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },

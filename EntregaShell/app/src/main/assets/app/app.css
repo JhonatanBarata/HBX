@@ -508,11 +508,19 @@ h3 { font-size: .95rem; }
    junto com este painel — a regra .has-next-panel logo abaixo empurra os
    dois pra baixo do painel nesse caso (classe no .route-map-shell, ver
    routeScreen/showNextPanel em app.js). */
-.route-next-panel { position: absolute; z-index: 5; top: 12px; left: 12px; right: 12px; width: auto; max-width: calc(100% - 24px); padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); text-align: left; cursor: pointer; animation: route-next-panel-in .32s cubic-bezier(.2,.82,.2,1.1) both; }
+.route-next-panel { position: absolute; z-index: 5; top: 12px; left: 12px; right: 12px; width: auto; max-width: calc(100% - 24px); padding: 10px 40px 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); text-align: left; cursor: pointer; animation: route-next-panel-in .32s cubic-bezier(.2,.82,.2,1.1) both; }
 .route-next-panel:active { transform: scale(.985); }
 .route-next-panel-title { display: block; overflow: hidden; color: var(--ink); font-size: .78rem; font-weight: 800; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
 .route-next-panel-sub { display: block; overflow: hidden; margin-top: 2px; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes route-next-panel-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+/* S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — botão mudo da voz da navegação, canto
+   superior direito do painel (padding-right do painel acima já reserva o
+   espaço, texto nunca fica embaixo). Só tokens (Lei 2): --muted no estado
+   normal, --brand (identidade/seleção, igual chip/badge ativo) quando mudo
+   está ligado — nunca esmeralda/--cta, isto não é ação principal. */
+.route-next-panel-mute { position: absolute; top: 6px; right: 6px; z-index: 1; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: none; border-radius: 999px; background: transparent; color: var(--muted); }
+.route-next-panel-mute:active { transform: scale(.92); }
+.route-next-panel-mute.is-muted { color: var(--brand); }
 .route-map-shell.has-next-panel .route-gps-status,
 .route-map-shell.has-next-panel .route-follow-control { top: 78px; }
 html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, var(--info) 58%, var(--line)); box-shadow: 0 12px 32px color-mix(in srgb, var(--info) 15%, transparent); }

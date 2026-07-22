@@ -187,6 +187,14 @@
     // posição na lista — ver navRouteOpenPoints/recomputeNavRoute). Some no
     // mesmo ponto em que a trilha zera (encerrar rota / limpar o dia).
     navRota: null,
+    // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — voz da navegação: navMudo é a
+    // preferência do motorista (persistida, sobrevive a troca de rota/dia);
+    // navVoice é bookkeeping do step falado da perna atual ({epoch,
+    // forStopId, stepIndex, spoken400, spoken60}), resetado por navVoiceState()
+    // sempre que a perna atual muda de parada ou a rota é recalculada (mesmo
+    // ponto em que navRota zera — ver performEncerrarRota/performLimparDia).
+    navMudo: H.cache.get("nav-mudo", false) || false,
+    navVoice: null,
   };
   const app = document.getElementById("app");
   let moduleActive = true;
@@ -288,6 +296,9 @@
     trash: "<path d='M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'/>",
     download: "<path d='M12 3v12M7 10l5 5 5-5M5 21h14'/>",
     wifi: "<path d='M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0'/><circle cx='12' cy='19.5' r='.6'/>",
+    // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — botão mudo do painel de navegação.
+    volume: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M15.5 8.5a5 5 0 0 1 0 7'/><path d='M18.5 5.5a9 9 0 0 1 0 13'/>",
+    volumeOff: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M17 9l6 6M23 9l-6 6'/>",
   };
   function icon(name, size) { return `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.box}</svg>`; }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -391,28 +402,71 @@
   function osrmRouteCoordinates(payload) {
     return payload && payload.code === "Ok" && payload.routes && payload.routes[0] && payload.routes[0].geometry && payload.routes[0].geometry.coordinates;
   }
-  async function fetchOsrmRoutePublic(key) {
+  // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — tabela MÍNIMA de instrução (Lei 8,
+  // nada além disso): turn left/right, slight, rotatória+saída, continue/new
+  // name (com/sem rua) e arrive. Maneuver fora da tabela = sem instrução
+  // (step descartado, não inventa copy).
+  function osrmStepInstrucao(step) {
+    const maneuver = (step && step.maneuver) || {};
+    const type = String(maneuver.type || "");
+    const modifier = String(maneuver.modifier || "");
+    const rua = String((step && step.name) || "").trim();
+    if (type === "arrive") return "você chegou";
+    if ((type === "roundabout" || type === "rotary") && Number.isFinite(Number(maneuver.exit))) {
+      return `na rotatória, pegue a ${Math.trunc(Number(maneuver.exit))}ª saída`;
+    }
+    if (modifier === "slight left") return "mantenha-se à esquerda";
+    if (modifier === "slight right") return "mantenha-se à direita";
+    if (type === "turn" && modifier === "left") return "vire à esquerda";
+    if (type === "turn" && modifier === "right") return "vire à direita";
+    if (type === "continue" || type === "new name") return rua ? `continue na ${rua}` : "continue";
+    return null;
+  }
+  // {lat,lng,instrucao} por step de UMA perna (leg do OSRM) — location vem de
+  // maneuver.location ([lng,lat], eixo OSRM). Steps sem instrução mapeada ou
+  // sem coordenada válida somem da lista (ver osrmStepInstrucao).
+  function osrmLegInstructions(leg) {
+    const steps = (leg && Array.isArray(leg.steps)) ? leg.steps : [];
+    return steps.map(step => {
+      const instrucao = osrmStepInstrucao(step);
+      const location = step && step.maneuver && step.maneuver.location;
+      if (!instrucao || !Array.isArray(location) || location.length < 2) return null;
+      const lng = Number(location[0]); const lat = Number(location[1]);
+      return validCoordinates(lat, lng) ? { lat, lng, instrucao } : null;
+    }).filter(Boolean);
+  }
+  async function fetchOsrmRoutePublic(key, wantSteps) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
     try {
-      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${key}?overview=full&geometries=geojson&steps=false`, { signal: controller.signal });
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${key}?overview=full&geometries=geojson&steps=${wantSteps ? "true" : "false"}`, { signal: controller.signal });
       if (!response.ok) throw new Error("Roteamento indisponível.");
       return await response.json();
     } finally { clearTimeout(timeout); }
   }
-  async function roadGeometry(points) {
+  // wantSteps (S5): SÓ true quando quem chama está em navModeActive() (ver
+  // recomputeNavRoute) — pede &steps=true pro backend/fallback público e o
+  // retorno passa a ser {coordinates, legSteps} em vez do array cru de
+  // coordenadas (legSteps[i] = instruções da perna i, mesma ordem de
+  // `cortes` em recomputeNavRoute). Cache chaveado à parte (sufixo #steps)
+  // pra nunca devolver um payload sem steps pra quem pediu com steps.
+  async function roadGeometry(points, wantSteps) {
     const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
-    if (coordinates.length < 2) return [];
+    if (coordinates.length < 2) return wantSteps ? { coordinates: [], legSteps: [] } : [];
     const key = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
-    if (roadGeometryCache.has(key)) return roadGeometryCache.get(key);
+    const cacheKey = wantSteps ? `${key}#steps` : key;
+    if (roadGeometryCache.has(cacheKey)) return roadGeometryCache.get(cacheKey);
     let payload;
-    try { payload = await H.api(`/logistica/osrm/route?coords=${encodeURIComponent(key)}`); }
-    catch (_) { payload = await fetchOsrmRoutePublic(key); }
+    try { payload = await H.api(`/logistica/osrm/route?coords=${encodeURIComponent(key)}${wantSteps ? "&steps=true" : ""}`); }
+    catch (_) { payload = await fetchOsrmRoutePublic(key, wantSteps); }
     const routed = osrmRouteCoordinates(payload);
     if (!Array.isArray(routed) || routed.length < 2) throw new Error("Rota viária não encontrada.");
-    roadGeometryCache.set(key, routed);
+    const result = wantSteps
+      ? { coordinates: routed, legSteps: ((payload.routes[0].legs) || []).map(osrmLegInstructions) }
+      : routed;
+    roadGeometryCache.set(cacheKey, result);
     if (roadGeometryCache.size > 12) roadGeometryCache.delete(roadGeometryCache.keys().next().value);
-    return routed;
+    return result;
   }
   async function fetchOsrmTablePublic(encoded) {
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 8000);
@@ -769,6 +823,18 @@
     const entry = rota.cortes.find(corte => String(corte.id) === String(first.id));
     return entry ? entry.index : null;
   }
+  // S5 21/07 — steps (instruções) da perna ATUAL: legSteps é paralelo a
+  // `cortes` (mesma ordem de waypoints da chamada OSRM em recomputeNavRoute),
+  // então a POSIÇÃO do corte da 1ª parada aberta no array `cortes` é o índice
+  // da perna em `legSteps` (não o `id`, que é só chave de busca).
+  function navCurrentLegSteps() {
+    const rota = state.navRota;
+    if (!rota || !Array.isArray(rota.cortes) || !Array.isArray(rota.legSteps)) return [];
+    const first = navRouteOpenPoints()[0];
+    if (!first) return [];
+    const position = rota.cortes.findIndex(corte => String(corte.id) === String(first.id));
+    return position >= 0 ? (rota.legSteps[position] || []) : [];
+  }
   // Painel S1 (distância da linha 2): soma distanceMeters ponto-a-ponto da
   // geometria até o corte da perna atual. null = sem rota viária ainda
   // (chamador cai pro fallback reta, spec "Fallback: reta").
@@ -779,6 +845,58 @@
     let total = 0;
     for (let i = 1; i <= cut; i++) total += distanceMeters({ lat: rota.geometry[i - 1][1], lng: rota.geometry[i - 1][0] }, { lat: rota.geometry[i][1], lng: rota.geometry[i][0] });
     return total;
+  }
+  // S5 21/07 — bookkeeping do step falado da perna atual (state.navVoice:
+  // {epoch, forStopId, stepIndex, spoken400, spoken60}). Ressincroniza
+  // (zera stepIndex/marcações) sempre que a perna muda de parada-alvo
+  // (avanço sem recompute — S3 #2) OU o voiceEpoch muda (recompute — S3 #4/
+  // 1ª ativação): "Recálculo (S3) → refaz steps e zera marcações" (spec S5 #3).
+  // Chamada tanto pela leitura (render, navActiveVoiceStep) quanto pelo tick
+  // que fala (processNavVoice) — idempotente, sem efeito colateral visível.
+  function navVoiceState() {
+    const rota = state.navRota;
+    const first = navRouteOpenPoints()[0];
+    const forStopId = first ? String(first.id) : null;
+    const epoch = (rota && rota.voiceEpoch) || 0;
+    const voice = state.navVoice;
+    if (!voice || voice.forStopId !== forStopId || voice.epoch !== epoch) {
+      state.navVoice = { epoch, forStopId, stepIndex: 0, spoken400: false, spoken60: false };
+    }
+    return state.navVoice;
+  }
+  // Leitura pro painel/banner (linha 2): step ativo + distância reta até ele
+  // via lastKnownPosition (mesmo padrão de fallback do painel, sem exigir um
+  // fix novo). null = sem step à frente (banner cai pro endereço).
+  function navActiveVoiceStep() {
+    if (!navModeActive()) return null;
+    const steps = navCurrentLegSteps();
+    if (!steps.length) return null;
+    const voice = navVoiceState();
+    const step = steps[voice.stepIndex];
+    if (!step || !lastKnownPosition) return null;
+    return { instrucao: step.instrucao, distanceM: distanceMeters(lastKnownPosition, { lat: step.lat, lng: step.lng }) };
+  }
+  // Disparo de voz por distância (spec S5 #3): fala cada step 2x — ~400m
+  // ("Em 400 metros, {instrução}") e ~60m ("{instrução}"), cada limiar só 1x
+  // (marcação em state.navVoice). "Passou do step" é aproximado por chegar a
+  // ~40m do ponto da manobra — aí avança pro próximo step da perna (índice
+  // seguinte, marcações zeradas). Mudo (state.navMudo) segura só o H.speak —
+  // o avanço de step continua acontecendo (o banner não pode travar num step
+  // antigo só porque a voz está muda). Chamado a cada fix do watch
+  // (startNavWatch), nunca do render.
+  function processNavVoice(point) {
+    if (!navModeActive()) return;
+    const steps = navCurrentLegSteps();
+    if (!steps.length) return;
+    const voice = navVoiceState();
+    const step = steps[voice.stepIndex];
+    if (!step) return;
+    const distanceM = distanceMeters(point, { lat: step.lat, lng: step.lng });
+    if (!state.navMudo) {
+      if (distanceM <= 400 && !voice.spoken400) { voice.spoken400 = true; H.speak(`Em 400 metros, ${step.instrucao}`); }
+      if (distanceM <= 60 && !voice.spoken60) { voice.spoken60 = true; H.speak(step.instrucao); }
+    }
+    if (distanceM <= 40) { voice.stepIndex += 1; voice.spoken400 = false; voice.spoken60 = false; }
   }
   function nearestGeometryIndex(geometry, stop) {
     let bestIndex = 0; let bestDist = Infinity;
@@ -818,9 +936,22 @@
     const origin = state.navPosicao;
     if (!origin || !validCoordinates(origin.lat, origin.lng) || !stops.length) return false;
     try {
-      const geometry = await roadGeometry([{ lat: origin.lat, lng: origin.lng }, ...stops]);
-      if (geometry.length < 2) return false;
-      state.navRota = { geometry, cortes: stops.map(stop => ({ id: stop.id, index: nearestGeometryIndex(geometry, stop) })) };
+      // S5 21/07 — steps=true SÓ em navegação ativa (spec S5 #6): fora disso
+      // o payload cresceria à toa (roadGeometry aceita o 2º arg em qualquer
+      // chamador, mas só quem monta a perna atual da navegação passa true).
+      const result = await roadGeometry([{ lat: origin.lat, lng: origin.lng }, ...stops], navModeActive());
+      const geometry = result.coordinates || result;
+      if (!geometry || geometry.length < 2) return false;
+      state.navRota = {
+        geometry,
+        cortes: stops.map(stop => ({ id: stop.id, index: nearestGeometryIndex(geometry, stop) })),
+        // legSteps é paralelo a `cortes` — ver navCurrentLegSteps(). voiceEpoch
+        // incrementa a cada recompute bem-sucedido: navVoiceState() usa isso
+        // pra zerar as marcações de voz mesmo quando a parada-alvo não mudou
+        // (recálculo por "saiu do caminho" refaz as instruções da perna).
+        legSteps: Array.isArray(result.legSteps) ? result.legSteps : [],
+        voiceEpoch: ((state.navRota && state.navRota.voiceEpoch) || 0) + 1,
+      };
       return true;
     } catch (_) { return false; } // OSRM fora do ar: mantém o desenho atual (state.navRota intocado).
   }
@@ -3124,15 +3255,27 @@
   // re-renderiza normal a cada render()). Copy EXATA do spec (Lei 8), 2 linhas.
   // n/total = mesma numeração dos cards (orderedItems/items). Toque = showSheet
   // (via data-delivery, mesmo dispatcher que os stopCard já usam).
+  // S5 21/07 — linha 2 (routeNextStopSubText, compartilhada com o patch AO
+  // VIVO em updateNextStopPanelDistance): em navegação ativa E com step à
+  // frente, vira "Em {distância}, {instrução}"; sem step (reta longa) ou fora
+  // de navegação, volta pro endereço+distância de sempre.
+  function routeNextStopSubText(next) {
+    const c = next.cliente || {};
+    const step = navActiveVoiceStep();
+    if (step) return `Em ${formatRouteDistance(Math.max(0, step.distanceM))}, ${step.instrucao}`;
+    const viaria = navModeActive() ? navLegAtualMeters() : null;
+    const distanceTxt = viaria != null ? formatRouteDistance(viaria) : (lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "");
+    return `${address(c)}${distanceTxt ? ` · aproximadamente ${distanceTxt}` : ""}`;
+  }
   function routeNextStopPanel(next) {
     const c = next.cliente || {};
     const n = orderedItems().indexOf(next) + 1;
     const total = items().length;
-    // S3 21/07 — em navegação ativa a distância vira a da PERNA (viária, soma
-    // da geometria até o corte); fallback reta (lastKnownPosition) igual antes.
-    const viaria = navModeActive() ? navLegAtualMeters() : null;
-    const distanceTxt = viaria != null ? formatRouteDistance(viaria) : (lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "");
-    return `<div class="route-next-panel" data-delivery="${H.escape(next.id)}" role="button" tabindex="0" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(address(c))}${distanceTxt ? ` · aproximadamente ${H.escape(distanceTxt)}` : ""}</span></div>`;
+    // S5 21/07 — botão mudo (H.speak) SÓ existe em navegação ativa; fora dela
+    // não há voz pra silenciar (Leitura/pausada nunca chegam aqui — H.speak
+    // não é chamado, então o botão só confundiria).
+    const muteBtn = navModeActive() ? `<button type="button" class="route-next-panel-mute${state.navMudo ? " is-muted" : ""}" data-action="nav-mute-toggle" aria-label="${state.navMudo ? "Ativar voz da navegação" : "Silenciar voz da navegação"}">${icon(state.navMudo ? "volumeOff" : "volume", 18)}</button>` : "";
+    return `<div class="route-next-panel" data-delivery="${H.escape(next.id)}" role="button" tabindex="0" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(routeNextStopSubText(next))}</span>${muteBtn}</div>`;
   }
   function routeTransmuxControl(planned) {
     // Chamada só quando a rota NÃO está pausada (routeScreen troca pra
@@ -3983,12 +4126,10 @@
     if (state.screen !== "route" || leituraRouteActive()) return;
     const next = openItems()[0];
     if (!next) return;
-    const c = next.cliente || {};
-    // S3 21/07 — mesma regra do routeNextStopPanel: viária em nav mode, reta
-    // de fallback (esta função é o patch AO VIVO da mesma linha 2 do painel).
-    const viaria = navModeActive() ? navLegAtualMeters() : null;
-    const distanceTxt = viaria != null ? formatRouteDistance(viaria) : (lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "");
-    sub.textContent = `${address(c)}${distanceTxt ? ` · aproximadamente ${distanceTxt}` : ""}`;
+    // S3/S5 21/07 — mesma regra do routeNextStopPanel: viária em nav mode
+    // (ou instrução do step à frente), reta de fallback (esta função é o
+    // patch AO VIVO da mesma linha 2 do painel — sem re-render).
+    sub.textContent = routeNextStopSubText(next);
   }
   // S2 21/07 (PR21072026-NAVEGAÇÃO) — watch da navegação normal (rota já em
   // execução, sem app externo). Mesmas options de currentPosition() (spec S2
@@ -4020,7 +4161,6 @@
         const nextTrail = [...trail, [point.lat, point.lng]];
         state.navTrilha = nextTrail.length > 2000 ? nextTrail.slice(nextTrail.length - 2000) : nextTrail;
       }
-      updateNextStopPanelDistance();
       if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap, { moveCamera: true });
       // S3 21/07 — desenha as pernas assim que o 1º fix chega (sem esperar um
       // render() completo); depois disso só redesenha por gatilho real (perna
@@ -4028,6 +4168,10 @@
       // checkNavOffPath cuidam disso), nunca a cada tick de GPS.
       if (!state.navRota && routeMap && routeMapHost) void applyNavLegRoute(routeMapHost, routeMap);
       checkNavOffPath(point);
+      // S5 21/07 — processa voz/step ANTES do patch do painel (senão o banner
+      // ficaria 1 tick atrasado do avanço de step feito aqui).
+      processNavVoice(point);
+      updateNextStopPanelDistance();
     }, err => { markGpsError(err); }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 });
   }
   function stopNavWatch() {
@@ -4073,6 +4217,10 @@
     state.deliveryArrived = false;
     state.routePaused = true;
     H.cache.set("logistica-route-paused", true);
+    // S5 21/07 — navModeActive() já vira false com routePaused=true (nenhum
+    // H.speak novo dispara), mas uma fala em curso continuaria até o fim: o
+    // spec é claro (voz NUNCA com rota pausada), corta na hora.
+    H.speakStop();
     H.stopRoute();
   }
   async function resumeRouteOnDevice() { await startRoute(false, false); }
@@ -4269,6 +4417,12 @@
       // rota/dia" igual à trilha: zeram junto (senão a próxima rota herdava
       // cortes de paradas que não existem mais e um orçamento já gasto).
       state.navRota = null;
+      // S5 21/07 — bookkeeping de voz é "por rota/dia" também; navVoiceState()
+      // já resincronizaria sozinho (forStopId muda), mas zerar explícito aqui
+      // segue o mesmo padrão do navRota/navTrilha acima e corta qualquer fala
+      // em curso da rota que acabou de encerrar.
+      state.navVoice = null;
+      H.speakStop();
       resetNavRecalcBudget();
       await refresh(true);
       toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`);
@@ -4342,6 +4496,10 @@
       state.navPosicao = null;
       // S3 21/07 — mesma lógica de performEncerrarRota: zera junto com a trilha.
       state.navRota = null;
+      // S5 21/07 — idem performEncerrarRota: zera bookkeeping de voz e corta
+      // fala em curso.
+      state.navVoice = null;
+      H.speakStop();
       resetNavRecalcBudget();
       await refresh(true);
       toast(canceladas > 0 ? `${canceladas} entrega(s) cancelada(s).` : "Nenhuma entrega aberta para cancelar.");
@@ -4551,6 +4709,18 @@
       return;
     }
     const action = target.dataset.action;
+    // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — mudo do painel de navegação:
+    // alterna state.navMudo + persiste (H.cache). Mudo NÃO some com o
+    // banner, só segura os H.speak() futuros (ver processNavVoice); um
+    // H.speakStop() aqui evita que uma fala já em curso continue depois do
+    // toque em mudo.
+    if (action === "nav-mute-toggle") {
+      state.navMudo = !state.navMudo;
+      H.cache.set("nav-mudo", state.navMudo);
+      if (state.navMudo) H.speakStop();
+      render();
+      return;
+    }
     if (action === "module-toggle") {
       const current = H.modules.get(); const module = target.dataset.module;
       if (!Object.prototype.hasOwnProperty.call(current, module)) return;
@@ -5617,7 +5787,12 @@
       if (form.id === "new-oneoff-form") { let customerProfileId = data.customerProfileId; if (!customerProfileId) { if (!data.clientName) throw new Error("Escolha ou informe o cliente avulso."); const client = await H.api("/nucleo/contas", { method: "POST", body: { nome: data.clientName, tipo: "pf", whatsapp: data.clientPhone, isCliente: true, isLead: false } }); customerProfileId = client && (client.id || client.contaId); } if (!customerProfileId) throw new Error("Não foi possível preparar o cliente avulso."); await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId: Number(data.productId), quantidade: Number(data.quantidade || 1), scheduledAt: operationalScheduledAt(), notes: data.notes || undefined } }); state.oneoffDraft = {}; await closeOverlay("modal"); await refresh(true); toast("Entrega avulsa adicionada à rota de hoje."); }
     } catch (error) { button.disabled = false; toast(humanApiError(error), true); }
   });
-  document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); } });
+  // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — "Chegada na parada: hbx:arrival já
+  // abre a folha — falar 'Você chegou' 1x" (spec S5 #3). navModeActive()+
+  // !navMudo é a MESMA porta de todo H.speak desta frente (nunca em Leitura/
+  // pausada, respeita mudo); a chamada é 1x por evento (o nativo dispara uma
+  // vez por chegada, não há loop pra deduplicar aqui).
+  document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); if (navModeActive() && !state.navMudo) H.speak("Você chegou"); } });
   document.addEventListener("hbx:theme", render);
   // Fix visual de alta frequência (~3s): move posição/precisão/câmera, mas não
   // entra na trilha gravada. O nativo mantém a gravação filtrada em 8m/15s.

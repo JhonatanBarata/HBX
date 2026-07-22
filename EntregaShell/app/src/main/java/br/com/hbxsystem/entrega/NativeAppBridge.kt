@@ -14,6 +14,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
@@ -29,6 +30,7 @@ import java.net.URI
 import java.net.URL
 import java.security.DigestOutputStream
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -51,6 +53,16 @@ class NativeAppBridge(
     private val navigation = NavigationLauncher(activity)
     private val logoutEmAndamento = AtomicBoolean(false)
     private val appReadyEnviado = AtomicBoolean(false)
+
+    // S5 (PR21072026-NAVEGACAO-HBX) — TTS da navegação: instância única,
+    // criada LAZY na 1a chamada de speak() (nunca no init, pra não pagar o
+    // custo do motor de voz em quem nem usa a navegação). Acesso sempre pela
+    // UI thread (métodos @JavascriptInterface chegam numa thread própria do
+    // WebView — ver runOnUiThread em speak/speakStop/close). Voz é acessório:
+    // qualquer falha de init/idioma vira no-op silencioso, nunca derruba a
+    // entrega.
+    private var tts: TextToSpeech? = null
+    private var ttsPronta = false
 
     // Auto-update (F4): 1 atualização por vez, nunca em loop.
     private val updateEmAndamento = AtomicBoolean(false)
@@ -377,6 +389,70 @@ class NativeAppBridge(
         } catch (_: Throwable) {}
     }
 
+    // S5 (PR21072026-NAVEGACAO-HBX) — voz da navegação (OSRM steps + TTS pt-BR
+    // nativo). Texto sanitizado (sem caractere de controle, teto 300) e
+    // QUEUE_FLUSH: a instrução mais nova sempre corta a anterior, nunca
+    // empilha fala atrasada. Só existe no app logistica (motorista); vendas
+    // nunca chama isto.
+    @JavascriptInterface
+    fun speak(text: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        val safeText = text.filterNot(Char::isISOControl).take(300).trim()
+        if (safeText.isEmpty()) return
+        activity.runOnUiThread {
+            ensureTts { engine ->
+                try {
+                    engine.speak(safeText, TextToSpeech.QUEUE_FLUSH, null, "hbx-nav")
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun speakStop() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread {
+            try { tts?.stop() } catch (_: Throwable) {}
+        }
+    }
+
+    // Init LAZY: a 1a chamada de speak() cria o TextToSpeech; o callback de
+    // init é assíncrono, então um speak() que chegue nesse meio-tempo cai no
+    // "existing != null && !ttsPronta" e é descartado (voz é acessório, não
+    // vale enfileirar/esperar). Falha de init OU idioma pt-BR indisponível =
+    // ttsPronta nunca vira true = todo speak() seguinte também é descartado
+    // silenciosamente, sem crash, sem retry, sem loop.
+    private fun ensureTts(onReady: (TextToSpeech) -> Unit) {
+        val existing = tts
+        if (existing != null) {
+            if (ttsPronta) onReady(existing)
+            return
+        }
+        tts = TextToSpeech(activity) { status ->
+            val engine = tts
+            if (status == TextToSpeech.SUCCESS && engine != null) {
+                val resultado = try {
+                    engine.setLanguage(Locale("pt", "BR"))
+                } catch (_: Throwable) {
+                    TextToSpeech.LANG_NOT_SUPPORTED
+                }
+                if (resultado != TextToSpeech.LANG_MISSING_DATA && resultado != TextToSpeech.LANG_NOT_SUPPORTED) {
+                    ttsPronta = true
+                    onReady(engine)
+                }
+            }
+        }
+    }
+
+    // Chamado só de close() (mesmo lugar/thread que já limpa o resto da
+    // ponte — ver onDestroy em MainActivity).
+    private fun shutdownTts() {
+        try { tts?.stop() } catch (_: Throwable) {}
+        try { tts?.shutdown() } catch (_: Throwable) {}
+        tts = null
+        ttsPronta = false
+    }
+
     @JavascriptInterface
     fun appInfo(): String = JSONObject()
         .put("mode", BuildConfig.APP_MODE)
@@ -593,6 +669,10 @@ class NativeAppBridge(
         if (BuildConfig.APP_MODE == "logistica") {
             runCatching { activity.unregisterReceiver(updateReceiver) }
         }
+        // S5 — shutdown do TTS junto com a limpeza da activity (mesmo padrão
+        // do unregisterReceiver acima: close() já roda na UI thread, dentro
+        // de onDestroy).
+        shutdownTts()
     }
 
     private fun resolve(id: String, status: Int, rawBody: String, error: String?) {
