@@ -421,10 +421,21 @@ function readLogisticaFlavorVersion() {
     throw new Error('Não encontrei o bloco create("logistica") em app/build.gradle.kts.');
   }
   const block = flavorMatch[1];
-  const versionCodeMatch = /versionCode\s*=\s*(\d+)/.exec(block);
   const versionNameMatch = /versionName\s*=\s*"([^"]+)"/.exec(block);
+  // 22/07 — o flavor deixou de ter o número na cara: virou
+  // `versionCode = hbxLogisticaVersionCode` (o próprio publish injeta via
+  // -PhbxLogisticaVersionCode). Quem guarda o PISO agora é o
+  // `val hbxLogisticaVersionCodeFloor` no topo do arquivo. Enquanto isto aqui
+  // só sabia ler literal, TODO publish que encostasse no APK morria em
+  // "Não encontrei versionCode/versionName" — sem subir nada, com exit 0.
+  // Ordem: literal (se algum dia voltar) → piso da variável.
+  const versionCodeMatch = /versionCode\s*=\s*(\d+)/.exec(block)
+    || /hbxLogisticaVersionCodeFloor\s*=\s*(\d+)/.exec(content);
   if (!versionCodeMatch || !versionNameMatch) {
-    throw new Error('Não encontrei versionCode/versionName do flavor "logistica" em app/build.gradle.kts.');
+    throw new Error(
+      'Não encontrei versionCode/versionName do flavor "logistica" em app/build.gradle.kts '
+        + '(nem o literal no bloco, nem o val hbxLogisticaVersionCodeFloor).',
+    );
   }
   return { versionCode: Number(versionCodeMatch[1]), versionName: versionNameMatch[1] };
 }
