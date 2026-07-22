@@ -39,6 +39,174 @@
   };
 
   const bridge = window.HBXAndroid;
+
+  // 22/07 S3a (PR22072026-APK-PROFISSIONAL) — reconciliação fina do .content.
+  // O freio anti-piscada de mais cedo hoje (ver mount() abaixo) só evitava
+  // trocar a tela quando NADA no .content mudava. Durante uma rota ativa o
+  // GPS atualiza distância/ETA/ordem das paradas a cada tique — um byte muda
+  // e a tela INTEIRA (content.replaceWith) era destruída e recriada por
+  // segundo. Daqui pra baixo é a mesma ideia que já funciona nos overlays
+  // (comparar cada nó com o que ELE MESMO gerou no render anterior, nunca
+  // com o DOM vivo — que sofre mutação de mapa/foco/scroll depois do mount e
+  // nunca mais bateria na string), só que aplicada RECURSIVAMENTE dentro do
+  // .content: cada filho é comparado com a marcação que ele tinha da última
+  // vez; igual, não toca; só texto mudou, escreve o miolo; estrutura
+  // diferente, troca só aquele nó. Teto de profundidade porque recursão sem
+  // limite numa lista grande de entregas custa mais que a troca — medido no
+  // stopCard real (logistica/app.js): content → .list → <article
+  // data-delivery> → .stop-top → .card-main → texto é 5 níveis; por isso o
+  // teto é 5, não os "3–4" de sugestão inicial (senão o teto estoura ANTES
+  // de chegar no texto do card, que é o alvo real do tique de GPS).
+  const HBX_CONTEUDO_PROFUNDIDADE_MAX = 5;
+  // Campo de formulário nunca leva patch fino: o atributo `value` não
+  // reflete o que o usuário já digitou (a propriedade `.value` some da
+  // sincronia com o atributo assim que o campo é tocado) — sincronizar via
+  // setAttribute mostraria um valor desatualizado sem avisar. Ou fica igual
+  // (barra no __hbxGen acima) ou troca o nó inteiro; nunca meio-termo.
+  const HBX_CONTROLES_FORM = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+  function hbxChaveDoNo(el) {
+    if (el.dataset) {
+      if (el.dataset.delivery) return `delivery:${el.dataset.delivery}`;
+      if (el.dataset.client) return `client:${el.dataset.client}`;
+    }
+    if (el.id) return `id:${el.id}`;
+    return null;
+  }
+
+  // Mesma técnica de chave da reconciliação de overlays (mount() abaixo):
+  // chave estável (data-delivery/data-client/id) primeiro, cai pra primeira
+  // classe + ordem de aparição quando não houver.
+  function hbxChavearLista(lista) {
+    const usados = new Map();
+    return lista.map(el => {
+      const estavel = hbxChaveDoNo(el);
+      if (estavel) return { chave: estavel, el };
+      const base = (el.getAttribute("class") || el.tagName.toLowerCase()).split(" ")[0];
+      const n = (usados.get(base) || 0) + 1;
+      usados.set(base, n);
+      return { chave: `${base}#${n}`, el };
+    });
+  }
+
+  // getAttribute/setAttribute, NUNCA .className: em nó SVG (ícone inline)
+  // `className` é um SVGAnimatedString e uma atribuição direta LANÇA em
+  // "use strict" (este arquivo é strict). Sincroniza todo atributo — cobre
+  // disabled/aria-*/data-* genericamente; sem isto um `data-status` que muda
+  // sem mexer em texto/classe passaria batido e a tela ficaria errada calada.
+  function hbxSincronizarAtributos(vivo, novo) {
+    const antigos = vivo.attributes;
+    for (let i = antigos.length - 1; i >= 0; i -= 1) {
+      const nome = antigos[i].name;
+      if (!novo.hasAttribute(nome)) vivo.removeAttribute(nome);
+    }
+    const novos = novo.attributes;
+    for (let i = 0; i < novos.length; i += 1) {
+      const { name, value } = novos[i];
+      if (vivo.getAttribute(name) !== value) vivo.setAttribute(name, value);
+    }
+  }
+
+  // `transplantarMapa` vem de fora (definida em mount(), fecha sobre root e
+  // sabe onde o mapa maplibre vive de verdade) — recebida por parâmetro pra
+  // esta função poder ficar em escopo de módulo em vez de ser recriada a
+  // cada mount().
+  function hbxReconciliarConteudo(vivo, novo, profundidade, transplantarMapa) {
+    // Mapa vivo pendurado aqui (host.__hbxMap, ver logistica/app.js
+    // mountMap): NUNCA reconcilia por dentro. O maplibre injeta canvas/
+    // controles como filhos reais do host — nada a ver com o
+    // <span class="route-map-loading"> que ESTA função geraria como filho
+    // do placeholder. Comparar/reconciliar filho a filho aqui apagaria os
+    // filhos de verdade do mapa (não batem em nenhuma chave) e penduraria o
+    // spinner de novo por cima de um mapa que já estava certo. Só uma
+    // troca de ANCESTRAL (mais acima na recursão) pode mexer neste nó — e aí
+    // é o transplantarMapa() de lá que resgata o mapa antes da troca.
+    if (vivo.__hbxMap) return;
+
+    // Campo com foco (usuário digitando/selecionando) nunca é tocado — nem
+    // patch de folha, nem replace. Fica "atrasado" neste ramo até o foco
+    // sair; no próximo render, se ainda houver diferença, tenta de novo.
+    // Sem isto, um innerHTML ou replaceWith no ramo arrancaria o cursor/
+    // seleção do entregador no meio do gesto.
+    if (vivo.contains(document.activeElement)) return;
+
+    const html = novo.outerHTML;
+    // Comparo com o que EU MESMO gerei da última vez (__hbxGen), nunca com
+    // vivo.outerHTML: o nó vivo sofre mutação depois do mount (mapa, foco,
+    // scroll) e nunca mais bateria na string — mesma regra da reconciliação
+    // de overlays logo abaixo, aqui guardada no próprio nó em vez de um Map,
+    // porque agora o alcance é recursivo (qualquer profundidade), não só os
+    // filhos diretos de um container.
+    if (vivo.__hbxGen === html) return;
+
+    const eraFolha = vivo.children.length === 0;
+    const ehFolha = novo.children.length === 0;
+    if (vivo.tagName !== novo.tagName || HBX_CONTROLES_FORM.has(vivo.tagName) || eraFolha !== ehFolha) {
+      // Estrutura realmente diferente (tag mudou, campo de formulário, ou
+      // virou folha/deixou de ser): troca o nó inteiro. Conservador de
+      // propósito — na dúvida, troca-se o nó, nunca a tela. Barato aqui:
+      // nunca é mais que um pedaço pequeno da tela.
+      transplantarMapa("route-live-map", novo);
+      vivo.replaceWith(novo);
+      novo.__hbxGen = html;
+      return;
+    }
+
+    hbxSincronizarAtributos(vivo, novo);
+
+    if (ehFolha) {
+      // Sem filhos-elemento: é o caso mais comum do tique de GPS (distância,
+      // ETA, status do badge). innerHTML cobre texto puro E o raro caso de
+      // formatação inline (<b>), sem recriar o nó — o patch mais barato e o
+      // que mais paga.
+      if (vivo.innerHTML !== novo.innerHTML) vivo.innerHTML = novo.innerHTML;
+      vivo.__hbxGen = html;
+      return;
+    }
+
+    if (profundidade <= 0) {
+      // Teto de profundidade estourou NUM GALHO (nó com filhos) — recursão
+      // sem limite numa lista grande custaria mais que a troca. Troca só
+      // este galho, não os ancestrais nem a tela.
+      transplantarMapa("route-live-map", novo);
+      vivo.replaceWith(novo);
+      novo.__hbxGen = html;
+      return;
+    }
+
+    const filhosVivos = [...vivo.children];
+    const filhosNovos = [...novo.children];
+    const vivosPorChave = new Map(hbxChavearLista(filhosVivos).map(item => [item.chave, item.el]));
+    const novosComChave = hbxChavearLista(filhosNovos);
+    const chavesNovas = new Set(novosComChave.map(item => item.chave));
+
+    vivosPorChave.forEach((el, chave) => { if (!chavesNovas.has(chave)) el.remove(); });
+
+    let anterior = null;
+    novosComChave.forEach(({ chave, el }) => {
+      const vivoFilho = vivosPorChave.get(chave);
+      if (vivoFilho) {
+        hbxReconciliarConteudo(vivoFilho, el, profundidade - 1, transplantarMapa);
+        // O filho pode ter sobrevivido (mesma chave) mas mudado de POSIÇÃO
+        // na lista (ex.: fila reordenada por proximidade/status) — reordena
+        // só quando precisa, pra não gerar mutação/reflow à toa.
+        const esperado = anterior ? anterior.nextElementSibling : vivo.firstElementChild;
+        if (esperado !== vivoFilho) vivo.insertBefore(vivoFilho, esperado);
+        anterior = vivoFilho;
+        return;
+      }
+      // Nó novo (chave não existia antes): mesmo cuidado do mapa que os
+      // overlays já fazem — só transplanta pra dentro de quem REALMENTE vai
+      // entrar no DOM.
+      transplantarMapa("route-live-map", el);
+      el.__hbxGen = el.outerHTML;
+      if (anterior && anterior.nextSibling) vivo.insertBefore(el, anterior.nextSibling);
+      else vivo.appendChild(el);
+      anterior = el;
+    });
+    vivo.__hbxGen = html;
+  }
+
   const HBX = {
     api(path, options) {
       if (!bridge || typeof bridge.request !== "function") {
@@ -248,6 +416,11 @@
         // os nós SOBREVIVEM — então tudo que roda depois do mount tem que ser
         // idempotente (ver os guardas __hbx* em app.js: [data-day],
         // attachMoneyInput e o insertAdjacentHTML de enhancePaymentForms).
+        // 22/07 S3a — o `.content` foi além: não é mais tudo-ou-nada. Ver
+        // hbxReconciliarConteudo() acima (fora do mount, escopo de módulo).
+        // MAIS nós agora sobrevivem (não só quando o .content inteiro bate
+        // igual, mas também quando só um pedaço mudou) — o mesmo cuidado de
+        // idempotência vale em dobro.
         const nextContentHTML = nextContent ? nextContent.outerHTML : "";
         const nextOverlaysHTML = [...template.content.children]
           .filter(child => !child.matches(".topbar,.content,.bottom-nav"))
@@ -257,16 +430,25 @@
 
         // O transplante do mapa vivo só pode acontecer no nó que REALMENTE vai
         // entrar no DOM — mover o mapa pra dentro de um pedaço de template que
-        // acabará descartado arrancaria o mapa da tela. Por isso o #route-live-map
-        // (mora no .content) só é transplantado se o content vai ser trocado, e o
-        // #route-plan-preview-map (mora nos overlays) é transplantado lá embaixo,
-        // já dentro da reconciliação, quando se sabe qual overlay vai ser inserido.
+        // acabará descartado arrancaria o mapa da tela. #route-plan-preview-map
+        // (mora nos overlays) é transplantado lá embaixo, já dentro da
+        // reconciliação, quando se sabe qual overlay vai ser inserido.
+        // 22/07 S3a — #route-live-map (mora no .content) passou a valer a
+        // MESMA regra, só que por dentro de hbxReconciliarConteudo(): antes
+        // havia UMA chamada aqui, incondicional sempre que `contentChanged`
+        // fosse true — e com a reconciliação fina `contentChanged` vira true
+        // por causa de QUALQUER pedaço do .content, não só quando o ramo do
+        // mapa muda. Chamar aqui, cedo, arrancaria o mapa vivo do lugar certo
+        // (root.querySelector já o acha) e o prenderia dentro do template
+        // DESCARTADO sempre que o ramo do mapa sobrevivesse — tela ficaria
+        // com o spinner "Carregando mapa…" para sempre. Por isso a chamada
+        // daqui saiu: agora só existe dentro da própria reconciliação, no
+        // exato ponto em que um nó vai MESMO ser trocado/inserido.
         const transplantarMapa = (id, destino) => {
           const liveEl = root.querySelector(`#${id}`);
           const placeholder = destino.querySelector ? destino.querySelector(`#${id}`) : null;
           if (liveEl && liveEl.__hbxMap && placeholder && placeholder !== liveEl) placeholder.replaceWith(liveEl);
         };
-        if (contentChanged) transplantarMapa("route-live-map", template.content);
 
         if (nextTopbar) {
           const brand = topbar.querySelector(".brand-copy");
@@ -280,7 +462,12 @@
           if (refresh && nextRefresh) refresh.disabled = nextRefresh.disabled;
         }
 
-        if (nextContent && contentChanged) content.replaceWith(nextContent);
+        // 22/07 S3a — era `content.replaceWith(nextContent)` tudo-ou-nada.
+        // Agora, quando algo no .content mudou, reconciliamos filho a filho
+        // (ver hbxReconciliarConteudo, escopo de módulo acima) em vez de
+        // destruir a tela inteira; o `.content` (o <main>) em si nunca é
+        // trocado, só o que está dentro dele.
+        if (nextContent && contentChanged) hbxReconciliarConteudo(content, nextContent, HBX_CONTEUDO_PROFUNDIDADE_MAX, transplantarMapa);
         root.__hbxContentHTML = nextContentHTML;
 
         if (nextNav) {
