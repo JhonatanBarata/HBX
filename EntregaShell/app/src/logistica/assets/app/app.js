@@ -348,7 +348,23 @@
     return !!(state.config && state.config.trackingDisponivel && state.config.trackingAtivo && state.config.modoRotaPadrao === "TRACKED");
   }
   function address(client) { return [client && client.endereco, [client && client.cidade, client && client.uf].filter(Boolean).join(" - ")].filter(Boolean).join(", ") || "Sem endereço cadastrado"; }
-  function toast(message, error) { state.toast = { message, error: !!error }; render(); clearTimeout(toast.timer); toast.timer = setTimeout(() => { state.toast = null; render(); }, 2600); }
+  // S3 22/07 (PR22072026-APP-SOUNDS) — gate único do funil de avisos: TODO
+  // toast() passa por aqui, então uma linha cobre as dezenas de call sites do
+  // arquivo de uma vez (Lei nº1 da frente, "um gate único"). `opts.mudo`
+  // suprime o som genérico quando o call site JÁ tocou um som mais específico
+  // (delivery_complete, proof_saved, offline_saved, route_stop…) — sem isso
+  // dois sons tocam colados no mesmo toast (Lei nº4, "um evento, um som").
+  // `opts.warn` reserva o degrau error>warning>success pra quando um call site
+  // precisar avisar sem virar "falha" (ex.: a trava de crédito do S7) — nenhum
+  // call site usa ainda, infraestrutura pronta, decisão de QUAL toast vira
+  // warning fica pro S7 (não é deste sprint reclassificar toast já existente).
+  // H.sound() é no-op silencioso sem bridge (preview no navegador) — nunca
+  // pode derrubar o toast em si (Lei nº3, som é acessório).
+  function toast(message, error, opts) {
+    const options = opts || {};
+    if (!options.mudo) H.sound(options.warn ? "warning" : (error ? "error" : "success"));
+    state.toast = { message, error: !!error }; render(); clearTimeout(toast.timer); toast.timer = setTimeout(() => { state.toast = null; render(); }, 2600);
+  }
   function validCoordinates(latValue, lngValue) { const lat = Number(latValue); const lng = Number(lngValue); return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0); }
   function routeMapPoints() { return orderedItems().map((item, index) => { const client = item.cliente || {}; const lat = Number(client.lat); const lng = Number(client.lng); return validCoordinates(lat, lng) ? { item, lat, lng, number: index + 1 } : null; }).filter(Boolean); }
   function disposeRouteMap() {
@@ -1703,7 +1719,20 @@
     if (!u.url || !u.sha256) { toast("Informações da atualização indisponíveis.", true); return; }
     if (typeof HBXAndroid === "undefined" || typeof HBXAndroid.downloadAndInstall !== "function") { toast("Atualização não suportada nesta versão.", true); return; }
     window.HBXUpdate = {
-      onProgress(p) { state.updateProgress = Number(p) || 0; if (Number(p) >= 100) { state.updateBusy = false; } render(); },
+      // S3 22/07 — NativeAppBridge.emitUpdateProgress(100) só dispara em
+      // PackageInstaller.STATUS_SUCCESS (instalação de fato concluída), não
+      // em cada byte baixado — é o "fato" certo pro update_complete. Guard
+      // `state.updateBusy` garante 1 som só: onProgress(100) só entra aqui
+      // enquanto ainda tava "busy" (baixando); a 2ª chamada (se o receiver
+      // repetir) já acha updateBusy=false e não repica.
+      onProgress(p) {
+        const value = Number(p) || 0;
+        const acabouAgora = value >= 100 && state.updateBusy;
+        state.updateProgress = value;
+        if (value >= 100) state.updateBusy = false;
+        if (acabouAgora) H.sound("update_complete");
+        render();
+      },
       onError(msg) { state.updateBusy = false; render(); toast(msg || "Falha ao atualizar.", true); },
     };
     state.updateBusy = true; state.updateProgress = 0; render();
@@ -2444,14 +2473,23 @@
   async function flushLeituraQueue() {
     if (!state.leitura || leituraFlushing) return;
     leituraFlushing = true;
+    const sessionId = state.leitura.id;
+    // S3 22/07 — sync_complete SÓ toca se havia pendência ANTES do flush
+    // (capturado aqui, fora do try, antes de qualquer tentativa de rede).
+    // "Sincronizar" é chamado tanto pelo usuário quanto sozinho (evento
+    // "online" no fim do arquivo, e ao terminar a Leitura) — sem este guard
+    // o motorista ganharia um ding toda vez que apertasse Sincronizar com a
+    // fila já vazia, e ele aperta por ansiedade, não porque há algo pra
+    // mandar (regra dura do S3, ver S3-ENTREGA-E-SINCRONIA.md).
+    const hadPending = leituraQueueForSession(sessionId).length > 0;
     try {
-      const sessionId = state.leitura.id;
       for (const row of leituraQueueForSession(sessionId)) {
         try {
           await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/parada`, { method: "POST", body: row.payload });
           leituraQueueRemove(sessionId, row.clientKey);
         } catch (_) { break; }
       }
+      if (hadPending && !leituraQueueForSession(sessionId).length) H.sound("sync_complete");
     } finally { leituraFlushing = false; render(); }
   }
   // Boot / retomada: GET /logistica/leitura/atual é a fonte de verdade quando
@@ -3081,7 +3119,17 @@
     // S1 21/07 — sessão MANUAL volta pro passo Paradas do wizard em vez de
     // fechar pra tela Rota (closeLeituraParadaModal cobre os dois casos).
     await closeLeituraParadaModal();
-    toast("Parada registrada.");
+    // S3 22/07 — a parada SEMPRE entra na fila local primeiro (linha acima) e
+    // só depois tenta sincronizar (flushLeituraQueue abaixo, fire-and-forget).
+    // Sem internet agora, ela FICA na fila de verdade — isso é "operação
+    // entrou na fila" (sync_pending), som mais discreto que offline_saved
+    // porque aqui o wizard já tem seu próprio toast dedicado ("Parada
+    // registrada.") cobrindo a confirmação visual; sync_pending só soma a
+    // pista sonora de "isso ainda não saiu daqui". Com rede, o flush deve
+    // resolver quase na hora — não vale duplicar som pra essa janela.
+    const ficaNaFilaAgora = !netOnline();
+    if (ficaNaFilaAgora) H.sound("sync_pending");
+    toast("Parada registrada.", false, { mudo: ficaNaFilaAgora });
     H.vibrate(12);
     void flushLeituraQueue();
   }
@@ -4137,6 +4185,14 @@
     const next = open.find(item => validCoordinates(item.cliente && item.cliente.lat, item.cliente && item.cliente.lng));
     const stops = next ? [{ id: next.id, nome: next.cliente.nome || "Cliente", lat: Number(next.cliente.lat), lng: Number(next.cliente.lng) }] : [];
     if (!stops.length) return;
+    // S4 22/07 (PR22072026-APP-SOUNDS) — esta função é o gate único de "a rota
+    // REALMENTE começou a rodar": todo caminho que inicia rota de verdade
+    // (startRoute não-planOnly, startPlannedRoute, beginManagedRoute) só chama
+    // activateNativeRoute depois do H.api de iniciar ter respondido OK — nunca
+    // no clique do botão (montar/planejar sozinho não passa por aqui, ver
+    // startRoute com planOnly=true no fluxo de "aplicar rota salva"). Um único
+    // ponto cobre os três fluxos sem duplicar H.sound em cada um.
+    H.sound("route_start");
     H.activateRoute({ raioM: Number(state.config && state.config.raioChegadaM || 60), paradas: stops, routeId: route.routeId || state.route.routeId || null, mode: route.trackingRequired || state.route.trackingRequired ? "TRACKED" : "ESSENTIAL", trackingSessionId: route.trackingSessionId || state.route.trackingSessionId || null });
   }
   // S1 21/07 — todo fluxo que já chamava currentPosition() (iniciar rota, dia,
@@ -4396,8 +4452,21 @@
         body.comprovanteCodigo = code.trim();
       }
       if (position) Object.assign(body, position);
-      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/confirmar`, { method: "POST", body });
-      H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true); toast("Entrega confirmada.");
+      // Regra de ouro do S3: som toca no FATO (aqui, depois do await abaixo),
+      // nunca no clique que chamou confirmDelivery — se a chamada falhar, cai
+      // no catch e só o "error" do gate central de toast() toca.
+      const confirmResult = await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/confirmar`, { method: "POST", body });
+      H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true);
+      // S3 22/07 — o nativo (OperationalStore.interceptMutation) pode ter
+      // respondido 202 LOCAL, sem chegar no servidor ainda (rota preparada
+      // offline); nesse caso o corpo vem com offline:true/pendingSync:true.
+      // "Confirmei" é fato dos dois jeitos (o item já muda de status na tela),
+      // mas o SOM tem que dizer qual dos dois: offline_saved avisa "salvei
+      // aqui, ainda não mandei" — tocar delivery_complete nesse caso ensinaria
+      // o motorista a confiar numa sincronia que ainda não aconteceu.
+      H.sound(confirmResult && confirmResult.offline ? "offline_saved" : "delivery_complete");
+      H.vibrate(12);
+      toast("Entrega confirmada.", false, { mudo: true });
       const next = openItems()[0];
       if (next) showNextStop(next); else pauseRouteOnDevice();
     } catch (error) { toast(humanApiError(error), true); }
@@ -4455,7 +4524,15 @@
       H.speakStop();
       resetNavRecalcBudget();
       await refresh(true);
-      toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`);
+      // S4 22/07 — route_stop é "a rota que tava rodando parou de rodar", não
+      // "cancelei um planejamento que nem tinha começado" (esta MESMA função
+      // atende cancel-route também; offerSaveRoute só chega true no
+      // finish-route real, ver call site que monta a confirmação). Tocar aqui
+      // pro cancel-route soaria como se uma rota em andamento tivesse parado
+      // quando ela nunca chegou a rodar de verdade.
+      const isRealRouteStop = !!offerSaveRoute;
+      if (isRealRouteStop) H.sound("route_stop");
+      toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
       if (offerSaveRoute && snapshot && snapshot.length >= 2) offerSaveTodayRoute(snapshot);
     } catch (error) {
       toast(humanApiError(error), true);
@@ -4560,15 +4637,22 @@
   }
   async function uploadProof(item, type, file) {
     try {
-      toast("Enviando comprovante…");
+      // S3 22/07 — "Enviando…" é INTENÇÃO (o upload nem começou de verdade),
+      // não fato; mudo:true corta o "success" genérico daqui, senão o
+      // motorista ouviria um ding de sucesso antes do arquivo sequer sair do
+      // aparelho (o mesmo erro que a Regra de Ouro do S3 proíbe pro clique).
+      toast("Enviando comprovante…", false, { mudo: true });
       const keyName = `proof:${item.id}:${type}`; let key = H.cache.get(keyName, null); if (!key) { key = H.uuid(); H.cache.set(keyName, key); }
+      // H.uploadProof (native.js) só resolve no CALLBACK nativo de sucesso —
+      // é a ponte de fato descrita no S3 (native.js:94), nunca no clique.
       await H.uploadProof(item.id, type, file, key);
       H.cache.remove(keyName);
       const selectedId = item.id;
       await refresh(true);
       state.selected = items().find(x => x.id === selectedId) || null;
       render();
-      toast(type === "foto" ? "Foto anexada." : "Assinatura anexada.");
+      H.sound("proof_saved");
+      toast(type === "foto" ? "Foto anexada." : "Assinatura anexada.", false, { mudo: true });
     } catch (error) { toast(humanApiError(error), true); }
   }
   function clientById(id) { return (state.clients || []).find(c => String(c.id) === String(id)); }
@@ -4608,7 +4692,16 @@
   // "GPS avançado" (S1, ícone à esquerda do play) e data-action="maps" da
   // folha continuam chamando isto — único jeito de abrir Waze/Maps que sobra
   // depois do S2 (fim do troca-troca automático).
-  function abrirNavegacao(item) { if (!item) return; const client = item.cliente || {}; if (!validCoordinates(client.lat, client.lng) && !String(client.endereco || "").trim()) { toast("Destino sem coordenadas ou endereço cadastrado.", true); return; } H.maps(client.lat, client.lng, address(client)); }
+  // S4 22/07 — navigation_open só toca aqui, no deep-link explícito pro
+  // Waze/Maps ("Continuar navegação"/"show-map"). NÃO plugado na ativação
+  // automática do modo de navegação interna (navModeActive() virar true
+  // sozinho quando a rota inicia) — isso tocaria colado com route_start
+  // (mesmíssimo instante, toda vez que uma rota começa), virando duplicata
+  // (Lei nº4). H.maps() não tem callback de sucesso/falha (intent fire-and-
+  // forget do Android): aqui o clique E o fato acontecem no mesmo instante,
+  // então não há "torcer pelo sucesso" como em confirmDelivery — o som pode
+  // ficar junto do clique sem violar a Regra de Ouro.
+  function abrirNavegacao(item) { if (!item) return; const client = item.cliente || {}; if (!validCoordinates(client.lat, client.lng) && !String(client.endereco || "").trim()) { toast("Destino sem coordenadas ou endereço cadastrado.", true); return; } H.sound("navigation_open"); H.maps(client.lat, client.lng, address(client)); }
   // S2 21/07 — reengancha o follow e centraliza motorista+próxima parada no
   // mapa da Rota (mesmo fitBounds de abertura da navegação, navInitialFitBounds;
   // cai pro follow single-point de sempre se não der). Usado pelo fim do
@@ -5027,7 +5120,7 @@
     }
     // F4 — auto-update.
     if (action === "app-update") { if (state.updateInfo) showModal("app-update"); return; }
-    if (action === "check-update") { toast("Verificando…"); void checkAppUpdate(true); return; }
+    if (action === "check-update") { toast("Verificando…", false, { mudo: true }); void checkAppUpdate(true); return; }
     if (action === "update-permitir") { if (typeof HBXAndroid !== "undefined" && HBXAndroid.openInstallPermission) HBXAndroid.openInstallPermission(); return; }
     if (action === "update-instalar") { startAppUpdate(); return; }
     // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
@@ -5112,7 +5205,7 @@
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(humanApiError(error), true); } }
     if (action === "open-recarga") openRecarga();
-    if (action === "credits-lock-refresh") { toast("Atualizando saldo…"); void refreshCreditsLock(); }
+    if (action === "credits-lock-refresh") { toast("Atualizando saldo…", false, { mudo: true }); void refreshCreditsLock(); }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
     // ---- PR20072026 W2 — Leitura de Rota ----
     // S3 21/07 — "leitura-iniciar"/"leitura-iniciar-manual" (órfãos: nenhum
@@ -5858,8 +5951,17 @@
   // ativa (evita popup fantasma se os dois lados ficarem dessincronizados).
   document.addEventListener("hbx:leitura-pausa", event => {
     if (!state.leitura || state.leitura.modo !== "LEITURA") return;
+    // S4 22/07 — pause_detected só na TRANSIÇÃO nenhuma-pausa→pausa-pendente:
+    // o comentário acima já avisa que este evento pode ser re-disparado
+    // sozinho no onResume com o popup ainda na tela (mesma pausa, sem
+    // resolver) — sem este guard o som repicaria toda vez que o modal
+    // re-renderiza, o que o aceite do S4 proíbe explicitamente. O modal fica
+    // na tela mesmo se o som não tocar (a informação não se perde — é a
+    // "exceção parcial" do S4 pro descarte de efeito).
+    const jaPendente = !!state.leituraPausaPendente;
     const detail = (event && event.detail) || {};
     state.leituraPausaPendente = { lat: detail.lat, lng: detail.lng, ts: detail.ts, clienteProximo: detail.clienteProximo || null };
+    if (!jaPendente) H.sound("pause_detected");
     render();
   });
   window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); syncHeaderChips(); });

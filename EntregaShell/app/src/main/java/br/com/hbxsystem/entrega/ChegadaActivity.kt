@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -35,6 +36,12 @@ import androidx.core.view.WindowInsetsControllerCompat
  *
  * Textos são os literais definidos na ordem de trabalho (UBER-CHEGADA.md) —
  * nada além disso é inventado aqui.
+ *
+ * S2 (PR22072026-APP-SOUNDS): o alarme em loop agora é `hbx_arrival_alert_loop`
+ * (identidade sonora própria, não mais o alarme genérico do Android) com
+ * fallback pro `RingtoneManager` se o raw falhar. Abrir a entrega fecha o
+ * ciclo com `hbx_arrival_confirm` (o "ok, entendi" do motorista); ignorar só
+ * silencia, sem confirm — ver `docs/PLANEJAMENTOS/PR22072026-APP-SOUNDS/S2-CHEGADA.md`.
  */
 class ChegadaActivity : AppCompatActivity() {
 
@@ -43,12 +50,21 @@ class ChegadaActivity : AppCompatActivity() {
         const val EXTRA_PARADA_ID = "paradaId"
         private const val AUTO_STOP_MS = 45_000L
         private val PADRAO_VIBRACAO = longArrayOf(0, 400, 300)
+
+        // Volume calibrado em docs/APP SOUNDS/docs/sound-map.json pro
+        // arrival_confirm (mesma tabela que o HbxSoundEngine usa no SoundPool
+        // — aqui é MediaPlayer avulso de propósito, ver tocarConfirmacao()).
+        private const val VOLUME_CONFIRM = 0.82f
     }
 
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private val autoStopHandler = Handler(Looper.getMainLooper())
     private val autoStopRunnable = Runnable { pararSomEVibracao() }
+
+    // Lido 1x do intent (não muda durante a vida da Activity) — é a chave que
+    // o RotaService usa pra saber qual fala pendente cancelar (Mudança 2).
+    private val paradaId: String by lazy { intent.getStringExtra(EXTRA_PARADA_ID).orEmpty() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -193,7 +209,14 @@ class ChegadaActivity : AppCompatActivity() {
     // ── ações ─────────────────────────────────────────────────────────────
 
     private fun abrirEntrega() {
+        // S2: ele respondeu ANTES da voz "Chegou: X" (atrasada 1,2s no
+        // RotaService) terminar de esperar — cancela, senão ela fala sozinha
+        // depois que a entrega já está aberta na tela (Mudança 2).
+        RotaService.cancelarVozPendente(paradaId)
         pararSomEVibracao()
+        // Mudança 3: abrir é o "ok, entendi" do motorista — fecha o ciclo
+        // sonoro com um confirm curto. `ignorar()` NÃO toca isto de propósito.
+        tocarConfirmacao()
         try {
             val intent = Intent(this, MainActivity::class.java).apply {
                 addFlags(
@@ -213,13 +236,59 @@ class ChegadaActivity : AppCompatActivity() {
         // O motorista abre depois pelo próprio HBX; a pendência já foi guardada
         // pelo RotaService (RotaState.notificarChegada) antes desta tela abrir —
         // quando ele voltar pro app, a folha ainda abre sozinha.
+        // S2: mesma lógica do cancelamento de abrirEntrega() — ignorar também
+        // é uma resposta, a voz atrasada não pode falar depois disso. Sem
+        // confirm aqui: ignorar não é "entendi", é só silenciar.
+        RotaService.cancelarVozPendente(paradaId)
         pararSomEVibracao()
         finish()
     }
 
     // ── som + vibração em loop ────────────────────────────────────────────
 
+    // S2 (PR22072026-APP-SOUNDS) — Mudança 1: troca o alarme genérico do
+    // Android pela identidade sonora própria do HBX. `iniciarSomRaw()` é o
+    // caminho principal; se ele falhar (retorna false — OGG corrompido,
+    // recurso apagado, codec do aparelho), `iniciarSomFallback()` entra e
+    // repõe EXATAMENTE o comportamento de antes do S2. Chegada é crítica: o
+    // motorista NUNCA pode ficar sem alarme por causa de um arquivo de som.
     private fun iniciarSom() {
+        if (!iniciarSomRaw()) iniciarSomFallback()
+    }
+
+    /** `USAGE_ALARM` é o que faz o som atravessar o modo silencioso e tocar
+     *  no volume de alarme (não no de mídia) — preservado 1:1 do que já
+     *  existia, só troca a fonte do áudio. Retorna true só se `start()`
+     *  rodou de fato; qualquer exceção no meio do caminho (inclusive no
+     *  `prepare()`) é reportada como falha pro fallback assumir. */
+    private fun iniciarSomRaw(): Boolean {
+        val player = MediaPlayer()
+        return try {
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            val uri = Uri.parse("android.resource://$packageName/${R.raw.hbx_arrival_alert_loop}")
+            player.setDataSource(this@ChegadaActivity, uri)
+            player.isLooping = true
+            player.prepare()
+            player.start()
+            mediaPlayer = player
+            true
+        } catch (e: Exception) {
+            // Ainda não virou o `mediaPlayer` do campo (só atribui no sucesso
+            // acima) — libera a instância local pra não vazar.
+            runCatching { player.release() }
+            false
+        }
+    }
+
+    /** Fallback pré-S2: alarme padrão do sistema (`RingtoneManager`). Só roda
+     *  se `iniciarSomRaw()` falhar — chegada continua tocando alto mesmo sem
+     *  o som próprio do HBX. */
+    private fun iniciarSomFallback() {
         try {
             val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
@@ -238,6 +307,37 @@ class ChegadaActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             /* som nunca derruba a Activity — segue só com vibração/visual */
+        }
+    }
+
+    /**
+     * Mudança 3 do S2 — o "ok, entendi" de quando o motorista abre a entrega
+     * a partir da chegada. `MediaPlayer` avulso (não é o campo `mediaPlayer`,
+     * que é só do loop): curto, sem loop, libera sozinho no `onCompletion` —
+     * pode continuar tocando mesmo depois do `finish()` desta Activity (a
+     * confirmação é o fechamento do ciclo, não precisa da tela viva).
+     * `USAGE_ASSISTANCE_SONIFICATION` de propósito (não `USAGE_ALARM`): isto
+     * não é mais o alerta que precisa furar o silencioso, é só o eco de "ok"
+     * — mesma classe de atributo que o `HbxSoundEngine` usa pros efeitos
+     * curtos do SoundPool.
+     */
+    private fun tocarConfirmacao() {
+        try {
+            val player = MediaPlayer()
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            val uri = Uri.parse("android.resource://$packageName/${R.raw.hbx_arrival_confirm}")
+            player.setDataSource(this@ChegadaActivity, uri)
+            player.setVolume(VOLUME_CONFIRM, VOLUME_CONFIRM)
+            player.setOnCompletionListener { runCatching { it.release() } }
+            player.prepare()
+            player.start()
+        } catch (e: Exception) {
+            /* confirm é o fechamento do ciclo, não a chegada em si — nunca derruba a Activity */
         }
     }
 

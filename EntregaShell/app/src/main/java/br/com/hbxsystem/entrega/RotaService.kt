@@ -50,9 +50,34 @@ class RotaService : Service() {
         private const val ACTION_TERMINAL = "br.com.hbxsystem.entrega.action.TRACKING_TERMINAL"
         private const val EXTRA_TERMINAL_ROUTE_ID = "terminalRouteId"
 
+        // S2 (PR22072026-APP-SOUNDS) — Mudança 2: quanto a fala "Chegou: X"
+        // espera depois do alerta sonoro nativo (ChegadaActivity, MediaPlayer
+        // em loop) já estar tocando. "Alerta primeiro, voz depois" (Lei do
+        // 00-PLANO) — sem isto os dois emendam no mesmo instante e viram
+        // barulheira.
+        private const val ANTI_ATROPELO_VOZ_MS = 1_200L
+
         @Volatile
         var isRunning: Boolean = false
             private set
+
+        // Referência fraca-o-suficiente pro processo (Service é singleton por
+        // processo, igual `isRunning` acima) — só existe pra ChegadaActivity
+        // conseguir cancelar a fala pendente da MESMA instância que a
+        // agendou, sem precisar de bind/AIDL pra isso.
+        @Volatile
+        private var instanciaAtiva: RotaService? = null
+
+        /**
+         * Chamado pela ChegadaActivity quando o motorista RESPONDE (abre ou
+         * ignora) a chegada antes do atraso de 1,2s acima terminar. Sem isto
+         * a voz fala sozinha depois que ele já resolveu — exatamente o
+         * atropelo que a Mudança 2 existe pra evitar. No-op se o serviço já
+         * morreu ou se não havia fala pendente pra essa parada.
+         */
+        fun cancelarVozPendente(paradaId: String) {
+            instanciaAtiva?.cancelarFala(paradaId)
+        }
 
         /** setRota com paradas > 0 chama isto. No-op prático se já estiver rodando. */
         fun sync(context: Context) {
@@ -103,6 +128,15 @@ class RotaService : Service() {
 
     private val stopHandler = Handler(Looper.getMainLooper())
 
+    // S2 (PR22072026-APP-SOUNDS) — Handler dedicado à fala atrasada (Mudança
+    // 2), separado do `stopHandler` de propósito: são debounces com
+    // significados diferentes, misturar os dois é `removeCallbacksAndMessages`
+    // de um cancelar o outro por engano. `vozPendente` é indexado por
+    // parada.id pra `cancelarFala` conseguir cancelar SÓ a fala daquela
+    // parada (uma rajada de GPS pode disparar mais de uma chegada por vez).
+    private val vozHandler = Handler(Looper.getMainLooper())
+    private val vozPendente = HashMap<String, Runnable>()
+
     // S2 (PR21072026-MONTAR-ROTA-PLAY) — clearRota (fim do dia/rota) NUNCA pode
     // derrubar uma Leitura em andamento (recursos independentes do mesmo
     // serviço). Só efetiva a parada de verdade quando a Leitura também não
@@ -146,6 +180,7 @@ class RotaService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        instanciaAtiva = this
         criarCanais()
         iniciarForeground(buildNotificacaoRota())
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
@@ -209,6 +244,12 @@ class RotaService : Service() {
         }
         ouvindoLocalizacao = false
         stopHandler.removeCallbacksAndMessages(null)
+        // Nenhuma fala atrasada deve sobreviver ao serviço morrendo — TTS já
+        // vai levar shutdown() logo abaixo, e uma Runnable pendente chamando
+        // falar() num tts desligado é exceção engolida à toa.
+        vozHandler.removeCallbacksAndMessages(null)
+        vozPendente.clear()
+        instanciaAtiva = null
         try {
             tts?.stop()
             tts?.shutdown()
@@ -304,12 +345,38 @@ class RotaService : Service() {
         // Com o app aberto, a própria ficha de entrega aparece na tela. Falar o
         // nome nesse cenário só repete o aviso a cada recarga/atualização.
         // A voz fica reservada ao uso em segundo plano.
-        if (!RotaState.temListenerAtivo()) falar(alvo.nome)
+        if (!RotaState.temListenerAtivo()) agendarFala(alvo)
         // Sempre publica o aviso. Em background, ChegadaActivity só abre após o
         // motorista tocar na notificação; em foreground, o listener abaixo abre
         // a entrega diretamente dentro do WebView.
         notificarChegadaHeadsUp(alvo)
         RotaState.notificarChegada(alvo.id)
+    }
+
+    /**
+     * S2 (PR22072026-APP-SOUNDS) — Mudança 2: antes falava na hora
+     * (`QUEUE_ADD` disputando o instante com o alarme nativo). Agora atrasa
+     * ~1,2s (`ANTI_ATROPELO_VOZ_MS`) pra o alerta sonoro ganhar a dianteira —
+     * "alerta primeiro, voz depois" (Lei do 00-PLANO): o alerta é o que faz
+     * o motorista olhar, a voz só confirma quem é. Guardado em
+     * `vozPendente` por `alvo.id` pra `cancelarFala` conseguir abortar essa
+     * Runnable específica se ele já resolver a chegada antes do prazo.
+     */
+    private fun agendarFala(alvo: Parada) {
+        cancelarFala(alvo.id) // defensivo: nunca deveria haver 2 pendentes pro mesmo id
+        val runnable = Runnable {
+            vozPendente.remove(alvo.id)
+            falar(alvo.nome)
+        }
+        vozPendente[alvo.id] = runnable
+        vozHandler.postDelayed(runnable, ANTI_ATROPELO_VOZ_MS)
+    }
+
+    /** Cancela a fala atrasada de uma parada específica — no-op silencioso se
+     *  ela já falou ou nunca existiu (chamado de `cancelarVozPendente`, que
+     *  por sua vez é chamado pela ChegadaActivity ao abrir/ignorar). */
+    private fun cancelarFala(paradaId: String) {
+        vozPendente.remove(paradaId)?.let { vozHandler.removeCallbacks(it) }
     }
 
     private fun falar(nome: String) {
