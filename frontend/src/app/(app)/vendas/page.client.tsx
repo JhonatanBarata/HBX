@@ -400,6 +400,12 @@ const GRID_COLUMNS: GridColumn[] = [
 const GRID_DEFAULT_KEYS = ["name", "icons", "status", "phone", "city", "state", "segment", "stage", "agenda", "engage", "value", "next", "owner", "date"];
 const GRID_COLS_STORAGE = "hbx:vendas-grid-cols";
 const GRID_SORT_STORAGE = "hbx:vendas-grid-sort";
+const GRID_PINNED_STORAGE = "hbx:vendas-grid-pinned";
+const GRID_COLUMN_GROUPS = [
+  { label: "Dados da empresa", keys: ["name", "icons", "phone", "city", "state", "segment", "email", "address", "cnpj", "razao"] },
+  { label: "Negociação", keys: ["stage", "agenda", "engage", "value", "next", "note", "owner", "date", "score", "temp", "attempts"] },
+  { label: "Controle", keys: ["status", "created", "source"] },
+] as const;
 
 // Termômetro visual (1–5 estrelas) — nota derivada + tooltip do porquê. Só
 // classes/tokens centrais (Lei nº4): a cor nasce do .vnd-therm em screens.css.
@@ -572,6 +578,18 @@ export function VendasClient() {
     return null;
   });
   const [colsOpen, setColsOpen] = useState(false);
+  const [columnSearch, setColumnSearch] = useState("");
+  const [columnDraft, setColumnDraft] = useState<string[]>(gridKeys);
+  const [columnDrag, setColumnDrag] = useState<string | null>(null);
+  const [columnDropIndex, setColumnDropIndex] = useState<number | null>(null);
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = JSON.parse(localStorage.getItem(GRID_PINNED_STORAGE) || "[]");
+      return Array.isArray(raw) ? raw.filter((k: unknown) => typeof k === "string") : [];
+    } catch { return []; }
+  });
+  const [pinnedDraft, setPinnedDraft] = useState<string[]>(pinnedKeys);
   // Edição inline: não existe "modo". Célula EDITÁVEL edita no clique (ela leva
   // data-cockpit-ignore, então a bridge de 1 clique a ignora); célula de leitura
   // continua abrindo a ficha completa no clique.
@@ -1130,22 +1148,41 @@ export function VendasClient() {
   const gridCols: GridColumn[] = gridKeys
     .map(k => GRID_COLUMNS.find(c => c.key === k))
     .filter((c): c is GridColumn => Boolean(c) && (c!.gate !== "values" || Boolean(board?.canViewValues)));
+  const pinnedLeft = (key: string) => 34 + gridCols.filter(c => c.key !== key && pinnedKeys.includes(c.key)).reduce((left, col) => {
+    const keyIndex = gridCols.findIndex(c => c.key === key);
+    return left + (gridCols.findIndex(c => c.key === col.key) < keyIndex ? col.width : 0);
+  }, 0);
 
-  function toggleGridCol(key: string) {
-    applyGridKeys(gridKeys.includes(key) ? gridKeys.filter(k => k !== key) : [...gridKeys, key]);
+  function openColumnPicker() {
+    setColumnDraft(gridKeys);
+    setPinnedDraft(pinnedKeys.filter(k => gridKeys.includes(k)));
+    setColumnSearch("");
+    setColsOpen(true);
   }
-  function moveGridCol(key: string, delta: -1 | 1) {
-    const i = gridKeys.indexOf(key);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= gridKeys.length) return;
-    const next = [...gridKeys];
-    [next[i], next[j]] = [next[j], next[i]];
-    applyGridKeys(next);
-  }
-  function resetGrid() {
-    applyGridKeys(GRID_DEFAULT_KEYS);
-    applyGridSort(null);
+  function cancelColumnPicker() {
+    setColumnDraft(gridKeys);
+    setPinnedDraft(pinnedKeys);
     setColsOpen(false);
+  }
+  function saveColumnPicker() {
+    applyGridKeys(columnDraft);
+    const nextPinned = pinnedDraft.filter(k => columnDraft.includes(k));
+    setPinnedKeys(nextPinned);
+    try { localStorage.setItem(GRID_PINNED_STORAGE, JSON.stringify(nextPinned)); } catch { /* sem storage */ }
+    setColsOpen(false);
+  }
+  function dropColumnAt(key: string, index: number) {
+    const without = columnDraft.filter(k => k !== key);
+    const oldIndex = columnDraft.indexOf(key);
+    const adjusted = oldIndex >= 0 && oldIndex < index ? index - 1 : index;
+    without.splice(Math.max(0, Math.min(adjusted, without.length)), 0, key);
+    setColumnDraft(without);
+    setColumnDrag(null);
+    setColumnDropIndex(null);
+  }
+  function removeDraftColumn(key: string) {
+    setColumnDraft(keys => keys.filter(k => k !== key));
+    setPinnedDraft(keys => keys.filter(k => k !== key));
   }
   function toggleGridSort(key: string) {
     applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
@@ -1338,44 +1375,54 @@ export function VendasClient() {
                   {view === "list" && (
                     <div className="vnd-colspick">
                       <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
-                        onClick={() => setColsOpen(o => !o)} title="Escolher e ordenar as colunas">
+                        onClick={() => colsOpen ? cancelColumnPicker() : openColumnPicker()} title="Escolher e ordenar as colunas">
                         <I d={ICONS.edit} size={14} /> Colunas ▾
                       </button>
                       {colsOpen && (
                         <React.Fragment>
-                          <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={() => setColsOpen(false)} />
+                          <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={cancelColumnPicker} />
                           <div className="vnd-colspick__menu" role="dialog" aria-label="Colunas da planilha">
                             <div className="vnd-colspick__head">
-                              <strong>Colunas da planilha</strong>
-                              <button type="button" className="btn-ghost btn-xs" onClick={resetGrid}>Reiniciar layout</button>
+                              <span><strong>Organizar colunas</strong><small>{columnDraft.length} de {GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).length} colunas visíveis</small></span>
+                              <button type="button" className="icon-ghost" aria-label="Fechar" onClick={cancelColumnPicker}>✕</button>
                             </div>
-                            {/* PERSPECTIVA DA TABELA: a fileira de cima é a planilha
-                                vista de cima pra baixo — esquerda→direita igual na tela,
-                                e as setas ← → movem a coluna no MESMO sentido. */}
-                            <span className="vnd-colspick__lbl">Na planilha — arraste com ← →</span>
-                            <div className="vnd-colspick__strip">
-                              {gridCols.map((col, i) => (
-                                <span key={col.key} className="vnd-colchip">
-                                  <button type="button" className="vnd-colchip__mv" onClick={() => moveGridCol(col.key, -1)}
-                                    disabled={i === 0} aria-label={`Mover ${col.label} para a esquerda`}>←</button>
-                                  <span className="vnd-colchip__lbl">{col.label}</span>
-                                  <button type="button" className="vnd-colchip__mv" onClick={() => moveGridCol(col.key, 1)}
-                                    disabled={i === gridCols.length - 1} aria-label={`Mover ${col.label} para a direita`}>→</button>
-                                  <button type="button" className="vnd-colchip__rm" onClick={() => toggleGridCol(col.key)}
-                                    aria-label={`Tirar ${col.label} da planilha`}>✕</button>
-                                </span>
-                              ))}
+                            <div className="vnd-colspick__boards">
+                              <section className="vnd-colspick__board" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && dropColumnAt(columnDrag, columnDraft.length)}>
+                                <div className="vnd-colspick__boardhead"><span><b>Ordem das colunas</b><small>De cima para baixo = esquerda para direita</small></span><button type="button" onClick={() => { setColumnDraft([]); setPinnedDraft([]); }}>Remover todas</button></div>
+                                <div className="vnd-collist">
+                                  {columnDraft.map((key, i) => {
+                                    const col = GRID_COLUMNS.find(c => c.key === key);
+                                    if (!col) return null;
+                                    return <div key={key} className={"vnd-colrow" + (columnDropIndex === i ? " is-drop" : "")} draggable
+                                      onDragStart={() => setColumnDrag(key)} onDragEnd={() => { setColumnDrag(null); setColumnDropIndex(null); }}
+                                      onDragOver={e => { e.preventDefault(); e.stopPropagation(); setColumnDropIndex(i); }} onDrop={e => { e.preventDefault(); e.stopPropagation(); columnDrag && dropColumnAt(columnDrag, i); }}>
+                                      <span className="vnd-colrow__grip" aria-hidden="true">⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
+                                      <button type="button" className={"vnd-colrow__pin" + (pinnedDraft.includes(key) ? " is-on" : "")} onClick={() => setPinnedDraft(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key])} aria-label={`${pinnedDraft.includes(key) ? "Desafixar" : "Fixar"} ${col.label}`} title="Fixar na rolagem horizontal">●</button>
+                                      <button type="button" className="vnd-colrow__remove" onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
+                                    </div>;
+                                  })}
+                                  {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste colunas para cá</span>}
+                                </div>
+                                <small className="vnd-colspick__hint">⠿ Arraste para reordenar</small>
+                              </section>
+                              <section className="vnd-colspick__board vnd-colspick__available" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && removeDraftColumn(columnDrag)}>
+                                <div className="vnd-colspick__boardhead"><span><b>Colunas disponíveis</b><small>Arraste ou dê dois cliques para adicionar</small></span><button type="button" onClick={() => setColumnDraft(GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).map(c => c.key))}>Adicionar todas</button></div>
+                                <label className="vnd-colsearch"><span aria-hidden="true">⌕</span><input value={columnSearch} onChange={e => setColumnSearch(e.target.value)} placeholder="Buscar coluna" aria-label="Buscar coluna" /></label>
+                                <div className="vnd-colavailable">
+                                  {GRID_COLUMN_GROUPS.map(group => {
+                                    const cols = group.keys.map(key => GRID_COLUMNS.find(c => c.key === key)).filter((c): c is GridColumn => Boolean(c) && !columnDraft.includes(c!.key) && (c!.gate !== "values" || Boolean(board?.canViewValues)) && c!.label.toLocaleLowerCase("pt-BR").includes(columnSearch.trim().toLocaleLowerCase("pt-BR")));
+                                    if (!cols.length) return null;
+                                    return <div key={group.label} className="vnd-colgroup"><b>{group.label}</b>{cols.map(col => <button key={col.key} type="button" draggable onDragStart={() => setColumnDrag(col.key)} onDragEnd={() => setColumnDrag(null)} onDoubleClick={() => setColumnDraft(keys => [...keys, col.key])}><span aria-hidden="true">⠿</span>{col.label}</button>)}</div>;
+                                  })}
+                                </div>
+                                <small className="vnd-colspick__hint">Arraste para adicionar</small>
+                              </section>
                             </div>
-                            <span className="vnd-colspick__lbl">Fora da planilha — clique pra somar</span>
-                            <div className="vnd-colspick__strip vnd-colspick__strip--off">
-                              {GRID_COLUMNS.filter(c => !gridKeys.includes(c.key) && (c.gate !== "values" || board?.canViewValues)).map(col => (
-                                <button key={col.key} type="button" className="vnd-colchip vnd-colchip--add" onClick={() => toggleGridCol(col.key)}>
-                                  + {col.label}
-                                </button>
-                              ))}
-                              {GRID_COLUMNS.filter(c => !gridKeys.includes(c.key) && (c.gate !== "values" || board?.canViewValues)).length === 0 && (
-                                <span className="sub2">Todas as colunas estão na planilha.</span>
-                              )}
+                            <div className="vnd-colpreview"><b>Prévia:</b><span>{columnDraft.slice(0, 7).map(key => GRID_COLUMNS.find(c => c.key === key)?.label).join(" → ")}{columnDraft.length > 7 ? "…" : ""}</span></div>
+                            <div className="vnd-colspick__actions">
+                              <button type="button" className="btn-ghost" onClick={cancelColumnPicker}>Cancelar</button>
+                              <button type="button" className="btn-ghost" onClick={() => { setColumnDraft(GRID_DEFAULT_KEYS); setPinnedDraft([]); }}>Restaurar padrão</button>
+                              <button type="button" className="btn-primary" onClick={saveColumnPicker}>Salvar organização</button>
                             </div>
                           </div>
                         </React.Fragment>
@@ -1486,7 +1533,8 @@ export function VendasClient() {
                             aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
                         </th>
                         {gridCols.map(col => (
-                          <th key={col.key} className={"vnd-grid__th" + (col.nosort ? " is-nosort" : "")}
+                          <th key={col.key} className={"vnd-grid__th" + (col.nosort ? " is-nosort" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
+                            style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
                             onClick={col.nosort ? undefined : () => toggleGridSort(col.key)}
                             title={col.nosort ? col.label : `Ordenar por ${col.label}`}
                             aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
@@ -1527,7 +1575,7 @@ export function VendasClient() {
                                   }
                                 };
                                 return (
-                                  <td key={col.key} className="vnd-grid__td is-editing" onClick={e => e.stopPropagation()}>
+                                  <td key={col.key} className={"vnd-grid__td is-editing" + (pinnedKeys.includes(col.key) ? " is-pinned" : "")} style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined} onClick={e => e.stopPropagation()}>
                                     {col.edit.type === "select" ? (
                                       <select className="vnd-grid__input" autoFocus value={editDraft}
                                         onChange={e => { setEditDraft(e.target.value); void salvarCelula(card, col, e.target.value); }}
@@ -1552,7 +1600,8 @@ export function VendasClient() {
                                   // pula ela e o clique EDITA. Célula de leitura continua abrindo a
                                   // ficha no 1 clique, que é a lei da tela.
                                   data-cockpit-ignore={editavel ? "" : undefined}
-                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (editavel ? " is-editable" : "")}
+                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (editavel ? " is-editable" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
+                                  style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
                                   title={editavel ? `${texto || "vazio"} — clique para editar` : texto || undefined}
                                   onClick={editavel ? (e => { e.stopPropagation(); abrirCelula(card, col); }) : undefined}>
                                   {col.key === "name" ? (

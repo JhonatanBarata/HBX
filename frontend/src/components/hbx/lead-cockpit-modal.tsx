@@ -687,7 +687,13 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               <InfoRow label="Prazo">{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</InfoRow>
             </section>
           </div>
+        </div>
 
+        {/* 3ª coluna (22/07): Inteligência + Mensagem saíram de baixo do Contato/
+            Agenda e vieram pro lado. Empilhadas em 0.88fr elas espremiam a letra
+            até 4px; deitadas em 3 colunas sobra altura pra escala legível sem
+            estourar a moldura (que continua com o clamp adaptativo da S1/S2). */}
+        <div className="lead-cockpit__service-far">
           <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
             <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
               <CardTitle icon={ICONS.scrape} title="Inteligência do lead" action={<span className="tag">Enriquecido</span>} />
