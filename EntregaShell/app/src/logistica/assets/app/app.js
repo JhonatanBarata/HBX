@@ -305,7 +305,12 @@
   // Base: Lucide 24. Desenhar glifo novo na mão é o que faz o conjunto
   // desandar — se faltar um, trazer o de Lucide, que já obedece esta grade.
   const paths = {
-    route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
+    // S2 22/07 (APK-PROFISSIONAL) — pathLength="1" nos 3 paths que a animação
+    // "hbx-icon-draw" desenha (route/check/volumeOff, ver app.css): normaliza
+    // o traço pro comprimento REAL de cada um. Sem isso, um `stroke-dasharray`
+    // chumbado (64) servia os três com comprimentos bem diferentes e no mais
+    // curto o "desenhar" virava fade.
+    route: "<path d='M5 19c4-7 10-7 14-14' pathLength='1'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
     edit: "<path d='M12 20h9'/><path d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z'/>",
     users: "<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><circle cx='9' cy='7' r='4'/><path d='M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8'/>",
     box: "<path d='m21 8-9 5-9-5 9-5z'/><path d='m3 8 9 5v9l9-5V8M12 13v9'/>",
@@ -317,7 +322,7 @@
     map: "<polygon points='1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6'/><path d='M8 2v16M16 6v16'/>",
     plus: "<path d='M12 5v14M5 12h14'/>",
     close: "<path d='m6 6 12 12M18 6 6 18'/>",
-    check: "<path d='m20 6-11 11-5-5'/>",
+    check: "<path d='m20 6-11 11-5-5' pathLength='1'/>",
     // Setas ↑↓ do stepper da chegada (22/07). Trazidas do Lucide 24, como manda o
     // contrato acima — nada desenhado na mão.
     chevronUp: "<path d='m18 15-6-6-6 6'/>",
@@ -335,7 +340,7 @@
     wifi: "<path d='M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0'/><circle cx='12' cy='19.5' r='.6'/>",
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — botão mudo do painel de navegação.
     volume: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M15.5 8.5a5 5 0 0 1 0 7'/><path d='M18.5 5.5a9 9 0 0 1 0 13'/>",
-    volumeOff: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M17 9l6 6M23 9l-6 6'/>",
+    volumeOff: "<polygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/><path d='M17 9l6 6M23 9l-6 6' pathLength='1'/>",
     // S5 22/07 (PR22072026-APP-SOUNDS) — ▶ da prévia na folha "Sons" (mesmo
     // estilo outline dos demais: polygon com fill:none, igual o corpo do
     // alto-falante do ícone `volume` acima).
@@ -353,13 +358,24 @@
     const iconName = Object.prototype.hasOwnProperty.call(paths, name) ? name : "box";
     return `<svg class="hbx-icon" data-hbx-icon="${iconName}" width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[iconName]}</svg>`;
   }
+  // S2 22/07 (APK-PROFISSIONAL) — movimento é OPT-IN. Antes disparava em
+  // QUALQUER toque que subisse até "button,a,[role='button'],[data-action],
+  // [data-nav],[data-screen]" — ou seja, quase todo controle do app, inclusive
+  // os cards de segurar-pressionado (Lei 1: excluir É o hold, nunca lixeira) e
+  // qualquer toque de scroll que esbarrasse num botão. Duas linguagens de
+  // gesto competindo no mesmo toque, e a que não pode perder é o hold. Agora
+  // só reage a controle marcado de propósito com `data-hbx-motion` — lista
+  // curta e explícita (tema, sincronizar, continuar/encerrar rota), não
+  // "qualquer coisa clicável". A classe também se limpa sozinha no fim da
+  // animação (animationend), nunca fica pendurada esperando o próximo toque.
   function replayIconMotion(target) {
     if (!target || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
-    const direct = target.closest && target.closest(".hbx-icon");
-    const control = target.closest && target.closest("button,a,[role='button'],[data-action],[data-nav],[data-screen]");
-    const glyph = direct || (control && control.querySelector(".hbx-icon"));
+    const control = target.closest && target.closest("[data-hbx-motion]");
+    if (!control) return;
+    const glyph = control.matches(".hbx-icon") ? control : control.querySelector(".hbx-icon");
     if (!glyph) return;
     glyph.classList.remove("is-animating");
+    glyph.addEventListener("animationend", () => glyph.classList.remove("is-animating"), { once: true });
     requestAnimationFrame(() => { if (glyph.isConnected) glyph.classList.add("is-animating"); });
   }
   function initials(name) { return String(name || "Cliente").split(/\s+/).slice(0, 2).map(x => x[0]).join("").toUpperCase(); }
@@ -3471,7 +3487,7 @@
     // (`${icon(...)} Rótulo` dentro de .btn, que já é inline-flex com gap).
     // play/stop são os mesmos glifos do disco de transmux, então a faixa fala a
     // mesma língua do botão que ela substitui.
-    return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route">${icon("play", 16)} Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route">${icon("stop", 16)} Encerrar rota</button></div></div>`;
+    return `<div class="route-paused-banner"><strong class="route-paused-title">Rota pausada</strong><div class="route-paused-actions"><button class="btn btn-primary" type="button" data-action="resume-route" data-hbx-motion>${icon("play", 16)} Continuar rota</button><button class="btn btn-secondary" type="button" data-action="finish-route" data-hbx-motion>${icon("stop", 16)} Encerrar rota</button></div></div>`;
   }
   // S1 21/07 (PR21072026-NAVEGAÇÃO) — overlay compacto no topo do mapa da Rota,
   // irmão do #route-live-map (o mapa é transplantado, este painel não — ele
@@ -3524,7 +3540,10 @@
     // pede um botão diz só ação/rótulo/tom/glifo; disco, anel, brilho, paleta e
     // tamanho vêm de um lugar só. O glifo sai do catálogo (icon()), então nenhum
     // path solto sobrevive aqui.
-    const routeSatellite = (cls, action, label, glifo) => `<button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}">${icon(glifo, 21)}</button>`;
+    // S2 22/07 (APK-PROFISSIONAL) — `motion` é opt-in explícito por chamada,
+    // não um bônus automático de todo satélite: só o "Encerrar rota" (mesma
+    // ação do par play/stop do banner pausado) pede.
+    const routeSatellite = (cls, action, label, glifo, motion) => `<button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}"${motion ? " data-hbx-motion" : ""}>${icon(glifo, 21)}</button>`;
     // TETO DE 3 ÍCONES na linha: [1 destrutivo] [rota externa] [principal].
     // "Cancelar planejamento" e "Limpar o dia" podiam aparecer JUNTOS (rota
     // planejada + entregas abertas) e a linha virava 4 — a "zona" reclamada.
@@ -3532,7 +3551,7 @@
     // planejamento, limpar o dia continua aparecendo normalmente. Nenhuma ação
     // sumiu: cada uma manda no seu contexto.
     const destrutivo = active
-      ? routeSatellite("route-cancel-icon", "finish-route", "Encerrar rota", "stop")
+      ? routeSatellite("route-cancel-icon", "finish-route", "Encerrar rota", "stop", true)
       : planned && isAdmin()
         ? routeSatellite("route-cancel-icon is-destructive", "cancel-route", "Cancelar planejamento", "close")
         : clearDayVisible
@@ -3615,7 +3634,7 @@
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
   }
 
   // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá

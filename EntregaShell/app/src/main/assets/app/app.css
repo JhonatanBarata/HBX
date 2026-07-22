@@ -117,9 +117,18 @@ button:disabled { cursor: wait; opacity: .55; }
    também saiu: sem pintura por sub-elemento pra desfazer, ela não tem mais
    função. */
 
-/* Uma microanimação por toque. O repouso é sempre estático; cada ícone move a
-   parte que explica sua ação, em vez de repetir o pulso do estado “Gravando”. */
-.hbx-icon.is-animating { animation: hbx-icon-pop .44s cubic-bezier(.2,.78,.2,1) both; }
+/* S2 22/07 (APK-PROFISSIONAL) — microanimação por toque é OPT-IN: só dispara em
+   controle marcado com `[data-hbx-motion]` (ver replayIconMotion em app.js),
+   nunca em QUALQUER toque do app — antes disparava em qualquer pointerdown que
+   subisse até um botão/link, competindo com o gesto de segurar-pressionado
+   (Lei 1 do APK, excluir É o hold) e acendendo em toque de scroll. `backwards`
+   no lugar de `both`: `both` congela transform/filter como identidade pra
+   sempre no fim da animação, virando containing-block eterno pra qualquer
+   `position:fixed` que nasça depois dentro do mesmo ícone (já cortou modal em
+   22/07, ver memória fill-both-quebra-modal-fixed). A classe is-animating
+   também é removida no fim de cada animação (animationend, em app.js) — nunca
+   fica presa no elemento esperando o próximo toque pra "resetar". */
+.hbx-icon.is-animating { animation: hbx-icon-pop .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="gear"],
 .hbx-icon.is-animating[data-hbx-icon="refresh"] { animation-name: hbx-icon-turn; }
 .hbx-icon.is-animating[data-hbx-icon="plus"],
@@ -136,25 +145,29 @@ button:disabled { cursor: wait; opacity: .55; }
 .hbx-icon.is-animating[data-hbx-icon="play"] { animation-name: hbx-icon-play; }
 .hbx-icon.is-animating[data-hbx-icon="stop"] { animation-name: hbx-icon-stop; }
 .hbx-icon.is-animating[data-hbx-icon="navigation"] { animation-name: hbx-icon-flight; }
+/* stroke-dasharray/dashoffset em 1 (não mais 64 chumbado): exige pathLength="1"
+   no elemento (ver catálogo `paths.route/check/volumeOff` em app.js), que
+   normaliza o traço pro comprimento REAL de CADA path — 64 servia os três com
+   comprimentos bem diferentes, e no mais curto "desenhar" virava um fade. */
 .hbx-icon.is-animating[data-hbx-icon="route"] > path,
 .hbx-icon.is-animating[data-hbx-icon="check"] > path,
 .hbx-icon.is-animating[data-hbx-icon="volumeOff"] > path:last-of-type {
-  stroke-dasharray: 64; animation: hbx-icon-draw .56s cubic-bezier(.2,.78,.2,1) both;
+  stroke-dasharray: 1; animation: hbx-icon-draw .56s cubic-bezier(.2,.78,.2,1) backwards;
 }
-.hbx-icon.is-animating[data-hbx-icon="route"] > circle { animation: hbx-icon-node .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="route"] > circle { animation: hbx-icon-node .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="route"] > circle:last-of-type { animation-delay: .1s; }
-.hbx-icon.is-animating[data-hbx-icon="edit"] > path:last-of-type { animation: hbx-icon-write .44s cubic-bezier(.2,.78,.2,1) both; }
-.hbx-icon.is-animating[data-hbx-icon="users"] > path:last-of-type { animation: hbx-icon-part-right .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="edit"] > path:last-of-type { animation: hbx-icon-write .44s cubic-bezier(.2,.78,.2,1) backwards; }
+.hbx-icon.is-animating[data-hbx-icon="users"] > path:last-of-type { animation: hbx-icon-part-right .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="box"] > path:first-of-type,
 .hbx-icon.is-animating[data-hbx-icon="calendar"] > path,
-.hbx-icon.is-animating[data-hbx-icon="lock"] > path:last-of-type { animation: hbx-icon-part-up .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="lock"] > path:last-of-type { animation: hbx-icon-part-up .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="wallet"] > path:last-of-type,
-.hbx-icon.is-animating[data-hbx-icon="logout"] > path:last-of-type { animation: hbx-icon-part-right .44s cubic-bezier(.2,.78,.2,1) both; }
-.hbx-icon.is-animating[data-hbx-icon="download"] > path:first-of-type { animation: hbx-icon-drop .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="logout"] > path:last-of-type { animation: hbx-icon-part-right .44s cubic-bezier(.2,.78,.2,1) backwards; }
+.hbx-icon.is-animating[data-hbx-icon="download"] > path:first-of-type { animation: hbx-icon-drop .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="gps"] > circle:last-of-type,
-.hbx-icon.is-animating[data-hbx-icon="wifi"] > circle { animation: hbx-icon-node .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="wifi"] > circle { animation: hbx-icon-node .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="wifi"] > path,
-.hbx-icon.is-animating[data-hbx-icon="volume"] > path { animation: hbx-icon-wave .44s cubic-bezier(.2,.78,.2,1) both; }
+.hbx-icon.is-animating[data-hbx-icon="volume"] > path { animation: hbx-icon-wave .44s cubic-bezier(.2,.78,.2,1) backwards; }
 .hbx-icon.is-animating[data-hbx-icon="volume"] > path:last-of-type { animation-delay: .08s; }
 
 @keyframes hbx-icon-pop { 0% { opacity: .45; transform: scale(.82); } 58% { opacity: 1; transform: scale(1.09); } 100% { opacity: 1; transform: scale(1); } }
@@ -169,7 +182,7 @@ button:disabled { cursor: wait; opacity: .55; }
 @keyframes hbx-icon-play { 0% { opacity: .4; transform: translateX(-2px) scale(.76); } 62% { opacity: 1; transform: translateX(1px) scale(1.1); } 100% { transform: translateX(0) scale(1); } }
 @keyframes hbx-icon-stop { 0% { opacity: .45; transform: scale(1.18); } 55% { opacity: 1; transform: scale(.88); } 100% { transform: scale(1); } }
 @keyframes hbx-icon-flight { 0% { opacity: .4; transform: translate(-2px,2px) rotate(-8deg) scale(.82); } 62% { opacity: 1; transform: translate(1px,-1px) rotate(3deg) scale(1.06); } 100% { transform: translate(0,0) rotate(0) scale(1); } }
-@keyframes hbx-icon-draw { from { opacity: .3; stroke-dashoffset: 64; } to { opacity: 1; stroke-dashoffset: 0; } }
+@keyframes hbx-icon-draw { from { opacity: .3; stroke-dashoffset: 1; } to { opacity: 1; stroke-dashoffset: 0; } }
 @keyframes hbx-icon-node { 0% { opacity: .25; transform: scale(.35); } 62% { opacity: 1; transform: scale(1.3); } 100% { transform: scale(1); } }
 @keyframes hbx-icon-write { 0% { opacity: .35; transform: translate(-2px,2px) rotate(-7deg); } 66% { opacity: 1; transform: translate(1px,-1px) rotate(2deg); } 100% { transform: translate(0,0) rotate(0); } }
 @keyframes hbx-icon-part-right { 0% { opacity: .25; transform: translateX(-3px); } 66% { opacity: 1; transform: translateX(1px); } 100% { transform: translateX(0); } }
@@ -1003,7 +1016,13 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
   border-radius: 50%;
   animation: hbx-loading-spin .72s linear infinite;
 }
-.lrt-endereco-loading:has(.lrt-endereco-loading-icon)::before { display: none; }
+/* S2 22/07 (APK-PROFISSIONAL) — o ícone respirava pra sempre (lrt-gps-pulse
+   infinite) durante "Recebendo sinal do GPS…"/"Localizando endereço…": dois
+   indicadores de espera ao mesmo tempo (o anel abaixo escondido por este
+   `:has()` + o ícone pulsando). Só pode haver UM indicador de espera — o anel
+   já é honesto e determinístico (hbx-loading-spin, linha acima), então ele
+   fica visível também neste estado; o ícone volta a ser estático (é rótulo do
+   que está acontecendo, não o spinner). */
 .lrt-endereco-loading-icon {
   display: grid;
   place-items: center;
@@ -1013,7 +1032,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
   border-radius: 17px;
   color: var(--brand-strong);
   background: var(--surface);
-  animation: lrt-gps-pulse 1.15s ease-in-out infinite;
 }
 .lrt-endereco-loading strong, .lrt-gps-loading strong { color: var(--ink); font-size: .86rem; }
 .lrt-endereco-loading p, .lrt-gps-loading p, .lrt-endereco-loading > span, .lrt-gps-loading > span { margin: 0; font-size: .74rem; }
@@ -1048,7 +1066,9 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .lrt-endereco-card, .lrt-endereco-compare { border-radius: 16px; box-shadow: 0 6px 18px color-mix(in srgb, var(--ink) 5%, transparent); }
 .lrt-endereco-compare p { padding: 10px 11px; border-radius: 11px; background: var(--surface-2); line-height: 1.45; }
 .lrt-endereco-compare p[style*="--warning"] { border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); }
-@keyframes lrt-gps-pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 20%, transparent); } 50% { transform: scale(1.04); box-shadow: 0 0 0 8px color-mix(in srgb, var(--brand) 0%, transparent); } }
+/* @keyframes lrt-gps-pulse removido em 22/07 (S2 APK-PROFISSIONAL) — era o
+   pulso infinito do .lrt-endereco-loading-icon, tirado por rodar pra sempre
+   sem parar (ver comentário acima da regra). Sem uso restante no arquivo. */
 
 /* Clientes/Produtos reaproveitados em modo selecao. O modo muda a acao do card,
    mas conserva busca, avatar e texto das listas reais. */
