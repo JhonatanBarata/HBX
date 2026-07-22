@@ -23,6 +23,45 @@
      dark dedicado (ver bloco [data-theme="dark"] abaixo) — sem ele o azul de
      tema claro caía sobre --surface escuro e o contraste desabava. */
   --info: #0865df;
+  /* Fase 2 C1 22/07 (APK-PROFISSIONAL, varredura de contrato) — 6 famílias de
+     token que faltavam, escritas ANTES de qualquer troca de hex (C1 só
+     declara; quem aplica é o C2, ver FASE2-VARREDURA-DE-CONTRATO.md). */
+  /* 1) Tinta sobre a marca — os ~9 pretos-esverdeados espalhados por
+     brand-mark/btn-primary/rp2-cta/fab/chegada-btn-pago/chegada-btn-entregue/
+     day-chip.active viram UMA cor. --on-brand não tem par dark: o fundo que
+     ela cobre (--brand, --cta, o gradiente do brand-mark) já é vívido nos
+     dois temas, não precisa inverter. --on-brand-soft é o caso diferente —
+     cobre --brand-soft, que troca de PÁLIDO (claro) pra ESCURO (dark): aí a
+     tinta tem que inverter escura→clara ou o contraste desaba (por isso o
+     par dark logo abaixo). */
+  --on-brand: #1b290b;
+  --on-brand-soft: var(--on-brand);
+  /* 2) Tinta sobre cor sólida — branco fixo (.btn-danger, selo do editor de
+     cliente, .center-arrow-glyph) e o extinto --route-icon-on (S5) convergem
+     aqui. Sem par dark pelo mesmo motivo do --on-brand acima: fundo sólido
+     nos dois temas. */
+  --on-solid: #fff;
+  /* 3) Fundo do mapa — placeholder atrás do tile (preview da revisão da rota
+     + mapa ao vivo da Rota/Leitura). O par dark já existia pro mapa ao vivo;
+     o preview (route-plan-preview-map) ficava sem — ganha aqui. */
+  --map-canvas: #e5ece1;
+  --map-canvas-ink: #cbd5c6;
+  /* 4) Vidro sobre o mapa — chip de status GPS + botão "seguir". Único caso
+     de paleta própria legítima (o tema do app não alcança o que fica em cima
+     do mapa), mas tem que estar DECLARADA — não mais alfas soltos de
+     branco/navy por conta própria. */
+  --glass-surface: rgba(255, 255, 255, .9);
+  --glass-border: rgba(255, 255, 255, .76);
+  --glass-ink: #162033;
+  /* 5) Hero navy — #0b1020 do gradiente já É o --navy logo acima (token
+     ignorado); o outro stop do gradiente e as duas tintas de texto do hero
+     ganham nome aqui. Sem par dark: o hero não muda com o tema. */
+  --navy-light: #111a2e;
+  --navy-ink: #b9c3d8;
+  --navy-ink-accent: #bde96f;
+  /* 6) --route-icon-nav/--route-icon-stop/--route-icon-on (S5, bloco :root
+     mais abaixo) somem no C2: nav consolida em --info, stop em --danger, on
+     em --on-solid acima — já existem e já têm par dark. */
   --shadow: 0 8px 28px rgba(31, 47, 25, .09);
   --radius: 16px;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -54,6 +93,15 @@
      família de azul, luminosidade alinhada com --success (~65% L) pra pesar
      igual na tela ao lado dos outros pastéis do dark. */
   --info: #4d9dff;
+  /* Fase 2 C1 22/07 — pares dark das famílias acima que PRECISAM inverter
+     (--on-brand-soft, --map-canvas, --glass-*). As que não têm entrada aqui
+     (--on-brand, --on-solid, --map-canvas-ink, --navy-*) são de propósito:
+     ficam com o valor único do :root nos dois temas. */
+  --on-brand-soft: #dfffb0;
+  --map-canvas: #45516e;
+  --glass-surface: rgba(11, 16, 32, .86);
+  --glass-border: rgba(255, 255, 255, .14);
+  --glass-ink: #f4f7ff;
   --shadow: 0 12px 32px rgba(0, 0, 0, .3);
   color-scheme: dark;
 }
