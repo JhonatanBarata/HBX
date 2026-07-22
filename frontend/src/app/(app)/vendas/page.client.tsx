@@ -21,6 +21,8 @@ import {
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { LeadCockpitModal } from "@/components/hbx/lead-cockpit-modal";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { CanalIcon } from "@/components/hbx/canal-icon";
+import { RADAR_CHANNEL_ORDER, resolveRadarChannelPresence, type RadarChannel } from "@/lib/radar-channel-presence";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
@@ -347,11 +349,32 @@ type GridColumn = {
   mono?: boolean;
   edit?: GridEdit;
   gate?: "values";           // só aparece com canViewValues
+  nosort?: boolean;          // conteúdo vive fora do card (ex.: status da IA)
   text: (c: VendasLead) => string;   // valor cru: ordenação, busca e edição
 };
 
+// Canais encontrados do lead — MESMA fileira de ícones do "Buscar empresas"
+// (CanalIcon + resolveRadarChannelPresence). Aqui a presença é derivada do que o
+// card de Vendas já traz; nenhum campo novo de backend.
+function vendasCanais(c: VendasLead): RadarChannel[] {
+  const li = c.leadIntelligence;
+  const temZap = li?.whatsappStatus === "confirmed"
+    || Object.values(c.phonesWhatsapp || {}).some(Boolean);
+  const presence = resolveRadarChannelPresence({
+    hasWhatsapp: temZap,
+    hasPhone: Boolean(c.phone) || (c.phones?.length ?? 0) > 0,
+    hasEmail: Boolean(c.email) || (c.emails?.length ?? 0) > 0 || li?.emailStatus === "confirmed",
+    instagramUrl: li?.instagramUrl || c.ownerInstagram || null,
+    facebookUrl: li?.facebookUrl || c.ownerFacebook || null,
+    website: c.website || (li?.websiteStatus === "confirmed" ? "sim" : null),
+  });
+  return RADAR_CHANNEL_ORDER.filter(canal => presence[canal]);
+}
+
 const GRID_COLUMNS: GridColumn[] = [
   { key: "name", label: "Empresa", width: 220, edit: { field: "name", type: "text", max: 120 }, text: c => c.name || "" },
+  { key: "icons", label: "Ícones", width: 128, text: c => vendasCanais(c).join(" ") },
+  { key: "status", label: "Status", width: 140, nosort: true, text: () => "" },
   { key: "phone", label: "Telefone", width: 140, mono: true, edit: { field: "phone", type: "text", max: 24 }, text: c => c.phone || "" },
   { key: "city", label: "Cidade", width: 130, text: c => c.city || "" },
   { key: "state", label: "UF", width: 52, text: c => c.state || "" },
@@ -374,7 +397,7 @@ const GRID_COLUMNS: GridColumn[] = [
   { key: "source", label: "Origem", width: 130, text: c => c.primarySource || c.sourceType || "" },
   { key: "created", label: "Criado em", width: 110, mono: true, text: c => (c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : "") },
 ];
-const GRID_DEFAULT_KEYS = ["name", "phone", "city", "state", "segment", "stage", "agenda", "engage", "value", "next", "owner", "date"];
+const GRID_DEFAULT_KEYS = ["name", "icons", "status", "phone", "city", "state", "segment", "stage", "agenda", "engage", "value", "next", "owner", "date"];
 const GRID_COLS_STORAGE = "hbx:vendas-grid-cols";
 const GRID_SORT_STORAGE = "hbx:vendas-grid-sort";
 
@@ -549,9 +572,9 @@ export function VendasClient() {
     return null;
   });
   const [colsOpen, setColsOpen] = useState(false);
-  // Modo edição: com ele LIGADO a grade vira planilha e o clique na célula edita
-  // em vez de abrir o cockpit (a bridge de 1 clique respeita data-cockpit-ignore).
-  const [editMode, setEditMode] = useState(false);
+  // Edição inline: não existe "modo". Célula EDITÁVEL edita no clique (ela leva
+  // data-cockpit-ignore, então a bridge de 1 clique a ignora); célula de leitura
+  // continua abrindo a ficha completa no clique.
   const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [cellMsg, setCellMsg] = useState<string | null>(null);
@@ -1313,57 +1336,51 @@ export function VendasClient() {
                     <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
                   </span>
                   {view === "list" && (
-                    <React.Fragment>
-                      <button className={"btn-ghost" + (editMode ? " on" : "")} onClick={() => { setEditMode(m => !m); setEditCell(null); setCellMsg(null); }}
-                        title={editMode ? "Sair do modo edição (volta a abrir os detalhes no clique)" : "Editar as células como planilha"}
-                        aria-pressed={editMode}>
-                        <I d={ICONS.edit} size={14} /> {editMode ? "Editando" : "Editar"}
+                    <div className="vnd-colspick">
+                      <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
+                        onClick={() => setColsOpen(o => !o)} title="Escolher e ordenar as colunas">
+                        <I d={ICONS.edit} size={14} /> Colunas ▾
                       </button>
-                      <div className="vnd-colspick">
-                        <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
-                          onClick={() => setColsOpen(o => !o)} title="Escolher colunas">
-                          Colunas ▾
-                        </button>
-                        {colsOpen && (
-                          <React.Fragment>
-                            <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={() => setColsOpen(false)} />
-                            <div className="vnd-colspick__menu" role="menu">
-                              <div className="vnd-colspick__head">
-                                <strong>Colunas da planilha</strong>
-                                <button type="button" className="btn-ghost btn-xs" onClick={resetGrid}>Reiniciar layout</button>
-                              </div>
-                              <div className="vnd-colspick__list">
-                                {gridKeys.map((key, i) => {
-                                  const col = GRID_COLUMNS.find(c => c.key === key);
-                                  if (!col) return null;
-                                  if (col.gate === "values" && !board?.canViewValues) return null;
-                                  return (
-                                    <div key={key} className="vnd-colspick__item is-on">
-                                      <label>
-                                        <input type="checkbox" checked onChange={() => toggleGridCol(key)} />
-                                        {col.label}
-                                      </label>
-                                      <span className="vnd-colspick__ord">
-                                        <button type="button" onClick={() => moveGridCol(key, -1)} disabled={i === 0} aria-label="Mover para a esquerda">↑</button>
-                                        <button type="button" onClick={() => moveGridCol(key, 1)} disabled={i === gridKeys.length - 1} aria-label="Mover para a direita">↓</button>
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                                {GRID_COLUMNS.filter(c => !gridKeys.includes(c.key) && (c.gate !== "values" || board?.canViewValues)).map(col => (
-                                  <div key={col.key} className="vnd-colspick__item">
-                                    <label>
-                                      <input type="checkbox" checked={false} onChange={() => toggleGridCol(col.key)} />
-                                      {col.label}
-                                    </label>
-                                  </div>
-                                ))}
-                              </div>
+                      {colsOpen && (
+                        <React.Fragment>
+                          <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={() => setColsOpen(false)} />
+                          <div className="vnd-colspick__menu" role="dialog" aria-label="Colunas da planilha">
+                            <div className="vnd-colspick__head">
+                              <strong>Colunas da planilha</strong>
+                              <button type="button" className="btn-ghost btn-xs" onClick={resetGrid}>Reiniciar layout</button>
                             </div>
-                          </React.Fragment>
-                        )}
-                      </div>
-                    </React.Fragment>
+                            {/* PERSPECTIVA DA TABELA: a fileira de cima é a planilha
+                                vista de cima pra baixo — esquerda→direita igual na tela,
+                                e as setas ← → movem a coluna no MESMO sentido. */}
+                            <span className="vnd-colspick__lbl">Na planilha — arraste com ← →</span>
+                            <div className="vnd-colspick__strip">
+                              {gridCols.map((col, i) => (
+                                <span key={col.key} className="vnd-colchip">
+                                  <button type="button" className="vnd-colchip__mv" onClick={() => moveGridCol(col.key, -1)}
+                                    disabled={i === 0} aria-label={`Mover ${col.label} para a esquerda`}>←</button>
+                                  <span className="vnd-colchip__lbl">{col.label}</span>
+                                  <button type="button" className="vnd-colchip__mv" onClick={() => moveGridCol(col.key, 1)}
+                                    disabled={i === gridCols.length - 1} aria-label={`Mover ${col.label} para a direita`}>→</button>
+                                  <button type="button" className="vnd-colchip__rm" onClick={() => toggleGridCol(col.key)}
+                                    aria-label={`Tirar ${col.label} da planilha`}>✕</button>
+                                </span>
+                              ))}
+                            </div>
+                            <span className="vnd-colspick__lbl">Fora da planilha — clique pra somar</span>
+                            <div className="vnd-colspick__strip vnd-colspick__strip--off">
+                              {GRID_COLUMNS.filter(c => !gridKeys.includes(c.key) && (c.gate !== "values" || board?.canViewValues)).map(col => (
+                                <button key={col.key} type="button" className="vnd-colchip vnd-colchip--add" onClick={() => toggleGridCol(col.key)}>
+                                  + {col.label}
+                                </button>
+                              ))}
+                              {GRID_COLUMNS.filter(c => !gridKeys.includes(c.key) && (c.gate !== "values" || board?.canViewValues)).length === 0 && (
+                                <span className="sub2">Todas as colunas estão na planilha.</span>
+                              )}
+                            </div>
+                          </div>
+                        </React.Fragment>
+                      )}
+                    </div>
                   )}
                   <button className="icon-ghost" title="Automações comerciais" aria-label="Automações comerciais" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
@@ -1445,7 +1462,7 @@ export function VendasClient() {
                   no modo Editar a grade ganha data-cockpit-ignore e o clique
                   passa a editar a célula. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
-                <div className="vnd-grid-wrap" data-cockpit-ignore={editMode ? "" : undefined}>
+                <div className="vnd-grid-wrap">
                   {(selecionados.size > 0 || bulkMsg || cellMsg) && (
                     <div className="vnd-grid-bar">
                       {selecionados.size > 0 && (
@@ -1461,7 +1478,7 @@ export function VendasClient() {
                     </div>
                   )}
                   <div className="tbl-wrap">
-                  <table className="tbl vnd-grid" data-tut="vendas-funil" data-edit={editMode ? "on" : "off"}>
+                  <table className="tbl vnd-grid" data-tut="vendas-funil">
                     <thead>
                       <tr>
                         <th className="vnd-grid__chk">
@@ -1469,8 +1486,10 @@ export function VendasClient() {
                             aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
                         </th>
                         {gridCols.map(col => (
-                          <th key={col.key} className="vnd-grid__th" onClick={() => toggleGridSort(col.key)}
-                            title={`Ordenar por ${col.label}`} aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
+                          <th key={col.key} className={"vnd-grid__th" + (col.nosort ? " is-nosort" : "")}
+                            onClick={col.nosort ? undefined : () => toggleGridSort(col.key)}
+                            title={col.nosort ? col.label : `Ordenar por ${col.label}`}
+                            aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
                             {col.label}
                             {gridSort?.key === col.key && <span className="vnd-grid__sort">{gridSort.dir === 1 ? "▲" : "▼"}</span>}
                           </th>
@@ -1486,7 +1505,7 @@ export function VendasClient() {
                         return (
                           <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""}
                             onClick={() => setSel(card)}
-                            onDoubleClick={() => { if (!editMode) { setSel(card); setCockpitOpen(true); } }}
+                            onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}
                             onContextMenu={e => { e.preventDefault(); setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>
                             <td className="vnd-grid__chk" onClick={e => e.stopPropagation()}>
                               <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
@@ -1529,15 +1548,25 @@ export function VendasClient() {
                               }
                               return (
                                 <td key={col.key}
-                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (editavel ? " is-editable" : "") + (editMode && editavel ? " is-armed" : "")}
-                                  title={texto || undefined}
-                                  onClick={editMode && editavel ? (e => { e.stopPropagation(); abrirCelula(card, col); }) : undefined}>
+                                  // Célula editável carrega data-cockpit-ignore: a bridge de 1 clique
+                                  // pula ela e o clique EDITA. Célula de leitura continua abrindo a
+                                  // ficha no 1 clique, que é a lei da tela.
+                                  data-cockpit-ignore={editavel ? "" : undefined}
+                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (editavel ? " is-editable" : "")}
+                                  title={editavel ? `${texto || "vazio"} — clique para editar` : texto || undefined}
+                                  onClick={editavel ? (e => { e.stopPropagation(); abrirCelula(card, col); }) : undefined}>
                                   {col.key === "name" ? (
                                     <span className="vnd-grid__name">
                                       <span className="vnd-grid__txt">{texto || "—"}</span>
-                                      <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
                                       {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
                                     </span>
+                                  ) : col.key === "icons" ? (
+                                    <span className="vnd-grid__canais" aria-label="Canais encontrados">
+                                      {vendasCanais(card).map(canal => <CanalIcon key={canal} canal={canal} size="sm" />)}
+                                      {vendasCanais(card).length === 0 && <span className="sub2">sem contato</span>}
+                                    </span>
+                                  ) : col.key === "status" ? (
+                                    <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
                                   ) : col.key === "agenda" ? (
                                     <span className={"tag" + (card.block === "overdue" ? " warn" : card.block === "closed" ? " teal" : "")}>{ag.label}</span>
                                   ) : col.key === "engage" ? (
@@ -1556,7 +1585,11 @@ export function VendasClient() {
                               );
                             })}
                             <td className="vnd-grid__acts" onClick={e => e.stopPropagation()}>
-                              <button type="button" className="vnd-grid__more" aria-label="Ações do lead"
+                              {/* Saída garantida pra ficha: se o vendedor deixar só colunas
+                                  editáveis, o 1 clique nunca fica sem caminho pro cockpit. */}
+                              <button type="button" className="vnd-grid__more" aria-label="Abrir detalhes" title="Abrir detalhes"
+                                onClick={() => { setSel(card); setCockpitOpen(true); }}>⤢</button>
+                              <button type="button" className="vnd-grid__more" aria-label="Ações do lead" title="Ações"
                                 onClick={e => { setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>⋯</button>
                             </td>
                           </tr>
