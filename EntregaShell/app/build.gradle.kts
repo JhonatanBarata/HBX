@@ -18,8 +18,13 @@ plugins {
 // (impressão digital dos fontes do EntregaShell contra a última publicada) —
 // publish de backend/frontend NÃO faz o motorista baixar 1,5 MB à toa.
 // O literal abaixo é o PISO: sem a propriedade (build local, Android Studio),
-// vale ele.
-val hbxLogisticaVersionCodeFloor = 8
+// vale ele — e o publish nunca publica abaixo dele, nem quando a digital dos
+// fontes não mudou. É por isso que subir este número é a ALAVANCA MANUAL pra
+// forçar os celulares a baixarem de novo.
+// 8 → 15 em 22/07: o servidor estava servindo um APK já corrigido carimbado
+// como 14, o mesmo código que os aparelhos tinham — ninguém via atualização e
+// a digital publicada já era a do tree, então o publish repetia "inalterado".
+val hbxLogisticaVersionCodeFloor = 15
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

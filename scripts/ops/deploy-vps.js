@@ -265,10 +265,25 @@ function resolveAndroidVersion(config) {
     return { ...gradle, fingerprint, bumped: false };
   }
   if (published.fingerprint && published.fingerprint === fingerprint) {
+    // O PISO do gradle vale AQUI TAMBÉM. Antes este ramo devolvia
+    // `published.versionCode` cru, e por isso subir o piso não tinha efeito
+    // nenhum — o único jeito de mexer na versão era a digital mudar.
+    // 22/07: um publish gravou a digital NOVA mantendo um versionCode que os
+    // aparelhos já tinham. A partir dali toda tentativa caía aqui ("fontes
+    // inalterados"), o APK corrigido ficava no servidor e nenhum celular via
+    // atualização — sem saída manual. Com o piso valendo, basta subir o
+    // literal em app/build.gradle.kts pra destravar.
+    const versionCode = Math.max(published.versionCode, gradle.versionCode);
+    if (versionCode > published.versionCode) {
+      console.log(
+        `[apk] digital IGUAL, mas o piso do gradle é maior — versão ${published.versionCode} → ${versionCode}. Os celulares vão atualizar.`,
+      );
+      return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true };
+    }
     console.log(
       `[apk] fontes do app INALTERADOS — versão mantida em ${published.versionCode}. Nenhum celular vai baixar nada.`,
     );
-    return { versionCode: published.versionCode, versionName: gradle.versionName, fingerprint, bumped: false };
+    return { versionCode, versionName: gradle.versionName, fingerprint, bumped: false };
   }
   const versionCode = Math.max(published.versionCode, gradle.versionCode) + 1;
   console.log(
