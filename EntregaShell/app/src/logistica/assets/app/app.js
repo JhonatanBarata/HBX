@@ -1715,8 +1715,12 @@
   async function openLeituraAtiva() {
     applyLeituraSnapshot(leituraStatusSnapshot());
     state.screen = "route";
-    if (state.modal) { await closeOverlay("modal"); return; }
-    render();
+    if (state.modal) await closeOverlay("modal");
+    else render();
+    // A transmutação acontece só na entrada. Os renders seguintes recriam o
+    // conteúdo sem esta classe, evitando que qualquer ação faça os controles
+    // piscarem/repetirem a animação.
+    requestAnimationFrame(() => app.querySelector(".leitura-route-controls")?.classList.add("is-entering"));
   }
   let leituraFlushing = false;
   // Sincroniza a fila em ordem; falha de rede no meio pára e deixa o resto

@@ -536,19 +536,22 @@ h3 { font-size: .95rem; }
 .route-cancel-icon:active { transform: scale(.92); }
 .route-cancel-icon svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .leitura-route-controls { width: min(100%, 360px); min-height: 112px; display: grid; grid-template-columns: 82px 112px 82px; align-items: center; justify-content: space-between; gap: 10px; }
-.leitura-route-action, .leitura-route-recording { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 0; font-weight: 800; touch-action: manipulation; }
+.leitura-route-action, .leitura-route-recording { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 0; font-weight: 800; touch-action: manipulation; transition: transform .16s cubic-bezier(.2,.78,.2,1), filter .16s ease; }
 .leitura-route-action { min-width: 82px; min-height: 74px; gap: 5px; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); font-size: .68rem; }
 .leitura-route-action svg { flex: 0 0 auto; }
-.leitura-route-action--cancel { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 38%, var(--line)); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); animation: leitura-control-left .42s cubic-bezier(.2,.82,.2,1.1) both; }
-.leitura-route-action--checkpoint { color: var(--ink); border-color: color-mix(in srgb, var(--cta-to) 34%, var(--line)); background: var(--cta); box-shadow: 0 9px 20px color-mix(in srgb, var(--cta-to) 28%, transparent); animation: leitura-control-right .42s cubic-bezier(.2,.82,.2,1.1) both; }
-.leitura-route-recording { position: relative; width: 112px; height: 112px; gap: 7px; padding: 0; border: 2px solid color-mix(in srgb, var(--success) 58%, var(--line)); border-radius: 50%; color: var(--ink); background: var(--surface); box-shadow: 0 12px 24px color-mix(in srgb, var(--success) 20%, transparent), inset 0 0 0 5px color-mix(in srgb, var(--success) 9%, transparent); animation: leitura-recording-morph .42s cubic-bezier(.2,.82,.2,1.1) both; }
+.leitura-route-action--cancel { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 38%, var(--line)); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.leitura-route-action--checkpoint { color: var(--ink); border-color: color-mix(in srgb, var(--cta-to) 34%, var(--line)); background: var(--cta); box-shadow: 0 9px 20px color-mix(in srgb, var(--cta-to) 28%, transparent); }
+.leitura-route-recording { position: relative; width: 112px; height: 112px; gap: 7px; padding: 0; border: 2px solid color-mix(in srgb, var(--success) 58%, var(--line)); border-radius: 50%; color: var(--ink); background: var(--surface); box-shadow: 0 12px 24px color-mix(in srgb, var(--success) 20%, transparent), inset 0 0 0 5px color-mix(in srgb, var(--success) 9%, transparent); }
+.leitura-route-action:active:not(:disabled), .leitura-route-recording:active:not(:disabled) { transform: translateY(1px) scale(.975); }
 .leitura-route-recording strong { font-size: .76rem; }
-.leitura-route-recording-dot { position: relative; display: block; width: 23px; height: 23px; border-radius: 50%; background: var(--success); }
-.leitura-route-recording-dot::after { content: ""; position: absolute; inset: -7px; border: 2px solid color-mix(in srgb, var(--success) 54%, transparent); border-radius: inherit; animation: leitura-recording-pulse 1.35s ease-out infinite; }
+.leitura-route-recording-dot { position: relative; display: block; width: 23px; height: 23px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 13%, transparent); }
+.leitura-route-recording-dot::after { content: ""; position: absolute; inset: -7px; border: 2px solid color-mix(in srgb, var(--success) 42%, transparent); border-radius: inherit; }
+.leitura-route-controls.is-entering .leitura-route-action--cancel { animation: leitura-control-left .42s cubic-bezier(.2,.82,.2,1.1) both; }
+.leitura-route-controls.is-entering .leitura-route-action--checkpoint { animation: leitura-control-right .42s cubic-bezier(.2,.82,.2,1.1) both; }
+.leitura-route-controls.is-entering .leitura-route-recording { animation: leitura-recording-morph .42s cubic-bezier(.2,.82,.2,1.1) both; }
 @keyframes leitura-control-left { from { opacity: 0; transform: translate3d(62px,0,0) scale(.45) rotate(10deg); } to { opacity: 1; transform: translate3d(0,0,0) scale(1) rotate(0); } }
 @keyframes leitura-control-right { from { opacity: 0; transform: translate3d(-62px,0,0) scale(.45) rotate(-10deg); } to { opacity: 1; transform: translate3d(0,0,0) scale(1) rotate(0); } }
 @keyframes leitura-recording-morph { from { opacity: .7; transform: scale(.82); border-radius: 38%; } to { opacity: 1; transform: scale(1); border-radius: 50%; } }
-@keyframes leitura-recording-pulse { from { opacity: .72; transform: scale(.55); } to { opacity: 0; transform: scale(1.35); } }
 .route-paused-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--warning) 38%, var(--line)); border-radius: 18px; background: color-mix(in srgb, var(--warning) 12%, var(--surface)); }
 .route-paused-title { color: var(--ink); font-size: .86rem; }
 .route-paused-actions { display: flex; gap: 8px; }
@@ -976,5 +979,4 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
-  .leitura-route-recording-dot::after { animation: none; }
 }
