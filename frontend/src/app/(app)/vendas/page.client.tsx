@@ -1657,7 +1657,24 @@ export function VendasClient() {
         return (
           <React.Fragment>
             <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={fechar} />
-            <div className="vnd-rowmenu" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}>
+            {/* O menu nasce no ponto do clique. Como o ⋯ mora na ÚLTIMA coluna
+                da grade, esse ponto fica colado na borda direita e o menu
+                (210px) saía inteiro da tela — e nas últimas linhas saía também
+                por baixo. O ref abaixo mede o menu já montado e o traz de volta
+                pra dentro da janela nos dois eixos, antes do primeiro paint.
+                Medir em vez de chutar a largura: o menu cresce com o nome do
+                lead e com os itens que aparecem só às vezes (WhatsApp,
+                Atendimento). */}
+            <div className="vnd-rowmenu" role="menu" style={{ left: rowMenu.x, top: rowMenu.y }}
+              ref={el => {
+                if (!el) return;
+                const folga = 8;
+                const r = el.getBoundingClientRect();
+                const x = Math.max(folga, Math.min(rowMenu.x, window.innerWidth - r.width - folga));
+                const y = Math.max(folga, Math.min(rowMenu.y, window.innerHeight - r.height - folga));
+                el.style.left = `${x}px`;
+                el.style.top = `${y}px`;
+              }}>
               <span className="vnd-rowmenu__title">{card.name || "Lead"}</span>
               <button type="button" role="menuitem" onClick={() => { fechar(); setSel(card); setCockpitOpen(true); }}>
                 Abrir detalhes

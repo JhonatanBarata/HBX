@@ -1554,6 +1554,9 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 /* Menu da linha (⋯ / clique-direito) */
 .vnd-rowmenu {
   position: fixed; z-index: 60; min-width: 210px;
+  /* Teto de altura: em notebook baixo o menu com todos os itens passava da
+     janela, e aí nem o clamp de posição salva — precisa poder rolar. */
+  max-height: calc(100vh - 16px); overflow-y: auto;
   display: grid; gap: 1px; padding: 6px;
   background: var(--hbx-surface); border: 1px solid var(--border-hairline);
   border-radius: var(--radius-sm); box-shadow: var(--shadow-lg);
