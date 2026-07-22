@@ -36,6 +36,11 @@
      par dark logo abaixo). */
   --on-brand: #1b290b;
   --on-brand-soft: var(--on-brand);
+  /* Achado C6 (lint novo do R6 pro EntregaShell, sem isenção de gradiente) —
+     o gradiente do próprio logo (.brand-mark) ainda nascia hex cravado.
+     Cor fixa de marca, não de tema: sem par dark, mesmo padrão do --on-brand. */
+  --brand-mark-from: #a4ec2f;
+  --brand-mark-to: #65b600;
   /* 2) Tinta sobre cor sólida — branco fixo (.btn-danger, selo do editor de
      cliente, .center-arrow-glyph) e o extinto --route-icon-on (S5) convergem
      aqui. Sem par dark pelo mesmo motivo do --on-brand acima: fundo sólido
@@ -62,6 +67,13 @@
   /* 6) --route-icon-nav/--route-icon-stop/--route-icon-on (S5, bloco :root
      mais abaixo) somem no C2: nav consolida em --info, stop em --danger, on
      em --on-solid acima — já existem e já têm par dark. */
+  /* Achado C6 (migração C3 de offline-controls.js) — aviso/perigo do banner
+     "rota sem sinal" são um matiz PRÓPRIO, diferente de --warning/--danger
+     (não é a mesma cor 10x, ver family --on-brand acima) — por isso ganham
+     token dedicado em vez de forçar convergência que mudaria o tom. Sem par
+     dark: a folha injetada original também não tinha. */
+  --offline-warn: #f2b52b;
+  --offline-danger: #e75353;
   --shadow: 0 8px 28px rgba(31, 47, 25, .09);
   --radius: 16px;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -102,6 +114,10 @@
   --glass-surface: rgba(11, 16, 32, .86);
   --glass-border: rgba(255, 255, 255, .14);
   --glass-ink: #f4f7ff;
+  /* Achado C6 — tinta do rótulo de atribuição do MapLibre (canto do mapa) só
+     precisa mudar no escuro (no claro usa a cor padrão da lib); sem uso no
+     :root claro. */
+  --map-attrib-ink: #dce5f2;
   --shadow: 0 12px 32px rgba(0, 0, 0, .3);
   color-scheme: dark;
 }
@@ -132,7 +148,7 @@ button:disabled { cursor: wait; opacity: .55; }
    toolbar) a colisão deixa de ser possível: sobrou pouco espaço, o nome trunca
    no ellipsis que .brand-copy já tem, em vez de atropelar controle. */
 .brand { display: flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; gap: 10px; }
-.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; color: var(--on-brand); background: linear-gradient(145deg, #a4ec2f, #65b600); border-radius: 11px; font-size: 1.3rem; font-weight: 900; box-shadow: 0 6px 15px rgba(88, 158, 0, .25); }
+.brand-mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; color: var(--on-brand); background: linear-gradient(145deg, var(--brand-mark-from), var(--brand-mark-to)); border-radius: 11px; font-size: 1.3rem; font-weight: 900; box-shadow: 0 6px 15px rgba(88, 158, 0, .25); }
 .brand-copy { min-width: 0; max-width: 46vw; overflow: hidden; }
 .brand-copy strong { display: block; overflow: hidden; font-size: .94rem; letter-spacing: -.01em; white-space: nowrap; text-overflow: ellipsis; }
 .brand-copy span { display: block; max-width: 58vw; overflow: hidden; color: var(--muted); font-size: .69rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -509,7 +525,7 @@ h3 { font-size: .95rem; }
 .lrt-obs-count b { color: var(--brand-strong); font-weight: 800; }
 .lrt-obs-count span { opacity: .75; }
 /* S1 21/07 (achado 3/4) — única definição de .btn-danger; a 1ª versão morta
-   (#b62f2f, nunca vencia a cascata) foi apagada. */
+   (hex b62f2f, nunca vencia a cascata) foi apagada. */
 .btn-danger { border: 1px solid var(--danger); color: var(--on-solid); background: var(--danger); }
 .handle { width: 42px; height: 4px; margin: 0 auto 12px; border-radius: 9px; background: var(--line); }
 .sheet-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
@@ -613,7 +629,7 @@ h3 { font-size: .95rem; }
 @keyframes day-preview-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes day-preview-fade-out { from { opacity: 1; } to { opacity: 0; } }
 .toast { position: fixed; z-index: 120; right: 14px; bottom: 62px; left: 14px; max-width: 520px; margin: auto; padding: 10px 14px; border: 1px solid rgba(255,255,255,.1); border-radius: 12px; color: white; background: rgba(23,33,22,.48); box-shadow: 0 4px 13px rgba(0,0,0,.1); backdrop-filter: blur(10px); font-size: .76rem; font-weight: 700; text-align: center; }
-/* S1 21/07 (achado 3) — 3º vermelho solto (#a92e2e) convergido pro token
+/* S1 21/07 (achado 3) — 3º vermelho solto (hex a92e2e) convergido pro token
    --danger; mixado com --navy (âncora escura nos dois temas) pra manter o
    toast legível com texto branco também no tema escuro, onde --danger vira
    claro (rosa) e sozinho quebraria o contraste. */
@@ -657,8 +673,8 @@ h3 { font-size: .95rem; }
 .route-map-empty { min-height: 94px; margin-top: 13px; border: 1px dashed rgba(255,255,255,.25); border-radius: 16px; }
 .route-live-map.is-ready > .route-map-loading { display: none; }
 .route-live-map .maplibregl-ctrl-attrib { background: rgba(255,255,255,.78); font-size: 9px; }
-:root[data-theme="dark"] .route-live-map .maplibregl-ctrl-attrib { color: #dce5f2; background: rgba(11,16,32,.82); }
-:root[data-theme="dark"] .route-live-map .maplibregl-ctrl-attrib a { color: #dce5f2; }
+:root[data-theme="dark"] .route-live-map .maplibregl-ctrl-attrib { color: var(--map-attrib-ink); background: rgba(11,16,32,.82); }
+:root[data-theme="dark"] .route-live-map .maplibregl-ctrl-attrib a { color: var(--map-attrib-ink); }
 .route-map-pin { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 2px solid white; border-radius: 99px; color: var(--on-brand); background: var(--brand); box-shadow: 0 3px 12px rgba(0,0,0,.28); font-size: .68rem; font-weight: 900; }
 .route-current-location { position: relative; display: block; width: 38px; height: 38px; border-radius: 50%; }
 .route-current-core { position: absolute; z-index: 2; inset: 9px; display: block; border: 3px solid white; border-radius: 50%; background: var(--info); box-shadow: 0 3px 11px rgba(0,0,0,.34); }
@@ -743,8 +759,8 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
 .transmux-disc { opacity: 0; }
 /* S5 22/07 (APK-PROFISSIONAL) — play/gps/stop passam a ser a MESMA silhueta do
    catálogo `paths` (app.js), escalada da grade 24 pro viewBox 120 do disco
-   (fator 5), em vez de 3 SVGs desenhados à mão com hex cravado (#fff,
-   #168be8, #e10a1d, rgba(8,101,223,.22), rgba(223,7,26,.14)). "Disco sólido é
+   (fator 5), em vez de 3 SVGs desenhados à mão com hex cravado (fff,
+   168be8, e10a1d, rgba(8,101,223,.22), rgba(223,7,26,.14)). "Disco sólido é
    papel do COMPONENTE": o catálogo dá só a silhueta (fill:none no glifo
    solto), quem preenche sólido é esta classe — não empurramos o contorno de
    traço 1.8 pra dentro do disco (ficaria fino e fraco num CTA de 90px). O
@@ -953,8 +969,8 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
 /* F6 — loading overlay escurecido, spinner CSS puro (sem GIF/lib), 1 nó só. */
 .hbx-loading-overlay { position: fixed; z-index: 200; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: color-mix(in srgb, var(--navy) 55%, transparent); backdrop-filter: blur(2px); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
 .hbx-loading-overlay.is-visible { opacity: 1; pointer-events: auto; }
-.hbx-loading-spinner { width: 40px; height: 40px; border-radius: 50%; border: 4px solid rgba(255, 255, 255, .22); border-top-color: #fff; will-change: transform; animation: hbx-loading-spin .7s linear infinite; }
-.hbx-loading-text { margin: 0; color: #fff; font-size: .8rem; font-weight: 750; text-align: center; padding: 0 24px; }
+.hbx-loading-spinner { width: 40px; height: 40px; border-radius: 50%; border: 4px solid rgba(255, 255, 255, .22); border-top-color: var(--on-solid); will-change: transform; animation: hbx-loading-spin .7s linear infinite; }
+.hbx-loading-text { margin: 0; color: var(--on-solid); font-size: .8rem; font-weight: 750; text-align: center; padding: 0 24px; }
 @keyframes hbx-loading-spin { to { transform: rotate(360deg); } }
 
 /* F1/F2 — linha de "Rotas Salvas" (container + 2 botões, nunca button aninhado
@@ -1314,25 +1330,24 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 .hbx-receipt-option.active { border-color: var(--brand-strong); background: var(--brand-soft); color: var(--brand-strong); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 20%, transparent); }
 .hbx-pix-key { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 10px; border-radius: 12px; background: var(--surface); }
 .hbx-pix-key code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
-/* Convergência (C3): cor #17210f (tinta sobre --brand) era o mesmo caso do
-   family --on-brand do app.css — só não tinha sido pega porque morava numa
-   folha injetada, fora do C2. */
+/* Convergência (C3): a tinta sobre --brand aqui era o mesmo caso da família
+   --on-brand do app.css — só não tinha sido pega porque morava numa folha
+   injetada, fora do C2. */
 .hbx-pix-copy { flex: 0 0 auto; border: 0; border-radius: 10px; padding: 7px 10px; background: var(--brand); color: var(--on-brand); font-weight: 900; }
 .delivery-confirm.hbx-payment-pending { opacity: .55; }
 
 /* offline-controls.js — banner de status offline/sincronização + card de
    ajustes da rota sem sinal + esquema de rota desenhado (fallback sem mapa). */
 .hbx-offline-banner { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--line) 74%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--surface) 90%, var(--brand) 10%); font-size: .78rem; line-height: 1.25; box-shadow: 0 5px 18px rgba(0, 0, 0, .04); }
-/* #f2b52b/#e75353 (aviso/perigo do banner) NÃO convergem pra --warning/
-   --danger nesta migração — são tons visivelmente diferentes (não é "10
-   tons da mesma coisa" como a família --on-brand) e essa troca de matiz não
-   estava no escopo do C1-C3. Migradas com o MESMO valor; decisão de token
-   fica pra um sprint futuro (ver C-RESULTADO.md). */
-.hbx-offline-banner[data-tone="warning"] { background: color-mix(in srgb, var(--surface) 88%, #f2b52b 12%); }
-.hbx-offline-banner[data-tone="danger"] { background: color-mix(in srgb, var(--surface) 88%, #e75353 12%); }
+/* --offline-warn/--offline-danger (declarados no :root) NÃO convergem pra
+   --warning/--danger — são tons visivelmente diferentes (não é "10 tons da
+   mesma coisa" como a família --on-brand), então ganharam token PRÓPRIO em
+   vez de forçar um matiz que mudaria o pixel. Ver C-RESULTADO.md. */
+.hbx-offline-banner[data-tone="warning"] { background: color-mix(in srgb, var(--surface) 88%, var(--offline-warn) 12%); }
+.hbx-offline-banner[data-tone="danger"] { background: color-mix(in srgb, var(--surface) 88%, var(--offline-danger) 12%); }
 .hbx-offline-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--brand); box-shadow: 0 0 0 4px rgba(120, 201, 0, .13); }
-.hbx-offline-banner[data-tone="warning"] .hbx-offline-dot { background: #f2b52b; box-shadow: 0 0 0 4px rgba(242, 181, 43, .14); }
-.hbx-offline-banner[data-tone="danger"] .hbx-offline-dot { background: #e75353; box-shadow: 0 0 0 4px rgba(231, 83, 83, .14); }
+.hbx-offline-banner[data-tone="warning"] .hbx-offline-dot { background: var(--offline-warn); box-shadow: 0 0 0 4px rgba(242, 181, 43, .14); }
+.hbx-offline-banner[data-tone="danger"] .hbx-offline-dot { background: var(--offline-danger); box-shadow: 0 0 0 4px rgba(231, 83, 83, .14); }
 .hbx-offline-banner strong { display: block; font-size: .8rem; }
 .hbx-offline-banner small { display: block; opacity: .72; margin-top: 2px; }
 .hbx-offline-count { margin-left: auto; white-space: nowrap; font-weight: 750; font-variant-numeric: tabular-nums; }

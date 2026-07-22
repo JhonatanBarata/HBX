@@ -12,9 +12,9 @@
   // muda nada") saiu daqui. As classes .hbx-offline-*/.hbx-route-schematic*
   // que este arquivo só manipula (innerHTML/dataset) agora são pintadas
   // 100% por main/assets/app/app.css — ver bloco "Fase 2 C3" no fim daquele
-  // arquivo. Na migração, `var(--border,#d8dfd0)` (token que não existe no
-  // app, caía calado no fallback) virou `var(--line)` e o verde solto
-  // `#78c900` virou `var(--brand)` — ver C-RESULTADO.md pela convergência.
+  // arquivo. Na migração, `var(--border, hex d8dfd0)` (token que não existe
+  // no app, caía calado no fallback) virou `var(--line)` e o verde solto
+  // (hex 78c900) virou `var(--brand)` — ver C-RESULTADO.md pela convergência.
 
   function status() {
     const current = H.offline.status() || {};
