@@ -1552,6 +1552,11 @@
   }
   function attachMoneyInput(el, initialReais, onChange) {
     if (!el) return;
+    // Idempotência (22/07): com o mount() reaproveitando nós iguais, este campo
+    // pode chegar aqui já preparado. Sem o guarda, um 2º jogo de listeners faria
+    // cada dígito ser aplicado DUAS vezes — digitar 5 viraria 55.
+    if (el.__hbxMoneyBound) return;
+    el.__hbxMoneyBound = true;
     let cents = Math.max(0, Math.round((Number(initialReais) || 0) * 100));
     // Feedback do dono: ao tocar no campo e COMEÇAR a digitar, o valor atual é
     // LIMPO (digita do zero, estilo caixa eletrônico). `pristine` = acabou de
@@ -4134,8 +4139,13 @@
       clientForm.querySelector(".client-primary-actions button[type=submit]").textContent = "Salvar cliente";
     }
     app.querySelectorAll(".lead-card[data-client]").forEach(card => {
+      // insertAdjacentHTML NÃO é idempotente: com o nó sobrevivendo ao render
+      // (mount() de 22/07), rodar de novo empilharia um <small> por render.
+      if (card.__hbxScheduleLine) return;
       const client = clientById(card.dataset.client); const line = client && clientScheduleLine(client);
-      if (line) card.querySelector(".client-balance")?.insertAdjacentHTML("afterend", `<small>${H.escape(line)}</small>`);
+      if (!line) return;
+      card.__hbxScheduleLine = true;
+      card.querySelector(".client-balance")?.insertAdjacentHTML("afterend", `<small>${H.escape(line)}</small>`);
     });
   }
   function render() {
@@ -4176,11 +4186,19 @@
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
     // montagem da rota operável sem duplicar o clique no listener global.
-    app.querySelectorAll("[data-day]").forEach(button => button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      toggleManagedRouteDay(Number(button.dataset.day));
-    }));
+    // O guarda __hbxDayBound virou OBRIGATÓRIO em 22/07: o mount() agora pula a
+    // troca do .content quando a marcação não mudou, então estes botões podem
+    // ser os MESMOS nós do render anterior — sem o guarda, cada render pendura
+    // mais um listener e o dia passa a ligar/desligar 2x, 3x no mesmo toque.
+    app.querySelectorAll("[data-day]").forEach(button => {
+      if (button.__hbxDayBound) return;
+      button.__hbxDayBound = true;
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        toggleManagedRouteDay(Number(button.dataset.day));
+      });
+    });
     const modal = app.querySelector(".modal");
     const centerModalBody = app.querySelector(".center-modal-body");
     const sheet = app.querySelector(".sheet");

@@ -214,6 +214,9 @@
       mount(root, markup) {
         if (!root.querySelector(":scope > .topbar") || !root.querySelector(":scope > .content") || !root.querySelector(":scope > .bottom-nav")) {
           root.innerHTML = markup;
+          root.__hbxContentHTML = null;
+          root.__hbxOverlaysHTML = null;
+          root.__hbxOverlayGen = null;
           return;
         }
         const template = document.createElement("template");
@@ -230,15 +233,40 @@
         // não pode ser destruído a cada render (piscada + peso: tiles recarregam, GPU
         // reinicia). Se o nó atual já tem uma instância viva pendurada (el.__hbxMap,
         // ver logistica/app.js mountMap) e o próximo HTML tem um placeholder com o
-        // MESMO id, transplanta o nó vivo pro lugar do placeholder ANTES de qualquer
-        // replaceWith (cobre tanto o #route-live-map dentro de .content quanto o
-        // #route-plan-preview-map dentro dos overlays, trocados mais abaixo). Se o
-        // novo HTML não tiver o id, deixa morrer naturalmente.
-        ["route-live-map", "route-plan-preview-map"].forEach(id => {
+        // MESMO id, o nó vivo é transplantado pro lugar do placeholder antes da
+        // troca — ver transplantarMapa() logo abaixo. Se o novo HTML não tiver o
+        // id, deixa morrer naturalmente.
+        // 22/07 — FIM DA PISCADA (feedback do dono: "criei uma rota e a tela
+        // piscou 5x"). Cada render() reconstruía a tela INTEIRA (content
+        // .replaceWith) e destruía+recriava todos os overlays. Só que boa parte
+        // dos renders de um fluxo não muda nada do que está na tela: um toast
+        // que aparece e some são DUAS reconstruções completas; hideLoading +
+        // dayStarting=false, mais uma. Cinco renders viravam cinco flashes.
+        // Agora comparamos a MARCAÇÃO GERADA (não o DOM vivo, que sofre mutação
+        // de mapa/foco/scroll depois do mount) com a do render anterior: igual =
+        // não encosta no DOM. Consequência importante: quando pulamos a troca,
+        // os nós SOBREVIVEM — então tudo que roda depois do mount tem que ser
+        // idempotente (ver os guardas __hbx* em app.js: [data-day],
+        // attachMoneyInput e o insertAdjacentHTML de enhancePaymentForms).
+        const nextContentHTML = nextContent ? nextContent.outerHTML : "";
+        const nextOverlaysHTML = [...template.content.children]
+          .filter(child => !child.matches(".topbar,.content,.bottom-nav"))
+          .map(child => child.outerHTML).join("");
+        const contentChanged = nextContentHTML !== root.__hbxContentHTML;
+        const overlaysChanged = nextOverlaysHTML !== root.__hbxOverlaysHTML;
+
+        // O transplante do mapa vivo só pode acontecer no nó que REALMENTE vai
+        // entrar no DOM — mover o mapa pra dentro de um pedaço de template que
+        // acabará descartado arrancaria o mapa da tela. Por isso o #route-live-map
+        // (mora no .content) só é transplantado se o content vai ser trocado, e o
+        // #route-plan-preview-map (mora nos overlays) é transplantado lá embaixo,
+        // já dentro da reconciliação, quando se sabe qual overlay vai ser inserido.
+        const transplantarMapa = (id, destino) => {
           const liveEl = root.querySelector(`#${id}`);
-          const placeholder = template.content.querySelector(`#${id}`);
+          const placeholder = destino.querySelector ? destino.querySelector(`#${id}`) : null;
           if (liveEl && liveEl.__hbxMap && placeholder && placeholder !== liveEl) placeholder.replaceWith(liveEl);
-        });
+        };
+        if (contentChanged) transplantarMapa("route-live-map", template.content);
 
         if (nextTopbar) {
           const brand = topbar.querySelector(".brand-copy");
@@ -252,7 +280,8 @@
           if (refresh && nextRefresh) refresh.disabled = nextRefresh.disabled;
         }
 
-        if (nextContent) content.replaceWith(nextContent);
+        if (nextContent && contentChanged) content.replaceWith(nextContent);
+        root.__hbxContentHTML = nextContentHTML;
 
         if (nextNav) {
           const currentKeys = [...nav.querySelectorAll(".nav-btn")].map(button => button.dataset.destination).join("|");
@@ -273,8 +302,56 @@
           }
         }
 
-        [...root.children].filter(child => !child.matches(".topbar,.content,.bottom-nav")).forEach(child => child.remove());
-        [...template.content.children].filter(child => !child.matches(".topbar,.content,.bottom-nav")).forEach(child => root.appendChild(child));
+        // Overlays: reconciliação PEÇA A PEÇA, não "tudo ou nada". Antes, um
+        // toast entrando (ou saindo) fazia TODOS os overlays serem removidos e
+        // recriados junto — inclusive a folha de montar rota, que piscava por
+        // causa de um aviso que nem era dela. Agora cada overlay é comparado
+        // com a marcação que ele mesmo tinha no render anterior: igual = o nó
+        // não é tocado (nem removido, nem re-anexado, nem re-animado); mudou =
+        // só ELE é trocado; sumiu = só ele sai.
+        if (overlaysChanged) {
+          const primeiraClasse = el => (el.getAttribute("class") || el.tagName.toLowerCase()).split(" ")[0];
+          const chavear = el => (usados => {
+            const base = primeiraClasse(el);
+            const n = (usados.get(base) || 0) + 1;
+            usados.set(base, n);
+            return `${base}#${n}`;
+          });
+          const usadosVivos = new Map();
+          const vivos = new Map();
+          [...root.children]
+            .filter(child => !child.matches(".topbar,.content,.bottom-nav"))
+            .forEach(child => vivos.set(chavear(child)(usadosVivos), child));
+          const usadosNovos = new Map();
+          const novos = [...template.content.children]
+            .filter(child => !child.matches(".topbar,.content,.bottom-nav"))
+            .map(child => ({ chave: chavear(child)(usadosNovos), el: child }));
+          const chavesNovas = new Set(novos.map(item => item.chave));
+          const geradoAntes = root.__hbxOverlayGen instanceof Map ? root.__hbxOverlayGen : new Map();
+          const geradoAgora = new Map();
+
+          vivos.forEach((el, chave) => { if (!chavesNovas.has(chave)) el.remove(); });
+
+          let anterior = null;
+          novos.forEach(({ chave, el }) => {
+            const html = el.outerHTML;
+            geradoAgora.set(chave, html);
+            const vivo = vivos.get(chave);
+            // Comparo com o que GEREI da última vez, não com o outerHTML do nó
+            // vivo: o nó vivo sofre mutação depois do mount (mapa transplantado,
+            // scroll, foco) e nunca voltaria a "bater" na string.
+            if (vivo && geradoAntes.get(chave) === html) { anterior = vivo; return; }
+            // Só agora, sabendo que ESTE nó vai mesmo entrar na tela, é seguro
+            // puxar o mapa vivo pra dentro dele.
+            transplantarMapa("route-plan-preview-map", el);
+            if (vivo) { vivo.replaceWith(el); anterior = el; return; }
+            if (anterior && anterior.nextSibling) root.insertBefore(el, anterior.nextSibling);
+            else root.appendChild(el);
+            anterior = el;
+          });
+          root.__hbxOverlayGen = geradoAgora;
+        }
+        root.__hbxOverlaysHTML = nextOverlaysHTML;
       },
       navigate(direction) {
         const context = this.context; if (!context) return;
