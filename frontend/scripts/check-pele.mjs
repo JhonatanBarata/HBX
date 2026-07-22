@@ -25,8 +25,9 @@
 // APK (EntregaShell) — PR22072026-APK-PROFISSIONAL, sprint C6:
 //  R6. Hex solto em EntregaShell/app/src/**.{css,js,html} — SEM a isenção de
 //      neutros acima (lá até #fff/#000 tem que nascer de var()).
-//  R7. `style="..."` inline em EntregaShell/app/src/**.{css,js,html}.
-// Isenções do R6 (só do R6 — R7 não tem isenção; DECLARADAS aqui porque foi
+//  R7. `style="..."` inline em EntregaShell/app/src/**.{css,js,html}, com UMA
+//      isenção (d), abaixo.
+// Isenções do R6 (e a (d), do R7 — DECLARADAS aqui porque foi
 // exatamente a falta dessa trava que deixou 45 hex entrarem sem ninguém ver,
 // ver docs/PLANEJAMENTOS/PR22072026-APK-PROFISSIONAL/FASE2-VARREDURA-DE-CONTRATO.md):
 //  (a) os blocos de definição de token PUROS — `:root { ... }` e
@@ -41,6 +42,16 @@
 //      técnica), embora os casos hoje sejam os 2 opening.html + os 2
 //      index.html, todos comentados no próprio arquivo (menos os index.html,
 //      que não são deste worker — reportar se algum ainda não tiver).
+//  (d) R7: `style=` que só entrega VALOR CALCULADO pro CSS — variável CSS
+//      (`--nav-count:${n}`) ou uma das propriedades geométricas de estado
+//      (width/height/transform/stroke-dashoffset/stroke-dasharray). Isto não
+//      é "aparência decidida no lugar de uso", é DADO chegando na folha: a
+//      barra de progresso não tem como virar classe, o número muda a cada
+//      render. O pecado que o R7 existe pra pegar é cor/borda/fonte/sombra
+//      cravada no HTML — essas continuam reprovando aqui dentro também.
+//      Sem esta isenção a trava nasceria vermelha PARA SEMPRE nos 4 usos
+//      legítimos que já existem, e trava que sempre reprova vira ruído que
+//      todo mundo aprende a ignorar — que é como os 45 hex entraram.
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -77,6 +88,24 @@ const ENTREGA_TOKEN_BLOCK_OPEN_RE = /^:root(\[data-theme=["']dark["']\])?\s*\{/;
 const ENTREGA_META_THEME_RE = /<meta\s+name=["']theme-color["']/;
 const ENTREGA_HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 const ENTREGA_STYLE_ATTR_RE = /[\s"'`]style\s*=\s*["']/;
+// Isenção (d) do R7 — ver topo. Captura o MIOLO de cada style="…" da linha
+// para julgar declaração por declaração, em vez de aprovar/reprovar a linha
+// inteira: `style="width:${x}%;color:#f00"` tem que continuar reprovando.
+const ENTREGA_STYLE_ATTR_BODY_RE = /[\s"'`]style\s*=\s*"([^"]*)"|[\s"'`]style\s*=\s*'([^']*)'/g;
+const ENTREGA_STYLE_DYNAMIC_PROPS = new Set([
+  "width", "height", "transform", "stroke-dashoffset", "stroke-dasharray",
+]);
+// true = todas as declarações do style são valor calculado (variável CSS ou
+// propriedade geométrica de estado). Vazio/ilegível reprova: na dúvida, pega.
+function entregaStyleIsDynamicOnly(body) {
+  const decls = String(body).split(";").map(d => d.trim()).filter(Boolean);
+  if (!decls.length) return false;
+  return decls.every(decl => {
+    const prop = decl.slice(0, decl.indexOf(":")).trim().toLowerCase();
+    if (!prop) return false;
+    return prop.startsWith("--") || ENTREGA_STYLE_DYNAMIC_PROPS.has(prop);
+  });
+}
 
 function* walk(dir, ext) {
   for (const name of readdirSync(dir)) {
@@ -159,7 +188,10 @@ if (existsSync(ENTREGA_ROOT)) {
       // R7 primeiro — style="" inline não tem isenção nenhuma, nem dentro do
       // bloco de token (lá é só declaração de --var, não teria por quê ter).
       if (ENTREGA_STYLE_ATTR_RE.test(line)) {
-        hard.push(`R7 ${relFile}:${i + 1}  ${trimmed.slice(0, 80)}`);
+        // Isenção (d): só passa se TODO style= da linha for valor calculado.
+        const corpos = [...line.matchAll(ENTREGA_STYLE_ATTR_BODY_RE)].map(m => m[1] ?? m[2] ?? "");
+        const soDinamico = corpos.length > 0 && corpos.every(entregaStyleIsDynamicOnly);
+        if (!soDinamico) hard.push(`R7 ${relFile}:${i + 1}  ${trimmed.slice(0, 80)}`);
       }
       if (lineIsExempt) return;
       if (ENTREGA_META_THEME_RE.test(line)) return; // isenção (c) — ver topo do arquivo

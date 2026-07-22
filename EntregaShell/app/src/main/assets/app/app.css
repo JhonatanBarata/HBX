@@ -517,8 +517,8 @@ h3 { font-size: .95rem; }
 /* Pop-up "Qual o DDD?" — número sem DDD (feedback dono PR20072026). */
 .ddd-icon { color: var(--brand-strong); background: var(--brand-soft); }
 .ddd-row { display: flex; align-items: center; gap: 10px; justify-content: center; margin-top: 2px; }
-.ddd-input { width: 74px; padding: 10px 12px; text-align: center; font-size: 1.2rem; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--text); }
-.ddd-preview { font-size: 1.02rem; font-weight: 600; color: var(--text); }
+.ddd-input { width: 74px; padding: 10px 12px; text-align: center; font-size: 1.2rem; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--ink); }
+.ddd-preview { font-size: 1.02rem; font-weight: 600; color: var(--ink); }
 .ddd-sug { margin: 2px 0 0; color: var(--muted); font-size: .78rem; }
 /* Contador do passo Observações da Leitura/rota manual (feedback dono). */
 .lrt-obs-count { margin: 10px 2px 0; color: var(--muted); font-size: .76rem; text-align: center; }
@@ -801,7 +801,7 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
    .92 contra .96 do principal: bastava encostar nos dois pra sentir que eram
    de apps diferentes. Agora tamanho, toque e transição são idênticos, e só o
    principal tem cor cheia — hierarquia sem ninguém gritar junto. */
-.route-cancel-icon, .route-nav-external { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--text); box-shadow: 0 2px 6px rgba(0,0,0,.10); pointer-events: auto; touch-action: manipulation; transition: transform .27s ease, box-shadow .27s ease; }
+.route-cancel-icon, .route-nav-external { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); box-shadow: 0 2px 6px rgba(0,0,0,.10); pointer-events: auto; touch-action: manipulation; transition: transform .27s ease, box-shadow .27s ease; }
 .route-cancel-icon:active, .route-nav-external:active { transform: scale(.96); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 /* Vermelho SÓ no que apaga coisa (cancelar planejamento / limpar o dia).
    Encerrar rota e abrir o GPS são neutros: não destroem nada. */
@@ -1198,6 +1198,14 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .subtitle-gap { margin-top: 8px; }
 /* Reaproveitável: texto .subtitle de erro (nome da rota na Leitura). */
 .subtitle-danger { color: var(--danger); }
+/* C4 22/07 (Fase 2) — as 4 regras que estavam como `style=` inline na tela
+   "Mais" do vendas. Inline vence qualquer folha e é invisível pro tema: mesmo
+   um `margin:0` cravado no HTML é aparência decidida no lugar de uso. Aqui
+   viram modificador reaproveitável, como .subtitle-gap acima. */
+.input-uppercase { text-transform: uppercase; }
+.section-title-flush { margin-top: 0; }
+.kpis-flush { margin-bottom: 0; }
+.subtitle-footer { margin-top: 14px; text-align: center; }
 /* Modal "Atualizar app". */
 .app-update-actions { margin-top: 14px; }
 /* Campo "Número da casa" da Leitura de Rota. */
