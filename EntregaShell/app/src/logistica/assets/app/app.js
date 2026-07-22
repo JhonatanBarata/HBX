@@ -1760,6 +1760,28 @@
         : `<button class="btn btn-primary btn-block rp2-cta" type="button" data-action="update-instalar">Atualizar agora</button>`);
     return `<div class="modal-wrap day-home-wrap"${u.obrigatoria ? "" : ` data-action="close-modal"`}><section class="modal day-home" role="dialog" aria-modal="true"><div class="day-home-icon">${icon("download", 24)}</div><h2>Atualizar app</h2>${body}<div class="center-modal-actions app-update-actions">${cta}${u.obrigatoria ? "" : `<button class="btn btn-secondary btn-block" type="button" data-action="close-modal">${busy ? "Fechar" : "Agora não"}</button>`}</div></section></div>`;
   }
+  // 22/07 (dono no moto g15) — DEAD-END: o modal "Atualizar app" decide entre
+  // "Abrir permissão" e "Atualizar agora" lendo `updateInstallAllowed()` na
+  // HORA DO RENDER. O dono tocava em "Abrir permissão", ligava "Permitir desta
+  // fonte" no Android e voltava — e NADA re-renderizava o modal: a volta do
+  // fundo só chamava `checkAppUpdate()`, que tem trava de 30min e, mesmo
+  // passando, só mexe nos chips do header. O botão continuava "Abrir permissão"
+  // pra sempre, com a permissão já concedida. Agora a volta reavalia: se a
+  // permissão saiu E foi o dono que pediu, emenda o download; se ainda não
+  // saiu, pelo menos re-renderiza (nunca fica mostrando estado velho).
+  function retomarUpdatePosPermissao() {
+    if (state.modal !== "app-update") return;
+    const permitido = typeof HBXAndroid !== "undefined" && typeof HBXAndroid.updateInstallAllowed === "function"
+      ? HBXAndroid.updateInstallAllowed()
+      : true;
+    if (permitido && state.updateAwaitingPermission && !state.updateBusy) {
+      state.updateAwaitingPermission = false;
+      startAppUpdate(); // já dá render() por dentro
+      return;
+    }
+    if (permitido) state.updateAwaitingPermission = false;
+    render();
+  }
   function startAppUpdate() {
     const u = state.updateInfo || {};
     if (!u.url || !u.sha256) { toast("Informações da atualização indisponíveis.", true); return; }
@@ -5336,7 +5358,10 @@
     // F4 — auto-update.
     if (action === "app-update") { if (state.updateInfo) showModal("app-update"); return; }
     if (action === "check-update") { toast("Verificando…", false, { mudo: true }); void checkAppUpdate(true); return; }
-    if (action === "update-permitir") { if (typeof HBXAndroid !== "undefined" && HBXAndroid.openInstallPermission) HBXAndroid.openInstallPermission(); return; }
+    // 22/07 — marca a INTENÇÃO antes de sair pro Android: quem toca aqui já
+    // disse que quer atualizar. Na volta, retomarUpdatePosPermissao() usa isso
+    // pra emendar o download sozinho em vez de deixar o dono num botão morto.
+    if (action === "update-permitir") { state.updateAwaitingPermission = true; if (typeof HBXAndroid !== "undefined" && HBXAndroid.openInstallPermission) HBXAndroid.openInstallPermission(); return; }
     if (action === "update-instalar") { startAppUpdate(); return; }
     // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
     if (action === "route-modelos") { if (!isAdmin()) return; showModal("route-modelos"); void loadRouteModelos(); return; }
@@ -6296,6 +6321,11 @@
     render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(true);
     // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
     // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) void checkAppUpdate(); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); } });
+    // Voltar da tela de permissão do Android nem sempre passa por
+    // visibilitychange em toda WebView — o focus da janela é o segundo laço de
+    // segurança. retomarUpdatePosPermissao() é idempotente (sai na hora se o
+    // modal não for o de update), então rodar duas vezes não custa nada.
+    window.addEventListener("focus", () => retomarUpdatePosPermissao());
   }
 })();
