@@ -259,10 +259,23 @@
     // costura fina e troca o nó inteiro — o comportamento antigo, que é feio
     // (recria) mas nunca mente. Falha de reconciliação vira piscada, nunca
     // tela errada. Devolve false pra não se carimbar como "em dia".
-    if (vivo.children.length !== novo.children.length) {
-      transplantarMapa("route-live-map", novo);
-      vivo.replaceWith(novo);
-      novo.__hbxGen = html;
+    // Compara com `filhosNovos.length`, tirado ANTES do laço — nunca com
+    // `novo.children.length` agora: inserir um filho de `novo` na tela o
+    // REMOVE de `novo`, então essa contagem despenca sozinha e a rede
+    // dispararia à toa, trocando o bloco por um nó já esvaziado (foi o que
+    // sumiu com o mapa da Rota no primeiro tiro desta correção).
+    // E RECONSTRÓI do `html` (a marcação de origem): o `novo` a esta altura já
+    // pode ter sido esvaziado pelo laço acima, então reusá-lo colocaria na
+    // tela um nó pela metade — trocar seis por meia dúzia. Do texto sai
+    // sempre o bloco inteiro.
+    if (vivo.children.length !== filhosNovos.length) {
+      const molde = document.createElement("template");
+      molde.innerHTML = html;
+      const inteiro = molde.content.firstElementChild;
+      if (!inteiro) return false;
+      transplantarMapa("route-live-map", inteiro);
+      vivo.replaceWith(inteiro);
+      inteiro.__hbxGen = html;
       return false;
     }
     if (completo) vivo.__hbxGen = html;
