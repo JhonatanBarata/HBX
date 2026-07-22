@@ -142,6 +142,18 @@
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
+        <!-- O auto-update mata o processo ao trocar o pacote e o Android não
+             reabre o app sozinho. Este receiver avisa "HBX atualizado — toque
+             para abrir". exported=false: MY_PACKAGE_REPLACED é entregue pelo
+             sistema ao próprio pacote, ninguém de fora precisa disparar. -->
+        <receiver
+            android:name=".AppAtualizadoReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
