@@ -21,6 +21,26 @@
 //  - bloco isento explícito: /* pele-allow: motivo */ … /* pele-allow-end */
 //    (cena pública em evolução fora dos arquivos acima, ex.: entrada V1.0)
 //  - literais neutros: #fff #ffffff #000 #000000
+//
+// APK (EntregaShell) — PR22072026-APK-PROFISSIONAL, sprint C6:
+//  R6. Hex solto em EntregaShell/app/src/**.{css,js,html} — SEM a isenção de
+//      neutros acima (lá até #fff/#000 tem que nascer de var()).
+//  R7. `style="..."` inline em EntregaShell/app/src/**.{css,js,html}.
+// Isenções do R6 (só do R6 — R7 não tem isenção; DECLARADAS aqui porque foi
+// exatamente a falta dessa trava que deixou 45 hex entrarem sem ninguém ver,
+// ver docs/PLANEJAMENTOS/PR22072026-APK-PROFISSIONAL/FASE2-VARREDURA-DE-CONTRATO.md):
+//  (a) os blocos de definição de token PUROS — `:root { ... }` e
+//      `:root[data-theme="dark"] { ... }` — de main/assets/app/app.css. NÃO
+//      cobre seletores compostos tipo `:root[data-theme="dark"] .chip{...}`:
+//      aquilo é regra de componente, não dicionário de token.
+//  (b) a paleta da CASCA DE ABERTURA declarada no `:root{...}` do <style> dos
+//      dois opening.html (oobe-casca-isolada — visual próprio, não usa token
+//      do app).
+//  (c) `<meta name="theme-color" content="#...">` — é atributo de HTML, não
+//      aceita var(); a isenção vale em qualquer arquivo (mesma limitação
+//      técnica), embora os casos hoje sejam os 2 opening.html + os 2
+//      index.html, todos comentados no próprio arquivo (menos os index.html,
+//      que não são deste worker — reportar se algum ainda não tiver).
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -47,6 +67,16 @@ const COLOR_RE = /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/gi;
 const ARBITRARY_RE = /(?:^|[\s"'`{])(?:bg|text|border|shadow|fill|stroke|from|to|via|ring|outline|accent|caret|decoration)-\[/;
 const VISUAL_PROP_RE = /\b(?:background|backgroundColor|backgroundImage|borderColor|borderRadius|boxShadow|textShadow|fontFamily|backdropFilter|WebkitBackdropFilter|border|borderTop|borderRight|borderBottom|borderLeft|color|outline)\s*:/;
 const FONT_SIZE_PX_RE = /font-size\s*:\s*-?\d[\d.]*px/i;
+
+// APK (EntregaShell) — ver bloco de comentário no topo do arquivo (R6/R7).
+const ENTREGA_ROOT = join(process.cwd(), "..", "EntregaShell", "app", "src");
+const ENTREGA_EXTS = [".css", ".js", ".html"];
+const ENTREGA_APP_CSS_RE = /assets[\\/]app[\\/]app\.css$/;
+const ENTREGA_OPENING_HTML_RE = /assets[\\/]app[\\/]opening\.html$/;
+const ENTREGA_TOKEN_BLOCK_OPEN_RE = /^:root(\[data-theme=["']dark["']\])?\s*\{/;
+const ENTREGA_META_THEME_RE = /<meta\s+name=["']theme-color["']/;
+const ENTREGA_HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
+const ENTREGA_STYLE_ATTR_RE = /[\s"'`]style\s*=\s*["']/;
 
 function* walk(dir, ext) {
   for (const name of readdirSync(dir)) {
@@ -102,6 +132,43 @@ for (const file of walk(ROOT, [".tsx", ".ts"])) {
       visualByFile.set(rel(file), (visualByFile.get(rel(file)) || 0) + 1);
     }
   });
+}
+
+// APK (EntregaShell) — R6 (hex) + R7 (style="" inline), ver comentário no topo.
+// NÃO faz parte do walk de `src/frontend`: EntregaShell é uma árvore irmã
+// (../EntregaShell a partir de frontend/, onde este script roda).
+if (existsSync(ENTREGA_ROOT)) {
+  for (const file of walk(ENTREGA_ROOT, ENTREGA_EXTS)) {
+    const relFile = rel(file);
+    const hasTokenException = ENTREGA_APP_CSS_RE.test(file) || ENTREGA_OPENING_HTML_RE.test(file);
+    let depth = 0;
+    let exemptDepth = null; // != null enquanto dentro de um bloco de token PURO (isenção a/b)
+    readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
+      const trimmed = line.trim();
+      const opensTokenBlock = hasTokenException && exemptDepth === null && ENTREGA_TOKEN_BLOCK_OPEN_RE.test(trimmed);
+      const lineIsExempt = opensTokenBlock || exemptDepth !== null;
+      for (const ch of line) {
+        if (ch === "{") {
+          depth++;
+          if (opensTokenBlock && exemptDepth === null) exemptDepth = depth;
+        } else if (ch === "}") {
+          if (exemptDepth !== null && depth === exemptDepth) exemptDepth = null;
+          depth--;
+        }
+      }
+      // R7 primeiro — style="" inline não tem isenção nenhuma, nem dentro do
+      // bloco de token (lá é só declaração de --var, não teria por quê ter).
+      if (ENTREGA_STYLE_ATTR_RE.test(line)) {
+        hard.push(`R7 ${relFile}:${i + 1}  ${trimmed.slice(0, 80)}`);
+      }
+      if (lineIsExempt) return;
+      if (ENTREGA_META_THEME_RE.test(line)) return; // isenção (c) — ver topo do arquivo
+      for (const m of line.matchAll(ENTREGA_HEX_RE)) {
+        hard.push(`R6 ${relFile}:${i + 1}  ${trimmed.slice(0, 80)}`);
+        break;
+      }
+    });
+  }
 }
 
 if (hard.length) {
