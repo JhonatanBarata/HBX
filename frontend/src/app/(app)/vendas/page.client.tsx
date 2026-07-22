@@ -316,41 +316,18 @@ function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): B
   };
 }
 
-// Move otimista genérico: aplica campos soltos no card sem esperar a rede
-// (edição inline da grade). Devolve o board novo; o rollback é o board antigo.
-function patchCardFields(board: BoardResponse, id: string, patch: Partial<VendasLead>): BoardResponse {
-  if (!board) return board;
-  const apply = (arr: VendasLead[]) => arr.map(c => (c.id === id ? { ...c, ...patch } : c));
-  return {
-    ...board,
-    blocks: {
-      today: apply(board.blocks.today),
-      overdue: apply(board.blocks.overdue),
-      scheduled: apply(board.blocks.scheduled),
-      closed: apply(board.blocks.closed),
-    },
-  };
-}
-
 // ── GRADE (planilha) ─────────────────────────────────────────────────────────
 // Catálogo ÚNICO de colunas da lista. Cada lead vira UMA linha; cada dado tem
-// sua coluna (nada empilhado dentro da célula). `edit` só existe nas colunas
-// que o PATCH /vendas/lead/:id realmente aceita — inventar campo aqui vira
-// erro 400 na cara do vendedor.
-type GridEdit = {
-  field: "name" | "phone" | "email" | "address" | "nextAction" | "shortNote" | "saleValue" | "status" | "returnAt";
-  type: "text" | "email" | "number" | "date" | "select";
-  max?: number;
-};
+// sua coluna (nada empilhado dentro da célula). A grade é de LEITURA: quem
+// edita o lead é a ficha (cockpit), aberta com 1 clique na linha.
 type GridColumn = {
   key: string;
   label: string;
   width: number;
   mono?: boolean;
-  edit?: GridEdit;
   gate?: "values";           // só aparece com canViewValues
   nosort?: boolean;          // conteúdo vive fora do card (ex.: status da IA)
-  text: (c: VendasLead) => string;   // valor cru: ordenação, busca e edição
+  text: (c: VendasLead) => string;   // valor cru: ordenação e busca
 };
 
 // Canais encontrados do lead — MESMA fileira de ícones do "Buscar empresas"
@@ -372,23 +349,23 @@ function vendasCanais(c: VendasLead): RadarChannel[] {
 }
 
 const GRID_COLUMNS: GridColumn[] = [
-  { key: "name", label: "Empresa", width: 220, edit: { field: "name", type: "text", max: 120 }, text: c => c.name || "" },
+  { key: "name", label: "Empresa", width: 220, text: c => c.name || "" },
   { key: "icons", label: "Ícones", width: 128, text: c => vendasCanais(c).join(" ") },
   { key: "status", label: "Status", width: 140, nosort: true, text: () => "" },
-  { key: "phone", label: "Telefone", width: 140, mono: true, edit: { field: "phone", type: "text", max: 24 }, text: c => c.phone || "" },
+  { key: "phone", label: "Telefone", width: 140, mono: true, text: c => c.phone || "" },
   { key: "city", label: "Cidade", width: 130, text: c => c.city || "" },
   { key: "state", label: "UF", width: 52, text: c => c.state || "" },
   { key: "segment", label: "Segmento", width: 160, text: c => c.segment || "" },
-  { key: "stage", label: "Etapa", width: 130, edit: { field: "status", type: "select" }, text: c => STAGE_LABEL[normalizeStage(c.status)] },
+  { key: "stage", label: "Etapa", width: 130, text: c => STAGE_LABEL[normalizeStage(c.status)] },
   { key: "agenda", label: "Agenda", width: 110, text: c => agendaInfo(c).label },
   { key: "engage", label: "Engajamento", width: 130, text: c => vendasEngagementMeta(c.engagement, c.conversation).label },
-  { key: "value", label: "Valor", width: 110, mono: true, gate: "values", edit: { field: "saleValue", type: "number" }, text: c => leadValueLabel(c) },
-  { key: "next", label: "Próximo passo", width: 200, edit: { field: "nextAction", type: "text", max: 140 }, text: c => c.nextAction || "" },
-  { key: "note", label: "Nota", width: 200, edit: { field: "shortNote", type: "text", max: 280 }, text: c => c.shortNote || "" },
+  { key: "value", label: "Valor", width: 110, mono: true, gate: "values", text: c => leadValueLabel(c) },
+  { key: "next", label: "Próximo passo", width: 200, text: c => c.nextAction || "" },
+  { key: "note", label: "Nota", width: 200, text: c => c.shortNote || "" },
   { key: "owner", label: "Responsável", width: 150, text: c => c.owner?.name || "" },
-  { key: "date", label: "Data", width: 110, mono: true, edit: { field: "returnAt", type: "date" }, text: c => fmtWhen(c.block === "closed" ? c.closedAt : c.returnAt) },
-  { key: "email", label: "E-mail", width: 200, edit: { field: "email", type: "email" }, text: c => c.email || "" },
-  { key: "address", label: "Endereço", width: 220, edit: { field: "address", type: "text", max: 280 }, text: c => c.address || "" },
+  { key: "date", label: "Data", width: 110, mono: true, text: c => fmtWhen(c.block === "closed" ? c.closedAt : c.returnAt) },
+  { key: "email", label: "E-mail", width: 200, text: c => c.email || "" },
+  { key: "address", label: "Endereço", width: 220, text: c => c.address || "" },
   { key: "cnpj", label: "CNPJ", width: 150, mono: true, text: c => c.cnpj || "" },
   { key: "razao", label: "Razão social", width: 200, text: c => c.razaoSocial || "" },
   { key: "score", label: "Score", width: 70, mono: true, text: c => (c.opportunityScore != null ? String(c.opportunityScore) : "") },
@@ -590,12 +567,6 @@ export function VendasClient() {
     } catch { return []; }
   });
   const [pinnedDraft, setPinnedDraft] = useState<string[]>(pinnedKeys);
-  // Edição inline: não existe "modo". Célula EDITÁVEL edita no clique (ela leva
-  // data-cockpit-ignore, então a bridge de 1 clique a ignora); célula de leitura
-  // continua abrindo a ficha completa no clique.
-  const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
-  const [editDraft, setEditDraft] = useState("");
-  const [cellMsg, setCellMsg] = useState<string | null>(null);
   // Menu da linha (botão ⋯ ou clique-direito): as ações que antes só existiam
   // no painel morto — Fechar venda, Retorno, Sem interesse, WhatsApp, Excluir.
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -1188,87 +1159,6 @@ export function VendasClient() {
     applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
   }
 
-  // Valor que entra no input ao abrir a célula: data vira YYYY-MM-DD (input
-  // date) e valor vira número puro — o resto é o texto cru do campo.
-  function draftFor(card: VendasLead, col: GridColumn): string {
-    const ed = col.edit;
-    if (!ed) return "";
-    if (ed.field === "returnAt") {
-      const iso = card.block === "closed" ? card.closedAt : card.returnAt;
-      return iso ? new Date(iso).toISOString().slice(0, 10) : "";
-    }
-    if (ed.field === "saleValue") return card.saleValue != null ? String(card.saleValue) : "";
-    if (ed.field === "status") return normalizeStage(card.status);
-    const raw = (card as unknown as Record<string, unknown>)[ed.field];
-    return raw == null ? "" : String(raw);
-  }
-
-  function abrirCelula(card: VendasLead, col: GridColumn) {
-    if (!col.edit || card.block === "closed") return;
-    setCellMsg(null);
-    setSel(card);
-    setEditDraft(draftFor(card, col));
-    setEditCell({ id: card.id, key: col.key });
-  }
-
-  // Salva UMA célula: otimista no board local + PATCH; erro devolve o board
-  // anterior (rollback) e mostra o motivo. Sem undo multi-célula — v1 é isso.
-  async function salvarCelula(card: VendasLead, col: GridColumn, raw: string) {
-    const ed = col.edit;
-    if (!ed) return;
-    const antes = boardRef.current;
-    const valor = raw.trim();
-    const body: Record<string, unknown> = {};
-    const local: Partial<VendasLead> = {};
-
-    if (ed.field === "returnAt") {
-      if (!valor) { setEditCell(null); return; }
-      const iso = new Date(`${valor}T09:00:00`).toISOString();
-      body.returnAt = iso;
-      local.returnAt = iso;
-    } else if (ed.field === "saleValue") {
-      const n = Number(valor.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
-      if (!Number.isFinite(n) || n < 0) { setCellMsg("Valor inválido."); return; }
-      body.saleValue = n;
-      local.saleValue = n;
-    } else if (ed.field === "status") {
-      const stage = normalizeStage(valor);
-      if (stage === normalizeStage(card.status)) { setEditCell(null); return; }
-      body.status = stage;
-      local.status = stage;
-      local.statusLabel = STAGE_LABEL[stage];
-    } else {
-      const atual = String((card as unknown as Record<string, unknown>)[ed.field] ?? "");
-      if (valor === atual.trim()) { setEditCell(null); return; }
-      if (ed.max && valor.length > ed.max) { setCellMsg(`Máximo de ${ed.max} caracteres.`); return; }
-      body[ed.field] = valor;
-      (local as Record<string, unknown>)[ed.field] = valor || null;
-    }
-
-    setEditCell(null);
-    setBoard(prev => {
-      const next = patchCardFields(prev, card.id, local);
-      boardRef.current = next;
-      return next;
-    });
-    setSel(prev => (prev?.id === card.id ? { ...prev, ...local } : prev));
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(card.id)}`, { method: "PATCH", body: JSON.stringify(body) });
-      await loadBoard();
-    } catch (err) {
-      setBoard(antes);
-      boardRef.current = antes;
-      setCellMsg(err instanceof Error ? err.message : "Não foi possível salvar a célula.");
-    }
-  }
-
-  // Tab dentro da grade: salva e pula pra próxima coluna editável da MESMA linha.
-  function proximaEditavel(col: GridColumn, delta: -1 | 1): GridColumn | null {
-    const editaveis = gridCols.filter(c => c.edit);
-    const i = editaveis.findIndex(c => c.key === col.key);
-    return editaveis[i + delta] ?? null;
-  }
-
   // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
   const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
   function toggleTodos() {
@@ -1504,13 +1394,12 @@ export function VendasClient() {
                   </div>
                 </div>
               )}
-              {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. Clique
-                  simples abre o cockpit em tela cheia (VendasFullscreenBridge);
-                  no modo Editar a grade ganha data-cockpit-ignore e o clique
-                  passa a editar a célula. */}
+              {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. É tela de
+                  LEITURA — o clique simples abre o cockpit em tela cheia
+                  (VendasFullscreenBridge), que é onde o lead se edita. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <div className="vnd-grid-wrap">
-                  {(selecionados.size > 0 || bulkMsg || cellMsg) && (
+                  {(selecionados.size > 0 || bulkMsg) && (
                     <div className="vnd-grid-bar">
                       {selecionados.size > 0 && (
                         <React.Fragment>
@@ -1521,7 +1410,6 @@ export function VendasClient() {
                         </React.Fragment>
                       )}
                       {bulkMsg && <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span>}
-                      {cellMsg && <span className="ctx-msg err">{cellMsg}</span>}
                     </div>
                   )}
                   <div className="tbl-wrap">
@@ -1549,7 +1437,6 @@ export function VendasClient() {
                       {flatLeads.map(card => {
                         const engagement = vendasEngagementMeta(card.engagement, card.conversation);
                         const ag = agendaInfo(card);
-                        const locked = card.block === "closed";
                         return (
                           <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""}
                             onClick={() => setSel(card)}
@@ -1560,50 +1447,12 @@ export function VendasClient() {
                                 aria-label={`Selecionar ${card.name || "card"}`} />
                             </td>
                             {gridCols.map(col => {
-                              const editando = editCell?.id === card.id && editCell.key === col.key;
-                              const editavel = Boolean(col.edit) && !locked;
                               const texto = col.text(card);
-                              if (editando && col.edit) {
-                                const fechar = () => setEditCell(null);
-                                const teclas = (e: React.KeyboardEvent) => {
-                                  if (e.key === "Escape") { e.preventDefault(); fechar(); }
-                                  else if (e.key === "Enter") { e.preventDefault(); void salvarCelula(card, col, editDraft); }
-                                  else if (e.key === "Tab") {
-                                    e.preventDefault();
-                                    const prox = proximaEditavel(col, e.shiftKey ? -1 : 1);
-                                    void salvarCelula(card, col, editDraft).then(() => { if (prox) abrirCelula(card, prox); });
-                                  }
-                                };
-                                return (
-                                  <td key={col.key} className={"vnd-grid__td is-editing" + (pinnedKeys.includes(col.key) ? " is-pinned" : "")} style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined} onClick={e => e.stopPropagation()}>
-                                    {col.edit.type === "select" ? (
-                                      <select className="vnd-grid__input" autoFocus value={editDraft}
-                                        onChange={e => { setEditDraft(e.target.value); void salvarCelula(card, col, e.target.value); }}
-                                        onKeyDown={teclas} onBlur={fechar} aria-label={col.label}>
-                                        {STAGE_ORDER.map(s => <option key={s.key} value={s.key}>{STAGE_LABEL[s.key]}</option>)}
-                                      </select>
-                                    ) : (
-                                      <input className="vnd-grid__input" autoFocus
-                                        type={col.edit.type === "number" ? "number" : col.edit.type === "date" ? "date" : col.edit.type === "email" ? "email" : "text"}
-                                        maxLength={col.edit.max} value={editDraft}
-                                        onChange={e => setEditDraft(e.target.value)}
-                                        onKeyDown={teclas}
-                                        onBlur={() => void salvarCelula(card, col, editDraft)}
-                                        aria-label={col.label} />
-                                    )}
-                                  </td>
-                                );
-                              }
                               return (
                                 <td key={col.key}
-                                  // Célula editável carrega data-cockpit-ignore: a bridge de 1 clique
-                                  // pula ela e o clique EDITA. Célula de leitura continua abrindo a
-                                  // ficha no 1 clique, que é a lei da tela.
-                                  data-cockpit-ignore={editavel ? "" : undefined}
-                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (editavel ? " is-editable" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
+                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
                                   style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
-                                  title={editavel ? `${texto || "vazio"} — clique para editar` : texto || undefined}
-                                  onClick={editavel ? (e => { e.stopPropagation(); abrirCelula(card, col); }) : undefined}>
+                                  title={texto || undefined}>
                                   {col.key === "name" ? (
                                     <span className="vnd-grid__name">
                                       <span className="vnd-grid__txt">{texto || "—"}</span>
@@ -1634,8 +1483,6 @@ export function VendasClient() {
                               );
                             })}
                             <td className="vnd-grid__acts" onClick={e => e.stopPropagation()}>
-                              {/* Saída garantida pra ficha: se o vendedor deixar só colunas
-                                  editáveis, o 1 clique nunca fica sem caminho pro cockpit. */}
                               <button type="button" className="vnd-grid__more" aria-label="Abrir detalhes" title="Abrir detalhes"
                                 onClick={() => { setSel(card); setCockpitOpen(true); }}>⤢</button>
                               <button type="button" className="vnd-grid__more" aria-label="Ações do lead" title="Ações"

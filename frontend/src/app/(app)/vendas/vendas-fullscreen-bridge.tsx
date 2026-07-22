@@ -17,7 +17,6 @@ const INTERACTIVE_SELECTOR = [
   "[role='button']",
   "[role='checkbox']",
   "[contenteditable='true']",
-  "[data-cockpit-ignore]",
 ].join(",");
 
 function leadFromTarget(target: EventTarget | null): HTMLElement | null {

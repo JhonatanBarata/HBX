@@ -1488,22 +1488,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-grid__name { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
 .vnd-grid__owner { display: inline-flex; align-items: center; gap: 7px; }
 .vnd-grid__gap { margin-left: 6px; }
-/* Modo edição: a célula editável ganha alvo visível de planilha */
-.vnd-grid[data-edit="on"] td.is-armed { cursor: cell; }
-.vnd-grid[data-edit="on"] td.is-armed:hover {
-  outline: 1px solid var(--hbx-brand-strong); outline-offset: -1px;
-}
-.vnd-grid td.is-editing { padding: 2px 6px; }
-.vnd-grid__input {
-  width: 100%; min-width: 90px; height: 28px;
-  font-family: inherit; font-size: 0.76rem;
-  padding: 0 6px;
-  color: var(--text-strong);
-  background: var(--hbx-surface);
-  border: 1px solid var(--hbx-brand-strong);
-  border-radius: var(--radius-xs);
-}
-.vnd-grid__input:focus { outline: none; }
 .vnd-grid__more {
   border: 0; background: transparent; cursor: pointer;
   color: var(--text-muted); font-size: 1rem; line-height: 1;
