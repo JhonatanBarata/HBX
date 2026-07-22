@@ -62,16 +62,20 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: .55; }
 .app { width: 100%; max-width: 100vw; min-height: 100dvh; overflow-x: clip; background: var(--bg); }
-.topbar { position: sticky; z-index: 30; top: 0; width: 100%; max-width: 100vw; min-height: 60px; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; padding: 8px clamp(14px, 4vw, 28px); background: var(--surface); border-bottom: 1px solid var(--line); transition: transform .34s cubic-bezier(.2,.78,.2,1), opacity .22s ease, margin-bottom .34s cubic-bezier(.2,.78,.2,1); }
-.topbar-spacer { min-width: 0; }
-/* S1 21/07 (achado 9) — marca "» HBX" centralizada de verdade. Testamos
-   espelhar a largura do spacer pela toolbar, mas a toolbar (chips vivos +
-   tema + atualizar) pode passar de metade da tela e o nome ficava cortado
-   (2 colunas competindo pelo mesmo espaço). Solução robusta: a marca sai do
-   fluxo do grid (position:absolute, centralizada pelo próprio .topbar) —
-   fica sempre no centro geométrico da barra, não importa o quanto a toolbar
-   pesa. max-width evita ela invadir a toolbar com nome de empresa comprido. */
-.brand { position: absolute; z-index: 1; left: calc(50% - 30px); top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; max-width: 62vw; overflow: hidden; gap: 10px; }
+.topbar { position: sticky; z-index: 30; top: 0; width: 100%; max-width: 100vw; min-height: 60px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 8px clamp(14px, 4vw, 28px); background: var(--surface); border-bottom: 1px solid var(--line); transition: transform .34s cubic-bezier(.2,.78,.2,1), opacity .22s ease, margin-bottom .34s cubic-bezier(.2,.78,.2,1); }
+.topbar-spacer { display: none; }
+/* S5 22/07 (APP-SOUNDS) — a marca VOLTOU pro fluxo, à esquerda.
+   Histórico: em 21/07 ela virou position:absolute pra ficar no centro
+   geométrico da barra. Aquilo funcionava com 2 chips (GPS + rede); o 3º chip
+   (Som) empurrou a toolbar PARA ALÉM do centro e a marca passou a ser pintada
+   POR CIMA do chip novo — conferido no moto g15 pela árvore de acessibilidade:
+   .brand [372..557] invadindo o chip Som [477..565]. Não é ajuste de max-width:
+   com a toolbar cruzando o meio da tela, o próprio ponto de ancoragem da marca
+   cai dentro dela, então NENHUMA largura resolve — centralizar e não colidir
+   viraram objetivos incompatíveis. Em fluxo (coluna 1 = marca, coluna 2 =
+   toolbar) a colisão deixa de ser possível: sobrou pouco espaço, o nome trunca
+   no ellipsis que .brand-copy já tem, em vez de atropelar controle. */
+.brand { display: flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; gap: 10px; }
 .brand-mark { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; color: #17210f; background: linear-gradient(145deg, #a4ec2f, #65b600); border-radius: 11px; font-size: 1.3rem; font-weight: 900; box-shadow: 0 6px 15px rgba(88, 158, 0, .25); }
 .brand-copy { min-width: 0; max-width: 46vw; overflow: hidden; }
 .brand-copy strong { display: block; overflow: hidden; font-size: .94rem; letter-spacing: -.01em; white-space: nowrap; text-overflow: ellipsis; }
