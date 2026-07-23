@@ -273,7 +273,7 @@ export class LogisticaRotaService {
     // sairia como encerrada. Best-effort: falha aqui não desfaz a rota já ativa.
     await this.prisma.logisticaRoute
       .updateMany({
-        where: { companyId, entregadorId: effectiveDriverId, routeDate: canonicalRouteDate(input.date), operationalEndedAt: { not: null } },
+        where: { companyId, id: prepared.routeId, operationalEndedAt: { not: null } },
         data: { operationalEndedAt: null },
       })
       .catch(() => undefined);

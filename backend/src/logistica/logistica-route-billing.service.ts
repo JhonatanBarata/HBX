@@ -196,23 +196,35 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     routeDate: string,
     createIfMissing: boolean,
   ): Promise<RouteRow | null> {
-    const delegate = (this.prisma as any).logisticaRoute;
-    const where = { companyId_entregadorId_routeDate: { companyId, entregadorId, routeDate } };
-    const existing = (await delegate.findUnique({ where })) as RouteRow | null;
-    if (existing) return existing;
-    if (!createIfMissing) return null;
+    const configuredMode = await this.config.resolveRouteMode(companyId);
+    return this.prisma.$transaction(async (tx: any) => {
+      // Sem a antiga unicidade por motorista+data, a trava do slot diário evita
+      // que dois cliques concorrentes criem duas execuções novas depois do END.
+      await lockLogisticaRouteTransaction(
+        tx,
+        companyId,
+        `driver:${entregadorId}:date:${routeDate}`,
+      );
+      const existing = (await tx.logisticaRoute.findFirst({
+        where: { companyId, entregadorId, routeDate },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      })) as RouteRow | null;
+      if (existing && existing.status !== 'COMPLETED') return existing;
+      if (!createIfMissing) return existing;
 
-    const mode = await this.config.resolveRouteMode(companyId);
-    try {
-      return (await delegate.create({
-        data: { companyId, entregadorId, routeDate, mode, status: 'PLANNED' },
+      // COMPLETED continua terminal. Uma nova saída no mesmo dia recebe outro
+      // routeId e, portanto, outra sessão/trilha. O modo permanece congelado no
+      // primeiro agregado do dia, mesmo se a configuração mudou depois.
+      return (await tx.logisticaRoute.create({
+        data: {
+          companyId,
+          entregadorId,
+          routeDate,
+          mode: existing?.mode ?? configuredMode,
+          status: 'PLANNED',
+        },
       })) as RouteRow;
-    } catch (error) {
-      if (!isUniqueError(error)) throw error;
-      const winner = (await delegate.findUnique({ where })) as RouteRow | null;
-      if (winner) return winner;
-      throw error;
-    }
+    });
   }
 
   private async syncSnapshot(

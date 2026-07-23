@@ -29,14 +29,9 @@ export class LogisticaAdminRouteViewService {
     const date = canonicalRouteDate(dateInput);
     const [payload, route] = await Promise.all([
       this.logistica.listRota(companyId, date, actor),
-      (this.prisma as any).logisticaRoute.findUnique({
-        where: {
-          companyId_entregadorId_routeDate: {
-            companyId,
-            entregadorId: userId,
-            routeDate: date,
-          },
-        },
+      (this.prisma as any).logisticaRoute.findFirst({
+        where: { companyId, entregadorId: userId, routeDate: date },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: {
           id: true,
           mode: true,

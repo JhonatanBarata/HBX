@@ -1327,9 +1327,11 @@ model ClienteHistorico {
 }
 
 // LOGÍSTICA MODOS PR1 (13/07) — agregado diário da rota. O modo comercial é
-// resolvido uma única vez no início e nunca muda: alterações posteriores da
-// configuração só valem para rotas novas. `routeDate` é a data civil canônica
-// YYYY-MM-DD de America/Sao_Paulo, sem conversão UTC ambígua.
+// resolvido uma única vez no início e fica congelado durante todas as execuções
+// do mesmo motorista no dia. `routeDate` é a data civil canônica YYYY-MM-DD de
+// America/Sao_Paulo, sem conversão UTC ambígua. Pode haver mais de uma linha no
+// mesmo dia quando uma rota TRACKED já terminou e o motorista sai novamente:
+// cada execução mantém rota, sessão e trilha próprias.
 model LogisticaRoute {
   id                 String   @id @default(cuid())
   company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1360,7 +1362,6 @@ model LogisticaRoute {
   trackedCreditClaims LogisticaTrackedCreditClaim[]
 
   @@unique([id, companyId])
-  @@unique([companyId, entregadorId, routeDate])
   @@index([companyId, status, routeDate])
   @@index([companyId, entregadorId, routeDate])
 }

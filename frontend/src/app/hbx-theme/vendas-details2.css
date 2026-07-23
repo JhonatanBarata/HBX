@@ -84,16 +84,16 @@
        money  → o número grande do financeiro
      Em rem de propósito: a escada de tipografia de tela grande
      (typography.css) cresce junto. Valor em px trava a ficha em 4K. */
-  --lc-fs-micro: 0.86rem;
-  --lc-fs-body: 0.875rem;
-  --lc-fs-title: 0.9375rem;
-  --lc-fs-lead: 1.21rem;
-  --lc-fs-money: 1.48rem;
+  --lc-fs-micro: 0.76rem;
+  --lc-fs-body: 0.775rem;
+  --lc-fs-title: 0.8375rem;
+  --lc-fs-lead: 1.31rem;/*TÍTULO*/
+  --lc-fs-money: 1.48rem;/*RESUMO COMERCIAL E */
   /* Medidas que andam junto com a escala. Soltas, divergiam entre si — foi
      exatamente o que acontecia com o anel de score abaixo. */
-  --lc-icon: 14px;
+  --lc-icon: 17px;
   --lc-avatar: 50px;
-  --lc-smart-icon: 42px;
+  --lc-smart-icon: 52px;
   --lc-copy-btn: 24px;
   --lc-coin: 46px;
   --lc-step-dot: 26px;
@@ -349,7 +349,7 @@
      ou seja, o ícone quase encosta na borda. Antes era alvo de 28 com ícone
      de 16 — 6px de moldura vazia de cada lado, e o ícone parecia perdido
      no meio do botão. */
-  --lc-chan-size: 34px;
+  --lc-chan-size: 50px;
   position: relative;
   width: var(--lc-chan-size);
   height: var(--lc-chan-size);
@@ -373,7 +373,12 @@
      o que já cortou pop-up dentro desta ficha antes. */
   animation: lead-cockpit-channel-in 0.34s var(--ease-out-quint) backwards;
 }
-
+/* Aumenta o desenho apenas dentro do Lead Cockpit */
+.lead-cockpit__approved-channels .chan-ico--xl {
+  width: 50px;
+  height: 50px;
+  flex: 0 0 50px;
+}
 /* Escada de atraso por posição — 6 canais é o teto do catálogo (telefone,
    WhatsApp, e-mail, Instagram, Facebook, site), então cabe listar. Fica no
    CSS de propósito: nada de índice inline na tela. */
@@ -662,7 +667,7 @@
 
 .lead-cockpit__animated-score small {
   display: block;
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--text-muted);
   font-size: var(--lc-fs-micro);
 }

@@ -791,6 +791,7 @@ export class LogisticaTrackingService {
   ): Promise<OperationalRouteMetadata> {
     const route = await (this.prisma as any).logisticaRoute.findFirst({
       where: { companyId, entregadorId, routeDate },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,
         mode: true,
