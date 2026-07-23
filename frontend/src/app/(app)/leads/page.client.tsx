@@ -337,22 +337,26 @@ function normCity(s: string) {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
-function getStoredFilters() {
-  if (typeof window === "undefined") return { uf: "", city: "", segment: "", alcance: "", quantos: 5 };
+function getStoredFilters(): { uf: string; cities: string[]; segment: string; alcance: string; quantos: number } {
+  if (typeof window === "undefined") return { uf: "", cities: [], segment: "", alcance: "", quantos: 5 };
   try {
     const s = localStorage.getItem("hbx:leads-filters");
     if (s) {
       const p = JSON.parse(s) as Record<string, unknown>;
+      // Migração: formato antigo guardava `city` (string única) → vira array de 1.
+      const cities = Array.isArray(p.cities)
+        ? p.cities.filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+        : (typeof p.city === "string" && p.city.trim() ? [p.city] : []);
       return {
         uf: typeof p.uf === "string" ? p.uf : "",
-        city: typeof p.city === "string" ? p.city : "",
+        cities,
         segment: typeof p.segment === "string" ? p.segment : "",
         alcance: typeof p.alcance === "string" ? p.alcance : "",
         quantos: typeof p.quantos === "number" && p.quantos > 0 ? p.quantos : 5,
       };
     }
   } catch { /* sem storage */ }
-  return { uf: "", city: "", segment: "", alcance: "", quantos: 5 };
+  return { uf: "", cities: [], segment: "", alcance: "", quantos: 5 };
 }
 
 // embedded: render DENTRO do Vendas (modo "Buscar empresas" do slide), sem a aba
@@ -481,7 +485,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // PÓS-montagem (efeito de restauração abaixo), mesmo padrão SSR-safe já usado
   // no geoState do Topbar e no collapsed do ActivationChecklist.
   const [uf, setUf] = useState("");
-  const [city, setCity] = useState("");
+  // MULTI-CIDADE (23/07): a busca aceita VÁRIAS cidades do MESMO UF. `cities` é a
+  // fonte da verdade; `city` derivada = primeira, mantida só p/ leituras single-city
+  // (persistência/geo/pesquisa salva antiga). Painel seletivo abre em modal central.
+  const [cities, setCities] = useState<string[]>([]);
+  const city = cities[0] || "";
+  const [citiesModalOpen, setCitiesModalOpen] = useState(false);
+  const [citiesQuery, setCitiesQuery] = useState("");
   const [segment, setSegment] = useState("");
   const [alcance, setAlcance] = useState("");
   const [quantos, setQuantos] = useState(5);
@@ -565,10 +575,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const advExtraQueryInput = useMemo<Partial<CnpjBaseQueryInput>>(() => {
     const extra: Partial<CnpjBaseQueryInput> = {};
     if (uf) extra.states = [uf];
-    if (city) extra.cities = [city];
+    if (cities.length) extra.cities = cities;
     if (zapFiltro === "com") extra.contato = { comCelular: true };
     return extra;
-  }, [uf, city, zapFiltro]);
+  }, [uf, cities, zapFiltro]);
 
   // Combobox próprio do segmento (05/07) — o <datalist> nativo do Chrome só
   // mostrava, pela seta, o que casa com o texto já digitado. Aqui a seta abre a
@@ -658,9 +668,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       if (resolvedUf) {
         setUf(resolvedUf);
         if (cityRaw) {
-          const cities = BRAZIL_CITIES_BY_UF[resolvedUf] || [];
-          const match = cities.find(c => normCity(c) === normCity(cityRaw));
-          setCity(match || cityRaw);
+          const ufCities = BRAZIL_CITIES_BY_UF[resolvedUf] || [];
+          const match = ufCities.find(c => normCity(c) === normCity(cityRaw));
+          setCities([match || cityRaw]);
           setAlcance("");
         }
       }
@@ -773,8 +783,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     // Não persistir antes de restaurar: no mount os filtros nascem vazios
     // (defaults estáticos SSR-safe) — gravar aqui apagaria o que estava salvo.
     if (!filtersRestored.current) return;
-    try { localStorage.setItem("hbx:leads-filters", JSON.stringify({ uf, city, segment, alcance, quantos })); } catch { /* sem storage */ }
-  }, [uf, city, segment, alcance, quantos]);
+    try { localStorage.setItem("hbx:leads-filters", JSON.stringify({ uf, cities, segment, alcance, quantos })); } catch { /* sem storage */ }
+  }, [uf, cities, segment, alcance, quantos]);
 
   // Restaura os filtros salvos SÓ pós-montagem (setState em rAF → respeita
   // react-hooks/set-state-in-effect). Roda depois do efeito de persistência
@@ -786,7 +796,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       if (cancelled) return;
       const f = getStoredFilters();
       filtersRestored.current = true;
-      setUf(f.uf); setCity(f.city); setSegment(f.segment); setAlcance(f.alcance); setQuantos(f.quantos);
+      setUf(f.uf); setCities(f.cities); setSegment(f.segment); setAlcance(f.alcance); setQuantos(f.quantos);
     });
     return () => { cancelled = true; cancelAnimationFrame(id); };
   }, []);
@@ -873,9 +883,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setSelLead(null);
   }
 
+  // Liga/desliga uma cidade na seleção múltipla (painel central). markFiltersDirty
+  // zera o resultado anterior — mudar o recorte não pode mostrar leads de outro.
+  function toggleCity(label: string) {
+    markFiltersDirty();
+    setCities(prev => prev.includes(label) ? prev.filter(c => c !== label) : [...prev, label]);
+  }
+
   function limparFiltros() {
     setUf("");
-    setCity("");
+    setCities([]);
+    setCitiesQuery("");
+    setCitiesModalOpen(false);
     setSegment("");
     setAlcance("");
     setQuantos(5);
@@ -901,7 +920,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   function aplicarFiltroAvancado(f: FiltroAvancadoState) {
     setAdvOpen(false);
     if (f.states[0]) setUf(f.states[0]);
-    if (f.cities[0]) setCity(f.cities[0]);
+    if (f.cities.length) setCities(f.cities.filter(c => c.trim()));
     const seg = f.cnaes[0] || f.keyword.trim();
     if (seg) setSegment(seg);
     if (f.comCelular === true) setZapFiltro("com");
@@ -934,7 +953,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const nextAlc = String((f as SavedFiltro).alcance || "").trim();
     const nextQtd = Number((f as SavedFiltro).quantos || 0) || 5;
     setUf(nextUf);
-    setCity(nextCity);
+    setCities(nextCity ? [nextCity] : []);
     setSegment(nextSeg);
     setAlcance(nextAlc);
     setQuantos(nextQtd);
@@ -1006,7 +1025,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const faltando: string[] = [];
     if (!segToCheck.trim()) faltando.push("Segmento");
     if (!uf.trim()) faltando.push("Estado");
-    if (!city.trim()) faltando.push("Cidade");
+    if (!cities.length) faltando.push("Cidade");
     if (faltando.length > 0) {
       setMissingModal(faltando);
       return false;
@@ -1031,29 +1050,50 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setData(prev => prev ? { ...prev, items: [], total: 0 } : prev);
     setRunBusy(true);
     try {
-      // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400).
-      // Lote fixo (SEARCH_BATCH) — o usuário não escolhe mais "quantos" (removido).
-      const body: Record<string, unknown> = { city, state: uf || undefined, segment: effSegment, quantity: SEARCH_BATCH };
-      if (effRadius > 0) body.radiusKm = effRadius;
-      if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
-      // Filtro estilo CNPJ Biz (mesmo DTO do GET /radar/leads — RadarPullDto estende
-      // RadarDatabaseQueryDto): reflete tem-site/tem-WhatsApp na busca ao vivo também.
-      if (siteFiltro === "com") body.withWebsite = true;
-      if (siteFiltro === "sem") body.noWebsite = true;
-      if (zapFiltro === "com") body.likelyWhatsapp = true;
-      const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+      // MULTI-CIDADE (23/07): o backend processa 1 cidade por run. Aqui a busca
+      // dispara UM run por cidade selecionada (sequencial), acumulando os leads
+      // ao vivo; o poll acompanha o ÚLTIMO run e os leads das demais cidades
+      // caem na prateleira/pool quando a busca encerra. `cities` sempre tem ≥1
+      // item aqui (validado acima). Sem cidade explícita, cai no fluxo antigo.
+      const alvos = cities.length ? cities : [city];
+      let lastRun: RunResponse = null;
+      const acumulado: RadarLead[] = [];
+      let primeiroErro: string | null = null;
+      let primeiraMsg: string | null = null;
+      for (const alvo of alvos) {
+        // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400).
+        // Lote fixo (SEARCH_BATCH) — o usuário não escolhe mais "quantos" (removido).
+        const body: Record<string, unknown> = { city: alvo, state: uf || undefined, segment: effSegment, quantity: SEARCH_BATCH };
+        if (effRadius > 0) body.radiusKm = effRadius;
+        if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
+        // Filtro estilo CNPJ Biz (mesmo DTO do GET /radar/leads — RadarPullDto estende
+        // RadarDatabaseQueryDto): reflete tem-site/tem-WhatsApp na busca ao vivo também.
+        if (siteFiltro === "com") body.withWebsite = true;
+        if (siteFiltro === "sem") body.noWebsite = true;
+        if (zapFiltro === "com") body.likelyWhatsapp = true;
+        try {
+          const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
+            method: "POST",
+            body: JSON.stringify(body),
+          });
+          lastRun = res;
+          if (Array.isArray(res?.items)) acumulado.push(...res.items);
+          if (res?.message && !primeiraMsg) primeiraMsg = res.message;
+        } catch (err) {
+          if (!primeiroErro) primeiroErro = err instanceof Error ? err.message : "Não consegui iniciar a busca.";
+          // Cota/erro numa cidade não deve abortar as demais — segue o loop.
+        }
+      }
       // Reflete a expansão nos filtros visíveis (sem mexer quando é busca normal).
       if (override?.segment != null) setSegment(effSegment);
       if (override?.radiusKm != null) setAlcance(String(override.radiusKm));
-      setRun(res);
-      setLiveRunItems(Array.isArray(res?.items) ? res.items : []);
+      setRun(lastRun);
+      setLiveRunItems(acumulado);
       setTab("shelf");
       setPage(1);
       setSelected(new Set());
-      if (res?.message) setSearchMsg(res.message);
+      if (primeiroErro && !lastRun) { setLiveRunItems(null); setSearchMsg(primeiroErro); }
+      else if (primeiraMsg) setSearchMsg(primeiraMsg);
     } catch (err) {
       setLiveRunItems(null);
       setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
@@ -1148,7 +1188,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const cityOptions = uf
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
     : [];
-  const canSearch = Boolean(segment.trim() && uf.trim() && city.trim());
+  const canSearch = Boolean(segment.trim() && uf.trim() && cities.length > 0);
+  // Rótulo amigável do recorte de cidades pros textos ao vivo (1 cidade = nome; várias = "N cidades").
+  const localLabel = cities.length === 0 ? "" : cities.length === 1 ? cities[0] : `${cities.length} cidades`;
 
   const pageTotal = showingLiveRun ? (liveRunItems?.length ?? 0) : (hideHistory ? 0 : (data?.total || 0));
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
@@ -1174,13 +1216,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const emptyMsg = loadError
     ? loadError
     : runActive && tab === "shelf"
-      ? `Procurando empresas em ${city || "sua região"}…`
+      ? `Procurando empresas em ${localLabel || "sua região"}…`
     : data?.meta?.available === false
       ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
       : tab === "carteira"
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
         : hasSearched
-          ? `Nenhuma empresa encontrada para ${segment || "este segmento"} em ${city || "esta cidade"}${uf ? `/${uf}` : ""}.`
+          ? `Nenhuma empresa encontrada para ${segment || "este segmento"} em ${localLabel || "esta cidade"}${uf ? `/${uf}` : ""}.`
           : "Preencha os filtros para começar.";
 
   const meterPct = Math.min(100, Math.round(
@@ -1514,7 +1556,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // fica atrás de Avançado.
   function renderCommandBar() {
     const optionalCount = activeChips().length;
-    const cityIsKnown = cityOptions.some(o => o.label === city);
     return (
       <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
         <div className="be-search be-required-segment" data-tut="leads-busca-criativa" ref={segBoxRef}>
@@ -1602,7 +1643,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             value={uf}
             onChange={e => {
               markFiltersDirty();
-              setCity("");
+              setCities([]);
               setAlcance("");
               setUf(e.target.value);
             }}
@@ -1612,23 +1653,32 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             <option value="">UF</option>
             {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <select
+          <button
+            type="button"
             id="cb-city-inline"
-            value={city}
+            className="be-cities-trigger"
             disabled={!uf.trim()}
-            onChange={e => {
-              markFiltersDirty();
-              setAlcance("");
-              setCity(e.target.value);
-            }}
-            aria-label="Cidade obrigatória"
-            aria-required="true"
+            onClick={() => { setCitiesQuery(""); setCitiesModalOpen(true); }}
+            aria-haspopup="dialog"
+            aria-label="Cidades da busca (selecione uma ou várias)"
+            title={!uf.trim() ? "Escolha o estado primeiro" : "Selecione uma ou várias cidades"}
           >
-            <option value="">Cidade</option>
-            {city && !cityIsKnown && <option value={city}>{city}</option>}
-            {cityOptions.map(o => <option key={o.value} value={o.label}>{o.label}</option>)}
-          </select>
+            <span className="be-cities-trigger__label">
+              {cities.length === 0 ? "Cidade" : cities.length === 1 ? cities[0] : `${cities.length} cidades`}
+            </span>
+            <I d={ICONS.chevronDown} size={15} />
+          </button>
         </div>
+
+        <button
+          type="button"
+          className="btn-ghost btn-xs be-cmdbar__advanced be-cmdbar__clear"
+          onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); limparFiltros(); }}
+          disabled={!segment.trim() && !uf.trim() && cities.length === 0 && !alcance && siteFiltro === "qualquer" && zapFiltro === "qualquer"}
+          title="Limpar segmento, estado, cidades e filtros"
+        >
+          <I d={ICONS.x} size={13} /> Limpar
+        </button>
 
         {runActive ? (
           <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
@@ -1668,7 +1718,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
           <div style={{ minWidth: 0 }}>
             <div className="radar-mini-bar__title">Radar HBX</div>
-            <div className="radar-mini-bar__sub">{[city, uf].filter(Boolean).join("/") || "Todo o Brasil"}{segment ? ` · ${segment}` : ""}</div>
+            <div className="radar-mini-bar__sub">{[localLabel, uf].filter(Boolean).join(" · ") || "Todo o Brasil"}{segment ? ` · ${segment}` : ""}</div>
           </div>
           <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
             ← Voltar
@@ -1681,7 +1731,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     // O histórico continua na área de resultados; o Radar não repete a narrativa.
     const activeSummary = [
       segment.trim(),
-      [city, uf].filter(Boolean).join("/"),
+      [localLabel, uf].filter(Boolean).join(" · "),
       alcance ? `+ ${alcance} km` : "",
       siteFiltro === "com" ? "Com site" : siteFiltro === "sem" ? "Sem site" : "",
       zapFiltro === "com" ? "Com WhatsApp" : "",
@@ -1692,7 +1742,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         ? (items.length > 0 ? "Busca concluída" : "Nenhuma empresa encontrada")
         : "Radar pronto";
     const radarStatus = runActive
-      ? `Mapeando ${city || "sua região"}${runProgress != null ? ` · ${runProgress}%` : "…"}`
+      ? `Mapeando ${localLabel || "sua região"}${runProgress != null ? ` · ${runProgress}%` : "…"}`
       : hasSearched
         ? (items.length > 0
           ? `${fmtInt(items.length)} empresa${items.length === 1 ? " encontrada" : "s encontradas"}`
@@ -1996,7 +2046,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
               {runActive && (
                 <div className="radar2-live radar2-live--funcionando">
-                  <span className="dot" /> Varrendo {city || "…"} · {fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+                  <span className="dot" /> Varrendo {localLabel || "…"} · {fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
                 </div>
               )}
 
@@ -2166,6 +2216,98 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         </div>
       )}
+
+      {/* MULTI-CIDADE (23/07): painel central seletivo. Pop-up centralizado pela
+          classe (.hbx-veil/.hbx-modal) — Lei nº2. Lista as cidades do UF escolhido;
+          o usuário marca quantas quiser e a busca roda o segmento em cada uma. */}
+      {citiesModalOpen && (() => {
+        const q = citiesQuery.trim().toLowerCase();
+        const filtered = q ? cityOptions.filter(o => o.label.toLowerCase().includes(q)) : cityOptions;
+        const filteredLabels = filtered.map(o => o.label);
+        const allFilteredOn = filteredLabels.length > 0 && filteredLabels.every(l => cities.includes(l));
+        return (
+          <div className="hbx-veil" onClick={() => setCitiesModalOpen(false)}>
+            <div className="hbx-modal be-cities-modal" style={{ width: "min(560px, 94vw)" }} onClick={e => e.stopPropagation()}>
+              <div className="be-cities">
+                <div className="be-cities__head">
+                  <h3>Cidades{uf ? ` — ${uf}` : ""}</h3>
+                  <button type="button" className="be-cities__x" aria-label="Fechar" onClick={() => setCitiesModalOpen(false)}>
+                    <I d={ICONS.x} size={16} />
+                  </button>
+                </div>
+                <p className="be-cities__hint">Selecione quantas quiser — a busca roda o segmento em cada cidade marcada.</p>
+                <div className="be-cities__search">
+                  <I d={ICONS.search} size={15} />
+                  <input
+                    value={citiesQuery}
+                    onChange={e => setCitiesQuery(e.target.value)}
+                    placeholder="Filtrar cidade…"
+                    aria-label="Filtrar cidade"
+                    autoFocus
+                  />
+                </div>
+                <div className="be-cities__toolbar">
+                  <span className="be-cities__selcount">{cities.length} selecionada(s)</span>
+                  <div className="be-cities__toolbar-actions">
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      disabled={filteredLabels.length === 0}
+                      onClick={() => {
+                        markFiltersDirty();
+                        if (allFilteredOn) setCities(prev => prev.filter(c => !filteredLabels.includes(c)));
+                        else setCities(prev => Array.from(new Set([...prev, ...filteredLabels])));
+                      }}
+                    >
+                      {allFilteredOn ? "Desmarcar" : "Selecionar"} {q ? "filtradas" : "todas"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      disabled={cities.length === 0}
+                      onClick={() => { markFiltersDirty(); setCities([]); }}
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                </div>
+                <div className="be-cities__list" role="listbox" aria-multiselectable="true">
+                  {cityOptions.length === 0 ? (
+                    <div className="be-cities__empty">Escolha um estado para ver as cidades.</div>
+                  ) : filtered.length === 0 ? (
+                    <div className="be-cities__empty">Nenhuma cidade encontrada.</div>
+                  ) : (
+                    filtered.map(o => {
+                      const on = cities.includes(o.label);
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="option"
+                          aria-selected={on}
+                          className={"be-cities__opt" + (on ? " is-on" : "")}
+                          onClick={() => toggleCity(o.label)}
+                        >
+                          <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
+                          <span className="be-cities__opt-label">{o.label}</span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="be-cities__foot">
+                  <button type="button" className="btn-ghost" onClick={() => { markFiltersDirty(); setCities([]); }} disabled={cities.length === 0}>
+                    Limpar
+                  </button>
+                  <button type="button" className="btn-teal" onClick={() => setCitiesModalOpen(false)}>
+                    Pronto{cities.length ? ` (${cities.length})` : ""}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* WORM-15: Modal "Salvar filtro" — nome + (admin) atribuir a vendedor */}
       {saveModalOpen && (

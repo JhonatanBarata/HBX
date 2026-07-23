@@ -401,6 +401,25 @@ export class MobileDeviceService {
     }
 
     if (existing) {
+      // TRANSFERÊNCIA ENTRE EMPRESAS (mesmo celular pareado antes por outra
+      // conta): trocar o companyId do "MobileDevice" muda a chave (id, companyId)
+      // e dispara o ON UPDATE CASCADE da FK deviceId_companyId_fkey em
+      // "LogisticaTrackingSession" — o Postgres reescreveria o companyId das
+      // sessões daquele aparelho para a empresa NOVA, mas o entregadorId continua
+      // sendo o da empresa ANTIGA; aí a FK entregadorId_companyId_fkey não acha
+      // (entregadorId, companyId novo) em "User" e o pareamento estoura 23503
+      // (500 "algo deu errado"). As sessões são histórico da empresa anterior:
+      // solta o vínculo do aparelho ANTES da transferência (deviceId = NULL, sem
+      // cascata) — a sessão fica com a empresa/entregador original.
+      if (Number(existing.companyId) !== Number(user.companyId)) {
+        // tenant-raw-allow: desvincula o aparelho das sessões da empresa ANTERIOR (existing.companyId) antes de transferi-lo; escopo travado por deviceId + companyId de origem.
+        await tx.$executeRaw`
+          UPDATE "LogisticaTrackingSession"
+          SET "deviceId" = NULL, "deviceBoundAt" = NULL, "updatedAt" = ${now}
+          WHERE "deviceId" = ${existing.id}
+            AND "companyId" = ${existing.companyId}
+        `;
+      }
       // Reconectar (mesma installationId OU mesmo hardwareId após reinstalar):
       // UPDATE por id — installationId pode ter mudado, então não dá pra
       // contar com ON CONFLICT(installationId) aqui.

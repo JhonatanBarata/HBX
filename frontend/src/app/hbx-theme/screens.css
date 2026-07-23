@@ -5316,7 +5316,7 @@ html, body { height: 100%; }
 /* ── Buscar empresas: obrigatórios em uma linha; opcionais no Avançado (15/07/2026) ── */
 .be-cmdbar.be-cmdbar--required {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(250px, 340px) auto auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(250px, 340px) auto auto auto;
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
@@ -5395,6 +5395,180 @@ html, body { height: 100%; }
   font-size: 0.6rem;
   font-weight: 800;
 }
+/* Gatilho da cidade na barra (multi-cidade, 23/07): ocupa a 2ª coluna do pill de
+   localização, vestido como o <select> vizinho, abrindo o painel central. */
+.be-cities-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0 12px;
+  border: 0;
+  border-left: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion-fast);
+}
+.be-cities-trigger:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+.be-cities-trigger__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-cities-trigger svg { flex: 0 0 auto; opacity: 0.7; }
+
+/* Painel central seletivo de cidades (dentro de .hbx-modal). */
+.be-cities { display: grid; gap: 10px; padding: 4px; }
+.be-cities__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.be-cities__head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+.be-cities__x {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.be-cities__x:hover { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.be-cities__hint {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.be-cities__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--field-height);
+  padding: 0 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  background: var(--hbx-field-surface);
+  color: var(--text-muted);
+}
+.be-cities__search:focus-within {
+  border-color: var(--hbx-brand);
+  box-shadow: 0 0 0 3px var(--ring-brand);
+}
+.be-cities__search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  outline: none;
+}
+.be-cities__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.be-cities__selcount {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+.be-cities__toolbar-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.be-cities__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+}
+.be-cities__opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.76rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.be-cities__opt:hover { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
+.be-cities__opt.is-on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); font-weight: 700; }
+.be-cities__check {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 5px;
+  background: var(--hbx-surface);
+}
+.be-cities__opt.is-on .be-cities__check {
+  border-color: var(--hbx-brand);
+  background: var(--hbx-brand);
+  color: var(--hbx-on-brand, var(--hbx-surface));
+}
+.be-cities__opt-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-cities__empty {
+  grid-column: 1 / -1;
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+.be-cities__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .be-cities__list { grid-template-columns: minmax(0, 1fr); }
+}
+
 .be-adv-location-hint {
   margin: 0;
   min-height: var(--control-height);
