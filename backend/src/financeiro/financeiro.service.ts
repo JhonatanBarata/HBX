@@ -2993,11 +2993,14 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
       where: { id: context.companyId },
       select: { name: true, primaryContactName: true, taxDocument: true },
     });
+    const holderName = [user?.name, company?.primaryContactName, company?.name]
+      .map((value) => String(value || '').trim())
+      .find(Boolean) || null;
     return {
       mode: this.isMockPaymentsProvider() ? 'mock' : 'live',
       publicKey: String(process.env.MERCADO_PAGO_PUBLIC_KEY || '').trim() || null,
       prefill: {
-        holderName: String(user?.name || company?.primaryContactName || company?.name || '').trim() || null,
+        holderName,
         taxDocument: String(company?.taxDocument || '').replace(/\D/g, '') || null,
       },
     };

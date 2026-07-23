@@ -16,8 +16,6 @@ import android.os.VibratorManager
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.util.Base64
-import android.view.WindowManager
-import android.view.autofill.AutofillManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -48,6 +46,7 @@ class NativeAppBridge(
     private val onLocationPermissionRequested: () -> Unit,
     private val onAppLoadProgress: (Int) -> Unit,
     private val onAppReady: (String) -> Unit,
+    private val onRechargeCheckoutRequested: (String) -> Unit,
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val api = NativeApiClient(activity, ticket)
@@ -478,35 +477,14 @@ class NativeAppBridge(
     @JavascriptInterface
     fun soundPrefs(): String = HbxSoundEngine.prefsJson(activity)
 
-    /**
-     * O checkout é HTML local, mas os campos participam do Autofill Framework
-     * do Android. O usuário escolhe o cartão no provedor configurado no aparelho
-     * (Google, Samsung, 1Password etc.); o HBX nunca consulta nem armazena esse
-     * cofre. O retorno informa apenas se existe um serviço ativo.
-     */
+    /** Abre a Activity privada; nenhum dado de cartão atravessa a bridge do shell. */
     @JavascriptInterface
-    fun requestAutofill(): Boolean {
-        if (BuildConfig.APP_MODE != "logistica" || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        val manager = activity.getSystemService(AutofillManager::class.java) ?: return false
-        if (!manager.isEnabled) return false
-        activity.runOnUiThread {
-            webView.requestFocus()
-            manager.requestAutofill(webView)
-        }
+    fun openRechargeCheckout(packKeyInput: String): Boolean {
+        if (BuildConfig.APP_MODE != "logistica") return false
+        val packKey = packKeyInput.trim()
+        if (!packKey.matches(Regex("^[a-z0-9][a-z0-9_-]{0,39}$"))) return false
+        activity.runOnUiThread { onRechargeCheckoutRequested(packKey) }
         return true
-    }
-
-    /** Impede screenshot e miniatura de recentes enquanto o cartão está na tela. */
-    @JavascriptInterface
-    fun setSensitiveScreen(enabled: Boolean) {
-        if (BuildConfig.APP_MODE != "logistica") return
-        activity.runOnUiThread {
-            if (enabled) {
-                activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            } else {
-                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-            }
-        }
     }
 
     // S5 — grava o JSON que o JS montou (mestra + voz + off[]) e devolve o

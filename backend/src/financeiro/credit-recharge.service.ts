@@ -63,7 +63,7 @@ export type RechargeResult =
     }
   | {
       ok: false;
-      code: 'CARD_REQUIRED' | 'CHARGE_FAILED' | 'CHARGE_DECLINED';
+      code: 'CARD_REQUIRED' | 'CHARGE_FAILED' | 'CHARGE_DECLINED' | 'CHARGE_PENDING';
       message: string;
       packKey: string;
       amount: number;
@@ -249,7 +249,17 @@ export class CreditRechargeService {
           amount,
         };
       }
-      if (this.normalizeProviderPaymentStatus(payment?.status) !== 'approved') {
+      const providerPaymentStatus = this.normalizeProviderPaymentStatus(payment?.status);
+      if (providerPaymentStatus === 'pending') {
+        return {
+          ok: false,
+          code: 'CHARGE_PENDING',
+          message: 'Pagamento em análise. Aguarde a confirmação antes de tentar novamente.',
+          packKey: pack.key,
+          amount,
+        };
+      }
+      if (providerPaymentStatus !== 'approved') {
         return {
           ok: false,
           code: 'CHARGE_DECLINED',

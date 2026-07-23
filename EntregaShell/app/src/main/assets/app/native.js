@@ -304,13 +304,11 @@
         bridge.request(id, opts.method || "GET", path, opts.body === undefined ? null : JSON.stringify(opts.body));
       });
     },
-    autofill() {
-      try { return Boolean(bridge && bridge.requestAutofill && bridge.requestAutofill()); }
+    recharge(packKey) {
+      const key = String(packKey || "").trim();
+      if (!key) return false;
+      try { return Boolean(bridge && bridge.openRechargeCheckout && bridge.openRechargeCheckout(key)); }
       catch (_) { return false; }
-    },
-    sensitive(enabled) {
-      try { bridge && bridge.setSensitiveScreen && bridge.setSensitiveScreen(Boolean(enabled)); }
-      catch (_) {}
     },
     call(phone) { bridge && bridge.openCall && bridge.openCall(String(phone || "")); },
     vibrate(ms) { const d = Math.max(1, Math.min(200, Number(ms) || 12)); try { if (bridge && bridge.vibrate) { bridge.vibrate(d); return; } } catch (_) {} try { if (navigator.vibrate) navigator.vibrate(d); } catch (_) {} },

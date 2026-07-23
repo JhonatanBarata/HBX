@@ -92,6 +92,14 @@
             android:theme="@style/Theme.EntregaShell.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Checkout isolado: WebView privada, sem a bridge ampla do shell principal. -->
+        <activity
+            android:name=".RechargeCheckoutActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.EntregaShell.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".NotificationPermissionActivity"
             android:exported="false"

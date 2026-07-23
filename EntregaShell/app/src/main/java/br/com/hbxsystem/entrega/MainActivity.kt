@@ -14,7 +14,6 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
-import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -99,6 +98,24 @@ class MainActivity : AppCompatActivity() {
         if (temLocalizacao() && temNotificacoes()) ativarRotaPendente()
     }
 
+    private val recargaLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val payload = result.data
+            ?.getStringExtra(RechargeCheckoutActivity.EXTRA_RESULT)
+            ?.takeIf { it.length <= 4_000 }
+            ?: return@registerForActivityResult
+        val parsed = runCatching { JSONObject(payload) }.getOrNull()
+            ?.takeIf { it.optBoolean("ok", false) }
+            ?: return@registerForActivityResult
+        webView.evaluateJavascript(
+            "window.HBXApp&&window.HBXApp.rechargeCompleted&&" +
+                "window.HBXApp.rechargeCompleted(JSON.parse(${JSONObject.quote(parsed.toString())}));",
+            null,
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainHandoffVisibleAt = SystemClock.uptimeMillis() + 1_630L
@@ -110,7 +127,6 @@ class MainActivity : AppCompatActivity() {
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
-            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
             alpha = 0f
             translationX = resources.displayMetrics.density * 72f
             settings.javaScriptEnabled = true
@@ -200,6 +216,7 @@ class MainActivity : AppCompatActivity() {
             onLocationPermissionRequested = ::solicitarLocalizacaoParaCadastro,
             onAppLoadProgress = ::updateOpeningProgress,
             onAppReady = ::revealReadyApp,
+            onRechargeCheckoutRequested = ::openRechargeCheckout,
         )
         webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
 
@@ -231,6 +248,14 @@ class MainActivity : AppCompatActivity() {
             }
         })
         webView.loadUrl(LOCAL_ENTRY)
+    }
+
+    private fun openRechargeCheckout(packKey: String) {
+        if (BuildConfig.APP_MODE != "logistica" || isFinishing || isDestroyed) return
+        recargaLauncher.launch(
+            Intent(this, RechargeCheckoutActivity::class.java)
+                .putExtra(RechargeCheckoutActivity.EXTRA_PACK_KEY, packKey),
+        )
     }
 
     private fun mountOpeningOverlay(assetLoader: WebViewAssetLoader) {
