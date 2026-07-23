@@ -28,6 +28,7 @@ import {
   useMyModules,
 } from "@/components/hbx/shell";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
+import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { apiFetch } from "@/lib/api";
 import { onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
@@ -312,6 +313,77 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [extratoError, setExtratoError] = useState(false);
   const [financeBusy, setFinanceBusy] = useState<string | null>(null);
   const [financeMessage, setFinanceMessage] = useState<string | null>(null);
+
+  // ── Painel de ações do lead (religado do antigo card lateral morto, 23/07):
+  //    Observações + Fechar venda / Reagendar / Sem interesse. Reusa endpoints
+  //    já existentes da tela Vendas — PATCH /vendas/lead/:id (shortNote/returnAt),
+  //    POST /vendas/lead/:id/negativar. Zero backend novo.
+  const [obsDraft, setObsDraft] = useState<string>(lead.shortNote || "");
+  const [acaoBusy, setAcaoBusy] = useState(false);
+  const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
+  const [reagendarData, setReagendarData] = useState("");
+  const [reagendarOpen, setReagendarOpen] = useState(false);
+  const [semInteresseOpen, setSemInteresseOpen] = useState(false);
+  const [fecharOpen, setFecharOpen] = useState(false);
+
+  async function salvarObs() {
+    if (!lead.id || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ shortNote: obsDraft.trim().slice(0, 280) }),
+      });
+      setAcaoMsg("✓ Observação salva.");
+      await onConversationChanged?.();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível salvar a observação.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
+  async function reagendarContato() {
+    if (!lead.id || !reagendarData || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      const body: Record<string, unknown> = { returnAt: new Date(`${reagendarData}T09:00:00`).toISOString() };
+      if (obsDraft.trim()) body.shortNote = obsDraft.trim().slice(0, 280);
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      setAcaoMsg("✓ Contato reagendado.");
+      setReagendarData("");
+      setReagendarOpen(false);
+      await onConversationChanged?.();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao reagendar o contato.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
+  async function marcarSemInteresse(motivo: string) {
+    if (!lead.id || !motivo || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/negativar`, {
+        method: "POST",
+        body: JSON.stringify({ status: motivo }),
+      });
+      setSemInteresseOpen(false);
+      await onConversationChanged?.();
+      onClose();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível finalizar o lead.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
 
   const guides: Array<{ key: Guia; label: string; icon: string[] }> = canViewValues
     ? [
@@ -703,6 +775,67 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               <InfoRow label="Prazo">{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</InfoRow>
             </section>
           </div>
+
+          {/* Painel religado (23/07) — Observações + ações do lead, abaixo da
+              Agenda. Voltou o que morreu junto do card lateral: Fechar venda,
+              Reagendar e Sem interesse (finalizar). */}
+          <section className="lead-cockpit__compact-card lead-cockpit__acoes-card">
+            <CardTitle icon={ICONS.doc} title="Observações" />
+            <textarea
+              className="field-dark"
+              rows={3}
+              maxLength={280}
+              placeholder="Anotações deste lead…"
+              value={obsDraft}
+              onChange={(e) => setObsDraft(e.target.value)}
+              style={{ resize: "vertical", width: "100%", paddingTop: 8, paddingBottom: 8 }}
+            />
+            {acaoMsg && <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
+              <button className="btn-ghost" disabled={acaoBusy} onClick={salvarObs}>
+                {acaoBusy ? "Salvando…" : "Salvar observação"}
+              </button>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              <button className="btn-teal" disabled={acaoBusy} onClick={() => setFecharOpen(true)}>
+                <I d={ICONS.money} size={13} /> Fechar venda
+              </button>
+              <span style={{ position: "relative", display: "grid" }}>
+                <button className="btn-ghost" disabled={acaoBusy} onClick={() => { setReagendarOpen((o) => !o); setSemInteresseOpen(false); }}>
+                  <I d={ICONS.clock} size={13} /> Reagendar
+                </button>
+                {reagendarOpen && (
+                  <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
+                    <label className="sub" style={{ marginTop: 0 }}>Reagendar contato</label>
+                    <input className="field-dark" type="date" value={reagendarData} onChange={(e) => setReagendarData(e.target.value)} />
+                    <button className="btn-teal" style={{ minHeight: 34 }} disabled={!reagendarData || acaoBusy} onClick={reagendarContato}>
+                      {acaoBusy ? "Salvando…" : "Confirmar"}
+                    </button>
+                  </div>
+                )}
+              </span>
+              <span style={{ position: "relative", display: "grid" }}>
+                <button className="btn-ghost" disabled={acaoBusy} onClick={() => { setSemInteresseOpen((o) => !o); setReagendarOpen(false); }}>
+                  Sem interesse ▾
+                </button>
+                {semInteresseOpen && (
+                  <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 210, padding: 6, display: "grid", gap: 2 }}>
+                    {[
+                      { key: "sem_interesse", label: "Sem interesse geral" },
+                      { key: "ja_tem", label: "Já tem solução" },
+                      { key: "preco", label: "Preço alto demais" },
+                      { key: "sem_perfil", label: "Fora do perfil" },
+                      { key: "nao_ligar", label: "Não ligar mais" },
+                    ].map(({ key, label }) => (
+                      <button key={key} className="nav-item" style={{ minHeight: 32, textAlign: "left" }} disabled={acaoBusy} onClick={() => marcarSemInteresse(key)}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </span>
+            </div>
+          </section>
         </div>
 
         {/* 3ª coluna (22/07): Inteligência + Mensagem saíram de baixo do Contato/
@@ -1061,6 +1194,16 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           onClose={() => setWaConnectOpen(false)}
           onConnected={() => { setWaOk(true); setWaConnectOpen(false); }}
           onDisconnected={() => setWaOk(false)}
+        />
+      )}
+
+      {fecharOpen && (
+        <FecharVendaModal
+          mode={{ kind: "lead", leadId: lead.id }}
+          leadName={lead.name}
+          phone={lead.phone}
+          onClose={() => setFecharOpen(false)}
+          onDone={() => { setFecharOpen(false); onConversationChanged?.(); }}
         />
       )}
     </>
