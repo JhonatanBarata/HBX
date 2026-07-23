@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -45,6 +46,8 @@ const MESSAGE_SELECT = {
 
 @Injectable()
 export class VendasConversationService {
+  private readonly logger = new Logger(VendasConversationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly inboxService: InboxService,
@@ -435,6 +438,8 @@ export class VendasConversationService {
     if (!resolved) throw new NotFoundException('Abra a conversa antes de enviar a mensagem.');
     const linked = await this.persistCanonicalLink(context.companyId, lead.id, resolved);
 
+    // CRÍTICO E IRREVERSÍVEL: a partir daqui a mensagem já saiu no WhatsApp do cliente.
+    // Se ISTO falhar, o envio de fato não aconteceu → 500 legítimo (o front marca FAILED).
     await this.inboxService.sendMessage({ ...user, companyId: context.companyId }, linked.id, body, {
       sourceModule: 'vendas_human',
       variables: {
@@ -442,7 +447,27 @@ export class VendasConversationService {
         purpose: 'human_reply',
       },
     });
-    await this.cockpitProjector.rebuildLead(context.companyId, lead.id, linked.id);
-    return this.listMessagesForUser(user, lead.id);
+
+    // Pós-envio: bookkeeping derivado. NUNCA pode transformar um envio bem-sucedido em 500
+    // (senão o cliente recebe a mensagem e o vendedor vê "falhou" → reenvio → mensagem duplicada).
+    // rebuildLead é projeção do cockpit (também é refeita no webhook de entrada); o front
+    // repolla o thread em 1,5s, então uma falha aqui só perde o refresh imediato da resposta.
+    try {
+      await this.cockpitProjector.rebuildLead(context.companyId, lead.id, linked.id);
+    } catch (err) {
+      this.logger.warn(
+        `[vendas-send] rebuildLead pós-envio falhou (lead=${lead.id}, conversation=${linked.id}): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+    try {
+      return await this.listMessagesForUser(user, lead.id);
+    } catch (err) {
+      this.logger.warn(
+        `[vendas-send] listMessages pós-envio falhou (lead=${lead.id}, conversation=${linked.id}): ${err instanceof Error ? err.message : err}`,
+      );
+      // Envio OK: devolve sucesso SEM o campo `messages` — o front preserva a mensagem
+      // otimista na tela (não zera o thread) e o poll periódico reconcilia o estado real.
+      return { conversation: { id: String(linked.id), exists: true } };
+    }
   }
 }
