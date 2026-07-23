@@ -73,6 +73,11 @@ export class RadarFabricaService {
   private readonly logger = new Logger(RadarFabricaService.name);
   private draining = false;
   private rfbScanOffset = 0;
+  // Cache do total da base RFB pro /fabrica/status. O painel :3107 faz polling a cada 10s; um
+  // COUNT(*) exato em CnpjPublicCompany (28M linhas) é seq scan de ~5min — sem cache eles
+  // empilhavam e entupiam o pool do Prisma (limit 10), derrubando o app inteiro com 500 (P2024).
+  // Nunca contar a base ao vivo neste caminho de polling.
+  private rfbBaseCountCache: { value: number; expiresAt: number } | null = null;
   // L4 e extração IA são instanciados na mão (não são providers NestJS — mesmo padrão do
   // getCnpjL4Enrichment lazy do core). O gravador único (com gate) é injetado no L4 pra manter
   // a proveniência/telemetria unificada.
@@ -116,6 +121,42 @@ export class RadarFabricaService {
     return this.missionQueue.isQueuePaused().catch(() => true);
   }
 
+  /**
+   * Total da base RFB para o cockpit — SEM varrer CnpjPublicCompany (28M). Fonte 1: CnpjBaseStats
+   * (número exato gravado na última carga mensal, poucas linhas). Fonte 2 (fallback): reltuples do
+   * planejador (estimativa O(1)). Cache de 5min porque o número só muda na carga. Este é o mesmo
+   * padrão já usado em CnpjBaseQueryService.countBase — aqui não pode ser um count() ao vivo porque
+   * o /fabrica/status é polado a cada 10s pelo painel :3107.
+   */
+  private async rfbBaseCountCheap(): Promise<number> {
+    const now = Date.now();
+    if (this.rfbBaseCountCache && this.rfbBaseCountCache.expiresAt > now) {
+      return this.rfbBaseCountCache.value;
+    }
+    let count = 0;
+    try {
+      if (await this.prisma.hasTable('CnpjBaseStats').catch(() => false)) {
+        const stats = await (this.prisma as any).cnpjBaseStats?.aggregate?.({
+          where: { group: 'situacao' },
+          _sum: { count: true },
+        });
+        const n = Number(stats?._sum?.count);
+        if (Number.isFinite(n) && n > 0) count = Math.trunc(n);
+      }
+    } catch { /* cai no fallback do planejador */ }
+    if (!count) {
+      try {
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ n: bigint | number }>>(
+          `SELECT reltuples::bigint AS n FROM pg_class WHERE relname = 'CnpjPublicCompany'`,
+        );
+        const n = Number(rows?.[0]?.n);
+        if (Number.isFinite(n) && n > 0) count = Math.trunc(n);
+      } catch { /* fica 0 — nunca varre a base pra descobrir o total */ }
+    }
+    this.rfbBaseCountCache = { value: count, expiresAt: now + 5 * 60_000 };
+    return count;
+  }
+
   async status(): Promise<FabricaStatus> {
     const role = currentRole();
     const paidLocked = isLocalRole();
@@ -123,7 +164,7 @@ export class RadarFabricaService {
     const supported = availability.supported;
     const [run, rfbBaseCount, queue] = await Promise.all([
       supported ? this.getOrCreateRun() : Promise.resolve(null),
-      supported ? this.prisma.cnpjPublicCompany.count() : Promise.resolve(0),
+      supported ? this.rfbBaseCountCheap() : Promise.resolve(0),
       this.missionQueue.stats().catch(() => null),
     ]);
     const budget = Number(run?.budget || 0);

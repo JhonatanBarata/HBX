@@ -361,6 +361,22 @@ export class CnpjBaseQueryService {
   }
 
   /**
+   * Count seguro pra um WHERE já montado. Busca SEM nenhum filtro (where vazio — ex.: o app não
+   * mandou cidade) faria um COUNT(*) seq scan da base inteira (28M), prendendo a conexão por
+   * minutos e entupindo o pool do Prisma (a tempestade que derrubava /vendas, /me etc. com 500).
+   * Nesse caso desvia pro total barato (CnpjBaseStats/estimativa, com cache e single-flight) via
+   * countBase. Com qualquer filtro, o índice composto (state,city,...) limita o count e ele roda
+   * direto. Assim a "busca total" fica liberada sem risco de derrubar o sistema.
+   */
+  private async countForWhere(where: Record<string, unknown>): Promise<number | null> {
+    if (!where || Object.keys(where).length === 0) {
+      const cheap = await this.countBase({}).catch(() => ({ available: false, count: null as number | null }));
+      return cheap.count;
+    }
+    return this.db().cnpjPublicCompany.count({ where }).catch(() => 0);
+  }
+
+  /**
    * POST /modules/owner/cnpj-base/query — count + amostra de 20 + cursor. Query builder com
    * WHERE dinâmico; SEMPRE state/city entram primeiro no WHERE (índice composto absorve o resto).
    */
@@ -394,7 +410,7 @@ export class CnpjBaseQueryService {
       }).catch(() => []);
     const countPromise = input.includeCount === false
       ? Promise.resolve<number | null>(null)
-      : this.db().cnpjPublicCompany.count({ where }).catch(() => 0);
+      : this.countForWhere(where).catch(() => 0);
     const [count, rows] = await Promise.all([countPromise, rowsPromise]);
 
     const whatsappValidados = await this.lookupWhatsappValidated(rows.map((r: any) => r.phoneDigits).filter(Boolean));
