@@ -800,40 +800,12 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               <button className="btn-teal" disabled={acaoBusy} onClick={() => setFecharOpen(true)}>
                 <I d={ICONS.money} size={13} /> Fechar venda
               </button>
-              <span style={{ position: "relative", display: "grid" }}>
-                <button className="btn-ghost" disabled={acaoBusy} onClick={() => { setReagendarOpen((o) => !o); setSemInteresseOpen(false); }}>
-                  <I d={ICONS.clock} size={13} /> Reagendar
-                </button>
-                {reagendarOpen && (
-                  <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
-                    <label className="sub" style={{ marginTop: 0 }}>Reagendar contato</label>
-                    <input className="field-dark" type="date" value={reagendarData} onChange={(e) => setReagendarData(e.target.value)} />
-                    <button className="btn-teal" style={{ minHeight: 34 }} disabled={!reagendarData || acaoBusy} onClick={reagendarContato}>
-                      {acaoBusy ? "Salvando…" : "Confirmar"}
-                    </button>
-                  </div>
-                )}
-              </span>
-              <span style={{ position: "relative", display: "grid" }}>
-                <button className="btn-ghost" disabled={acaoBusy} onClick={() => { setSemInteresseOpen((o) => !o); setReagendarOpen(false); }}>
-                  Sem interesse ▾
-                </button>
-                {semInteresseOpen && (
-                  <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 210, maxHeight: 220, overflowY: "auto", padding: 6, display: "grid", gap: 2 }}>
-                    {[
-                      { key: "sem_interesse", label: "Sem interesse geral" },
-                      { key: "ja_tem", label: "Já tem solução" },
-                      { key: "preco", label: "Preço alto demais" },
-                      { key: "sem_perfil", label: "Fora do perfil" },
-                      { key: "nao_ligar", label: "Não ligar mais" },
-                    ].map(({ key, label }) => (
-                      <button key={key} className="nav-item" style={{ minHeight: 32, textAlign: "left" }} disabled={acaoBusy} onClick={() => marcarSemInteresse(key)}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </span>
+              <button className={"btn-ghost" + (reagendarOpen ? " is-active" : "")} disabled={acaoBusy} onClick={() => { setReagendarOpen((o) => !o); setSemInteresseOpen(false); }}>
+                <I d={ICONS.clock} size={13} /> Reagendar
+              </button>
+              <button className={"btn-ghost" + (semInteresseOpen ? " is-active" : "")} disabled={acaoBusy} onClick={() => { setSemInteresseOpen((o) => !o); setReagendarOpen(false); }}>
+                Sem interesse {semInteresseOpen ? "▴" : "▾"}
+              </button>
             </div>
           </section>
         </div>
@@ -1205,6 +1177,52 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           onClose={() => setFecharOpen(false)}
           onDone={() => { setFecharOpen(false); onConversationChanged?.(); }}
         />
+      )}
+
+      {/* Overlay flutuante — Reagendar / Sem interesse abrem POR CIMA (fora do
+          card que corta), com fundo pra fechar. Assim dá pra rolar e clicar. */}
+      {(reagendarOpen || semInteresseOpen) && (
+        <div
+          className="hbx-veil"
+          style={{ zIndex: 80 }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setReagendarOpen(false); setSemInteresseOpen(false); } }}
+        >
+          <div className="hbx-pop" style={{ width: "min(340px, 92vw)", maxHeight: "80vh", overflowY: "auto", padding: 14, display: "grid", gap: 10 }}>
+            {reagendarOpen && (
+              <>
+                <strong style={{ fontSize: "0.85rem" }}>Reagendar contato · {lead.name}</strong>
+                <input className="field-dark" type="date" value={reagendarData} onChange={(e) => setReagendarData(e.target.value)} />
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button className="btn-ghost" onClick={() => setReagendarOpen(false)}>Cancelar</button>
+                  <button className="btn-teal" disabled={!reagendarData || acaoBusy} onClick={reagendarContato}>
+                    {acaoBusy ? "Salvando…" : "Confirmar"}
+                  </button>
+                </div>
+              </>
+            )}
+            {semInteresseOpen && (
+              <>
+                <strong style={{ fontSize: "0.85rem" }}>Sem interesse · {lead.name}</strong>
+                <div style={{ display: "grid", gap: 2 }}>
+                  {[
+                    { key: "sem_interesse", label: "Sem interesse geral" },
+                    { key: "ja_tem", label: "Já tem solução" },
+                    { key: "preco", label: "Preço alto demais" },
+                    { key: "sem_perfil", label: "Fora do perfil" },
+                    { key: "nao_ligar", label: "Não ligar mais" },
+                  ].map(({ key, label }) => (
+                    <button key={key} className="nav-item" style={{ minHeight: 34, textAlign: "left" }} disabled={acaoBusy} onClick={() => marcarSemInteresse(key)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn-ghost" onClick={() => setSemInteresseOpen(false)}>Cancelar</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       )}
     </>
   );
