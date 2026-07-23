@@ -205,8 +205,9 @@ const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "ca
 // Mercado Livre — ninguém pergunta "quantos iPhones você quer ver"). A prateleira
 // mostra um lote saudável (antes o "Quantos puxar" capava em 5) e a busca traz um
 // lote fixo pro motor. Puxar = quantos você SELECIONA, não um número no filtro.
-const SHELF_LIMIT = 24;
-const SEARCH_BATCH = 12;
+// Pool máximo por busca = 100, exibido em 4 páginas de 25 ("1 de 4"). Regra do dono 23/07.
+const SHELF_LIMIT = 25;
+const SEARCH_BATCH = 100;
 
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
   const seen = new Set<string>();
