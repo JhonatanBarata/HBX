@@ -644,7 +644,7 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   dash: null,
   leads: "webscraping",
   scrape: "webscraping",
-  vendas: "vendas",
+  vendas: null,
   agenda: "vendas",
   // S12: hub /automacao é kill-switch por MÓDULO (OR de atendimento/bot/vendas
   // via /modules/me, calculado à parte no Sidebar — ver `visible` abaixo), não
