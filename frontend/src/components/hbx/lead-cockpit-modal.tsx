@@ -819,7 +819,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                   Sem interesse ▾
                 </button>
                 {semInteresseOpen && (
-                  <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 210, padding: 6, display: "grid", gap: 2 }}>
+                  <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 210, maxHeight: 220, overflowY: "auto", padding: 6, display: "grid", gap: 2 }}>
                     {[
                       { key: "sem_interesse", label: "Sem interesse geral" },
                       { key: "ja_tem", label: "Já tem solução" },
