@@ -1035,7 +1035,9 @@
   // seguinte, marcações zeradas). Mudo (state.navMudo) segura só o H.speak —
   // o avanço de step continua acontecendo (o banner não pode travar num step
   // antigo só porque a voz está muda). Chamado a cada fix do watch
-  // (startNavWatch), nunca do render.
+  // (startNavWatch) e imediatamente depois que o OSRM termina de montar os
+  // steps: o primeiro fix não pode tentar falar cedo demais e depender de um
+  // segundo movimento do aparelho para finalmente anunciar a manobra.
   function processNavVoice(point) {
     if (!navModeActive()) return;
     const steps = navCurrentLegSteps();
@@ -1104,6 +1106,15 @@
         legSteps: Array.isArray(result.legSteps) ? result.legSteps : [],
         voiceEpoch: ((state.navRota && state.navRota.voiceEpoch) || 0) + 1,
       };
+      // O 1º fix dispara este cálculo de forma assíncrona. Antes, a voz rodava
+      // enquanto `legSteps` ainda estava vazio e só tentava de novo se o GPS
+      // emitisse outro fix — parado no local de saída, o motorista ficava sem
+      // instrução. Processa agora, com os steps prontos e a posição mais nova.
+      const voicePoint = state.navPosicao;
+      if (voicePoint && validCoordinates(voicePoint.lat, voicePoint.lng)) {
+        processNavVoice(voicePoint);
+        updateNextStopPanelDistance();
+      }
       return true;
     } catch (_) { return false; } // OSRM fora do ar: mantém o desenho atual (state.navRota intocado).
   }
@@ -2699,10 +2710,18 @@
     requestAnimationFrame(() => app.querySelector(".leitura-route-controls")?.classList.add("is-entering"));
   }
   let leituraFlushing = false;
+  let leituraFlushPromise = Promise.resolve();
   // Sincroniza a fila em ordem; falha de rede no meio pára e deixa o resto
   // esperando (nunca perde uma parada, nunca reordena).
   async function flushLeituraQueue() {
-    if (!state.leitura || leituraFlushing) return;
+    if (!state.leitura) return;
+    // Quem precisa reconstruir a tela depois do envio (rota manual) deve poder
+    // aguardar o flush que já estiver em andamento, em vez de seguir com um
+    // resumo anterior à última parada.
+    if (leituraFlushing) {
+      await leituraFlushPromise;
+      return;
+    }
     leituraFlushing = true;
     const sessionId = state.leitura.id;
     // S3 22/07 — sync_complete SÓ toca se havia pendência ANTES do flush
@@ -2713,15 +2732,22 @@
     // fila já vazia, e ele aperta por ansiedade, não porque há algo pra
     // mandar (regra dura do S3, ver S3-ENTREGA-E-SINCRONIA.md).
     const hadPending = leituraQueueForSession(sessionId).length > 0;
-    try {
-      for (const row of leituraQueueForSession(sessionId)) {
-        try {
-          await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/parada`, { method: "POST", body: row.payload });
-          leituraQueueRemove(sessionId, row.clientKey);
-        } catch (_) { break; }
-      }
-      if (hadPending && !leituraQueueForSession(sessionId).length) H.sound("sync_complete");
-    } finally { leituraFlushing = false; render(); }
+    leituraFlushPromise = (async () => {
+      try {
+        // Lê a cabeça da fila a cada volta para também consumir paradas que
+        // entrarem enquanto este mesmo flush estiver em andamento.
+        while (true) {
+          const row = leituraQueueForSession(sessionId)[0];
+          if (!row) break;
+          try {
+            await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/parada`, { method: "POST", body: row.payload });
+            leituraQueueRemove(sessionId, row.clientKey);
+          } catch (_) { break; }
+        }
+        if (hadPending && !leituraQueueForSession(sessionId).length) H.sound("sync_complete");
+      } finally { leituraFlushing = false; render(); }
+    })();
+    await leituraFlushPromise;
   }
   // Boot / retomada: GET /logistica/leitura/atual é a fonte de verdade quando
   // alcançável; falha de rede preserva a sessão já em cache local (offline-first
@@ -3347,11 +3373,16 @@
     leituraQueuePush(state.leitura.id, clientKey, payload);
     state.leitura.count = Number(state.leitura.count || 0) + 1;
     persistLeituraSession();
+    // No modo MANUAL, a próxima tela recarrega o resumo do backend. Sincroniza
+    // antes de abri-la para que o cliente recém-adicionado não seja o único
+    // ausente da lista. A fila continua preservada se a rede falhar.
+    if (state.leitura.modo === "MANUAL") await flushLeituraQueue();
     // S1 21/07 — sessão MANUAL volta pro passo Paradas do wizard em vez de
     // fechar pra tela Rota (closeLeituraParadaModal cobre os dois casos).
     await closeLeituraParadaModal();
-    // S3 22/07 — a parada SEMPRE entra na fila local primeiro (linha acima) e
-    // só depois tenta sincronizar (flushLeituraQueue abaixo, fire-and-forget).
+    // S3 22/07 — a parada SEMPRE entra na fila local primeiro (linha acima).
+    // No MANUAL o flush foi aguardado antes da lista; na LEITURA ele continua
+    // abaixo, fire-and-forget.
     // Sem internet agora, ela FICA na fila de verdade — isso é "operação
     // entrou na fila" (sync_pending), som mais discreto que offline_saved
     // porque aqui o wizard já tem seu próprio toast dedicado ("Parada
@@ -4749,7 +4780,20 @@
       // render() completo); depois disso só redesenha por gatilho real (perna
       // avançou, parada nova ou saiu do caminho — applyNavLegRoute/
       // checkNavOffPath cuidam disso), nunca a cada tick de GPS.
-      if (!state.navRota && routeMap && routeMapHost) void applyNavLegRoute(routeMapHost, routeMap);
+      if (!state.navRota) {
+        if (routeMap && routeMapHost) {
+          void applyNavLegRoute(routeMapHost, routeMap);
+        } else {
+          // Voz não depende do MapLibre ter terminado de montar. Se o primeiro
+          // fix chegar antes do mapa, busca os steps diretamente; o disjuntor
+          // compartilhado impede uma segunda requisição concorrente no mount.
+          const stops = navRouteOpenPoints();
+          if (stops.length && navRecalcAllowed()) {
+            markNavRecalc();
+            void recomputeNavRoute(stops);
+          }
+        }
+      }
       checkNavOffPath(point);
       // S5 21/07 — processa voz/step ANTES do patch do painel (senão o banner
       // ficaria 1 tick atrasado do avanço de step feito aqui).

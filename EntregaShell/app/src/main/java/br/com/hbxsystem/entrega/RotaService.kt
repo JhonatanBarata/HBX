@@ -432,16 +432,25 @@ class RotaService : Service() {
 
     private val leituraMaxAccuracyM = 35.0
     private val leituraMaxSpeedMps = 41.7 // ~150 km/h
+    private val leituraVisualMaxAgeMs = 15_000L
 
     /** Roda a cada fix de GPS enquanto `RotaState.isLeituraAtiva()`. Filtra
      *  lixo (S2.1), alimenta o detector de pausa (S2.2) e a gravação da
      *  trilha, e entrega o evento de pausa pro front (S2.3) quando disparar. */
     private fun processarLeitura(location: Location) {
         val sample = location.toTrackingSample()
-        if (!sample.accuracyM.isFinite() || sample.accuracyM <= 0.0 || sample.accuracyM > leituraMaxAccuracyM) return
+        val idadeMs = System.currentTimeMillis() - sample.capturedAtMs
+        if (!sample.latitude.isFinite() || sample.latitude !in -90.0..90.0 ||
+            !sample.longitude.isFinite() || sample.longitude !in -180.0..180.0 ||
+            !sample.accuracyM.isFinite() || sample.accuracyM <= 0.0 ||
+            idadeMs !in 0L..leituraVisualMaxAgeMs
+        ) {
+            return
+        }
 
         val ultimo = RotaState.ultimaAmostraLeitura()
-        if (ultimo != null) {
+        val temPrecisaoParaGravar = sample.accuracyM <= leituraMaxAccuracyM
+        if (temPrecisaoParaGravar && ultimo != null) {
             val elapsedS = (sample.capturedAtMs - ultimo.ts) / 1000.0
             if (elapsedS > 0.0) {
                 val dist = haversine(ultimo.lat, ultimo.lng, sample.latitude, sample.longitude)
@@ -458,10 +467,11 @@ class RotaService : Service() {
             bearingDeg = sample.bearingDeg,
         )
 
-        // A posição visual acompanha cada fix aceito (~3s). A trilha enviada
-        // continua respeitando o filtro de 8m/15s logo abaixo, sem aumentar o
-        // volume persistido nem o payload do servidor.
+        // O mapa precisa apontar a posição assim que o Android tiver um fix
+        // recente, mesmo enquanto a precisão ainda está refinando. Esse ponto é
+        // apenas visual; a trilha continua aceitando somente accuracy <= 35 m.
         RotaState.notificarPosicao(ponto)
+        if (!temPrecisaoParaGravar) return
 
         // Detector de pausa roda em TODA amostra aceita (independente do
         // filtro de gravação abaixo, que só decide o que fica na trilha).
@@ -749,8 +759,10 @@ class RotaService : Service() {
     )
 
     private fun tentarPontoInicialImediato() {
-        val config = RotaState.activeTrackingConfig() ?: return
-        if (trackingStore.peekNextSequence(config.routeId) != 0L) return
+        val config = RotaState.activeTrackingConfig()
+        val precisaInicioRastreamento = config != null && trackingStore.peekNextSequence(config.routeId) == 0L
+        val leituraAtiva = RotaState.isLeituraAtiva()
+        if (!precisaInicioRastreamento && !leituraAtiva) return
         val lm = locationManager ?: return
         val candidates = mutableListOf<Location>()
         try {
@@ -769,7 +781,10 @@ class RotaService : Service() {
         } catch (_: Exception) {
             // provider ausente
         }
-        candidates.maxByOrNull(Location::getTime)?.let { processarRastreamento(it, force = true) }
+        candidates.maxByOrNull(Location::getTime)?.let { location ->
+            if (leituraAtiva) processarLeitura(location)
+            if (precisaInicioRastreamento) processarRastreamento(location, force = true)
+        }
     }
 
     private fun encerrarRastreamentoAtual() {

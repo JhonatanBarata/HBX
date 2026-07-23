@@ -61,9 +61,12 @@ class NativeAppBridge(
     // UI thread (métodos @JavascriptInterface chegam numa thread própria do
     // WebView — ver runOnUiThread em speak/speakStop/close). Voz é acessório:
     // qualquer falha de init/idioma vira no-op silencioso, nunca derruba a
-    // entrega.
+    // entrega. Enquanto o motor inicializa, preserva somente a instrução mais
+    // nova (mesma semântica do QUEUE_FLUSH) em vez de descartá-la.
     private var tts: TextToSpeech? = null
     private var ttsPronta = false
+    private var ttsTextoPendente: String? = null
+    private var ttsTentativas = 0
 
     // S1 (PR22072026-APP-SOUNDS) — motor de sons: mesma LAZY que o TTS (não
     // paga SoundPool em quem tem o app mudo), lambda pra `ttsFalando` porque o
@@ -417,11 +420,11 @@ class NativeAppBridge(
         val safeText = text.filterNot(Char::isISOControl).take(300).trim()
         if (safeText.isEmpty()) return
         activity.runOnUiThread {
-            ensureTts { engine ->
-                try {
-                    engine.speak(safeText, TextToSpeech.QUEUE_FLUSH, null, "hbx-nav")
-                } catch (_: Throwable) {}
-            }
+            // Durante o init assíncrono, cada nova manobra substitui a anterior:
+            // ao ficar pronto o motor fala a informação vigente, nunca uma fila
+            // atrasada nem silêncio por ter descartado o segundo pedido.
+            ttsTextoPendente = safeText
+            ensureTts()
         }
     }
 
@@ -429,6 +432,9 @@ class NativeAppBridge(
     fun speakStop() {
         if (BuildConfig.APP_MODE != "logistica") return
         activity.runOnUiThread {
+            // Se o usuário silenciar enquanto o TTS ainda inicializa, o callback
+            // não pode começar a falar depois do toque em mudo.
+            ttsTextoPendente = null
             try { tts?.stop() } catch (_: Throwable) {}
         }
     }
@@ -499,20 +505,20 @@ class NativeAppBridge(
         return soundPrefs()
     }
 
-    // Init LAZY: a 1a chamada de speak() cria o TextToSpeech; o callback de
-    // init é assíncrono, então um speak() que chegue nesse meio-tempo cai no
-    // "existing != null && !ttsPronta" e é descartado (voz é acessório, não
-    // vale enfileirar/esperar). Falha de init OU idioma pt-BR indisponível =
-    // ttsPronta nunca vira true = todo speak() seguinte também é descartado
-    // silenciosamente, sem crash, sem retry, sem loop.
-    private fun ensureTts(onReady: (TextToSpeech) -> Unit) {
+    // Init LAZY: a 1a chamada cria o TextToSpeech. Enquanto ele inicializa,
+    // `ttsTextoPendente` guarda só a instrução mais nova. Falha de init solta
+    // a instância quebrada e faz uma única nova tentativa; chamadas futuras
+    // também podem rearmar o motor, sem loop e sem afetar a entrega.
+    private fun ensureTts() {
         val existing = tts
         if (existing != null) {
-            if (ttsPronta) onReady(existing)
+            if (ttsPronta) falarTextoPendente(existing)
             return
         }
+        ttsTentativas += 1
         tts = TextToSpeech(activity) { status ->
             val engine = tts
+            var pronta = false
             if (status == TextToSpeech.SUCCESS && engine != null) {
                 val resultado = try {
                     engine.setLanguage(Locale("pt", "BR"))
@@ -521,19 +527,41 @@ class NativeAppBridge(
                 }
                 if (resultado != TextToSpeech.LANG_MISSING_DATA && resultado != TextToSpeech.LANG_NOT_SUPPORTED) {
                     ttsPronta = true
-                    onReady(engine)
+                    ttsTentativas = 0
+                    pronta = true
+                    falarTextoPendente(engine)
+                }
+            }
+            if (!pronta) {
+                try { engine?.shutdown() } catch (_: Throwable) {}
+                tts = null
+                ttsPronta = false
+                if (ttsTextoPendente != null && ttsTentativas < 2) {
+                    activity.window.decorView.postDelayed({
+                        if (ttsTextoPendente != null && tts == null) ensureTts()
+                    }, 500L)
                 }
             }
         }
     }
 
+    private fun falarTextoPendente(engine: TextToSpeech) {
+        val text = ttsTextoPendente ?: return
+        ttsTextoPendente = null
+        try {
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hbx-nav")
+        } catch (_: Throwable) {}
+    }
+
     // Chamado só de close() (mesmo lugar/thread que já limpa o resto da
     // ponte — ver onDestroy em MainActivity).
     private fun shutdownTts() {
+        ttsTextoPendente = null
         try { tts?.stop() } catch (_: Throwable) {}
         try { tts?.shutdown() } catch (_: Throwable) {}
         tts = null
         ttsPronta = false
+        ttsTentativas = 0
     }
 
     @JavascriptInterface
