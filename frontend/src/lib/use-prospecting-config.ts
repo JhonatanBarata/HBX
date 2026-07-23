@@ -243,10 +243,10 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
   }, []);
 
   const dirty = Object.keys(draft).length > 0;
-  const canSave = (dirty || !campaign) && !busy;
+  const canSave = !busy;
 
   const salvar = useCallback(async () => {
-    if (!((Object.keys(draft).length > 0 || !campaign) && !busy)) return;
+    if (busy) return;
     setBusy(true);
     setSaveMsg(null);
     try {
@@ -265,7 +265,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [draft, campaign, busy]);
+  }, [draft, busy]);
 
   const ciclo = useCallback(async (path: "start" | "pause" | "resume" | "cancel") => {
     if (busy) return;

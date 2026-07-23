@@ -7,14 +7,12 @@
 // lógica/save centralizada no hook useProspectingConfig (mesma do tutofig).
 //
 // Design System: zero hex/cor inline. Tom de cada peça vai por CSS var
-// (--bot-phase-color). Estilo em hbx-theme/bot-prospeccao.css; o tutofig
-// (sobreposição de 3 colunas) em hbx-theme/bot-tutofig.css.
+// (--bot-phase-color). Estilo em hbx-theme/bot-prospeccao.css.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { I, ICONS } from "@/components/hbx/shell";
-import { BotTutofig } from "@/components/hbx/bot-tutofig";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { BotAvisoModal } from "@/components/hbx/bot-aviso-modal";
 import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
@@ -45,18 +43,14 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
       .then(data => { if (data?.variableCatalog?.length) setVariableCatalog(data.variableCatalog); })
       .catch(() => {});
   }, []);
-  // tutofig (config acompanhada) — só abre via "Configurar com ajuda".
-  const [tutofigOpen, setTutofigOpen] = useState(false);
 
   // Gate de Termos antes de INICIAR — estado controlado por handlers (não effect).
   const [termsOpen, setTermsOpen] = useState(false);
   // Ação pendente que será executada após aceitar os termos
   const pendingStartRef = useRef<"start" | "resume" | null>(null);
 
-  // onLive: roda a cada carga (no .then do hook).
-  const onLive = useCallback((_data: ProspLive) => {
-    // auto-open removido — tutofig só via botão "Configurar com ajuda"
-  }, []);
+  // onLive: roda a cada carga (no .then do hook). Sem side-effect hoje.
+  const onLive = useCallback((_data: ProspLive) => {}, []);
 
   const cfg = useProspectingConfig({ onLive });
   const { live, loadErr, campaign, draft, busy, saveMsg, canSave, salvar, ciclo, loadLive, piecePreview } = cfg;
@@ -99,11 +93,13 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
     onSavedRef.current?.();
   }
 
-  // Gate de termos + config completa: se config incompleta, reabre o tutofig.
+  // Gate de termos + config completa: se config incompleta, abre a peça de
+  // mensagens (é o que falta com mais frequência) e avisa no rodapé.
   // Se aceito e config ok, executa direto.
   function handleStartOrResume(path: "start" | "resume") {
     if (live && !isProspConfigComplete(live)) {
-      setTutofigOpen(true);
+      setOpenPiece("mensagens");
+      cfg.setSaveMsg("Complete ritmo, limite diário e a 1ª mensagem antes de iniciar.");
       return;
     }
     if (isBotTermsAccepted("prospeccao")) {
@@ -175,10 +171,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
           {saveMsg && (
             <span className={"bot-prosp__msg" + (saveMsg.startsWith("✓") ? " is-ok" : " is-err")}>{saveMsg}</span>
           )}
-          <button className="btn-ghost" onClick={() => setTutofigOpen(true)} disabled={busy}>
-            <I d={ICONS.help || ICONS.bot} size={13} /> Configurar com ajuda
-          </button>
-          <button className="btn-ghost" onClick={() => loadLive()} disabled={busy} title="Recarregar">⟳</button>
           <button className="btn-teal" onClick={handleSalvar} disabled={!canSave}>{busy ? "Salvando…" : "Salvar disparo"}</button>
         </div>
       </div>
@@ -280,15 +272,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         <BotProspeccaoSandbox cfg={cfg} />
       </aside>
 
-      {/* ── TutoFig ── */}
-      <BotTutofig
-        open={tutofigOpen}
-        cfg={cfg}
-        variableCatalog={variableCatalog}
-        onClose={() => setTutofigOpen(false)}
-        onSaved={() => onSavedRef.current?.()}
-      />
-
       {/* ── Gate de Termos antes de INICIAR ── */}
       {termsOpen && (
         <BotTermsModal
@@ -315,7 +298,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         <BotAvisoModal
           alert={botAlert}
           onDismiss={() => setDismissedAlertKind(botAlert.kind)}
-          onConfigure={() => setTutofigOpen(true)}
+          onConfigure={() => setOpenPiece("ritmo")}
           onViewCredits={() => router.push("/configuracoes")}
           onAdjustFilter={() => setOpenPiece("alvo")}
         />
