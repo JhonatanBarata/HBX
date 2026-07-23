@@ -1,10 +1,14 @@
 "use client";
 
-// Disco de radar — PURO ENFEITE (VENDAS-REFAB item 2/8, 04/07). Zero prop de
-// estado, zero API: decoração fixa, sempre no visual mais "vivo". Extraído de
-// (app)/leads/page.client.tsx no W1 (PR10072026) pra landing usar a MESMA tela
-// real sem puxar a página inteira pro bundle. CSS: .radar* em screens.css,
-// tokens --radar-* no skeleton.css.
+// Disco de radar — MESMO visual-sonar aprovado (mock 06-07/07), agora ciente do
+// ESTADO do radar (23/07): a prop `state` recolore o disco inteiro trocando só
+// os tokens --radar-* — funcionando (accent, vivo), pausado (warning, sweep
+// lento), parado (cinza, sweep congelado). Default = "funcionando", então a
+// landing e qualquer uso decorativo continuam no visual mais "vivo" sem passar
+// nada. Extraído de (app)/leads/page.client.tsx no W1 (PR10072026) pra landing
+// usar a MESMA tela real sem puxar a página inteira pro bundle. CSS: .radar* +
+// .radar-disc-wrap--{funcionando,pausado,parado} em screens.css, tokens
+// --radar-* no skeleton.css.
 // Pool de rótulos de CATEGORIA pros blips (07/07, pedido do dono: esses 7
 // nomes, sorteados aleatoriamente a cada montagem — nunca nome de empresa
 // real, isso seria dado fabricado).
@@ -30,7 +34,8 @@ function pickRadarLabels(count: number): string[] {
 // precisar cortar. Núcleo trocou bolinha por agulha de bússola vintage
 // (menor que a bolinha antiga). Rótulos sorteados do RADAR_LABEL_POOL, uma
 // vez por montagem (não re-sorteia a cada render).
-export function RadarDisc({ mini = false }: { mini?: boolean } = {}) {
+export type RadarDiscState = "funcionando" | "pausado" | "parado";
+export function RadarDisc({ mini = false, state = "funcionando" }: { mini?: boolean; state?: RadarDiscState } = {}) {
   // SSR-safe (fix 10/07, hydration mismatch na landing): o 1º render — servidor E cliente —
   // usa os 3 primeiros rótulos do pool (determinístico); o sorteio entra só PÓS-mount
   // (useEffect roda apenas no cliente). Sem isso o server sorteia um rótulo e o cliente
@@ -54,7 +59,7 @@ export function RadarDisc({ mini = false }: { mini?: boolean } = {}) {
   ];
 
   return (
-    <div className={"radar-disc-wrap radar-disc-wrap--funcionando" + (mini ? " radar-disc-wrap--mini" : "")}>
+    <div className={"radar-disc-wrap radar-disc-wrap--" + state + (mini ? " radar-disc-wrap--mini" : "")}>
       <div className="radarScopeClip">
         <i className="radarScopeGrid" />
         <i className="radarScopeGlow" />

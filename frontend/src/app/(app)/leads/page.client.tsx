@@ -1020,6 +1020,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const runProgress = run?.meta?.progress;
   const runVisibleCount = liveRunItems?.length ?? run?.meta?.deliveredCount ?? 0;
 
+  // Estado visual do disco (23/07 — reativa a leitura de estado do radar por
+  // cor): pesquisando AGORA = funcionando; motor pausado (não-terminal) =
+  // pausado; qualquer outra coisa (ocioso/pronto/concluído) = parado.
+  const discState: "funcionando" | "pausado" | "parado" =
+    runActive ? "funcionando" : opState === "pausado" ? "pausado" : "parado";
+
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
   function validarCamposOuPopup(effSegment?: string): boolean {
     const segToCheck = effSegment != null ? effSegment : segment;
@@ -1715,7 +1721,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       return (
         <div className="radar-mini-bar">
           <div style={{ flexShrink: 0, width: 56, height: 56 }}>
-            <RadarDisc mini />
+            <RadarDisc mini state={discState} />
           </div>
           <div style={{ minWidth: 0 }}>
             <div className="radar-mini-bar__title">Radar HBX</div>
@@ -1756,7 +1762,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       <div className="radar-console radar-showoff radar-viewer">
         <div className="radar-hero">
           <div className="radar-hero__disc">
-            <RadarDisc />
+            <RadarDisc state={discState} />
           </div>
           <div className="radar-hero__copy">
             <span className="radar-hero__eyebrow">Radar HBX</span>

@@ -1517,6 +1517,43 @@ html, body { height: 100%; }
   .radarCompass { animation: none !important; }
 }
 
+/* ── Estado do radar (23/07) — o disco muda de COR e de RITMO conforme o que o
+   motor está fazendo, pra dar de bater o olho: pesquisando / pausado / parado.
+   Truque tokens-first (5 Leis): TODO elemento do disco lê cor de --radar-* via
+   color-mix, então basta redefinir esses tokens no wrapper que o disco inteiro
+   (sweep, blips, anéis, bússola, trilhas) recolore junto — sem tocar em nenhuma
+   regra por-elemento. `--funcionando` é o padrão aprovado (accent, vivo). */
+
+/* Pausado = warning: mesmo disco, tinta âmbar e sweep respirando devagar. */
+.radar-disc-wrap--pausado {
+  --radar-sweep: color-mix(in srgb, var(--hbx-warning) 82%, transparent);
+  --radar-ring:  color-mix(in srgb, var(--hbx-warning) 28%, transparent);
+  --radar-blip:  color-mix(in srgb, var(--hbx-warning) 90%, transparent);
+  --radar-glow:  color-mix(in srgb, var(--hbx-warning) 70%, transparent);
+  --radar-trail: color-mix(in srgb, var(--hbx-warning) 30%, transparent);
+  --radar-axis:  color-mix(in srgb, var(--hbx-warning) 22%, transparent);
+}
+.radar-disc-wrap--pausado .radarSweep2   { animation-duration: 7.4s; }
+.radar-disc-wrap--pausado .radarPulseRing { animation-duration: 4.4s; }
+.radar-disc-wrap--pausado .radarBlip2    { animation-duration: 5.2s, 5.2s; }
+
+/* Parado = repouso: tinta cinza + sweep/pings congelados e blips apagados —
+   dá pra ver na hora que o radar não está pegando nada agora. */
+.radar-disc-wrap--parado {
+  --radar-sweep: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  --radar-ring:  color-mix(in srgb, var(--text-muted) 22%, transparent);
+  --radar-blip:  color-mix(in srgb, var(--text-muted) 60%, transparent);
+  --radar-glow:  color-mix(in srgb, var(--text-muted) 28%, transparent);
+  --radar-trail: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  --radar-axis:  color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+.radar-disc-wrap--parado .radarSweep2,
+.radar-disc-wrap--parado .radarPulseRing,
+.radar-disc-wrap--parado .radarBlip2Ripple,
+.radar-disc-wrap--parado .radarTrack,
+.radar-disc-wrap--parado .radarCompass { animation: none; }
+.radar-disc-wrap--parado .radarBlip2 { animation: none; opacity: 0.4; }
+
 /* ── Radar console: estado label + filtros ───────────────────────────────── */
 .radar-state-label { font-size: 0.72rem; font-weight: 700; text-align: center; color: var(--text-muted); margin: 4px 0 0; }
 .radar-state-label--funcionando { color: var(--hbx-brand-strong); }
