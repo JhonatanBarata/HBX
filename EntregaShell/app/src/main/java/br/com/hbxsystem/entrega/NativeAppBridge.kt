@@ -16,6 +16,8 @@ import android.os.VibratorManager
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.util.Base64
+import android.view.WindowManager
+import android.view.autofill.AutofillManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
 import android.webkit.WebView
@@ -475,6 +477,37 @@ class NativeAppBridge(
     // `ChegadaActivity` leem, então JS/nativo nunca descombinam.
     @JavascriptInterface
     fun soundPrefs(): String = HbxSoundEngine.prefsJson(activity)
+
+    /**
+     * O checkout é HTML local, mas os campos participam do Autofill Framework
+     * do Android. O usuário escolhe o cartão no provedor configurado no aparelho
+     * (Google, Samsung, 1Password etc.); o HBX nunca consulta nem armazena esse
+     * cofre. O retorno informa apenas se existe um serviço ativo.
+     */
+    @JavascriptInterface
+    fun requestAutofill(): Boolean {
+        if (BuildConfig.APP_MODE != "logistica" || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = activity.getSystemService(AutofillManager::class.java) ?: return false
+        if (!manager.isEnabled) return false
+        activity.runOnUiThread {
+            webView.requestFocus()
+            manager.requestAutofill(webView)
+        }
+        return true
+    }
+
+    /** Impede screenshot e miniatura de recentes enquanto o cartão está na tela. */
+    @JavascriptInterface
+    fun setSensitiveScreen(enabled: Boolean) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread {
+            if (enabled) {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            } else {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            }
+        }
+    }
 
     // S5 — grava o JSON que o JS montou (mestra + voz + off[]) e devolve o
     // estado EFETIVO já persistido (mesmo padrão de `setOfflinePreferences`,

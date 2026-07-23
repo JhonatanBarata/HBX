@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
+import android.view.View
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -109,6 +110,7 @@ class MainActivity : AppCompatActivity() {
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
             alpha = 0f
             translationX = resources.displayMetrics.density * 72f
             settings.javaScriptEnabled = true

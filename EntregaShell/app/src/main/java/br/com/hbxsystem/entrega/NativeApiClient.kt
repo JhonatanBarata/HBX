@@ -263,6 +263,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "config"),
             listOf("logistica", "creditos", "extrato"),
             listOf("credits", "public-catalog"),
+            listOf("credits", "me"),
+            listOf("financeiro", "payments-config"),
             listOf("logistica", "admin-route", "route"),
             listOf("logistica", "admin-route", "adjustments"),
             listOf("logistica", "rota-modelos"),
@@ -282,6 +284,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // HISTÓRICO DO CLIENTE (22/07) — GET /logistica/clientes/:id/historico.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
         method == "POST" && segments in listOf(
+            listOf("financeiro", "credits", "recharge"),
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "mobile", "materialize"),
             listOf("logistica", "rota", "planejar"),

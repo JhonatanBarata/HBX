@@ -2982,16 +2982,24 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
     return this.getOverviewForUser(user);
   }
 
-  // Config que o front precisa pra renderizar o cartão da assinatura (Sprint 4
-  // PR14062026012): modo (mock em dev / live) + chave PÚBLICA do Mercado Pago
-  // (NUNCA o access token — esse é secreto e fica só no backend). Em mock, o front
-  // assina sem SDK; em live, renderiza o Card Brick com a publicKey.
-  getPaymentsConfigForUser(user: any) {
+  // Config pública do checkout + dados do próprio pagador já conhecidos pelo HBX.
+  // Nome vem do login (inclusive Google) e documento vem da empresa do contexto;
+  // isso reduz digitação sem consultar Gmail/Wallet e sem devolver nenhum segredo.
+  // O access token do Mercado Pago continua exclusivamente no backend.
+  async getPaymentsConfigForUser(user: any) {
     const context = this.resolveUserContext(user);
     this.assertCanManageBilling(context);
+    const company = await this.prisma.company.findUnique({
+      where: { id: context.companyId },
+      select: { name: true, primaryContactName: true, taxDocument: true },
+    });
     return {
       mode: this.isMockPaymentsProvider() ? 'mock' : 'live',
       publicKey: String(process.env.MERCADO_PAGO_PUBLIC_KEY || '').trim() || null,
+      prefill: {
+        holderName: String(user?.name || company?.primaryContactName || company?.name || '').trim() || null,
+        taxDocument: String(company?.taxDocument || '').replace(/\D/g, '') || null,
+      },
     };
   }
 

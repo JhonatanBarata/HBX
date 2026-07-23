@@ -79,12 +79,17 @@ class NativeApiClientPathPolicyTest {
     }
 
     @Test
-    fun recargaExposesOnlyThePublicCatalogReadOnly() {
+    fun recargaExposesOnlyItsExactOwnerCheckoutEndpoints() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/credits/public-catalog"))
-        // A COMPRA nunca passa pelo app: recarga por cartão é só no painel web.
-        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/financeiro/credits/recharge"))
-        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/credits/me"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/credits/me"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/financeiro/payments-config"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/financeiro/credits/recharge"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/financeiro/credits/recharge"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/financeiro/payments-config"))
         assertFalse(isMobileEndpointAllowed("vendas", "GET", "/credits/public-catalog"))
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/credits/me"))
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/financeiro/payments-config"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/financeiro/credits/recharge"))
     }
 
     @Test

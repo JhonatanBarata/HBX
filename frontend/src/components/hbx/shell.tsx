@@ -282,7 +282,13 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
   onCancel: () => void;
 }) {
   if (!open) return null;
-  return (
+  // Portal pro <body>: o ConfirmDialog é montado DENTRO da <header className="topbar">,
+  // e nas peles de vidro (aurora/hbx-cyber/rose) o `.topbar` tem `backdrop-filter: blur()`
+  // — que cria containing-block pro `position:fixed` do `.hbx-veil`, prendendo o modal
+  // dentro da barra de ~60px (aparecia grudado no topo, cortado). Renderizar no body
+  // faz o `fixed` voltar a resolver contra a viewport, de qualquer lugar da árvore.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
       <div className="hbx-modal" role="dialog" aria-modal="true"
         style={{ width: "min(400px, 100%)", display: "grid", gap: 14, padding: 24 }}>
@@ -294,7 +300,8 @@ export function ConfirmDialog({ open, title, message, confirmLabel = "Confirmar"
             style={{ color: danger ? "var(--hbx-danger)" : "var(--hbx-brand-strong)", fontWeight: 700 }}>{confirmLabel}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

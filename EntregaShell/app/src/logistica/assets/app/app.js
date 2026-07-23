@@ -18,10 +18,23 @@
     config: H.cache.get("logistica-config", null),
     companyName: H.cache.get("logistica-company-name", ""),
     statement: null,
-    // L4-F Recarga: vitrine dos packs (catálogo público) + trava de saldo zerado.
+    // Recarga completa: carteira role-gated, vitrine, checkout tokenizado e
+    // estados de aprovação. Dados brutos do cartão vivem só nesta memória e
+    // são zerados ao sair; nunca entram no cache/localStorage.
     recargaCatalog: null,
     recargaLoading: false,
     recargaError: null,
+    recargaStep: "packs",
+    recargaPackKey: null,
+    recargaIntentKey: null,
+    recargaPaymentConfig: null,
+    recargaPaymentConfigLoading: false,
+    recargaPaymentConfigError: null,
+    recargaPhase: "idle",
+    recargaCheckoutError: null,
+    recargaDraft: { taxDocument: "", cardNumber: "", holderName: "", expiry: "", cvv: "" },
+    recargaAutofillRequestedAt: 0,
+    recargaResult: null,
     creditsLock: null,
     // Rascunho do form "Entrega avulsa" — sobrevive a re-renders do shell.
     oneoffDraft: {},
@@ -261,6 +274,7 @@
   let routeMap = null;
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
+  let mercadoPagoSdkPromise = null;
   let routeMapLayoutTimers = [];
   // S1 21/07 (PR21072026-NAVEGAÇÃO) — último fix de GPS conhecido, setado por
   // currentPosition() sempre que qualquer fluxo do app pede localização. Usado
@@ -327,6 +341,7 @@
     chevronUp: "<path d='m18 15-6-6-6 6'/>",
     chevronDown: "<path d='m6 9 6 6 6-6'/>",
     wallet: "<path d='M20 7V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v12H5a3 3 0 0 1-3-3V6'/><path d='M16 13h4'/>",
+    card: "<rect x='2' y='5' width='20' height='14' rx='2'/><path d='M2 10h20M6 15h4'/>",
     logout: "<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'/>",
     gps: "<circle cx='12' cy='12' r='3'/><circle cx='12' cy='12' r='8'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3'/>",
     search: "<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>",
@@ -3993,32 +4008,353 @@
     if (state.modal === "app-update") return appUpdateModal();
     return "";
   }
-  // L4-F — Recarga (Ajustes › Administração, SÓ admin): saldo + vitrine dos packs
-  // do catálogo público. A COMPRA (cartão/MP) é concluída no PAINEL WEB — o link
-  // externo sai do WebView pro navegador (shouldOverrideUrlLoading); cartão nunca
-  // entra no app. Valores só aparecem aqui porque a tela inteira é admin-only
-  // (Lei do Vendedor preservada).
+  // Recarga dentro do APK: o backend continua sendo a fonte de preço, papel e
+  // aprovação; o front só tokeniza o cartão com a chave PÚBLICA do Mercado Pago.
+  // Número/CVV nunca passam pela bridge nativa nem entram no cache do aplicativo.
+  function emptyRecargaDraft() { return { taxDocument: "", cardNumber: "", holderName: "", expiry: "", cvv: "" }; }
+  function recargaPacks() { return state.recargaCatalog && Array.isArray(state.recargaCatalog.packs) ? state.recargaCatalog.packs : []; }
+  function recargaPack() { return recargaPacks().find(pack => String(pack.key) === String(state.recargaPackKey)) || null; }
+  function formatRecargaDocument(value) {
+    const digits = onlyDigits(value).slice(0, 14);
+    if (digits.length <= 11) return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+    return digits.replace(/(\d{2})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1/$2").replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+  }
+  function detectRecargaCardBrand(value) {
+    const number = onlyDigits(value);
+    if (!number) return "";
+    if (/^4/.test(number)) return "VISA";
+    if (/^3[47]/.test(number)) return "AMEX";
+    if (/^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]|720))/.test(number)) return "MASTERCARD";
+    if (/^(4011|4312|4389|4514|4576|5041|5066|5067|509|6277|6362|6363|650|6516|6550)/.test(number)) return "ELO";
+    return "CARTÃO";
+  }
+  function formatRecargaCardNumber(value) {
+    const digits = onlyDigits(value).slice(0, 19);
+    if (/^3[47]/.test(digits)) return [digits.slice(0, 4), digits.slice(4, 10), digits.slice(10, 15)].filter(Boolean).join(" ");
+    return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+  }
+  function formatRecargaExpiry(value) {
+    const digits = onlyDigits(value).slice(0, 4);
+    return digits.length >= 3 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+  }
+  function validCardChecksum(value) {
+    const digits = onlyDigits(value);
+    if (digits.length < 13 || digits.length > 19 || /^(\d)\1+$/.test(digits)) return false;
+    let sum = 0; let doubleDigit = false;
+    for (let index = digits.length - 1; index >= 0; index -= 1) {
+      let digit = Number(digits[index]);
+      if (doubleDigit) { digit *= 2; if (digit > 9) digit -= 9; }
+      sum += digit; doubleDigit = !doubleDigit;
+    }
+    return sum % 10 === 0;
+  }
+  function validRecargaExpiry(value) {
+    const match = String(value || "").match(/^(\d{2})\/(\d{2})$/);
+    if (!match) return false;
+    const month = Number(match[1]); const year = 2000 + Number(match[2]); const now = new Date();
+    return month >= 1 && month <= 12 && (year > now.getFullYear() || (year === now.getFullYear() && month >= now.getMonth() + 1));
+  }
+  function validateRecargaDraft() {
+    const draft = state.recargaDraft || emptyRecargaDraft();
+    const documentDigits = onlyDigits(draft.taxDocument);
+    if (![11, 14].includes(documentDigits.length)) return { field: "recarga-tax-document", message: "Informe um CPF ou CNPJ completo." };
+    if (!validCardChecksum(draft.cardNumber)) return { field: "recarga-card-number", message: "Confira o número do cartão." };
+    if (String(draft.holderName || "").trim().length < 3) return { field: "recarga-card-holder", message: "Informe o nome como aparece no cartão." };
+    if (!validRecargaExpiry(draft.expiry)) return { field: "recarga-card-expiry", message: "Confira a validade do cartão." };
+    if (onlyDigits(draft.cvv).length < 3) return { field: "recarga-card-cvv", message: "Informe o código de segurança do cartão." };
+    return null;
+  }
+  function readMercadoPagoError(error) {
+    const causes = error && Array.isArray(error.cause) ? error.cause : [];
+    const codes = new Set(causes.map(cause => String(cause && cause.code || "")));
+    if (["205", "E301"].some(code => codes.has(code))) return "Confira o número do cartão.";
+    if (["208", "209", "325", "326"].some(code => codes.has(code))) return "Confira a validade do cartão.";
+    if (["224", "E302"].some(code => codes.has(code))) return "Confira o código de segurança.";
+    if (["221", "E304"].some(code => codes.has(code))) return "Confira o nome impresso no cartão.";
+    if (["324", "E303"].some(code => codes.has(code))) return "Confira o CPF ou CNPJ do pagador.";
+    const described = causes.map(cause => String(cause && cause.description || "").trim()).filter(Boolean).join(" · ");
+    if (described) return described;
+    const message = error instanceof Error ? error.message : String(error && error.message || "");
+    return message && !/\[object Object\]|undefined|null/i.test(message) ? message : "Não foi possível validar o cartão. Confira os dados e tente novamente.";
+  }
+  function ensureMercadoPagoSdk() {
+    if (window.MercadoPago) return Promise.resolve(window.MercadoPago);
+    if (mercadoPagoSdkPromise) return mercadoPagoSdkPromise;
+    mercadoPagoSdkPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      const timer = setTimeout(() => reject(new Error("O pagamento seguro demorou para carregar. Verifique sua internet e tente novamente.")), 12000);
+      script.id = "hbx-mercadopago-sdk";
+      script.src = "https://sdk.mercadopago.com/js/v2";
+      script.async = true;
+      script.onload = () => { clearTimeout(timer); window.MercadoPago ? resolve(window.MercadoPago) : reject(new Error("O pagamento seguro não iniciou corretamente.")); };
+      script.onerror = () => { clearTimeout(timer); reject(new Error("Não foi possível carregar o pagamento seguro.")); };
+      document.head.appendChild(script);
+    });
+    mercadoPagoSdkPromise.catch(() => {
+      mercadoPagoSdkPromise = null;
+      document.getElementById("hbx-mercadopago-sdk")?.remove();
+    });
+    return mercadoPagoSdkPromise;
+  }
+  function resetRecargaCheckout() {
+    state.recargaStep = "packs";
+    state.recargaPackKey = null;
+    state.recargaIntentKey = null;
+    state.recargaPhase = "idle";
+    state.recargaCheckoutError = null;
+    state.recargaDraft = emptyRecargaDraft();
+    state.recargaAutofillRequestedAt = 0;
+    state.recargaResult = null;
+    H.sensitive(false);
+  }
+  async function loadRecargaPaymentConfig(force) {
+    if (state.recargaPaymentConfigLoading || (state.recargaPaymentConfig && !force)) return;
+    state.recargaPaymentConfigLoading = true;
+    state.recargaPaymentConfigError = null;
+    if (state.modal === "recarga") render();
+    try {
+      const config = await H.api("/financeiro/payments-config");
+      const mode = config && config.mode === "mock" ? "mock" : "live";
+      if (mode === "live" && !String(config && config.publicKey || "").trim()) throw new Error("Pagamento ainda não configurado. Fale com o suporte HBX.");
+      state.recargaPaymentConfig = { ...config, mode };
+      const prefill = config && config.prefill || {};
+      if (!onlyDigits(state.recargaDraft.taxDocument) && prefill.taxDocument) state.recargaDraft.taxDocument = onlyDigits(prefill.taxDocument).slice(0, 14);
+      if (!String(state.recargaDraft.holderName || "").trim() && prefill.holderName) state.recargaDraft.holderName = String(prefill.holderName).trim().slice(0, 80);
+      if (mode === "live") void ensureMercadoPagoSdk().catch(() => {});
+    } catch (error) {
+      state.recargaPaymentConfig = null;
+      state.recargaPaymentConfigError = humanApiError(error);
+    } finally {
+      state.recargaPaymentConfigLoading = false;
+      if (state.modal === "recarga") render();
+    }
+  }
+  function beginRecargaCheckout(packKey) {
+    const pack = recargaPacks().find(item => String(item.key) === String(packKey));
+    if (!pack || pack.paused) return;
+    state.recargaStep = "checkout";
+    state.recargaPackKey = pack.key;
+    state.recargaIntentKey = H.uuid();
+    state.recargaPhase = "idle";
+    state.recargaCheckoutError = null;
+    state.recargaResult = null;
+    state.recargaDraft = emptyRecargaDraft();
+    const prefill = state.recargaPaymentConfig && state.recargaPaymentConfig.prefill || {};
+    state.recargaDraft.taxDocument = onlyDigits(prefill.taxDocument).slice(0, 14);
+    state.recargaDraft.holderName = String(prefill.holderName || "").trim().slice(0, 80);
+    H.sensitive(true);
+    render();
+    if (!state.recargaPaymentConfig) void loadRecargaPaymentConfig();
+  }
+  function leaveRecargaCheckout() { resetRecargaCheckout(); render(); }
+  function requestRecargaAutofill() {
+    state.recargaAutofillRequestedAt = Date.now();
+    const number = document.getElementById("recarga-card-number");
+    if (number) focusKeyboardField(number);
+    if (!H.autofill()) toast("O preenchimento automático não está ativo neste celular.", true);
+  }
+  function maybeFocusRecargaCvv() {
+    if (Date.now() - Number(state.recargaAutofillRequestedAt || 0) > 10000) return;
+    const draft = state.recargaDraft || emptyRecargaDraft();
+    if (!validCardChecksum(draft.cardNumber) || !validRecargaExpiry(draft.expiry) || String(draft.holderName || "").trim().length < 3 || ![11, 14].includes(onlyDigits(draft.taxDocument).length) || onlyDigits(draft.cvv)) return;
+    setTimeout(() => {
+      const cvv = document.getElementById("recarga-card-cvv");
+      if (cvv && document.activeElement !== cvv) focusKeyboardField(cvv);
+    }, 120);
+  }
+  function maskedRecargaNumber(value, fallbackLast4) {
+    const digits = onlyDigits(value);
+    const last4 = digits.slice(-4) || String(fallbackLast4 || "").slice(-4);
+    return last4 ? `•••• •••• •••• ${last4.padStart(4, "•")}` : "•••• •••• •••• ••••";
+  }
+  function syncRecargaCardPreview() {
+    const card = app.querySelector("[data-recarga-card]");
+    if (!card) return;
+    const draft = state.recargaDraft || emptyRecargaDraft();
+    const result = state.recargaResult || {};
+    const number = card.querySelector("[data-recarga-card-number]");
+    const holder = card.querySelector("[data-recarga-card-holder]");
+    const expiry = card.querySelector("[data-recarga-card-expiry]");
+    const brand = card.querySelector("[data-recarga-card-brand]");
+    const cvv = card.querySelector("[data-recarga-card-cvv]");
+    if (number) number.textContent = maskedRecargaNumber(draft.cardNumber, result.last4);
+    if (holder) holder.textContent = String(draft.holderName || "SEU NOME").trim().toUpperCase();
+    if (expiry) expiry.textContent = draft.expiry || "MM/AA";
+    if (brand) brand.textContent = detectRecargaCardBrand(draft.cardNumber) || result.brand || "HBX";
+    if (cvv) cvv.textContent = onlyDigits(draft.cvv) ? "•".repeat(onlyDigits(draft.cvv).length) : "•••";
+    card.classList.toggle("is-flipped", document.activeElement && document.activeElement.id === "recarga-card-cvv");
+  }
+  function hydrateRecargaCheckout() {
+    const form = document.getElementById("recarga-checkout-form");
+    if (!form) return;
+    const draft = state.recargaDraft || emptyRecargaDraft();
+    const values = {
+      "tax-document": formatRecargaDocument(draft.taxDocument),
+      "cc-number": formatRecargaCardNumber(draft.cardNumber),
+      "cc-name": draft.holderName,
+      "cc-exp": draft.expiry,
+      "cc-csc": draft.cvv,
+    };
+    Object.entries(values).forEach(([name, value]) => {
+      const input = form.elements.namedItem(name);
+      if (input && input.value !== value) input.value = value;
+    });
+    syncRecargaCardPreview();
+  }
+  function captureRecargaCheckoutInput(input) {
+    if (!input || !input.form || input.form.id !== "recarga-checkout-form") return false;
+    const draft = state.recargaDraft || (state.recargaDraft = emptyRecargaDraft());
+    if (input.name === "tax-document") { input.value = formatRecargaDocument(input.value); draft.taxDocument = onlyDigits(input.value).slice(0, 14); }
+    if (input.name === "cc-number") { input.value = formatRecargaCardNumber(input.value); draft.cardNumber = onlyDigits(input.value).slice(0, 19); }
+    if (input.name === "cc-name") { input.value = String(input.value || "").slice(0, 80); draft.holderName = input.value; }
+    if (input.name === "cc-exp") { input.value = formatRecargaExpiry(input.value); draft.expiry = input.value; }
+    if (input.name === "cc-csc") { input.value = onlyDigits(input.value).slice(0, 4); draft.cvv = input.value; }
+    state.recargaCheckoutError = null;
+    const errorBox = app.querySelector("[data-recarga-checkout-error]");
+    if (errorBox) { errorBox.textContent = ""; errorBox.hidden = true; }
+    syncRecargaCardPreview();
+    maybeFocusRecargaCvv();
+    return true;
+  }
+  async function submitRecargaCheckout() {
+    if (state.recargaPhase === "paying" || state.recargaPhase === "approved") return;
+    const pack = recargaPack();
+    if (!pack) { state.recargaCheckoutError = "Escolha novamente o pacote de créditos."; state.recargaStep = "packs"; render(); return; }
+    const validation = validateRecargaDraft();
+    if (validation) {
+      state.recargaPhase = "idle";
+      state.recargaCheckoutError = validation.message;
+      render();
+      requestAnimationFrame(() => focusKeyboardField(document.getElementById(validation.field)));
+      return;
+    }
+    if (state.recargaPaymentConfigLoading) { state.recargaCheckoutError = "O pagamento seguro ainda está carregando."; render(); return; }
+    if (!state.recargaPaymentConfig) { state.recargaCheckoutError = state.recargaPaymentConfigError || "Pagamento indisponível no momento."; render(); return; }
+    state.recargaPhase = "paying";
+    state.recargaCheckoutError = null;
+    render();
+    try {
+      const config = state.recargaPaymentConfig;
+      const draft = state.recargaDraft;
+      let cardTokenId = `mock-card-${Date.now()}`;
+      let paymentMethodId = "master";
+      if (config.mode === "live") {
+        const MercadoPago = await ensureMercadoPagoSdk();
+        const mp = new MercadoPago(String(config.publicKey), { locale: "pt-BR", advancedFraudPrevention: true });
+        const [month, shortYear] = String(draft.expiry).split("/");
+        const documentDigits = onlyDigits(draft.taxDocument);
+        const token = await mp.createCardToken({
+          cardNumber: onlyDigits(draft.cardNumber),
+          cardholderName: String(draft.holderName || "").trim(),
+          cardExpirationMonth: month,
+          cardExpirationYear: `20${shortYear}`,
+          securityCode: onlyDigits(draft.cvv),
+          identificationType: documentDigits.length > 11 ? "CNPJ" : "CPF",
+          identificationNumber: documentDigits,
+        });
+        cardTokenId = String(token && token.id || "");
+        if (!cardTokenId) throw new Error("Não conseguimos validar o cartão. Confira os dados e tente novamente.");
+        const methods = await mp.getPaymentMethods({ bin: onlyDigits(draft.cardNumber).slice(0, 6) });
+        paymentMethodId = String(methods && methods.results && methods.results[0] && methods.results[0].id || "");
+        if (!paymentMethodId) throw new Error("A bandeira deste cartão não foi reconhecida.");
+      }
+      const response = await H.api("/financeiro/credits/recharge", {
+        method: "POST",
+        body: {
+          packKey: pack.key,
+          idempotencyKey: state.recargaIntentKey,
+          cardTokenId,
+          paymentMethodId,
+          taxDocument: onlyDigits(draft.taxDocument),
+        },
+      });
+      if (!response || response.ok !== true) {
+        if (response && response.code === "CHARGE_DECLINED") state.recargaIntentKey = H.uuid();
+        const rejection = new Error(response && response.message || "Não foi possível concluir a recarga.");
+        rejection.code = response && response.code;
+        throw rejection;
+      }
+      const last4 = onlyDigits(draft.cardNumber).slice(-4);
+      const brand = detectRecargaCardBrand(draft.cardNumber);
+      const balanceAfter = Number(response.balanceAfter);
+      state.recargaResult = { pack, credited: Number(response.credited || pack.credits), balanceAfter, last4, brand };
+      state.recargaPhase = "approved";
+      state.recargaDraft = emptyRecargaDraft();
+      if (state.recargaCatalog && Number.isFinite(balanceAfter)) state.recargaCatalog = { ...state.recargaCatalog, balance: balanceAfter };
+      if (Number.isFinite(balanceAfter)) state.statement = { ...(state.statement || {}), balanceCredits: balanceAfter };
+      if (Number.isFinite(balanceAfter) && balanceAfter > 0) state.creditsLock = null;
+      render();
+      H.sensitive(false);
+      H.sound("success");
+      setTimeout(() => {
+        if (state.modal !== "recarga" || state.recargaPhase !== "approved") return;
+        state.recargaStep = "success";
+        state.recargaPhase = "idle";
+        render();
+      }, window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 350 : 1200);
+    } catch (error) {
+      state.recargaPhase = "declined";
+      state.recargaCheckoutError = readMercadoPagoError(error);
+      render();
+      H.sound("error");
+    }
+  }
+  function recargaSheetHeader(title, subtitle, backAction) {
+    return `<div class="recarga-head">${backAction ? `<button type="button" class="recarga-back" data-action="${backAction}" aria-label="Voltar">‹</button>` : `<div class="recarga-head-icon">${icon("wallet", 19)}</div>`}<div class="recarga-head-copy"><h2>${H.escape(title)}</h2>${subtitle ? `<p>${H.escape(subtitle)}</p>` : ""}</div><button type="button" class="close recarga-close" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button></div>`;
+  }
+  function recargaPacksView() {
+    const catalog = state.recargaCatalog || {};
+    const packs = recargaPacks();
+    const balance = Number(catalog.balance !== undefined ? catalog.balance : state.statement && state.statement.balanceCredits || 0);
+    const units = packs.filter(pack => !pack.paused && Number(pack.credits) > 0 && Number(pack.price) > 0).map(pack => Number(pack.price) / Number(pack.credits));
+    const worstUnit = units.length ? Math.max(...units) : 0;
+    const skeletons = `<div class="recarga-pack-track" aria-hidden="true">${[0, 1, 2].map(() => `<div class="recarga-pack recarga-pack-skeleton loading"></div>`).join("")}</div>`;
+    const error = `<div class="recarga-load-error"><div class="recarga-load-error-icon">${icon("wallet", 22)}</div><strong>Não foi possível abrir a recarga</strong><p>${H.escape(state.recargaError || "Tente novamente em instantes.")}</p><button type="button" class="btn btn-secondary" data-action="recarga-reload">Tentar novamente</button></div>`;
+    const cards = packs.map(pack => {
+      const credits = Number(pack.credits || 0); const price = Number(pack.price || 0); const unit = credits > 0 ? price / credits : 0;
+      const save = !pack.paused && worstUnit > 0 && unit > 0 ? Math.round((1 - unit / worstUnit) * 100) : 0;
+      const badge = pack.badge || (pack.recommended ? "Mais escolhido" : "");
+      return `<article class="recarga-pack${pack.recommended ? " is-best" : ""}${pack.paused ? " is-paused" : ""}" data-recarga-pack="${H.escape(pack.key)}">${badge ? `<span class="recarga-pack-badge">${H.escape(badge)}</span>` : ""}<span class="recarga-pack-title">${H.escape(pack.title || "Pacote")}</span><div class="recarga-pack-credits"><strong>${credits.toLocaleString("pt-BR")}</strong><span>créditos</span></div><strong class="recarga-pack-price">${H.money(price)}</strong><span class="recarga-pack-unit">${H.money(unit)} por crédito</span>${save > 0 ? `<span class="recarga-pack-save">Economize ${save}% por crédito</span>` : `<span class="recarga-pack-save is-neutral">Recarga rápida e sem assinatura</span>`}<span class="recarga-pack-expiry">Validade de ${Number(pack.defaultExpiryDays || 0)} dias</span><button type="button" class="btn btn-primary btn-block recarga-pack-cta" data-action="recarga-select-pack" data-pack-key="${H.escape(pack.key)}" ${pack.paused ? "disabled" : ""}>${pack.paused ? "Em breve" : "Escolher pacote"}</button></article>`;
+    }).join("");
+    const content = state.recargaLoading ? skeletons : state.recargaError ? error : packs.length ? `<div class="recarga-pack-track">${cards}</div>` : `<div class="recarga-load-error"><strong>Sem pacotes no momento</strong><p>Fale com o suporte HBX.</p></div>`;
+    return `${recargaSheetHeader("Recarga de créditos", "Escolha o pacote ideal para sua operação")}<section class="recarga-balance-hero"><span class="recarga-balance-kicker">Saldo disponível</span><div class="recarga-balance-value"><strong>${Number.isFinite(balance) ? balance.toLocaleString("pt-BR") : "0"}</strong><span>créditos</span></div><p>Os créditos entram na hora após a aprovação.</p><span class="recarga-balance-orbit one"></span><span class="recarga-balance-orbit two"></span></section><div class="recarga-section-title"><div><strong>Pacotes</strong><span>Sem assinatura e sem fidelidade</span></div><span class="recarga-secure-chip">${icon("lock", 13)} Seguro</span></div>${content}<div class="recarga-trust-row"><span>${icon("check", 14)} Aprovação imediata</span><span>${icon("check", 14)} Preço do servidor</span><span>${icon("lock", 14)} Cartão protegido</span></div>`;
+  }
+  function recargaCheckoutView() {
+    const pack = recargaPack();
+    if (!pack) return recargaPacksView();
+    const paying = state.recargaPhase === "paying"; const approved = state.recargaPhase === "approved"; const declined = state.recargaPhase === "declined";
+    const stageClass = `recarga-checkout-stage${paying ? " is-paying is-busy" : ""}${approved ? " is-approved is-busy" : ""}${declined ? " is-declined" : ""}`;
+    const status = paying ? `<div class="recarga-card-status" role="status"><span class="recarga-status-spinner"></span><strong>Processando</strong><small>Validando com segurança…</small></div>` : approved ? `<div class="recarga-card-status is-approved" role="status"><span class="recarga-status-check">${icon("check", 32)}</span><strong>Aprovado</strong><small>Créditos liberados</small></div>` : "";
+    const configNote = state.recargaPaymentConfigLoading ? `<div class="recarga-config-note"><span class="recarga-mini-spinner"></span> Preparando pagamento seguro…</div>` : state.recargaPaymentConfigError ? `<div class="recarga-config-note is-error"><span>${H.escape(state.recargaPaymentConfigError)}</span><button type="button" data-action="recarga-retry-config">Tentar novamente</button></div>` : state.recargaPaymentConfig && state.recargaPaymentConfig.mode === "mock" ? `<div class="recarga-config-note">Ambiente de teste — nenhum cartão real será cobrado.</div>` : "";
+    return `${recargaSheetHeader("Pagamento seguro", `${Number(pack.credits || 0).toLocaleString("pt-BR")} créditos · ${H.money(Number(pack.price || 0))}`, "recarga-back")}<div class="recarga-order-summary"><div class="recarga-order-icon">${icon("wallet", 18)}</div><div><span>${H.escape(pack.title || "Pacote")}</span><strong>${Number(pack.credits || 0).toLocaleString("pt-BR")} créditos</strong></div><b>${H.money(Number(pack.price || 0))}</b></div><form id="recarga-checkout-form" class="recarga-checkout-form" novalidate autocomplete="on"><div class="${stageClass}"><div class="recarga-card-scene">${paying ? `<span class="recarga-pay-ring" aria-hidden="true"></span>` : ""}<div class="recarga-card" data-recarga-card role="img" aria-label="Prévia protegida do cartão"><div class="recarga-card-face recarga-card-front"><div class="recarga-card-top"><span class="recarga-card-chip"></span><span data-recarga-card-brand>HBX</span></div><strong class="recarga-card-number" data-recarga-card-number>•••• •••• •••• ••••</strong><div class="recarga-card-foot"><div><small>Titular</small><span data-recarga-card-holder>SEU NOME</span></div><div><small>Validade</small><span data-recarga-card-expiry>MM/AA</span></div></div></div><div class="recarga-card-face recarga-card-back"><span class="recarga-card-stripe"></span><div class="recarga-card-cvv"><small>CVV</small><span data-recarga-card-cvv>•••</span></div></div></div>${status}</div><div class="recarga-checkout-fields"><button type="button" class="recarga-autofill" data-action="recarga-autofill"><span class="recarga-autofill-icon">G</span><span><strong>Usar dados salvos no celular</strong><small>Google ou seu gerenciador de preenchimento</small></span><b>Usar</b></button><div class="recarga-field"><label for="recarga-tax-document">CPF ou CNPJ do pagador</label><div class="recarga-input-wrap">${icon("users", 17)}<input id="recarga-tax-document" name="tax-document" type="text" inputmode="numeric" autocomplete="on" maxlength="18" placeholder="000.000.000-00" required></div></div><div class="recarga-field"><label for="recarga-card-number">Número do cartão</label><div class="recarga-input-wrap">${icon("card", 17)}<input id="recarga-card-number" name="cc-number" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="23" placeholder="0000 0000 0000 0000" required></div></div><div class="recarga-field"><label for="recarga-card-holder">Nome impresso no cartão</label><div class="recarga-input-wrap">${icon("users", 17)}<input id="recarga-card-holder" name="cc-name" type="text" autocomplete="cc-name" autocapitalize="characters" spellcheck="false" maxlength="80" placeholder="Como está no cartão" required></div></div><div class="recarga-field-row"><div class="recarga-field"><label for="recarga-card-expiry">Validade</label><div class="recarga-input-wrap"><input id="recarga-card-expiry" name="cc-exp" type="text" inputmode="numeric" autocomplete="cc-exp" maxlength="5" placeholder="MM/AA" required></div></div><div class="recarga-field"><label for="recarga-card-cvv">Código de segurança</label><div class="recarga-input-wrap"><input id="recarga-card-cvv" name="cc-csc" type="password" inputmode="numeric" autocomplete="cc-csc" maxlength="4" placeholder="CVV" required></div></div></div></div></div>${configNote}<div class="recarga-checkout-error" data-recarga-checkout-error ${state.recargaCheckoutError ? "" : "hidden"}>${H.escape(state.recargaCheckoutError || "")}</div><div class="recarga-checkout-actions"><button type="submit" class="btn btn-primary btn-block recarga-pay-button" ${paying || approved || state.recargaPaymentConfigLoading || !state.recargaPaymentConfig ? "disabled" : ""}>${paying ? "Processando…" : approved ? "Aprovado ✓" : declined ? `Tentar novamente · ${H.money(Number(pack.price || 0))}` : `Pagar ${H.money(Number(pack.price || 0))}`}</button>${declined ? `<button type="button" class="link-btn" data-action="recarga-clear-card">Usar outro cartão</button>` : ""}</div><p class="recarga-safe-note">${icon("lock", 13)} O Mercado Pago tokeniza os dados. A HBX nunca armazena seu cartão.</p></form>`;
+  }
+  function recargaSuccessView() {
+    const result = state.recargaResult || {}; const pack = result.pack || recargaPack() || {};
+    const credited = Number(result.credited || pack.credits || 0); const balance = Number(result.balanceAfter);
+    return `<div class="recarga-success"><button type="button" class="close recarga-success-close" data-action="recarga-finish" aria-label="Fechar">${icon("close", 18)}</button><div class="recarga-success-seal"><span>${icon("check", 42)}</span><i></i><i></i></div><span class="recarga-success-kicker">Pagamento aprovado</span><h2>Recarga concluída</h2><p>${credited.toLocaleString("pt-BR")} créditos foram adicionados à carteira da empresa.</p><div class="recarga-success-balance"><span>Novo saldo</span><strong>${Number.isFinite(balance) ? balance.toLocaleString("pt-BR") : "—"}</strong><small>créditos disponíveis</small></div><div class="recarga-success-receipt"><span>${H.escape(pack.title || "Pacote de créditos")}</span><strong>${H.money(Number(pack.price || 0))}</strong>${result.last4 ? `<small>${H.escape(result.brand || "Cartão")} final ${H.escape(result.last4)}</small>` : ""}</div><button type="button" class="btn btn-primary btn-block recarga-success-cta" data-action="recarga-finish">Continuar no aplicativo</button><p class="recarga-safe-note">${icon("check", 13)} Saldo atualizado automaticamente</p></div>`;
+  }
   function recargaModal() {
-    const statement = state.statement || {};
-    const balance = Number(statement.balanceCredits || 0);
-    const packs = state.recargaCatalog && Array.isArray(state.recargaCatalog.packs) ? state.recargaCatalog.packs : [];
-    const webBase = String((H.info() || {}).webBaseUrl || "").replace(/\/+$/, "");
-    const packRow = pack => `<div class="settings-row${pack.paused ? " hbx-dimmed" : ""}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>${H.escape(pack.title || pack.key || "Pacote")}</strong><span>${Number(pack.credits || 0)} créditos${pack.recommended ? " · mais usado" : ""}${pack.paused ? " · em breve" : ""}</span></div><strong>${H.money(Number(pack.price || 0))}</strong></div>`;
-    const list = state.recargaLoading ? loading() : state.recargaError ? empty("Não foi possível carregar", state.recargaError) : packs.length ? `<section class="card flat">${packs.map(packRow).join("")}</section>` : empty("Sem pacotes no momento", "Fale com o suporte HBX.");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Recarga de créditos</h2><p class="subtitle">Créditos geram as rotas do dia</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Saldo atual</span><strong>${balance}</strong></div></div><div class="section-title"><strong>Pacotes</strong></div>${list}${webBase ? `<a class="btn btn-primary btn-block" href="${H.escape(webBase)}/configuracoes">Concluir recarga no painel</a>` : `<p class="subtitle">Acesse o painel HBX no computador para concluir a recarga.</p>`}<p class="subtitle subtitle-gap">O pagamento é feito no painel HBX. Depois de pagar, toque em Sincronizar — os créditos entram sozinhos.</p></section></div>`;
+    const view = state.recargaStep === "checkout" ? recargaCheckoutView() : state.recargaStep === "success" ? recargaSuccessView() : recargaPacksView();
+    return `<div class="sheet-wrap recarga-wrap" data-action="close-modal"><section class="sheet recarga-sheet${state.recargaStep === "success" ? " is-success" : ""}">${view}</section></div>`;
   }
   function openRecarga() {
     if (!isAdmin()) return;
-    state.recargaLoading = true; state.recargaError = null;
+    resetRecargaCheckout();
+    state.recargaLoading = true;
+    state.recargaError = null;
+    state.recargaCatalog = null;
     showModal("recarga");
     void (async () => {
       try {
-        const [catalog, statement] = await Promise.all([
-          H.api("/credits/public-catalog"),
-          H.api("/logistica/creditos/extrato").catch(() => null),
-        ]);
-        state.recargaCatalog = catalog || { packs: [] };
-        if (statement) state.statement = statement;
+        const wallet = await H.api("/credits/me");
+        const billingShape = wallet && wallet.balance !== undefined && Array.isArray(wallet.packs);
+        if (!billingShape) throw new Error("A recarga está disponível somente para o responsável pela conta.");
+        state.recargaCatalog = wallet;
+        state.statement = { ...(state.statement || {}), balanceCredits: Number(wallet.balance || 0) };
+        state.recargaLoading = false;
+        render();
+        void loadRecargaPaymentConfig();
+        return;
       } catch (error) { state.recargaError = humanApiError(error); }
       state.recargaLoading = false;
       render();
@@ -4493,6 +4829,7 @@
     if (!willShowLeituraLiveMap) disposeLeituraLiveMap();
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
+    hydrateRecargaCheckout();
     enhancePaymentForms();
     enhanceMoneyInputs();
     enhanceKeyboardFields();
@@ -5167,11 +5504,12 @@
   }
   function closeOverlay(kind) {
     if (state.closingOverlay) return Promise.resolve();
+    const closingModal = kind === "modal" ? state.modal : null;
     if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; clearInterval(leituraObsTimer); }
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
-      if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
+      if (kind === "modal") { if (closingModal === "recarga") resetRecargaCheckout(); state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
       // 22/07 — fechar a folha zera TUDO da chegada editável (picker, preço aberto,
       // modo edição). Sem isso, a próxima parada abriria com o estado da anterior.
       if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
@@ -5292,10 +5630,14 @@
     replayIconMotion(event.target);
   }, { passive: true });
   app.addEventListener("focusin", event => {
+    if (event.target && event.target.id === "recarga-card-cvv") syncRecargaCardPreview();
     if (event.target && event.target.id === "leitura-obs-input") stopLeituraObsCountdown();
     requestAnimationFrame(() => { syncKeyboardViewport(); revealFocusedForKeyboard(); });
   });
-  app.addEventListener("focusout", () => setTimeout(syncKeyboardViewport, 80));
+  app.addEventListener("focusout", event => {
+    if (event.target && event.target.id === "recarga-card-cvv") setTimeout(syncRecargaCardPreview, 0);
+    setTimeout(syncKeyboardViewport, 80);
+  });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", () => { syncKeyboardViewport(); revealFocusedForKeyboard(); });
     window.visualViewport.addEventListener("scroll", syncKeyboardViewport);
@@ -5331,6 +5673,22 @@
       return;
     }
     const action = target.dataset.action;
+    if (action === "recarga-select-pack") { beginRecargaCheckout(target.dataset.packKey); return; }
+    if (action === "recarga-back") { if (state.recargaPhase === "paying") { toast("Aguarde a confirmação do pagamento.", false, { mudo: true }); return; } leaveRecargaCheckout(); return; }
+    if (action === "recarga-autofill") { requestRecargaAutofill(); return; }
+    if (action === "recarga-retry-config") { void loadRecargaPaymentConfig(true); return; }
+    if (action === "recarga-clear-card") {
+      const prefill = state.recargaPaymentConfig && state.recargaPaymentConfig.prefill || {};
+      state.recargaIntentKey = H.uuid();
+      state.recargaPhase = "idle";
+      state.recargaCheckoutError = null;
+      state.recargaDraft = { taxDocument: onlyDigits(state.recargaDraft.taxDocument || prefill.taxDocument).slice(0, 14), cardNumber: "", holderName: String(prefill.holderName || "").trim().slice(0, 80), expiry: "", cvv: "" };
+      render();
+      requestAnimationFrame(() => focusKeyboardField(document.getElementById("recarga-card-number")));
+      return;
+    }
+    if (action === "recarga-reload") { openRecarga(); return; }
+    if (action === "recarga-finish") { await closeOverlay("modal"); return; }
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — mudo do painel de navegação:
     // alterna state.navMudo + persiste (H.cache). Mudo NÃO some com o
     // banner, só segura os H.speak() futuros (ver processNavVoice); um
@@ -5469,7 +5827,7 @@
     // comentário da função (mapa sobrevive à troca de tela).
     if (action === "theme") { H.theme.toggle(); render(); repaintThemedMapLayers(); }
     if (action === "refresh") refresh(false);
-    if (action === "close-modal") { await closeOverlay("modal"); return; }
+    if (action === "close-modal") { if (state.modal === "recarga" && state.recargaPhase === "paying") { toast("Aguarde a confirmação do pagamento.", false, { mudo: true }); return; } await closeOverlay("modal"); return; }
     if (action === "close-sheet") { await closeOverlay("sheet"); return; }
     if (action === "cancel-confirmation") { state.confirmation = null; render(); return; }
     if (action === "duplicate-leitura-continue") {
@@ -5817,7 +6175,7 @@
     if (action === "call-stop" || action === "wa-stop" || action === "confirm-stop") { event.preventDefault(); event.stopPropagation(); const next = openItems()[0]; if (!next) return; if (action === "call-stop") H.call(next.cliente.phone); if (action === "wa-stop") H.whatsapp(next.cliente.phone, `Olá, ${next.cliente.nome || "tudo bem"}? Sua entrega está a caminho.`); if (action === "confirm-stop") confirmDelivery(next); }
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(humanApiError(error), true); } }
-    if (action === "open-recarga") openRecarga();
+    if (action === "open-recarga") { openRecarga(); return; }
     // S7 — "Atualizar" do motorista não tem extrato pra chamar (403 pra ele):
     // dispara um refresh(true) normal, que já busca /logistica/config de novo e
     // reaplica applyDriverCreditsLock — mesmo botão, caminho por papel.
@@ -6302,6 +6660,7 @@
   app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
+    if (captureRecargaCheckoutInput(event.target)) return;
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) {
       state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value };
       return;
@@ -6378,6 +6737,7 @@
     clientsSearchTimer = setTimeout(() => loadClients(true), 300);
   });
   app.addEventListener("change", event => {
+    if (captureRecargaCheckoutInput(event.target)) return;
     if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { state.oneoffDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) { state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value }; return; }
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
@@ -6430,6 +6790,7 @@
     event.preventDefault(); const form = event.target; const button = form.querySelector("button[type=submit]"); button.disabled = true;
     try {
       const data = formValues(form);
+      if (form.id === "recarga-checkout-form") { await submitRecargaCheckout(); return; }
       // Preço de hoje na chegada (22/07): Enter no teclado confirma igual ao ✓
       // (Lei 5). Sem este ramo o submit caía no fim do handler sem fazer nada e o
       // valor digitado se perdia.
@@ -6626,6 +6987,11 @@
         // cliente (de onde foi aberto); dentro da chegada, o picker de produto e o
         // campo de preço fecham ANTES da folha inteira.
         if (state.modal === "historico") { state.historico = null; showModal("client-product"); return true; }
+        if (state.modal === "recarga" && state.recargaStep === "checkout") {
+          if (state.recargaPhase === "paying") { toast("Aguarde a confirmação do pagamento.", false, { mudo: true }); return true; }
+          leaveRecargaCheckout();
+          return true;
+        }
         if (state.selected && (state.deliveryProductPicker || state.deliveryPriceEdit)) {
           state.deliveryProductPicker = false;
           state.deliverySwapKey = null;
