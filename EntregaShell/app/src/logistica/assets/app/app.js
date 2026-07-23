@@ -1187,7 +1187,13 @@
       // sempre, comportamento intocado (invariante da frente).
       if (navModeActive()) { await applyNavLegRoute(host, map); return; }
       removeNavLegLayers(map);
-      const coordinates = points.length >= 2 ? await roadGeometry(points) : [];
+      // A linha representa só o que FALTA percorrer: paradas abertas
+      // (agendada/em_rota). Entregues continuam como pino, mas saem do traçado
+      // — rota já cumprida não fica desenhada por cima do que foi feito, e
+      // quando tudo foi entregue não sobra linha nenhuma. Pontos sem `item`
+      // (pré-visualização do planejamento) passam direto, sem filtro.
+      const lineStops = points.filter(point => !point.item || point.item.status === "agendada" || point.item.status === "em_rota");
+      const coordinates = lineStops.length >= 2 ? await roadGeometry(lineStops) : [];
       if (routeMap !== map || routeMapHost !== host) return;
       if (coordinates.length < 2) {
         if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
@@ -3586,12 +3592,13 @@
         : clearDayVisible
           ? routeSatellite("route-cancel-icon", "clear-day-request", "Limpar o dia", "Limpar", "trash")
           : "";
-    // Rota pronta: o lado direito abre Montar Rota para acrescentar escolhas e
-    // replanejar a união, sem trocar a ação principal de Continuar. Durante a
-    // execução/pausa, volta a ser a navegação externa já existente. Sem rota
-    // pronta, o slot fica vazio.
+    // Rota pronta: o lado direito ABRE o menu para ACRESCENTAR paradas ao que
+    // já existe (não monta do zero — por isso "Adicionar", com o glifo +, e não
+    // "Montar rota", que é o nome do botão principal quando ainda não há rota).
+    // Durante a execução/pausa, volta a ser a navegação externa já existente.
+    // Sem rota pronta, o slot fica vazio.
     const rightIcon = planned && !active && !paused
-      ? routeSatellite("route-nav-external", "plan-route", "Montar rota", "Montar rota", "route")
+      ? routeSatellite("route-nav-external", "plan-route", "Adicionar na rota", "Adicionar", "plus")
       : openItems().length > 0 && (active || paused)
         ? routeSatellite("route-nav-external", "show-map", "Abrir no Waze ou Google Maps", "Navegar", "navigation")
         : "";
@@ -4288,11 +4295,15 @@
     const modelos = state.routeModelos || [];
     const loadingSaved = !!state.routeModelosLoading;
     const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
-    // S1 21/07 — menu "Montar Rota" com 4 opções, nesta ordem fixa (pedido do
-    // dono): Rotas Salvas, Por dia, Criar Rota Manual (abre o wizard do S1.3),
-    // Iniciar Leitura de Rota (mesmo fluxo de sempre, só que a partir daqui).
+    // S1 21/07 — menu com 4 opções, nesta ordem fixa (pedido do dono): Rotas
+    // Salvas, Por dia, Criar Rota Manual (abre o wizard do S1.3), Iniciar
+    // Leitura de Rota (mesmo fluxo de sempre, só que a partir daqui).
+    // 22/07 — título contextual: se JÁ existe rota pronta, o menu foi aberto
+    // pelo satélite "Adicionar" (acrescentar paradas), então lê "Adicionar na
+    // rota"; sem rota, é a porta de montar do zero e lê "Montar Rota".
     const starting = !!state.leituraStarting;
-    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions day-home-actions--4">
+    const adicionando = routePlanned();
+    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon(adicionando ? "plus" : "route", 24)}</div><h2 id="day-home-title">${adicionando ? "Adicionar na rota" : "Montar Rota"}</h2><div class="day-home-actions day-home-actions--4">
       <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><strong>Rotas Salvas</strong><span>${H.escape(savedHint)}</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("route", 20)}</span><strong>Por dia</strong><span>Clientes agendados do dia</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-manual" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("edit", 20)}</span><strong>Criar Rota Manual</strong></button>
@@ -4972,15 +4983,18 @@
       toast("Entrega retirada somente da rota de hoje.");
     } catch (error) { toast(humanApiError(error), true); }
   }
-  async function performEncerrarRota(motivo, offerSaveRoute) {
+  async function performEncerrarRota(motivo, options) {
     // Substitui o loop antigo (cancelava entrega por entrega — cancelamento
     // parcial se a rede caísse no meio). Uma chamada só, transacional no
     // backend. Em erro, NÃO mexe em nenhum estado local: o backend é atômico,
     // então "meio encerrado" não existe — ou some tudo, ou nada muda aqui.
-    // PR18072026 Onda 3 — snapshot ANTES da chamada (offerSaveRoute só em
-    // finish-route): a ordem real de hoje é entregues por conclusão + abertas
-    // por rotaOrdem, e depois do encerrar os itens voltam pra "agendada".
-    const snapshot = offerSaveRoute ? items() : null;
+    // options.playSound: encerramento REAL (finish-route) toca route_stop;
+    // cancelar planejamento (cancel-route) não. options.saveRoute: encerra E
+    // salva a ordem de hoje na MESMA ação (fim do segundo popup). Snapshot
+    // ANTES da chamada porque depois do encerrar os itens voltam pra "agendada"
+    // e perdem a ordem real (entregues por conclusão + abertas por rotaOrdem).
+    const opts = options || {};
+    const snapshot = opts.saveRoute ? items() : null;
     try {
       const response = await H.api("/logistica/rota/encerrar", { method: "POST", body: { date: operationalDate(), motivo: motivo || "Rota encerrada." } });
       const resumo = (response && response.resumo) || {};
@@ -5012,53 +5026,45 @@
       await refresh(true);
       // S4 22/07 — route_stop é "a rota que tava rodando parou de rodar", não
       // "cancelei um planejamento que nem tinha começado" (esta MESMA função
-      // atende cancel-route também; offerSaveRoute só chega true no
-      // finish-route real, ver call site que monta a confirmação). Tocar aqui
-      // pro cancel-route soaria como se uma rota em andamento tivesse parado
-      // quando ela nunca chegou a rodar de verdade.
-      const isRealRouteStop = !!offerSaveRoute;
+      // atende cancel-route também). Por isso o som vem de opts.playSound, e
+      // não de "vai salvar" — encerrar sem salvar continua sendo route stop.
+      const isRealRouteStop = !!opts.playSound;
       if (isRealRouteStop) H.sound("route_stop");
-      toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
-      if (offerSaveRoute && snapshot && snapshot.length >= 2) offerSaveTodayRoute(snapshot);
+      // Quando vai salvar a ordem, saveTodayRoute dá o toast final (silencioso,
+      // pra não empilhar som em cima do route_stop). Senão, resumo do encerrar.
+      if (opts.saveRoute && snapshot) await saveTodayRoute(snapshot);
+      else toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
     } catch (error) {
       toast(humanApiError(error), true);
     }
   }
-  // PR18072026 Onda 3 — pergunta 1 vez, depois do encerrar: "Salvar a ordem de
-  // hoje como sua rota de {dia}?". Ordem real = entregues por deliveredAt asc
-  // (concluídas primeiro, na ordem que aconteceram) + abertas por rotaOrdem.
-  function offerSaveTodayRoute(snapshot) {
-    const dia = todayIso();
-    const dayLabel = (weekDays.find(day => day.n === dia) || {}).label || "";
+  // PR18072026 Onda 3 (simplificado 22/07) — salvar a ordem de hoje deixou de
+  // ser um SEGUNDO popup depois do encerrar; virou o botão "Salvar esta ordem e
+  // encerrar" DENTRO do mesmo popup de Encerrar (uma decisão só). Ordem real =
+  // entregues por deliveredAt asc (na ordem em que aconteceram) + abertas por
+  // rotaOrdem.
+  function todayRouteParadas(snapshot) {
     const delivered = snapshot.filter(item => item.status === "entregue")
       .sort((a, b) => new Date(a.deliveredAt || 0).getTime() - new Date(b.deliveredAt || 0).getTime());
     const open = snapshot.filter(item => item.status !== "entregue")
       .sort((a, b) => (storedRouteOrder(a) ?? Infinity) - (storedRouteOrder(b) ?? Infinity));
-    const paradas = [...delivered, ...open]
+    return [...delivered, ...open]
       .map(item => { const cliente = item.cliente || {}; return cliente.id ? { customerProfileId: String(cliente.id) } : null; })
       .filter(Boolean);
-    if (!paradas.length) return;
-    state.confirmation = {
-      type: "save-today-route",
-      title: "Salvar a rota de hoje?",
-      message: `Salvar a ordem de hoje como sua rota de ${dayLabel}?`,
-      confirmLabel: "Salvar",
-      cancelLabel: "Agora não",
-      icon: "route",
-      payload: { diaSemana: dia, paradas },
-    };
-    render();
   }
-  async function performSaveTodayRoute(payload) {
-    if (!payload || !Array.isArray(payload.paradas) || !payload.paradas.length) return;
+  async function saveTodayRoute(snapshot) {
+    const paradas = todayRouteParadas(snapshot);
+    const dia = todayIso();
+    const dayLabel = (weekDays.find(day => day.n === dia) || {}).label || "";
+    if (paradas.length < 2) { toast("Rota encerrada."); return; }
     try {
       await loadRouteModelos(true);
-      const existing = (state.routeModelos || []).find(modelo => Number(modelo.diaSemana) === payload.diaSemana);
-      const dayLabel = (weekDays.find(day => day.n === payload.diaSemana) || {}).label || "";
-      if (existing) await H.api(`/logistica/rota-modelos/${encodeURIComponent(existing.id)}`, { method: "PATCH", body: { paradas: payload.paradas } });
-      else await H.api("/logistica/rota-modelos", { method: "POST", body: { nome: `Minha rota de ${dayLabel}`, diaSemana: payload.diaSemana, paradas: payload.paradas } });
+      const existing = (state.routeModelos || []).find(modelo => Number(modelo.diaSemana) === dia);
+      if (existing) await H.api(`/logistica/rota-modelos/${encodeURIComponent(existing.id)}`, { method: "PATCH", body: { paradas } });
+      else await H.api("/logistica/rota-modelos", { method: "POST", body: { nome: `Minha rota de ${dayLabel}`, diaSemana: dia, paradas } });
       await loadRouteModelos(true);
-      toast("Rota salva.");
+      // Silencioso: o route_stop já tocou; um som de sucesso aqui empilharia.
+      toast(`Rota encerrada e ordem salva${dayLabel ? ` como sua rota de ${dayLabel}` : ""}.`, false, { mudo: true });
     } catch (error) { toast(humanApiError(error), true); }
   }
   async function performDeleteRouteModelo(id) {
@@ -5484,12 +5490,12 @@
       if (confirmation.type === "archive-product") await performArchiveProduct((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
       if (confirmation.type === "archive-product-edit") await performArchiveProductFromEdit((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
       if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
-      if (confirmation.type === "cancel-route" || confirmation.type === "finish-route") await performEncerrarRota(confirmation.type === "cancel-route" ? "Planejamento cancelado pelo administrador." : "Rota encerrada pelo motorista.", confirmation.type === "finish-route");
+      if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", {});
+      if (confirmation.type === "finish-route") await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true });
       if (confirmation.type === "limpar-dia") await performLimparDia();
       if (confirmation.type === "sem-atendimento") await performOfflineNotDelivered(items().find(item => item.id === confirmation.itemId));
       if (confirmation.type === "apagar-historico") await performApagarHistorico(confirmation.itemId);
       if (confirmation.type === "limpar-historico") await performLimparHistorico();
-      if (confirmation.type === "save-today-route") await performSaveTodayRoute(confirmation.payload);
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
       if (confirmation.type === "cancel-leitura" || confirmation.type === "cancel-leitura-manual") await performCancelLeitura();
       if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
@@ -5562,7 +5568,17 @@
     if (action === "plan-route") openDayManager("plan");
     if (action === "start-planned-route") await startPlannedRoute();
     if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar planejamento?", message: "Remove só a ordem e a previsão. As entregas e o financeiro continuam.", confirmLabel: "Cancelar planejamento", danger: true, icon: "route", extraAction: "confirm-limpar-dia", extraLabel: "Limpar o dia (cancelar entregas de hoje)" }; render(); }
-    if (action === "finish-route") { state.confirmation = { type: "finish-route", title: "Encerrar rota?", message: `${deliveredItems().length} entregas concluídas serão preservadas. ${openItems().length} continuarão pendentes. Nenhuma cobrança concluída é removida.`, confirmLabel: "Encerrar e manter pendências", danger: true, icon: "route" }; render(); }
+    // 22/07 — popup enxuto: texto de 1 linha e o "salvar rota" virou botão DESTE
+    // mesmo popup (extraAction, sem segundo popup). "Salvar" só aparece quando há
+    // ≥2 paradas com cliente pra formar uma rota.
+    if (action === "finish-route") {
+      const podeSalvar = items().filter(item => (item.cliente || {}).id).length >= 2;
+      state.confirmation = { type: "finish-route", title: "Encerrar rota?", message: `${deliveredItems().length} entregues · ${openItems().length} ficam pendentes.`, confirmLabel: "Encerrar", danger: true, icon: "route", ...(podeSalvar ? { extraAction: "finish-route-save", extraLabel: "Salvar esta ordem e encerrar", extraDanger: false } : {}) };
+      render();
+    }
+    // Botão "Salvar esta ordem e encerrar" do popup acima: encerra E salva numa
+    // ação só (ver performEncerrarRota/saveTodayRoute).
+    if (action === "finish-route-save") { state.confirmation = null; render(); await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true, saveRoute: true }); return; }
     // PR18072026 Onda 3 — "Limpar o dia": segunda confirmação a partir do botão
     // perigoso dentro do popup de cancelar planejamento.
     if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Limpar o dia?", message: "As entregas de hoje serão canceladas. As recorrentes voltam no próximo dia normal.", confirmLabel: "Limpar o dia", danger: true, icon: "route" }; render(); return; }
