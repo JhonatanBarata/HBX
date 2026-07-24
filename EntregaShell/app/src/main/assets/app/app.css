@@ -507,11 +507,6 @@ h3 { font-size: .95rem; }
 .day-home-btn span:last-child { color: var(--muted); font-size: .78rem; }
 .day-home-btn-glyph { display: grid; place-items: center; width: 40px; height: 40px; margin: 0 auto 2px; border-radius: 12px; color: var(--brand-strong); background: var(--brand-soft); }
 .day-home-btn-glyph--saved { font-size: 1.2rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, var(--surface)); }
-/* S1 21/07 — menu "Montar Rota" com 4 opções: aperta gap/padding/glifo pra
-   caber sem scroll no moto g15 (só este menu usa o modificador). */
-.day-home-actions--4 { gap: 8px; }
-.day-home-actions--4 .day-home-btn { padding: 12px 14px; }
-.day-home-actions--4 .day-home-btn-glyph { width: 34px; height: 34px; margin: 0 auto; }
 .day-choose .rp2-mode-list, .day-saved-list { text-align: left; margin-top: 2px; }
 .day-saved-list { max-height: 52dvh; overflow: auto; }
 /* Pop-up "Qual o DDD?" — número sem DDD (feedback dono PR20072026). */
@@ -520,7 +515,7 @@ h3 { font-size: .95rem; }
 .ddd-input { width: 74px; padding: 10px 12px; text-align: center; font-size: 1.2rem; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--ink); }
 .ddd-preview { font-size: 1.02rem; font-weight: 600; color: var(--ink); }
 .ddd-sug { margin: 2px 0 0; color: var(--muted); font-size: .78rem; }
-/* Contador do passo Observações da Leitura/rota manual (feedback dono). */
+/* Contador do passo Observações da Leitura. */
 .lrt-obs-count { margin: 10px 2px 0; color: var(--muted); font-size: .76rem; text-align: center; }
 .lrt-obs-count b { color: var(--brand-strong); font-weight: 800; }
 .lrt-obs-count span { opacity: .75; }
@@ -785,21 +780,9 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
 .settings-copy strong { font-size: .78rem; }.settings-copy span { margin-top: 2px; color: var(--muted); font-size: .65rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
-/* PR20072026 W2 — Leitura de Rota (lrt-*): CTA de entrada + faixa ativa +
-   escolha Existente/Novo + distância na busca + timeline final. Só tokens
+/* PR20072026 W2 — Leitura de Rota (lrt-*): escolha Existente/Novo +
+   distância na busca + timeline final. Só tokens
    existentes (--brand/--danger/--surface/--line/--muted…), sem hex novo. */
-.lrt-banner { margin: 14px 0; }
-.lrt-start { min-height: 54px; }
-/* PR20072026 W3 — "Criar rota manual" ao lado de "Iniciar Leitura de Rota". */
-.lrt-start-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.lrt-start-actions .lrt-start { font-size: .74rem; }
-.lrt-active { display: grid; gap: 10px; padding: 14px; border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line)); border-radius: 18px; background: var(--brand-soft); }
-.lrt-active-head { display: flex; flex-direction: column; gap: 2px; }
-.lrt-active-head strong { font-size: .86rem; }
-.lrt-active-head span { color: var(--brand-strong); font-size: .72rem; font-weight: 800; }
-.lrt-active-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.lrt-active-actions .btn { min-width: 0; font-size: .74rem; }
-.lrt-cancel { justify-self: center; color: var(--danger); font-size: .68rem; min-height: 30px; }
 .lrt-choice { display: grid; gap: 10px; }
 .lrt-choice-btn { display: flex; align-items: center; gap: 10px; }
 .lrt-client-row { display: flex; align-items: center; gap: 10px; }
@@ -818,11 +801,6 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
 .lrt-produto-valor input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; padding: 12px 0; font-size: 1rem; font-weight: 700; text-align: right; }
 .lrt-timeline { display: grid; gap: 8px; }
 .lrt-timeline-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
-/* PR20072026 W3 — modo MANUAL: ▲▼ (rp2-order-arrow, já ≥52px) numa segunda
-   linha da própria row, pra caber ao lado de valor/editar/remover. */
-.lrt-timeline-row--manual { flex-wrap: wrap; }
-.lrt-timeline-main { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; min-width: 0; }
-.lrt-timeline-row--manual .rp2-order-arrows { flex: 0 0 100%; margin-top: 8px; }
 .lrt-timeline-time { flex: 0 0 auto; color: var(--muted); font-size: .68rem; font-weight: 800; }
 .lrt-timeline-valor { flex: 0 0 auto; color: var(--brand-strong); font-size: .8rem; }
 .lrt-timeline-actions { display: grid; gap: 2px; flex: 0 0 auto; text-align: right; }

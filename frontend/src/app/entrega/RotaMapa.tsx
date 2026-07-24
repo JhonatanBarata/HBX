@@ -264,7 +264,7 @@ export function RotaMapa({ paradas, indiceAtual, onSelecionarParada, posicaoEntr
   if (!temPontos || falhou) return null;
 
   return (
-    <div className={`ent-map-rota${expandido ? " is-expanded" : ""}`}>
+    <div className={`ent-map-rota${expandido ? " is-expanded" : ""}`} data-swipe-opt-out="true">
       <div className="ent-map-rota__canvas" ref={containerRef} />
       <button
         type="button"

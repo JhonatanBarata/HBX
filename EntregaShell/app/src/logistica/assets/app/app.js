@@ -89,7 +89,7 @@
     productQuery: "",
     editProductDraft: null,
     clientDetail: null,
-    clientPaymentDraft: { phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", lat: null, lng: null, geoFonte: null, limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", observacoes: "" },
+    clientPaymentDraft: { name: "", phone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", localId: "", lat: null, lng: null, geoFonte: null, limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", observacoes: "" },
     clientCepStatus: "",
     newClientDraft: { name: "", phone: "", cpf: "", limite: "", formaPagamento: "aberto", metodoPadrao: "", diaFechamento: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null, observacoes: "" },
     newClientCepStatus: "",
@@ -123,7 +123,10 @@
     // sessão ativa ({id, modo, startedAt, count}) — sobrevive a restart do app
     // via cache; `count` é o contador local otimista (nunca regride, ver
     // restoreLeituraSession/leitura-proximo). Estado do wizard some ao fechar.
-    leitura: H.cache.get("logistica-leitura", null),
+    leitura: (() => {
+      const cached = H.cache.get("logistica-leitura", null);
+      return cached && cached.modo === "LEITURA" ? cached : null;
+    })(),
     leituraStarting: false,
     leituraCapturing: false,
     leituraAwaitingGps: false,
@@ -139,12 +142,8 @@
     leituraClienteProdutos: {},
     leituraNovoDraft: { nome: "", telefone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null },
     leituraNovoEditing: false,
-    // PR20072026 W3 — modo MANUAL: status do lookup de CEP/geocode do form de
-    // cliente novo (endereço digitado, sem GPS).
+    // Status do lookup de CEP/geocode ao editar o endereço de um cliente novo.
     leituraNovoCepStatus: "",
-    // Ordem local das paradas no resumo (só usada quando state.leitura.modo
-    // === "MANUAL" — ▲▼ na tela de finalizar; enviada como ordemParadaIds).
-    leituraManualOrder: [],
     leituraTelefoneValue: "",
     leituraTelefoneConfirmado: false,
     leituraTelefoneCorrigindo: false,
@@ -167,13 +166,6 @@
     leituraNomeRota: "",
     leituraNomeError: "",
     leituraSaving: false,
-    // S1 21/07 — wizard próprio "Criar Rota Manual" (S1.3): 3 passos em
-    // state.modal === "leitura-manual" (paradas → ordem → nome), sem faixa
-    // sobre a tela Rota. manualWizardMotion espelha leituraStepMotion (Lei 9).
-    manualWizardStep: "paradas",
-    manualWizardMotion: "",
-    manualWizardStepChanging: false,
-    leituraManualLoading: false,
     // S3 21/07 — tela viva "Leitura de rota" (state.modal === "leitura-ativa",
     // GPS ao vivo): trilha desenhada + posição atual + popup de pausa, ponte
     // com o nativo via window.HBXAndroid (contrato exato em
@@ -1439,7 +1431,7 @@
   function centerModal(opts) {
     const o = opts || {};
     const closeAction = o.closeAction === false ? null : (o.closeAction || "leitura-voltar");
-    const stepMotion = state.modal === "leitura-parada" && state.leituraStepMotion ? ` leitura-step-${state.leituraStepMotion}` : state.modal === "leitura-manual" && state.manualWizardMotion ? ` leitura-step-${state.manualWizardMotion}` : "";
+    const stepMotion = state.modal === "leitura-parada" && state.leituraStepMotion ? ` leitura-step-${state.leituraStepMotion}` : "";
     return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal${stepMotion}" role="dialog" aria-modal="true">
       <div class="center-modal-head">
         <div class="day-home-icon">${icon(o.icon || "route", 22)}</div>
@@ -2150,9 +2142,6 @@
     });
   }
   function openDayManager(mode) {
-    // S1 21/07 — sessão MANUAL já aberta: o Play não mostra mais o menu de 4
-    // opções, reabre o wizard do S1.3 direto no passo Paradas.
-    if (state.leitura && state.leitura.modo === "MANUAL") { void openManualWizard("paradas"); return; }
     // Sessão LEITURA (GPS) já ativa: volta para a própria tela Rota, onde os
     // controles de gravação ocupam o lugar do Play.
     if (state.leitura && state.leitura.modo === "LEITURA") { void openLeituraAtiva(); return; }
@@ -2233,6 +2222,7 @@
       const local = locais.find(item => item && item.isPrincipal) || locais[0] || null;
       const parts = separateAddress(local && local.endereco || state.clientDetail.endereco || client.endereco, local && local.numero || state.clientDetail.numero || client.numero, local && local.bairro || state.clientDetail.bairro || client.bairro);
       state.clientPaymentDraft = {
+        name: state.clientDetail.name || state.clientDetail.nome || client.name || client.nome || "",
         phone: displayPhone(state.clientDetail.whatsapp || client.phone || client.phoneNormalized || client.whatsapp || ""),
         cep: formatCep(local && local.cep || state.clientDetail.cep || client.cep || ""),
         endereco: parts.endereco,
@@ -2579,9 +2569,8 @@
       };
     } catch (_) { return null; }
   }
-  // PR20072026 W3 — modo MANUAL: endereço é DIGITADO (sem GPS). Mesmo padrão
-  // ViaCEP+Nominatim de lookupNewClientCep/locateNewClientAddress, duplicado
-  // aqui de propósito (fluxo isolado do cadastro normal de clientes).
+  // Consulta de endereço digitado no cadastro feito durante a leitura.
+  // Mantém este fluxo isolado do cadastro normal de clientes.
   async function lookupLeituraNovoCep(value) {
     const cep = onlyDigits(value); if (cep.length !== 8) return;
     state.leituraNovoCepStatus = "Buscando CEP…"; render();
@@ -2715,9 +2704,7 @@
   // esperando (nunca perde uma parada, nunca reordena).
   async function flushLeituraQueue() {
     if (!state.leitura) return;
-    // Quem precisa reconstruir a tela depois do envio (rota manual) deve poder
-    // aguardar o flush que já estiver em andamento, em vez de seguir com um
-    // resumo anterior à última parada.
+    // Aguarda o flush que já estiver em andamento para preservar a ordem.
     if (leituraFlushing) {
       await leituraFlushPromise;
       return;
@@ -2755,7 +2742,11 @@
   async function restoreLeituraSession() {
     try {
       const result = await H.api("/logistica/leitura/atual");
-      if (result && result.id) {
+      if (result && result.id && result.modo !== "LEITURA") {
+        try { await H.api(`/logistica/leitura/${encodeURIComponent(result.id)}/cancelar`, { method: "POST", body: {} }); } catch (_) {}
+        leituraQueueClearSession(result.id);
+        state.leitura = null;
+      } else if (result && result.id) {
         const cached = state.leitura;
         const serverCount = Array.isArray(result.paradas) ? result.paradas.length : 0;
         const cachedCount = cached && String(cached.id) === String(result.id) ? Number(cached.count || 0) : 0;
@@ -2836,7 +2827,7 @@
     state.leituraEnd = null;
     state.leituraEndNovo = false;
     const cap = state.leituraCapture;
-    const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
+    const temGps = cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
     if (temGps) {
       const requestId = ++leituraEnderecoRequestId;
       state.leituraEnd = { loading: true, loadingStage: "signal", reverse: null, decision: null, numero: String(client.numero || "") };
@@ -2852,7 +2843,7 @@
     state.leituraTelefoneConfirmado = !!draft.telefone;
     state.leituraTelefoneCorrigindo = false;
     const cap = state.leituraCapture;
-    const temGps = state.leitura && state.leitura.modo !== "MANUAL" && cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
+    const temGps = cap && Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng));
     if (temGps) {
       state.leituraEndNovo = true;
       const requestId = ++leituraEnderecoRequestId;
@@ -2912,24 +2903,17 @@
   async function performCancelLeitura() {
     if (!state.leitura) return;
     const sessionId = state.leitura.id;
-    // S1 21/07 — copy do toast não pode dizer "leitura" no modo MANUAL (Lei 8
-    // do wizard); captura o modo ANTES de zerar state.leitura embaixo.
-    const wasManual = state.leitura.modo === "MANUAL";
-    // S3 21/07 — só a sessão LEITURA liga a gravação nativa (leituraTrilhaIniciar);
-    // pararLeituraTrilha só faz sentido pra ela, DEPOIS do /cancelar (S2-CONTRATO-PONTE §1).
-    const wasLeitura = state.leitura.modo === "LEITURA";
     try { await H.api(`/logistica/leitura/${encodeURIComponent(sessionId)}/cancelar`, { method: "POST", body: {} }); }
     catch (error) { toast(humanApiError(error), true); }
-    if (wasLeitura) leituraTrilhaParar();
+    leituraTrilhaParar();
     leituraQueueClearSession(sessionId);
     state.leitura = null;
     persistLeituraSession();
-    state.leituraManualOrder = [];
     state.leituraTrilha = [];
     state.leituraUltimaAmostra = null;
     state.leituraPausaPendente = null;
     await closeOverlay("modal");
-    toast(wasManual ? "Rota manual cancelada." : "Leitura cancelada.");
+    toast("Leitura cancelada.");
   }
   // S3 21/07 — "Cancelar" da tela viva (botão, X, fundo E handleBack, Lei 10)
   // caem todos aqui: mesma confirmação `.app-confirm` (Lei 3) que o antigo
@@ -2939,71 +2923,13 @@
     state.confirmation = { type: "cancel-leitura", title: "Cancelar leitura?", message: "As paradas já registradas nesta leitura serão descartadas.", confirmLabel: "Cancelar leitura", danger: true, icon: "route" };
     render();
   }
-  // S1 21/07 — wizard próprio "Criar Rota Manual" (state.modal ===
-  // "leitura-manual"): 3 passos (paradas → ordem → nome), reusando a MESMA
-  // sessão/endpoints da Leitura de Rota. changeManualWizardStep espelha
-  // changeLeituraStep (mesma transição leitura-step-enter/exit, Lei 9).
-  async function changeManualWizardStep(nextStep) {
-    if (!nextStep || state.manualWizardStepChanging) return false;
-    state.manualWizardStepChanging = true;
-    state.manualWizardMotion = "exit";
-    render();
-    await new Promise(resolve => setTimeout(resolve, 170));
-    state.manualWizardStep = nextStep;
-    state.manualWizardMotion = "enter";
-    render();
-    await new Promise(resolve => setTimeout(resolve, 240));
-    state.manualWizardMotion = "";
-    state.manualWizardStepChanging = false;
-    return true;
-  }
-  // Abre (ou reabre) o wizard sempre no passo pedido, recarregando o resumo
-  // (mesmo endpoint do finalizar de hoje) pra refletir a última parada
-  // adicionada/removida. Usado ao iniciar a sessão MANUAL e ao voltar pro
-  // Play com uma sessão MANUAL já aberta (reabre direto em "paradas").
-  async function openManualWizard(step) {
-    state.manualWizardStep = step || "paradas";
-    state.manualWizardMotion = "";
-    state.leituraManualLoading = true;
-    showModal("leitura-manual");
-    if (!state.leitura) { state.leituraManualLoading = false; render(); return; }
-    try {
-      state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`);
-      syncLeituraManualOrder();
-    } catch (error) { toast(humanApiError(error), true); }
-    state.leituraManualLoading = false;
-    render();
-  }
-  // Fecha o mini-wizard de adicionar parada (state.modal === "leitura-parada")
-  // de volta pro passo Paradas do wizard MANUAL. GPS/LEITURA (banner de hoje)
-  // continua fechando pra tela Rota igual sempre (closeOverlay puro).
+  // Fecha o cadastro de parada e retorna à leitura ativa.
   async function closeLeituraParadaModal() {
     await closeOverlay("modal");
-    if (state.leitura && state.leitura.modo === "MANUAL") await openManualWizard("paradas");
-    // Sessão LEITURA (GPS): volta para a Rota com os controles de gravação.
-    else if (state.leitura && state.leitura.modo === "LEITURA") await openLeituraAtiva();
+    if (state.leitura && state.leitura.modo === "LEITURA") await openLeituraAtiva();
   }
-  // Voltar do wizard (seta ‹, X, fundo, físico do Android): passo 3→2→1; no
-  // passo 1, parada já registrada pede confirmação antes de cancelar a sessão
-  // inteira; sem parada, cancela direto.
-  async function manualWizardGoBack() {
-    const step = state.manualWizardStep || "paradas";
-    if (step === "nome") { await changeManualWizardStep("ordem"); return; }
-    if (step === "ordem") { await changeManualWizardStep("paradas"); return; }
-    // Usa o resumo carregado (não state.leitura.count — esse é um contador
-    // otimista que NUNCA regride, ver comentário no state inicial; removendo a
-    // única parada ele ficaria stale e pediria confirmação à toa).
-    const hasParadas = !!(state.leituraResumo && Array.isArray(state.leituraResumo.paradas) && state.leituraResumo.paradas.length > 0);
-    if (hasParadas) {
-      state.confirmation = { type: "cancel-leitura-manual", title: "Cancelar rota manual?", message: "As paradas já adicionadas serão descartadas.", confirmLabel: "Cancelar rota manual", danger: true, icon: "route" };
-      render();
-      return;
-    }
-    await performCancelLeitura();
-  }
-  // PR20072026 fix 20/07 — abre o wizard "Cadastrar Local"/"Adicionar cliente"
-  // com a captura (GPS ou {null} no manual). Zera o estado do wizard e carrega
-  // a lista de clientes se ainda não veio.
+  // Abre o wizard "Cadastrar Local" com a captura do GPS. Zera o estado do
+  // wizard e carrega a lista de clientes se ainda não veio.
   function openLeituraParada(capture) {
     state.leituraCapture = capture;
     state.leituraStep = "tipo";
@@ -3051,29 +2977,11 @@
     if (!position) { toast("Não foi possível obter sua localização. Tente novamente.", true); render(); return; }
     openLeituraParada({ ...position, capturadoEm: new Date().toISOString() });
   }
-  // PR20072026 W3 — mantém a ordem local (▲▼) do modo MANUAL estável através
-  // de fetches de resumo: ids conhecidos preservam posição, ids novos vão pro
-  // fim, ids removidos somem. orderedLeituraParadas() é o que a timeline
-  // desenha; o resumo em si (total/count) nunca é reordenado.
-  function syncLeituraManualOrder() {
-    const paradas = (state.leituraResumo && state.leituraResumo.paradas) || [];
-    const ids = paradas.map(p => String(p.id));
-    const existing = (state.leituraManualOrder || []).filter(id => ids.includes(id));
-    const missing = ids.filter(id => !existing.includes(id));
-    state.leituraManualOrder = [...existing, ...missing];
-  }
-  function orderedLeituraParadas() {
-    const paradas = (state.leituraResumo && state.leituraResumo.paradas) || [];
-    if (!state.leitura || state.leitura.modo !== "MANUAL") return paradas;
-    const map = new Map(paradas.map(p => [String(p.id), p]));
-    return (state.leituraManualOrder || []).map(id => map.get(id)).filter(Boolean);
-  }
   async function performRemoveLeituraParada(paradaId) {
     if (!state.leitura || !paradaId) return;
     try {
       await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/parada/${encodeURIComponent(paradaId)}`, { method: "DELETE" });
       state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`);
-      syncLeituraManualOrder();
       toast("Parada removida.");
     } catch (error) { toast(humanApiError(error), true); }
     render();
@@ -3089,12 +2997,6 @@
     state.leituraNomeError = "";
     render();
   }
-  // S3 21/07 — S3.1: a sessão LEITURA (GPS) também ganhou tela própria
-  // (state.modal === "leitura-ativa", ver openLeituraAtiva/leituraAtivaModal),
-  // igual ao que a S1 já tinha feito pro MANUAL (leitura-manual). NENHUM modo
-  // mostra mais faixa sobre a tela Rota — função mantida (só o call-site em
-  // routeScreen, ~lrtBannerHtml, não precisa mudar) sempre devolvendo "".
-  function leituraBanner() { return ""; }
   // F3.2 — reverse geocode do ponto capturado: tenta o backend (server-side,
   // confiável) e cai no Nominatim direto do app se o backend não responder.
   async function leituraReverse(lat, lng) {
@@ -3373,16 +3275,8 @@
     leituraQueuePush(state.leitura.id, clientKey, payload);
     state.leitura.count = Number(state.leitura.count || 0) + 1;
     persistLeituraSession();
-    // No modo MANUAL, a próxima tela recarrega o resumo do backend. Sincroniza
-    // antes de abri-la para que o cliente recém-adicionado não seja o único
-    // ausente da lista. A fila continua preservada se a rede falhar.
-    if (state.leitura.modo === "MANUAL") await flushLeituraQueue();
-    // S1 21/07 — sessão MANUAL volta pro passo Paradas do wizard em vez de
-    // fechar pra tela Rota (closeLeituraParadaModal cobre os dois casos).
     await closeLeituraParadaModal();
     // S3 22/07 — a parada SEMPRE entra na fila local primeiro (linha acima).
-    // No MANUAL o flush foi aguardado antes da lista; na LEITURA ele continua
-    // abaixo, fire-and-forget.
     // Sem internet agora, ela FICA na fila de verdade — isso é "operação
     // entrou na fila" (sync_pending), som mais discreto que offline_saved
     // porque aqui o wizard já tem seu próprio toast dedicado ("Parada
@@ -3397,11 +3291,8 @@
   }
   function leituraTimelineStep() {
     const resumo = state.leituraResumo || {};
-    // PR20072026 W3 — modo MANUAL: ordem local (▲▼) e "—" no lugar da hora
-    // (a hora real é só o instante do registro, não uma chegada em campo).
-    const isManual = !!(state.leitura && state.leitura.modo === "MANUAL");
-    const paradas = isManual ? orderedLeituraParadas() : (Array.isArray(resumo.paradas) ? resumo.paradas : []);
-    const rows = paradas.map((parada, index) => {
+    const paradas = Array.isArray(resumo.paradas) ? resumo.paradas : [];
+    const rows = paradas.map(parada => {
       if (state.leituraEditParadaId === parada.id) {
         const draft = state.leituraEditDraft || { itens: [] };
         // Bug#2 — editar preço da parada usa o MESMO gate do passo Produto:
@@ -3421,10 +3312,7 @@
       // S3 21/07 — "Remover" era texto/botão (violava Lei 1); agora é segurar a
       // própria linha (data-lrt-parada-hold), mesmo gesto dos outros 7 holds.
       // "Editar" continua toque curto normal.
-      const main = `<span class="lrt-timeline-time">${isManual ? "—" : H.escape(parada.hora || "")}</span><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${H.escape((parada.itens || []).map(i => { const p = (state.products || []).find(pr => String(pr.id) === String(i.productId)); return `${i.qtd} ${(p && (p.unidade || p.nome || p.name)) || i.unidade || i.nome || "item"}`; }).join(", "))}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong><div class="lrt-timeline-actions"><button type="button" class="link-btn" data-action="leitura-parada-editar" data-parada-id="${H.escape(parada.id)}">Editar</button></div>`;
-      if (!isManual) return `<div class="lrt-timeline-row" data-lrt-parada-hold="${H.escape(parada.id)}">${main}</div>`;
-      const arrows = `<div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-cima" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-baixo" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div>`;
-      return `<div class="lrt-timeline-row lrt-timeline-row--manual" data-lrt-parada-hold="${H.escape(parada.id)}"><div class="lrt-timeline-main">${main}</div>${arrows}</div>`;
+      return `<div class="lrt-timeline-row" data-lrt-parada-hold="${H.escape(parada.id)}"><span class="lrt-timeline-time">${H.escape(parada.hora || "")}</span><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${H.escape((parada.itens || []).map(i => { const p = (state.products || []).find(pr => String(pr.id) === String(i.productId)); return `${i.qtd} ${(p && (p.unidade || p.nome || p.name)) || i.unidade || i.nome || "item"}`; }).join(", "))}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong><div class="lrt-timeline-actions"><button type="button" class="link-btn" data-action="leitura-parada-editar" data-parada-id="${H.escape(parada.id)}">Editar</button></div></div>`;
     }).join("");
     const total = `Total: ${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"} · ${H.money(resumo.total || 0)}`;
     const body = state.leituraResumoLoading ? loading() : state.leituraResumoError ? empty("Não foi possível carregar", state.leituraResumoError) : (rows ? `<div class="lrt-timeline">${rows}</div><p class="lrt-timeline-total">${total}</p>` : empty("Nenhuma parada", "Cadastre paradas antes de finalizar."));
@@ -3440,60 +3328,7 @@
   }
   function leituraSalvarNomeStep() {
     const body = `<form id="leitura-nome-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="120" value="${H.escape(state.leituraNomeRota)}"></div>${state.leituraNomeError ? `<p class="subtitle subtitle-danger">${H.escape(state.leituraNomeError)}</p>` : ""}<button class="btn btn-primary btn-block rp2-cta" type="submit" ${state.leituraSaving ? "disabled" : ""}>Confirmar</button></form>`;
-    // S1 21/07 — este passo é reusado pelo wizard "Criar Rota Manual" (S1.3,
-    // state.modal === "leitura-manual"): X/fundo/seta-voltar precisam cair no
-    // passo Ordem do wizard, não no "leitura-salvar-dia-voltar-nome" de hoje.
-    const isManualWizard = state.modal === "leitura-manual";
-    return centerModal({ icon: "route", title: "Nome da rota", resumo: "Dê um nome pra encontrar depois", body, backAction: isManualWizard ? "manual-wizard-voltar" : "leitura-salvar-dia-voltar-nome", closeAction: isManualWizard ? "manual-wizard-voltar" : undefined, closeButtonAction: isManualWizard ? "manual-wizard-voltar" : undefined, nextAction: "" });
-  }
-  // S1 21/07 — passo 1 do wizard "Criar Rota Manual": lista das paradas já
-  // registradas nesta sessão (mesmo resumo do finalizar de hoje) + botão que
-  // abre o MESMO picker de leitura-adicionar-cliente. Excluir = segurar
-  // (reusa data-lrt-parada-hold + confirmação, já existentes).
-  function leituraManualParadasStep() {
-    const resumo = state.leituraResumo || {};
-    const paradas = Array.isArray(resumo.paradas) ? resumo.paradas : [];
-    const rows = paradas.map(parada => {
-      const qtd = (parada.itens || []).reduce((sum, i) => sum + Number(i.qtd || 0), 0);
-      return `<div class="lrt-timeline-row" data-lrt-parada-hold="${H.escape(parada.id)}"><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${qtd} ${qtd === 1 ? "item" : "itens"}</span></div><strong class="lrt-timeline-valor">${H.money(parada.subtotal)}</strong></div>`;
-    }).join("");
-    const list = rows ? `<div class="lrt-timeline">${rows}</div>` : empty("Nenhuma parada", "Adicione o primeiro cliente da rota.");
-    const body = `${state.leituraManualLoading ? loading() : list}<div class="center-modal-extra"><button type="button" class="btn btn-primary btn-block rp2-cta" data-action="leitura-adicionar-cliente" ${state.leituraCapturing ? "disabled" : ""}>${icon("users", 17)} ${state.leituraCapturing ? "Adicionando…" : "Adicionar cliente"}</button></div>`;
-    return centerModal({
-      icon: "route", title: "Paradas",
-      resumo: paradas.length ? `${paradas.length} ${paradas.length === 1 ? "parada" : "paradas"}` : "",
-      body,
-      closeAction: "manual-wizard-voltar", closeButtonAction: "manual-wizard-voltar",
-      backAction: "manual-wizard-voltar", backLabel: "Cancelar",
-      nextAction: paradas.length ? "manual-wizard-ir-ordem" : "", nextLabel: "Ordem",
-      nextDisabled: state.leituraManualLoading || !paradas.length,
-    });
-  }
-  // Passo 2 do wizard: reordenar (▲▼ grandes, desabilita nas pontas) — o
-  // mesmo mecanismo de dayOrderManualModal (app.js ~2509), só que sobre a
-  // ordem local da sessão MANUAL (state.leituraManualOrder).
-  function leituraManualOrdemStep() {
-    const paradas = orderedLeituraParadas();
-    const rows = paradas.map((parada, index) => {
-      const qtd = (parada.itens || []).reduce((sum, i) => sum + Number(i.qtd || 0), 0);
-      return `<div class="row-card rp2-order-row"><div class="rp2-order-badge">${index + 1}</div><div class="card-main"><strong>${H.escape(parada.clienteNome || "Cliente")}</strong><span>${qtd} ${qtd === 1 ? "item" : "itens"}</span></div><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-cima" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="leitura-parada-mover-baixo" data-parada-id="${H.escape(parada.id)}" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
-    }).join("");
-    const body = rows ? `<div class="list day-order-list">${rows}</div>` : empty("Sem paradas", "Volte e adicione ao menos uma parada.");
-    return centerModal({
-      icon: "route", title: "Ordem", resumo: "Toque nas setas para mover", body,
-      closeAction: "manual-wizard-voltar", closeButtonAction: "manual-wizard-voltar",
-      backAction: "manual-wizard-voltar",
-      nextAction: "manual-wizard-ir-nome", nextLabel: "Nome",
-    });
-  }
-  // Container do wizard (state.modal === "leitura-manual"): despacha pelo
-  // passo atual. "nome" reusa leituraSalvarNomeStep (mesmo POST de finalizar,
-  // ver form#leitura-nome-form no listener de submit).
-  function leituraManualWizardModal() {
-    const step = state.manualWizardStep || "paradas";
-    if (step === "ordem") return leituraManualOrdemStep();
-    if (step === "nome") return leituraSalvarNomeStep();
-    return leituraManualParadasStep();
+    return centerModal({ icon: "route", title: "Nome da rota", resumo: "Dê um nome pra encontrar depois", body, backAction: "leitura-salvar-dia-voltar-nome", nextAction: "" });
   }
   function leituraFinalizarModal() {
     const step = state.leituraFinalStep;
@@ -3519,9 +3354,8 @@
     return tempo ? `${tempo} em rota · ${paradasTxt}` : paradasTxt;
   }
   // S3.1 — tela própria da Leitura em andamento (mapa ao vivo + trilha
-  // desenhada + posição atual), no MESMO precedente de estrutura do wizard
-  // "Criar Rota Manual" (state.modal === "leitura-manual"): cartão central
-  // (Lei 3), sem faixa nenhuma sobre a tela Rota. Mapa em host PRÓPRIO
+  // desenhada + posição atual), em cartão central (Lei 3), sem faixa sobre a
+  // tela Rota. Mapa em host PRÓPRIO
   // ("leitura-live-map", ver mountLeituraLiveMap) — nunca reaproveita
   // #route-live-map (regra do transplante __hbxMap).
   function leituraAtivaModal() {
@@ -3553,14 +3387,10 @@
     const showNextPanel = !!next && !leituraAtiva;
     // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
     const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => i.status === "agendada" || i.status === "em_rota");
-    // S1 21/07 — sessão MANUAL não tem mais faixa (leituraBanner devolve "");
-    // sem o wrapper condicional sobrava uma margem vazia sobre a tela Rota.
-    const lrtBannerHtml = leituraBanner();
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
     return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
-      ${lrtBannerHtml ? `<div class="lrt-banner">${lrtBannerHtml}</div>` : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -3902,7 +3732,7 @@
     const phoneReady = !isNew && !!phone && phoneComplete(phone);
     const phoneIncomplete = !isNew && !!phone && !phoneComplete(phone);
     const ddHint = phoneIncomplete ? `<p class="client-ddd-hint">Falta o DDD — toque em “Completar DDD”.</p>` : "";
-    const identity = isNew ? `<div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(state.newClientDraft.name)}"></div><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div></div><div class="field"><label>CPF</label><input name="cpf" inputmode="numeric" maxlength="14" value="${H.escape(state.newClientDraft.cpf)}" placeholder="000.000.000-00"></div>` : `<div class="field ${pending.includes("Tel") ? "client-field-pending" : ""}"><label>Telefone / WhatsApp${pending.includes("Tel") ? " · pendente" : ""}</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000">${ddHint}</div>`;
+    const identity = isNew ? `<div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(state.newClientDraft.name)}"></div><div class="field"><label>Telefone / WhatsApp</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000"></div></div><div class="field"><label>CPF</label><input name="cpf" inputmode="numeric" maxlength="14" value="${H.escape(state.newClientDraft.cpf)}" placeholder="000.000.000-00"></div>` : `<div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="160" value="${H.escape(state.clientDetail ? fields.name : (client.name || client.nome || ""))}"></div><div class="field ${pending.includes("Tel") ? "client-field-pending" : ""}"><label>Telefone / WhatsApp${pending.includes("Tel") ? " · pendente" : ""}</label><input name="phone" inputmode="tel" maxlength="15" value="${H.escape(phone)}" placeholder="(00) 00000-0000">${ddHint}</div></div>`;
     const actions = `<div class="client-primary-actions ${phoneReady ? "has-contact" : ""}"><button class="btn btn-primary btn-block" type="submit">Salvar cliente</button>${phoneReady ? `<button type="button" class="btn btn-secondary" data-action="call-client">${icon("phone", 16)} Ligar</button><button type="button" class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 16)} WhatsApp</button>` : ""}${phoneIncomplete ? `<button type="button" class="btn btn-secondary" data-action="complete-ddd">${icon("phone", 16)} Completar DDD</button>` : ""}</div>`;
     let products = newClientProductFields();
     if (!isNew) {
@@ -4021,7 +3851,6 @@
     if (state.modal === "avancado") return avancadoModal();
     if (state.modal === "leitura-parada") return leituraParadaModal();
     if (state.modal === "leitura-finalizar") return leituraFinalizarModal();
-    if (state.modal === "leitura-manual") return leituraManualWizardModal();
     if (state.modal === "leitura-ativa") return leituraAtivaModal();
     if (state.modal === "app-update") return appUpdateModal();
     return "";
@@ -4342,25 +4171,20 @@
       toast("Rota salva atualizada.");
     } catch (error) { editor.saving = false; toast(humanApiError(error), true); render(); }
   }
-  // PR20072026 (feedback dono) — MENU de entrada centralizado. Duas portas:
-  // "Por dia" (monta pela agenda) e "Salvos" (repete uma rota guardada). Enquanto
-  // as rotas salvas carregam, o botão Salvos mostra "Carregando…".
+  // Menu de entrada centralizado. Enquanto as rotas salvas carregam, o botão
+  // Salvos mostra "Carregando…".
   function dayHomeModal() {
     const modelos = state.routeModelos || [];
     const loadingSaved = !!state.routeModelosLoading;
     const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
-    // S1 21/07 — menu com 4 opções, nesta ordem fixa (pedido do dono): Rotas
-    // Salvas, Por dia, Criar Rota Manual (abre o wizard do S1.3), Iniciar
-    // Leitura de Rota (mesmo fluxo de sempre, só que a partir daqui).
     // 22/07 — título contextual: se JÁ existe rota pronta, o menu foi aberto
     // pelo satélite "Adicionar" (acrescentar paradas), então lê "Adicionar na
     // rota"; sem rota, é a porta de montar do zero e lê "Montar Rota".
     const starting = !!state.leituraStarting;
     const adicionando = routePlanned();
-    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon(adicionando ? "plus" : "route", 24)}</div><h2 id="day-home-title">${adicionando ? "Adicionar na rota" : "Montar Rota"}</h2><div class="day-home-actions day-home-actions--4">
+    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon(adicionando ? "plus" : "route", 24)}</div><h2 id="day-home-title">${adicionando ? "Adicionar na rota" : "Montar Rota"}</h2><div class="day-home-actions">
       <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><strong>Rotas Salvas</strong><span>${H.escape(savedHint)}</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("route", 20)}</span><strong>Por dia</strong><span>Clientes agendados do dia</span></button>
-      <button type="button" class="day-home-btn" data-action="day-entry-manual" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("edit", 20)}</span><strong>Criar Rota Manual</strong></button>
       <button type="button" class="day-home-btn" data-action="day-entry-leitura" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("gps", 20)}</span><strong>Iniciar Leitura de Rota</strong></button>
     </div></section></div>`;
   }
@@ -5568,7 +5392,7 @@
       if (confirmation.type === "apagar-historico") await performApagarHistorico(confirmation.itemId);
       if (confirmation.type === "limpar-historico") await performLimparHistorico();
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
-      if (confirmation.type === "cancel-leitura" || confirmation.type === "cancel-leitura-manual") await performCancelLeitura();
+      if (confirmation.type === "cancel-leitura") await performCancelLeitura();
       if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
       if (confirmation.type === "logout") { stopNavWatch(); H.logout(); }
       if (confirmation.type === "ativar-financeiro") {
@@ -5667,27 +5491,9 @@
     // paralelo; loadDayCounts já cacheia por sessão do modal (dayCountsLoaded).
     if (action === "day-entry-pordia") { state.dayOrderStep = null; render(); void loadDayCounts(); return; }
     if (action === "day-entry-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
-    // S1 21/07 — "Criar Rota Manual": sessão já aberta reabre o wizard direto
-    // no passo Paradas (mesma regra do Play, ver openDayManager); sem sessão,
-    // inicia a MESMA sessão MANUAL de sempre (POST /leitura/iniciar) e abre o
-    // wizard do S1.3.
-    if (action === "day-entry-manual") {
-      if (state.leitura && state.leitura.modo === "MANUAL") { await openManualWizard("paradas"); return; }
-      if (state.leituraStarting) return;
-      state.leituraStarting = true; render();
-      try {
-        const result = await H.api("/logistica/leitura/iniciar", { method: "POST", body: { modo: "MANUAL" } });
-        state.leitura = { id: result.id, modo: result.modo || "MANUAL", startedAt: result.startedAt, count: Array.isArray(result.paradas) ? result.paradas.length : 0 };
-        persistLeituraSession();
-      } catch (error) { toast(humanApiError(error), true); state.leituraStarting = false; render(); return; }
-      state.leituraStarting = false;
-      await openManualWizard("paradas");
-      return;
-    }
     // S1 21/07 — "Iniciar Leitura de Rota" (POST modo LEITURA). S3 21/07:
     // não fecha mais pra faixa da tela Rota — liga a gravação nativa
-    // (leituraTrilhaIniciar, S2-CONTRATO-PONTE §1) e abre a tela viva própria
-    // (openLeituraAtiva), mesmo padrão do "day-entry-manual" acima.
+    // (leituraTrilhaIniciar, S2-CONTRATO-PONTE §1) e abre a tela viva própria.
     // S06 (fix 21/07) — garante a permissão de localização ANTES de criar a
     // sessão no backend: sem isso, numa instalação nova, o serviço nativo
     // gravava a trilha ZERO em silêncio. Checar antes do POST evita sessão
@@ -5710,9 +5516,6 @@
       await openLeituraAtiva();
       return;
     }
-    if (action === "manual-wizard-ir-ordem") { await changeManualWizardStep("ordem"); return; }
-    if (action === "manual-wizard-ir-nome") { if (await changeManualWizardStep("nome")) void prepareLeituraNome(); return; }
-    if (action === "manual-wizard-voltar") { await manualWizardGoBack(); return; }
     // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem).
     if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
     // Voltar hierárquico: choose→dias, dias→menu, manual→choose, saved→menu.
@@ -5898,10 +5701,7 @@
     }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
     // ---- PR20072026 W2 — Leitura de Rota ----
-    // S3 21/07 — "leitura-iniciar"/"leitura-iniciar-manual" (órfãos: nenhum
-    // botão dispara mais, S1 já move tudo pra "day-entry-leitura"/
-    // "day-entry-manual" acima) removidos — confirmado por busca no arquivo
-    // que nenhum data-action="leitura-iniciar[-manual]" restou em HTML nenhum.
+    // A entrada da leitura parte de "day-entry-leitura".
     if (action === "leitura-cancelar") { promptCancelLeitura(); return; }
     if (action === "leitura-finalizar-fechar") { await closeLeituraParadaModal(); return; }
     // S3.2 — popup de pausa: resolverPausaLeitura SEMPRE, aceitando ou
@@ -5926,24 +5726,13 @@
       return;
     }
     if (action === "leitura-cadastrar-local") { await startLeituraGpsCapture(); return; }
-    if (action === "leitura-adicionar-cliente") {
-      // PR20072026 W3 — equivalente do "Cadastrar Local" no modo MANUAL: sem
-      // GPS, captura só o instante (capturadoEm); o mesmo wizard "tipo →
-      // existente/novo → telefone → produto" segue igual.
-      if (!state.leitura || state.leituraCapturing) return;
-      openLeituraParada({ lat: null, lng: null, accuracy: null, capturadoEm: new Date().toISOString() });
-      return;
-    }
     if (action === "leitura-voltar") { if (!(await leituraGoBack())) await closeLeituraParadaModal(); return; }
     if (action === "leitura-tipo-existente") { await changeLeituraStep("existente"); return; }
     if (action === "leitura-tipo-novo") {
-      // Modo MANUAL: sem GPS, então o endereço nasce vazio e editável de cara
-      // (sem resumo de reverse-geocode pra mostrar) — reusa o mesmo passo.
-      const isManual = state.leitura && state.leitura.modo === "MANUAL";
       const capture = state.leituraCapture;
-      if (!isManual && capture) Object.assign(state.leituraNovoDraft, { lat: capture.lat, lng: capture.lng, geoFonte: "gps_cadastro" });
-      await changeLeituraStep("novo", () => { state.leituraNovoEditing = isManual; });
-      if (!isManual && capture && validCoordinates(capture.lat, capture.lng)) {
+      if (capture) Object.assign(state.leituraNovoDraft, { lat: capture.lat, lng: capture.lng, geoFonte: "gps_cadastro" });
+      await changeLeituraStep("novo", () => { state.leituraNovoEditing = false; });
+      if (capture && validCoordinates(capture.lat, capture.lng)) {
         const point = await reverseGeocodeLeitura(capture.lat, capture.lng);
         if (point && state.leituraStep === "novo") { Object.assign(state.leituraNovoDraft, point); render(); }
       }
@@ -6084,22 +5873,9 @@
       state.leituraEditParadaId = null; state.leituraEditDraft = null;
       state.leituraResumoLoading = true; state.leituraResumoError = null; state.leituraResumo = null;
       showModal("leitura-finalizar");
-      try { state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`); syncLeituraManualOrder(); }
+      try { state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`); }
       catch (error) { state.leituraResumoError = humanApiError(error); }
       state.leituraResumoLoading = false;
-      render();
-      return;
-    }
-    if (action === "leitura-parada-mover-cima" || action === "leitura-parada-mover-baixo") {
-      // PR20072026 W3 — reordenação local (modo MANUAL); a ordem final vira
-      // ordemParadaIds no POST /finalizar (ver submit de leitura-nome-form).
-      const id = String(target.dataset.paradaId);
-      const list = state.leituraManualOrder;
-      const index = list.indexOf(id);
-      if (index === -1) return;
-      const swapWith = action === "leitura-parada-mover-cima" ? index - 1 : index + 1;
-      if (swapWith < 0 || swapWith >= list.length) return;
-      [list[index], list[swapWith]] = [list[swapWith], list[index]];
       render();
       return;
     }
@@ -6131,7 +5907,6 @@
         await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/parada/${encodeURIComponent(paradaId)}`, { method: "PATCH", body: { itens: draft.itens } });
         state.leituraEditParadaId = null; state.leituraEditDraft = null;
         state.leituraResumo = await H.api(`/logistica/leitura/${encodeURIComponent(state.leitura.id)}/resumo`);
-        syncLeituraManualOrder();
         toast("Parada atualizada.");
       } catch (error) { toast(humanApiError(error), true); }
       render();
@@ -6207,11 +5982,10 @@
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       productHold = hold;
     }
-    // Parada do resumo da leitura (state.modal === "leitura-finalizar") OU do
-    // passo Paradas do wizard MANUAL (state.modal === "leitura-manual", S1
-    // 21/07): segurar remove (com confirmação, já persistida via DELETE).
+    // Parada do resumo da leitura: segurar remove (com confirmação, já
+    // persistida via DELETE).
     const lrtParada = target.closest("[data-lrt-parada-hold]");
-    if (lrtParada && event.touches.length === 1 && (state.modal === "leitura-finalizar" || state.modal === "leitura-manual")) {
+    if (lrtParada && event.touches.length === 1 && state.modal === "leitura-finalizar") {
       const touch = event.touches[0]; const hold = { id: lrtParada.dataset.lrtParadaHold, el: lrtParada, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
       hold.el.classList.add("is-hold-arming");
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
@@ -6393,8 +6167,7 @@
       const value = name === "telefone" ? formatPhone(event.target.value) : name === "cep" ? formatCep(event.target.value) : name === "uf" ? event.target.value.toUpperCase() : event.target.value;
       event.target.value = value;
       state.leituraNovoDraft[name] = value;
-      // PR20072026 W3 — modo MANUAL: CEP digitado dispara ViaCEP + geocode
-      // (mesmo padrão do form de cliente novo, ver lookupLeituraNovoCep).
+      // CEP digitado dispara ViaCEP + geocode.
       if (name === "cep") { if (onlyDigits(value).length === 8) void lookupLeituraNovoCep(value); else state.leituraNovoCepStatus = ""; }
       return;
     }
@@ -6537,7 +6310,7 @@
         const client = state.modalClient; const phoneDigits = onlyDigits(data.phone); const placeholderPhone = phoneDigits.length > 0 && /^0+$/.test(phoneDigits); const phone = (phoneDigits.length === 10 || phoneDigits.length === 11) && !placeholderPhone ? formatPhone(phoneDigits) : "";
         if (!client || !client.id) throw new Error("Cliente não encontrado.");
         if (phoneDigits.length && !placeholderPhone && !phone) throw new Error("Telefone incompleto.");
-        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const lat = Number(d.lat); const lng = Number(d.lng); const hasCoordinates = d.lat !== null && d.lat !== "" && d.lng !== null && d.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0); const observacoes = String(form.elements.namedItem("observacoes")?.value || "").trim().slice(0, 500); const addressBody = { endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), observacoes, ...(hasCoordinates ? { lat, lng } : {}) };
+        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const lat = Number(d.lat); const lng = Number(d.lng); const hasCoordinates = d.lat !== null && d.lat !== "" && d.lng !== null && d.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0); const observacoes = String(form.elements.namedItem("observacoes")?.value || "").trim().slice(0, 500); const addressBody = { nome: String(data.name || "").trim(), endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), observacoes, ...(hasCoordinates ? { lat, lng } : {}) };
         await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: addressBody });
         try {
           const localBody = { ...addressBody, endereco }; delete localBody.observacoes;
@@ -6590,11 +6363,8 @@
       }
       if (form.id === "leitura-nome-form" && state.leitura) {
         const nome = String(data.nome || "").trim() || rotaDefaultName();
-        // Modo MANUAL manda a ordem exibida (▲▼) como ordemParadaIds — o
-        // contrato do backend reordena as paradas antes de salvar o modelo.
         // F1 — rota salva SEM dia (lista livre); backend aceita diaSemana ausente.
         const body = { nome };
-        if (state.leitura.modo === "MANUAL") body.ordemParadaIds = state.leituraManualOrder.slice();
         // S3 21/07 — só a sessão LEITURA liga a gravação nativa (S2-CONTRATO-PONTE §1).
         const wasLeitura = state.leitura.modo === "LEITURA";
         state.leituraSaving = true; render();
@@ -6605,7 +6375,6 @@
           state.leitura = null;
           persistLeituraSession();
           state.leituraResumo = null;
-          state.leituraManualOrder = [];
           state.leituraTrilha = [];
           state.leituraUltimaAmostra = null;
           state.leituraPausaPendente = null;
@@ -6749,9 +6518,6 @@
           void closeLeituraParadaModal();
           return true;
         }
-        // S1 21/07 — wizard "Criar Rota Manual" (Lei 10): passo 3→2→1; no
-        // passo 1, pede confirmação se já houver parada (manualWizardGoBack).
-        if (state.modal === "leitura-manual") { void manualWizardGoBack(); return true; }
         // Leitura ativa mora na própria Rota: voltar pede a mesma confirmação
         // do controle "Cancelar" antes de sair do app.
         if (leituraRouteActive()) { promptCancelLeitura(); return true; }
