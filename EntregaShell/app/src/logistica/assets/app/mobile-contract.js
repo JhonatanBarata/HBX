@@ -96,12 +96,14 @@
     const deliveryId = inferDeliveryId(sheet);
     const confirm = sheet.querySelector('[data-action="confirm"]');
     const existing = sheet.querySelector(".hbx-receipt-panel");
+    if (!confirm) {
+      existing?.remove();
+      return;
+    }
     if (!deliveryId || !paymentRequired(deliveryId)) {
       existing?.remove();
-      if (confirm) {
-        confirm.disabled = false;
-        confirm.classList.remove("hbx-payment-pending");
-      }
+      confirm.disabled = false;
+      confirm.classList.remove("hbx-payment-pending");
       return;
     }
 

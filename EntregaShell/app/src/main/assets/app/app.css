@@ -1191,8 +1191,9 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
    não de borda. */
 .chegada-box { margin: 18px 0 0; padding: 0; border: 0; background: none; }
 .chegada-box-titulo { display: block; margin-bottom: 8px; text-align: center; }
-.chegada-linha { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.chegada-linha + .chegada-linha { margin-top: 12px; }
+.chegada-lista { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.chegada-linha { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 82px; padding: 8px 0; }
+.chegada-linha + .chegada-linha { border-top: 1px solid var(--line); }
 .chegada-stepper { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
 .chegada-seta { display: grid; place-items: center; min-width: 44px; min-height: 38px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: var(--brand-strong); }
 .chegada-seta:active { background: var(--brand-soft); }
@@ -1203,6 +1204,8 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 .chegada-preco-form { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 8px; }
 .chegada-preco-input { flex: 1 1 auto; width: 110px; min-width: 0; min-height: 44px; padding: 4px 2px; border: 0; border-bottom: 2px solid var(--brand); border-radius: 0; background: none; color: var(--ink); font-size: 1.18rem; font-weight: 800; text-align: center; }
 .chegada-preco-ok { flex: 0 0 auto; display: grid; place-items: center; width: 46px; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: var(--brand-soft); color: var(--brand-strong); }
+.chegada-add { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 50px; padding: 8px 12px; border: 0; background: none; color: var(--brand-strong); font-size: .96rem; font-weight: 800; }
+.chegada-add:active { background: var(--brand-soft); }
 .chegada-picker { display: grid; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .chegada-picker button { min-height: 48px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-weight: 700; }
 .chegada-conta { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); text-align: left; }
