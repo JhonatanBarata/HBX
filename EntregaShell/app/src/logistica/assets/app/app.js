@@ -28,6 +28,12 @@
     oneoffDraft: {},
     // PR — os 3 KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue/Avulsos).
     routeFilter: "fila",
+    // S1 25/07 (PR25072026-ROTA-CONFERIDA) — crachá do motor de rota: guardado
+    // a partir do resultado de planejar/iniciar (ver applyRouteEngineState).
+    // Não vem do cache/GET da rota (fora do escopo desta sprint) — dura só a
+    // sessão, até o próximo planejar/iniciar.
+    routeEngine: null,
+    routeDegradedReason: null,
     filter: "Todos",
     query: "",
     selected: null,
@@ -3739,6 +3745,7 @@
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
     return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+      ${!leituraAtiva ? routeEngineBanner() : ""}
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -4862,6 +4869,28 @@
     }
   }
 
+  // S1 25/07 (PR25072026-ROTA-CONFERIDA) — "Motor com crachá": o backend agora
+  // sempre devolve `engine` ('osrm'|'haversine') no resultado de planejar/
+  // iniciar (fim do fallback Haversine mudo). `result` pode vir NO NÍVEL
+  // (rota/planejar, rota/iniciar, admin-route/start) ou aninhado em `.plan`
+  // (admin-route/prepare) — os dois formatos são o MESMO PlanejarRotaResult do
+  // backend, só a casca muda. Sem resultado válido, zera (ex.: erro de rede
+  // não deixa crachá velho mentindo na tela).
+  function applyRouteEngineState(result) {
+    const plan = result && result.engine !== undefined ? result : (result && result.plan) || null;
+    state.routeEngine = (plan && plan.engine) || null;
+    state.routeDegradedReason = (plan && plan.degradedReason) || null;
+  }
+  // Selo discreto (osrm) ou faixa de alerta (haversine por FALHA). Ordem manual
+  // também é haversine, mas por ESCOLHA — o backend nunca manda degradedReason
+  // nesse caso, e é exatamente essa ausência que mantém a faixa calada aqui.
+  function routeEngineBanner() {
+    if (state.routeEngine === "osrm") return `<span class="badge">Calculada pelas ruas</span>`;
+    if (state.routeEngine === "haversine" && state.routeDegradedReason) {
+      return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
+    }
+    return "";
+  }
   async function refresh(silent, boot) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
     const routePath = isAdmin() ? "/logistica/admin-route/route" : "/logistica/rota";
@@ -5042,6 +5071,7 @@
       const manualOrder = activeRouteOrdemManual();
       if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
+      applyRouteEngineState(result);
       if (!planOnly) activateNativeRoute(result, true);
       await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
       // S2 21/07 (PR21072026-NAVEGAÇÃO) — fim do troca-troca: NÃO abre mais
@@ -5093,6 +5123,7 @@
       const started = manualOrder && manualOrder.length
         ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: operationalDate(), ordemManual: manualOrder, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
         : await H.api("/logistica/admin-route/start", { method: "POST", body });
+      applyRouteEngineState(started);
       state.routePaused = false;
       H.cache.remove("logistica-route-paused");
       activateNativeRoute(started, true);
@@ -5144,6 +5175,7 @@
         const body = { operationalDate: today, sourceDates, pendingDeliveryIds };
         if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
         const prepared = await H.api("/logistica/admin-route/prepare", { method: "POST", body });
+        applyRouteEngineState(prepared);
         state.routePaused = false;
         H.cache.remove("logistica-route-paused");
         clearRouteSelection();
@@ -5164,7 +5196,8 @@
           ordemManual = manualOrderDeliveryIds(allRouteItems()).filter(id => preparedSet.has(id));
         }
         if (ordemManual && ordemManual.length) {
-          await H.api("/logistica/rota/planejar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
+          const manualPlan = await H.api("/logistica/rota/planejar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
+          applyRouteEngineState(manualPlan);
           setRouteOrdemManual(ordemManual);
         } else clearRouteOrdemManual();
         await saveManualRouteModeloIfNeeded();
@@ -5179,6 +5212,7 @@
         const started = ordemManual && ordemManual.length
           ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
           : await H.api("/logistica/admin-route/start", { method: "POST", body: { operationalDate: today, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
+        applyRouteEngineState(started);
         activateNativeRoute(started, true);
         await refresh(true);
         toast("Rota iniciada.");

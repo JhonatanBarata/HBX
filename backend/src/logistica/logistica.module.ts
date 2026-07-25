@@ -97,6 +97,12 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
  * DEMONSTRAÇÃO, sem SLA) — cache + rate-limit por empresa em
  * LogisticaOsrmService, stateless (sem Prisma). O app mantém fallback direto
  * pro público em qualquer erro daqui; self-host futuro = trocar OSRM_BASE_URL.
+ *
+ * S1 MOTOR-COM-CRACHÁ (25/07, PR25072026-ROTA-CONFERIDA): LogisticaRotaService
+ * passa a INJETAR LogisticaOsrmService (@Optional — degrada pro degrau 2 sem
+ * quebrar se algum teste instanciar o serviço sem ele) como DEGRAU 1 da cadeia
+ * proxy→público→Haversine de planRouteByRoads. Mesmo provider desta entrada, só
+ * ganhou mais um consumidor dentro do módulo.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],

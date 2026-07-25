@@ -7,6 +7,7 @@ import {
 } from './logistica-route-billing.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import { LogisticaOsrmService } from './logistica-osrm.service';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
 type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
@@ -50,6 +51,13 @@ export class LogisticaRotaService {
     private readonly prisma: PrismaService,
     private readonly routeBilling: LogisticaRouteBillingService,
     @Optional() private readonly tracking?: LogisticaTrackingService,
+    // S1 (25/07, PR25072026-ROTA-CONFERIDA) — DEGRAU 1 do planejamento por
+    // ruas (cache + rate-limit por empresa). @Optional() e por ÚLTIMO no
+    // construtor de propósito: instanciações diretas existentes em teste
+    // (`new LogisticaRotaService(prisma, routeBilling)`) continuam válidas
+    // sem o proxy — planRouteByRoads simplesmente pula pro degrau 2 (público
+    // direto), mesmo comportamento de antes desta sprint.
+    @Optional() private readonly osrm?: LogisticaOsrmService,
   ) {}
 
   // ── PLANEJAR ROTA ────────────────────────────────────────────────────────────
@@ -92,7 +100,13 @@ export class LogisticaRotaService {
         })
       : await planRouteByRoads(
           rows.map((r) => toStop(r)),
-          { origem, velocidadeKmH: config.velocidadeMediaKmH, paradaMin: config.tempoParadaMin, partida },
+          {
+            origem,
+            velocidadeKmH: config.velocidadeMediaKmH,
+            paradaMin: config.tempoParadaMin,
+            partida,
+            osrmTable: this.osrmTableFetcher(companyId),
+          },
         );
 
     // Persiste rotaOrdem/etaAt de cada parada (sequencial: são poucas paradas/dia).
@@ -158,6 +172,12 @@ export class LogisticaRotaService {
       terminoPrevisto: plan.terminoPrevisto ? plan.terminoPrevisto.toISOString() : null,
       velocidadeMediaKmH: config.velocidadeMediaKmH,
       tempoParadaMin: config.tempoParadaMin,
+      // S1 (25/07, PR25072026-ROTA-CONFERIDA) — crachá: engine SEMPRE presente
+      // (Lei nº4, "degradação nunca é silenciosa"); degradedReason só quando
+      // o Haversine veio de FALHA (ordem manual também é Haversine, mas por
+      // escolha — planRouteManual nunca preenche degradedReason).
+      engine: plan.engine,
+      ...(plan.degradedReason ? { degradedReason: plan.degradedReason } : {}),
       paradas: plan.paradas.map((p) => ({
         id: p.id,
         rotaOrdem: p.rotaOrdem,
@@ -591,6 +611,21 @@ export class LogisticaRotaService {
   }
 
   // ── infra ────────────────────────────────────────────────────────────────────
+  /**
+   * Monta o fetcher do DEGRAU 1 (proxy) já com o `companyId` amarrado, ou
+   * `undefined` se o serviço não foi injetado (teste sem Nest, ou módulo sem
+   * o provider) — nesse caso planRouteByRoads pula direto pro degrau 2. Único
+   * ponto de conversão Coord[]→string "lng,lat;…" que o proxy espera.
+   */
+  private osrmTableFetcher(companyId: number): ((coords: Coord[]) => Promise<OsrmTablePayload>) | undefined {
+    if (!this.osrm) return undefined;
+    const osrm = this.osrm;
+    return async (coords: Coord[]) => {
+      const coordsRaw = coords.map((c) => `${c.lng},${c.lat}`).join(';');
+      return (await osrm.table(companyId, coordsRaw)) as OsrmTablePayload;
+    };
+  }
+
   private async loadConfig(companyId: number): Promise<{ velocidadeMediaKmH: number; tempoParadaMin: number }> {
     let cfg: { velocidadeMediaKmH: number; tempoParadaMin: number } | null = null;
     try {
@@ -839,17 +874,52 @@ export function computeEta(stops: Stop[], opts: EtaOptions): PlannedStop[] {
   return out;
 }
 
+// S1 (25/07, PR25072026-ROTA-CONFERIDA) — CRACHÁ do motor de rota: fim do
+// fallback Haversine mudo. `engine` diz qual matemática produziu o resultado;
+// `degradedReason` só aparece quando o Haversine veio de FALHA de rede (Lei
+// nº4 da frente: degradação nunca é silenciosa). Ordem manual também usa
+// Haversine, mas por ESCOLHA do entregador — por isso planRouteManual nunca
+// preenche degradedReason (é o sinal que o app usa pra NÃO soar o alarme).
+export type RouteEngine = 'osrm' | 'haversine';
+
+// timeout = abortou por tempo (8s direto / 9s embutido no proxy); rate_limit =
+// disjuntor do proxy tripou (LogisticaOsrmService.consumeRate, 30/min/empresa);
+// upstream = qualquer outra falha de rede/servidor/payload (inclui o próprio
+// osrmUnavailable de logistica-osrm.service.ts, que já colapsa timeout+5xx
+// nesse balde do lado do proxy); coords_invalidas = menos de 2 paradas com
+// coordenada — nem dá pra montar matriz, então nem tenta OSRM.
+export type RouteDegradedReason = 'timeout' | 'rate_limit' | 'upstream' | 'coords_invalidas';
+
+/** Payload cru da matriz OSRM (mesma forma do proxy e do público direto). */
+export interface OsrmTablePayload {
+  code?: string;
+  durations?: Array<Array<number | null>>;
+  distances?: Array<Array<number | null>>;
+}
+
 export interface PlanRouteOptions {
   origem?: Coord | null;
   velocidadeKmH: number;
   paradaMin: number;
   partida: Date;
+  /**
+   * DEGRAU 1 da cadeia de roteamento: fetcher do proxy interno já com o
+   * companyId amarrado (injeção — mantém planRouteByRoads pura/testável sem
+   * Nest; quem monta o fetcher é LogisticaRotaService.osrmTableFetcher).
+   * Ausente, ou erro, ou payload inválido → cai pro degrau 2 (OSRM público
+   * direto, o fetch de sempre).
+   */
+  osrmTable?: (coords: Coord[]) => Promise<OsrmTablePayload>;
 }
 
 export interface PlanRouteResult {
   paradas: PlannedStop[];
   distanciaTotalKm: number;
   terminoPrevisto: Date | null;
+  /** Motor que produziu ESTE resultado — nunca implícito (Lei nº4). */
+  engine: RouteEngine;
+  /** Só presente quando `engine==='haversine'` por FALHA (nunca em ordem manual). */
+  degradedReason?: RouteDegradedReason;
 }
 
 /**
@@ -881,7 +951,7 @@ export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResul
   const comEta = paradas.filter((p) => p.etaAt != null);
   const terminoPrevisto = comEta.length > 0 ? comEta[comEta.length - 1].etaAt : null;
 
-  return { paradas, distanciaTotalKm, terminoPrevisto };
+  return { paradas, distanciaTotalKm, terminoPrevisto, engine: 'haversine' };
 }
 
 /**
@@ -918,61 +988,136 @@ export function planRouteManual(stops: Stop[], ordemManual: string[], opts: Plan
   const comEta = paradas.filter((p) => p.etaAt != null);
   const terminoPrevisto = comEta.length > 0 ? comEta[comEta.length - 1].etaAt : null;
 
-  return { paradas, distanciaTotalKm, terminoPrevisto };
+  // Ordem manual não usa matriz (nem proxy nem público) — o cálculo de ETA é
+  // SEMPRE Haversine (mesma computeEta do automático), mas isso é ESCOLHA do
+  // entregador, não degradação de rede: degradedReason fica de fora de
+  // propósito (é a ausência que o app usa pra NÃO soar o alarme amarelo).
+  return { paradas, distanciaTotalKm, terminoPrevisto, engine: 'haversine' };
 }
 
 /**
- * Planejamento real por ruas. A matriz do OSRM contém o tempo/distância da
- * malha viária entre cada par de paradas; portanto sentidos, retornos, pontes e
- * bairros entram na ordem. Haversine permanece apenas como fallback resiliente.
+ * Classifica o erro de uma tentativa OSRM (proxy ou público) no motivo do
+ * crachá de degradação. `AbortError` = o próprio timeout local abortou (8s
+ * direto / 9s embutido no proxy); status 429 = disjuntor do proxy tripou
+ * (LogisticaOsrmService.consumeRate); qualquer outra coisa (rede caída, 5xx,
+ * JSON quebrado, matriz com forma errada) cai em 'upstream' — mesmo balde que
+ * o próprio proxy já usa pro erro genérico dele (osrmUnavailable).
+ */
+function classifyOsrmError(error: unknown): RouteDegradedReason {
+  if (error instanceof Error && error.name === 'AbortError') return 'timeout';
+  const status = typeof (error as any)?.getStatus === 'function' ? (error as any).getStatus() : (error as any)?.status;
+  return status === 429 ? 'rate_limit' : 'upstream';
+}
+
+/**
+ * Monta o resultado (sem `engine` — quem tagueia é o chamador) a partir de um
+ * payload de matriz OSRM. Extraído do corpo de planRouteByRoads (S1,
+ * PR25072026-ROTA-CONFERIDA) pra ser reusado nos 2 degraus que podem produzir
+ * uma matriz usável (proxy e público) sem duplicar parse/ordenação/ETA.
+ * `null` = payload ausente/código != Ok/forma errada → o chamador decide se
+ * tenta o PRÓXIMO degrau ou já reporta o motivo.
+ */
+function buildRoadPlan(
+  payload: OsrmTablePayload | null | undefined,
+  stops: Stop[],
+  valid: StopComCoord[],
+  coordinates: Coord[],
+  opts: PlanRouteOptions,
+  hasOrigin: boolean,
+): { paradas: PlannedStop[]; distanciaTotalKm: number; terminoPrevisto: Date | null } | null {
+  if (
+    !payload ||
+    payload.code !== 'Ok' ||
+    !matrixIsUsable(payload.durations, coordinates.length) ||
+    !matrixIsUsable(payload.distances, coordinates.length)
+  ) {
+    return null;
+  }
+
+  const offset = hasOrigin ? 1 : 0;
+  const order = greedyRoadOrder(valid.length, payload.durations!, offset, hasOrigin);
+  const improved = improveRoadOrder(order, payload.durations!, offset, hasOrigin);
+  const orderedValid = improved.map((index) => valid[index]);
+  const invalid = stops.filter((stop) => !hasCoord(stop));
+  const ordered: Stop[] = [...orderedValid, ...invalid].map((stop, index) => ({ ...stop, rotaOrdem: index }));
+
+  let elapsedMinutes = 0;
+  let distanceMeters = 0;
+  let previousMatrixIndex = hasOrigin ? 0 : null;
+  const paradas: PlannedStop[] = ordered.map((stop, index) => {
+    if (!hasCoord(stop)) return { ...stop, rotaOrdem: index, etaAt: null, semCoordenada: true };
+    const validIndex = valid.findIndex((candidate) => candidate.id === stop.id);
+    const matrixIndex = validIndex + offset;
+    if (previousMatrixIndex != null) {
+      elapsedMinutes += Number(payload.durations![previousMatrixIndex][matrixIndex] || 0) / 60;
+      distanceMeters += Number(payload.distances![previousMatrixIndex][matrixIndex] || 0);
+    }
+    elapsedMinutes += Math.max(0, opts.paradaMin);
+    previousMatrixIndex = matrixIndex;
+    return { ...stop, rotaOrdem: index, etaAt: new Date(opts.partida.getTime() + elapsedMinutes * 60_000), semCoordenada: false };
+  });
+  const withEta = paradas.filter((stop) => stop.etaAt != null);
+  return { paradas, distanciaTotalKm: distanceMeters / 1_000, terminoPrevisto: withEta.at(-1)?.etaAt ?? null };
+}
+
+/**
+ * Planejamento real por ruas — CADEIA DE 3 DEGRAUS (S1, 25/07,
+ * PR25072026-ROTA-CONFERIDA — fim do fallback Haversine mudo):
+ *   1) proxy interno (`opts.osrmTable`, wiring = LogisticaRotaService.osrmTableFetcher
+ *      → LogisticaOsrmService.table: cache 10min + rate-limit 30/min/empresa);
+ *   2) OSRM público direto (fetch de sempre, mesma URL/timeout de sempre);
+ *   3) Haversine (matemática pura, nunca falha).
+ * Cada degrau só é tentado se o anterior não devolveu uma matriz usável — o
+ * proxy NUNCA vira ponto único de falha (mesmo princípio do próprio serviço).
+ * O resultado carrega `engine` sempre e, quando caiu pro Haversine por FALHA
+ * (nunca por ordem manual — essa não passa por aqui), `degradedReason`
+ * explica o porquê (Lei nº4 da frente: degradação nunca é silenciosa).
  */
 export async function planRouteByRoads(stops: Stop[], opts: PlanRouteOptions): Promise<PlanRouteResult> {
   const valid = filtrarComCoord(stops);
-  if (valid.length < 2) return planRoute(stops, opts);
+  // Menos de 2 paradas com coordenada: não dá pra montar matriz (mínimo 2
+  // pontos). O motivo é o DADO, não a rede — nem tenta OSRM à toa, já sai
+  // com o crachá certo.
+  if (valid.length < 2) return { ...planRoute(stops, opts), degradedReason: 'coords_invalidas' };
 
   const hasOrigin = !!opts.origem && Number.isFinite(opts.origem.lat) && Number.isFinite(opts.origem.lng) && Math.abs(opts.origem.lat) <= 90 && Math.abs(opts.origem.lng) <= 180 && !(opts.origem.lat === 0 && opts.origem.lng === 0);
   const coordinates: Coord[] = [...(hasOrigin ? [opts.origem as Coord] : []), ...valid.map((stop) => ({ lat: stop.lat, lng: stop.lng }))];
+
+  // DEGRAU 1 — proxy interno. Guarda o motivo só pra reportar CASO o degrau 2
+  // também falhe: rate_limit é o sinal mais específico/acionável (disjuntor
+  // do proxy tripou); qualquer outro erro daqui é redundante com o que quer
+  // que trave o degrau 2 (que é sempre o ÚLTIMO tentado antes do Haversine).
+  let proxyReason: RouteDegradedReason | null = null;
+  if (opts.osrmTable) {
+    try {
+      const payload = await opts.osrmTable(coordinates);
+      const built = buildRoadPlan(payload, stops, valid, coordinates, opts, hasOrigin);
+      if (built) return { ...built, engine: 'osrm' };
+      proxyReason = 'upstream'; // respondeu, mas payload/código inválido
+    } catch (error) {
+      proxyReason = classifyOsrmError(error);
+    }
+  }
+
+  // DEGRAU 2 — OSRM público direto (fetch de sempre; timeout 8s preservado).
   const encoded = coordinates.map((point) => `${point.lng},${point.lat}`).join(';');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
-
   try {
     const response = await fetch(`https://router.project-osrm.org/table/v1/driving/${encoded}?annotations=duration,distance`, {
       signal: controller.signal,
       headers: { 'User-Agent': 'HBX-Logistica/1.0' },
     });
     if (!response.ok) throw new Error(`OSRM table HTTP ${response.status}`);
-    const payload = await response.json() as { code?: string; durations?: Array<Array<number | null>>; distances?: Array<Array<number | null>> };
-    if (payload.code !== 'Ok' || !matrixIsUsable(payload.durations, coordinates.length) || !matrixIsUsable(payload.distances, coordinates.length)) {
-      throw new Error(`OSRM table inválida (${payload.code || 'sem código'})`);
-    }
-
-    const offset = hasOrigin ? 1 : 0;
-    const order = greedyRoadOrder(valid.length, payload.durations!, offset, hasOrigin);
-    const improved = improveRoadOrder(order, payload.durations!, offset, hasOrigin);
-    const orderedValid = improved.map((index) => valid[index]);
-    const invalid = stops.filter((stop) => !hasCoord(stop));
-    const ordered: Stop[] = [...orderedValid, ...invalid].map((stop, index) => ({ ...stop, rotaOrdem: index }));
-
-    let elapsedMinutes = 0;
-    let distanceMeters = 0;
-    let previousMatrixIndex = hasOrigin ? 0 : null;
-    const paradas: PlannedStop[] = ordered.map((stop, index) => {
-      if (!hasCoord(stop)) return { ...stop, rotaOrdem: index, etaAt: null, semCoordenada: true };
-      const validIndex = valid.findIndex((candidate) => candidate.id === stop.id);
-      const matrixIndex = validIndex + offset;
-      if (previousMatrixIndex != null) {
-        elapsedMinutes += Number(payload.durations![previousMatrixIndex][matrixIndex] || 0) / 60;
-        distanceMeters += Number(payload.distances![previousMatrixIndex][matrixIndex] || 0);
-      }
-      elapsedMinutes += Math.max(0, opts.paradaMin);
-      previousMatrixIndex = matrixIndex;
-      return { ...stop, rotaOrdem: index, etaAt: new Date(opts.partida.getTime() + elapsedMinutes * 60_000), semCoordenada: false };
-    });
-    const withEta = paradas.filter((stop) => stop.etaAt != null);
-    return { paradas, distanciaTotalKm: distanceMeters / 1_000, terminoPrevisto: withEta.at(-1)?.etaAt ?? null };
+    const payload = await response.json() as OsrmTablePayload;
+    const built = buildRoadPlan(payload, stops, valid, coordinates, opts, hasOrigin);
+    if (!built) throw new Error(`OSRM table inválida (${payload.code || 'sem código'})`);
+    return { ...built, engine: 'osrm' };
   } catch (error) {
-    return planRoute(stops, opts);
+    // DEGRAU 3 — Haversine. rate_limit do proxy (degrau 1) é mais específico
+    // quando presente; senão o motivo é o que travou aqui mesmo.
+    const degradedReason = proxyReason === 'rate_limit' ? 'rate_limit' : classifyOsrmError(error);
+    return { ...planRoute(stops, opts), degradedReason };
   } finally {
     clearTimeout(timeout);
   }
@@ -1217,6 +1362,11 @@ export interface PlanejarRotaResult {
   terminoPrevisto: string | null;
   velocidadeMediaKmH: number;
   tempoParadaMin: number;
+  // S1 (25/07, PR25072026-ROTA-CONFERIDA) — crachá do motor, aditivo (campos
+  // acima intocados). engine sempre presente; degradedReason só quando o
+  // Haversine veio de falha real (nunca em ordem manual). Ver PlanRouteResult.
+  engine: RouteEngine;
+  degradedReason?: RouteDegradedReason;
   paradas: PlanejarRotaParada[];
   routeId?: string | null;
   trackingRequired?: boolean;

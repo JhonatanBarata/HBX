@@ -9,9 +9,11 @@ import {
   computeEta,
   planRoute,
   planRouteManual,
+  planRouteByRoads,
   filtrarComCoord,
   resolveDayRange,
   type Stop,
+  type OsrmTablePayload,
 } from './logistica-rota.service';
 
 // LOGÍSTICA-MOBILE M3 — prova o MOTOR DE ROTA + ETA (matemática pura, sem banco):
@@ -232,4 +234,106 @@ test('planRouteManual: parada sem coordenada mantém a posição da lista manual
   assert.deepEqual(ordenadas.map((p) => p.id), ['sem-gps', FIXTURE[1].id, FIXTURE[0].id], 'ordem manual respeitada mesmo sem coord');
   assert.equal(ordenadas[0].semCoordenada, true);
   assert.equal(ordenadas[0].etaAt, null);
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// S1 (25/07, PR25072026-ROTA-CONFERIDA) — "Motor com crachá": fim do fallback
+// Haversine MUDO. planRouteByRoads agora é uma cadeia de 3 degraus (proxy →
+// público direto → Haversine) e o resultado sempre carrega `engine`, com
+// `degradedReason` só quando o Haversine veio de FALHA de rede. Os 3 cenários
+// abaixo são os exigidos pela sprint: (a) proxy responde, (b) os dois falham,
+// (c) só o público responde.
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Matriz OSRM fake NxN internamente consistente (não precisa ser geografia real). */
+function fakeMatrix(size: number): { durations: number[][]; distances: number[][] } {
+  const durations: number[][] = [];
+  const distances: number[][] = [];
+  for (let i = 0; i < size; i++) {
+    const durRow: number[] = [];
+    const distRow: number[] = [];
+    for (let j = 0; j < size; j++) {
+      const passos = Math.abs(i - j);
+      durRow.push(passos * 300); // 5min por "salto" de índice
+      distRow.push(passos * 1000); // 1km por salto
+    }
+    durations.push(durRow);
+    distances.push(distRow);
+  }
+  return { durations, distances };
+}
+
+test('planRouteByRoads (a): DEGRAU 1 (proxy) responde → engine "osrm", sem tocar o público', async () => {
+  const stops = FIXTURE.slice(0, 3);
+  const size = stops.length + 1; // +1 pela origem (hasOrigin=true)
+  let publicFetchCalled = false;
+  const originalFetch = global.fetch;
+  (global as any).fetch = async () => {
+    publicFetchCalled = true;
+    throw new Error('degrau 1 já respondeu — não deveria tentar o público');
+  };
+  try {
+    const osrmTable = async (): Promise<OsrmTablePayload> => ({ code: 'Ok', ...fakeMatrix(size) });
+    const plan = await planRouteByRoads(stops, {
+      origem: ORIGEM,
+      velocidadeKmH: 25,
+      paradaMin: 5,
+      partida: new Date('2026-07-25T08:00:00'),
+      osrmTable,
+    });
+    assert.equal(plan.engine, 'osrm');
+    assert.equal(plan.degradedReason, undefined);
+    assert.equal(publicFetchCalled, false, 'planejar consome só 1 chamada de table por replanejo');
+    assert.equal(plan.paradas.length, stops.length);
+    assert.equal(new Set(plan.paradas.map((p) => p.id)).size, stops.length, 'todas as paradas aparecem 1×');
+  } finally {
+    (global as any).fetch = originalFetch;
+  }
+});
+
+test('planRouteByRoads (b): proxy falha (rate limit) e público falha → engine "haversine" + degradedReason', async () => {
+  const stops = FIXTURE.slice(0, 3);
+  const originalFetch = global.fetch;
+  (global as any).fetch = async () => ({ ok: false, status: 502, json: async () => ({}) });
+  try {
+    const osrmTable = async (): Promise<OsrmTablePayload> => {
+      const rateLimitError: any = new Error('Muitas chamadas de roteamento em sequência.');
+      rateLimitError.getStatus = () => 429; // mesmo contrato do HttpException do LogisticaOsrmService
+      throw rateLimitError;
+    };
+    const plan = await planRouteByRoads(stops, {
+      origem: ORIGEM,
+      velocidadeKmH: 25,
+      paradaMin: 5,
+      partida: new Date('2026-07-25T08:00:00'),
+      osrmTable,
+    });
+    assert.equal(plan.engine, 'haversine');
+    assert.equal(plan.degradedReason, 'rate_limit', 'motivo do proxy (mais específico) prevalece quando os dois degraus falham');
+    assert.equal(plan.paradas.length, stops.length);
+  } finally {
+    (global as any).fetch = originalFetch;
+  }
+});
+
+test('planRouteByRoads (c): proxy falha mas o público responde → engine "osrm" (degrau 2 funciona)', async () => {
+  const stops = FIXTURE.slice(0, 3);
+  const size = stops.length + 1;
+  const originalFetch = global.fetch;
+  (global as any).fetch = async () => ({ ok: true, status: 200, json: async () => ({ code: 'Ok', ...fakeMatrix(size) }) });
+  try {
+    const osrmTable = async (): Promise<OsrmTablePayload> => { throw new Error('proxy indisponível (502)'); };
+    const plan = await planRouteByRoads(stops, {
+      origem: ORIGEM,
+      velocidadeKmH: 25,
+      paradaMin: 5,
+      partida: new Date('2026-07-25T08:00:00'),
+      osrmTable,
+    });
+    assert.equal(plan.engine, 'osrm');
+    assert.equal(plan.degradedReason, undefined);
+    assert.equal(plan.paradas.length, stops.length);
+  } finally {
+    (global as any).fetch = originalFetch;
+  }
 });

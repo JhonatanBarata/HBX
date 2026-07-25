@@ -176,7 +176,15 @@ export class LogisticaOsrmService {
     return body;
   }
 
-  /** GET /logistica/osrm/table — repassa pra `${OSRM_BASE_URL}/table/v1/driving/...`. */
+  /**
+   * GET /logistica/osrm/table — repassa pra `${OSRM_BASE_URL}/table/v1/driving/...`.
+   * S1 (25/07, PR25072026-ROTA-CONFERIDA) — `annotations=duration,distance`:
+   * o planejador de rota (LogisticaRotaService.planRouteByRoads, DEGRAU 1 da
+   * cadeia proxy→público→Haversine) também precisa da distância por perna,
+   * não só do tempo. `durations` continua no MESMO formato pro consumidor
+   * antigo (mapa do app, roadOptimizedPoints em app.js) — a annotation extra
+   * só ACRESCENTA `distances` ao payload, nunca troca o que já existia.
+   */
   async table(companyId: number, coordsRaw: unknown): Promise<unknown> {
     const { normalized, points } = this.parseCoords(coordsRaw);
     const key = this.cacheKey('table', points, false);
@@ -184,7 +192,7 @@ export class LogisticaOsrmService {
     if (cached !== undefined) return cached;
 
     this.consumeRate(companyId);
-    const url = `${this.baseUrl()}/table/v1/driving/${normalized}?annotations=duration`;
+    const url = `${this.baseUrl()}/table/v1/driving/${normalized}?annotations=duration,distance`;
     const body = await this.fetchUpstream(url);
     this.cacheSet(key, body);
     return body;
