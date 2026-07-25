@@ -73,9 +73,14 @@ Sem ok do dono: parar no Bloco 3 e reportar.
 ## Bloco 5 — APK (nada mudou, só confirmar que nada mudou)
 
 ```bash
-node scripts/vps-run.js "curl -s http://localhost:3000/download/version-logistica.json"
+node scripts/vps-run.js "cat /var/www/hbx-downloads/version-logistica.json"
 ```
-→ `versionCode` igual ao de antes do publish (31). Se subiu sem ninguém pedir, reportar.
+→ `versionCode` igual ao de antes do publish (**31**, fingerprint `7f8edd92…`). O JSON é
+arquivo estático servido por nginx sob `/downloads/`, NÃO rota do backend — `curl` em
+`localhost:3000/download/version-logistica.json` responde 404 e não prova nada.
+A digital do APK cobre só `EntregaShell/app/src` + gradle; mudança fora dali mantém o
+versionCode e nenhum celular baixa nada. Se o número subiu sem ninguém ter mexido no APK,
+reportar antes de qualquer outra coisa.
 
 ## Bloco 6 — o dia em que o dono ligar a empresa 41 (checklist de acompanhamento)
 
