@@ -1,39 +1,47 @@
 // LOGÍSTICA-MOBILE — geocode SERVER-SIDE pro cadastro de cliente (08/07).
 //
-// Diagnóstico: o geocode que hoje resolve o pino nasce no NAVEGADOR
+// Diagnóstico original: o geocode que resolve o pino nasce no NAVEGADOR
 // (frontend/src/app/entrega/geo.ts, Nominatim chamado direto do cliente) e falha em
 // SILÊNCIO — rate-limit de 1 req/s, adblock/403, endereço sem match — e quando falha o
 // front simplesmente não manda lat/lng. Sem pino, o geofence de chegada nunca arma
-// ("0 aviso na chegada"). O backend em si (createConta/updateConta) sempre esteve
-// correto: só nunca tinha um caminho PRÓPRIO de resolver a coordenada quando o
-// navegador não conseguiu.
+// ("0 aviso na chegada"). Este util dá ao backend um caminho PRÓPRIO de resolver a
+// coordenada quando o navegador não conseguiu — best-effort, NUNCA lança, NUNCA trava
+// o cadastro (tudo degrada pra null).
 //
-// Este util dá esse caminho, best-effort, em duas camadas (NUNCA lança, NUNCA trava o
-// cadastro — tudo degrada pra null):
-//   1) PRECISO  — Nominatim server-side. O Nominatim EXIGE um User-Agent identificável
-//      (é por isso que o servidor é confiável e o navegador — sem controle de header —
-//      não); timeout curto (2,5s) pra nunca segurar o cadastro.
-//   2) FALLBACK — `BRAZIL_CITY_COORDINATES` (mesma tabela que o Radar usa em
-//      radar-search-geo.service.ts#findBrazilCityCoordinate), custo ZERO (sem rede),
-//      aproximado (centro da cidade). Não importamos aquele service (cross-module,
-//      DI desnecessária) — a tabela é dado puro, segura de importar direto; o lookup é
-//      replicado aqui enxuto (mesma normalização de acento/caixa).
+// ── FREIO DO GEOCODE (25/07, incidente empresa 41 / "Terra Hydra Mary") ────────────
+// O que estava errado: pegávamos `hit[0]` do Nominatim (`limit=1`) e gravávamos como
+// verdade. Em cidade de rua NUMERADA (Rio Claro/SP: "Rua 12", "Av. 84") o OSM não tem
+// número de casa e a MESMA via existe em vários bairros — o Nominatim devolve o
+// CENTROIDE de uma via qualquer, ignorando bairro e número. Medido em produção:
+//   · "Rua 12, 752, Jardim Consolação, Rio Claro, SP" → Rua 12, Cidade Claret
+//   · "Rua 12, 752, Rio Claro, SP"                    → Rua 12, Santa Cruz
+//   · "Rua 12, Rio Claro, SP"                         → Rua DOZE, Jardim Olinda  (≠ rua!)
+// Três bairros, quilômetros entre eles, NENHUM na porta real. Dos 3 clientes daquela
+// base com GPS de entrega, 3 de 3 divergiam do geocode (2.991 m, 1.512 m, 650 m) e 154
+// de 248 dividiam pino com outro cliente (endereços colapsados no centro da via).
 //
-// KILL-SWITCH DE REDE (`HBX_GEO_SERVER_ENABLED`): a camada 1 (a ÚNICA que faz rede) só
-// dispara quando o env é '1' ou 'true'. DEFAULT OFF de propósito — dois ganhos:
-//   · testes ficam HERMÉTICOS (sem chamada externa flaky/lenta, sem martelar o Nominatim);
-//     com a flag OFF, `resolveServerGeo` cai direto no fallback determinístico de cidade.
-//   · ops tem um freio: liga/desliga o geocode externo sem deploy.
-// Em PROD, ligue `HBX_GEO_SERVER_ENABLED=true` no ambiente pra ter o geocode PRECISO.
-// A camada 2 (fallback de cidade) segue SEMPRE ativa, com ou sem flag.
-
-import { BRAZIL_CITY_COORDINATES } from '../webscraping/brazil-city-coordinates';
+// LEI: pino errado é PIOR que pino vazio — o entregador confia no pino e vai no lugar
+// errado (combustível, hora, cliente sem água). Então agora o candidato só vira pino se
+// PROVAR que é o endereço pedido (`escolherCandidatoConfiavel`); senão o cadastro fica
+// SEM pino e o card acende a pendência "GPS", que a primeira entrega resolve com o GPS
+// de ouro da porta (`realimentarCoordenada*` em LogisticaService).
+//
+// FALLBACK DE CIDADE REMOVIDO no mesmo movimento: gravar o centro do município como
+// coordenada do cliente não é endereço, é ruído — na empresa 41 eram 45 clientes
+// empilhados no MESMO ponto (-22.3984,-47.5546). Vira pendência, não pino.
+//
+// KILL-SWITCH DE REDE (`HBX_GEO_SERVER_ENABLED`): a chamada externa só dispara quando o
+// env é '1' ou 'true'. DEFAULT OFF de propósito — testes ficam HERMÉTICOS (sem chamada
+// flaky/lenta, sem martelar o Nominatim) e ops tem freio sem deploy.
 
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_TIMEOUT_MS = 2500;
 // Nominatim exige UA identificável com contato — sem isso, respostas ficam instáveis/
 // bloqueadas silenciosamente pela usage policy deles.
 const NOMINATIM_USER_AGENT = 'HBX-Logistica/1.0 (contato@hbxsystem.com.br)';
+// Pedimos mais de um candidato porque o 1º frequentemente é a via errada: quem escolhe
+// é `escolherCandidatoConfiavel`, não a ordem do Nominatim.
+const NOMINATIM_LIMIT = 5;
 
 export interface ServerGeoAddressInput {
   endereco?: string | null;
@@ -47,7 +55,14 @@ export interface ServerGeoAddressInput {
 export interface ServerGeoResult {
   lat: number;
   lng: number;
-  geoFonte: 'geocode' | 'cidade';
+  geoFonte: 'geocode';
+}
+
+/** `address` do payload jsonv2 do Nominatim (só os campos que a validação usa). */
+export interface NominatimCandidate {
+  lat?: string | number;
+  lon?: string | number;
+  address?: Record<string, string | undefined>;
 }
 
 const DIACRITICS_RANGE_START = 0x0300;
@@ -70,23 +85,114 @@ export function hasNumericCoord(lat: unknown, lng: unknown): lat is number {
   return typeof lat === 'number' && Number.isFinite(lat) && typeof lng === 'number' && Number.isFinite(lng);
 }
 
+// ── Comparação de VIA (logradouro) ──────────────────────────────────────────────
+// Abreviação é regra do BR, não capricho: a ficha do cliente vem "Av. 84", o OSM
+// devolve "Avenida 84". Normalizamos o TIPO da via e comparamos o resto.
+const TIPO_VIA: Array<[RegExp, string]> = [
+  [/^(av|avn|avd|avenida)\b/, 'av'],
+  [/^(r|rua)\b/, 'rua'],
+  [/^(tv|trav|travessa)\b/, 'travessa'],
+  [/^(rod|rodovia)\b/, 'rodovia'],
+  [/^(est|estr|estrada)\b/, 'estrada'],
+  [/^(al|alameda)\b/, 'alameda'],
+  [/^(pc|pca|praca)\b/, 'praca'],
+];
+
+/** "Av. 84" → "av 84" · "AVENIDA 84" → "av 84" · "Rua 12" → "rua 12". */
+export function normalizeVia(value: string | null | undefined): string {
+  let v = normalizeLookupValue(value).replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const [re, canonico] of TIPO_VIA) {
+    if (re.test(v)) {
+      v = v.replace(re, canonico);
+      break;
+    }
+  }
+  return v.replace(/\s+/g, ' ').trim();
+}
+
 /**
- * Lookup enxuto na tabela local de municípios — mesmo algoritmo do
- * `findBrazilCityCoordinate` de `radar-search-geo.service.ts`, replicado aqui pra não
- * injetar aquele service (cross-module). Custo zero, sem rede.
+ * As duas strings falam da MESMA via? Igualdade normalizada, ou uma contendo a outra
+ * por PALAVRA INTEIRA ("av 84" ⊂ "av 84 sul"). Contenção por palavra inteira de
+ * propósito: "rua 1" NÃO pode casar com "rua 12", e "rua 12" NÃO casa com "rua doze"
+ * (foi exatamente o pulo do gato que jogou a Terra Hydra Mary a 3 km).
  */
-export function findBrazilCityCoordinate(
-  city: string | null | undefined,
-  state: string | null | undefined,
+export function viasCompativeis(pedida: string | null | undefined, candidata: string | null | undefined): boolean {
+  const a = normalizeVia(pedida);
+  const b = normalizeVia(candidata);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const contemPalavra = (todo: string, parte: string) => new RegExp(`(^| )${escapeRegex(parte)}( |$)`).test(todo);
+  return contemPalavra(a, b) || contemPalavra(b, a);
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function soDigitos(v: string | null | undefined): string {
+  return String(v ?? '').replace(/\D+/g, '');
+}
+
+function cidadeDoCandidato(a: Record<string, string | undefined>): string {
+  return normalizeLookupValue(a.city ?? a.town ?? a.village ?? a.municipality ?? a.city_district);
+}
+
+function bairroDoCandidato(a: Record<string, string | undefined>): string {
+  return normalizeLookupValue(a.suburb ?? a.neighbourhood ?? a.quarter ?? a.hamlet ?? a.city_district);
+}
+
+function ufDoCandidato(a: Record<string, string | undefined>): string {
+  const iso = String(a['ISO3166-2-lvl4'] ?? '').trim().toUpperCase();
+  const m = /^BR-([A-Z]{2})$/.exec(iso);
+  return m ? m[1] : '';
+}
+
+/**
+ * FREIO (25/07) — escolhe entre os candidatos do Nominatim o PRIMEIRO que PROVA ser o
+ * endereço pedido. Fail-closed: na dúvida devolve null (o cadastro fica sem pino).
+ *
+ * Exigências, todas obrigatórias:
+ *  1. o pedido tem cidade + UF (sem isso não há como validar nada);
+ *  2. o candidato bate cidade E UF;
+ *  3. o candidato tem via (`road`) COMPATÍVEL com o logradouro pedido;
+ *  4. e prova a precisão de UMA destas duas formas:
+ *     a. número da casa igual ao pedido (precisão de porta — o ideal), OU
+ *     b. bairro pedido igual ao bairro do candidato (precisão de rua-no-bairro).
+ *
+ * Sem bairro no pedido e sem número na resposta sobra "a via inteira, em algum lugar
+ * da cidade" — que é exatamente o pino de loteria que este freio existe pra barrar.
+ */
+export function escolherCandidatoConfiavel(
+  candidatos: NominatimCandidate[],
+  input: ServerGeoAddressInput,
 ): { lat: number; lng: number } | null {
-  const normalizedCity = normalizeLookupValue(city);
-  const normalizedState = String(state || '').trim().toUpperCase();
-  if (!normalizedCity || !normalizedState) return null;
-  const row = BRAZIL_CITY_COORDINATES.find(
-    ([rowState, rowCity]) => rowState === normalizedState && normalizeLookupValue(rowCity) === normalizedCity,
-  );
-  if (!row) return null;
-  return { lat: row[2], lng: row[3] };
+  const cidadePedida = normalizeLookupValue(input.cidade);
+  const ufPedida = String(input.uf || '').trim().toUpperCase();
+  if (!cidadePedida || !/^[A-Z]{2}$/.test(ufPedida)) return null;
+
+  const viaPedida = input.endereco ?? '';
+  const numeroPedido = soDigitos(input.numero);
+  const bairroPedido = normalizeLookupValue(input.bairro);
+
+  for (const cand of Array.isArray(candidatos) ? candidatos : []) {
+    const a = cand?.address;
+    if (!a || typeof a !== 'object') continue;
+
+    const lat = Number(cand.lat);
+    const lng = Number(cand.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    if (cidadeDoCandidato(a) !== cidadePedida) continue;
+    if (ufDoCandidato(a) !== ufPedida) continue;
+    if (!viasCompativeis(viaPedida, a.road)) continue;
+
+    const numeroOk = Boolean(numeroPedido) && soDigitos(a.house_number) === numeroPedido;
+    const bairroOk = Boolean(bairroPedido) && bairroDoCandidato(a) === bairroPedido;
+    if (!numeroOk && !bairroOk) continue;
+
+    return { lat, lng };
+  }
+  return null;
 }
 
 function buildNominatimQuery(input: ServerGeoAddressInput): string {
@@ -100,32 +206,31 @@ function buildNominatimQuery(input: ServerGeoAddressInput): string {
   return parts.join(', ').trim();
 }
 
-/** Kill-switch de rede: só a CAMADA 1 (Nominatim) passa por aqui; default OFF. */
+/** Kill-switch de rede: só a chamada externa passa por aqui; default OFF. */
 function serverGeoNetworkEnabled(): boolean {
   const v = String(process.env.HBX_GEO_SERVER_ENABLED ?? '').trim().toLowerCase();
   return v === '1' || v === 'true';
 }
 
 /** Nominatim server-side — best-effort, NUNCA lança (qualquer falha vira null). */
-async function geocodeViaNominatim(query: string): Promise<{ lat: number; lng: number } | null> {
-  // Gate de REDE: flag OFF (default) → retorna null SEM fetch. `resolveServerGeo` cai
-  // no fallback de cidade (determinístico). Testes ficam herméticos; ops tem freio.
+async function geocodeViaNominatim(input: ServerGeoAddressInput): Promise<{ lat: number; lng: number } | null> {
+  // Gate de REDE: flag OFF (default) → retorna null SEM fetch. Testes ficam herméticos;
+  // ops tem freio.
   if (!serverGeoNetworkEnabled()) return null;
+  const query = buildNominatimQuery(input);
   if (query.length < 4) return null;
   try {
-    const url = `${NOMINATIM_SEARCH_URL}?format=jsonv2&countrycodes=br&limit=1&q=${encodeURIComponent(query)}`;
+    const url =
+      `${NOMINATIM_SEARCH_URL}?format=jsonv2&countrycodes=br&addressdetails=1` +
+      `&limit=${NOMINATIM_LIMIT}&q=${encodeURIComponent(query)}`;
     const res = await fetch(url, {
       headers: { 'User-Agent': NOMINATIM_USER_AGENT, Accept: 'application/json' },
       signal: AbortSignal.timeout(NOMINATIM_TIMEOUT_MS),
     });
     if (!res.ok) return null;
-    const arr = (await res.json()) as Array<{ lat?: string; lon?: string }>;
-    const hit = Array.isArray(arr) ? arr[0] : null;
-    if (!hit) return null;
-    const lat = Number(hit.lat);
-    const lng = Number(hit.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return { lat, lng };
+    const arr = (await res.json()) as NominatimCandidate[];
+    // FREIO: quem escolhe é a validação, nunca a ordem do Nominatim.
+    return escolherCandidatoConfiavel(Array.isArray(arr) ? arr : [], input);
   } catch {
     // timeout (AbortSignal.timeout), rede fora, JSON quebrado — degrada, nunca propaga.
     return null;
@@ -134,17 +239,11 @@ async function geocodeViaNominatim(query: string): Promise<{ lat: number; lng: n
 
 /**
  * Resolve coordenada no SERVIDOR, best-effort, pra quando o navegador não mandou
- * lat/lng: 1) Nominatim (preciso) → 2) tabela local por cidade+UF (aproximado,
- * `geoFonte='cidade'`). Retorna `null` se as duas camadas falharem — o cadastro segue
- * sem pino, exatamente como hoje (esta função só ADICIONA uma chance, nunca remove).
+ * lat/lng. Retorna `null` quando o geocode não PROVA o endereço (freio 25/07) — o
+ * cadastro segue sem pino, o card acende pendência "GPS" e a primeira entrega grava a
+ * porta real. Esta função só ADICIONA uma chance, nunca remove nem inventa.
  */
 export async function resolveServerGeo(input: ServerGeoAddressInput): Promise<ServerGeoResult | null> {
-  const query = buildNominatimQuery(input);
-  const preciso = await geocodeViaNominatim(query);
-  if (preciso) return { ...preciso, geoFonte: 'geocode' };
-
-  const aproximado = findBrazilCityCoordinate(input.cidade, input.uf);
-  if (aproximado) return { ...aproximado, geoFonte: 'cidade' };
-
-  return null;
+  const preciso = await geocodeViaNominatim(input);
+  return preciso ? { ...preciso, geoFonte: 'geocode' } : null;
 }

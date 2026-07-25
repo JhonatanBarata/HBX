@@ -878,8 +878,16 @@ export function ClienteEditor({
     setCepStatus("ok");
     setConfirmarNumero(false);
     numeroRef.current?.focus();
-    const q = [end.logradouro, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(", ");
-    const pt = await geocodar(q);
+    // FREIO 25/07 — `geocodar` só devolve ponto que PROVA o endereço (bate cidade+UF+via
+    // e ainda número OU bairro). Sem prova, fica SEM pino: o card acende a pendência
+    // "GPS" e a 1ª entrega grava a porta real. Pino errado é pior que pino vazio.
+    const pt = await geocodar({
+      logradouro: end.logradouro,
+      bairro: end.bairro,
+      cidade: end.cidade,
+      uf: end.uf,
+      cep: end.cep,
+    });
     if (pt) {
       setCoord(pt);
       setCoordFonte("geocode");
@@ -899,9 +907,14 @@ export function ClienteEditor({
   // Ao sair do campo Número, refina o pino com o endereço completo.
   const refinarPino = useCallback(async () => {
     if (!logradouro.trim() || !cidade.trim()) return;
-    const rua = `${logradouro.trim()}${numero.trim() ? `, ${numero.trim()}` : ""}`;
-    const q = [rua, bairro.trim(), cidade.trim(), uf.trim()].filter(Boolean).join(", ");
-    const pt = await geocodar(q);
+    // FREIO 25/07 — ver comentário em resolverCep: sem prova de endereço, sem pino.
+    const pt = await geocodar({
+      logradouro: logradouro.trim(),
+      numero: numero.trim(),
+      bairro: bairro.trim(),
+      cidade: cidade.trim(),
+      uf: uf.trim(),
+    });
     if (pt) {
       setCoord(pt);
       setCoordFonte("geocode");
@@ -1945,8 +1958,14 @@ function EnderecosDoCliente({
     setCidade(end.cidade);
     setUf(end.uf);
     setCepStatus("ok");
-    const q = [end.logradouro, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(", ");
-    const pt = await geocodar(q);
+    // FREIO 25/07 — ver comentário em resolverCep do bloco principal.
+    const pt = await geocodar({
+      logradouro: end.logradouro,
+      bairro: end.bairro,
+      cidade: end.cidade,
+      uf: end.uf,
+      cep: end.cep,
+    });
     if (pt) {
       setCoord(pt);
       setCoordFonte("geocode");
@@ -1967,9 +1986,14 @@ function EnderecosDoCliente({
   // lógica de refinarPino do bloco principal).
   const refinarPino = useCallback(async () => {
     if (!logradouro.trim() || !cidade.trim()) return;
-    const rua = `${logradouro.trim()}${numero.trim() ? `, ${numero.trim()}` : ""}`;
-    const q = [rua, bairro.trim(), cidade.trim(), uf.trim()].filter(Boolean).join(", ");
-    const pt = await geocodar(q);
+    // FREIO 25/07 — ver comentário em resolverCep: sem prova de endereço, sem pino.
+    const pt = await geocodar({
+      logradouro: logradouro.trim(),
+      numero: numero.trim(),
+      bairro: bairro.trim(),
+      cidade: cidade.trim(),
+      uf: uf.trim(),
+    });
     if (pt) {
       setCoord(pt);
       setCoordFonte("geocode");

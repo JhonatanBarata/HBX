@@ -69,13 +69,15 @@ function buildPrismaMock(
   entrega: any,
   conta: any,
   entregaItens: any[] = [],
-  opts: { products?: any[]; clienteProdutos?: any[]; contatos?: any[] } = {},
+  opts: { products?: any[]; clienteProdutos?: any[]; contatos?: any[]; locais?: any[] } = {},
 ) {
   // BUGFIX (09/07) — BUG 1b: `contatos` é a "tabela" injetável usada pelo fallback
   // defense-in-depth do dispararWhatsappEntregue (resolvePrincipalContato) quando a
   // Entrega chega sem contatoId. Default [] preserva o comportamento anterior dos
   // testes já existentes (contato.findFirst devolve null → cai no phone da conta).
   const contatos = opts.contatos ?? [];
+  const locais = opts.locais ?? [];
+  const localEntregaUpdates: any[] = [];
   const chargesCreated: any[] = [];
   const entregaUpdates: any[] = [];
   const masterEvents: any[] = [];
@@ -188,6 +190,30 @@ function buildPrismaMock(
         return { id: conta.id, ...args.data };
       },
     },
+    // FIX 25/07 — LocalEntrega: é ELE que o mapa/rota/card leem (`local ?? perfil`),
+    // então a realimentação do GPS de ouro tem que chegar aqui. `opts.locais` default []
+    // preserva os testes antigos (sem local → só o perfil converge, como antes).
+    localEntrega: {
+      findFirst: async (args: any) => {
+        const w = args?.where || {};
+        return (
+          locais.find(
+            (l) =>
+              (w.id === undefined || l.id === w.id) &&
+              l.companyId === w.companyId &&
+              (w.customerProfileId === undefined || l.customerProfileId === w.customerProfileId) &&
+              (w.ativo === undefined || l.ativo === w.ativo) &&
+              (w.isPrincipal === undefined || l.isPrincipal === w.isPrincipal),
+          ) ?? null
+        );
+      },
+      update: async (args: any) => {
+        localEntregaUpdates.push({ id: args?.where?.id, ...args.data });
+        const alvo = locais.find((l) => l.id === args?.where?.id);
+        if (alvo) Object.assign(alvo, args.data);
+        return { id: args?.where?.id, ...args.data };
+      },
+    },
     contato: {
       // Reflete tanto o lookup DIRETO por id (`entrega.contatoId` já resolvido)
       // quanto a resolução do PRINCIPAL/mais-recente (fallback BUG 1b) — o mesmo
@@ -235,7 +261,15 @@ function buildPrismaMock(
     // mock não isola de verdade, mas prova que o serviço passa por $transaction).
     $transaction: async (fn: any) => fn(prisma),
   };
-  return { chargesCreated, entregaUpdates, masterEvents, customerProfileUpdates, entregaItemCreates, prisma };
+  return {
+    chargesCreated,
+    entregaUpdates,
+    masterEvents,
+    customerProfileUpdates,
+    localEntregaUpdates,
+    entregaItemCreates,
+    prisma,
+  };
 }
 
 // LogisticaRotaService stub: o re-ETA pós-ação (M3) é aditivo/best-effort e não
@@ -786,6 +820,86 @@ test('B1 confirmar sem accuracy (ou accuracy > 60m) → NÃO realimenta a coorde
   const service2 = new LogisticaService(prisma2, conversations, rota, config);
   await service2.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 120 }); // impreciso
   assert.equal(updates2.length, 0, 'accuracy > 60m não realimenta (impreciso demais)');
+});
+
+// ── FIX 25/07 — o GPS de ouro tem que corrigir QUEM O MAPA LÊ ────────────────
+// Incidente empresa 41 ("Terra Hydra Mary"): a realimentação era um OU exclusivo
+// (`entrega.localId ? local : perfil`). As 3 entregas confirmadas da conta tinham
+// localId=null → só o PERFIL convergia, e o LOCAL (que é quem o mapa/rota/card leem,
+// `local ?? perfil`) ficava com o palpite do geocode pra sempre: 2.991 m de erro.
+test('FIX 25/07: entrega SEM localId realimenta TAMBÉM o local principal (era o bug do mapa)', async () => {
+  const conta = {
+    id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+    formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true, geoFonte: 'geocode', lat: -4.0, lng: -38.0,
+  };
+  const local = {
+    id: 'local-1', companyId: 1, customerProfileId: 'conta-1', isPrincipal: true, ativo: true,
+    geoFonte: 'geocode', lat: -4.0, lng: -38.0,
+  };
+  const { prisma, customerProfileUpdates, localEntregaUpdates } = buildPrismaMock(
+    buildEntrega({ localId: null }), conta, [], { locais: [local] },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 25 });
+
+  assert.equal(localEntregaUpdates.length, 1, 'o LOCAL PRINCIPAL tem que receber a porta real');
+  assert.equal(localEntregaUpdates[0].lat, -4.9);
+  assert.equal(localEntregaUpdates[0].lng, -38.3);
+  assert.equal(localEntregaUpdates[0].geoFonte, 'gps_entrega');
+  assert.equal(customerProfileUpdates.length, 1, 'o perfil (endereço da conta) também converge');
+  assert.equal(customerProfileUpdates[0].geoFonte, 'gps_entrega');
+});
+
+test('FIX 25/07: entrega em local SECUNDÁRIO ("Loja") NÃO reescreve o endereço da conta', async () => {
+  const conta = {
+    id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+    formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true, geoFonte: 'geocode', lat: -4.0, lng: -38.0,
+  };
+  const locais = [
+    { id: 'local-casa', companyId: 1, customerProfileId: 'conta-1', isPrincipal: true, ativo: true, geoFonte: 'geocode', lat: -4.0, lng: -38.0 },
+    { id: 'local-loja', companyId: 1, customerProfileId: 'conta-1', isPrincipal: false, ativo: true, geoFonte: 'geocode', lat: -4.5, lng: -38.5 },
+  ];
+  const { prisma, customerProfileUpdates, localEntregaUpdates } = buildPrismaMock(
+    buildEntrega({ localId: 'local-loja' }), conta, [], { locais },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 15 });
+
+  assert.equal(localEntregaUpdates.length, 1, 'só o local da entrega converge');
+  assert.equal(localEntregaUpdates[0].id, 'local-loja');
+  assert.equal(customerProfileUpdates.length, 0, 'GPS da Loja NUNCA vira o endereço da conta');
+  assert.equal(locais[0].lat, -4.0, 'o local principal (Casa) fica intacto');
+});
+
+test('FIX 25/07: local com gps_cadastro (decisão humana) segue intocável', async () => {
+  const conta = {
+    id: 'conta-1', name: 'Dona Maria', phone: '5588999999999', phoneNormalized: '5588999999999',
+    formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true, geoFonte: 'geocode', lat: -4.0, lng: -38.0,
+  };
+  const local = {
+    id: 'local-1', companyId: 1, customerProfileId: 'conta-1', isPrincipal: true, ativo: true,
+    geoFonte: 'gps_cadastro', lat: -4.2, lng: -38.2,
+  };
+  const { prisma, localEntregaUpdates } = buildPrismaMock(
+    buildEntrega({ localId: 'local-1' }), conta, [], { locais: [local] },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3, accuracy: 10 });
+
+  assert.equal(localEntregaUpdates.length, 0, '"Usar este local" é decisão humana — nunca sobrescreve');
+  assert.equal(local.lat, -4.2);
 });
 
 // ── R2 (a) — idempotência: confirmar 2× a MESMA entrega = 1 charge ────────────

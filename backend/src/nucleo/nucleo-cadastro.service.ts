@@ -1310,6 +1310,11 @@ export class NucleoCadastroService {
    * quando presente, senão cai pro do registro já salvo (edição parcial que não tocou
    * no endereço, mas a conta nunca teve pino). Best-effort: NUNCA lança (o util já
    * degrada tudo pra null internamente).
+   *
+   * FREIO (25/07) — o util agora só devolve coordenada que PROVA ser o endereço pedido
+   * (bate cidade+UF+via e ainda número da casa OU bairro) e não existe mais fallback de
+   * "centro da cidade". Então `null` aqui virou o caso NORMAL, não a exceção: conta sem
+   * pino acende a pendência "GPS" no card e a primeira entrega grava a porta real.
    */
   private async maybeResolveServerGeo(
     input: {
@@ -1321,7 +1326,7 @@ export class NucleoCadastroService {
       cep?: string | null;
     },
     existing: GeoRecord | null,
-  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' | 'cidade' } | null> {
+  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' } | null> {
     if (existing && (hasNumericCoord(existing.lat, existing.lng) || existing.geoFonte === 'gps_cadastro')) {
       return null; // já tem pino (qualquer fonte) OU é pino humano protegido — nunca mexe
     }

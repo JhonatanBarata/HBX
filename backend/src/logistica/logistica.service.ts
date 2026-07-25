@@ -916,14 +916,12 @@ export class LogisticaService {
     }
 
     // B1 — realimenta a coordenada da porta real com o GPS de ouro (best-effort,
-    // FORA da tx do confirmar — mesmo padrão do persistirDesfecho). MULTILOCAL
-    // (10/07): quando a entrega tem um LOCAL, o pino que converge é o do LOCAL (cada
-    // porta tem sua coordenada própria); sem local = o do perfil (legado).
-    if (entrega.localId) {
-      await this.realimentarCoordenadaLocal(companyId, entrega.localId, { lat, lng, accuracy: gps.accuracy });
-    } else {
-      await this.realimentarCoordenadaCliente(companyId, entrega.customerProfileId, { lat, lng, accuracy: gps.accuracy });
-    }
+    // FORA da tx do confirmar — mesmo padrão do persistirDesfecho).
+    await this.realimentarCoordenadaPorta(companyId, entrega.customerProfileId, entrega.localId ?? null, {
+      lat,
+      lng,
+      accuracy: gps.accuracy,
+    });
 
     // Passo 2 (SÓ com a flag ON e SÓ na primeira confirmação): os efeitos externos.
     // Enquanto HBX_LOGISTICA_ENABLED OFF → nenhum WhatsApp, nenhuma cobrança.
@@ -1092,6 +1090,55 @@ export class LogisticaService {
 
   // ── B1 — GPS de ouro jogado fora: realimenta o cadastro do cliente ──────────
   /**
+   * FIX 25/07 (incidente empresa 41) — o GPS de ouro corrigia o PERFIL, mas quem o
+   * mapa/rota/card leem é o LOCAL (`local ?? perfil`, ver `toStop` em
+   * logistica-rota.service.ts e o card em nucleo-cadastro.service.ts). Como a
+   * realimentação era um OU exclusivo (`entrega.localId ? local : perfil`), toda
+   * entrega SEM `localId` corrigia só o perfil — e o local seguia com o palpite do
+   * geocode pra sempre. Na conta do André as 3 entregas confirmadas tinham
+   * `localId = null`: o perfil convergiu pra porta certa e o mapa continuou apontando
+   * 2.991 m longe. Agora a porta real irriga OS DOIS lados que a leitura pode usar:
+   *
+   *  · LOCAL — o da entrega quando ela tem um; senão o PRINCIPAL ativo do cliente
+   *    (é ele que o card e a rota leem quando a entrega não carrega local).
+   *  · PERFIL — só quando a porta é a do endereço da CONTA (entrega sem local, ou
+   *    local principal). GPS de um local secundário ("Loja") nunca reescreve o
+   *    endereço da conta.
+   *
+   * Best-effort como os dois espelhos que ele orquestra: falha aqui NUNCA reverte a
+   * entrega.
+   */
+  private async realimentarCoordenadaPorta(
+    companyId: number,
+    customerProfileId: string,
+    localIdDaEntrega: string | null,
+    gps: { lat: number | null; lng: number | null; accuracy?: number },
+  ): Promise<void> {
+    if (!gpsDeOuro(gps)) return; // mesmo crivo dos espelhos — evita query à toa.
+    let localId = localIdDaEntrega;
+    let portaEhDaConta = !localIdDaEntrega;
+    try {
+      if (localId) {
+        const local = await this.prisma.localEntrega.findFirst({
+          where: { id: localId, companyId },
+          select: { isPrincipal: true },
+        });
+        portaEhDaConta = Boolean(local?.isPrincipal);
+      } else {
+        const principal = await this.prisma.localEntrega.findFirst({
+          where: { companyId, customerProfileId, ativo: true, isPrincipal: true },
+          select: { id: true },
+        });
+        localId = principal?.id ?? null;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[logistica] realimentarCoordenadaPorta cliente=${customerProfileId} falhou: ${String(e?.message || e)}`);
+    }
+    if (localId) await this.realimentarCoordenadaLocal(companyId, localId, gps);
+    if (portaEhDaConta) await this.realimentarCoordenadaCliente(companyId, customerProfileId, gps);
+  }
+
+  /**
    * B1 (07/07) — o pino do cadastro nasce de geocode (CEP→Nominatim), impreciso
    * no BR (número de casa raro no OSM) → o geofence quase nunca dispara certo.
    * Ao confirmar com GPS PRECISO (accuracy<=60m), atualiza CustomerProfile.lat/lng
@@ -1106,8 +1153,7 @@ export class LogisticaService {
     customerProfileId: string,
     gps: { lat: number | null; lng: number | null; accuracy?: number },
   ): Promise<void> {
-    if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') return;
-    if (typeof gps.accuracy !== 'number' || !Number.isFinite(gps.accuracy) || gps.accuracy > 60) return;
+    if (!gpsDeOuro(gps)) return;
     try {
       const conta = await this.prisma.customerProfile.findFirst({
         where: { id: customerProfileId, companyId },
@@ -1137,8 +1183,7 @@ export class LogisticaService {
     localId: string,
     gps: { lat: number | null; lng: number | null; accuracy?: number },
   ): Promise<void> {
-    if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') return;
-    if (typeof gps.accuracy !== 'number' || !Number.isFinite(gps.accuracy) || gps.accuracy > 60) return;
+    if (!gpsDeOuro(gps)) return;
     try {
       const local = await this.prisma.localEntrega.findFirst({
         where: { id: localId, companyId },
@@ -2785,6 +2830,17 @@ function parseUpdatedSince(value?: string): Date | null {
 function actorIdOrNull(actor?: LogisticaActor | null): number | null {
   const id = Number(actor?.id);
   return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * B1 — "GPS de ouro": coordenada numérica válida E precisão de porta (accuracy<=60m).
+ * Único crivo pra escrever `geoFonte='gps_entrega'`; extraído (25/07) porque agora três
+ * caminhos usam o MESMO limite (perfil, local e o orquestrador dos dois) e um limite que
+ * se separa vira porta de pino ruim entrando pelo lado que ninguém olhou.
+ */
+function gpsDeOuro(gps: { lat: number | null; lng: number | null; accuracy?: number }): boolean {
+  if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') return false;
+  return typeof gps.accuracy === 'number' && Number.isFinite(gps.accuracy) && gps.accuracy <= 60;
 }
 
 function parseDateOrNull(value: string | null | undefined): Date | null {

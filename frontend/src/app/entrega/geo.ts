@@ -68,24 +68,144 @@ export async function buscarCep(cepRaw: string): Promise<EnderecoCep | null> {
   }
 }
 
-// ── Nominatim forward: texto → coordenada (pino do minimapa) ─────────────────
-export async function geocodar(q: string): Promise<Ponto | null> {
-  const query = (q || "").trim();
-  if (query.length < 4) return null;
+// ── Nominatim forward: endereço → coordenada (pino do minimapa) ──────────────
+//
+// FREIO (25/07, incidente empresa 41 / "Terra Hydra Mary"). Antes: `limit=1` e o
+// primeiro palpite virava pino. Em cidade de rua NUMERADA (Rio Claro/SP: "Rua 12",
+// "Av. 84") o OSM não tem número de casa e a MESMA via existe em vários bairros — o
+// Nominatim devolve o CENTROIDE de uma via qualquer, ignorando número e bairro:
+//   "Rua 12, 752, Jardim Consolação, Rio Claro, SP" → Rua 12, Cidade Claret
+//   "Rua 12, 752, Rio Claro, SP"                    → Rua 12, Santa Cruz
+//   "Rua 12, Rio Claro, SP"                         → Rua DOZE, Jardim Olinda (≠ rua!)
+// Três bairros, quilômetros de distância, nenhum na porta real — e o pino errado foi
+// parar no mapa do entregador, a 3 km do cliente.
+//
+// LEI: pino errado é PIOR que pino vazio. Agora o candidato só vira pino se PROVAR o
+// endereço pedido; senão fica SEM pino, o card acende a pendência "GPS" e a primeira
+// entrega grava a porta real pelo GPS do aparelho. Gêmeo server-side (MESMAS regras):
+// backend/src/nucleo/nucleo-geo.util.ts#escolherCandidatoConfiavel.
+export interface EnderecoPartes {
+  logradouro: string;
+  numero?: string;
+  bairro?: string;
+  cidade: string;
+  uf: string;
+  cep?: string;
+}
+
+interface CandidatoNominatim {
+  lat?: string;
+  lon?: string;
+  address?: NominatimAddress;
+}
+
+export async function geocodar(partes: EnderecoPartes): Promise<Ponto | null> {
+  const rua = (partes.logradouro || "").trim();
+  const cidade = (partes.cidade || "").trim();
+  const uf = (partes.uf || "").trim();
+  if (!rua || !cidade || !uf) return null; // sem isso não há como validar nada.
+  const q = [
+    [rua, (partes.numero || "").trim()].filter(Boolean).join(", "),
+    (partes.bairro || "").trim(),
+    cidade,
+    uf,
+    (partes.cep || "").trim(),
+  ]
+    .filter(Boolean)
+    .join(", ");
   try {
-    const url = `${NOMINATIM}/search?format=jsonv2&countrycodes=br&limit=1&q=${encodeURIComponent(query)}`;
+    const url = `${NOMINATIM}/search?format=jsonv2&countrycodes=br&addressdetails=1&limit=5&q=${encodeURIComponent(q)}`;
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     if (!r.ok) return null;
-    const arr = (await r.json()) as Array<{ lat?: string; lon?: string }>;
-    const hit = Array.isArray(arr) ? arr[0] : null;
-    if (!hit) return null;
-    const lat = Number(hit.lat);
-    const lng = Number(hit.lon);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return { lat, lng };
+    const arr = (await r.json()) as CandidatoNominatim[];
+    // Quem escolhe é a validação, NUNCA a ordem do Nominatim.
+    return escolherCandidatoConfiavel(Array.isArray(arr) ? arr : [], partes);
   } catch {
     return null;
   }
+}
+
+/**
+ * O PRIMEIRO candidato que prova ser o endereço pedido — ou null (fail-closed).
+ * Exige, tudo junto: cidade + UF batendo, via compatível com o logradouro pedido e
+ * ainda precisão comprovada por número da casa OU por bairro. Sem bairro no pedido e
+ * sem número na resposta sobra "a via inteira, em algum lugar da cidade" — que é
+ * exatamente o pino de loteria que este freio existe pra barrar.
+ */
+function escolherCandidatoConfiavel(cands: CandidatoNominatim[], partes: EnderecoPartes): Ponto | null {
+  const cidadePedida = semAcento(partes.cidade);
+  const ufPedida = (partes.uf || "").trim().toUpperCase();
+  const numeroPedido = soDigitos(partes.numero || "");
+  const bairroPedido = semAcento(partes.bairro || "");
+
+  for (const c of cands) {
+    const a = c?.address;
+    if (!a) continue;
+    const lat = Number(c.lat);
+    const lng = Number(c.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    const cidadeCand = semAcento(a.city || a.town || a.village || a.municipality || a.city_district || "");
+    if (cidadeCand !== cidadePedida) continue;
+    if (ufDoEstado(a.state, a["ISO3166-2-lvl4"]) !== ufPedida) continue;
+    if (!viasCompativeis(partes.logradouro, a.road)) continue;
+
+    const numeroOk = Boolean(numeroPedido) && soDigitos(a.house_number || "") === numeroPedido;
+    const bairroCand = semAcento(a.suburb || a.neighbourhood || a.quarter || a.city_district || "");
+    const bairroOk = Boolean(bairroPedido) && bairroCand === bairroPedido;
+    if (!numeroOk && !bairroOk) continue;
+
+    return { lat, lng };
+  }
+  return null;
+}
+
+function semAcento(s: string): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Abreviação é regra do BR, não capricho: a ficha vem "Av. 84", o OSM devolve
+// "Avenida 84". Normaliza o TIPO da via e compara o resto.
+const TIPO_VIA: Array<[RegExp, string]> = [
+  [/^(av|avn|avd|avenida)\b/, "av"],
+  [/^(r|rua)\b/, "rua"],
+  [/^(tv|trav|travessa)\b/, "travessa"],
+  [/^(rod|rodovia)\b/, "rodovia"],
+  [/^(est|estr|estrada)\b/, "estrada"],
+  [/^(al|alameda)\b/, "alameda"],
+  [/^(pc|pca|praca)\b/, "praca"],
+];
+
+function normalizeVia(v: string | undefined): string {
+  let s = semAcento(v || "")
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  for (const [re, canonico] of TIPO_VIA) {
+    if (re.test(s)) {
+      s = s.replace(re, canonico);
+      break;
+    }
+  }
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/** Mesma via? Igualdade normalizada ou contenção por PALAVRA INTEIRA ("av 84" ⊂
+ *  "av 84 sul"). Palavra inteira de propósito: "rua 1" não casa com "rua 12", e
+ *  "rua 12" não casa com "rua doze" — foi esse pulo do gato que jogou o cliente a 3 km. */
+function viasCompativeis(pedida: string | undefined, candidata: string | undefined): boolean {
+  const a = normalizeVia(pedida);
+  const b = normalizeVia(candidata);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const contem = (todo: string, parte: string) =>
+    new RegExp(`(^| )${parte.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( |$)`).test(todo);
+  return contem(a, b) || contem(b, a);
 }
 
 // ── Nominatim reverse: coordenada → endereço (fluxo "Usar este local") ───────
