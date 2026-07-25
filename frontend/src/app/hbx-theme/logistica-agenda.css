@@ -872,6 +872,162 @@
   color: var(--hbx-danger);
 }
 
+/* S2 — Importar sequência pronta: lista de rotas salvas + preview de 3 blocos. */
+.log-agenda-import__list {
+  display: grid;
+  gap: 7px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.log-agenda-import__route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.log-agenda-import__route:hover {
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, var(--border-hairline));
+}
+
+.log-agenda-import__route.is-active {
+  border-color: color-mix(in srgb, var(--hbx-brand) 55%, var(--border-hairline));
+  background: var(--hbx-brand-soft);
+}
+
+.log-agenda-import__route-name {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.log-agenda-import__route-name strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-agenda-import__route-name span {
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 650;
+}
+
+.log-agenda-import__route-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--hbx-success) 40%, var(--border-hairline));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--hbx-success) 12%, var(--hbx-surface));
+  color: var(--hbx-success);
+  font-size: 0.6rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.log-agenda-import__block {
+  display: grid;
+  gap: 8px;
+}
+
+.log-agenda-import__block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.log-agenda-import__block-head h4 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.log-agenda-import__block-head span {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.log-agenda-import__rows {
+  display: grid;
+  gap: 5px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.log-agenda-import__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+}
+
+.log-agenda-import__row-index {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-agenda-import__row-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-agenda-import__row-sub {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-agenda-import__row.is-ambiguous {
+  border-color: color-mix(in srgb, var(--hbx-warning) 40%, var(--border-hairline));
+}
+
+.log-agenda-import__row.is-ambiguous .log-agenda-import__row-index {
+  color: var(--hbx-warning);
+}
+
+@media (max-width: 460px) {
+  .log-agenda-import__route,
+  .log-agenda-import__row {
+    grid-template-columns: 1fr;
+    justify-items: start;
+    gap: 4px;
+  }
+}
+
 @keyframes log-agenda-pulse {
   from { opacity: 0.45; }
   to { opacity: 1; }

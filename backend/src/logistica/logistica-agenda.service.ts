@@ -7,13 +7,20 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AgendaImportarPreviewDto,
   AgendaPlanoItemDto,
+  AgendaSequenciaResumoDto,
   CreateAgendaPlanoDto,
   ExecutarAgendaDiaAcaoDto,
   ReordenarAgendaDiaDto,
   UpdateAgendaPlanoDto,
 } from './dto/logistica-agenda.dto';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
+import {
+  matchSequenciaImportada,
+  parseParadasModeloJson,
+  SequenciaMatchPlano,
+} from './logistica-agenda-sequencia.util';
 import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
 
 const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'] as const;
@@ -278,6 +285,110 @@ export class LogisticaAgendaService {
         comEscada: stops.filter((stop: any) => stop.acesso?.tipo === 'ESCADA').length,
       },
       avisos: detail.avisos,
+    };
+  }
+
+  /** S2 — rotas salvas candidatas a importar (qualquer rota da empresa, com ou sem dia fixo). */
+  async listImportSequences(companyId: number, dayInput: unknown): Promise<AgendaSequenciaResumoDto[]> {
+    this.assertCompany(companyId);
+    await this.assertAgendaV2(companyId);
+    normalizeWeekday(dayInput); // valida o parâmetro da rota; a listagem não filtra por dia.
+    const rotas = await this.prisma.logisticaRotaModelo.findMany({
+      where: { companyId },
+      select: { id: true, nome: true, diaSemana: true, paradasJson: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rotas.map((rota) => ({
+      id: rota.id,
+      nome: rota.nome,
+      diaSemana: rota.diaSemana ?? null,
+      totalParadas: Array.isArray(rota.paradasJson) ? (rota.paradasJson as any[]).length : 0,
+      updatedAt: rota.updatedAt.toISOString(),
+    }));
+  }
+
+  /**
+   * S2 — preview do matching, read-only puro (nada é escrito). A lista de
+   * planos usada no casamento vem das MESMAS linhas que `reorderDay` valida
+   * como "current" (`LogisticaRotaModeloParada` com `planoEntregaId`), nunca
+   * de `logisticaPlanoEntrega` direto — é o que garante que
+   * `ordem + foraDaSequencia + ambiguos` bate exatamente com o que o
+   * `PATCH dias/:dia/ordem` aceita, sem exceção.
+   */
+  async getImportPreview(
+    companyId: number,
+    dayInput: unknown,
+    modeloIdInput: unknown,
+  ): Promise<AgendaImportarPreviewDto> {
+    this.assertCompany(companyId);
+    await this.assertAgendaV2(companyId);
+    const day = normalizeWeekday(dayInput);
+    const modeloId = cleanId(modeloIdInput);
+
+    const modelo = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { id: modeloId, companyId },
+      select: { paradasJson: true },
+    });
+    if (!modelo) throw new NotFoundException('Rota salva não encontrada.');
+
+    const route = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { companyId, tipo: 'SEMANAL', diaSemana: day },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        paradas: {
+          where: { planoEntregaId: { not: null } },
+          orderBy: { ordem: 'asc' },
+          select: { planoEntregaId: true, localId: true, customerProfileId: true },
+        },
+      },
+    });
+    const planosAtuais: SequenciaMatchPlano[] = (route?.paradas ?? []).map((stop) => ({
+      id: String(stop.planoEntregaId),
+      customerProfileId: stop.customerProfileId,
+      localId: stop.localId ?? null,
+    }));
+
+    const paradasModelo = parseParadasModeloJson(modelo.paradasJson);
+    const resultado = matchSequenciaImportada(planosAtuais, paradasModelo);
+
+    // Nomes/endereços são só pra exibir — a ordem em si já está fechada acima.
+    const dayDetail = await this.getDay(companyId, day);
+    const planById = new Map<string, any>(
+      dayDetail.planos.map((plan: any) => [plan.id, plan] as [string, any]),
+    );
+
+    const semPlanoCustomerIds = [...new Set(resultado.semPlano.map((item) => item.customerProfileId))];
+    const semPlanoCustomers = semPlanoCustomerIds.length
+      ? await this.prisma.customerProfile.findMany({
+        where: { id: { in: semPlanoCustomerIds }, companyId },
+        select: { id: true, name: true, endereco: true, numero: true },
+      })
+      : [];
+    const semPlanoCustomerById = new Map(semPlanoCustomers.map((customer) => [customer.id, customer]));
+
+    return {
+      ordem: resultado.ordem.map((item) => ({
+        planoId: item.planoId,
+        clienteNome: planById.get(item.planoId)?.cliente?.nome || 'Cliente',
+        posicao: item.posicao,
+      })),
+      foraDaSequencia: resultado.foraDaSequencia.map((planoId) => ({
+        planoId,
+        clienteNome: planById.get(planoId)?.cliente?.nome || 'Cliente',
+      })),
+      semPlano: resultado.semPlano.map((item) => {
+        const customer = semPlanoCustomerById.get(item.customerProfileId);
+        return {
+          clienteNome: customer?.name || 'Cliente',
+          endereco: formatEnderecoResumo(customer),
+        };
+      }),
+      ambiguos: resultado.ambiguos.map((item) => ({
+        planoId: item.planoId,
+        clienteNome: planById.get(item.planoId)?.cliente?.nome || 'Cliente',
+        motivo: item.motivo,
+      })),
+      aplicavel: resultado.ordem.length > 0,
     };
   }
 
@@ -1822,6 +1933,11 @@ function accessDto(source: any) {
     temElevador: source.acessoTemElevador ?? null,
     observacao: source.acessoObservacao ?? null,
   };
+}
+
+function formatEnderecoResumo(customer: { endereco?: string | null; numero?: string | null } | undefined): string | null {
+  if (!customer?.endereco) return null;
+  return [customer.endereco, customer.numero].filter(Boolean).join(', ') || null;
 }
 
 function additionalDto(source: any) {

@@ -344,6 +344,32 @@ export function getAgendaDayPreview(day: AgendaWeekday, date: string): Promise<A
   );
 }
 
+export type AgendaSequenciaResumo = {
+  id: string;
+  nome: string;
+  diaSemana: AgendaWeekday | null;
+  totalParadas: number;
+  updatedAt: string;
+};
+
+export type AgendaImportarPreview = {
+  ordem: Array<{ planoId: string; clienteNome: string; posicao: number }>;
+  foraDaSequencia: Array<{ planoId: string; clienteNome: string }>;
+  semPlano: Array<{ clienteNome: string; endereco: string | null }>;
+  ambiguos: Array<{ planoId: string; clienteNome: string; motivo: string }>;
+  aplicavel: boolean;
+};
+
+export function getAgendaImportSequences(day: AgendaWeekday): Promise<AgendaSequenciaResumo[]> {
+  return apiFetch<AgendaSequenciaResumo[]>(`/logistica/agenda/dias/${day}/sequencias`);
+}
+
+export function getAgendaImportPreview(day: AgendaWeekday, modeloId: string): Promise<AgendaImportarPreview> {
+  return apiFetch<AgendaImportarPreview>(
+    `/logistica/agenda/dias/${day}/importar-preview?modeloId=${encodeURIComponent(modeloId)}`,
+  );
+}
+
 export function getAgendaLegacyPreview(): Promise<AgendaLegacyPreview> {
   return apiFetch<AgendaLegacyPreview>("/logistica/agenda/legado/preview");
 }

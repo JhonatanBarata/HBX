@@ -62,6 +62,26 @@ export class LogisticaAgendaController {
     return this.agenda.getDayPreview(this.companyId(req), day, date);
   }
 
+  /** S2 — rotas salvas candidatas a importar sequência para este dia. */
+  @Get('dias/:dia/sequencias')
+  @UseGuards(RolesGuard)
+  @Admin()
+  importSequences(@Req() req: any, @Param('dia') day: string) {
+    return this.agenda.listImportSequences(this.companyId(req), day);
+  }
+
+  /** S2 — preview do matching (read-only); aplicar é o PATCH dias/:dia/ordem já existente. */
+  @Get('dias/:dia/importar-preview')
+  @UseGuards(RolesGuard)
+  @Admin()
+  importPreview(
+    @Req() req: any,
+    @Param('dia') day: string,
+    @Query('modeloId') modeloId?: string,
+  ) {
+    return this.agenda.getImportPreview(this.companyId(req), day, modeloId);
+  }
+
   @Get('catalogos')
   @UseGuards(RolesGuard)
   @Admin()

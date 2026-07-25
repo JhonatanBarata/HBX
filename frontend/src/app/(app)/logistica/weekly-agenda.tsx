@@ -13,6 +13,8 @@ import {
   getAgendaActionPreview,
   getAgendaCatalogs,
   getAgendaDay,
+  getAgendaImportPreview,
+  getAgendaImportSequences,
   getAgendaLegacyPreview,
   getWeeklyAgenda,
   updateAgendaOrder,
@@ -25,11 +27,13 @@ import {
   type AgendaDayDetail,
   type AgendaDaySummary,
   type AgendaFrequency,
+  type AgendaImportarPreview,
   type AgendaLegacyPreview,
   type AgendaOpenDeliveriesAction,
   type AgendaPlan,
   type AgendaPlanPayload,
   type AgendaPlanUpdatePayload,
+  type AgendaSequenciaResumo,
   type AgendaStop,
   type AgendaSummary,
   type AgendaWeekday,
@@ -80,6 +84,12 @@ function formatMoney(value: number): string {
 
 function shortTime(value: string | null | undefined): string {
   return value ? value.slice(0, 5) : "";
+}
+
+function shortUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(date);
 }
 
 function windowLabel(stop: Pick<AgendaStop, "janela">): string | null {
@@ -1002,6 +1012,235 @@ function LegacyMigrationModal({
   );
 }
 
+function ImportSequenceModal({
+  day,
+  onClose,
+  onApply,
+}: {
+  day: AgendaWeekday;
+  onClose: () => void;
+  onApply: (planoIds: string[]) => Promise<void>;
+}) {
+  const [sequences, setSequences] = useState<AgendaSequenciaResumo[] | null>(null);
+  const [sequencesLoading, setSequencesLoading] = useState(true);
+  const [sequencesError, setSequencesError] = useState<string | null>(null);
+  const [modeloId, setModeloId] = useState<string | null>(null);
+  const [preview, setPreview] = useState<AgendaImportarPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+
+  useEscape(!applying, onClose);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      setSequencesLoading(true);
+      try {
+        const result = await getAgendaImportSequences(day);
+        if (!cancelled) {
+          setSequences(result);
+          setSequencesError(null);
+        }
+      } catch (error: unknown) {
+        if (!cancelled) setSequencesError(humanError(error, "Não foi possível listar as rotas salvas."));
+      } finally {
+        if (!cancelled) setSequencesLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [day]);
+
+  useEffect(() => {
+    if (!modeloId) return;
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      setPreviewLoading(true);
+      setPreviewError(null);
+      try {
+        const result = await getAgendaImportPreview(day, modeloId);
+        if (!cancelled) setPreview(result);
+      } catch (error: unknown) {
+        if (!cancelled) {
+          setPreview(null);
+          setPreviewError(humanError(error, "Não foi possível montar a prévia."));
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [day, modeloId]);
+
+  function chooseAnother() {
+    setModeloId(null);
+    setPreview(null);
+    setPreviewError(null);
+  }
+
+  async function apply() {
+    if (!preview?.aplicavel || applying) return;
+    const planoIds = [
+      ...[...preview.ordem].sort((a, b) => a.posicao - b.posicao).map((item) => item.planoId),
+      ...preview.foraDaSequencia.map((item) => item.planoId),
+      ...preview.ambiguos.map((item) => item.planoId),
+    ];
+    setApplying(true);
+    setPreviewError(null);
+    try {
+      await onApply(planoIds);
+    } catch (error: unknown) {
+      setPreviewError(humanError(error, "Não foi possível aplicar a sequência."));
+      setApplying(false);
+    }
+  }
+
+  const selectedSequence = sequences?.find((item) => item.id === modeloId) || null;
+
+  return (
+    <div className="hbx-veil" onMouseDown={(event) => { if (event.target === event.currentTarget && !applying) onClose(); }}>
+      <section className="hbx-modal log-agenda-modal" role="dialog" aria-modal="true" aria-labelledby="log-agenda-import-title">
+        <header className="log-agenda-modal__head">
+          <span className="log-agenda-stop__order" aria-hidden>
+            <I d={ICONS.download} size={16} />
+          </span>
+          <div className="log-agenda-modal__title">
+            <h2 id="log-agenda-import-title">Importar sequência</h2>
+            <p>{selectedSequence ? selectedSequence.nome : dayLabel(day)}</p>
+          </div>
+          <button type="button" className="log-agenda-modal__close" aria-label="Fechar" onClick={onClose} disabled={applying}>
+            <I d={ICONS.x} size={15} />
+          </button>
+        </header>
+
+        <div className="log-agenda-modal__body">
+          {!modeloId && (
+            <div className="log-agenda-form">
+              {sequencesLoading && <p className="log-agenda-impact__notice">Procurando rotas salvas…</p>}
+              {!sequencesLoading && sequencesError && <p className="log-agenda-form__error">{sequencesError}</p>}
+              {!sequencesLoading && !sequencesError && sequences?.length === 0 && (
+                <p className="log-agenda-impact__notice">Nenhuma rota salva ainda. Salve uma rota na Leitura de Rota ou aqui na Agenda.</p>
+              )}
+              {!sequencesLoading && !sequencesError && !!sequences?.length && (
+                <div className="log-agenda-import__list">
+                  {sequences.map((sequence) => (
+                    <button
+                      type="button"
+                      className="log-agenda-import__route"
+                      key={sequence.id}
+                      onClick={() => setModeloId(sequence.id)}
+                    >
+                      <span className="log-agenda-import__route-name">
+                        <strong>{sequence.nome}</strong>
+                        <span>{sequence.totalParadas} paradas · atualizada {shortUpdatedAt(sequence.updatedAt)}</span>
+                      </span>
+                      {sequence.diaSemana === day && (
+                        <span className="log-agenda-import__route-badge">Deste dia</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {modeloId && (
+            <div className="log-agenda-form">
+              <button type="button" className="btn-ghost btn-xs log-agenda-form__add" onClick={chooseAnother} disabled={applying}>
+                <I d={ICONS.back} size={13} /> Trocar rota
+              </button>
+
+              {previewLoading && <p className="log-agenda-impact__notice">Montando a prévia…</p>}
+              {!previewLoading && previewError && <p className="log-agenda-form__error">{previewError}</p>}
+
+              {!previewLoading && preview && (
+                <>
+                  <section className="log-agenda-import__block">
+                    <div className="log-agenda-import__block-head">
+                      <h4>Vai ficar nesta ordem</h4>
+                      <span>{preview.ordem.length}</span>
+                    </div>
+                    {preview.ordem.length === 0 && (
+                      <p className="log-agenda-impact__notice">Nenhum cliente desta rota está no dia hoje.</p>
+                    )}
+                    {preview.ordem.length > 0 && (
+                      <div className="log-agenda-import__rows">
+                        {preview.ordem.map((item) => (
+                          <div className="log-agenda-import__row" key={item.planoId}>
+                            <span className="log-agenda-import__row-index">{item.posicao}</span>
+                            <span className="log-agenda-import__row-name">{item.clienteNome}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  {(preview.foraDaSequencia.length > 0 || preview.ambiguos.length > 0) && (
+                    <section className="log-agenda-import__block">
+                      <div className="log-agenda-import__block-head">
+                        <h4>Fica no fim</h4>
+                        <span>{preview.foraDaSequencia.length + preview.ambiguos.length}</span>
+                      </div>
+                      <div className="log-agenda-import__rows">
+                        {preview.foraDaSequencia.map((item) => (
+                          <div className="log-agenda-import__row" key={item.planoId}>
+                            <span className="log-agenda-import__row-index" aria-hidden>—</span>
+                            <span className="log-agenda-import__row-name">{item.clienteNome}</span>
+                          </div>
+                        ))}
+                        {preview.ambiguos.map((item) => (
+                          <div className="log-agenda-import__row is-ambiguous" key={item.planoId} title={item.motivo}>
+                            <span className="log-agenda-import__row-index" aria-hidden>?</span>
+                            <span className="log-agenda-import__row-name">{item.clienteNome}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {preview.semPlano.length > 0 && (
+                    <section className="log-agenda-import__block">
+                      <div className="log-agenda-import__block-head">
+                        <h4>Na sequência, sem plano hoje</h4>
+                        <span>{preview.semPlano.length}</span>
+                      </div>
+                      <p className="log-agenda-form__hint">Nada será criado — é só informativo.</p>
+                      <div className="log-agenda-import__rows">
+                        {preview.semPlano.map((item, index) => (
+                          <div className="log-agenda-import__row" key={`${item.clienteNome}-${index}`}>
+                            <span className="log-agenda-import__row-index" aria-hidden>—</span>
+                            <span className="log-agenda-import__row-name">
+                              {item.clienteNome}
+                              {item.endereco && <span className="log-agenda-import__row-sub"> · {item.endereco}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <footer className="log-agenda-modal__foot">
+          <div className="log-agenda-modal__actions">
+            <button type="button" className="btn-ghost" onClick={onClose} disabled={applying}>Cancelar</button>
+            {modeloId && (
+              <button type="button" className="btn-teal" onClick={() => void apply()} disabled={!preview?.aplicavel || previewLoading || applying}>
+                <I d={ICONS.check} size={14} /> {applying ? "Aplicando…" : "Aplicar ordem"}
+              </button>
+            )}
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () => void }) {
   const [summary, setSummary] = useState<AgendaSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -1015,6 +1254,7 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   const [editorPlan, setEditorPlan] = useState<AgendaPlan | null | undefined>(undefined);
   const [moveStop, setMoveStop] = useState<AgendaStop | null>(null);
   const [dayActionOpen, setDayActionOpen] = useState(false);
+  const [importSequenceOpen, setImportSequenceOpen] = useState(false);
   const [legacyMigrationOpen, setLegacyMigrationOpen] = useState(false);
   const [catalogs, setCatalogs] = useState<AgendaCatalogs | null>(null);
   const [catalogsLoading, setCatalogsLoading] = useState(false);
@@ -1103,6 +1343,15 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
     await loadSummary();
   }
 
+  async function importSequenceApplied(planoIds: string[]) {
+    if (detail?.diaSemana !== selectedDay) throw new Error("O dia mudou. Abra a importação novamente.");
+    const updated = await updateAgendaOrder(selectedDay, { planoIds });
+    setDetail(updated);
+    setImportSequenceOpen(false);
+    setMessage("Sequência aplicada.");
+    await loadSummary();
+  }
+
   async function dayActionCompleted(messageText: string) {
     setDayActionOpen(false);
     await refresh(messageText);
@@ -1180,6 +1429,7 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
                   setEditorPlan(undefined);
                   setMoveStop(null);
                   setDayActionOpen(false);
+                  setImportSequenceOpen(false);
                   setSearch("");
                   setMessage(null);
                 }}
@@ -1217,6 +1467,11 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
             {!legacyMode && (
               <button type="button" className="btn-ghost btn-xs" onClick={() => setDayActionOpen(true)} disabled={detailLoading || !detail}>
                 <I d={ICONS.config} size={13} /> Organizar dia
+              </button>
+            )}
+            {!legacyMode && (
+              <button type="button" className="btn-ghost btn-xs" onClick={() => setImportSequenceOpen(true)} disabled={detailLoading || !detail}>
+                <I d={ICONS.download} size={13} /> Importar sequência
               </button>
             )}
             <button type="button" className="btn-ghost btn-xs" onClick={onOpenRouteBuilder}>
@@ -1369,6 +1624,14 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
           day={selectedDay}
           onClose={() => setDayActionOpen(false)}
           onCompleted={dayActionCompleted}
+        />
+      )}
+
+      {importSequenceOpen && (
+        <ImportSequenceModal
+          day={selectedDay}
+          onClose={() => setImportSequenceOpen(false)}
+          onApply={importSequenceApplied}
         />
       )}
 

@@ -277,3 +277,43 @@ export class AplicarLegadoAgendaDto {
   @MaxLength(100)
   idempotencyKey!: string;
 }
+
+// S2 — Importar sequência pronta. GETs read-only: sem @Body, sem validação de
+// class-validator; os tipos aqui só documentam a resposta do service.
+export interface AgendaSequenciaResumoDto {
+  id: string;
+  nome: string;
+  diaSemana: number | null;
+  totalParadas: number;
+  updatedAt: string;
+}
+
+export interface AgendaImportarPreviewOrdemItemDto {
+  planoId: string;
+  clienteNome: string;
+  posicao: number;
+}
+
+export interface AgendaImportarPreviewForaItemDto {
+  planoId: string;
+  clienteNome: string;
+}
+
+export interface AgendaImportarPreviewSemPlanoItemDto {
+  clienteNome: string;
+  endereco: string | null;
+}
+
+export interface AgendaImportarPreviewAmbiguoItemDto {
+  planoId: string;
+  clienteNome: string;
+  motivo: string;
+}
+
+export interface AgendaImportarPreviewDto {
+  ordem: AgendaImportarPreviewOrdemItemDto[];
+  foraDaSequencia: AgendaImportarPreviewForaItemDto[];
+  semPlano: AgendaImportarPreviewSemPlanoItemDto[];
+  ambiguos: AgendaImportarPreviewAmbiguoItemDto[];
+  aplicavel: boolean;
+}
