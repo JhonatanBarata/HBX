@@ -2825,15 +2825,51 @@
   // ==========================================================================
   const weekDayFullLabels = { 1: "Segunda-feira", 2: "Terça-feira", 3: "Quarta-feira", 4: "Quinta-feira", 5: "Sexta-feira", 6: "Sábado", 7: "Domingo" };
   function diaSemanaLabel(n) { return weekDayFullLabels[n] || ""; }
-  function blankLeituraNovoDraft() { return { nome: "", telefone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null }; }
+  function blankLeituraNovoDraft() { return { nome: "", telefone: "", cep: "", endereco: "", numero: "", bairro: "", cidade: "", uf: "", lat: null, lng: null, geoFonte: null, gpsAccuracy: null }; }
+  // Captura de GPS de alta precisão (teto do que dá pra fazer sem pagar API
+  // paga — só Geolocation nativa do WebView). Antes era getCurrentPosition de
+  // tiro único: 1 fix ruim (dentro de galpão/prédio) virava 'gps_cadastro' pra
+  // sempre, porque essa fonte é intocável (autocorreção nunca reescreve).
+  // Agora amostra com watchPosition e guarda SEMPRE a MELHOR leitura (menor
+  // accuracy), parando cedo ao atingir um fix "bom o bastante" ou desistindo
+  // no timeout total — o que vier primeiro — e devolve a melhor amostra obtida
+  // até ali (nunca inventa coordenada: sem nenhum fix, resolve null como antes).
+  const LEITURA_GPS_ACCURACY_BOA_M = 20; // atingiu isso, para de amostrar
+  const LEITURA_GPS_TIMEOUT_MS = 15000; // desiste e usa a melhor amostra até aqui
   function leituraCapturePosition() {
     return new Promise(resolve => {
       if (!navigator.geolocation) return resolve(null);
-      navigator.geolocation.getCurrentPosition(
-        p => { markGpsFix(); resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); },
-        err => { markGpsError(err); resolve(null); },
-        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      let best = null;
+      let settled = false;
+      let watchId = null;
+      let timeoutId = null;
+      // Limpa o watch em QUALQUER saída (fix bom, timeout, permissão negada) —
+      // watchPosition esquecido drena a bateria de quem passa o dia na rua.
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        if (timeoutId != null) { clearTimeout(timeoutId); timeoutId = null; }
+        resolve(best);
+      };
+      watchId = navigator.geolocation.watchPosition(
+        p => {
+          markGpsFix();
+          const accuracy = Number.isFinite(p.coords.accuracy) ? p.coords.accuracy : null;
+          if (!best || (accuracy != null && (best.accuracy == null || accuracy < best.accuracy))) {
+            best = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy };
+          }
+          if (accuracy != null && accuracy <= LEITURA_GPS_ACCURACY_BOA_M) finish();
+        },
+        err => {
+          if (!best) markGpsError(err);
+          // Permissão negada não melhora esperando — desiste na hora. Timeout/
+          // indisponível momentâneo segue amostrando até o teto de tempo.
+          if (err && err.code === 1) finish();
+        },
+        { enableHighAccuracy: true, timeout: LEITURA_GPS_TIMEOUT_MS, maximumAge: 0 }
       );
+      timeoutId = setTimeout(finish, LEITURA_GPS_TIMEOUT_MS);
     });
   }
   // Reverse geocode Nominatim — mesmo padrão de useCurrentLocationForNewClient,
@@ -2864,11 +2900,11 @@
       const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { headers: { Accept: "application/json" } });
       const data = response.ok ? await response.json() : null;
       if (!data || data.erro) throw new Error("CEP não encontrado.");
-      Object.assign(state.leituraNovoDraft, { cep: formatCep(cep), endereco: data.logradouro || "", bairro: data.bairro || "", cidade: data.localidade || "", uf: data.uf || "", lat: null, lng: null, geoFonte: null });
+      Object.assign(state.leituraNovoDraft, { cep: formatCep(cep), endereco: data.logradouro || "", bairro: data.bairro || "", cidade: data.localidade || "", uf: data.uf || "", lat: null, lng: null, geoFonte: null, gpsAccuracy: null });
       state.leituraNovoCepStatus = "Endereço preenchido. Informe o número.";
       render();
       const point = await geocodeNewClient([data.logradouro, data.bairro, data.localidade, data.uf, cep].filter(Boolean).join(", "));
-      if (point) { Object.assign(state.leituraNovoDraft, point, { geoFonte: "geocode" }); state.leituraNovoCepStatus = "Endereço localizado."; render(); }
+      if (point) { Object.assign(state.leituraNovoDraft, point, { geoFonte: "geocode", gpsAccuracy: null }); state.leituraNovoCepStatus = "Endereço localizado."; render(); }
     } catch (_) { state.leituraNovoCepStatus = "CEP não encontrado. Preencha o endereço."; render(); }
   }
   async function locateLeituraNovoAddress() {
@@ -2883,7 +2919,7 @@
       point = await geocodeNewClient([formatCep(draft.cep), draft.cidade, draft.uf].filter(Boolean).join(", "));
     }
     if (!point) { state.leituraNovoCepStatus = "Não foi possível localizar este endereço."; render(); return; }
-    Object.assign(draft, point, { geoFonte: "geocode" });
+    Object.assign(draft, point, { geoFonte: "geocode", gpsAccuracy: null });
     state.leituraNovoCepStatus = "Endereço localizado.";
     render();
     H.vibrate(12);
@@ -3258,9 +3294,18 @@
     toast("Não foi possível obter sua localização. Tente novamente.", true);
     render();
   }
+  // Teto do backend pra 'gps_cadastro' virar ponto DEFINITIVO (contrato
+  // gpsAccuracy); acima disso o backend grava como aproximado e corrige
+  // sozinho na 1ª entrega confirmada. Só orienta o aviso — quem decide a
+  // fonte é sempre o servidor, aqui é apenas UX.
+  const LEITURA_GPS_ACCURACY_APROXIMADO_M = 60;
   function finishLeituraGpsCapture(position) {
     state.leituraCapturing = false;
     if (!position) { toast("Não foi possível obter sua localização. Tente novamente.", true); render(); return; }
+    const accuracy = Number(position.accuracy);
+    if (Number.isFinite(accuracy) && accuracy > LEITURA_GPS_ACCURACY_APROXIMADO_M) {
+      toast(`Local aproximado (±${Math.round(accuracy)} m) — ajusta sozinho na 1ª entrega.`, false, { warn: true });
+    }
     openLeituraParada({ ...position, capturadoEm: new Date().toISOString() });
   }
   async function performRemoveLeituraParada(paradaId) {
@@ -3352,7 +3397,9 @@
         cep: r.cep || d.cep || "",
         // Pino do GPS só vale quando o endereço veio do GPS; se foi 100% digitado
         // sem base de GPS, não força coordenada (evita pino errado).
-        ...(Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng)) && !digitado ? { lat: cap.lat, lng: cap.lng, geoFonte: "gps_cadastro" } : {}),
+        // gpsAccuracy (metros) viaja junto — o backend decide a fonte definitiva
+        // × aproximada, o app só reporta o número honesto da captura.
+        ...(Number.isFinite(Number(cap.lat)) && Number.isFinite(Number(cap.lng)) && !digitado ? { lat: cap.lat, lng: cap.lng, geoFonte: "gps_cadastro", gpsAccuracy: Number.isFinite(Number(cap.accuracy)) ? Number(cap.accuracy) : null } : {}),
       });
       return;
     }
@@ -3556,7 +3603,7 @@
     if (state.leituraSelectedClient) payload.customerProfileId = state.leituraSelectedClient.id;
     else {
       const draft = state.leituraNovoDraft;
-      payload.clienteNovo = { nome: draft.nome, telefone: draft.telefone || undefined, cep: draft.cep || undefined, endereco: draft.endereco || undefined, numero: draft.numero || undefined, bairro: draft.bairro || undefined, cidade: draft.cidade || undefined, uf: draft.uf || undefined, lat: draft.lat ?? undefined, lng: draft.lng ?? undefined, geoFonte: draft.geoFonte || "gps_cadastro" };
+      payload.clienteNovo = { nome: draft.nome, telefone: draft.telefone || undefined, cep: draft.cep || undefined, endereco: draft.endereco || undefined, numero: draft.numero || undefined, bairro: draft.bairro || undefined, cidade: draft.cidade || undefined, uf: draft.uf || undefined, lat: draft.lat ?? undefined, lng: draft.lng ?? undefined, geoFonte: draft.geoFonte || "gps_cadastro", gpsAccuracy: draft.gpsAccuracy ?? undefined };
     }
     leituraQueuePush(state.leitura.id, clientKey, payload);
     state.leitura.count = Number(state.leitura.count || 0) + 1;
@@ -6081,7 +6128,7 @@
     if (action === "leitura-tipo-existente") { await changeLeituraStep("existente"); return; }
     if (action === "leitura-tipo-novo") {
       const capture = state.leituraCapture;
-      if (capture) Object.assign(state.leituraNovoDraft, { lat: capture.lat, lng: capture.lng, geoFonte: "gps_cadastro" });
+      if (capture) Object.assign(state.leituraNovoDraft, { lat: capture.lat, lng: capture.lng, geoFonte: "gps_cadastro", gpsAccuracy: Number.isFinite(Number(capture.accuracy)) ? Number(capture.accuracy) : null });
       await changeLeituraStep("novo", () => { state.leituraNovoEditing = false; });
       if (capture && validCoordinates(capture.lat, capture.lng)) {
         const point = await reverseGeocodeLeitura(capture.lat, capture.lng);
