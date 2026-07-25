@@ -82,6 +82,14 @@ export class LogisticaAgendaController {
     return this.agenda.getImportPreview(this.companyId(req), day, modeloId);
   }
 
+  /** S3 — divergências entre planos ativos do dia e a rota salva do mesmo dia (read-only). */
+  @Get('dias/:dia/divergencias')
+  @UseGuards(RolesGuard)
+  @Admin()
+  divergencias(@Req() req: any, @Param('dia') day: string) {
+    return this.agenda.getDivergencias(this.companyId(req), day);
+  }
+
   @Get('catalogos')
   @UseGuards(RolesGuard)
   @Admin()

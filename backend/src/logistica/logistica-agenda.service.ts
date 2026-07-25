@@ -7,6 +7,8 @@ import {
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  AgendaDivergenciaItemDto,
+  AgendaDivergenciasDto,
   AgendaImportarPreviewDto,
   AgendaPlanoItemDto,
   AgendaSequenciaResumoDto,
@@ -19,6 +21,7 @@ import { resolvePrincipalContatoId } from './logistica-contato.util';
 import {
   matchSequenciaImportada,
   parseParadasModeloJson,
+  separarParadasDuplicadas,
   SequenciaMatchPlano,
 } from './logistica-agenda-sequencia.util';
 import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
@@ -390,6 +393,103 @@ export class LogisticaAgendaService {
       })),
       aplicavel: resultado.ordem.length > 0,
     };
+  }
+
+  /**
+   * S3 — conferência de divergência entre os planos ativos do dia e a rota
+   * salva "espelho" do mesmo dia (`LogisticaRotaModelo` SEMANAL, `paradasJson`
+   * — a mesma fonte que `getDay` usa para montar a sequência oficial, mas ali
+   * paradas sem `planoEntregaId` são silenciosamente ignoradas; aqui é
+   * justamente essas sobras que viram aviso). READ-ONLY absoluto: nenhuma
+   * escrita, nenhuma correção — só relata usando o MESMO matcher da S2, pra
+   * não existir um segundo cálculo que possa divergir do preview de import.
+   */
+  async getDivergencias(companyId: number, dayInput: unknown): Promise<AgendaDivergenciasDto> {
+    this.assertCompany(companyId);
+    await this.assertAgendaV2(companyId);
+    const day = normalizeWeekday(dayInput);
+    const diaNome = DAY_NAMES[day - 1];
+
+    const route = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { companyId, tipo: 'SEMANAL', diaSemana: day },
+      orderBy: { updatedAt: 'desc' },
+      select: { paradasJson: true },
+    });
+    if (!route) {
+      return { total: 0, itens: [], semRotaSalva: true };
+    }
+
+    // Só planos ATIVOS entram na conferência — plano pausado não precisa
+    // estar na rota salva, então não é divergência ele "faltar" lá.
+    const plans = await this.prisma.logisticaPlanoEntrega.findMany({
+      where: { companyId, diaSemana: day, ativo: true },
+      select: { id: true, customerProfileId: true, localId: true, customerProfile: { select: { name: true, endereco: true, numero: true } } },
+    });
+    const planosAtuais: SequenciaMatchPlano[] = plans.map((plan) => ({
+      id: plan.id,
+      customerProfileId: plan.customerProfileId,
+      localId: plan.localId ?? null,
+    }));
+    const planById = new Map(plans.map((plan) => [plan.id, plan]));
+
+    const paradasModeloBruto = parseParadasModeloJson(route.paradasJson);
+    const { unicas: paradasModelo, duplicadas } = separarParadasDuplicadas(paradasModeloBruto);
+    const resultado = matchSequenciaImportada(planosAtuais, paradasModelo);
+
+    const customerIds = [...new Set([
+      ...resultado.semPlano.map((item) => item.customerProfileId),
+      ...duplicadas.map((item) => item.customerProfileId),
+    ])];
+    const customers = customerIds.length
+      ? await this.prisma.customerProfile.findMany({
+        where: { id: { in: customerIds }, companyId },
+        select: { id: true, name: true, endereco: true, numero: true },
+      })
+      : [];
+    const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+
+    const itens: AgendaDivergenciaItemDto[] = [];
+
+    for (const planoId of resultado.foraDaSequencia) {
+      const plan = planById.get(planoId);
+      itens.push({
+        tipo: 'SO_NO_PLANO',
+        clienteNome: plan?.customerProfile?.name || 'Cliente',
+        endereco: formatEnderecoResumo(plan?.customerProfile),
+        planoId,
+        detalhe: `Tem visita marcada para ${diaNome} mas não está na rota salva.`,
+      });
+    }
+    for (const ambiguo of resultado.ambiguos) {
+      const plan = planById.get(ambiguo.planoId);
+      itens.push({
+        tipo: 'SO_NO_PLANO',
+        clienteNome: plan?.customerProfile?.name || 'Cliente',
+        endereco: formatEnderecoResumo(plan?.customerProfile),
+        planoId: ambiguo.planoId,
+        detalhe: ambiguo.motivo,
+      });
+    }
+    for (const item of resultado.semPlano) {
+      const customer = customerById.get(item.customerProfileId);
+      itens.push({
+        tipo: 'SO_NA_ROTA',
+        clienteNome: customer?.name || 'Cliente',
+        endereco: formatEnderecoResumo(customer),
+        detalhe: `Está na rota salva de ${diaNome} mas não tem visita marcada.`,
+      });
+    }
+    for (const dup of duplicadas) {
+      const customer = customerById.get(dup.customerProfileId);
+      itens.push({
+        tipo: 'DUPLICADO',
+        clienteNome: customer?.name || 'Cliente',
+        endereco: formatEnderecoResumo(customer),
+        detalhe: `Aparece mais de uma vez na rota salva de ${diaNome}.`,
+      });
+    }
+
+    return { total: itens.length, itens };
   }
 
   private async getContext(companyId: number): Promise<AgendaContext> {

@@ -258,6 +258,28 @@
   font-weight: 650;
 }
 
+/* S3 — badge "⚠ N diferenças": só aparece quando total>0 (ver weekly-agenda.tsx). */
+.log-agenda__divergence-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--hbx-warning) 42%, var(--border-hairline));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--hbx-warning) 12%, var(--hbx-surface));
+  color: var(--hbx-warning);
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.log-agenda__divergence-badge:hover {
+  border-color: color-mix(in srgb, var(--hbx-warning) 62%, var(--border-hairline));
+}
+
 .log-agenda__state {
   display: inline-flex;
   align-items: center;
@@ -1017,6 +1039,24 @@
 
 .log-agenda-import__row.is-ambiguous .log-agenda-import__row-index {
   color: var(--hbx-warning);
+}
+
+/* S3 — linha de divergência clicável (abre a ficha do plano). Mesma pintura
+   de .log-agenda-import__row; só reseta o reset de <button> do navegador. */
+.log-agenda-import__row--action {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.log-agenda-import__row--action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, var(--border-hairline));
+}
+
+.log-agenda-import__row--action:disabled {
+  cursor: default;
+  opacity: 0.68;
 }
 
 @media (max-width: 460px) {

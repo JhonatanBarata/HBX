@@ -370,6 +370,26 @@ export function getAgendaImportPreview(day: AgendaWeekday, modeloId: string): Pr
   );
 }
 
+export type AgendaDivergenciaTipo = "SO_NO_PLANO" | "SO_NA_ROTA" | "DUPLICADO";
+
+export type AgendaDivergenciaItem = {
+  tipo: AgendaDivergenciaTipo;
+  clienteNome: string;
+  endereco: string | null;
+  planoId?: string;
+  detalhe: string;
+};
+
+export type AgendaDivergencias = {
+  total: number;
+  itens: AgendaDivergenciaItem[];
+  semRotaSalva?: boolean;
+};
+
+export function getAgendaDivergencias(day: AgendaWeekday): Promise<AgendaDivergencias> {
+  return apiFetch<AgendaDivergencias>(`/logistica/agenda/dias/${day}/divergencias`);
+}
+
 export function getAgendaLegacyPreview(): Promise<AgendaLegacyPreview> {
   return apiFetch<AgendaLegacyPreview>("/logistica/agenda/legado/preview");
 }

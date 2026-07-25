@@ -13,6 +13,7 @@ import {
   getAgendaActionPreview,
   getAgendaCatalogs,
   getAgendaDay,
+  getAgendaDivergencias,
   getAgendaImportPreview,
   getAgendaImportSequences,
   getAgendaLegacyPreview,
@@ -26,6 +27,7 @@ import {
   type AgendaDayAction,
   type AgendaDayDetail,
   type AgendaDaySummary,
+  type AgendaDivergencias,
   type AgendaFrequency,
   type AgendaImportarPreview,
   type AgendaLegacyPreview,
@@ -1241,6 +1243,155 @@ function ImportSequenceModal({
   );
 }
 
+// S3 — conferência de divergência plano×parada. Read-only puro: sem botão de
+// corrigir/sincronizar, só mostra e deixa abrir a ficha do plano quando existe
+// (SO_NA_ROTA e DUPLICADO não têm planoId — não há o que abrir).
+function DivergenceModal({
+  day,
+  onClose,
+  onOpenPlan,
+}: {
+  day: AgendaWeekday;
+  onClose: () => void;
+  onOpenPlan: (planoId: string) => void;
+}) {
+  const [data, setData] = useState<AgendaDivergencias | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEscape(true, onClose);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      setLoading(true);
+      try {
+        const result = await getAgendaDivergencias(day);
+        if (!cancelled) {
+          setData(result);
+          setError(null);
+        }
+      } catch (fetchError: unknown) {
+        if (!cancelled) setError(humanError(fetchError, "Não foi possível conferir a rota salva."));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [day]);
+
+  const soNaRota = (data?.itens || []).filter((item) => item.tipo === "SO_NA_ROTA");
+  const soNoPlano = (data?.itens || []).filter((item) => item.tipo === "SO_NO_PLANO");
+  const duplicado = (data?.itens || []).filter((item) => item.tipo === "DUPLICADO");
+
+  return (
+    <div className="hbx-veil" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="hbx-modal log-agenda-modal" role="dialog" aria-modal="true" aria-labelledby="log-agenda-divergence-title">
+        <header className="log-agenda-modal__head">
+          <span className="log-agenda-stop__order" aria-hidden>
+            <I d={ICONS.bell} size={16} />
+          </span>
+          <div className="log-agenda-modal__title">
+            <h2 id="log-agenda-divergence-title">Conferência da rota</h2>
+            <p>{dayLabel(day)}</p>
+          </div>
+          <button type="button" className="log-agenda-modal__close" aria-label="Fechar" onClick={onClose}>
+            <I d={ICONS.x} size={15} />
+          </button>
+        </header>
+
+        <div className="log-agenda-modal__body">
+          {loading && <p className="log-agenda-impact__notice">Comparando os planos com a rota salva…</p>}
+          {!loading && error && <p className="log-agenda-form__error">{error}</p>}
+
+          {!loading && !error && data?.semRotaSalva && (
+            <p className="log-agenda-impact__notice">Ainda não existe rota salva para {dayLabel(day)}.</p>
+          )}
+
+          {!loading && !error && data && !data.semRotaSalva && data.total === 0 && (
+            <p className="log-agenda-impact__notice">Tudo certo: os planos do dia batem com a rota salva.</p>
+          )}
+
+          {!loading && !error && soNaRota.length > 0 && (
+            <section className="log-agenda-import__block">
+              <div className="log-agenda-import__block-head">
+                <h4>Estão na rota salva, sem visita marcada</h4>
+                <span>{soNaRota.length}</span>
+              </div>
+              <p className="log-agenda-form__hint">Ninguém foi alterado — é só o aviso. A decisão é sua.</p>
+              <div className="log-agenda-import__rows">
+                {soNaRota.map((item, index) => (
+                  <div className="log-agenda-import__row" key={`sonarota-${index}`}>
+                    <span className="log-agenda-import__row-index" aria-hidden>—</span>
+                    <span className="log-agenda-import__row-name">
+                      {item.clienteNome}
+                      {item.endereco && <span className="log-agenda-import__row-sub"> · {item.endereco}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!loading && !error && soNoPlano.length > 0 && (
+            <section className="log-agenda-import__block">
+              <div className="log-agenda-import__block-head">
+                <h4>Têm visita marcada, sem estar na rota salva</h4>
+                <span>{soNoPlano.length}</span>
+              </div>
+              <div className="log-agenda-import__rows">
+                {soNoPlano.map((item, index) => (
+                  <button
+                    type="button"
+                    className="log-agenda-import__row log-agenda-import__row--action"
+                    key={item.planoId || `sonoplano-${index}`}
+                    onClick={() => item.planoId && onOpenPlan(item.planoId)}
+                    disabled={!item.planoId}
+                    title={item.detalhe}
+                  >
+                    <span className="log-agenda-import__row-index" aria-hidden>—</span>
+                    <span className="log-agenda-import__row-name">
+                      {item.clienteNome}
+                      {item.endereco && <span className="log-agenda-import__row-sub"> · {item.endereco}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!loading && !error && duplicado.length > 0 && (
+            <section className="log-agenda-import__block">
+              <div className="log-agenda-import__block-head">
+                <h4>Repetidos na rota salva</h4>
+                <span>{duplicado.length}</span>
+              </div>
+              <div className="log-agenda-import__rows">
+                {duplicado.map((item, index) => (
+                  <div className="log-agenda-import__row is-ambiguous" key={`dup-${index}`}>
+                    <span className="log-agenda-import__row-index" aria-hidden>2×</span>
+                    <span className="log-agenda-import__row-name">
+                      {item.clienteNome}
+                      {item.endereco && <span className="log-agenda-import__row-sub"> · {item.endereco}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        <footer className="log-agenda-modal__foot">
+          <div className="log-agenda-modal__actions">
+            <button type="button" className="btn-ghost" onClick={onClose}>Fechar</button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () => void }) {
   const [summary, setSummary] = useState<AgendaSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -1259,7 +1410,10 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   const [catalogs, setCatalogs] = useState<AgendaCatalogs | null>(null);
   const [catalogsLoading, setCatalogsLoading] = useState(false);
   const [catalogsError, setCatalogsError] = useState<string | null>(null);
+  const [divergencias, setDivergencias] = useState<AgendaDivergencias | null>(null);
+  const [divergenceModalOpen, setDivergenceModalOpen] = useState(false);
   const dayRequest = useRef(0);
+  const divergenceRequest = useRef(0);
   const dayPill = useGlassPill<HTMLButtonElement>(String(selectedDay), summary?.dias.length);
 
   const loadSummary = useCallback(async () => {
@@ -1293,10 +1447,25 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
     }
   }, []);
 
+  // S3 — badge "⚠ N diferenças" no cabeçalho do dia aberto. Falha aqui nunca
+  // vira erro visível (endpoint pode estar guardado com agendaV2 desligada,
+  // ou o dia simplesmente não tem rota salva) — o badge só some.
+  const loadDivergencias = useCallback(async (day: AgendaWeekday) => {
+    const requestId = ++divergenceRequest.current;
+    try {
+      const result = await getAgendaDivergencias(day);
+      if (divergenceRequest.current === requestId) setDivergencias(result);
+    } catch {
+      if (divergenceRequest.current === requestId) setDivergencias(null);
+    }
+  }, []);
+
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch inicial da semana; efeito legítimo de sincronização com a API.
   useEffect(() => { void loadSummary(); }, [loadSummary]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- troca de dia dispara o fetch correspondente; efeito legítimo.
   useEffect(() => { void loadDay(selectedDay); }, [loadDay, selectedDay]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- troca de dia dispara a conferência do badge; efeito legítimo.
+  useEffect(() => { void loadDivergencias(selectedDay); }, [loadDivergencias, selectedDay]);
 
   const ensureCatalogs = useCallback(async () => {
     if (catalogs || catalogsLoading) return;
@@ -1323,8 +1492,21 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   }
 
   async function refresh(messageText?: string) {
-    await Promise.all([loadSummary(), loadDay(selectedDay)]);
+    await Promise.all([loadSummary(), loadDay(selectedDay), loadDivergencias(selectedDay)]);
     if (messageText) setMessage(messageText);
+  }
+
+  function closeDivergenceModal() {
+    setDivergenceModalOpen(false);
+    // Sem F5 forçado: o que gerou a divergência foi corrigido em outra tela
+    // (ficha do plano, Leitura de Rota…) — ao fechar, refaz a conferência.
+    void loadDivergencias(selectedDay);
+  }
+
+  function openPlanFromDivergence(planoId: string) {
+    const plan = planById.get(planoId) || null;
+    setDivergenceModalOpen(false);
+    if (plan) openEditor(plan);
   }
 
   async function saveCompleted(messageText: string) {
@@ -1430,6 +1612,8 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
                   setMoveStop(null);
                   setDayActionOpen(false);
                   setImportSequenceOpen(false);
+                  setDivergenceModalOpen(false);
+                  setDivergencias(null);
                   setSearch("");
                   setMessage(null);
                 }}
@@ -1459,6 +1643,16 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
               <h2>{detail?.nome || selectedSummary?.nome || dayLabel(selectedDay)}</h2>
               <p>{detail?.totais.paradas ?? selectedSummary?.totalParadas ?? 0} paradas · {detail?.totais.clientes ?? selectedSummary?.totalClientes ?? 0} clientes</p>
             </div>
+            {/* S3 — zero divergência = nada na tela; badge só existe quando há o que conferir. */}
+            {!!divergencias && divergencias.total > 0 && (
+              <button
+                type="button"
+                className="log-agenda__divergence-badge"
+                onClick={() => setDivergenceModalOpen(true)}
+              >
+                ⚠ {divergencias.total} {divergencias.total === 1 ? "diferença" : "diferenças"}
+              </button>
+            )}
             <span className={`log-agenda__state ${detail?.ativo === false ? "is-paused" : "is-active"}`}>
               {detail?.ativo === false ? "Pausado" : "Ativo"}
             </span>
@@ -1639,6 +1833,14 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
         <LegacyMigrationModal
           onClose={() => setLegacyMigrationOpen(false)}
           onCompleted={legacyMigrationCompleted}
+        />
+      )}
+
+      {divergenceModalOpen && (
+        <DivergenceModal
+          day={selectedDay}
+          onClose={closeDivergenceModal}
+          onOpenPlan={openPlanFromDivergence}
         />
       )}
     </section>

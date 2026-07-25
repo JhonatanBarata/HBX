@@ -317,3 +317,23 @@ export interface AgendaImportarPreviewDto {
   ambiguos: AgendaImportarPreviewAmbiguoItemDto[];
   aplicavel: boolean;
 }
+
+// S3 — Conferência de divergência plano×parada. GET read-only: mesmo motivo
+// dos DTOs da S2, sem class-validator (nada aqui vira @Body).
+export type AgendaDivergenciaTipoDto = 'SO_NO_PLANO' | 'SO_NA_ROTA' | 'DUPLICADO';
+
+export interface AgendaDivergenciaItemDto {
+  tipo: AgendaDivergenciaTipoDto;
+  clienteNome: string;
+  endereco: string | null;
+  /** Só existe para SO_NO_PLANO (é o plano sem parada correspondente). */
+  planoId?: string;
+  detalhe: string;
+}
+
+export interface AgendaDivergenciasDto {
+  total: number;
+  itens: AgendaDivergenciaItemDto[];
+  /** true = dia sem rota salva "espelho"; nunca é erro, só nada pra conferir. */
+  semRotaSalva?: boolean;
+}

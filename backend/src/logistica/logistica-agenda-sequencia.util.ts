@@ -113,6 +113,40 @@ export function matchSequenciaImportada(
   return { ordem, foraDaSequencia, ambiguos, semPlano };
 }
 
+/**
+ * S3 (conferência de divergência) — separa paradas do modelo cujo par
+ * (customerProfileId+localId) se repete DENTRO do próprio `paradasJson`.
+ * Extensão aditiva: não mexe em `matchSequenciaImportada` nem no comportamento
+ * da S2 (o import de sequência continua recebendo a lista completa se quiser).
+ * A 1ª ocorrência de cada par segue em `unicas` (candidata normal ao
+ * casamento); as demais voltam em `duplicadas` — é o dado bruto que sustenta
+ * o tipo `DUPLICADO` sem precisar de um segundo matcher.
+ */
+export interface ParadaDuplicada {
+  customerProfileId: string;
+  localId: string | null;
+}
+
+export function separarParadasDuplicadas(paradasModelo: SequenciaMatchParada[]): {
+  unicas: SequenciaMatchParada[];
+  duplicadas: ParadaDuplicada[];
+} {
+  const vistos = new Set<string>();
+  const unicas: SequenciaMatchParada[] = [];
+  const duplicadas: ParadaDuplicada[] = [];
+  for (const parada of paradasModelo) {
+    const localId = parada.localId ?? null;
+    const chave = `${parada.customerProfileId}::${localId ?? ''}`;
+    if (vistos.has(chave)) {
+      duplicadas.push({ customerProfileId: parada.customerProfileId, localId });
+    } else {
+      vistos.add(chave);
+      unicas.push(parada);
+    }
+  }
+  return { unicas, duplicadas };
+}
+
 /** Lê `paradasJson` (formato livre, gravado por Leitura de Rota ou pelo espelho da Agenda) sem confiar cegamente no shape. */
 export function parseParadasModeloJson(raw: unknown): SequenciaMatchParada[] {
   if (!Array.isArray(raw)) return [];
