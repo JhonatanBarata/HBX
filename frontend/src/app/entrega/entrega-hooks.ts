@@ -123,10 +123,30 @@ export function useWakeLock() {
   return { enable, disable };
 }
 
+// TETO DE PRECISÃO DO GPS DE CADASTRO (25/07) — mesmo limite (60m) que o backend usa
+// pra decidir entre `gps_cadastro` (intocável) e `gps_impreciso` (corrigível na 1ª
+// entrega). Vive aqui só pra feedback de tela (quem decide de verdade é o backend);
+// nada de "60" mágico solto na UI.
+export const GPS_ACCURACY_ACEITAVEL_METROS = 60;
+// Alvo de amostragem (mais exigente que o aceitável): atingir isso PÁRA a captura
+// mais cedo — não precisa esperar os 15s inteiros se o fix já veio ótimo.
+const GPS_ACCURACY_ALVO_METROS = 20;
+// Teto de tempo "melhor esforço" amostrando — depois disso usa a MELHOR leitura que
+// conseguiu até aqui (ou rejeita, se nenhuma chegou).
+const GPS_CAPTURA_TIMEOUT_MS = 15_000;
+
 /**
- * 1 leitura de GPS (Promise). Rejeita se indisponível/negado/timeout.
- * B1 — devolve também `accuracy` (metros, coords.accuracy) pra quem consome
- * decidir se o ponto é bom o bastante pra realimentar o cadastro do cliente.
+ * 1 leitura de GPS "melhor esforço" (Promise). Rejeita só se NENHUMA amostra chegou
+ * (indisponível/negado/timeout sem fix nenhum).
+ *
+ * B1 — devolve também `accuracy` (metros, coords.accuracy) pra quem consome decidir
+ * se o ponto é bom o bastante pra realimentar o cadastro do cliente.
+ *
+ * TETO DE PRECISÃO (25/07) — "o mais alto padrão possível, sem pagar Google": em vez
+ * de UM getCurrentPosition só, amostra com watchPosition guardando a MELHOR leitura
+ * (menor accuracy) — GPS urbano costuma convergir depois do 1º fix. Para cedo se
+ * atingir o ALVO (<=20m); desiste por timeout (~15s) e usa o que tiver. SEMPRE limpa
+ * o watch (sucesso, erro OU timeout) — watch vazado drena bateria em 2º plano.
  */
 export function getPosicaoUma(): Promise<{ lat: number; lng: number; accuracy?: number }> {
   return new Promise((resolve, reject) => {
@@ -134,15 +154,43 @@ export function getPosicaoUma(): Promise<{ lat: number; lng: number; accuracy?: 
       reject(new Error("GPS indisponível"));
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        resolve({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : undefined,
-        }),
-      (err) => reject(err),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 },
+
+    let melhor: { lat: number; lng: number; accuracy?: number } | null = null;
+    let watchId: number | null = null;
+    let concluido = false;
+
+    const parar = () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      window.clearTimeout(timeoutId);
+    };
+
+    const concluir = () => {
+      if (concluido) return;
+      concluido = true;
+      parar();
+      if (melhor) resolve(melhor);
+      else reject(new Error("GPS indisponível"));
+    };
+
+    const timeoutId = window.setTimeout(concluir, GPS_CAPTURA_TIMEOUT_MS);
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const accuracy = typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : undefined;
+        const ehMelhorQueAtual =
+          !melhor || (accuracy !== undefined && (melhor.accuracy === undefined || accuracy < melhor.accuracy));
+        if (ehMelhorQueAtual) {
+          melhor = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy };
+        }
+        if (accuracy !== undefined && accuracy <= GPS_ACCURACY_ALVO_METROS) concluir(); // já é ótimo — não espera os 15s.
+      },
+      () => {
+        if (!melhor) concluir(); // erro/negado ANTES de qualquer amostra: aí sim rejeita pro chamador.
+      },
+      { enableHighAccuracy: true, timeout: GPS_CAPTURA_TIMEOUT_MS, maximumAge: 0 },
     );
   });
 }

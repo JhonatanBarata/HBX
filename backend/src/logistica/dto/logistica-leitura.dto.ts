@@ -89,11 +89,23 @@ export class LeituraClienteNovoDto {
 
   // FIX (25/07) — mesma trava dos outros DTOs de geo (nucleo.dto.ts CreateContaDto/
   // UpdateContaDto): sem @IsIn, o cliente podia mandar qualquer string solta em
-  // geoFonte. Mesma lista exata, sem inventar valor novo.
+  // geoFonte. Mesma lista exata, sem inventar valor novo. 'gps_impreciso' (25/07,
+  // TETO DE PRECISÃO) é o que o SERVIÇO grava quando `gpsAccuracy` não prova <=60m —
+  // aceito aqui só por defesa em profundidade (o serviço decide, nunca confia neste
+  // campo pra classificar como 'gps_cadastro').
   @IsOptional()
   @IsString()
-  @IsIn(['geocode', 'gps_cadastro'])
+  @IsIn(['geocode', 'gps_cadastro', 'gps_impreciso'])
   geoFonte?: string;
+
+  // TETO DE PRECISÃO DO GPS (25/07) — precisão do fix em METROS (coords.accuracy do
+  // navegador/app). Quem decide a fonte final é o SERVIÇO (logistica-leitura.service.ts):
+  // <=60m vira 'gps_cadastro' (intocável); ausente/pior vira 'gps_impreciso'
+  // (corrigível). Contrato igual ao dos DTOs de nucleo.dto.ts.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  gpsAccuracy?: number;
 }
 
 export class LeituraParadaItemDto {

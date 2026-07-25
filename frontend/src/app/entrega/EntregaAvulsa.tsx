@@ -38,7 +38,7 @@ import {
 } from "./clientes-api";
 import { fmtTelefone } from "./clientes/page.client";
 import { criarEntregaAvulsa, planejarRota, DIAS_SEMANA } from "./entrega-api";
-import { getPosicaoUma } from "./entrega-hooks";
+import { getPosicaoUma, GPS_ACCURACY_ACEITAVEL_METROS } from "./entrega-hooks";
 
 // Form COMPLETO de cadastro (o mesmo da tela Clientes) — lazy: só entra no
 // bundle quando o entregador toca "Fazer cadastro" (mesmo padrão do RotaMapa).
@@ -361,14 +361,19 @@ function EntregaUnicaForm({
   const [bairro, setBairro] = useState("");
   const [cidade, setCidade] = useState("");
   const [uf, setUf] = useState("");
-  const [coord, setCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [coord, setCoord] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [capturando, setCapturando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+
+  // TETO DE PRECISÃO (25/07) — fix pior que o aceitável ainda é salvo (ordena rota),
+  // mas o dono precisa saber que é aproximado. Quem decide de verdade é o backend.
+  const gpsImpreciso =
+    !!coord && typeof coord.accuracy === "number" && coord.accuracy > GPS_ACCURACY_ACEITAVEL_METROS;
 
   const usarGps = useCallback(() => {
     setCapturando(true);
     void getPosicaoUma()
-      .then((p) => setCoord({ lat: p.lat, lng: p.lng }))
+      .then((p) => setCoord({ lat: p.lat, lng: p.lng, accuracy: p.accuracy }))
       .catch(() => setErro("Sem GPS agora — dá pra salvar sem localização"))
       .finally(() => setCapturando(false));
   }, []);
@@ -386,7 +391,9 @@ function EntregaUnicaForm({
         bairro: bairro.trim() || undefined,
         cidade: cidade.trim() || undefined,
         uf: uf.trim() || undefined,
-        ...(coord ? { lat: coord.lat, lng: coord.lng, geoFonte: "gps_cadastro" as const } : {}),
+        // TETO DE PRECISÃO (25/07) — quem decide se isto vira 'gps_cadastro' de
+        // verdade é o BACKEND (gpsAccuracy<=60m); aqui só manda o que o GPS deu.
+        ...(coord ? { lat: coord.lat, lng: coord.lng, geoFonte: "gps_cadastro" as const, gpsAccuracy: coord.accuracy } : {}),
       };
       const criada = await criarCliente({ nome: nome.trim(), whatsapp: whatsapp.trim() || undefined, ...payload });
       // 1º local nasce principal sozinho (contrato MULTILOCAL) — best-effort,
@@ -443,6 +450,7 @@ function EntregaUnicaForm({
       <button type="button" className={`ent-btn ent-btn--secondary${coord ? " is-on" : ""}`} onClick={usarGps} disabled={capturando}>
         {capturando ? "Capturando…" : coord ? "Localização capturada ✓" : "Localização Atual"}
       </button>
+      {gpsImpreciso ? <div className="ent-hint">Local salvo aproximado — corrige na 1ª entrega.</div> : null}
       {erro ? <div className="ent-erro">{erro}</div> : null}
       <div className="ent-sheet-actions">
         <button type="button" className="ent-btn ent-btn--primary" onClick={() => void salvar()} disabled={!nome.trim() || ocupado}>

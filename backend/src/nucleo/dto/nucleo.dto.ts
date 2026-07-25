@@ -110,11 +110,22 @@ export class CreateContaDto {
   // B-backend (08/07): 'cidade' (fallback aproximado do geocode server-side) NUNCA
   // vem do body — o serviço escreve direto quando resolve a coordenada sozinho
   // (nucleo-geo.util.ts). De propósito fora deste enum: o cliente não pode alegar
-  // 'cidade' por conta própria.
+  // 'cidade' por conta própria. TETO DE PRECISÃO (25/07) — 'gps_impreciso' é o que
+  // o SERVIÇO grava quando `gpsAccuracy` não prova <=60m; aceito aqui só por defesa
+  // em profundidade (quem decide é sempre o serviço — ver decidirGeoFonteCadastro).
   @IsOptional()
   @IsString()
-  @IsIn(['geocode', 'gps_cadastro'])
+  @IsIn(['geocode', 'gps_cadastro', 'gps_impreciso'])
   geoFonte?: string;
+
+  // TETO DE PRECISÃO DO GPS (25/07) — precisão do fix em METROS (coords.accuracy).
+  // Fail-closed: o cliente NUNCA se autodeclara preciso só mandando geoFonte=
+  // 'gps_cadastro' — o serviço só aceita essa fonte (intocável) quando
+  // `gpsAccuracy` <=60m; do contrário grava 'gps_impreciso' (corrigível na 1ª
+  // entrega confirmada).
+  @IsOptional()
+  @IsNumber()
+  gpsAccuracy?: number;
 
   // Papéis — default: cadastro manual do vendedor nasce como CLIENTE (o pedido).
   @IsOptional()
@@ -204,11 +215,17 @@ export class UpdateContaDto {
   @IsNumber()
   lng?: number;
 
-  // LOGÍSTICA-MOBILE B1 (07/07) — mesma regra do CreateContaDto acima.
+  // LOGÍSTICA-MOBILE B1 (07/07) — mesma regra do CreateContaDto acima. TETO DE
+  // PRECISÃO (25/07) — 'gps_impreciso' incluído pelo mesmo motivo (ver CreateContaDto).
   @IsOptional()
   @IsString()
-  @IsIn(['geocode', 'gps_cadastro'])
+  @IsIn(['geocode', 'gps_cadastro', 'gps_impreciso'])
   geoFonte?: string;
+
+  // TETO DE PRECISÃO DO GPS (25/07) — mesma regra do CreateContaDto acima.
+  @IsOptional()
+  @IsNumber()
+  gpsAccuracy?: number;
 
   @IsOptional()
   @IsBoolean()
@@ -444,10 +461,16 @@ export class CreateLocalDto {
 
   // Origem do pino (mesma convenção do perfil). 'gps_entrega' é EXCLUSIVO do confirmar
   // (LogisticaService), nunca aceito aqui — o serviço ignora qualquer outro valor.
+  // TETO DE PRECISÃO (25/07) — 'gps_impreciso' incluído (ver CreateContaDto).
   @IsOptional()
   @IsString()
-  @IsIn(['geocode', 'gps_cadastro'])
+  @IsIn(['geocode', 'gps_cadastro', 'gps_impreciso'])
   geoFonte?: string;
+
+  // TETO DE PRECISÃO DO GPS (25/07) — mesma regra do CreateContaDto acima.
+  @IsOptional()
+  @IsNumber()
+  gpsAccuracy?: number;
 
   // Marca este local como principal (desmarca os outros). O 1º local nasce principal
   // mesmo sem esta flag (regra do serviço).
@@ -501,10 +524,16 @@ export class UpdateLocalDto {
   @IsNumber()
   lng?: number;
 
+  // TETO DE PRECISÃO (25/07) — 'gps_impreciso' incluído (ver CreateContaDto).
   @IsOptional()
   @IsString()
-  @IsIn(['geocode', 'gps_cadastro'])
+  @IsIn(['geocode', 'gps_cadastro', 'gps_impreciso'])
   geoFonte?: string;
+
+  // TETO DE PRECISÃO DO GPS (25/07) — mesma regra do CreateContaDto acima.
+  @IsOptional()
+  @IsNumber()
+  gpsAccuracy?: number;
 
   @IsOptional()
   @IsBoolean()

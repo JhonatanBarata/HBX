@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
 import { normalizeSearch } from './nucleo-search.util';
+import { decidirGeoFonteCadastro } from '../logistica/logistica-geo-fonte.util';
 
 /**
  * NÚCLEO-CRM N1 (04/07) — serviço INERTE da espinha de cadastro.
@@ -1077,6 +1078,12 @@ export class NucleoCadastroService {
       // pino humano protegido (maybeResolveServerGeo cobre as duas checagens).
       const clientCoord = hasNumericCoord(input.lat, input.lng);
       const resolvedGeo = clientCoord ? null : await this.maybeResolveServerGeo(input, existing);
+      // TETO DE PRECISÃO (25/07) — hasCoord usa o valor FINAL (o novo se veio, senão
+      // o já salvo): editar só `geoFonte` sem reenviar lat/lng ainda decide certo.
+      const hasCoordParaGeoFonte = hasNumericCoord(
+        input.lat !== undefined ? input.lat : existing.lat,
+        input.lng !== undefined ? input.lng : existing.lng,
+      );
       const updated = await this.prisma.customerProfile.update({
         where: { id: existing.id },
         data: {
@@ -1099,7 +1106,12 @@ export class NucleoCadastroService {
             : {
                 ...(input.lat !== undefined ? { lat: input.lat } : {}),
                 ...(input.lng !== undefined ? { lng: input.lng } : {}),
-                ...(input.geoFonte !== undefined ? { geoFonte: normalizeGeoFonteInput(input.geoFonte) } : {}),
+                // TETO DE PRECISÃO (25/07) — fail-closed: o backend decide entre
+                // 'gps_cadastro'/'gps_impreciso' via gpsAccuracy, nunca confia na
+                // alegação crua do cliente (ver decidirGeoFonteCadastro).
+                ...(input.geoFonte !== undefined
+                  ? { geoFonte: decidirGeoFonteCadastro(hasCoordParaGeoFonte, input.geoFonte, input.gpsAccuracy) }
+                  : {}),
               }),
           // papéis acumulativos: só LIGAM (nunca desligam um papel já marcado)
           ...(isCliente ? { isCliente: true } : {}),
@@ -1134,7 +1146,10 @@ export class NucleoCadastroService {
           cep: input.cep || null,
           lat: resolvedGeo ? resolvedGeo.lat : input.lat ?? null,
           lng: resolvedGeo ? resolvedGeo.lng : input.lng ?? null,
-          geoFonte: resolvedGeo ? resolvedGeo.geoFonte : normalizeGeoFonteInput(input.geoFonte),
+          // TETO DE PRECISÃO (25/07) — ver comentário equivalente no ramo update acima.
+          geoFonte: resolvedGeo
+            ? resolvedGeo.geoFonte
+            : decidirGeoFonteCadastro(clientCoord, input.geoFonte, input.gpsAccuracy),
           isCliente,
           isLead,
           isFornecedor,
@@ -1268,9 +1283,19 @@ export class NucleoCadastroService {
     if (input.lat !== undefined || input.lng !== undefined) {
       if (input.lat !== undefined) data.lat = input.lat;
       if (input.lng !== undefined) data.lng = input.lng;
-      if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+      // TETO DE PRECISÃO (25/07) — fail-closed via decidirGeoFonteCadastro (ver
+      // comentário equivalente em createConta acima). hasCoord usa o valor FINAL
+      // (o novo se veio, senão o já salvo) — mandar só `lat` (sem `lng`) não perde
+      // o `lng` existente na conta da decisão.
+      if (input.geoFonte !== undefined) {
+        const latFinal = input.lat !== undefined ? input.lat : found.lat;
+        const lngFinal = input.lng !== undefined ? input.lng : found.lng;
+        data.geoFonte = decidirGeoFonteCadastro(hasNumericCoord(latFinal, lngFinal), input.geoFonte, input.gpsAccuracy);
+      }
     } else {
-      if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+      if (input.geoFonte !== undefined) {
+        data.geoFonte = decidirGeoFonteCadastro(hasNumericCoord(found.lat, found.lng), input.geoFonte, input.gpsAccuracy);
+      }
       const resolvedGeo = await this.maybeResolveServerGeo(input, found);
       if (resolvedGeo) {
         data.lat = resolvedGeo.lat;
@@ -1541,7 +1566,9 @@ export class NucleoCadastroService {
           cep: input.cep || null,
           lat: input.lat ?? null,
           lng: input.lng ?? null,
-          geoFonte: normalizeGeoFonteInput(input.geoFonte),
+          // TETO DE PRECISÃO (25/07) — fail-closed via decidirGeoFonteCadastro (ver
+          // comentário equivalente em createConta/updateConta acima).
+          geoFonte: decidirGeoFonteCadastro(hasNumericCoord(input.lat, input.lng), input.geoFonte, input.gpsAccuracy),
           isPrincipal,
           ativo: true,
         },
@@ -1561,7 +1588,7 @@ export class NucleoCadastroService {
     if (!companyId || !id) return null;
     const found = await this.prisma.localEntrega.findFirst({
       where: { id: String(id).trim(), companyId },
-      select: { id: true, customerProfileId: true, isPrincipal: true },
+      select: { id: true, customerProfileId: true, isPrincipal: true, lat: true, lng: true },
     });
     if (!found) return null;
 
@@ -1575,7 +1602,14 @@ export class NucleoCadastroService {
     if (input.cep !== undefined) data.cep = input.cep || null;
     if (input.lat !== undefined) data.lat = input.lat;
     if (input.lng !== undefined) data.lng = input.lng;
-    if (input.geoFonte !== undefined) data.geoFonte = normalizeGeoFonteInput(input.geoFonte);
+    // TETO DE PRECISÃO (25/07) — fail-closed via decidirGeoFonteCadastro. hasCoord
+    // usa o valor FINAL (novo se veio, senão o já salvo) — editar só o geoFonte sem
+    // mexer no pino ainda decide certo.
+    if (input.geoFonte !== undefined) {
+      const latFinal = input.lat !== undefined ? input.lat : found.lat;
+      const lngFinal = input.lng !== undefined ? input.lng : found.lng;
+      data.geoFonte = decidirGeoFonteCadastro(hasNumericCoord(latFinal, lngFinal), input.geoFonte, input.gpsAccuracy);
+    }
 
     const promote = input.isPrincipal === true && !found.isPrincipal;
 
@@ -2078,8 +2112,14 @@ function parseDiasSemana(csv: string | null | undefined): number[] {
 // serviço (fallback aproximado do `resolveServerGeo`, nunca vem do body) — some da
 // lista dos DTOs de propósito, mas passa por aqui quando o serviço escreve. 'gps_entrega'
 // é gravado SOMENTE pelo confirmarEntrega (LogisticaService) — nunca aqui.
-function normalizeGeoFonteInput(v: string | null | undefined): 'geocode' | 'gps_cadastro' | 'cidade' | null {
-  return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' ? v : null;
+// TETO DE PRECISÃO (25/07) — 'gps_impreciso' é um valor JÁ DECIDIDO pelo backend (nunca
+// cru do cliente); usado só pra copiar fielmente o perfil→local em seedOrSyncLocalPrincipal
+// (ver abaixo). Decisões vindas de INPUT do cliente passam por `decidirGeoFonteCadastro`,
+// não por esta função.
+function normalizeGeoFonteInput(
+  v: string | null | undefined,
+): 'geocode' | 'gps_cadastro' | 'cidade' | 'gps_impreciso' | null {
+  return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' || v === 'gps_impreciso' ? v : null;
 }
 
 // MULTILOCAL (11/07) — "a conta tem endereço?" pro seed do LOCAL PRINCIPAL: qualquer
@@ -2432,6 +2472,8 @@ export interface LocalInput {
   lat?: number | null;
   lng?: number | null;
   geoFonte?: string | null;
+  // TETO DE PRECISÃO DO GPS (25/07) — ver decidirGeoFonteCadastro (logistica-geo-fonte.util.ts).
+  gpsAccuracy?: number | null;
   isPrincipal?: boolean;
 }
 
@@ -2506,8 +2548,12 @@ export interface CreateContaInput {
   lat?: number | null;
   lng?: number | null;
   // LOGÍSTICA-MOBILE B1 (07/07) — origem da coordenada. 'gps_entrega' é
-  // EXCLUSIVO do confirmarEntrega (LogisticaService); aqui só 'geocode' | 'gps_cadastro'.
+  // EXCLUSIVO do confirmarEntrega (LogisticaService); aqui só 'geocode' | 'gps_cadastro'
+  // | 'gps_impreciso' (25/07). Quem decide entre 'gps_cadastro'/'gps_impreciso' é
+  // sempre o serviço (decidirGeoFonteCadastro), nunca este valor cru do cliente.
   geoFonte?: string | null;
+  // TETO DE PRECISÃO DO GPS (25/07) — precisão do fix em METROS.
+  gpsAccuracy?: number | null;
   isCliente?: boolean;
   isLead?: boolean;
   isFornecedor?: boolean;
@@ -2559,6 +2605,8 @@ export interface UpdateContaInput {
   lng?: number | null;
   // LOGÍSTICA-MOBILE B1 (07/07) — mesma regra do CreateContaInput acima.
   geoFonte?: string | null;
+  // TETO DE PRECISÃO DO GPS (25/07) — mesma regra do CreateContaInput acima.
+  gpsAccuracy?: number | null;
   isCliente?: boolean;
   isLead?: boolean;
   isFornecedor?: boolean;

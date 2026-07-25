@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { normalizeSearch } from '../nucleo/nucleo-search.util';
 import { assertNomeUnico } from './logistica-rota-modelo.service';
+import { decidirGeoFonteCadastro } from './logistica-geo-fonte.util';
 import type {
   RegistrarLeituraParadaDto,
   UpdateLeituraParadaDto,
@@ -119,7 +120,14 @@ export class LogisticaLeituraService {
         const lat = input.clienteNovo.lat ?? input.lat ?? null;
         const lng = input.clienteNovo.lng ?? input.lng ?? null;
         const hasCoord = typeof lat === 'number' && typeof lng === 'number';
-        const geoFonte = input.clienteNovo.geoFonte || (hasCoord ? 'gps_cadastro' : null);
+        // TETO DE PRECISÃO (25/07) — antes gravava 'gps_cadastro' (fonte intocável) só
+        // por ter coordenada, SEM checar precisão nenhuma. Agora quem decide é o
+        // backend: `gpsAccuracy` do próprio cliente novo, ou (quando ele não capturou
+        // ponto próprio) a accuracy da PARADA — é o MESMO fix físico que virou `lat`/
+        // `lng` acima pela mesma regra de fallback. App antigo (v32, sem gpsAccuracy
+        // nenhum) cai em 'gps_impreciso': seguro e corrigível, nunca quebra.
+        const gpsAccuracy = input.clienteNovo.gpsAccuracy ?? input.accuracy;
+        const geoFonte = decidirGeoFonteCadastro(hasCoord, input.clienteNovo.geoFonte, gpsAccuracy);
 
         const criado = await tx.customerProfile.create({
           data: {

@@ -160,6 +160,10 @@ export interface CriarClientePayload {
   // ("Usar este local"). Sem isso o confirmar da entrega nunca sabe se pode
   // realimentar esse pino com o GPS de ouro da porta.
   geoFonte?: "geocode" | "gps_cadastro";
+  // TETO DE PRECISÃO (25/07) — precisão do fix em METROS (coords.accuracy do
+  // navegador). Quem decide se vira 'gps_cadastro' de verdade é o BACKEND
+  // (<=60m); sem isso ele grava 'gps_impreciso' (seguro, corrigível na 1ª entrega).
+  gpsAccuracy?: number;
   isCliente?: boolean;
 }
 export interface ContaCriada {
@@ -188,6 +192,8 @@ export interface EditarClientePayload {
   lng?: number;
   // B1 — mesma regra do CriarClientePayload acima.
   geoFonte?: "geocode" | "gps_cadastro";
+  // TETO DE PRECISÃO (25/07) — mesma regra do CriarClientePayload acima.
+  gpsAccuracy?: number;
 }
 
 export function editarCliente(id: string, p: EditarClientePayload): Promise<{ id: string }> {
@@ -301,6 +307,8 @@ export interface CriarLocalPayload {
   lat?: number;
   lng?: number;
   geoFonte?: "geocode" | "gps_cadastro";
+  // TETO DE PRECISÃO (25/07) — mesma regra do CriarClientePayload acima.
+  gpsAccuracy?: number;
   isPrincipal?: boolean;
 }
 // Retorno do backend é só {id} (mesmo padrão de criarTelefone/editarTelefone

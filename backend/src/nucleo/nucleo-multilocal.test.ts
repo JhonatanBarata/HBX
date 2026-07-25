@@ -459,6 +459,7 @@ test('createConta: com endereço → semeia 1 LOCAL PRINCIPAL a partir do perfil
     lat: -3.73,
     lng: -38.52,
     geoFonte: 'gps_cadastro',
+    gpsAccuracy: 10, // TETO DE PRECISÃO (25/07) — sem isso o backend agora grava 'gps_impreciso'.
   });
   assert.equal(store.locais.length, 1, 'exatamente 1 local semeado');
   const l = store.locais[0];

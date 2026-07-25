@@ -59,3 +59,53 @@ export function resolverCoordenadaMultilocal(
     geoFonte: fonte?.geoFonte ?? null,
   };
 }
+
+// ── TETO DE PRECISÃO DO GPS DE CADASTRO (25/07) ──────────────────────────────
+//
+// `geoFonte='gps_cadastro'` é a fonte INTOCÁVEL (logistica.service.ts:
+// realimentarCoordenadaCliente/Local NUNCA reescrevem — "decisão humana
+// explícita"). Até aqui ela era gravada SEM checar a precisão real do fix: um
+// GPS de 300m capturado dentro de um galpão virava permanente, igual a um GPS
+// de 5m na porta certa. `gpsDeOuro` (abaixo) já exige accuracy<=60m pra
+// REALIMENTAR via entrega confirmada — mas o CADASTRO original nunca passava
+// pelo mesmo crivo.
+//
+// Mesma constante para os DOIS lados (gpsDeOuro E a decisão de cadastro) —
+// nada de "60" mágico repetido.
+export const GPS_ACCURACY_LIMITE_METROS = 60;
+
+/** accuracy numérica, finita, e dentro do teto — mesmo crivo do "GPS de ouro". */
+export function gpsAccuracyDentroDoLimite(gpsAccuracy: unknown): boolean {
+  return typeof gpsAccuracy === 'number' && Number.isFinite(gpsAccuracy) && gpsAccuracy <= GPS_ACCURACY_LIMITE_METROS;
+}
+
+export type GeoFonteCadastro = 'geocode' | 'gps_cadastro' | 'gps_impreciso';
+
+/**
+ * Decide a fonte a GRAVAR para uma coordenada de CADASTRO (perfil/local) que
+ * chegou do cliente (app/site). Fail-closed (25/07, pedido do dono): quem
+ * decide SE o fix é preciso o bastante pra virar `gps_cadastro` — a fonte
+ * intocável — é SEMPRE o backend, nunca a alegação do cliente. Um chamador
+ * batendo direto na API não pode se autodeclarar preciso.
+ *
+ * Regra:
+ *  - `hasCoord=false`                → null (nenhuma coordenada, nada a decidir).
+ *  - `geoFonteClient === 'geocode'`  → 'geocode' passa direto. Não é alegação
+ *    de GPS preciso (vem do CEP/Nominatim, sempre foi aproximado por
+ *    natureza) — nada a verificar aqui, `gpsAccuracy` não se aplica.
+ *  - qualquer outro caso (cliente alegou 'gps_cadastro', mandou lixo, ou nem
+ *    mandou `geoFonte` — o caso do app antigo que ainda não fala o contrato
+ *    novo) → `gpsAccuracy` decide: numérico e <=60m vira 'gps_cadastro'
+ *    (decisão humana intocável, como sempre foi); ausente/NaN/>60m vira
+ *    'gps_impreciso' — guarda a coordenada (ordena rota), mas a realimentação
+ *    por entrega confirmada PODE sobrescrever (não é intocável).
+ */
+export function decidirGeoFonteCadastro(
+  hasCoord: boolean,
+  geoFonteClient: string | null | undefined,
+  gpsAccuracy: unknown,
+): GeoFonteCadastro | null {
+  if (!hasCoord) return null;
+  if (geoFonteClient === 'geocode') return 'geocode';
+  return gpsAccuracyDentroDoLimite(gpsAccuracy) ? 'gps_cadastro' : 'gps_impreciso';
+}

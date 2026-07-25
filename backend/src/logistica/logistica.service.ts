@@ -21,7 +21,7 @@ import {
   LogisticaTrackedBillingService,
   type PreparedTrackedDeliveryCharge,
 } from './logistica-tracked-billing.service';
-import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import { resolverCoordenadaMultilocal, GPS_ACCURACY_LIMITE_METROS } from './logistica-geo-fonte.util';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -1149,9 +1149,11 @@ export class LogisticaService {
    * Ao confirmar com GPS PRECISO (accuracy<=60m), atualiza CustomerProfile.lat/lng
    * + geoFonte='gps_entrega' — a porta CONVERGE a cada entrega (última vence).
    * NUNCA sobrescreve uma coordenada marcada 'gps_cadastro' (o dono usou "Usar
-   * este local" no cadastro — decisão humana explícita, intocável). Best-effort
-   * FORA da transação do confirmar: falha aqui NUNCA reverte a entrega (mesmo
-   * padrão do persistirDesfecho).
+   * este local" no cadastro E o fix PROVOU precisão <=60m — decisão humana
+   * explícita, intocável). TETO DE PRECISÃO (25/07) — 'gps_impreciso' (fix ruim,
+   * sem prova de precisão) NÃO entra nessa proteção: esta função É o corretivo
+   * dele, e segue sobrescrevendo normalmente. Best-effort FORA da transação do
+   * confirmar: falha aqui NUNCA reverte a entrega (mesmo padrão do persistirDesfecho).
    */
   private async realimentarCoordenadaCliente(
     companyId: number,
@@ -1164,7 +1166,9 @@ export class LogisticaService {
         where: { id: customerProfileId, companyId },
         select: { geoFonte: true },
       });
-      if (!conta || conta.geoFonte === 'gps_cadastro') return; // decisão humana intocável.
+      // decisão humana intocável — SÓ 'gps_cadastro' bloqueia (25/07: 'gps_impreciso'
+      // é justamente o oposto disso, e passa direto pra ser sobrescrito abaixo).
+      if (!conta || conta.geoFonte === 'gps_cadastro') return;
       await this.prisma.customerProfile.update({
         where: { id: customerProfileId },
         data: { lat: gps.lat, lng: gps.lng, geoFonte: 'gps_entrega' },
@@ -1180,8 +1184,9 @@ export class LogisticaService {
    * entrega tem um LOCAL: o GPS PRECISO (accuracy<=60m) da porta real atualiza
    * LocalEntrega.lat/lng + geoFonte='gps_entrega' (cada endereço do cliente
    * converge sozinho). NUNCA sobrescreve 'gps_cadastro' (decisão humana intocável,
-   * mesma regra do perfil). company-scoped; best-effort FORA da tx do confirmar:
-   * falha aqui NUNCA reverte a entrega.
+   * mesma regra do perfil). TETO DE PRECISÃO (25/07) — 'gps_impreciso' NÃO é
+   * protegido (é o alvo desta correção). company-scoped; best-effort FORA da tx
+   * do confirmar: falha aqui NUNCA reverte a entrega.
    */
   private async realimentarCoordenadaLocal(
     companyId: number,
@@ -1194,7 +1199,9 @@ export class LogisticaService {
         where: { id: localId, companyId },
         select: { geoFonte: true },
       });
-      if (!local || local.geoFonte === 'gps_cadastro') return; // decisão humana intocável.
+      // decisão humana intocável — SÓ 'gps_cadastro' bloqueia (ver comentário
+      // equivalente em realimentarCoordenadaCliente acima).
+      if (!local || local.geoFonte === 'gps_cadastro') return;
       await this.prisma.localEntrega.update({
         where: { id: localId },
         data: { lat: gps.lat, lng: gps.lng, geoFonte: 'gps_entrega' },
@@ -2842,10 +2849,14 @@ function actorIdOrNull(actor?: LogisticaActor | null): number | null {
  * Único crivo pra escrever `geoFonte='gps_entrega'`; extraído (25/07) porque agora três
  * caminhos usam o MESMO limite (perfil, local e o orquestrador dos dois) e um limite que
  * se separa vira porta de pino ruim entrando pelo lado que ninguém olhou.
+ *
+ * TETO DE PRECISÃO (25/07) — MESMO limite (`GPS_ACCURACY_LIMITE_METROS`, 60m) do
+ * cadastro (`decidirGeoFonteCadastro` em logistica-geo-fonte.util.ts): nada de "60"
+ * mágico duplicado entre a realimentação por entrega e o cadastro original.
  */
 function gpsDeOuro(gps: { lat: number | null; lng: number | null; accuracy?: number }): boolean {
   if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') return false;
-  return typeof gps.accuracy === 'number' && Number.isFinite(gps.accuracy) && gps.accuracy <= 60;
+  return typeof gps.accuracy === 'number' && Number.isFinite(gps.accuracy) && gps.accuracy <= GPS_ACCURACY_LIMITE_METROS;
 }
 
 function parseDateOrNull(value: string | null | undefined): Date | null {
