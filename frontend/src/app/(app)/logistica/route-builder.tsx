@@ -128,23 +128,60 @@ function mergePreviews(previews: DayPreview[]): PreviewCustomer[] {
   return [...merged.values()];
 }
 
+// MULTILOCAL — espelha `resolverCoordenadaMultilocal` do backend
+// (backend/src/logistica/logistica-geo-fonte.util.ts). Cada eixo com `??` próprio
+// (`local?.lat ?? cliente.lat`, `local?.lng ?? cliente.lng`) pode devolver a lat de
+// uma fonte e a lng de outra — pino no meio do nada. Aqui a fonte INTEIRA é
+// escolhida primeiro (local só vale com lat E lng válidos; senão perfil inteiro;
+// senão null/null) e os dois eixos sempre saem da mesma fonte.
+type FonteGeoCoord = {
+  lat?: number | null;
+  lng?: number | null;
+};
+
+function temCoordenadaValida(
+  fonte: FonteGeoCoord | null | undefined,
+): fonte is FonteGeoCoord & { lat: number; lng: number } {
+  return (
+    !!fonte &&
+    typeof fonte.lat === "number" &&
+    Number.isFinite(fonte.lat) &&
+    typeof fonte.lng === "number" &&
+    Number.isFinite(fonte.lng)
+  );
+}
+
+function resolverCoordenadaMultilocal(
+  local: FonteGeoCoord | null | undefined,
+  perfil: FonteGeoCoord | null | undefined,
+): { lat: number | null; lng: number | null } {
+  const fonte = temCoordenadaValida(local) ? local : temCoordenadaValida(perfil) ? perfil : null;
+  return {
+    lat: fonte ? fonte.lat : null,
+    lng: fonte ? fonte.lng : null,
+  };
+}
+
 function normalizeAgendaPreview(result: AgendaDayPreview): DayPreview {
   return {
     date: result.date,
-    clientes: result.paradas.map((stop) => ({
-      customerProfileId: stop.customerProfileId,
-      nome: stop.cliente.nome || "Cliente",
-      localId: stop.localId,
-      localApelido: stop.local?.apelido ?? null,
-      lat: stop.local?.lat ?? stop.cliente.lat ?? null,
-      lng: stop.local?.lng ?? stop.cliente.lng ?? null,
-      itens: stop.itens.map((item) => ({
-        productId: item.productId,
-        nome: item.nome,
-        qtd: item.qtd,
-        valorUnit: item.valorUnit,
-      })),
-    })),
+    clientes: result.paradas.map((stop) => {
+      const coordenada = resolverCoordenadaMultilocal(stop.local, stop.cliente);
+      return {
+        customerProfileId: stop.customerProfileId,
+        nome: stop.cliente.nome || "Cliente",
+        localId: stop.localId,
+        localApelido: stop.local?.apelido ?? null,
+        lat: coordenada.lat,
+        lng: coordenada.lng,
+        itens: stop.itens.map((item) => ({
+          productId: item.productId,
+          nome: item.nome,
+          qtd: item.qtd,
+          valorUnit: item.valorUnit,
+        })),
+      };
+    }),
   };
 }
 
