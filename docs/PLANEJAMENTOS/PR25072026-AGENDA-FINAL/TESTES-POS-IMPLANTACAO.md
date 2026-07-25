@@ -53,13 +53,12 @@ não é regressão desta frente).
 ## Bloco 3 — endpoints novos no ar (sem login = porta fechada)
 
 ```bash
-node scripts/vps-run.js "curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/logistica/agenda/dias/6/sequencias"
+node scripts/vps-run.js "curl -s -o /dev/null -w 'sequencias=%{http_code}\n' http://localhost:3000/logistica/agenda/dias/6/sequencias; curl -s -o /dev/null -w 'divergencias=%{http_code}\n' http://localhost:3000/logistica/agenda/dias/6/divergencias; curl -s -o /dev/null -w 'preview=%{http_code}\n' 'http://localhost:3000/logistica/agenda/dias/6/importar-preview?modeloId=x'"
 ```
-```bash
-node scripts/vps-run.js "curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/api/logistica/agenda/dias/6/divergencias"
-```
-→ `401` nos dois. `404` = endpoint não subiu (dist velho); `500` = quebrou — reportar, não
-remendar em prod.
+→ `401` nos três (rodado 25/07: 401/401/401 ✅). `500` = quebrou — reportar, não remendar em prod.
+⚠️ **O backend NÃO usa prefixo `/api`.** Com `/api` TUDO responde 404, inclusive endpoint antigo
+— um 404 assim é erro do comando, não prova de que o deploy falhou. Antes de concluir "não
+subiu", teste um endpoint que já existia (`/logistica/agenda`) como controle.
 
 ## Bloco 4 — funcional em prod (SÓ empresa de smoke, com ok do dono)
 
