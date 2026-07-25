@@ -46,29 +46,51 @@
  * ids da origem. Se um vínculo não resolver em algum mapa (não deveria acontecer, dado
  * que locais/produtos são coletados a partir dos MESMOS clientes copiados), o script
  * ABORTA a transação inteira (nenhuma escrita parcial) em vez de gravar um vínculo torto.
- * As demais tabelas com chave composta `[id, companyId]` no schema (LogisticaRoute,
- * LogisticaTrackingSession, LogisticaPlanoEntrega, LogisticaRotaModelo...) NÃO são
- * tocadas por este script (fora de escopo — são rota/tracking histórico), então essa
- * composição não entra em jogo aqui.
  *
- * BACKUP/ROLLBACK — mesmo contrato do backfill-pinos-suspeitos.js: ANTES de qualquer
- * escrita, o estado ATUAL da empresa 45 (as 4 tabelas acima, linha completa) é gravado
- * em JSON em /app/storage/espelhar-logistica-<timestamp>.json. `--rollback=<arquivo>`
- * apaga o que este script criou e devolve exatamente essas linhas (mesmos ids, mesmos
- * valores — inclusive createdAt/updatedAt originais).
+ * ⚠️ FIX 25/07 — LIMPEZA DO DESTINO BARRADA POR FK (achado em --aplicar real): apagar
+ * CustomerProfile cascateia pra Entrega, mas várias tabelas de ROTA/AGENDA referenciam
+ * Entrega/CustomerProfile/LocalEntrega/Product com FK `onDelete: Restrict` — o Postgres
+ * BARRA a limpeza em vez de arrastar (erro real: `LogisticaRouteStop_deliveryId_
+ * companyId_fkey`). Mapeei TODA @relation do schema.prisma que aponta pra essas 4
+ * tabelas (conferido contra a migration SQL real, não só o schema.prisma) — a lista
+ * completa das 15 tabelas bloqueantes e a ordem topológica de exclusão vivem em
+ * `CADEIA_BLOQUEIO` (logo abaixo). Resumo da cadeia (folha → raiz): LogisticaTrackingPoint/
+ * TrackingEvent/TrackedCreditClaim/RouteStop (bloqueiam Entrega) → LogisticaTrackingSession/
+ * EssentialCreditClaim/Route (agora livres) → EntregaComprovante/EntregaItem (filhos de
+ * Entrega) → Entrega → LogisticaRotaModeloParadaItem/RotaModeloParada/RotaModelo e
+ * LogisticaPlanoEntregaItem/PlanoEntrega (bloqueiam CustomerProfile/LocalEntrega, e
+ * dependiam de Entrega já ter sumido). Estas 15 tabelas usam chave composta
+ * `[id, companyId]` no schema — mas como aqui elas são só APAGADAS/RESTAURADAS por id
+ * (nunca remapeadas pra um id novo), a composição não exige tratamento especial:
+ * o backup guarda a linha inteira e o rollback recria com o MESMO id original.
  *
- * ⚠️ CASCATA DO BANCO: apagar CustomerProfile/LocalEntrega da empresa 45 dispara
- * `onDelete: Cascade` do Postgres em tabelas FORA do escopo deste script (Entrega,
- * Contato, ClienteHistorico, DebtCase, VendasLead, FinanceiroCharge, CompanyConversation,
- * AtendimentoCustomer, HbxRecoveryCustomer, RecoveryDebtItem, LogisticaPlanoEntrega,
- * LogisticaRotaModeloParada, LogisticaLeituraParada) SE a empresa 45 já tiver linhas
- * nelas hoje. Este script NÃO faz backup dessas tabelas (fora do escopo "cadastro de
- * logística" combinado com o dono) — o plano (dry-run) IMPRIME a contagem de risco antes
- * de qualquer `--aplicar`, mas o `--rollback` NÃO as restaura. Ver RELATÓRIO.
+ * BACKUP/ROLLBACK — mesmo contrato do backfill-pinos-suspeitos.js, agora cobrindo as 4
+ * tabelas de cadastro + as 15 da cadeia-bloqueio (19 no total): ANTES de qualquer escrita,
+ * o estado ATUAL da empresa 45 (linha completa de cada uma) é gravado em JSON em
+ * /app/storage/espelhar-logistica-<timestamp>.json. `--rollback=<arquivo>` apaga o que
+ * este script criou e devolve exatamente essas linhas (mesmos ids, mesmos valores —
+ * inclusive createdAt/updatedAt originais). DUAS exceções de fidelidade, ditas explícito
+ * no plano do dry-run (não silenciadas): (1) EntregaComprovante volta só como metadata —
+ * o ARQUIVO físico (foto/assinatura) em disco não é copiado nem restaurado; (2) Entrega
+ * volta com `contatoId=null` — Contato não é backupado (é destruído via cascade do
+ * CustomerProfile, ver risco abaixo) e o rollback não tem como saber se o Contato
+ * original ainda existiria.
  *
- * IDEMPOTENTE: cada `--aplicar` APAGA a empresa 45 (nas 4 tabelas) e recria a partir da
- * 41 — rodar 2× seguidas dá o mesmo ESTADO (mesmos dados; os ids internos mudam a cada
- * rodada, isso é esperado num espelhamento por overwrite, não um sync incremental).
+ * ⚠️ CASCATA DO BANCO (fora do escopo deste script, não backupado, não restaurado):
+ * apagar CustomerProfile/LocalEntrega/Product ainda dispara `onDelete: Cascade`/`SetNull`
+ * do Postgres em tabelas que continuam FORA do escopo "cadastro de logística" — Contato,
+ * ClienteHistorico, DebtCase, RecoveryDebtItem (DESTRUÍDOS via cascade) e VendasLead,
+ * FinanceiroCharge, CompanyConversation, AtendimentoCustomer, HbxRecoveryCustomer
+ * (sobrevivem, só perdem o vínculo via SetNull), além de ProductVersion e
+ * RecoveryDebtItemProduct (DESTRUÍDOS via cascade, side-effect de apagar Product) — SE a
+ * empresa 45 já tiver linhas nelas hoje. O plano (dry-run) IMPRIME a contagem de cada uma
+ * e diz explicitamente qual é destruída vs. qual só desvincula, antes de qualquer
+ * `--aplicar`; o `--rollback` NÃO as restaura. Ver RELATÓRIO.
+ *
+ * IDEMPOTENTE: cada `--aplicar` APAGA a empresa 45 (cadeia-bloqueio + as 4 tabelas de
+ * cadastro) e recria a partir da 41 — rodar 2× seguidas dá o mesmo ESTADO (mesmos dados;
+ * os ids internos mudam a cada rodada, isso é esperado num espelhamento por overwrite,
+ * não um sync incremental).
  *
  * USO (dry-run é o DEFAULT — não escreve nada sem --aplicar):
  *   node scripts/espelhar-logistica-tenant.js                       # plano, não escreve
@@ -215,13 +237,127 @@ const SELECT_CLIENTE_PRODUTO = {
   ativo: true,
 };
 
-// ── Tabelas fora do escopo de cópia, mas dependentes de CustomerProfile/LocalEntrega
-// via onDelete:Cascade — se a empresa 45 já tiver linhas aqui, o DELETE de
-// CustomerProfile/LocalEntrega arrasta elas de calças arriadas (fora do nosso backup).
-// Só CONTAMOS pra avisar no plano; não lemos linha nem restauramos no rollback. ────────
-async function contarRiscoCascata(client, companyId) {
+// ── FIX 25/07 (achado em --aplicar real, coordenador): apagar CustomerProfile cascateia
+// pra Entrega, mas várias tabelas de ROTA/AGENDA referenciam Entrega/CustomerProfile/
+// LocalEntrega/Product com FK `onDelete: Restrict` (não Cascade) — o Postgres BARRA a
+// limpeza em vez de arrastar. O erro real foi `LogisticaRouteStop_deliveryId_companyId_
+// fkey`. Mapeei TODA @relation do schema.prisma que aponta pra Entrega/CustomerProfile/
+// LocalEntrega/Product (todas as ocorrências de "Entrega @relation", "CustomerProfile
+// @relation", "LocalEntrega @relation", "Product @relation") e conferi o onDelete de cada
+// uma contra a migration SQL real (não só o schema, pra não confiar em default implícito
+// errado). Resultado — SÓ estas 15 tabelas têm FK Restrict nessa direção; todas as outras
+// (Contato, DebtCase, VendasLead, FinanceiroCharge, ClienteHistorico, CompanyConversation,
+// AtendimentoCustomer, HbxRecoveryCustomer, RecoveryDebtItem, RecoveryDebtItemProduct,
+// ProductVersion) são Cascade ou SetNull — não bloqueiam, só aparecem no risco-cascata
+// abaixo (informativo, fora do backup, como já era).
+//
+// ORDEM: da mais dependente (folha) pra menos dependente (raiz) — é a ordem de APAGAR.
+// A ordem de RESTAURAR (rollback) é o INVERSO exato desta lista (raiz primeiro, folha
+// por último) — verificado à mão que o inverso é uma ordem de inserção válida (todo FK
+// obrigatório de cada tabela já foi recriado por uma entrada anterior na lista invertida).
+//
+//   1-4  bloqueiam Entrega (Restrict em deliveryId): TrackingPoint, TrackingEvent,
+//        TrackedCreditClaim, RouteStop — folhas, sem filhos, sem ordem entre si.
+//   5-7  agora seguros (filhos já foram embora): TrackingSession, EssentialCreditClaim,
+//        Route — nenhum bloqueia Entrega/CustomerProfile/LocalEntrega diretamente, mas
+//        fazem parte da "cadeia de logística" que o dono autorizou apagar por completo.
+//   8-9  filhos diretos de Entrega (Cascade — não bloqueiam, mas entram no backup pra
+//        restaurar com fidelidade): EntregaComprovante, EntregaItem.
+//   10   Entrega — agora que 1-4 sumiram, nada mais restringe a deleção.
+//   11-13 bloqueiam LogisticaPlanoEntrega/CustomerProfile/LocalEntrega (RotaModeloParada
+//        tem Restrict em customerProfileId/localId/planoEntregaId): RotaModeloParadaItem,
+//        RotaModeloParada, RotaModelo (RotaModelo só é liberado depois que Entrega, no
+//        passo 10, parou de referenciá-lo via rotaModeloOrigem, também Restrict).
+//   14-15 bloqueiam CustomerProfile/LocalEntrega diretamente (Restrict em
+//        customerProfileId/localId) e também dependiam de Entrega (planoEntregaOrigem,
+//        Restrict) já ter sumido no passo 10: PlanoEntregaItem, PlanoEntrega.
+//
+// Depois disto, ClienteProduto/LocalEntrega/CustomerProfile/Product (as 4 tabelas
+// originais de cadastro) ficam livres pra apagar sem violação de FK.
+const CADEIA_BLOQUEIO = [
+  { chave: 'trackingPoints', modelo: 'logisticaTrackingPoint', where: (id) => ({ companyId: id }) },
+  { chave: 'trackingEvents', modelo: 'logisticaTrackingEvent', where: (id) => ({ companyId: id }) },
+  { chave: 'trackedCreditClaims', modelo: 'logisticaTrackedCreditClaim', where: (id) => ({ companyId: id }) },
+  { chave: 'routeStops', modelo: 'logisticaRouteStop', where: (id) => ({ companyId: id }) },
+  { chave: 'trackingSessions', modelo: 'logisticaTrackingSession', where: (id) => ({ companyId: id }) },
+  { chave: 'essentialCreditClaims', modelo: 'logisticaEssentialCreditClaim', where: (id) => ({ companyId: id }) },
+  { chave: 'routes', modelo: 'logisticaRoute', where: (id) => ({ companyId: id }) },
+  { chave: 'entregaComprovantes', modelo: 'entregaComprovante', where: (id) => ({ companyId: id }) },
+  // EntregaItem NÃO tem coluna companyId própria (só entregaId) — filtra pela empresa
+  // da Entrega via relação.
+  { chave: 'entregaItens', modelo: 'entregaItem', where: (id) => ({ entrega: { companyId: id } }) },
+  { chave: 'entregas', modelo: 'entrega', where: (id) => ({ companyId: id }) },
+  { chave: 'rotaModeloParadaItens', modelo: 'logisticaRotaModeloParadaItem', where: (id) => ({ companyId: id }) },
+  { chave: 'rotaModeloParadas', modelo: 'logisticaRotaModeloParada', where: (id) => ({ companyId: id }) },
+  { chave: 'rotaModelos', modelo: 'logisticaRotaModelo', where: (id) => ({ companyId: id }) },
+  { chave: 'planoEntregaItens', modelo: 'logisticaPlanoEntregaItem', where: (id) => ({ companyId: id }) },
+  { chave: 'planoEntregas', modelo: 'logisticaPlanoEntrega', where: (id) => ({ companyId: id }) },
+];
+
+// Converte string ISO-8601 completa (a forma que JSON.stringify dá a um Date real) de
+// volta pra Date, campo por campo, SEM precisar listar à mão o nome de cada coluna
+// DateTime de cada uma das 19 tabelas envolvidas — genérico e à prova de o schema ganhar
+// uma coluna nova amanhã. Datas "curtas" (routeDate 'YYYY-MM-DD', diasSemana '1,3,5') não
+// batem o regex (falta o "THH:MM:SS"), então não são tocadas por engano.
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+function reviverDatas(row) {
+  const copia = {};
+  for (const [k, v] of Object.entries(row)) {
+    copia[k] = typeof v === 'string' && ISO_DATETIME_RE.test(v) ? new Date(v) : v;
+  }
+  return copia;
+}
+
+// Estado ATUAL da cadeia-bloqueio no destino (o que existe hoje em 45) — mesmo espírito
+// de coletarDestinoAtual: isto vira backup e é o que será apagado.
+async function coletarCadeiaBloqueioDestino(client) {
+  const resultado = {};
+  for (const t of CADEIA_BLOQUEIO) {
+    resultado[t.chave] = await client[t.modelo].findMany({ where: t.where(DESTINO_COMPANY_ID) });
+  }
+  return resultado;
+}
+
+// Apaga a cadeia-bloqueio inteira, na ordem (folha → raiz) declarada em CADEIA_BLOQUEIO.
+// Retorna a contagem por tabela pro resumo do --aplicar.
+async function apagarCadeiaBloqueio(tx) {
+  const contagens = {};
+  for (const t of CADEIA_BLOQUEIO) {
+    const r = await tx[t.modelo].deleteMany({ where: t.where(DESTINO_COMPANY_ID) });
+    contagens[t.chave] = r.count;
+  }
+  return contagens;
+}
+
+// Restaura a cadeia-bloqueio a partir do backup, na ordem INVERSA (raiz → folha, senão
+// os FKs obrigatórios de cada linha não resolveriam). `entregas` tem uma exceção: força
+// contatoId=null — Contato não é backupado por este script (fora de escopo; cai no
+// "risco de cascata"), então o Contato original pode não existir mais pra a Entrega
+// restaurada apontar. Ver aviso explícito no plano do dry-run.
+async function restaurarCadeiaBloqueio(tx, backup) {
+  const contagens = {};
+  for (const t of [...CADEIA_BLOQUEIO].reverse()) {
+    const linhas = backup[t.chave] || [];
+    for (const row of linhas) {
+      const dados = reviverDatas(row);
+      if (t.chave === 'entregas') dados.contatoId = null;
+      await tx[t.modelo].create({ data: dados });
+    }
+    contagens[t.chave] = linhas.length;
+  }
+  return contagens;
+}
+
+// ── Tabelas fora do escopo de cópia, dependentes de CustomerProfile/LocalEntrega/Product
+// via onDelete:Cascade (ou destruídas indiretamente por eles) — se a empresa 45 já tiver
+// linhas aqui, apagar o cadastro arrasta elas junto, DE CALÇAS ARRIADAS: fora do nosso
+// backup, o --rollback NÃO as restaura. `entrega` SAIU desta lista (25/07) — agora é
+// backupada/restaurada de verdade via CADEIA_BLOQUEIO. Só CONTAMOS pra avisar no plano;
+// não lemos linha nem restauramos no rollback. `contatos`/`debtCases`/`clienteHistoricos`/
+// `recoveryDebtItems`/`productVersoes`/`recoveryDebtItemProdutos` são DESTRUÍDOS (Cascade);
+// os demais SOBREVIVEM desvinculados (SetNull) — distinção explícita no plano.
+async function contarRiscoCascata(client, companyId, produtoIdsDestino) {
   const [
-    entregas,
     contatos,
     debtCases,
     vendasLeads,
@@ -231,8 +367,9 @@ async function contarRiscoCascata(client, companyId) {
     conversations,
     atendimentoCustomers,
     hbxRecoveryCustomers,
+    productVersoes,
+    recoveryDebtItemProdutos,
   ] = await Promise.all([
-    client.entrega.count({ where: { companyId } }).catch(() => 0),
     client.contato.count({ where: { companyId } }).catch(() => 0),
     client.debtCase.count({ where: { companyId } }).catch(() => 0),
     client.vendasLead.count({ where: { companyId } }).catch(() => 0),
@@ -242,18 +379,25 @@ async function contarRiscoCascata(client, companyId) {
     client.companyConversation.count({ where: { companyId } }).catch(() => 0),
     client.atendimentoCustomer.count({ where: { companyId } }).catch(() => 0),
     client.hbxRecoveryCustomer.count({ where: { companyId } }).catch(() => 0),
+    produtoIdsDestino.length
+      ? client.productVersion.count({ where: { productId: { in: produtoIdsDestino } } }).catch(() => 0)
+      : 0,
+    produtoIdsDestino.length
+      ? client.recoveryDebtItemProduct.count({ where: { productId: { in: produtoIdsDestino } } }).catch(() => 0)
+      : 0,
   ]);
   return {
-    entregas,
-    contatos,
-    debtCases,
-    vendasLeads,
-    clienteHistoricos,
-    financeiroCharges,
-    recoveryDebtItems,
-    conversations,
-    atendimentoCustomers,
-    hbxRecoveryCustomers,
+    contatos, // DESTRUÍDO (Cascade)
+    debtCases, // DESTRUÍDO (Cascade)
+    vendasLeads, // sobrevive desvinculado (SetNull)
+    clienteHistoricos, // DESTRUÍDO (Cascade)
+    financeiroCharges, // sobrevive desvinculado (SetNull)
+    recoveryDebtItems, // DESTRUÍDO (Cascade)
+    conversations, // sobrevive desvinculado (SetNull)
+    atendimentoCustomers, // sobrevive desvinculado (SetNull)
+    hbxRecoveryCustomers, // sobrevive desvinculado (SetNull)
+    productVersoes, // DESTRUÍDO (Cascade, side-effect do apagar Product)
+    recoveryDebtItemProdutos, // DESTRUÍDO (Cascade, side-effect do apagar Product)
   };
 }
 
@@ -347,7 +491,8 @@ async function coletarDestinoAtual() {
   const locais = await prisma.localEntrega.findMany({ where: { companyId: DESTINO_COMPANY_ID } });
   const clienteProdutos = await prisma.clienteProduto.findMany({ where: { companyId: DESTINO_COMPANY_ID } });
   const produtos = await prisma.product.findMany({ where: { companyId: DESTINO_COMPANY_ID, usaLogistica: true } });
-  return { clientes, locais, clienteProdutos, produtos };
+  const cadeiaBloqueio = await coletarCadeiaBloqueioDestino(prisma);
+  return { clientes, locais, clienteProdutos, produtos, cadeiaBloqueio };
 }
 
 function imprimirPlano({ origem, destinoAtual, risco, empresas }) {
@@ -375,18 +520,57 @@ function imprimirPlano({ origem, destinoAtual, risco, empresas }) {
     log('  ✓ total origem === vínculos copiados (nenhum vínculo ficou de fora).');
   }
   log('');
-  log('vai APAGAR no destino antes de copiar (backup completo dessas linhas primeiro):');
-  log(`  · CustomerProfile : ${destinoAtual.clientes.length}`);
-  log(`  · LocalEntrega    : ${destinoAtual.locais.length}`);
-  log(`  · Product (usaLogistica) : ${destinoAtual.produtos.length}`);
-  log(`  · ClienteProduto  : ${destinoAtual.clienteProdutos.length}`);
+  log('vai APAGAR no destino, NA ORDEM (backup completo de cada linha ANTES de apagar):');
+  log('  -- cadeia de rota/agenda que BLOQUEIA a limpeza do cadastro (FK Restrict; achado em');
+  log('     --aplicar real de 25/07 — ver cabeçalho do arquivo) — backupada e restaurável --');
+  const cb = destinoAtual.cadeiaBloqueio;
+  const rotulos = {
+    trackingPoints: 'LogisticaTrackingPoint',
+    trackingEvents: 'LogisticaTrackingEvent',
+    trackedCreditClaims: 'LogisticaTrackedCreditClaim',
+    routeStops: 'LogisticaRouteStop',
+    trackingSessions: 'LogisticaTrackingSession',
+    essentialCreditClaims: 'LogisticaEssentialCreditClaim',
+    routes: 'LogisticaRoute',
+    entregaComprovantes: 'EntregaComprovante',
+    entregaItens: 'EntregaItem',
+    entregas: 'Entrega',
+    rotaModeloParadaItens: 'LogisticaRotaModeloParadaItem',
+    rotaModeloParadas: 'LogisticaRotaModeloParada',
+    rotaModelos: 'LogisticaRotaModelo',
+    planoEntregaItens: 'LogisticaPlanoEntregaItem',
+    planoEntregas: 'LogisticaPlanoEntrega',
+  };
+  let totalCadeia = 0;
+  for (const t of CADEIA_BLOQUEIO) {
+    const n = cb[t.chave].length;
+    totalCadeia += n;
+    log(`  ${String(n).padStart(4)}  · ${rotulos[t.chave]}`);
+  }
+  if (totalCadeia === 0) {
+    log('     (vazio — nada de rota/agenda hoje na empresa 45; a limpeza do cadastro não deve bloquear.)');
+  }
+  log('  -- as 4 tabelas de cadastro (motivo original deste script) --');
+  log(`  ${String(destinoAtual.clienteProdutos.length).padStart(4)}  · ClienteProduto`);
+  log(`  ${String(destinoAtual.locais.length).padStart(4)}  · LocalEntrega`);
+  log(`  ${String(destinoAtual.clientes.length).padStart(4)}  · CustomerProfile`);
+  log(`  ${String(destinoAtual.produtos.length).padStart(4)}  · Product (usaLogistica)`);
+  log('');
+  log('fidelidade do --rollback nesta cadeia nova — 2 exceções conhecidas, ditas explícito:');
+  log('  · EntregaComprovante: a LINHA do banco volta (metadata), mas o ARQUIVO físico (foto/');
+  log('    assinatura) em disco NÃO é copiado nem restaurado por este script — só a metadata.');
+  log('  · Entrega.contatoId: se a Entrega original tinha um Contato vinculado (quem recebe),');
+  log('    o rollback recria a Entrega SEM esse vínculo (contatoId volta null) — Contato não é');
+  log('    backupado (cai no risco de cascata abaixo, é destruído com o CustomerProfile e este');
+  log('    script não traz ele de volta).');
   log('');
   const riscoTotal = totalRisco(risco);
   if (riscoTotal > 0) {
-    log(`⚠️  RISCO DE CASCATA no destino (empresa ${DESTINO_COMPANY_ID}) — estas tabelas NÃO são copiadas nem`);
-    log('    restauradas pelo --rollback, mas o Postgres apaga em cascata se apagarmos CustomerProfile/LocalEntrega:');
+    log(`⚠️  RISCO DE CASCATA no destino (empresa ${DESTINO_COMPANY_ID}) — fora do backup deste script,`);
+    log('    o --rollback NÃO restaura nada disto:');
+    const destruido = new Set(['contatos', 'debtCases', 'clienteHistoricos', 'recoveryDebtItems', 'productVersoes', 'recoveryDebtItemProdutos']);
     for (const [k, v] of Object.entries(risco)) {
-      if (v > 0) log(`      - ${k}: ${v}`);
+      if (v > 0) log(`      - ${k}: ${v}  (${destruido.has(k) ? 'DESTRUÍDO — cascade' : 'sobrevive desvinculado — SetNull'})`);
     }
     log('    Se isto tiver algo que importa, PARE e avise o dono antes de --aplicar.');
   } else {
@@ -420,6 +604,10 @@ async function gravarBackup(destinoAtual) {
         locais: destinoAtual.locais,
         clienteProdutos: destinoAtual.clienteProdutos,
         produtos: destinoAtual.produtos,
+        // Cadeia de rota/agenda que bloqueia a limpeza (FIX 25/07) — chaves
+        // trackingPoints/trackingEvents/.../planoEntregas, uma por tabela de
+        // CADEIA_BLOQUEIO. Ver restaurarCadeiaBloqueio() pro contrato do rollback.
+        ...destinoAtual.cadeiaBloqueio,
       },
       null,
       2,
@@ -436,7 +624,14 @@ async function aplicarEspelhamento(origem) {
 
   const resumo = await prisma.$transaction(
     async (tx) => {
+      // (0) CADEIA-BLOQUEIO primeiro — FIX 25/07: sem isto, o deleteMany de CustomerProfile
+      // abaixo bate em `LogisticaRouteStop_deliveryId_companyId_fkey` (e outras Restrict)
+      // e o Postgres barra a transação inteira. Ordem topológica em CADEIA_BLOQUEIO.
+      const apagouCadeia = await apagarCadeiaBloqueio(tx);
+
       // (1) WIPE — só empresa 45, só estas 4 tabelas, nesta ordem (dependentes primeiro).
+      // Agora seguro: a cadeia acima já removeu tudo que restringia CustomerProfile/
+      // LocalEntrega/Product (LogisticaPlanoEntrega/LogisticaRotaModeloParada).
       const apagouVinculos = await tx.clienteProduto.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
       const apagouLocais = await tx.localEntrega.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
       const apagouClientes = await tx.customerProfile.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
@@ -514,6 +709,7 @@ async function aplicarEspelhamento(origem) {
       }
 
       return {
+        apagouCadeia,
         apagou: {
           clienteProdutos: apagouVinculos.count,
           locais: apagouLocais.count,
@@ -528,16 +724,20 @@ async function aplicarEspelhamento(origem) {
         },
       };
     },
-    { timeout: 120_000, maxWait: 15_000 },
+    // FIX 25/07 — a cadeia-bloqueio pode incluir centenas de LogisticaTrackingPoint (GPS
+    // por segundo de rota rastreada); tempo aumentado de 120s pra 300s de folga.
+    { timeout: 300_000, maxWait: 20_000 },
   );
 
   return resumo;
 }
 
-// ── ROLLBACK: apaga o que o --aplicar criou (estado ATUAL do destino, nas 4 tabelas) e
-// devolve exatamente as linhas do backup (mesmos ids, mesmos valores, inclusive
-// createdAt/updatedAt originais). NÃO toca em LogisticaConfig (nunca foi alterada) nem
-// nas tabelas de risco-cascata (nunca foram lidas — ver aviso no cabeçalho do arquivo).
+// ── ROLLBACK: apaga o estado ATUAL do destino (a cadeia-bloqueio primeiro, mesma ordem
+// do --aplicar — o destino pode ter ganhado rota/tracking novos desde o mirror) e devolve
+// exatamente as linhas do backup (mesmos ids, mesmos valores, inclusive createdAt/
+// updatedAt originais). NÃO toca em LogisticaConfig (nunca foi alterada) nem nas tabelas
+// de risco-cascata (nunca foram lidas — ver aviso no cabeçalho do arquivo). Exceção de
+// fidelidade conhecida: Entrega volta com contatoId=null (ver restaurarCadeiaBloqueio).
 async function rollback(arquivo) {
   garantirEscritaSoNoDestino();
 
@@ -550,46 +750,44 @@ async function rollback(arquivo) {
     );
   }
 
-  const DATE_FIELDS_CLIENTE = ['firstInboundAt', 'lastInboundAt', 'botOffAt', 'createdAt', 'updatedAt'];
-  const DATE_FIELDS_LOCAL = ['createdAt', 'updatedAt'];
-  const DATE_FIELDS_PRODUTO = ['sourceUpdatedAt', 'createdAt', 'updatedAt'];
-  const DATE_FIELDS_CLIENTE_PRODUTO = ['proximaData', 'createdAt', 'updatedAt'];
-
-  function reviverDatas(row, campos) {
-    const copia = { ...row };
-    for (const campo of campos) {
-      if (copia[campo]) copia[campo] = new Date(copia[campo]);
-    }
-    return copia;
-  }
-
   const resumo = await prisma.$transaction(
     async (tx) => {
+      // Mesma ordem do --aplicar: cadeia-bloqueio primeiro (senão o deleteMany de
+      // CustomerProfile abaixo pode bater na mesma FK Restrict que motivou este fix).
+      const apagouCadeia = await apagarCadeiaBloqueio(tx);
+
       const apagouVinculos = await tx.clienteProduto.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
       const apagouLocais = await tx.localEntrega.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
       const apagouClientes = await tx.customerProfile.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
       const apagouProdutos = await tx.product.deleteMany({ where: { companyId: DESTINO_COMPANY_ID, usaLogistica: true } });
 
       for (const p of dump.produtos || []) {
-        await tx.product.create({ data: reviverDatas(p, DATE_FIELDS_PRODUTO) });
+        await tx.product.create({ data: reviverDatas(p) });
       }
       for (const c of dump.clientes || []) {
-        await tx.customerProfile.create({ data: reviverDatas(c, DATE_FIELDS_CLIENTE) });
+        await tx.customerProfile.create({ data: reviverDatas(c) });
       }
       for (const l of dump.locais || []) {
-        await tx.localEntrega.create({ data: reviverDatas(l, DATE_FIELDS_LOCAL) });
+        await tx.localEntrega.create({ data: reviverDatas(l) });
       }
       for (const cp of dump.clienteProdutos || []) {
-        await tx.clienteProduto.create({ data: reviverDatas(cp, DATE_FIELDS_CLIENTE_PRODUTO) });
+        await tx.clienteProduto.create({ data: reviverDatas(cp) });
       }
 
+      // Cadeia-bloqueio por último — todo FK obrigatório dela (customerProfileId,
+      // localId, productId, planoEntregaId, rotaModeloId, deliveryId...) já foi
+      // recriado acima com o MESMO id original.
+      const restaurouCadeia = await restaurarCadeiaBloqueio(tx, dump);
+
       return {
+        apagouCadeia,
         apagou: {
           clienteProdutos: apagouVinculos.count,
           locais: apagouLocais.count,
           clientes: apagouClientes.count,
           produtos: apagouProdutos.count,
         },
+        restaurouCadeia,
         restaurou: {
           produtos: (dump.produtos || []).length,
           clientes: (dump.clientes || []).length,
@@ -598,12 +796,16 @@ async function rollback(arquivo) {
         },
       };
     },
-    { timeout: 120_000, maxWait: 15_000 },
+    // FIX 25/07 — a cadeia-bloqueio pode incluir centenas de LogisticaTrackingPoint (GPS
+    // por segundo de rota rastreada); tempo aumentado de 120s pra 300s de folga.
+    { timeout: 300_000, maxWait: 20_000 },
   );
 
   log(`ROLLBACK aplicado a partir de ${caminho}:`);
-  log(`  apagou  : ${JSON.stringify(resumo.apagou)}`);
-  log(`  restaurou: ${JSON.stringify(resumo.restaurou)}`);
+  log(`  apagou (cadeia) : ${JSON.stringify(resumo.apagouCadeia)}`);
+  log(`  apagou (cadastro): ${JSON.stringify(resumo.apagou)}`);
+  log(`  restaurou (cadastro): ${JSON.stringify(resumo.restaurou)}`);
+  log(`  restaurou (cadeia)  : ${JSON.stringify(resumo.restaurouCadeia)}`);
 }
 
 async function main() {
@@ -623,7 +825,8 @@ async function main() {
 
   const origem = await coletarOrigem();
   const destinoAtual = await coletarDestinoAtual();
-  const risco = await contarRiscoCascata(prisma, DESTINO_COMPANY_ID);
+  const produtoIdsDestino = destinoAtual.produtos.map((p) => p.id);
+  const risco = await contarRiscoCascata(prisma, DESTINO_COMPANY_ID, produtoIdsDestino);
 
   imprimirPlano({ origem, destinoAtual, risco, empresas: { origem: empresaOrigem, destino: empresaDestino } });
 
@@ -640,8 +843,9 @@ async function main() {
   const resumo = await aplicarEspelhamento(origem);
 
   log('APLICADO:');
-  log(`  apagou (destino, antes de copiar): ${JSON.stringify(resumo.apagou)}`);
-  log(`  criou  (espelho da origem)       : ${JSON.stringify(resumo.criou)}`);
+  log(`  apagou (cadeia bloqueio, antes do cadastro): ${JSON.stringify(resumo.apagouCadeia)}`);
+  log(`  apagou (destino, antes de copiar)          : ${JSON.stringify(resumo.apagou)}`);
+  log(`  criou  (espelho da origem)                 : ${JSON.stringify(resumo.criou)}`);
   log(`rollback: node scripts/espelhar-logistica-tenant.js --rollback=${backupFile}`);
 }
 
