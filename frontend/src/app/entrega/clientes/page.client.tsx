@@ -28,7 +28,7 @@ import { CascaLoading, CascaView, showCascaToast } from "@/components/casca";
 import { diasPermitidos } from "../entrega-api";
 import { EntregaScaffold } from "../EntregaScaffold";
 import { I, ICON_PATHS } from "../icons";
-import { getPosicaoUma } from "../entrega-hooks";
+import { getPosicaoUma, GPS_ACCURACY_ACEITAVEL_METROS } from "../entrega-hooks";
 import {
   buscarCep,
   formatarCep,
@@ -582,11 +582,18 @@ export function ClienteEditor({
   const [bairro, setBairro] = useState("");
   const [cidade, setCidade] = useState("");
   const [uf, setUf] = useState("");
-  const [coord, setCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [coord, setCoord] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   // B1 — origem do pino atual: "geocode" (CEP) ou "gps_cadastro" ("Usar este
   // local"). Vai junto no salvar pra o confirmar da entrega saber se pode
   // realimentar esse pino depois (gps_cadastro NUNCA é sobrescrito).
   const [coordFonte, setCoordFonte] = useState<"geocode" | "gps_cadastro" | null>(null);
+  // TETO DE PRECISÃO (25/07) — quem decide se isto vira 'gps_cadastro' de verdade é
+  // o BACKEND (gpsAccuracy<=60m); aqui só avisa quando o fix veio pior que isso.
+  const gpsImpreciso =
+    coordFonte === "gps_cadastro" &&
+    !!coord &&
+    typeof coord.accuracy === "number" &&
+    coord.accuracy > GPS_ACCURACY_ACEITAVEL_METROS;
   const [capturandoGps, setCapturandoGps] = useState(false);
   const [cepStatus, setCepStatus] = useState<"idle" | "buscando" | "ok" | "erro">("idle");
   const [confirmarNumero, setConfirmarNumero] = useState(false); // fluxo GPS: "o número está certo?"
@@ -992,7 +999,7 @@ export function ClienteEditor({
           cidade: cidade.trim() || undefined,
           uf: uf.trim() || undefined,
           cep: cepFinal,
-          ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+          ...(coord ? { lat: coord.lat, lng: coord.lng, gpsAccuracy: coord.accuracy } : {}),
           ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
         });
         contaId = criada.contaId;
@@ -1009,7 +1016,7 @@ export function ClienteEditor({
               cidade: cidade.trim() || undefined,
               uf: uf.trim() || undefined,
               cep: cepFinal,
-              ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+              ...(coord ? { lat: coord.lat, lng: coord.lng, gpsAccuracy: coord.accuracy } : {}),
               ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
             });
           } catch {
@@ -1049,7 +1056,7 @@ export function ClienteEditor({
           cidade: cidade.trim(),
           uf: uf.trim(),
           cep: cepFinal,
-          ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+          ...(coord ? { lat: coord.lat, lng: coord.lng, gpsAccuracy: coord.accuracy } : {}),
           ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
         });
         // Telefone do principal: só bate no endpoint se mudou e há um principal.
@@ -1068,7 +1075,7 @@ export function ClienteEditor({
             cidade: cidade.trim() || undefined,
             uf: uf.trim() || undefined,
             cep: cepFinal,
-            ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+            ...(coord ? { lat: coord.lat, lng: coord.lng, gpsAccuracy: coord.accuracy } : {}),
             ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
           };
           if (localPrincipalId) {
@@ -1200,6 +1207,7 @@ export function ClienteEditor({
           <I d={ICON_PATHS.nav} size={20} />
           {capturandoGps ? "Pegando local…" : "Localização Atual"}
         </button>
+        {gpsImpreciso ? <div className="ent-hint">Local salvo aproximado — corrige na 1ª entrega.</div> : null}
 
         {/* Minimapa — pino do endereço (CEP geocodificado OU GPS). */}
         {coord ? (
@@ -1921,13 +1929,19 @@ function EnderecosDoCliente({
   const [bairro, setBairro] = useState("");
   const [cidade, setCidade] = useState("");
   const [uf, setUf] = useState("");
-  const [coord, setCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [coord, setCoord] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [coordFonte, setCoordFonte] = useState<"geocode" | "gps_cadastro" | null>(null);
   const [cepStatus, setCepStatus] = useState<"idle" | "buscando" | "ok" | "erro">("idle");
   const [capturandoGps, setCapturandoGps] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+  // TETO DE PRECISÃO (25/07) — mesma regra do ClienteEditor acima.
+  const gpsImpreciso =
+    coordFonte === "gps_cadastro" &&
+    !!coord &&
+    typeof coord.accuracy === "number" &&
+    coord.accuracy > GPS_ACCURACY_ACEITAVEL_METROS;
 
   const outros = useMemo(() => locais.filter((l) => !l.isPrincipal), [locais]);
 
@@ -2044,7 +2058,7 @@ function EnderecosDoCliente({
         cidade: cidade.trim() || undefined,
         uf: uf.trim() || undefined,
         cep: cep.trim() || undefined,
-        ...(coord ? { lat: coord.lat, lng: coord.lng } : {}),
+        ...(coord ? { lat: coord.lat, lng: coord.lng, gpsAccuracy: coord.accuracy } : {}),
         ...(coord && coordFonte ? { geoFonte: coordFonte } : {}),
       });
       setAddOpen(false);
@@ -2186,6 +2200,7 @@ function EnderecosDoCliente({
             <I d={ICON_PATHS.nav} size={20} />
             {capturandoGps ? "Pegando local…" : "Localização Atual"}
           </button>
+          {gpsImpreciso ? <div className="ent-hint">Local salvo aproximado — corrige na 1ª entrega.</div> : null}
 
           {coord ? (
             <div className="ent-map">
