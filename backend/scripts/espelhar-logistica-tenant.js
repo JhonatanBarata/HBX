@@ -108,7 +108,9 @@ const prisma = new PrismaClient();
 // específico (41 → 45); permitir "qualquer empresa" via flag aumentaria o raio de erro
 // exatamente no script que promete "a origem nunca é escrita". ─────────────────────────
 const ORIGEM_COMPANY_ID = 41; // "Andre Barata" — cliente real. SOMENTE LEITURA.
-const DESTINO_COMPANY_ID = 45; // "Jhonatan Barata" (ADMIN id 55) — conta de teste.
+// 25/07 21h: o dono APAGOU a conta 45 e recriou como 48 (jbinformatica1100@gmail.com,
+// ADMIN id 58). Destino atualizado — a 45 não existe mais no banco.
+const DESTINO_COMPANY_ID = 48; // conta de teste do dono, recriada.
 const STORAGE_DIR = '/app/storage';
 
 const args = process.argv.slice(2);
