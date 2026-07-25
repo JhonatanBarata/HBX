@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 import { canonicalRouteDate } from './logistica-route-billing.service';
+import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 
 const SAO_PAULO_TIME_ZONE = 'America/Sao_Paulo';
 const OPEN_DELIVERY_STATUS = ['agendada', 'em_rota'] as const;
@@ -272,14 +273,19 @@ export class LogisticaOccurrenceService {
       const key = groupKey(row.customerProfileId, row.localId);
       let group = groups.get(key);
       if (!group) {
+        // FIX (25/07) — mesmo bug do toStop (logistica-rota.service.ts): campo a
+        // campo (`local?.lat ?? perfil?.lat`, `local?.lng ?? perfil?.lng`) podia
+        // combinar a lat de uma fonte com a lng de outra. resolverCoordenadaMultilocal
+        // escolhe a fonte inteira (local só vale com lat E lng válidos).
+        const coord = resolverCoordenadaMultilocal(row.local, row.customerProfile);
         group = {
           customerProfileId: row.customerProfileId,
           nome: String(row.customerProfile?.name || '').trim(),
           localId: row.localId ?? null,
           localApelido: row.local?.apelido ?? null,
-          lat: row.local?.lat ?? row.customerProfile?.lat ?? null,
-          lng: row.local?.lng ?? row.customerProfile?.lng ?? null,
-          geoFonte: row.local?.geoFonte ?? row.customerProfile?.geoFonte ?? null,
+          lat: coord.lat,
+          lng: coord.lng,
+          geoFonte: coord.geoFonte,
           itens: [],
           observacoes: row.customerProfile?.observacoes ?? null,
         };

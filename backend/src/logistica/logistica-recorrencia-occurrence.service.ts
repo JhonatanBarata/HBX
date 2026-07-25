@@ -8,6 +8,7 @@ import {
   parseDateOrNull,
 } from './logistica-recorrencia.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
+import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 
 /**
  * Mantém todo o CRUD legado de ClienteProduto, mas troca os dois pontos de
@@ -45,23 +46,30 @@ export class LogisticaRecorrenciaOccurrenceService extends LogisticaRecorrenciaS
       const preview = await this.agenda.getDayPreview(companyId, isoDow(date), dateInput);
       return {
         date: preview.date,
-        clientes: preview.paradas.map((stop: any) => ({
-          customerProfileId: stop.customerProfileId,
-          nome: stop.cliente?.nome || 'Cliente',
-          localId: stop.localId ?? null,
-          localApelido: stop.local?.apelido ?? null,
-          lat: stop.local?.lat ?? stop.cliente?.lat ?? null,
-          lng: stop.local?.lng ?? stop.cliente?.lng ?? null,
-          geoFonte: stop.local?.geoFonte ?? null,
-          itens: (stop.itens ?? []).map((item: any) => ({
-            productId: item.productId,
-            nome: item.nome || 'Produto',
-            qtd: item.qtd,
-            valorUnit: Number(item.valorUnit || 0),
-          })),
-          observacoes: stop.instrucoes ?? null,
-          agendaPlanoId: stop.planoEntregaId,
-        })),
+        clientes: preview.paradas.map((stop: any) => {
+          // FIX (25/07) — mesmo bug do toStop (logistica-rota.service.ts): campo a
+          // campo podia combinar a lat de uma fonte com a lng de outra.
+          // resolverCoordenadaMultilocal escolhe a fonte inteira (local só vale com
+          // lat E lng válidos; stop.cliente não tem geoFonte — clienteDto não expõe).
+          const coord = resolverCoordenadaMultilocal(stop.local, stop.cliente);
+          return {
+            customerProfileId: stop.customerProfileId,
+            nome: stop.cliente?.nome || 'Cliente',
+            localId: stop.localId ?? null,
+            localApelido: stop.local?.apelido ?? null,
+            lat: coord.lat,
+            lng: coord.lng,
+            geoFonte: coord.geoFonte,
+            itens: (stop.itens ?? []).map((item: any) => ({
+              productId: item.productId,
+              nome: item.nome || 'Produto',
+              qtd: item.qtd,
+              valorUnit: Number(item.valorUnit || 0),
+            })),
+            observacoes: stop.instrucoes ?? null,
+            agendaPlanoId: stop.planoEntregaId,
+          };
+        }),
       };
     }
     return this.occurrences.preview(companyId, dateInput);

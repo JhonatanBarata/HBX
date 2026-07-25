@@ -147,11 +147,11 @@ function escolherCandidatoConfiavel(cands: CandidatoNominatim[], partes: Enderec
 
     const cidadeCand = semAcento(a.city || a.town || a.village || a.municipality || a.city_district || "");
     if (cidadeCand !== cidadePedida) continue;
-    if (ufDoEstado(a.state, a["ISO3166-2-lvl4"]) !== ufPedida) continue;
+    if (ufDoEstado(a["ISO3166-2-lvl4"]) !== ufPedida) continue;
     if (!viasCompativeis(partes.logradouro, a.road)) continue;
 
     const numeroOk = Boolean(numeroPedido) && soDigitos(a.house_number || "") === numeroPedido;
-    const bairroCand = semAcento(a.suburb || a.neighbourhood || a.quarter || a.city_district || "");
+    const bairroCand = semAcento(a.suburb || a.neighbourhood || a.quarter || a.hamlet || a.city_district || "");
     const bairroOk = Boolean(bairroPedido) && bairroCand === bairroPedido;
     if (!numeroOk && !bairroOk) continue;
 
@@ -226,12 +226,12 @@ interface NominatimAddress {
   suburb?: string;
   neighbourhood?: string;
   quarter?: string;
+  hamlet?: string;
   city_district?: string;
   city?: string;
   town?: string;
   village?: string;
   municipality?: string;
-  state?: string;
   postcode?: string;
   "ISO3166-2-lvl4"?: string;
 }
@@ -250,49 +250,21 @@ export async function reverseGeocodar(p: Ponto): Promise<EnderecoReverso | null>
       numero: a.house_number || "",
       bairro: a.suburb || a.neighbourhood || a.quarter || a.city_district || "",
       cidade: a.city || a.town || a.village || a.municipality || "",
-      uf: ufDoEstado(a.state, a["ISO3166-2-lvl4"]),
+      uf: ufDoEstado(a["ISO3166-2-lvl4"]),
     };
   } catch {
     return null;
   }
 }
 
-// Nominatim devolve o estado por extenso ("Ceará") e, quase sempre, o código
-// ISO ("BR-CE"). Preferimos o ISO; se faltar, caímos no mapa por nome.
-const ESTADO_UF: Record<string, string> = {
-  acre: "AC",
-  alagoas: "AL",
-  amapá: "AP",
-  amazonas: "AM",
-  bahia: "BA",
-  ceará: "CE",
-  "distrito federal": "DF",
-  "espírito santo": "ES",
-  goiás: "GO",
-  maranhão: "MA",
-  "mato grosso": "MT",
-  "mato grosso do sul": "MS",
-  "minas gerais": "MG",
-  pará: "PA",
-  paraíba: "PB",
-  paraná: "PR",
-  pernambuco: "PE",
-  piauí: "PI",
-  "rio de janeiro": "RJ",
-  "rio grande do norte": "RN",
-  "rio grande do sul": "RS",
-  rondônia: "RO",
-  roraima: "RR",
-  "santa catarina": "SC",
-  "são paulo": "SP",
-  sergipe: "SE",
-  tocantins: "TO",
-};
-
-function ufDoEstado(estado?: string, iso?: string): string {
-  if (iso && /^BR-[A-Z]{2}$/.test(iso)) return iso.slice(3);
-  const chave = (estado || "").trim().toLowerCase();
-  return ESTADO_UF[chave] || "";
+// FIX (25/07) — gêmeo do backend (nucleo-geo.util.ts#ufDoCandidato): só o código
+// ISO conta. O fallback por nome do estado ("Ceará" → "CE") foi REMOVIDO — a tela
+// não pode aceitar um candidato que o servidor recusaria (mesma regra em dois
+// lugares, ou não é regra). Sem ISO válido, uf vazia = candidato descartado a
+// jusante (viasCompativeis/numeroOk/bairroOk exigem cidade+UF batendo).
+function ufDoEstado(iso?: string): string {
+  const m = /^BR-([A-Z]{2})$/.exec(String(iso || "").trim().toUpperCase());
+  return m ? m[1] : "";
 }
 
 // ── Minimapa: iframe do OpenStreetMap com o pino no ponto ────────────────────

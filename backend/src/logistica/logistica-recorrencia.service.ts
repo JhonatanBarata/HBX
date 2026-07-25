@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ActorKindUserLike, isBillingOwnerActor } from '../access/actor-kind';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
+import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 
 // "Cron" caseiro (o repo não usa @nestjs/schedule): varre 1×/dia + 1 passada
 // atrasada no boot. INERTE por default — só toca empresas que ligaram
@@ -653,15 +654,23 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       }
 
       for (const vencidosDoLocal of porLocal.values()) {
+        // FIX (25/07) — mesmo bug do toStop (logistica-rota.service.ts): campo a
+        // campo podia combinar a lat de uma fonte com a lng de outra.
+        // resolverCoordenadaMultilocal escolhe a fonte inteira (local só vale com
+        // lat E lng válidos; senão cai inteiro pro perfil).
+        const coord = resolverCoordenadaMultilocal(
+          vencidosDoLocal[0]?.local ?? null,
+          vencidosDoLocal[0]?.customerProfile ?? null,
+        );
         clientes.push({
           customerProfileId,
           nome: String(vencidosDoLocal[0]?.customerProfile?.name ?? '').trim(),
           // MULTILOCAL — a porta desta linha (null = perfil/legado) + o apelido.
           localId: vencidosDoLocal[0]?.localId ?? null,
           localApelido: vencidosDoLocal[0]?.local?.apelido ?? null,
-          lat: vencidosDoLocal[0]?.local?.lat ?? vencidosDoLocal[0]?.customerProfile?.lat ?? null,
-          lng: vencidosDoLocal[0]?.local?.lng ?? vencidosDoLocal[0]?.customerProfile?.lng ?? null,
-          geoFonte: vencidosDoLocal[0]?.local?.geoFonte ?? vencidosDoLocal[0]?.customerProfile?.geoFonte ?? null,
+          lat: coord.lat,
+          lng: coord.lng,
+          geoFonte: coord.geoFonte,
           itens: vencidosDoLocal.map((v) => ({
             productId: v.productId,
             nome: String(v.product?.name ?? '').trim(),

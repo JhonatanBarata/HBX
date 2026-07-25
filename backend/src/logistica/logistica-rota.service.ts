@@ -6,6 +6,7 @@ import {
   type PreparedLogisticaRoute,
 } from './logistica-route-billing.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
+import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
 type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
@@ -1029,13 +1030,18 @@ function improveRoadOrder(order: number[], matrix: Array<Array<number | null>>, 
 
 // ── helpers de mapeamento / data ────────────────────────────────────────────────
 function toStop(r: ParadaRow): Stop {
+  // MULTILOCAL (11/07) — PREFERE o geo do LOCAL quando a entrega tem um (cada porta
+  // tem sua coordenada); senão cai no perfil (legado). MESMA regra que o listRota
+  // aplica. FIX (25/07) — o local só vale como fonte se tiver lat E lng válidos;
+  // antes bastava o OBJETO `local` existir (mesmo sem coordenada, caso dos ~824
+  // registros que o backfill do freio de geocode deixou null de propósito) para
+  // descartar um pino BOM do perfil. `resolverCoordenadaMultilocal` também garante
+  // que lat/lng nunca vêm de fontes diferentes (nunca combina local.lat+perfil.lng).
+  const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
   return {
     id: r.id,
-    // MULTILOCAL (11/07) — PREFERE o geo do LOCAL quando a entrega tem um (cada
-    // porta tem sua coordenada); senão cai no perfil (legado). MESMA regra que o
-    // listRota aplica. Só a FONTE do lat/lng muda — o NN/2-opt segue intacto.
-    lat: r.local ? (r.local.lat ?? null) : (r.customerProfile?.lat ?? null),
-    lng: r.local ? (r.local.lng ?? null) : (r.customerProfile?.lng ?? null),
+    lat: coord.lat,
+    lng: coord.lng,
     status: r.status,
     // Rótulo da parada: apelido do local ("Casa"|"Loja") quando presente, senão o nome do cliente.
     nome: r.local?.apelido ?? r.customerProfile?.name ?? null,

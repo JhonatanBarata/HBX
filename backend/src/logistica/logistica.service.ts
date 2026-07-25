@@ -21,6 +21,7 @@ import {
   LogisticaTrackedBillingService,
   type PreparedTrackedDeliveryCharge,
 } from './logistica-tracked-billing.service';
+import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -398,6 +399,10 @@ export class LogisticaService {
                 : Math.max(0, Number(r.valor) || 0),
             )
           : undefined;
+        // FIX (25/07) — o local só vale como fonte de lat/lng se tiver os DOIS
+        // eixos válidos; senão a fonte inteira cai pro perfil (nunca mistura
+        // local.lat com customerProfile.lng). Ver logistica-geo-fonte.util.ts.
+        const clienteCoord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
         return {
           id: r.id,
         status: r.status,
@@ -445,8 +450,8 @@ export class LogisticaService {
           endereco: r.local ? (r.local.endereco ?? null) : (r.customerProfile.endereco ?? null),
           cidade: r.local ? (r.local.cidade ?? null) : (r.customerProfile.cidade ?? null),
           uf: r.local ? (r.local.uf ?? null) : (r.customerProfile.uf ?? null),
-          lat: r.local ? (r.local.lat ?? null) : (r.customerProfile.lat ?? null),
-          lng: r.local ? (r.local.lng ?? null) : (r.customerProfile.lng ?? null),
+          lat: clienteCoord.lat,
+          lng: clienteCoord.lng,
           phone: r.customerProfile.phone ?? null,
           // PR18072026 W1 — observação livre sobre o cliente (operacional, sempre
           // visível — não gateado por billingAudience).

@@ -87,9 +87,12 @@ export class LeituraClienteNovoDto {
   @Max(180)
   lng?: number;
 
+  // FIX (25/07) — mesma trava dos outros DTOs de geo (nucleo.dto.ts CreateContaDto/
+  // UpdateContaDto): sem @IsIn, o cliente podia mandar qualquer string solta em
+  // geoFonte. Mesma lista exata, sem inventar valor novo.
   @IsOptional()
   @IsString()
-  @MaxLength(20)
+  @IsIn(['geocode', 'gps_cadastro'])
   geoFonte?: string;
 }
 
