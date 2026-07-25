@@ -17,10 +17,15 @@
  *
  * O QUE É COPIADO (4 tabelas, o "cadastro de logística" que alimenta a tela — nada de
  * entrega/rota histórica, sessão, financeiro, usuário ou WhatsApp):
- *   · CustomerProfile (isCliente=true)  — nome/telefone/documento/endereço/geo/contrato
- *     de cobrança por cliente. NÃO copiado: sourceConnectionId/externalSource/
- *     externalCustomerId (integração é por-conexão, não existe em 45), firstInboundAt/
- *     lastInboundAt/botOff* (rastro de conversa/bot — fora do escopo "cadastro").
+ *   · CustomerProfile (isCliente=true OU tem pelo menos 1 ClienteProduto) — nome/
+ *     telefone/documento/endereço/geo/contrato de cobrança por cliente. O critério NÃO
+ *     é só isCliente=true: achado em dry-run real (25/07) mostrou perfis com
+ *     isCliente=false que têm ClienteProduto e por isso ENTRAM na Agenda V2 do André —
+ *     filtrar só por isCliente deixava vínculo órfão e a conta espelhada com menos
+ *     planos que a do André (mesmo espírito do critério já usado pra Product, abaixo).
+ *     NÃO copiado: sourceConnectionId/externalSource/externalCustomerId (integração é
+ *     por-conexão, não existe em 45), firstInboundAt/lastInboundAt/botOff* (rastro de
+ *     conversa/bot — fora do escopo "cadastro").
  *   · LocalEntrega               — locais de entrega (coordenada, isPrincipal, acesso).
  *   · Product (usaLogistica=true, ou referenciado por ClienteProduto do cliente copiado)
  *     — catálogo (galão, preço...). NÃO copiado: createdByUserId/updatedByUserId
@@ -273,12 +278,34 @@ function detectarDuplicidade(clientes, campo) {
 }
 
 async function coletarOrigem() {
+  // FIX 25/07 (achado em dry-run real, coordenador): Agenda V2 gera plano a partir de
+  // QUALQUER CustomerProfile com ClienteProduto — não só isCliente=true. Na empresa 41
+  // existem perfis com isCliente=false que TÊM vínculo (e entram na agenda do André).
+  // Filtrar só por isCliente deixava esses vínculos órfãos de propósito — a conta
+  // espelhada saía com menos planos que a do André, quebrando a regra nº1 do dono
+  // ("EU QUERO VER O Q O ANDRÉ VAI VER AMANHÃ"). Mesmo espírito do critério já usado
+  // pra Product (usaLogistica=true OU referenciado por um vínculo copiado): aqui,
+  // isCliente=true OU tem pelo menos 1 ClienteProduto.
+  //
+  // Por isso a ordem de leitura é invertida: primeiro TODOS os vínculos da empresa 41
+  // (sem filtrar por cliente), depois os perfis (isCliente OU aparece nesses vínculos).
+  const todosVinculosOrigem = await prisma.clienteProduto.findMany({
+    where: { companyId: ORIGEM_COMPANY_ID },
+    select: SELECT_CLIENTE_PRODUTO,
+    orderBy: { id: 'asc' },
+  });
+  const clienteIdsComVinculo = [...new Set(todosVinculosOrigem.map((cp) => cp.customerProfileId))];
+
   const clientes = await prisma.customerProfile.findMany({
-    where: { companyId: ORIGEM_COMPANY_ID, isCliente: true },
+    where: {
+      companyId: ORIGEM_COMPANY_ID,
+      OR: [{ isCliente: true }, { id: { in: clienteIdsComVinculo } }],
+    },
     select: SELECT_CLIENTE,
     orderBy: { id: 'asc' },
   });
   const clienteIds = clientes.map((c) => c.id);
+  const clienteIdSet = new Set(clienteIds);
 
   const locais = await prisma.localEntrega.findMany({
     where: { companyId: ORIGEM_COMPANY_ID, customerProfileId: { in: clienteIds } },
@@ -286,11 +313,13 @@ async function coletarOrigem() {
     orderBy: { id: 'asc' },
   });
 
-  const clienteProdutos = await prisma.clienteProduto.findMany({
-    where: { companyId: ORIGEM_COMPANY_ID, customerProfileId: { in: clienteIds } },
-    select: SELECT_CLIENTE_PRODUTO,
-    orderBy: { id: 'asc' },
-  });
+  // Todo customerProfileId citado por um vínculo da 41 devia estar em `clientes` — o OR
+  // acima inclui explicitamente esses ids. Se algum não aparecer (não deveria acontecer;
+  // só se o dado da origem já estivesse inconsistente — ex.: vínculo com companyId=41
+  // mas customerProfileId de OUTRA empresa), o vínculo fica de fora aqui (não é copiado
+  // torto) e o plano REPORTA a contagem pra investigar antes de --aplicar.
+  const clienteProdutos = todosVinculosOrigem.filter((cp) => clienteIdSet.has(cp.customerProfileId));
+  const vinculosOrfaos = todosVinculosOrigem.length - clienteProdutos.length;
 
   const productIdsVinculados = [...new Set(clienteProdutos.map((cp) => cp.productId))];
   const produtos = await prisma.product.findMany({
@@ -302,7 +331,14 @@ async function coletarOrigem() {
     orderBy: { id: 'asc' },
   });
 
-  return { clientes, locais, clienteProdutos, produtos };
+  return {
+    clientes,
+    locais,
+    clienteProdutos,
+    produtos,
+    totalVinculosOrigem: todosVinculosOrigem.length,
+    vinculosOrfaos,
+  };
 }
 
 // Estado ATUAL do destino — é isto que vira backup, e é isto que será apagado.
@@ -321,10 +357,23 @@ function imprimirPlano({ origem, destinoAtual, risco, empresas }) {
   log(`destino : empresa ${DESTINO_COMPANY_ID} "${empresas.destino?.name ?? '???'}"`);
   log('');
   log('vai COPIAR da origem:');
-  log(`  · CustomerProfile (isCliente=true) : ${origem.clientes.length}`);
+  log(`  · CustomerProfile (isCliente=true OU com ClienteProduto) : ${origem.clientes.length}`);
   log(`  · LocalEntrega                     : ${origem.locais.length}`);
   log(`  · Product (usaLogistica/vinculado) : ${origem.produtos.length}`);
   log(`  · ClienteProduto (vínculo cliente↔produto, com diasSemana/proximaData) : ${origem.clienteProdutos.length}`);
+  log('');
+  log('conferência da aritmética (vínculos) — precisa bater ANTES de --aplicar:');
+  log(`  · total de ClienteProduto na empresa ${ORIGEM_COMPANY_ID} (sem filtrar por cliente) : ${origem.totalVinculosOrigem}`);
+  log(`  · vínculos que SERÃO copiados                                          : ${origem.clienteProdutos.length}`);
+  if (origem.vinculosOrfaos > 0) {
+    log(`  ⚠️  vínculos ÓRFÃOS (customerProfileId não resolveu em nenhum perfil da empresa ${ORIGEM_COMPANY_ID}) : ${origem.vinculosOrfaos}`);
+    log('      Razão provável: dado pré-existente inconsistente na origem (ClienteProduto.companyId=41 mas');
+    log('      customerProfileId aponta pra um perfil de outra empresa — a FK do schema não é composta aqui,');
+    log('      então o Postgres não impede isso). Estes NÃO são copiados (evita vínculo torto no destino).');
+    log('      PARE e confirme com o dono antes de --aplicar se isto não é esperado.');
+  } else {
+    log('  ✓ total origem === vínculos copiados (nenhum vínculo ficou de fora).');
+  }
   log('');
   log('vai APAGAR no destino antes de copiar (backup completo dessas linhas primeiro):');
   log(`  · CustomerProfile : ${destinoAtual.clientes.length}`);
