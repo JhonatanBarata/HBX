@@ -102,6 +102,19 @@ function windowLabel(stop: Pick<AgendaStop, "janela">): string | null {
   return `${time} · ${stop.janela.tipo === "RIGIDA" ? "Rígida" : "Preferencial"}`;
 }
 
+// S4-AVISO-DE-HORARIO — "10:35" na fala do dono ("chega ~10h35, recebe até 10h").
+function hourWord(hhmm: string): string {
+  const [h, m] = hhmm.split(":");
+  return m === "00" ? `${Number(h)}h` : `${Number(h)}h${m}`;
+}
+
+// Estimativa v1 (soma simples, sem OSRM) — o tooltip deixa isso explícito e curto.
+function etaTooltip(stop: Pick<AgendaStop, "eta" | "janela">): string {
+  const chegada = stop.eta ? `Chega ~${hourWord(stop.eta)} (estimativa)` : "";
+  const limite = stop.janela?.fim ? `recebe até ${hourWord(stop.janela.fim)}` : "";
+  return [chegada, limite].filter(Boolean).join(" · ");
+}
+
 function compactChipText(value: string, limit = 34): string {
   const text = value.trim();
   return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1)).trim()}…` : text;
@@ -1574,6 +1587,8 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   }, [detail, search]);
 
   const firstNotice = detail?.avisos?.[0] ? agendaNoticeText(detail.avisos[0]) : null;
+  // S4 — conta o dia inteiro (não só o resultado filtrado da busca), só existe quando N>0.
+  const etaConflitosCount = (detail?.paradas || []).filter((stop) => !!stop.alertaJanela).length;
 
   return (
     <section id="logistica-view-weekly" className="log-agenda hbx-page-mobile-enter" role="tabpanel" aria-labelledby="log-tab-weekly">
@@ -1652,6 +1667,12 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
               >
                 ⚠ {divergencias.total} {divergencias.total === 1 ? "diferença" : "diferenças"}
               </button>
+            )}
+            {/* S4 — só informa (nunca bloqueia); zero conflito = nada na tela. */}
+            {etaConflitosCount > 0 && (
+              <span className="log-agenda__eta-badge" title="Estimativa v1 sem OSRM — some quando a rota é reordenada.">
+                {etaConflitosCount} {etaConflitosCount === 1 ? "conflito" : "conflitos"} de horário
+              </span>
             )}
             <span className={`log-agenda__state ${detail?.ativo === false ? "is-paused" : "is-active"}`}>
               {detail?.ativo === false ? "Pausado" : "Ativo"}
@@ -1766,13 +1787,25 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
                       {stop.cliente.nome}
                       <span className="log-agenda-stop__place"> · {addressLabel(stop)}</span>
                     </span>
-                    <span className="log-agenda-stop__items">{itemsLabel(stop)}</span>
+                    <span className="log-agenda-stop__items">
+                      {itemsLabel(stop)}
+                      {/* S4 — hora estimada discreta (v1 sem OSRM, soma simples); nunca substitui a janela do cliente. */}
+                      {stop.eta && <span className="log-agenda-stop__eta"> · chega ~{hourWord(stop.eta)}</span>}
+                    </span>
                     <span className="log-agenda-stop__meta">
                       {time && <span className="log-agenda-stop__chip"><I d={ICONS.clock} size={11} /> {time}</span>}
                       {stop.tempoParadaMin && <span className="log-agenda-stop__chip">{stop.tempoParadaMin} min</span>}
                       {access && <span className={`log-agenda-stop__chip${access.warning ? " is-warning" : ""}`} title={access.title}>{access.text}</span>}
                       {additional && <span className="log-agenda-stop__chip" title={additional.title}><I d={ICONS.money} size={11} /> {additional.text}</span>}
                       {plan?.ativo === false && <span className="log-agenda-stop__chip is-warning">Pausada</span>}
+                      {stop.alertaJanela && (
+                        <span
+                          className={`log-agenda-stop__chip${stop.alertaJanela === "CONFLITO" ? " is-conflict" : " is-warning"}`}
+                          title={etaTooltip(stop)}
+                        >
+                          {stop.alertaJanela === "CONFLITO" ? "Conflito" : "Apertado"}
+                        </span>
+                      )}
                     </span>
                   </div>
                   {!legacyMode && (

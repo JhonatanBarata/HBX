@@ -280,6 +280,23 @@
   border-color: color-mix(in srgb, var(--hbx-warning) 62%, var(--border-hairline));
 }
 
+/* S4 — badge "N conflitos de horário": só informa, nunca bloqueia; some com N=0. */
+.log-agenda__eta-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 42%, var(--border-hairline));
+  border-radius: var(--radius-pill);
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .log-agenda__state {
   display: inline-flex;
   align-items: center;
@@ -423,6 +440,12 @@
   font-weight: 600;
 }
 
+/* S4 — "chega ~10h35" discreto, junto da linha de itens (nunca vira chip/aviso). */
+.log-agenda-stop__eta {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .log-agenda-stop__meta {
   gap: 5px;
   min-width: 0;
@@ -450,6 +473,12 @@
 .log-agenda-stop__chip.is-warning {
   border-color: color-mix(in srgb, var(--hbx-warning) 38%, var(--border-hairline));
   color: var(--hbx-warning);
+}
+
+/* S4 — badge CONFLITO (janela estourada e RÍGIDA); APERTADO reusa .is-warning acima. */
+.log-agenda-stop__chip.is-conflict {
+  border-color: color-mix(in srgb, var(--hbx-danger) 40%, var(--border-hairline));
+  color: var(--hbx-danger);
 }
 
 .log-agenda-stop__actions {

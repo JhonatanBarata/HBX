@@ -10,6 +10,8 @@ export type AgendaAdditionalType = "FIXO" | "POR_UNIDADE";
 export type AgendaDayAction = "PAUSAR" | "MOVER";
 export type AgendaOpenDeliveriesAction = "MANTER" | "MOVER" | "CANCELAR";
 export type AgendaMode = "LEGADO" | "AGENDA_V2";
+// S4-AVISO-DE-HORARIO — campos aditivos por parada (estimativa v1, sem OSRM).
+export type AgendaAlertaJanela = "CONFLITO" | "APERTADO" | null;
 
 export type AgendaNotice =
   | string
@@ -119,6 +121,10 @@ export type AgendaStop = {
   acesso: AgendaAccess | null;
   adicional: AgendaAdditional | null;
   origem?: AgendaMode;
+  /** S4 — estimativa v1 (soma simples, sem OSRM); null só em estado defensivo, na prática sempre vem preenchido. */
+  eta?: string | null;
+  /** S4 — null quando a parada não tem janela (nunca inventada) ou quando o horário estimado ainda cabe folgado. */
+  alertaJanela?: AgendaAlertaJanela;
 };
 
 export type AgendaMigrationStatus = {

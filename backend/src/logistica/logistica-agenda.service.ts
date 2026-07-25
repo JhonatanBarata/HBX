@@ -24,6 +24,7 @@ import {
   separarParadasDuplicadas,
   SequenciaMatchPlano,
 } from './logistica-agenda-sequencia.util';
+import { AgendaAlertaJanela, calcularEtas } from './logistica-agenda-eta.util';
 import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
 
 const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'] as const;
@@ -189,7 +190,7 @@ export class LogisticaAgendaService {
       ativo: route ? route.ativo : plans.some((plan) => plan.ativo),
       rota: route ? routeDto(route) : null,
       planos: planDtos,
-      paradas: ordered,
+      paradas: attachEtaInfo(ordered),
       totais: {
         planos: planDtos.length,
         paradas: ordered.length,
@@ -587,7 +588,7 @@ export class LogisticaAgendaService {
       ativo: context.diasTrabalho.length ? context.diasTrabalho.includes(day) : plans.length > 0,
       rota: route ? legacyRouteDto(route) : null,
       planos: plans,
-      paradas: stops,
+      paradas: attachEtaInfo(stops),
       totais: {
         planos: plans.length,
         paradas: stops.length,
@@ -1962,6 +1963,31 @@ function stopDtoFromPlan(plan: any, order: number) {
     ordemTravada: true,
     planoEntregaId: plan.id,
   };
+}
+
+/**
+ * S4-AVISO-DE-HORARIO — campos ADITIVOS `eta`/`alertaJanela` por parada, na
+ * ordem já decidida (`ordered`/`stops`). `calcularEtas` é pura (sem
+ * Prisma/tx); aqui só traduzimos o formato da parada pro formato do util e
+ * devolvemos os mesmos objetos com 2 chaves a mais — nada existente muda de
+ * nome nem some, então o APK v31 (que ignora chaves que não conhece) não
+ * quebra ao consumir este mesmo GET.
+ */
+function attachEtaInfo<T extends { janela?: { fim: string | null; tipo: 'RIGIDA' | 'PREFERENCIAL' } | null; tempoParadaMin?: number | null }>(
+  paradas: T[],
+): Array<T & { eta: string | null; alertaJanela: AgendaAlertaJanela }> {
+  const etas = calcularEtas(
+    paradas.map((parada) => ({
+      tempoParadaMin: parada.tempoParadaMin ?? null,
+      janelaFim: parada.janela?.fim ?? null,
+      janelaTipo: parada.janela?.tipo ?? null,
+    })),
+  );
+  return paradas.map((parada, index) => ({
+    ...parada,
+    eta: etas[index]?.eta ?? null,
+    alertaJanela: etas[index]?.alertaJanela ?? null,
+  }));
 }
 
 function routeDto(route: any) {
