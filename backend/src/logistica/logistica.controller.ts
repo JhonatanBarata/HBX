@@ -38,6 +38,7 @@ import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.servic
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 import {
   FinalizarLeituraDto,
   IniciarLeituraDto,
@@ -111,6 +112,8 @@ export class LogisticaController {
     private readonly leitura: LogisticaLeituraService = null as any,
     // PR20072026-ROTA-SALVA F3.2 — geocode reverso (GPS → endereço). Mesmo padrão de default acima.
     private readonly geo: LogisticaGeoService = null as any,
+    // AGENDA-SEMANAL — mantém os construtores diretos dos testes legados.
+    private readonly agenda: LogisticaAgendaService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -590,8 +593,11 @@ export class LogisticaController {
    * Não dispara WhatsApp/cobrança (isso é só no confirmar, N6, atrás de flag).
    */
   @Post('gerar-dia')
-  gerarDia(@Req() req: any, @Body() dto: GerarDiaDto) {
+  async gerarDia(@Req() req: any, @Body() dto: GerarDiaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
+    if (this.agenda && await this.agenda.isAgendaV2Active(companyId)) {
+      return this.agenda.generateDay(companyId, dto?.date);
+    }
     return this.recorrencia.gerarDia(companyId, dto?.date);
   }
 
@@ -604,9 +610,7 @@ export class LogisticaController {
   @Get('dia-preview')
   diaPreview(@Req() req: any, @Query('date') date?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.occurrences
-      ? this.occurrences.preview(companyId, date)
-      : this.recorrencia.getDiaPreview(companyId, date, req.user);
+    return this.recorrencia.getDiaPreview(companyId, date, req.user);
   }
 
   // ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ───────────────────────────────

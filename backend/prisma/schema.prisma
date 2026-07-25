@@ -297,6 +297,13 @@ model Company {
   logisticaRouteStops    LogisticaRouteStop[]
   // PR18072026 W1 — roteiros salvos (rota-modelo) da empresa.
   logisticaRotaModelos   LogisticaRotaModelo[]
+  // AGENDA-SEMANAL (23/07) — planos recorrentes, paradas normalizadas e ações
+  // auditadas. Tudo aditivo; ClienteProduto/paradasJson continuam compatíveis.
+  logisticaPlanosEntrega LogisticaPlanoEntrega[]
+  logisticaPlanoEntregaItens LogisticaPlanoEntregaItem[]
+  logisticaRotaModeloParadas LogisticaRotaModeloParada[]
+  logisticaRotaModeloParadaItens LogisticaRotaModeloParadaItem[]
+  logisticaAgendaAcoes   LogisticaAgendaAcao[]
   // PR20072026 W1 — sessões de "Leitura de Rota" (captura em campo) da empresa.
   logisticaLeituraSessoes LogisticaLeituraSessao[]
   logisticaEssentialClaims LogisticaEssentialCreditClaim[]
@@ -1134,6 +1141,8 @@ model CustomerProfile {
   // 22/07 — log de visita do APK (entregue/pago/sem atendimento). Ver ClienteHistorico.
   historicos           ClienteHistorico[]
   clienteProdutos      ClienteProduto[]
+  logisticaPlanosEntrega LogisticaPlanoEntrega[]
+  logisticaRotaModeloParadas LogisticaRotaModeloParada[]
   // MULTILOCAL (10/07) — N endereços de entrega da mesma CONTA (cobrança segue 1 só,
   // por customerProfileId; multi-local é só ONDE se entrega). Back-relation aditiva.
   locais               LocalEntrega[]
@@ -1145,6 +1154,7 @@ model CustomerProfile {
   logisticaLeituraParadas LogisticaLeituraParada[]
 
   @@unique([companyId, phoneNormalized])
+  @@unique([id, companyId])
   @@index([companyId, document])
   @@index([sourceConnectionId, externalCustomerId])
   @@index([companyId, status])
@@ -1257,6 +1267,9 @@ model Entrega {
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
   idempotencyKey    String?
+  // Chave da ocorrência recorrente, separada da idempotência offline usada na
+  // confirmação. Uma não pode ocupar nem apagar o contrato da outra.
+  agendaOcorrenciaKey String? @db.VarChar(160)
   // Comprovante configurável por tenant. Foto/assinatura vivem em
   // EntregaComprovante (arquivo privado + metadata); código esperado nunca é
   // persistido em claro, apenas scrypt(hash+salt). A confirmação guarda ator/data.
@@ -1277,9 +1290,30 @@ model Entrega {
   logisticaTrackingPoints LogisticaTrackingPoint[]
   logisticaTrackingEvents LogisticaTrackingEvent[]
   logisticaTrackedCreditClaims LogisticaTrackedCreditClaim[]
+  // AGENDA-SEMANAL — origem + fotografia operacional. Nullable para preservar
+  // integralmente todas as entregas existentes e o histórico financeiro.
+  planoEntregaOrigem LogisticaPlanoEntrega? @relation("EntregaPlanoOrigem", fields: [planoEntregaId, companyId], references: [id, companyId], onDelete: Restrict)
+  planoEntregaId     String?
+  planoEntregaRevisao Int?
+  rotaModeloOrigem   LogisticaRotaModelo? @relation("EntregaRotaModeloOrigem", fields: [rotaModeloId, companyId], references: [id, companyId], onDelete: Restrict)
+  rotaModeloId       String?
+  rotaModeloVersao   Int?
+  janelaInicioSnapshot String? @db.VarChar(5)
+  janelaFimSnapshot  String? @db.VarChar(5)
+  janelaTipoSnapshot String? @db.VarChar(20)
+  tempoParadaMinSnapshot Int?
+  instrucoesSnapshot String? @db.VarChar(500)
+  acessoTipoSnapshot String? @db.VarChar(20)
+  acessoAndaresSnapshot Int?
+  acessoTemElevadorSnapshot Boolean?
+  acessoObservacaoSnapshot String? @db.VarChar(240)
+  adicionalTipoSnapshot String? @db.VarChar(20)
+  adicionalValorSnapshot Float?
+  adicionalMotivoSnapshot String? @db.VarChar(120)
 
   @@unique([id, companyId])
   @@unique([companyId, idempotencyKey])
+  @@unique([companyId, agendaOcorrenciaKey])
   @@index([companyId, status, scheduledAt])
   @@index([companyId, customerProfileId])
   // LOGÍSTICA-MOBILE M2 — "entregas do dia" idempotentes por [empresa, cliente, dia]:
@@ -1287,6 +1321,8 @@ model Entrega {
   // mesmo dia (a checagem real é feita no serviço; este índice acelera a varredura).
   @@index([companyId, customerProfileId, scheduledAt])
   @@index([companyId, entregadorId, status, scheduledAt])
+  @@index([companyId, planoEntregaId, scheduledAt])
+  @@index([companyId, rotaModeloId, scheduledAt])
 }
 
 // HISTÓRICO DO CLIENTE (22/07, pedido do dono) — LOG DE VISITA, não financeiro.
@@ -1401,13 +1437,166 @@ model LogisticaRotaModelo {
   companyId  Int
   nome       String   @db.VarChar(80)
   diaSemana  Int?     // 1(seg)..7(dom); null = sem dia fixo
+  // AGENDA-SEMANAL — LIVRE preserva o contrato legado; SEMANAL liga o roteiro
+  // a planos explícitos. `versao` sobe sempre que a ordem/conteúdo muda.
+  tipo       String   @default("LIVRE") @db.VarChar(20)
+  ativo      Boolean  @default(true)
+  versao     Int      @default(1)
   // Array ordenado de { customerProfileId, localId? } — a ORDEM da lista é a
   // ordem do roteiro (o índice vira a ordemManual quando o app aplica o modelo).
   paradasJson Json
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  paradas    LogisticaRotaModeloParada[]
+  entregasOrigem Entrega[] @relation("EntregaRotaModeloOrigem")
 
+  @@unique([id, companyId])
   @@index([companyId])
+  @@index([companyId, tipo, diaSemana, ativo])
+}
+
+// AGENDA-SEMANAL — compromisso recorrente de uma visita. O produto continua
+// catálogo/acordo comercial em ClienteProduto; aqui ficam dia, horário e os
+// itens EXATOS daquela visita. Não há hard-delete pela API: pausar é reversível.
+model LogisticaPlanoEntrega {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId, companyId], references: [id, companyId], onDelete: Restrict)
+  customerProfileId String
+  local             LocalEntrega? @relation(fields: [localId, companyId], references: [id, companyId], onDelete: Restrict)
+  localId           String?
+  diaSemana         Int
+  frequencia        String   @default("SEMANAL") @db.VarChar(20) // SEMANAL | QUINZENAL | INTERVALO
+  intervaloDias     Int?
+  proximaData       DateTime?
+  ativo             Boolean  @default(true)
+  revisao           Int      @default(1)
+  origem            String   @default("MANUAL") @db.VarChar(20) // MANUAL | LEGADO
+  legadoChave       String?  @db.VarChar(200)
+  janelaInicio      String?  @db.VarChar(5)
+  janelaFim         String?  @db.VarChar(5)
+  janelaTipo        String?  @db.VarChar(20) // RIGIDA | PREFERENCIAL
+  tempoParadaMin    Int?
+  instrucoes        String?  @db.VarChar(500)
+  // Override opcional do acesso do LocalEntrega. Null = herda do local.
+  acessoTipo        String?  @db.VarChar(20) // TERREO | ESCADA | ELEVADOR | OUTRO
+  acessoAndares     Int?
+  acessoTemElevador Boolean?
+  acessoObservacao  String?  @db.VarChar(240)
+  adicionalTipo     String?  @db.VarChar(20) // FIXO | POR_UNIDADE
+  adicionalValor    Float?
+  adicionalMotivo   String?  @db.VarChar(120)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  itens             LogisticaPlanoEntregaItem[]
+  paradas           LogisticaRotaModeloParada[]
+  entregasOrigem    Entrega[] @relation("EntregaPlanoOrigem")
+
+  @@unique([id, companyId])
+  @@unique([companyId, legadoChave])
+  @@index([companyId, diaSemana, ativo])
+  @@index([companyId, customerProfileId, ativo])
+  @@index([companyId, localId])
+}
+
+model LogisticaPlanoEntregaItem {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  planoEntrega    LogisticaPlanoEntrega @relation(fields: [planoEntregaId, companyId], references: [id, companyId], onDelete: Cascade)
+  planoEntregaId  String
+  product         Product  @relation(fields: [productId, companyId], references: [id, companyId], onDelete: Restrict)
+  productId       Int
+  qtd             Int      @default(1)
+  valorUnit       Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([planoEntregaId, productId])
+  @@index([companyId, planoEntregaId])
+  @@index([companyId, productId])
+}
+
+// Ordem relacional da rota. ParadasJson permanece como espelho de
+// compatibilidade, mas a agenda nova lê esta tabela.
+model LogisticaRotaModeloParada {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  rotaModelo        LogisticaRotaModelo @relation(fields: [rotaModeloId, companyId], references: [id, companyId], onDelete: Cascade)
+  rotaModeloId      String
+  planoEntrega      LogisticaPlanoEntrega? @relation(fields: [planoEntregaId, companyId], references: [id, companyId], onDelete: Restrict)
+  planoEntregaId    String?
+  // Snapshots/ponte para rota LIVRE; o serviço valida o mesmo tenant.
+  customerProfile   CustomerProfile? @relation(fields: [customerProfileId, companyId], references: [id, companyId], onDelete: Restrict)
+  customerProfileId String?
+  local             LocalEntrega? @relation(fields: [localId, companyId], references: [id, companyId], onDelete: Restrict)
+  localId           String?
+  ordem             Int
+  ordemTravada      Boolean  @default(true)
+  janelaInicio      String?  @db.VarChar(5)
+  janelaFim         String?  @db.VarChar(5)
+  janelaTipo        String?  @db.VarChar(20)
+  tempoParadaMin    Int?
+  instrucoes        String?  @db.VarChar(500)
+  acessoTipo        String?  @db.VarChar(20)
+  acessoAndares     Int?
+  acessoTemElevador Boolean?
+  acessoObservacao  String?  @db.VarChar(240)
+  adicionalTipo     String?  @db.VarChar(20)
+  adicionalValor    Float?
+  adicionalMotivo   String?  @db.VarChar(120)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  itens             LogisticaRotaModeloParadaItem[]
+
+  @@unique([id, companyId])
+  @@unique([rotaModeloId, ordem])
+  @@unique([rotaModeloId, planoEntregaId])
+  @@index([companyId, rotaModeloId, ordem])
+  @@index([companyId, planoEntregaId])
+}
+
+model LogisticaRotaModeloParadaItem {
+  id            String   @id @default(cuid())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId     Int
+  parada        LogisticaRotaModeloParada @relation(fields: [paradaId, companyId], references: [id, companyId], onDelete: Cascade)
+  paradaId      String
+  product       Product? @relation(fields: [productId, companyId], references: [id, companyId], onDelete: Restrict)
+  productId     Int?
+  produtoNomeSnapshot String @db.VarChar(140)
+  qtd           Int
+  valorUnit     Float
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId, paradaId])
+  @@index([companyId, productId])
+}
+
+// Toda mudança em massa do dia é idempotente e auditável. `resultadoJson`
+// permite repetir a mesma chave sem executar a transação novamente.
+model LogisticaAgendaAcao {
+  id                 String   @id @default(cuid())
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId          Int
+  idempotencyKey     String   @db.VarChar(100)
+  requestHash        String   @db.VarChar(64)
+  acao               String   @db.VarChar(20) // PAUSAR | MOVER | CANCELAR
+  diaOrigem          Int
+  diaDestino         Int?
+  dataInicio         DateTime
+  entregasAbertas    String   @db.VarChar(20) // MANTER | MOVER | CANCELAR
+  executadoPor       User?    @relation(fields: [executadoPorUserId, companyId], references: [id, companyId], onDelete: Restrict)
+  executadoPorUserId Int?
+  resultadoJson      Json
+  createdAt          DateTime @default(now())
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, createdAt])
+  @@index([companyId, diaOrigem, createdAt])
 }
 
 // PR20072026 W1 — "Leitura de Rota": sessão de captura em campo (docs/PLANEJAMENTOS/
@@ -1725,15 +1914,23 @@ model LocalEntrega {
   geoFonte          String?  // geocode | gps_cadastro | gps_entrega (mesma convenção do perfil)
   isPrincipal       Boolean  @default(false)
   ativo             Boolean  @default(true)
+  // AGENDA-SEMANAL — acesso estruturado do endereço. Null preserva legado.
+  acessoTipo        String?  @db.VarChar(20) // TERREO | ESCADA | ELEVADOR | OUTRO
+  acessoAndares     Int?
+  acessoTemElevador Boolean?
+  acessoObservacao  String?  @db.VarChar(240)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   entregas          Entrega[]
   clienteProdutos   ClienteProduto[]
+  logisticaPlanosEntrega LogisticaPlanoEntrega[]
+  logisticaRotaModeloParadas LogisticaRotaModeloParada[]
   // PR20072026 W1 — paradas de Leitura de Rota que resolveram para este local.
   logisticaLeituraParadas LogisticaLeituraParada[]
 
   @@index([companyId, customerProfileId])
   @@index([companyId, customerProfileId, isPrincipal])
+  @@unique([id, companyId])
 }
 
 // LOGÍSTICA-MOBILE M2 (05/07) — item de uma Entrega (multi-produto).
@@ -1779,6 +1976,9 @@ model LogisticaConfig {
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
   gerarDiaAutomatico    Boolean  @default(false)
+  // AGENDA-SEMANAL — cutover explícito por tenant. false mantém geração
+  // ClienteProduto legada e permite apenas projeção read-only na Agenda.
+  agendaV2Ativa         Boolean  @default(false)
   // PR18072026 W1 — "cobrança simples" (opt-in do dono): reservado para a UI
   // do app simplificar a folha de chegada (chips) quando ligado. Só a coluna
   // nasce aqui; o comportamento em si é de outra frente. Default false = 0
@@ -2220,6 +2420,7 @@ model User {
   entregasAtribuidasPorMim Entrega[] @relation("EntregaAtribuidaPor")
   entregasConfirmadas Entrega[] @relation("EntregaConfirmadaPor")
   entregasCodigoGeradoPorMim Entrega[] @relation("EntregaCodigoGeradoPor")
+  logisticaAgendaAcoes LogisticaAgendaAcao[]
   clienteHistoricos ClienteHistorico[] @relation("ClienteHistoricoAutor")
   entregaComprovantesEnviados EntregaComprovante[] @relation("EntregaComprovanteEnviadoPor")
   logisticaRoutesComoEntregador LogisticaRoute[] @relation("LogisticaRouteDriver")
@@ -4682,9 +4883,12 @@ model Product {
   entregas    Entrega[]
   clienteProdutos ClienteProduto[]
   entregaItens EntregaItem[]
+  logisticaPlanoEntregaItens LogisticaPlanoEntregaItem[]
+  logisticaRotaModeloParadaItens LogisticaRotaModeloParadaItem[]
   recoveryDebtItemProducts RecoveryDebtItemProduct[]
 
   @@index([companyId, status, sortOrder])
+  @@unique([id, companyId])
   @@index([companyId, kind, status])
   @@index([companyId, planKey])
   @@index([companyId, sku])

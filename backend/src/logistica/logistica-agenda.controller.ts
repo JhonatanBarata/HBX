@@ -1,0 +1,153 @@
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { Admin } from '../auth/admin.decorator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { ModuleAccessGuard } from '../modules/module-access.guard';
+import { ModuleAccess } from '../modules/module-feature.decorator';
+import {
+  AplicarLegadoAgendaDto,
+  CreateAgendaPlanoDto,
+  ExecutarAgendaDiaAcaoDto,
+  ReordenarAgendaDiaDto,
+  UpdateAgendaPlanoDto,
+} from './dto/logistica-agenda.dto';
+import { LogisticaAgendaService } from './logistica-agenda.service';
+
+@Controller('logistica/agenda')
+@UseGuards(JwtAuthGuard, ModuleAccessGuard)
+@ModuleAccess('logistica')
+export class LogisticaAgendaController {
+  constructor(private readonly agenda: LogisticaAgendaService) {}
+
+  private companyId(req: any): number {
+    const companyId = Math.trunc(Number(req?.user?.companyId || 0));
+    if (!companyId) throw new ForbiddenException('Empresa não identificada.');
+    return companyId;
+  }
+
+  private userId(req: any): number {
+    const userId = Math.trunc(Number(req?.user?.id || 0));
+    if (!userId) throw new ForbiddenException('Usuário não identificado.');
+    return userId;
+  }
+
+  /** Resumo compacto dos sete dias; leitura também atende o app do motorista. */
+  @Get()
+  summary(@Req() req: any) {
+    return this.agenda.getSummary(this.companyId(req));
+  }
+
+  @Get('dias/:dia')
+  day(@Req() req: any, @Param('dia') day: string) {
+    return this.agenda.getDay(this.companyId(req), day);
+  }
+
+  @Get('dias/:dia/previa')
+  dayPreview(
+    @Req() req: any,
+    @Param('dia') day: string,
+    @Query('date') date?: string,
+  ) {
+    return this.agenda.getDayPreview(this.companyId(req), day, date);
+  }
+
+  @Get('catalogos')
+  @UseGuards(RolesGuard)
+  @Admin()
+  catalogs(@Req() req: any) {
+    return this.agenda.getCatalogs(this.companyId(req));
+  }
+
+  @Get('legado/preview')
+  @UseGuards(RolesGuard)
+  @Admin()
+  legacyPreview(@Req() req: any) {
+    return this.agenda.getLegacyPreview(this.companyId(req));
+  }
+
+  @Post('legado/aplicar')
+  @UseGuards(RolesGuard)
+  @Admin()
+  applyLegacy(@Req() req: any, @Body() dto: AplicarLegadoAgendaDto) {
+    return this.agenda.applyLegacy(
+      this.companyId(req),
+      this.userId(req),
+      dto.idempotencyKey,
+    );
+  }
+
+  @Post('planos')
+  @UseGuards(RolesGuard)
+  @Admin()
+  createPlan(@Req() req: any, @Body() dto: CreateAgendaPlanoDto) {
+    return this.agenda.createPlan(this.companyId(req), dto);
+  }
+
+  @Patch('planos/:id')
+  @UseGuards(RolesGuard)
+  @Admin()
+  updatePlan(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateAgendaPlanoDto,
+  ) {
+    return this.agenda.updatePlan(this.companyId(req), id, dto);
+  }
+
+  @Patch('dias/:dia/ordem')
+  @UseGuards(RolesGuard)
+  @Admin()
+  reorderDay(
+    @Req() req: any,
+    @Param('dia') day: string,
+    @Body() dto: ReordenarAgendaDiaDto,
+  ) {
+    return this.agenda.reorderDay(this.companyId(req), day, dto);
+  }
+
+  @Get('dias/:dia/acao-preview')
+  @UseGuards(RolesGuard)
+  @Admin()
+  actionPreview(
+    @Req() req: any,
+    @Param('dia') day: string,
+    @Query('acao') action?: string,
+    @Query('destinoDiaSemana') destination?: string,
+    @Query('dataInicio') startDate?: string,
+  ) {
+    return this.agenda.getActionPreview(
+      this.companyId(req),
+      day,
+      action,
+      destination,
+      startDate,
+    );
+  }
+
+  @Post('dias/:dia/acao')
+  @UseGuards(RolesGuard)
+  @Admin()
+  executeAction(
+    @Req() req: any,
+    @Param('dia') day: string,
+    @Body() dto: ExecutarAgendaDiaAcaoDto,
+  ) {
+    return this.agenda.executeDayAction(
+      this.companyId(req),
+      this.userId(req),
+      day,
+      dto,
+    );
+  }
+}

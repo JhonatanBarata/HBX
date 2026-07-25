@@ -150,6 +150,21 @@
   line-height: 1;
 }
 
+.optionalBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 5px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 34%, var(--border-hairline));
+  border-radius: 999px;
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+  font-size: 0.56rem;
+  font-weight: 750;
+  vertical-align: middle;
+}
+
 .optionCopy,
 .previewCopy {
   display: grid;
@@ -265,6 +280,44 @@
   border-radius: 12px;
   font-size: 0.76rem;
   font-weight: 850;
+}
+
+.positionEditor {
+  display: flex;
+  align-items: center;
+  flex: none;
+  width: 58px;
+  height: 36px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, var(--border-hairline));
+  border-radius: 12px;
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.positionEditor input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.positionEditor input::-webkit-inner-spin-button,
+.positionEditor input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.positionEditor:focus-within {
+  border-color: var(--hbx-brand);
 }
 
 .gpsWarning {

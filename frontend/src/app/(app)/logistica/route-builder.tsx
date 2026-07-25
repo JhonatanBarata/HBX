@@ -7,12 +7,23 @@ import { apiFetch } from "@/lib/api";
 
 import { getAdminRouteAdjustments, prepareAdminRoute } from "../../entrega/admin-logistica-api";
 import styles from "./route-builder.module.css";
+import {
+  getAgendaDayPreview,
+  getWeeklyAgenda,
+  type AgendaDayPreview,
+  type AgendaWeekday,
+} from "./weekly-agenda-api";
 
 type Step = "home" | "saved" | "days" | "order" | "manual";
 
 type RouteModelStop = {
   customerProfileId: string;
   localId?: string | null;
+  itens?: Array<{
+    productId: number;
+    qtd: number;
+    valorUnit: number;
+  }>;
 };
 
 type RouteModel = {
@@ -26,6 +37,7 @@ type PreviewItem = {
   productId: number;
   nome: string;
   qtd: number;
+  valorUnit?: number | null;
 };
 
 type PreviewCustomer = {
@@ -42,6 +54,8 @@ type DayPreview = {
   date: string;
   clientes: PreviewCustomer[];
 };
+
+type AgendaSource = "AGENDA_V2" | "LEGADO";
 
 type RouteForOrdering = {
   items: Array<{
@@ -114,12 +128,64 @@ function mergePreviews(previews: DayPreview[]): PreviewCustomer[] {
   return [...merged.values()];
 }
 
+function normalizeAgendaPreview(result: AgendaDayPreview): DayPreview {
+  return {
+    date: result.date,
+    clientes: result.paradas.map((stop) => ({
+      customerProfileId: stop.customerProfileId,
+      nome: stop.cliente.nome || "Cliente",
+      localId: stop.localId,
+      localApelido: stop.local?.apelido ?? null,
+      lat: stop.local?.lat ?? null,
+      lng: stop.local?.lng ?? null,
+      itens: stop.itens.map((item) => ({
+        productId: item.productId,
+        nome: item.nome,
+        qtd: item.qtd,
+        valorUnit: item.valorUnit,
+      })),
+    })),
+  };
+}
+
+async function fetchDayPreview(source: AgendaSource, day: number, date: string): Promise<DayPreview> {
+  if (source === "AGENDA_V2") {
+    return normalizeAgendaPreview(await getAgendaDayPreview(day as AgendaWeekday, date));
+  }
+  return apiFetch<DayPreview>(`/logistica/dia-preview?date=${encodeURIComponent(date)}`);
+}
+
 function humanError(error: unknown): string {
   return error instanceof Error ? error.message : "Não foi possível montar a rota.";
 }
 
 function itemsLabel(customer: PreviewCustomer): string {
   return customer.itens.map((item) => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens";
+}
+
+function snapshotItems(customer: PreviewCustomer): Array<{ productId: number; qtd: number; valorUnit: number }> {
+  if (!customer.itens.length) {
+    throw new Error(`Revise os preços de ${customer.nome || "um cliente"} antes de salvar esta rota.`);
+  }
+  return customer.itens.map((item) => {
+    const valorUnit = item.valorUnit;
+    if (
+      !Number.isInteger(item.productId)
+      || item.productId <= 0
+      || !Number.isInteger(item.qtd)
+      || item.qtd <= 0
+      || typeof valorUnit !== "number"
+      || !Number.isFinite(valorUnit)
+      || valorUnit < 0
+    ) {
+      throw new Error(`Revise os preços de ${customer.nome || "um cliente"} antes de salvar esta rota.`);
+    }
+    return {
+      productId: item.productId,
+      qtd: item.qtd,
+      valorUnit,
+    };
+  });
 }
 
 function routeItemMatches(customer: PreviewCustomer, item: RouteForOrdering["items"][number]): boolean {
@@ -129,6 +195,71 @@ function routeItemMatches(customer: PreviewCustomer, item: RouteForOrdering["ite
   if (item.localId && String(item.localId) === String(customer.localId)) return true;
   if (customer.localApelido && item.localApelido) return customer.localApelido === item.localApelido;
   return !item.localId;
+}
+
+function ManualPositionInput({
+  name,
+  position,
+  max,
+  disabled,
+  onMove,
+}: {
+  name: string;
+  position: number;
+  max: number;
+  disabled: boolean;
+  onMove: (position: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(position));
+  const skipBlurCommit = useRef(false);
+
+  function commit() {
+    if (skipBlurCommit.current) {
+      skipBlurCommit.current = false;
+      setDraft(String(position));
+      return;
+    }
+    const parsed = Math.trunc(Number(draft));
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      setDraft(String(position));
+      return;
+    }
+    const next = Math.min(max, parsed);
+    setDraft(String(next));
+    if (next !== position) onMove(next);
+  }
+
+  return (
+    <label className={styles.positionEditor}>
+      <span aria-hidden>#</span>
+      <input
+        value={draft}
+        inputMode="numeric"
+        type="number"
+        min={1}
+        max={max}
+        aria-label={`Posição de ${name}`}
+        disabled={disabled}
+        onFocus={(event) => {
+          skipBlurCommit.current = false;
+          event.currentTarget.select();
+        }}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+          if (event.key === "Escape") {
+            skipBlurCommit.current = true;
+            setDraft(String(position));
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
 }
 
 export function RouteBuilderDialog({
@@ -141,8 +272,8 @@ export function RouteBuilderDialog({
   const [step, setStep] = useState<Step>("home");
   const [models, setModels] = useState<RouteModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [configLoading, setConfigLoading] = useState(true);
-  const [allowedDays, setAllowedDays] = useState<number[]>(WEEK_DAYS.map((day) => day.n));
+  const [agendaLoading, setAgendaLoading] = useState(true);
+  const [agendaSource, setAgendaSource] = useState<AgendaSource>("LEGADO");
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [sourceDates, setSourceDates] = useState<Record<number, string>>({});
   const [dayCounts, setDayCounts] = useState<Record<number, number | null | undefined>>({});
@@ -157,27 +288,34 @@ export function RouteBuilderDialog({
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      apiFetch<RouteModel[]>("/logistica/rota-modelos"),
-      apiFetch<{ diasTrabalho?: string | null }>("/logistica/config"),
-    ])
-      .then(([savedModels, config]) => {
-        if (cancelled) return;
-        setModels(Array.isArray(savedModels) ? savedModels : []);
-        const configured = String(config.diasTrabalho || "")
-          .split(",")
-          .map(Number)
-          .filter((day) => day >= 1 && day <= 7);
-        setAllowedDays(configured.length ? [...new Set(configured)] : WEEK_DAYS.map((day) => day.n));
+    apiFetch<RouteModel[]>("/logistica/rota-modelos")
+      .then((savedModels) => {
+        if (!cancelled) setModels(Array.isArray(savedModels) ? savedModels : []);
       })
       .catch((loadError: unknown) => {
         if (!cancelled) setError(humanError(loadError));
       })
       .finally(() => {
-        if (!cancelled) {
-          setModelsLoading(false);
-          setConfigLoading(false);
+        if (!cancelled) setModelsLoading(false);
+      });
+    getWeeklyAgenda()
+      .then((agenda) => {
+        if (cancelled) return;
+        if (agenda.modo === "AGENDA_V2" && agenda.agendaV2Ativa) {
+          setAgendaSource("AGENDA_V2");
+          setDayCounts(Object.fromEntries(WEEK_DAYS.map((day) => {
+            const summary = agenda.dias.find((item) => item.diaSemana === day.n);
+            return [day.n, summary?.totalParadas ?? 0];
+          })));
+        } else {
+          setAgendaSource("LEGADO");
         }
+      })
+      .catch(() => {
+        if (!cancelled) setAgendaSource("LEGADO");
+      })
+      .finally(() => {
+        if (!cancelled) setAgendaLoading(false);
       });
     return () => { cancelled = true; };
   }, []);
@@ -196,11 +334,23 @@ export function RouteBuilderDialog({
     return preview.filter((customer) => `${customer.nome} ${customer.localApelido || ""}`.toLocaleLowerCase("pt-BR").includes(query));
   }, [preview, search]);
 
+  const visibleManualOrder = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("pt-BR");
+    if (!query) return manualOrder;
+    return manualOrder.filter((key) => {
+      const customer = preview.find((item) => previewKey(item) === key);
+      return customer
+        ? `${customer.nome} ${customer.localApelido || ""} ${itemsLabel(customer)}`.toLocaleLowerCase("pt-BR").includes(query)
+        : false;
+    });
+  }, [manualOrder, preview, search]);
+
   async function loadDayCounts(days: number[]) {
+    if (agendaSource === "AGENDA_V2") return;
     setDayCounts(Object.fromEntries(days.map((day) => [day, undefined])));
     await Promise.all(days.map(async (day) => {
       try {
-        const result = await apiFetch<DayPreview>(`/logistica/dia-preview?date=${encodeURIComponent(dateForWeekday(day))}`);
+        const result = await fetchDayPreview("LEGADO", day, dateForWeekday(day));
         setDayCounts((current) => ({ ...current, [day]: result.clientes.length }));
       } catch {
         setDayCounts((current) => ({ ...current, [day]: null }));
@@ -211,7 +361,7 @@ export function RouteBuilderDialog({
   function openDays() {
     setError(null);
     setStep("days");
-    void loadDayCounts(allowedDays);
+    void loadDayCounts(WEEK_DAYS.map((day) => day.n));
   }
 
   async function refreshPreview(days: number[]) {
@@ -227,11 +377,11 @@ export function RouteBuilderDialog({
     try {
       const rows = await Promise.all(days.map(async (day) => {
         const primaryDate = dateForWeekday(day);
-        let result = await apiFetch<DayPreview>(`/logistica/dia-preview?date=${encodeURIComponent(primaryDate)}`);
+        let result = await fetchDayPreview(agendaSource, day, primaryDate);
         let sourceDate = primaryDate;
         if (day === isoWeekday(operationalDate()) && result.clientes.length === 0) {
           const fallbackDate = dateForWeekday(day, 1);
-          const fallback = await apiFetch<DayPreview>(`/logistica/dia-preview?date=${encodeURIComponent(fallbackDate)}`);
+          const fallback = await fetchDayPreview(agendaSource, day, fallbackDate);
           if (fallback.clientes.length) {
             result = fallback;
             sourceDate = fallbackDate;
@@ -262,6 +412,7 @@ export function RouteBuilderDialog({
 
   function openOrderChoice() {
     setManualOrder(preview.map(previewKey));
+    setSearch("");
     setStep("order");
   }
 
@@ -275,6 +426,19 @@ export function RouteBuilderDialog({
     });
   }
 
+  function moveManualTo(key: string, position: number) {
+    setManualOrder((current) => {
+      const from = current.indexOf(key);
+      if (from < 0) return current;
+      const target = Math.max(0, Math.min(current.length - 1, position - 1));
+      if (from === target) return current;
+      const next = [...current];
+      next.splice(from, 1);
+      next.splice(target, 0, key);
+      return next;
+    });
+  }
+
   async function saveManualModel() {
     if (!saveManual || selectedDays.length !== 1) return;
     const day = selectedDays[0];
@@ -284,6 +448,7 @@ export function RouteBuilderDialog({
       .map((customer) => ({
         customerProfileId: customer.customerProfileId,
         ...(customer.localId ? { localId: customer.localId } : {}),
+        itens: snapshotItems(customer),
       }));
     if (!stops.length) return;
     const existing = models.find((model) => Number(model.diaSemana) === day);
@@ -306,6 +471,13 @@ export function RouteBuilderDialog({
     setBuilding(true);
     setError(null);
     try {
+      if (mode === "manual" && saveManual && selectedDays.length === 1) {
+        const snapshotCustomers = manualOrder.map((key) => preview.find((customer) => previewKey(customer) === key));
+        if (snapshotCustomers.some((customer) => !customer)) {
+          throw new Error("Atualize a prévia antes de salvar esta rota.");
+        }
+        snapshotCustomers.forEach((customer) => snapshotItems(customer as PreviewCustomer));
+      }
       const today = operationalDate();
       const selectedSourceDates = selectedDays.map((day) => sourceDates[day] || dateForWeekday(day));
       const adjustments = await getAdminRouteAdjustments(today);
@@ -402,7 +574,7 @@ export function RouteBuilderDialog({
             <h2 id="route-builder-title">{title}</h2>
             {step === "days" && <p>Escolha os dias</p>}
             {step === "order" && <p>{preview.length} {preview.length === 1 ? "parada pronta" : "paradas prontas"}</p>}
-            {step === "manual" && <p>Use as setas para organizar as paradas</p>}
+            {step === "manual" && <p>Busque ou digite a posição</p>}
           </div>
           <button type="button" className={styles.close} aria-label="Fechar" onClick={onClose} disabled={building}>×</button>
         </header>
@@ -420,11 +592,11 @@ export function RouteBuilderDialog({
                 </span>
                 <span className={styles.chevron}>›</span>
               </button>
-              <button type="button" className={styles.option} onClick={openDays} disabled={configLoading || building}>
+              <button type="button" className={styles.option} onClick={openDays} disabled={agendaLoading || building}>
                 <span className={styles.optionIcon}><I d={ICONS.logistica} size={19} /></span>
                 <span className={styles.optionCopy}>
                   <strong>Por dia</strong>
-                  <small>{configLoading ? "Carregando…" : "Clientes agendados do dia"}</small>
+                  <small>{agendaLoading ? "Carregando…" : "Clientes agendados do dia"}</small>
                 </span>
                 <span className={styles.chevron}>›</span>
               </button>
@@ -451,7 +623,7 @@ export function RouteBuilderDialog({
           {step === "days" && (
             <>
               <div className={styles.dayList}>
-                {WEEK_DAYS.filter((day) => allowedDays.includes(day.n)).map((day) => {
+                {WEEK_DAYS.map((day) => {
                   const count = dayCounts[day.n];
                   const selected = selectedDays.includes(day.n);
                   return (
@@ -494,15 +666,7 @@ export function RouteBuilderDialog({
 
           {step === "order" && (
             <div className={styles.homeActions}>
-              <button type="button" className={styles.option} onClick={() => void buildFromDays("automatic")} disabled={building}>
-                <span className={styles.optionIcon}>✨</span>
-                <span className={styles.optionCopy}>
-                  <strong>Automática</strong>
-                  <small>O sistema traça o caminho mais curto</small>
-                </span>
-                <span className={styles.chevron}>›</span>
-              </button>
-              <button type="button" className={styles.option} onClick={() => { setSaveManual(false); setStep("manual"); }} disabled={building}>
+              <button type="button" className={styles.option} onClick={() => { setSaveManual(false); setSearch(""); setStep("manual"); }} disabled={building}>
                 <span className={styles.optionIcon}>↕</span>
                 <span className={styles.optionCopy}>
                   <strong>Minha ordem</strong>
@@ -510,29 +674,53 @@ export function RouteBuilderDialog({
                 </span>
                 <span className={styles.chevron}>›</span>
               </button>
+              <button type="button" className={styles.option} onClick={() => void buildFromDays("automatic")} disabled={building}>
+                <span className={styles.optionIcon}>✨</span>
+                <span className={styles.optionCopy}>
+                  <strong>Automática <b className={styles.optionalBadge}>Opcional</b></strong>
+                  <small>Sugere o caminho mais curto</small>
+                </span>
+                <span className={styles.chevron}>›</span>
+              </button>
             </div>
           )}
 
           {step === "manual" && (
-            <div className={styles.manualList}>
-              {manualOrder.map((key, index) => {
-                const customer = preview.find((item) => previewKey(item) === key);
-                if (!customer) return null;
-                return (
-                  <div className={styles.orderRow} key={key}>
-                    <span className={styles.orderNumber}>{index + 1}</span>
-                    <span className={styles.previewCopy}>
-                      <strong>{customer.nome}{customer.localApelido ? ` · ${customer.localApelido}` : ""}</strong>
-                      <small>{itemsLabel(customer)}</small>
-                    </span>
-                    <span className={styles.arrows}>
-                      <button type="button" onClick={() => moveManual(index, -1)} disabled={index === 0 || building} aria-label={`Mover ${customer.nome} para cima`}>▲</button>
-                      <button type="button" onClick={() => moveManual(index, 1)} disabled={index === manualOrder.length - 1 || building} aria-label={`Mover ${customer.nome} para baixo`}>▼</button>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              <label className={styles.search}>
+                <span aria-hidden>⌕</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar na ordem" aria-label="Buscar cliente na ordem manual" />
+              </label>
+              {visibleManualOrder.length ? (
+                <div className={styles.manualList}>
+                  {visibleManualOrder.map((key) => {
+                    const customer = preview.find((item) => previewKey(item) === key);
+                    const index = manualOrder.indexOf(key);
+                    if (!customer || index < 0) return null;
+                    return (
+                      <div className={styles.orderRow} key={key}>
+                        <ManualPositionInput
+                          key={`${key}:${index}`}
+                          name={customer.nome}
+                          position={index + 1}
+                          max={manualOrder.length}
+                          disabled={building}
+                          onMove={(position) => moveManualTo(key, position)}
+                        />
+                        <span className={styles.previewCopy}>
+                          <strong>{customer.nome}{customer.localApelido ? ` · ${customer.localApelido}` : ""}</strong>
+                          <small>{itemsLabel(customer)}</small>
+                        </span>
+                        <span className={styles.arrows}>
+                          <button type="button" onClick={() => moveManual(index, -1)} disabled={index === 0 || building} aria-label={`Mover ${customer.nome} para cima`}>▲</button>
+                          <button type="button" onClick={() => moveManual(index, 1)} disabled={index === manualOrder.length - 1 || building} aria-label={`Mover ${customer.nome} para baixo`}>▼</button>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : <p className={styles.empty}>Nenhuma parada encontrada.</p>}
+            </>
           )}
         </div>
 

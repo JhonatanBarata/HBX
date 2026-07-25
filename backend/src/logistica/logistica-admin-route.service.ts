@@ -11,6 +11,7 @@ import type { LogisticaActor } from './logistica-operacao.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaService } from './logistica.service';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 
 const OPEN_STATUS = ['agendada', 'em_rota'] as const;
 
@@ -71,6 +72,7 @@ export class LogisticaAdminRouteService {
     private readonly occurrences: LogisticaOccurrenceService,
     private readonly rota: LogisticaRotaService,
     private readonly logistica: LogisticaService,
+    private readonly agenda: LogisticaAgendaService = null as any,
   ) {}
 
   async getRoute(companyId: number, dateInput: string | undefined, actor: LogisticaActor) {
@@ -88,7 +90,22 @@ export class LogisticaAdminRouteService {
     const route: any = await this.getRoute(companyId, operationalDate, actor);
     const monday = addCivilDays(operationalDate, 1 - isoWeekdayForDate(operationalDate));
     const weekDates = Array.from({ length: 7 }, (_, index) => addCivilDays(monday, index));
-    const previews = await Promise.all(weekDates.map((date) => this.occurrences.preview(companyId, date)));
+    const agendaV2 = Boolean(this.agenda) && await this.agenda.isAgendaV2Active(companyId);
+    const previews = await Promise.all(weekDates.map(async (date) => {
+      if (!agendaV2) return this.occurrences.preview(companyId, date);
+      const agendaPreview = await this.agenda.getDayPreview(
+        companyId,
+        isoWeekdayForDate(date),
+        date,
+      );
+      return {
+        date: agendaPreview.date,
+        clientes: agendaPreview.paradas.map((stop: any) => ({
+          customerProfileId: stop.customerProfileId,
+          itens: stop.itens ?? [],
+        })),
+      };
+    }));
     const { start } = dateRange(operationalDate);
 
     const pendingRows = await this.prisma.entrega.findMany({
@@ -159,12 +176,19 @@ export class LogisticaAdminRouteService {
     const sourceDates = Array.isArray(input?.sourceDates) ? input.sourceDates : [operationalDate];
 
     const moved = await this.movePending(companyId, operationalDate, pendingIds, userId);
-    const materialized = await this.occurrences.materialize(companyId, {
-      operationalDate,
-      sourceDates,
-      driverUserId: userId,
-      actorUserId: userId,
-    });
+    const materialized = this.agenda && await this.agenda.isAgendaV2Active(companyId)
+      ? await this.agenda.materializeForRoute(companyId, {
+        operationalDate,
+        sourceDates,
+        driverUserId: userId,
+        actorUserId: userId,
+      })
+      : await this.occurrences.materialize(companyId, {
+        operationalDate,
+        sourceDates,
+        driverUserId: userId,
+        actorUserId: userId,
+      });
 
     const { start, end } = dateRange(operationalDate);
     await this.prisma.entrega.updateMany({

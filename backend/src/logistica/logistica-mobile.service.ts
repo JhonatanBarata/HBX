@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { type LogisticaActor, LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaService } from './logistica.service';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 
 export type MaterializeMobileOccurrencesInput = {
   operationalDate?: string;
@@ -39,6 +40,7 @@ export class LogisticaMobileService {
     private readonly logistica: LogisticaService,
     private readonly occurrences: LogisticaOccurrenceService,
     private readonly operacao: LogisticaOperacaoService,
+    private readonly agenda: LogisticaAgendaService = null as any,
   ) {}
 
   async getRoute(companyId: number, date: string | undefined, actor: LogisticaActor) {
@@ -114,11 +116,15 @@ export class LogisticaMobileService {
     const actorUserId = positiveInt(actor?.id);
     const driverUserId = positiveInt((actorWhere as any)?.entregadorId) ?? actorUserId;
 
-    return this.occurrences.materialize(companyId, {
+    const materializeInput = {
       operationalDate: input?.operationalDate,
       sourceDates: Array.isArray(input?.sourceDates) ? input.sourceDates : undefined,
       driverUserId,
       actorUserId,
-    });
+    };
+    if (this.agenda && await this.agenda.isAgendaV2Active(companyId)) {
+      return this.agenda.materializeForRoute(companyId, materializeInput);
+    }
+    return this.occurrences.materialize(companyId, materializeInput);
   }
 }

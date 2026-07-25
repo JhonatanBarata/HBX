@@ -388,7 +388,11 @@ h3 { font-size: .95rem; }
 .rp2-day-row strong { font-size: .92rem; }
 .rp2-day-row.active { border-color: var(--brand-strong); background: var(--brand-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 30%, transparent); }
 .rp2-day-row.active strong, .rp2-day-row.active .rp2-day-count { color: var(--brand-strong); font-weight: 850; }
+.rp2-day-row.is-inactive { opacity: .58; }
+.rp2-day-name { display: flex; align-items: center; gap: 7px; }
+.rp2-day-name small { padding: 3px 7px; border-radius: 99px; color: var(--brand-strong); background: var(--brand-soft); font-size: .58rem; font-weight: 800; }
 .rp2-day-count { color: var(--muted); font-size: .78rem; font-weight: 700; flex: 0 0 auto; }
+.rp2-day-count--inactive { color: var(--muted); }
 /* Duas classes (especificidade 0,2,0) pra vencer .loading{min-height:58px}
    independente da ordem no arquivo — senão o skeleton ficava gigante. */
 .rp2-day-count.rp2-day-count-skel { display: inline-block; min-width: 64px; min-height: 14px; border-radius: 7px; }
@@ -428,16 +432,37 @@ h3 { font-size: .95rem; }
 .rp2-mode-icon--saved { color: var(--warning); background: color-mix(in srgb, var(--warning) 18%, var(--surface)); }
 .rp2-mode-chev { flex: 0 0 auto; color: var(--muted); }
 .rp2-saved-icon { width: 32px; height: 32px; font-size: .85rem; border-radius: 10px; }
+.rp2-mode-card--optional { border-style: dashed; background: var(--surface); }
+.rp2-mode-card--optional .card-main strong small { margin-left: 5px; padding: 2px 6px; border-radius: 99px; color: var(--muted); background: var(--surface-2); font-size: .55rem; font-weight: 750; vertical-align: middle; }
 /* PR20072026 W3 — destaque "Aplicar rota de {dia}" no topo do passo "Como
    montar?" (spec §1.2): mesmo card rp2-mode-card, borda/fundo âmbar. */
 .rp2-mode-card--highlight { margin-bottom: 10px; border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); }
 
-.rp2-order-row { display: flex; align-items: center; gap: 12px; transition: background .18s ease, border-color .18s ease; }
+.rp2-order-row { display: flex; align-items: center; gap: 8px; transition: background .18s ease, border-color .18s ease; }
+.rp2-order-row .card-main { overflow: hidden; }
+.rp2-order-row .card-main > strong, .rp2-order-row .card-main > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp2-order-badge { display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px; color: var(--brand-strong); background: var(--brand-soft); font-size: .78rem; font-weight: 850; }
+.rp2-order-position { flex: 0 0 44px; display: grid; justify-items: center; gap: 2px; color: var(--muted); font-size: .55rem; font-weight: 800; text-transform: uppercase; }
+.rp2-order-position input { width: 44px; min-height: 42px; padding: 0 3px; border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line)); border-radius: 10px; color: var(--brand-strong); background: var(--brand-soft); font-size: .82rem; font-weight: 850; text-align: center; -moz-appearance: textfield; }
+.rp2-order-position input::-webkit-inner-spin-button, .rp2-order-position input::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
+.rp2-order-position input:disabled { color: var(--muted); border-color: var(--line); background: var(--surface-2); opacity: .72; }
 .rp2-order-arrows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; flex: 0 0 auto; }
-.rp2-order-arrow { min-width: 52px; min-height: 52px; padding: 0; font-size: 1.35rem; line-height: 1; }
+.rp2-order-arrow { min-width: 44px; min-height: 44px; padding: 0; font-size: 1.08rem; line-height: 1; }
 .rp2-order-row.rp2-order-flash { animation: rp2-order-flash .6s ease-out; }
 @keyframes rp2-order-flash { 0% { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); } 100% { background: var(--surface); border-color: var(--line); } }
+
+.route-constraint-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; white-space: normal; }
+.route-constraint-chip { display: inline-flex; align-items: center; min-height: 22px; padding: 3px 7px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); background: var(--surface-2); font-size: .58rem; font-weight: 780; line-height: 1; white-space: nowrap; }
+.route-constraint-chip.is-time { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 34%, var(--line)); background: color-mix(in srgb, var(--warning) 8%, var(--surface)); }
+.route-constraint-chip.is-time-rigid { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 34%, var(--line)); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.route-constraint-chip.is-access { color: var(--info); border-color: color-mix(in srgb, var(--info) 34%, var(--line)); background: color-mix(in srgb, var(--info) 8%, var(--surface)); }
+.route-constraint-chip.is-price { color: var(--brand-strong); border-color: color-mix(in srgb, var(--brand) 34%, var(--line)); background: var(--brand-soft); }
+.route-constraint-chip.is-locked { border-style: dashed; }
+.rp2-persist-note { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line)); border-radius: 13px; color: var(--brand-strong); background: var(--brand-soft); text-align: left; }
+.rp2-persist-note > svg { flex: 0 0 auto; }
+.rp2-persist-note span { display: grid; gap: 1px; }
+.rp2-persist-note strong { font-size: .76rem; }
+.rp2-persist-note small { color: var(--muted); font-size: .64rem; font-weight: 700; }
 
 /* Editor da rota salva: toque na parada mexe nos itens, segurar tira da rota
    (mesmo gesto de Clientes/Produtos/rota do dia — sem botão de excluir). */
@@ -500,12 +525,16 @@ h3 { font-size: .95rem; }
 .day-home-sub { margin: -6px 0 2px; color: var(--muted); font-size: .82rem; }
 .day-home-icon { display: grid; place-items: center; width: 52px; height: 52px; margin: 0 auto; border-radius: 17px; color: var(--brand-strong); background: var(--brand-soft); }
 .day-home-icon--saved { font-size: 1.5rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, var(--surface)); }
-.day-home-actions { display: grid; gap: 12px; }
-.day-home-btn { display: grid; gap: 3px; padding: 16px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); text-align: center; cursor: pointer; }
+.day-home-actions { display: grid; gap: 9px; }
+.day-home-btn { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 11px; min-height: 64px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; color: var(--ink); background: var(--surface-2); text-align: left; cursor: pointer; }
+.day-home-btn--primary { border-color: color-mix(in srgb, var(--brand) 42%, var(--line)); background: var(--brand-soft); }
+.day-home-btn--quiet { background: var(--surface); }
 .day-home-btn:disabled { opacity: .6; }
-.day-home-btn strong { font-size: 1.02rem; }
-.day-home-btn span:last-child { color: var(--muted); font-size: .78rem; }
-.day-home-btn-glyph { display: grid; place-items: center; width: 40px; height: 40px; margin: 0 auto 2px; border-radius: 12px; color: var(--brand-strong); background: var(--brand-soft); }
+.day-home-btn-copy { min-width: 0; display: grid; gap: 2px; }
+.day-home-btn-copy strong { overflow: hidden; font-size: .9rem; text-overflow: ellipsis; white-space: nowrap; }
+.day-home-btn-copy small { overflow: hidden; color: var(--muted); font-size: .68rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.day-home-btn-chev { color: var(--muted); font-size: 1rem; font-weight: 850; }
+.day-home-btn-glyph { display: grid; place-items: center; width: 40px; height: 40px; margin: 0; border-radius: 12px; color: var(--brand-strong); background: var(--brand-soft); }
 .day-home-btn-glyph--saved { font-size: 1.2rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, var(--surface)); }
 .day-choose .rp2-mode-list, .day-saved-list { text-align: left; margin-top: 2px; }
 .day-saved-list { max-height: 52dvh; overflow: auto; }

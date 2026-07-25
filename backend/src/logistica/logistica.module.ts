@@ -39,6 +39,8 @@ import { LogisticaOfflineController } from './logistica-offline.controller';
 import { LogisticaOfflineService } from './logistica-offline.service';
 import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-tracked-billing.service';
 import { LogisticaOfflineReservationReconcilerService } from './logistica-offline-reservation-reconciler.service';
+import { LogisticaAgendaController } from './logistica-agenda.controller';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -106,6 +108,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaTrackingMobileController,
     LogisticaOfflineController,
     LogisticaOsrmController,
+    LogisticaAgendaController,
   ],
   providers: [
     LogisticaService,
@@ -139,6 +142,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaOfflineService,
     LogisticaOfflineReservationReconcilerService,
     LogisticaTrackingBonusService,
+    LogisticaAgendaService,
   ],
   exports: [
     LogisticaService,
@@ -153,6 +157,7 @@ import { LogisticaOfflineReservationReconcilerService } from './logistica-offlin
     LogisticaTrackingService,
     LogisticaTrackedBillingService,
     LogisticaTrackingBonusService,
+    LogisticaAgendaService,
   ],
 })
 export class LogisticaModule {}

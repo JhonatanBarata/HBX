@@ -15,6 +15,9 @@
 @import "./hbx-theme/kit.css";
 @import "./hbx-theme/errors.css";
 @import "./hbx-theme/screens.css";
+/* LOGÍSTICA — Agenda semanal do administrador. Estrutura derivada dos tokens
+   centrais, sem criar uma pele própria ou alterar o app do motorista. */
+@import "./hbx-theme/logistica-agenda.css";
 /* Vendas: refinamento aprovado do card Detalhes; escopo .dn-root--vendas. */
 @import "./hbx-theme/detalhes-negocio-vendas.css";
 @import "./hbx-theme/public-entry.css";

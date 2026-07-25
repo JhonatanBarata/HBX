@@ -255,6 +255,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
     }
     val logisticaEndpoint = when {
         method == "GET" && segments in listOf(
+            listOf("logistica", "agenda"),
             listOf("logistica", "dia-preview"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "rota"),
@@ -270,6 +271,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("nucleo", "clientes"),
             listOf("logistica", "leitura", "atual"),
         ) -> true
+        method == "GET" && segments.size == 5
+            && segments.take(3) == listOf("logistica", "agenda", "dias")
+            && segments[4] == "previa" -> true
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
         // Reverse geocode do ponto capturado na leitura de rota. Sem isto o app
         // caía sempre no Nominatim: o backend respondia, a política é que barrava.
@@ -306,6 +310,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // S2 (PR21072026-MONTAR-ROTA-PLAY) — "trilha" soma a trilha GPS ao lote.
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] in setOf("parada", "finalizar", "cancelar", "trilha") -> true
         method == "PATCH" && segments == listOf("logistica", "config") -> true
+        method == "PATCH" && segments.size == 5
+            && segments.take(3) == listOf("logistica", "agenda", "dias")
+            && segments[4] == "ordem" -> true
         method == "PATCH" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "financeiro" -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true

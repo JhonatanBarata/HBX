@@ -18,11 +18,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
 import { RouteBuilderDialog } from "./route-builder";
+import { WeeklyAgenda } from "./weekly-agenda";
 
 type Cliente = {
   id: string;
@@ -65,6 +67,8 @@ type Rota = {
   comprovante?: { fotoObrigatoria: boolean; assinaturaObrigatoria: boolean; codigoObrigatorio: boolean };
   items: Entrega[];
 };
+
+type LogisticsView = "today" | "weekly";
 
 const STATUS_LABEL: Record<string, string> = {
   agendada: "Agendada",
@@ -363,6 +367,8 @@ export function LogisticaClient() {
   const [entregadores, setEntregadores] = useState<Entregador[]>([]);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
+  const [view, setView] = useState<LogisticsView>("today");
+  const viewPill = useGlassPill<HTMLButtonElement>(admin ? view : "today", admin);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -416,11 +422,51 @@ export function LogisticaClient() {
   const isEmpty = !loading && !error && items.length === 0;
 
   return (
-    <div className="work" style={{ flex: 1 }}>
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Rota de hoje</h2>
-          <div className="meta" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div className="work log-work">
+      {admin && (
+        <div className="log-guide-slot">
+          <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
+            <GlassPill {...viewPill} />
+            <button
+              ref={viewPill.itemRef("today")}
+              id="log-tab-today"
+              type="button"
+              role="tab"
+              aria-controls="logistica-view-today"
+              aria-selected={view === "today"}
+              tabIndex={view === "today" ? 0 : -1}
+              className={`log-guide__tab glass-pill-item${view === "today" ? " is-active" : ""}`}
+              onClick={() => setView("today")}
+            >
+              Rota de hoje
+            </button>
+            <button
+              ref={viewPill.itemRef("weekly")}
+              id="log-tab-weekly"
+              type="button"
+              role="tab"
+              aria-controls="logistica-view-weekly"
+              aria-selected={view === "weekly"}
+              tabIndex={view === "weekly" ? 0 : -1}
+              className={`log-guide__tab glass-pill-item${view === "weekly" ? " is-active" : ""}`}
+              onClick={() => setView("weekly")}
+            >
+              Agenda semanal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(!admin || view === "today") && (
+        <section
+          id="logistica-view-today"
+          className="panel hbx-page-mobile-enter"
+          role={admin ? "tabpanel" : undefined}
+          aria-labelledby={admin ? "log-tab-today" : undefined}
+        >
+          <div className="panel-head">
+            <h2>Rota de hoje</h2>
+            <div className="meta log-today-meta">
             {gerarMsg && <span className="emp-count">{gerarMsg}</span>}
             {atualizadoEm && <span>Atualizado às {atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>}
             <span>{pendentes} pendente(s) · {items.length} no dia</span>
@@ -452,8 +498,8 @@ export function LogisticaClient() {
                 <I d={ICONS.phone} size={13} /> Instalar app
               </Link>
             )}
+            </div>
           </div>
-        </div>
 
         {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
         {admin && <ResumoDiaCard onFecharMes={load} />}
@@ -503,7 +549,12 @@ export function LogisticaClient() {
             ))}
           </div>
         )}
-      </section>
+        </section>
+      )}
+
+      {admin && view === "weekly" && (
+        <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
+      )}
 
       {open && (
         <EntregaDetail

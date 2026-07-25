@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
+import { parseDateOrNull } from './logistica-recorrencia.service';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 
 /**
@@ -31,7 +31,7 @@ export async function assertNomeUnico(
   const alvo = nome.trim().toLowerCase();
   if (!alvo) return;
   const existing = await (client as any).logisticaRotaModelo.findFirst({
-    where: { companyId, nome: { equals: nome.trim(), mode: 'insensitive' } },
+    where: { companyId, tipo: 'LIVRE', nome: { equals: nome.trim(), mode: 'insensitive' } },
     select: { id: true, nome: true },
   });
   if (existing && existing.id !== excludeId && String(existing.nome ?? '').trim().toLowerCase() === alvo) {
@@ -52,7 +52,7 @@ export class LogisticaRotaModeloService {
   async list(companyId: number): Promise<RotaModeloDTO[]> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const rows = await this.prisma.logisticaRotaModelo.findMany({
-      where: { companyId },
+      where: { companyId, tipo: 'LIVRE' },
       orderBy: [{ nome: 'asc' }],
     });
     return rows.map(toDTO);
@@ -74,7 +74,7 @@ export class LogisticaRotaModeloService {
   async update(companyId: number, id: string, input: Partial<RotaModeloInput>): Promise<RotaModeloDTO | null> {
     if (!companyId || !id) return null;
     const existing = await this.prisma.logisticaRotaModelo.findFirst({
-      where: { id: String(id).trim(), companyId },
+      where: { id: String(id).trim(), companyId, tipo: 'LIVRE' },
       select: { id: true },
     });
     if (!existing) return null;
@@ -95,7 +95,7 @@ export class LogisticaRotaModeloService {
   async remove(companyId: number, id: string): Promise<boolean> {
     if (!companyId || !id) return false;
     const existing = await this.prisma.logisticaRotaModelo.findFirst({
-      where: { id: String(id).trim(), companyId },
+      where: { id: String(id).trim(), companyId, tipo: 'LIVRE' },
       select: { id: true },
     });
     if (!existing) return false;
@@ -111,11 +111,9 @@ export class LogisticaRotaModeloService {
    * `origem:'avulsa'` (NÃO reusa 'recorrente' — consumidores de `origem` não
    * são tocados por este PR), `cobrancaStatus:'pendente'`.
    *
-   * Itens vêm dos `ClienteProduto` ATIVOS do cliente (qtd=qtdPadrao,
-   * valor=resolveValorUnit), IGNORANDO dia/vencimento — é isto que faz "rota
-   * salva" rodar em QUALQUER dia, diferente do gerar-dia (que só pega vencidos).
-   * Cliente sem vínculo ativo → Entrega SEM itens (valor 0; o motorista edita
-   * na hora, edição de item por entrega já existe desde PR18072026).
+   * Cada parada precisa carregar a fotografia exata de itens, quantidade e
+   * preço. A rota salva nunca consulta `ClienteProduto`: vínculo comercial não
+   * pode trocar silenciosamente o conteúdo de uma visita já organizada.
    *
    * Idempotência IDÊNTICA ao gerarDia — [companyId, customerProfileId, localId,
    * dia]: já existe Entrega → REUSA o id (não duplica com a recorrência nem
@@ -131,7 +129,7 @@ export class LogisticaRotaModeloService {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     if (!Number.isInteger(userId) || userId <= 0) throw new BadRequestException('Usuário não identificado');
     const modelo = await this.prisma.logisticaRotaModelo.findFirst({
-      where: { id: String(id ?? '').trim(), companyId },
+      where: { id: String(id ?? '').trim(), companyId, tipo: 'LIVRE' },
       select: { id: true, paradasJson: true },
     });
     if (!modelo) throw new NotFoundException('Modelo de rota não encontrado');
@@ -190,31 +188,7 @@ export class LogisticaRotaModeloService {
         continue;
       }
       if (existente && existente.status === 'cancelada') {
-        // Reabre a MESMA linha em vez de criar outra: não duplica a entrega do dia
-        // e não debita crédito de novo (criar entrega é que cobra).
-        if (existente.entregadorId != null && existente.entregadorId !== userId) {
-          throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
-        }
-        const itensReabrir = Array.isArray(parada.itens)
-          ? await resolveSnapshotItens(this.prisma, companyId, parada.itens)
-          : await this.resolveLegacyItens(companyId, customerProfileId);
-        await this.prisma.entrega.update({
-          where: { id: existente.id },
-          data: {
-            status: 'agendada',
-            rotaOrdem: null,
-            etaAt: null,
-            startedAt: null,
-            entregadorId: userId,
-            atribuidoPorUserId: userId,
-            atribuidoAt,
-            productId: itensReabrir[0]?.productId ?? null,
-            quantidade: itensReabrir.reduce((soma, it) => soma + it.qtdPrevista, 0),
-            valor: itensReabrir.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0),
-            itens: { deleteMany: {}, ...(itensReabrir.length ? { create: itensReabrir } : {}) },
-          },
-        });
-        deliveryIds.push(existente.id);
+        avisos.push(`${cliente.name || 'Um cliente'} foi retirado de hoje — parada ignorada.`);
         continue;
       }
       if (existente) {
@@ -236,27 +210,17 @@ export class LogisticaRotaModeloService {
             }
           }
         }
-        if (Array.isArray(parada.itens)) {
-          const itens = await resolveSnapshotItens(this.prisma, companyId, parada.itens);
-          const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
-          const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
-          await this.prisma.entrega.update({
-            where: { id: existente.id },
-            data: {
-              productId: itens[0]?.productId ?? null,
-              quantidade,
-              valor,
-              itens: { deleteMany: {}, ...(itens.length ? { create: itens } : {}) },
-            },
-          });
-        }
+        // A entrega aberta já é uma fotografia operacional: reaplicar a rota
+        // apenas a atribui, sem trocar seus itens, preço ou quantidade.
         deliveryIds.push(existente.id);
         continue;
       }
 
-      const itens = Array.isArray(parada.itens)
-        ? await resolveSnapshotItens(this.prisma, companyId, parada.itens)
-        : await this.resolveLegacyItens(companyId, customerProfileId);
+      if (!Array.isArray(parada.itens) || !parada.itens.length) {
+        avisos.push(`${cliente.name || 'Um cliente'} está numa rota antiga sem itens — revise a parada.`);
+        continue;
+      }
+      const itens = await resolveSnapshotItens(this.prisma, companyId, parada.itens);
       const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
       const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
 
@@ -300,22 +264,6 @@ export class LogisticaRotaModeloService {
     return { deliveryIds, avisos };
   }
 
-  private async resolveLegacyItens(companyId: number, customerProfileId: string): Promise<EntregaItemCreate[]> {
-    const vinculos = await this.prisma.clienteProduto.findMany({
-      where: { companyId, customerProfileId, ativo: true },
-      select: {
-        productId: true,
-        qtdPadrao: true,
-        precoAcordado: true,
-        product: { select: { price: true, priceCents: true } },
-      },
-    });
-    return vinculos.map((v: any) => ({
-      productId: v.productId,
-      qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
-      valorUnit: resolveValorUnit(v),
-    }));
-  }
 }
 
 async function resolveSnapshotItens(
