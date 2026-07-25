@@ -2200,19 +2200,22 @@ async function compactRouteOrders(tx: any, routeId: string) {
     select: { id: true, ordem: true },
     orderBy: [{ ordem: 'asc' }, { createdAt: 'asc' }],
   });
-  const offset = 10_000;
-  for (let index = 0; index < rows.length; index += 1) {
-    await tx.logisticaRotaModeloParada.update({
-      where: { id: rows[index].id },
-      data: { ordem: offset + index },
-    });
-  }
-  for (let index = 0; index < rows.length; index += 1) {
-    await tx.logisticaRotaModeloParada.update({
-      where: { id: rows[index].id },
-      data: { ordem: index + 1 },
-    });
-  }
+  const ids = rows.map((row) => row.id);
+  const ords = rows.map((_, index) => index + 1);
+  // Passe 1 (shift): afasta a faixa atual pra 10000+ num statement só — soma preserva a
+  // unicidade de cada linha e garante zero colisão com o destino 1..N do passe 2.
+  await tx.logisticaRotaModeloParada.updateMany({
+    where: { id: { in: ids } },
+    data: { ordem: { increment: 10_000 } },
+  });
+  // Passe 2 (destino): grava a ordem final 1..N num statement só; a unique
+  // (rotaModeloId, ordem) é checada por linha, então precisa dos dois passes.
+  await tx.$executeRaw`
+    UPDATE "LogisticaRotaModeloParada" AS p
+    SET "ordem" = t.ord, "updatedAt" = now()
+    FROM unnest(${ids}::text[], ${ords}::int[]) AS t(id, ord)
+    WHERE p."id" = t.id
+  `;
 }
 
 async function writeRouteOrder(
@@ -2221,22 +2224,27 @@ async function writeRouteOrder(
   requested: string[],
 ) {
   const byPlan = new Map(rows.map((row) => [String(row.planoEntregaId), row]));
-  const offset = 10_000;
-  for (let index = 0; index < requested.length; index += 1) {
-    const row = byPlan.get(requested[index]);
+  const ids: string[] = [];
+  for (const planoId of requested) {
+    const row = byPlan.get(planoId);
     if (!row) throw new BadRequestException('Plano inválido na ordem.');
-    await tx.logisticaRotaModeloParada.update({
-      where: { id: row.id },
-      data: { ordem: offset + index },
-    });
+    ids.push(row.id);
   }
-  for (let index = 0; index < requested.length; index += 1) {
-    const row = byPlan.get(requested[index])!;
-    await tx.logisticaRotaModeloParada.update({
-      where: { id: row.id },
-      data: { ordem: index + 1 },
-    });
-  }
+  const ords = ids.map((_, index) => index + 1);
+  // Passe 1 (shift): afasta a faixa atual pra 10000+ num statement só — soma preserva a
+  // unicidade de cada linha e garante zero colisão com o destino 1..N do passe 2.
+  await tx.logisticaRotaModeloParada.updateMany({
+    where: { id: { in: ids } },
+    data: { ordem: { increment: 10_000 } },
+  });
+  // Passe 2 (destino): grava a ordem final 1..N num statement só; a unique
+  // (rotaModeloId, ordem) é checada por linha, então precisa dos dois passes.
+  await tx.$executeRaw`
+    UPDATE "LogisticaRotaModeloParada" AS p
+    SET "ordem" = t.ord, "updatedAt" = now()
+    FROM unnest(${ids}::text[], ${ords}::int[]) AS t(id, ord)
+    WHERE p."id" = t.id
+  `;
 }
 
 function normalizedFromPlan(plan: any, day: number) {
