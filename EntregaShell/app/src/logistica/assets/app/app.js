@@ -114,6 +114,12 @@
     deliverySwapKey: null,
     deliveryPriceEdit: null,
     deliveryEditingId: null,
+    // 25/07 — guard de duplo-toque: confirmDelivery espera GPS (até 8s) + rede
+    // antes do som/ação de fato. Sem isso, dois toques no mesmo botão (ou em
+    // "Pago"+"Entregue" quase juntos) disparavam confirmDelivery 2x e tocavam
+    // som 2x. true durante a chamada em voo; false de novo no finally (sucesso
+    // OU erro), pra permitir retry depois de um erro real.
+    deliveryConfirming: false,
     // HISTÓRICO DO CLIENTE — {clienteId, items, loading, erro}. Carregado sob
     // demanda ao abrir o modal; nunca vive no cache junto com a rota.
     historico: null,
@@ -3750,7 +3756,7 @@
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
     const constraints = routeConstraintChips(routeConstraintSource(item, c));
-    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${constraints}${c.observacoes ? `<small class="stop-obs">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${done ? `<div class="stop-actions stop-actions-done"><button class="btn btn-secondary" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)} Editar</button></div>` : ""}${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop">Confirmar entrega</button></div>` : ""}</article>`;
+    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${constraints}${c.observacoes ? `<small class="stop-obs">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${done ? `<div class="stop-actions stop-actions-done"><button class="btn btn-secondary" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)} Editar</button></div>` : ""}${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop" ${state.deliveryConfirming ? "disabled" : ""}>Confirmar entrega</button></div>` : ""}</article>`;
   }
 
   // Os catálogos e o wizard usam o mesmo cartão. Em modo seleção, só mudam a
@@ -3979,7 +3985,7 @@
       : produtosParaAdicionar.length
         ? `<button type="button" class="chegada-add" data-action="delivery-add-product">${icon("plus", 18)} Adicionar produto</button>`
         : "";
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago">${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo">${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}</section></div>`;
   }
   // PR18072026 Módulo Financeiro — nível 1 do contrato (financeiro OFF): nome
   // grande + observações + "Não atendeu"/"Entregue", ZERO dinheiro na tela.
@@ -3987,7 +3993,7 @@
   // de próxima parada já existente — nada de lógica nova de entrega aqui.
   function deliveryOfflineSheet(item) {
     const c = item.cliente || {};
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">Chegada</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${H.escape(c.nome || "Cliente")}</h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}</div><div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-nao-atendeu">${icon("close", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples">${icon("check", 20)} Entregue</button></div></section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">Chegada</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${H.escape(c.nome || "Cliente")}</h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}</div><div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-nao-atendeu">${icon("close", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div></section></div>`;
   }
   function deliverySheet(item) {
     if (offlineModeActive(item)) return deliveryOfflineSheet(item);
@@ -4001,7 +4007,7 @@
     const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong><small>${H.money(unitPriceFor(item, row))}${row.novo ? " · Novo na entrega" : ""}</small></div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
     const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
     const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong><span>edite na hora</span></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">+ Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago">${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo">${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
   }
   function newClientProductFields() {
     const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
@@ -4996,7 +5002,16 @@
     H.speakStop();
     H.stopRoute();
   }
-  async function resumeRouteOnDevice() { await startRoute(false, false); }
+  async function resumeRouteOnDevice() {
+    // 25/07 — mesmo guard que beginManagedRoute/startPlannedRoute já usam: sem
+    // ele, o botão "Continuar rota" (route-transmux, ~L3748, já lê dayStarting
+    // pro `disabled`) ficava clicável durante o GPS+rede do startRoute e um
+    // segundo toque disparava "Rota iniciada." 2x.
+    if (state.dayStarting) return;
+    state.dayStarting = true; render();
+    try { await startRoute(false, false); }
+    finally { state.dayStarting = false; render(); }
+  }
   async function startPlannedRoute() {
     if (!routePlanned() || state.dayStarting) return;
     if (!isAdmin()) { await startRoute(false, false); return; }
@@ -5126,6 +5141,13 @@
     finally { hideLoading(); state.dayStarting = false; }
   }
   async function confirmDelivery(item, options) {
+    // 25/07 — mesmo padrão de accept-confirmation: guarda contra o segundo
+    // toque (Pago/Entregue/confirm-stop/etc chamam todos esta função) enquanto
+    // a primeira chamada ainda espera GPS+rede. Reset no finally cobre TODO
+    // caminho de saída (sucesso, erro e os `return` do meio, ex.: aviso de
+    // distância) — sem isso o botão da tela de aviso ficaria preso desabilitado.
+    if (state.deliveryConfirming) return;
+    state.deliveryConfirming = true; render();
     const opts = options || {};
     try {
       const requirements = state.route && state.route.comprovante || {};
@@ -5182,6 +5204,7 @@
       const next = openItems()[0];
       if (next) showNextStop(next); else pauseRouteOnDevice();
     } catch (error) { toast(humanApiError(error), true); }
+    finally { state.deliveryConfirming = false; render(); }
   }
   async function removeStopForToday(item, reason, message) {
     if (!item || !item.id || item.status === "entregue" || item.status === "cancelada") return;
@@ -5382,6 +5405,12 @@
   }
   function closeOverlay(kind) {
     if (state.closingOverlay) return Promise.resolve();
+    // Lei 10 (25/07) — update OBRIGATÓRIA (state.updateInfo.obrigatoria) não
+    // fecha por NENHUM caminho: o próprio appUpdateModal já esconde o toque-no-
+    // fundo e o "Agora não" pra esse caso (~L1934); esta trava cobre qualquer
+    // outra chamada de código que tente fechar o modal por baixo (handleBack
+    // já para antes de chegar aqui, mas esta é a segunda barreira).
+    if (kind === "modal" && state.modal === "app-update" && state.updateInfo && state.updateInfo.obrigatoria) return Promise.resolve();
     if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; clearInterval(leituraObsTimer); }
     state.closingOverlay = kind;
     render();
@@ -6871,6 +6900,12 @@
         // Leitura ativa mora na própria Rota: voltar pede a mesma confirmação
         // do controle "Cancelar" antes de sair do app.
         if (leituraRouteActive()) { promptCancelLeitura(); return true; }
+        // Lei 10 (25/07) — update OBRIGATÓRIA (mesmo contrato do modal: toque-
+        // no-fundo e "Agora não" já somem em appUpdateModal ~L1934 quando
+        // obrigatoria). Voltar físico não pode ser a porta que escapava dessa
+        // regra: consome o evento (true) e NÃO fecha nem cai pro fallback de
+        // sair da tela/app.
+        if (state.modal === "app-update" && state.updateInfo && state.updateInfo.obrigatoria) return true;
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
