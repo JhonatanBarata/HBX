@@ -744,8 +744,11 @@ export class LogisticaAgendaService {
           origem: 'MANUAL',
           ...normalized.schedule,
           itens: {
+            // `companyId` NÃO entra em create ANINHADO: o campo participa das relações
+            // compostas (plano/produto/company), então o Prisma o herda do pai — passá-lo
+            // aqui derruba com "Unknown argument `companyId`" só em RUNTIME (o `tx: any`
+            // some com o typecheck). Provado em 25/07 contra o banco de prod.
             create: normalized.items.map((item) => ({
-              companyId,
               productId: item.productId,
               qtd: item.qtd,
               valorUnit: item.valorUnit,
@@ -804,8 +807,8 @@ export class LogisticaAgendaService {
             ? {
               itens: {
                 deleteMany: {},
+                // Sem `companyId` — herdado do pai no create aninhado (ver createPlan).
                 create: normalized.items.map((item) => ({
-                  companyId,
                   productId: item.productId,
                   qtd: item.qtd,
                   valorUnit: item.valorUnit,
@@ -1034,8 +1037,9 @@ export class LogisticaAgendaService {
                 origem: 'LEGADO',
                 legadoChave: group.key,
                 itens: {
+                  // Sem `companyId` — herdado do pai (ver createPlan). Era ESTE ponto
+                  // que derrubava o "Organizar agora" inteiro em runtime.
                   create: group.itens.map((item) => ({
-                    companyId,
                     productId: item.productId,
                     qtd: item.qtd,
                     valorUnit: item.valorUnit,
@@ -1056,8 +1060,8 @@ export class LogisticaAgendaService {
                 ordem: order,
                 ordemTravada: true,
                 itens: {
+                  // Sem `companyId` — herdado do pai (ver createPlan).
                   create: group.itens.map((item) => ({
-                    companyId,
                     productId: item.productId,
                     produtoNomeSnapshot: item.nome.slice(0, 140),
                     qtd: item.qtd,
