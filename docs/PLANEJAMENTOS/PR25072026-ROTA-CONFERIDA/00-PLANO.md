@@ -1,7 +1,10 @@
 # PR25072026-ROTA-CONFERIDA — a rota que prova antes de rodar
 
-> Status: **PLANO FECHADO — decisões do dono tomadas em 25/07** (ver "Decisões", fim).
-> Escopo aprovado: **S0–S7 numa leva só** (S7 incluído). Aguarda GO do dono pra execução.
+> Status: **EM EXECUÇÃO (GO do dono 25/07)** — orquestração por ondas, workers 1/sprint.
+> Ondas: A=S0+S1 → B=S2 → C=S3 → D=S4+S7 (paralelo) → E=S5 → F=S6.
+> Contrato dos workers: `01-CONTRATO-WORKER.md`. Commits: só o orquestrador, local.
+> **Publish e testes ao vivo: SÓ com aviso ao dono (ele testa no depurador).**
+> Escopo aprovado: **S0–S7 numa leva só** (S7 incluído).
 > Origem: pedido do dono (25/07) + análise externa (GPT) auditada contra o código.
 > Nada aqui foi implementado; nenhuma migration, nenhum débito novo.
 
