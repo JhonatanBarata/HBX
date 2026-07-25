@@ -6,6 +6,12 @@ Leia isto ANTES da sua sprint. Violar qualquer item = sprint reprovada.
 - **NUNCA criar branch nem worktree.** Trabalhar na branch atual (`master`).
 - **NÃO commitar, NÃO push, NÃO publicar** (`npm run publish`/`new` PROIBIDOS).
   O orquestrador revisa e commita. Deploy só com ordem explícita do dono.
+- **`git stash`, `git checkout -- <arquivo>`, `git reset`, `git clean`:
+  PROIBIDOS SEM EXCEÇÃO** (incidente 25/07: stash sem escopo engoliu edição
+  paralela do dono e do orquestrador; o drop perdeu conteúdo não-commitado).
+  O dono edita o repo AO MESMO TEMPO que você — qualquer comando que mexa no
+  working tree além dos SEUS edits de arquivo pode destruir trabalho alheio.
+  Precisa comparar antes/depois? `git diff` e leitura, nunca mutação.
 - O working tree tem edições NÃO commitadas do dono (ex.:
   `EntregaShell/app/src/logistica/assets/app/app.js`,
   `EntregaShell/app/src/main/assets/app/native.js`). **Não reverter nem

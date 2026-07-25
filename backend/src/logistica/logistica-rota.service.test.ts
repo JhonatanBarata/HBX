@@ -14,6 +14,7 @@ import {
   resolveDayRange,
   type Stop,
   type OsrmTablePayload,
+  type PlannedStop,
 } from './logistica-rota.service';
 
 // LOGÍSTICA-MOBILE M3 — prova o MOTOR DE ROTA + ETA (matemática pura, sem banco):
@@ -336,4 +337,125 @@ test('planRouteByRoads (c): proxy falha mas o público responde → engine "osrm
   } finally {
     (global as any).fetch = originalFetch;
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// S2 (25/07, PR25072026-ROTA-CONFERIDA) — "Perna a perna": legDistanceM/legDurationS
+// por parada nos TRÊS caminhos (planRoute/Haversine, planRouteManual, planRouteByRoads
+// /matriz). A perna já estava dentro do loop de ETA (somada e descartada) — só é
+// EXPOSTA agora, então a soma das pernas (comCoord) tem que bater com
+// distanciaTotalKm (mesma matemática, dividida por trecho em vez de acumulada).
+// Tolerância 1% (Math.round por perna introduz arredondamento residual).
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Soma (km) das pernas não-nulas de uma lista de paradas planejadas. */
+function sumLegsKm(paradas: PlannedStop[]): number {
+  return paradas.reduce((sum, p) => sum + (p.legDistanceM != null ? p.legDistanceM / 1000 : 0), 0);
+}
+
+function assertSomaPernasProximaDoTotal(somaKm: number, totalKm: number, label: string) {
+  const tolerancia = Math.max(totalKm * 0.01, 0.02); // 1% (piso 20m pra rotas curtas)
+  assert.ok(
+    Math.abs(somaKm - totalKm) <= tolerancia,
+    `${label}: soma das pernas=${somaKm.toFixed(3)}km deveria ser ~distanciaTotalKm=${totalKm.toFixed(3)}km (±${tolerancia.toFixed(3)}km)`,
+  );
+}
+
+test('S2 planRoute (Haversine, COM origem): soma das pernas ≈ distanciaTotalKm (1%); 1ª parada tem perna da origem', () => {
+  const plan = planRoute(FIXTURE, {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-25T08:00:00'),
+  });
+  assertSomaPernasProximaDoTotal(sumLegsKm(plan.paradas), plan.distanciaTotalKm, 'planRoute com origem');
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.ok(ordenadas[0].legDistanceM != null, '1ª parada roteável tem perna da ORIGEM até ela (origem conhecida)');
+  assert.ok(ordenadas[0].legDurationS != null);
+});
+
+test('S2 planRoute (Haversine, SEM origem): 1ª parada tem legDistanceM null; demais somam ≈ distanciaTotalKm', () => {
+  const plan = planRoute(FIXTURE, {
+    origem: null,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-25T08:00:00'),
+  });
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.equal(ordenadas[0].legDistanceM, null, '1ª parada sem origem não tem de onde medir a perna');
+  assert.equal(ordenadas[0].legDurationS, null);
+  assertSomaPernasProximaDoTotal(sumLegsKm(plan.paradas), plan.distanciaTotalKm, 'planRoute sem origem');
+});
+
+test('S2 planRouteManual: soma das pernas ≈ distanciaTotalKm (1%)', () => {
+  const stops = FIXTURE.slice(0, 5);
+  const plan = planRouteManual(stops, [stops[3].id, stops[1].id, stops[0].id, stops[4].id, stops[2].id], {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-25T08:00:00'),
+  });
+  assertSomaPernasProximaDoTotal(sumLegsKm(plan.paradas), plan.distanciaTotalKm, 'planRouteManual');
+});
+
+test('S2 planRouteManual: parada semCoordenada no MEIO não tem perna própria; a PRÓXIMA válida mede pulando o buraco (do último ponto físico conhecido)', () => {
+  const stops: Stop[] = [FIXTURE[0], FIXTURE[1], { id: 'sem-meio', lat: null, lng: null, status: 'agendada', nome: 'Sem GPS no meio' }];
+  const plan = planRouteManual(stops, [FIXTURE[0].id, 'sem-meio', FIXTURE[1].id], {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-25T08:00:00'),
+  });
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.deepEqual(ordenadas.map((p) => p.id), [FIXTURE[0].id, 'sem-meio', FIXTURE[1].id]);
+  assert.equal(ordenadas[1].legDistanceM, null, 'a própria parada sem coordenada nunca tem perna');
+  assert.equal(ordenadas[1].legDurationS, null);
+  const legEsperadoKm = haversineKm(
+    { lat: FIXTURE[0].lat as number, lng: FIXTURE[0].lng as number },
+    { lat: FIXTURE[1].lat as number, lng: FIXTURE[1].lng as number },
+  );
+  assert.ok(ordenadas[2].legDistanceM != null, 'a parada seguinte à sem-coordenada RECUPERA perna (mede do último ponto físico)');
+  assert.ok(
+    Math.abs((ordenadas[2].legDistanceM as number) / 1000 - legEsperadoKm) < 0.01,
+    `perna pulando o buraco deveria ser ~${legEsperadoKm.toFixed(3)}km, veio ${((ordenadas[2].legDistanceM as number) / 1000).toFixed(3)}km`,
+  );
+});
+
+test('S2 planRouteByRoads (matriz): soma das pernas ≈ distanciaTotalKm (1%); 1ª parada tem perna da origem', async () => {
+  const stops = FIXTURE.slice(0, 4);
+  const size = stops.length + 1; // +1 pela origem (hasOrigin=true)
+  const osrmTable = async (): Promise<OsrmTablePayload> => ({ code: 'Ok', ...fakeMatrix(size) });
+  const plan = await planRouteByRoads(stops, {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-25T08:00:00'),
+    osrmTable,
+  });
+  assert.equal(plan.engine, 'osrm');
+  const somaPernasM = plan.paradas.reduce((sum, p) => sum + (p.legDistanceM ?? 0), 0);
+  const totalM = plan.distanciaTotalKm * 1000;
+  assert.ok(
+    Math.abs(somaPernasM - totalM) <= Math.max(totalM * 0.01, 20),
+    `soma das pernas=${somaPernasM}m deveria ser ~distanciaTotalKm=${totalM}m`,
+  );
+  const ordenadas = [...plan.paradas].sort((a, b) => a.rotaOrdem - b.rotaOrdem);
+  assert.ok(ordenadas[0].legDistanceM != null, '1ª parada tem perna da origem (hasOrigin=true → previousMatrixIndex=0)');
+});
+
+test('S2 planRouteByRoads (matriz): parada semCoordenada fica com legDistanceM/legDurationS null (matriz não tem essa parada)', async () => {
+  const stops: Stop[] = [...FIXTURE.slice(0, 3), { id: 'sem-gps-matriz', lat: null, lng: null, status: 'agendada', nome: 'Sem GPS' }];
+  const size = 3 + 1; // 3 válidas + origem
+  const osrmTable = async (): Promise<OsrmTablePayload> => ({ code: 'Ok', ...fakeMatrix(size) });
+  const plan = await planRouteByRoads(stops, {
+    origem: ORIGEM,
+    velocidadeKmH: 25,
+    paradaMin: 5,
+    partida: new Date('2026-07-25T08:00:00'),
+    osrmTable,
+  });
+  const semCoord = plan.paradas.find((p) => p.id === 'sem-gps-matriz');
+  assert.equal(semCoord?.semCoordenada, true);
+  assert.equal(semCoord?.legDistanceM, null);
+  assert.equal(semCoord?.legDurationS, null);
 });

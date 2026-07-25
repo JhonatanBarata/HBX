@@ -187,6 +187,9 @@ export class LogisticaRotaService {
         lng: p.lng,
         status: p.status,
         nome: p.nome,
+        // S2 — aditivo (ver PlannedStop.legDistanceM/legDurationS).
+        legDistanceM: p.legDistanceM,
+        legDurationS: p.legDurationS,
       })),
     };
     if (prepared) {
@@ -513,18 +516,59 @@ export class LogisticaRotaService {
       // abertas), já restrito por status — aqui CANCELA direto (sem o meio-termo
       // "estava mesmo na rota?" do encerrar: Limpar Dia descarta tudo que está
       // aberto no dia, planejado ou não).
+      const escopoAberto = {
+        companyId,
+        ...(entregadorId ? { entregadorId } : {}),
+        status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+        OR: [
+          { scheduledAt: { gte: start, lte: end } },
+          { scheduledAt: null, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
+        ],
+      };
+
+      // FIX 25/07 (o dia que virava pedra) — Limpar Dia precisa DESFAZER a
+      // ocorrência recorrente, não só cancelar a entrega. `generateDay` já tinha
+      // empurrado `proximaData` do plano pra semana seguinte e carimbado a
+      // `agendaOcorrenciaKey`; cancelar sem desfazer isso deixava o dia
+      // impossível de regerar (a Agenda mostrava "98 paradas" e listava 0, e
+      // /admin-route/prepare devolvia "Nenhuma parada foi encontrada"). Por isso
+      // levantamos as linhas ANTES do updateMany — precisamos dos ids/planos.
+      const alvos = await tx.entrega.findMany({
+        where: escopoAberto,
+        select: { id: true, planoEntregaId: true, agendaOcorrenciaKey: true },
+      });
+
       const canceladas = await tx.entrega.updateMany({
-        where: {
-          companyId,
-          ...(entregadorId ? { entregadorId } : {}),
-          status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
-          OR: [
-            { scheduledAt: { gte: start, lte: end } },
-            { scheduledAt: null, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
-          ],
-        },
+        where: escopoAberto,
         data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null },
       });
+
+      // A chave da ocorrência é ÚNICA por empresa. Presa na entrega cancelada,
+      // `generateDay` acha "já existe" e pula o cliente PARA SEMPRE. Soltar a
+      // chave preserva o histórico (a entrega continua cancelada, com o plano de
+      // origem) e devolve o direito de gerar o mesmo dia de novo.
+      const idsComChave = alvos.filter((row: any) => row.agendaOcorrenciaKey).map((row: any) => row.id);
+      if (idsComChave.length) {
+        await tx.entrega.updateMany({
+          where: { companyId, id: { in: idsComChave } },
+          data: { agendaOcorrenciaKey: null },
+        });
+      }
+
+      // Devolve o plano para a data limpa. `proximaData: { gt: start }` garante
+      // que só puxamos de volta quem foi adiantado por ESTE dia — plano que já
+      // aponta pra hoje ou pro passado fica como está.
+      const planoIds = [
+        ...new Set(alvos.map((row: any) => row.planoEntregaId).filter((id: any) => !!id)),
+      ] as string[];
+      let planosLiberados = 0;
+      if (planoIds.length) {
+        const liberados = await tx.logisticaPlanoEntrega.updateMany({
+          where: { companyId, id: { in: planoIds }, proximaData: { gt: start } },
+          data: { proximaData: start },
+        });
+        planosLiberados = liberados.count;
+      }
 
       // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
       // encerrarRota): NÃO altera `status` de cobrança.
@@ -538,13 +582,13 @@ export class LogisticaRotaService {
         data: { operationalEndedAt: new Date() },
       });
 
-      return { canceladas: canceladas.count };
+      return { canceladas: canceladas.count, planosLiberados };
     });
 
     this.logger.log(
       `[logistica] limpar-dia ${dayISO} company=${companyId}` +
         (entregadorId ? ` entregador=${entregadorId}` : '') +
-        `: canceladas=${resumo.canceladas}` +
+        `: canceladas=${resumo.canceladas} planosLiberados=${resumo.planosLiberados}` +
         (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
     );
 
@@ -830,6 +874,20 @@ export interface EtaOptions {
   velocidadeKmH: number;
   paradaMin: number;
   partida: Date;
+  /**
+   * S2 (25/07, PR25072026-ROTA-CONFERIDA) — origem conhecida (GPS do
+   * entregador ao planejar/iniciar), usada SÓ para expor a PERNA da 1ª parada
+   * roteável (legDistanceM/legDurationS, ver computeEta). NÃO entra no cúmulo
+   * do ETA (acumuladoMin abaixo) — isso mudaria terminoPrevisto do fallback
+   * Haversine, comportamento já em produção e fora do escopo desta sprint
+   * (só EXPOR a perna, não reconciliar o ETA com o degrau OSRM — esse já soma
+   * a perna da origem corretamente via buildRoadPlan). Documentado pro
+   * revisor: a soma das pernas bate com distanciaTotalKm (routeCostKm também
+   * usa a origem), mas o etaAt cumulativo do Haversine segue sem contar esse
+   * trecho — pendência PRÉ-EXISTENTE, reportada no relatório, não corrigida
+   * aqui.
+   */
+  origem?: Coord | null;
 }
 
 /** Uma parada já com rotaOrdem e etaAt calculados. */
@@ -837,6 +895,15 @@ export interface PlannedStop extends Stop {
   rotaOrdem: number;
   etaAt: Date | null;
   semCoordenada: boolean;
+  /**
+   * S2 — perna (trecho) da parada ANTERIOR (ou da origem, se for a 1ª
+   * roteável) até esta. `null` quando não há ponto de partida conhecido (1ª
+   * parada sem origem) OU quando a própria parada está semCoordenada (não dá
+   * pra medir trecho até um ponto sem pino). Já era somado e descartado
+   * dentro do loop de ETA — aqui só é exposto por parada.
+   */
+  legDistanceM: number | null;
+  legDurationS: number | null;
 }
 
 /**
@@ -853,13 +920,22 @@ export function computeEta(stops: Stop[], opts: EtaOptions): PlannedStop[] {
   const out: PlannedStop[] = [];
   let acumuladoMin = 0;
   let prev: Coord | null = null;
+  // S2 (25/07, PR25072026-ROTA-CONFERIDA) — rastreador SEPARADO do `prev` do
+  // ETA acima: a PERNA exibida da 1ª parada usa a origem quando conhecida
+  // (trecho realmente percorrido), mesmo o cúmulo do ETA (acumuladoMin) não
+  // contando esse trecho (ver nota em EtaOptions.origem). Ambos avançam juntos
+  // depois da 1ª parada (nunca divergem de novo).
+  let prevLeg: Coord | null = opts.origem ?? null;
 
   for (let idx = 0; idx < stops.length; idx++) {
     const s = stops[idx];
     const rotaOrdem = typeof s.rotaOrdem === 'number' ? s.rotaOrdem : idx;
     if (!hasCoord(s)) {
-      // Sem coord: mantém a ordem, mas não estima ETA (null).
-      out.push({ ...s, rotaOrdem, etaAt: null, semCoordenada: true });
+      // Sem coord: mantém a ordem, mas não estima ETA nem perna (null) — não
+      // dá pra medir trecho até/depois de um ponto sem pino. `prevLeg` NÃO
+      // avança: a próxima parada válida mede a partir do último ponto físico
+      // conhecido (mesmo comportamento já existente do `prev` do ETA).
+      out.push({ ...s, rotaOrdem, etaAt: null, semCoordenada: true, legDistanceM: null, legDurationS: null });
       continue;
     }
     const cur: Coord = { lat: s.lat as number, lng: s.lng as number };
@@ -868,8 +944,12 @@ export function computeEta(stops: Stop[], opts: EtaOptions): PlannedStop[] {
     const trajetoMin = (trajetoKm / velocidade) * 60;
     acumuladoMin += trajetoMin + paradaMin; // chega + descarrega
     const etaAt = new Date(opts.partida.getTime() + acumuladoMin * 60_000);
-    out.push({ ...s, rotaOrdem, etaAt, semCoordenada: false });
+    const legKm = prevLeg ? haversineKm(prevLeg, cur) : null;
+    const legDistanceM = legKm != null ? Math.round(legKm * 1000) : null;
+    const legDurationS = legKm != null ? Math.round((legKm / velocidade) * 3600) : null;
+    out.push({ ...s, rotaOrdem, etaAt, semCoordenada: false, legDistanceM, legDurationS });
     prev = cur;
+    prevLeg = cur;
   }
   return out;
 }
@@ -944,6 +1024,10 @@ export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResul
     velocidadeKmH: opts.velocidadeKmH,
     paradaMin: opts.paradaMin,
     partida: opts.partida,
+    // S2 — perna da 1ª parada roteável usa a origem (mesma origem que
+    // routeCostKm usa abaixo pra somar distanciaTotalKm) — sem isto a soma
+    // das pernas ficaria menor que distanciaTotalKm sempre que há origem.
+    origem: opts.origem,
   });
 
   const distanciaTotalKm = routeCostKm(otimizado, opts.origem);
@@ -982,6 +1066,9 @@ export function planRouteManual(stops: Stop[], ordemManual: string[], opts: Plan
     velocidadeKmH: opts.velocidadeKmH,
     paradaMin: opts.paradaMin,
     partida: opts.partida,
+    // S2 — mesmo motivo do planRoute: a perna da 1ª parada roteável reflete
+    // a origem, consistente com routeCostKm (abaixo) usando a mesma origem.
+    origem: opts.origem,
   });
 
   const distanciaTotalKm = routeCostKm(filtrarComCoord(ordenados), opts.origem);
@@ -1045,16 +1132,36 @@ function buildRoadPlan(
   let distanceMeters = 0;
   let previousMatrixIndex = hasOrigin ? 0 : null;
   const paradas: PlannedStop[] = ordered.map((stop, index) => {
-    if (!hasCoord(stop)) return { ...stop, rotaOrdem: index, etaAt: null, semCoordenada: true };
+    if (!hasCoord(stop)) {
+      return { ...stop, rotaOrdem: index, etaAt: null, semCoordenada: true, legDistanceM: null, legDurationS: null };
+    }
     const validIndex = valid.findIndex((candidate) => candidate.id === stop.id);
     const matrixIndex = validIndex + offset;
+    // S2 (25/07, PR25072026-ROTA-CONFERIDA) — a perna JÁ estava na matriz
+    // (durations!/distances![prev][atual]), só era somada e descartada; aqui
+    // é exposta por parada, sem mudar a soma (elapsedMinutes/distanceMeters
+    // continuam idênticos a antes desta sprint). null quando não há prev na
+    // matriz (1ª parada sem origem, offset=0).
+    let legDistanceM: number | null = null;
+    let legDurationS: number | null = null;
     if (previousMatrixIndex != null) {
-      elapsedMinutes += Number(payload.durations![previousMatrixIndex][matrixIndex] || 0) / 60;
-      distanceMeters += Number(payload.distances![previousMatrixIndex][matrixIndex] || 0);
+      const legDurationRaw = Number(payload.durations![previousMatrixIndex][matrixIndex] || 0);
+      const legDistanceRaw = Number(payload.distances![previousMatrixIndex][matrixIndex] || 0);
+      elapsedMinutes += legDurationRaw / 60;
+      distanceMeters += legDistanceRaw;
+      legDurationS = Math.round(legDurationRaw);
+      legDistanceM = Math.round(legDistanceRaw);
     }
     elapsedMinutes += Math.max(0, opts.paradaMin);
     previousMatrixIndex = matrixIndex;
-    return { ...stop, rotaOrdem: index, etaAt: new Date(opts.partida.getTime() + elapsedMinutes * 60_000), semCoordenada: false };
+    return {
+      ...stop,
+      rotaOrdem: index,
+      etaAt: new Date(opts.partida.getTime() + elapsedMinutes * 60_000),
+      semCoordenada: false,
+      legDistanceM,
+      legDurationS,
+    };
   });
   const withEta = paradas.filter((stop) => stop.etaAt != null);
   return { paradas, distanciaTotalKm: distanceMeters / 1_000, terminoPrevisto: withEta.at(-1)?.etaAt ?? null };
@@ -1316,6 +1423,8 @@ export interface EncerrarRotaResult {
 // ── LIMPAR DIA (PR18072026 Onda 1) ────────────────────────────────────────────
 export interface LimparDiaResumo {
   canceladas: number;
+  /** Planos recorrentes cuja `proximaData` voltou pro dia limpo (25/07). */
+  planosLiberados: number;
 }
 
 export interface LimparDiaResult {
@@ -1352,6 +1461,10 @@ export interface PlanejarRotaParada {
   lng: number | null;
   status: string;
   nome: string | null;
+  // S2 (25/07, PR25072026-ROTA-CONFERIDA) — perna (trecho) da parada anterior
+  // (ou da origem, na 1ª) até esta. Ver PlannedStop.legDistanceM/legDurationS.
+  legDistanceM: number | null;
+  legDurationS: number | null;
 }
 
 export interface PlanejarRotaResult {

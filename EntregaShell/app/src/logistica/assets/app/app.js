@@ -3752,7 +3752,7 @@
         <button type="button" class="route-filter-btn ${state.routeFilter === "avulsos" ? "active" : ""}" data-action="route-filter" data-filter="avulsos">Avulsos <b>${avulsos.length}</b></button>
       </div>` : ""}
       ${state.routeFilter === "fila" && next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
   }
   function leituraRouteControls() {
     const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
@@ -3826,6 +3826,25 @@
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
     const constraints = routeConstraintChips(routeConstraintSource(item, c));
     return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${constraints}${c.observacoes ? `<small class="stop-obs">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${done ? `<div class="stop-actions stop-actions-done"><button class="btn btn-secondary" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)} Editar</button></div>` : ""}${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop" ${state.deliveryConfirming ? "disabled" : ""}>Confirmar entrega</button></div>` : ""}</article>`;
+  }
+  // S2 25/07 (PR25072026-ROTA-CONFERIDA) — conector "perna a perna" entre um
+  // card e o próximo na FILA: expõe legDistanceM/legDurationS que o backend já
+  // calcula por parada (listRota, ver logistica.service.ts) — nada de distância
+  // calculada no cliente. Formato pedido: <1000m em metros, ≥1km em "N,N km",
+  // minutos arredondados. Só chamado com routeFilter==="fila" (ver routeScreen):
+  // nas outras abas (Entregue/Avulsos) a lista pula paradas fora de ordem — o
+  // conector mostraria a perna do vizinho ERRADO (a parada real anterior não
+  // está visível ali), então melhor não desenhar do que mentir.
+  // Reusa .badge (token existente, zero hex/moldura nova); pino sem coordenada
+  // usa .badge.danger (mesmo tom de alerta já usado noutros pontos do app).
+  function routeLegConnector(item) {
+    if (item.semCoordenada) {
+      return `<div class="route-leg-connector"><span class="badge danger">sem trajeto — endereço sem pino</span></div>`;
+    }
+    if (!Number.isFinite(item.legDistanceM)) return ""; // 1ª parada da fila: sem perna anterior pra mostrar
+    const distTxt = item.legDistanceM < 1000 ? `${Math.round(item.legDistanceM)} m` : `${(item.legDistanceM / 1000).toFixed(1).replace(".", ",")} km`;
+    const minTxt = Number.isFinite(item.legDurationS) ? ` · ${Math.round(item.legDurationS / 60)} min` : "";
+    return `<div class="route-leg-connector"><span class="badge">↓ ${distTxt}${minTxt}</span></div>`;
   }
 
   // Os catálogos e o wizard usam o mesmo cartão. Em modo seleção, só mudam a
@@ -4884,9 +4903,15 @@
   // Selo discreto (osrm) ou faixa de alerta (haversine por FALHA). Ordem manual
   // também é haversine, mas por ESCOLHA — o backend nunca manda degradedReason
   // nesse caso, e é exatamente essa ausência que mantém a faixa calada aqui.
+  // S2 25/07 (fix herdado do review da S1) — "coords_invalidas" (<2 paradas com
+  // pino) é problema de DADO, não de REDE: a faixa "rede de rotas indisponível"
+  // mentiria (a rede nem chegou a ser tentada). O estado "sem pino" já aparece
+  // nos conectores da lista (routeLegConnector, abaixo) e no semáforo da S3 —
+  // aqui fica CALADO só pra esse motivo; timeout/rate_limit/upstream (falha de
+  // rede de verdade) continuam acendendo a faixa normalmente.
   function routeEngineBanner() {
     if (state.routeEngine === "osrm") return `<span class="badge">Calculada pelas ruas</span>`;
-    if (state.routeEngine === "haversine" && state.routeDegradedReason) {
+    if (state.routeEngine === "haversine" && state.routeDegradedReason && state.routeDegradedReason !== "coords_invalidas") {
       return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
     }
     return "";

@@ -299,6 +299,12 @@ h3 { font-size: .95rem; }
 .search { display: flex; align-items: center; gap: 8px; min-height: 43px; padding: 0 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
 .search input { width: 100%; border: 0; outline: 0; background: transparent; font-size: .79rem; }
 .list { display: grid; gap: 8px; }
+/* S2 25/07 (PR25072026-ROTA-CONFERIDA) — só POSICIONA o .badge existente entre
+   dois cards da fila ("perna a perna"); nenhuma cor/moldura nova (o pill em si
+   é .badge/.badge.danger, já tokenizados). margin negativo aproxima do card de
+   baixo sem brigar com o gap de 8px do .list acima (senão sobrava respiro dos
+   dois lados e o conector perdia a leitura de "está entre estes dois"). */
+.route-leg-connector { display: flex; justify-content: center; margin: -3px 0; }
 .lead-card, .stop-card, .row-card { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 15px; color: var(--ink); background: var(--surface); text-align: left; box-shadow: 0 4px 16px rgba(28, 45, 22, .04); }
 .lead-card { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; overflow: hidden; -webkit-user-select: none; user-select: none; touch-action: pan-y; transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease; }
 /* Long-press unificado (padrão Clientes) também no card de parada e no card

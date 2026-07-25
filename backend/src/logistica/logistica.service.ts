@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
-import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaRotaService, haversineKm, hasCoord, type Coord } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
@@ -275,6 +275,10 @@ export class LogisticaService {
     // com o recurso OFF. Defaults seguros (false/500) se a leitura falhar.
     let avisoChegandoAtivo = false;
     let avisoChegandoDistanciaM = 500;
+    // S2 (25/07, PR25072026-ROTA-CONFERIDA) — mesmo default do planejador
+    // (LogisticaRotaService.DEFAULT_VELOCIDADE_KMH, privado lá — duplicado aqui
+    // de propósito: é só o fallback de leitura, não uma 2ª fonte de verdade).
+    let velocidadeMediaKmH = 25;
     let comprovante: RotaRequisitosComprovante = {
       fotoObrigatoria: false,
       assinaturaObrigatoria: false,
@@ -302,6 +306,11 @@ export class LogisticaService {
           comprovanteFotoObrigatoria: true,
           comprovanteAssinaturaObrigatoria: true,
           comprovanteCodigoObrigatorio: true,
+          // S2 (25/07, PR25072026-ROTA-CONFERIDA) — precisa da velocidade média
+          // pra converter a perna (Haversine, recalculada aqui no reload — ver
+          // legDistanceM abaixo) em legDurationS. MESMO default do planejador
+          // (LogisticaRotaService.DEFAULT_VELOCIDADE_KMH) quando ausente/≤0.
+          velocidadeMediaKmH: true,
         },
       });
       moduloFinanceiroAtivoConfig = cfg?.moduloFinanceiroAtivo ?? false;
@@ -314,6 +323,9 @@ export class LogisticaService {
       avisoChegandoAtivo = this.effectsEnabled && !!cfg?.avisoChegandoEnabled;
       if (typeof cfg?.avisoChegandoDistanciaM === 'number' && cfg.avisoChegandoDistanciaM > 0) {
         avisoChegandoDistanciaM = cfg.avisoChegandoDistanciaM;
+      }
+      if (typeof cfg?.velocidadeMediaKmH === 'number' && cfg.velocidadeMediaKmH > 0) {
+        velocidadeMediaKmH = cfg.velocidadeMediaKmH;
       }
       comprovante = this.operacao?.requisitosFromConfig(cfg) ?? comprovante;
     } catch (e: any) {
@@ -368,6 +380,13 @@ export class LogisticaService {
     }
 
     const { routeMode, ...operationalRouteMetadata } = routeMetadata;
+    // S2 (25/07, PR25072026-ROTA-CONFERIDA) — "perna a perna": rastreia o ÚLTIMO
+    // ponto físico válido ao longo da SEQUÊNCIA (`rows` já vem ordenado por
+    // rotaOrdem asc — o orderBy do fetch acima, a MESMA ordem que o app usa pra
+    // numerar o carrossel). Fica FORA do .map (closure) de propósito: precisa
+    // avançar sequencialmente entre paradas (Array.prototype.map processa os
+    // índices em ordem crescente, garantido pelo spec).
+    let prevLegCoord: Coord | null = null;
     return {
       date: dayISO,
       total: rows.length,
@@ -403,6 +422,37 @@ export class LogisticaService {
         // eixos válidos; senão a fonte inteira cai pro perfil (nunca mistura
         // local.lat com customerProfile.lng). Ver logistica-geo-fonte.util.ts.
         const clienteCoord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
+        // S2 — perna (trecho) da parada ANTERIOR até esta, recalculada por
+        // Haversine. SEM coluna nova (contrato da sprint): o listRota não
+        // guarda a matriz OSRM do planejamento original (não persistida), então
+        // toda leitura/reload aproxima por linha reta — legFonte:'aproximada'
+        // documenta a origem do número pro app nunca confundir com o cálculo
+        // real por ruas (só planejar/iniciar respondem 'osrm', e só na hora).
+        // Não chama o proxy/OSRM aqui de propósito: listRota é hot-path de
+        // polling (refresh frequente do app) e o degrau 1 (LogisticaOsrmService)
+        // tem rate-limit de 30/min/empresa — gastar chamada de matriz num GET
+        // de leitura estoura esse orçamento rapidinho, sem necessidade (é só
+        // pra exibir, não pra rotear de novo).
+        const stopParaLeg = { id: r.id, lat: clienteCoord.lat, lng: clienteCoord.lng, status: r.status, nome: null };
+        const semCoordenadaParada = !hasCoord(stopParaLeg);
+        let legDistanceM: number | null = null;
+        let legDurationS: number | null = null;
+        let legFonte: 'osrm' | 'aproximada' | null = null;
+        if (!semCoordenadaParada) {
+          const curLegCoord: Coord = { lat: clienteCoord.lat as number, lng: clienteCoord.lng as number };
+          if (prevLegCoord) {
+            const legKm = haversineKm(prevLegCoord, curLegCoord);
+            legDistanceM = Math.round(legKm * 1000);
+            legDurationS = Math.round((legKm / velocidadeMediaKmH) * 3600);
+            legFonte = 'aproximada';
+          }
+          // Avança mesmo na 1ª parada válida (sem perna própria: prevLegCoord
+          // ainda era null) — é o ponto de partida pra perna da PRÓXIMA.
+          prevLegCoord = curLegCoord;
+        }
+        // `prevLegCoord` NÃO avança quando a parada está semCoordenada: a
+        // próxima parada válida precisa medir a partir do último ponto físico
+        // conhecido (pular o "buraco"), não do vazio.
         return {
           id: r.id,
         status: r.status,
@@ -438,6 +488,13 @@ export class LogisticaService {
         // e numera "Parada N" por rotaOrdem; o término lê etaAt da última parada).
         rotaOrdem: r.rotaOrdem ?? null,
         etaAt: r.etaAt ? r.etaAt.toISOString() : null,
+        // S2 (25/07, PR25072026-ROTA-CONFERIDA) — conector "perna a perna" da
+        // lista da rota (app.js routeLegConnector). Ver nota acima (Haversine
+        // sempre, sem coluna nova; legFonte documenta a aproximação).
+        semCoordenada: semCoordenadaParada,
+        legDistanceM,
+        legDurationS,
+        legFonte,
         // MULTILOCAL (10/07) — apelido do local ("Casa"|"Loja"…) pro card da rota;
         // null quando a entrega não tem local (usa o perfil).
         localApelido: r.local?.apelido ?? null,
@@ -3111,6 +3168,14 @@ export interface RotaItem {
   // MULTILOCAL (10/07) — rótulo curto do local desta entrega ("Casa"|"Loja"…), null
   // quando a entrega não tem local (usa o endereço/geo do perfil).
   localApelido: string | null;
+  // S2 (25/07, PR25072026-ROTA-CONFERIDA) — "perna a perna": trecho da parada
+  // ANTERIOR (na ordem rotaOrdem) até esta, recalculado por Haversine a cada
+  // listRota (sem coluna nova — ver comentário no corpo do método). null na 1ª
+  // parada da lista e em qualquer parada semCoordenada (ou logo após uma).
+  semCoordenada: boolean;
+  legDistanceM: number | null;
+  legDurationS: number | null;
+  legFonte: 'osrm' | 'aproximada' | null;
   cliente: RotaCliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
   produto: RotaProduto | null;
