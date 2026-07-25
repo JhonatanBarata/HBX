@@ -120,11 +120,11 @@ function additionalChip(stop: Pick<AgendaStop, "adicional">): { text: string; ti
   return { text: compactChipText(title), title };
 }
 
-function addressLabel(stop: Pick<AgendaStop, "local">): string {
-  if (!stop.local) return "Local principal";
-  const street = [stop.local.endereco, stop.local.numero].filter(Boolean).join(", ");
-  const city = [stop.local.bairro, stop.local.cidade, stop.local.uf].filter(Boolean).join(" · ");
-  return stop.local.apelido || [street, city].filter(Boolean).join(" — ") || "Local principal";
+function addressLabel(stop: Pick<AgendaStop, "local" | "cliente">): string {
+  const place = stop.local ?? stop.cliente;
+  const street = [place?.endereco, place?.numero].filter(Boolean).join(", ");
+  const city = [place?.bairro, place?.cidade].filter(Boolean).join(" · ");
+  return (stop.local?.apelido) || [street, city].filter(Boolean).join(" — ") || "Local principal";
 }
 
 function itemsLabel(stop: Pick<AgendaStop, "itens">): string {

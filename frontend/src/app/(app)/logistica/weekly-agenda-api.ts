@@ -70,6 +70,18 @@ export type AgendaItem = {
   valorUnit: number;
 };
 
+export type AgendaCliente = {
+  id: string;
+  nome: string;
+  endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+};
+
 export type AgendaPlan = {
   id: string;
   revisao: number;
@@ -80,7 +92,7 @@ export type AgendaPlan = {
   frequencia: AgendaFrequency;
   intervaloDias: number | null;
   proximaData: string | null;
-  cliente: { id: string; nome: string };
+  cliente: AgendaCliente;
   local: AgendaAddress | null;
   itens: AgendaItem[];
   janela: AgendaWindow | null;
@@ -98,7 +110,7 @@ export type AgendaStop = {
   planoEntregaId: string;
   customerProfileId: string;
   localId: string | null;
-  cliente: { id: string; nome: string };
+  cliente: AgendaCliente;
   local: AgendaAddress | null;
   itens: AgendaItem[];
   janela: AgendaWindow | null;

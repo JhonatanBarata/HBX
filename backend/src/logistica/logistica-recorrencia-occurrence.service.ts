@@ -50,8 +50,8 @@ export class LogisticaRecorrenciaOccurrenceService extends LogisticaRecorrenciaS
           nome: stop.cliente?.nome || 'Cliente',
           localId: stop.localId ?? null,
           localApelido: stop.local?.apelido ?? null,
-          lat: stop.local?.lat ?? null,
-          lng: stop.local?.lng ?? null,
+          lat: stop.local?.lat ?? stop.cliente?.lat ?? null,
+          lng: stop.local?.lng ?? stop.cliente?.lng ?? null,
           geoFonte: stop.local?.geoFonte ?? null,
           itens: (stop.itens ?? []).map((item: any) => ({
             productId: item.productId,

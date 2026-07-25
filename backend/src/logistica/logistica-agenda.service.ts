@@ -249,7 +249,9 @@ export class LogisticaAgendaService {
       throw new BadRequestException('A data não pertence ao dia da agenda informado.');
     }
     const detail = await this.getDay(companyId, day);
-    const plansById = new Map(detail.planos.map((plan: any) => [plan.id, plan]));
+    const plansById = new Map<string, any>(
+      detail.planos.map((plan: any) => [plan.id, plan] as [string, any]),
+    );
     const stops = detail.paradas
       .map((stop: any) => {
         const plan = plansById.get(stop.planoEntregaId) as any;
@@ -1676,10 +1678,7 @@ function planDto(plan: any) {
     frequencia: plan.frequencia,
     intervaloDias: plan.intervaloDias ?? null,
     proximaData: plan.proximaData?.toISOString?.() ?? null,
-    cliente: {
-      id: plan.customerProfile.id,
-      nome: plan.customerProfile.name || 'Cliente',
-    },
+    cliente: clienteDto(plan.customerProfile),
     local: plan.local ? addressDto(plan.local) : null,
     itens: (plan.itens ?? []).map((item: any) => ({
       id: item.id,
@@ -1708,10 +1707,7 @@ function legacyPlanDto(group: LegacyGroup) {
     frequencia: group.frequencia,
     intervaloDias: group.intervaloDias,
     proximaData: group.proximaData?.toISOString() ?? null,
-    cliente: {
-      id: group.customerProfileId,
-      nome: group.cliente?.name || 'Cliente',
-    },
+    cliente: clienteDto({ id: group.customerProfileId, ...(group.cliente || {}) }),
     local: group.local ? addressDto(group.local) : null,
     itens: group.itens,
     janela: null,
@@ -1774,6 +1770,22 @@ function legacyRouteDto(route: any) {
     tipo: 'SEMANAL' as const,
     ativo: route.ativo !== false,
     versao: Number(route.versao || 1),
+  };
+}
+
+// Endereço/GPS do perfil viajam no DTO para a parada SEM local explícito
+// ("Local principal") continuar com rua e coordenada nas prévias e no APK.
+function clienteDto(profile: any) {
+  return {
+    id: profile.id,
+    nome: profile.name || 'Cliente',
+    endereco: profile.endereco ?? null,
+    numero: profile.numero ?? null,
+    bairro: profile.bairro ?? null,
+    cidade: profile.cidade ?? null,
+    uf: profile.uf ?? null,
+    lat: profile.lat ?? null,
+    lng: profile.lng ?? null,
   };
 }
 

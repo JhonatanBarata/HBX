@@ -136,8 +136,8 @@ function normalizeAgendaPreview(result: AgendaDayPreview): DayPreview {
       nome: stop.cliente.nome || "Cliente",
       localId: stop.localId,
       localApelido: stop.local?.apelido ?? null,
-      lat: stop.local?.lat ?? null,
-      lng: stop.local?.lng ?? null,
+      lat: stop.local?.lat ?? stop.cliente.lat ?? null,
+      lng: stop.local?.lng ?? stop.cliente.lng ?? null,
       itens: stop.itens.map((item) => ({
         productId: item.productId,
         nome: item.nome,
