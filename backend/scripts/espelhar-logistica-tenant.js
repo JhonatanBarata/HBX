@@ -113,6 +113,11 @@ const STORAGE_DIR = '/app/storage';
 
 const args = process.argv.slice(2);
 const APLICAR = args.includes('--aplicar');
+// --sem-limpar: NÃO apaga nada no destino, só injeta o cadastro da origem. Use quando o
+// dono já limpou a conta na mão — evita a cadeia de FK (LogisticaRouteStop → Entrega etc.)
+// que é o único motivo de o wipe ser complicado. Sem limpeza não há o que backupear:
+// o rollback deste modo é simplesmente apagar o que foi injetado.
+const SEM_LIMPAR = args.includes('--sem-limpar');
 const rollbackArg = args.find((a) => a.startsWith('--rollback='));
 const ROLLBACK_FILE = rollbackArg ? rollbackArg.slice('--rollback='.length) : null;
 
@@ -627,15 +632,17 @@ async function aplicarEspelhamento(origem) {
       // (0) CADEIA-BLOQUEIO primeiro — FIX 25/07: sem isto, o deleteMany de CustomerProfile
       // abaixo bate em `LogisticaRouteStop_deliveryId_companyId_fkey` (e outras Restrict)
       // e o Postgres barra a transação inteira. Ordem topológica em CADEIA_BLOQUEIO.
-      const apagouCadeia = await apagarCadeiaBloqueio(tx);
+      const apagouCadeia = SEM_LIMPAR ? {} : await apagarCadeiaBloqueio(tx);
 
       // (1) WIPE — só empresa 45, só estas 4 tabelas, nesta ordem (dependentes primeiro).
       // Agora seguro: a cadeia acima já removeu tudo que restringia CustomerProfile/
       // LocalEntrega/Product (LogisticaPlanoEntrega/LogisticaRotaModeloParada).
-      const apagouVinculos = await tx.clienteProduto.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
-      const apagouLocais = await tx.localEntrega.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
-      const apagouClientes = await tx.customerProfile.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
-      const apagouProdutos = await tx.product.deleteMany({ where: { companyId: DESTINO_COMPANY_ID, usaLogistica: true } });
+      // Em --sem-limpar nada é apagado: o destino já foi limpo à mão pelo dono.
+      const vazio = { count: 0 };
+      const apagouVinculos = SEM_LIMPAR ? vazio : await tx.clienteProduto.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
+      const apagouLocais = SEM_LIMPAR ? vazio : await tx.localEntrega.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
+      const apagouClientes = SEM_LIMPAR ? vazio : await tx.customerProfile.deleteMany({ where: { companyId: DESTINO_COMPANY_ID } });
+      const apagouProdutos = SEM_LIMPAR ? vazio : await tx.product.deleteMany({ where: { companyId: DESTINO_COMPANY_ID, usaLogistica: true } });
 
       // (2) LogisticaConfig do destino só precisa EXISTIR — nunca tocamos em campo
       // nenhum se já existir (em especial agendaV2Ativa, que é decisão à parte do dono).
