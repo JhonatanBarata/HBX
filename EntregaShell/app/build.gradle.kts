@@ -28,7 +28,11 @@ plugins {
 // moto g15, instalei à mão um build 17. Sem subir o piso, o próximo publish
 // carimbaria 17 — MESMO número que já está no aparelho — e o celular jamais
 // veria atualização (repetição exata do caso 8→15 acima).
-val hbxLogisticaVersionCodeFloor = 18
+// 18 → 38 em 25/07: testando o fim da faixa "Gravando" grudada na tela instalei
+// à mão um build 37 no moto g15. Sem subir o piso, o próximo publish carimbaria
+// 37 — MESMO número já no aparelho — e o celular nunca veria a atualização
+// (repetição exata dos casos 8→15 e 15→18 acima).
+val hbxLogisticaVersionCodeFloor = 38
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

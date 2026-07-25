@@ -65,6 +65,26 @@
   // (barra no __hbxGen acima) ou troca o nó inteiro; nunca meio-termo.
   const HBX_CONTROLES_FORM = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
+  // 25/07 — CARIMBO VELHO MENTE. Todo caminho que devolve `false` daqui pra
+  // baixo é "este nó NÃO ficou igual ao gerado" (mapa vivo, foco, filho
+  // pulado). Não bastava deixar de carimbar: o `__hbxGen` ANTIGO continuava
+  // pendurado no nó, descrevendo uma tela que não existe mais. Se a marcação
+  // voltasse EXATAMENTE àquele valor antigo (é o normal: entrar num modo de
+  // tela e sair dele devolve a mesma marcação de antes), o atalho
+  // `if (vivo.__hbxGen === html) return true` batia e o ramo inteiro era
+  // PULADO — a tela ficava congelada no estado do meio.
+  // Foi exatamente isso na Leitura de Rota (relato do dono 25/07): abrir o
+  // app carimbava a Rota normal, iniciar a leitura trocava a faixa mas NÃO
+  // recarimbava (mapa vivo ⇒ incompleto), e o cancelar gerava a marcação
+  // normal de novo — idêntica ao carimbo velho. Resultado: "Cancelar/
+  // Gravando/Checkpoint" grudados na tela e o painel "Próxima parada" sem
+  // voltar, mesmo com a sessão já cancelada no servidor. Zerar o carimbo ao
+  // devolver `false` custa nada e mata a classe inteira de bug.
+  function hbxCarimboVencido(el) {
+    if (el && el.__hbxGen) el.__hbxGen = null;
+    return false;
+  }
+
   function hbxChaveDoNo(el) {
     if (el.dataset) {
       if (el.dataset.delivery) return `delivery:${el.dataset.delivery}`;
@@ -131,7 +151,7 @@
     // spinner de novo por cima de um mapa que já estava certo. Só uma
     // troca de ANCESTRAL (mais acima na recursão) pode mexer neste nó — e aí
     // é o transplantarMapa() de lá que resgata o mapa antes da troca.
-    if (vivo.__hbxMap) return false;
+    if (vivo.__hbxMap) return hbxCarimboVencido(vivo);
 
     // 22/07 — CORREÇÃO (revisão pós-commit): a guarda original usava
     // `vivo.contains(document.activeElement)` bem no topo — mas a 1ª
@@ -150,7 +170,7 @@
     // quando chegar a vez dele nesta mesma checagem. Por isso aqui é `===`,
     // não `contains()`; o `contains()` some daqui e só volta nos dois pontos
     // que REALMENTE destroem o nó (os dois `replaceWith` abaixo).
-    if (vivo === document.activeElement) return false;
+    if (vivo === document.activeElement) return hbxCarimboVencido(vivo);
 
     const html = novo.outerHTML;
     // Comparo com o que EU MESMO gerei da última vez (__hbxGen), nunca com
@@ -170,7 +190,7 @@
       // checagem `===` lá em cima), não troca: fica atrasado até o foco
       // sair. Perder o cursor do entregador é pior que um galho desatualizado
       // por alguns segundos.
-      if (vivo.contains(document.activeElement)) return false;
+      if (vivo.contains(document.activeElement)) return hbxCarimboVencido(vivo);
       // Estrutura realmente diferente (tag mudou, campo de formulário, ou
       // virou folha/deixou de ser): troca o nó inteiro. Conservador de
       // propósito — na dúvida, troca-se o nó, nunca a tela. Barato aqui:
@@ -200,7 +220,7 @@
       // sem limite numa lista grande custaria mais que a troca. Mesma
       // proteção de foco do replaceWith acima: troca destrói, então só troca
       // se não houver foco escondido no galho.
-      if (vivo.contains(document.activeElement)) return false;
+      if (vivo.contains(document.activeElement)) return hbxCarimboVencido(vivo);
       transplantarMapa("route-live-map", novo);
       vivo.replaceWith(novo);
       novo.__hbxGen = html;
@@ -279,6 +299,7 @@
       return false;
     }
     if (completo) vivo.__hbxGen = html;
+    else hbxCarimboVencido(vivo);
     return completo;
   }
 

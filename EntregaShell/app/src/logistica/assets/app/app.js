@@ -3234,15 +3234,30 @@
     state.leituraTrilha = [];
     state.leituraUltimaAmostra = null;
     state.leituraPausaPendente = null;
-    await closeOverlay("modal");
+    // 25/07 — o redesenho NÃO pode depender do closeOverlay: ele sai na hora
+    // (`if (state.closingOverlay) return`) quando outra animação de overlay
+    // está em voo, e aí a tela ficava com a faixa "Gravando" desenhada com
+    // state.leitura JÁ nulo — a partir daí "Cancelar" não fazia mais nada
+    // (promptCancelLeitura sai no `!state.leitura`) e a tela parecia travada.
+    // Fecha o modal SÓ se houver um (mesmo idioma de openLeituraAtiva) e
+    // manda um render() incondicional depois.
+    if (state.modal) await closeOverlay("modal");
+    render();
     toast("Leitura cancelada.");
   }
   // S3 21/07 — "Cancelar" da tela viva (botão, X, fundo E handleBack, Lei 10)
   // caem todos aqui: mesma confirmação `.app-confirm` (Lei 3) que o antigo
   // botão "Cancelar leitura" da faixa já usava.
   function promptCancelLeitura() {
-    if (!state.leitura) return;
-    state.confirmation = { type: "cancel-leitura", title: "Cancelar leitura?", message: "Descarta as paradas desta leitura. Clientes, Agenda e rotas já salvas não mudam.", confirmLabel: "Descartar leitura", danger: true, icon: "route" };
+    // Sem sessão viva não há o que cancelar — mas se a faixa "Gravando" ainda
+    // está na tela, ela é sobra de desenho: redesenha em vez de engolir o
+    // toque calado (era o beco sem saída do "travado em Gravando").
+    if (!state.leitura) { render(); return; }
+    // O botão neutro NÃO pode se chamar "Cancelar" num popup cujo título já é
+    // "Cancelar leitura?": os dois "Cancelar" querem dizer o contrário um do
+    // outro e o toque no errado devolvia pra tela gravando (relato do dono
+    // 25/07: "já cancelei e a tela fica travada em Gravando").
+    state.confirmation = { type: "cancel-leitura", title: "Cancelar leitura?", message: "Descarta as paradas desta leitura. Clientes, Agenda e rotas já salvas não mudam.", confirmLabel: "Descartar leitura", cancelLabel: "Continuar gravando", danger: true, icon: "route" };
     render();
   }
   // Fecha o cadastro de parada e retorna à leitura ativa.
