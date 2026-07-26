@@ -4080,6 +4080,31 @@ model VendasLeadTimelineEvent {
   @@index([leadId, createdAt])
 }
 
+// S7 LEAD-CENTRICO (26/07, docs/PLANEJAMENTOS/PR25072026-LEAD-CENTRICO/07-pool-raiz.md):
+// "marquinha"/supressão GLOBAL por contato (CNPJ/telefone/e-mail) — a empresa pública é
+// reciclável (outra empresa pode vender pra ela de novo), mas o CONTATO carrega o
+// opt-out/resfriamento entre empresas. Log de EVENTOS append-only (não @@unique por
+// chave): cada encerramento qualificado grava uma marca nova; "está suprimido" é
+// SEMPRE "existe marca ativa (expiresAt null OU no futuro) pra esta chave" — nunca lê
+// o histórico completo. originCompanyId/originLeadId são só AUDITORIA interna (nunca
+// expostos a outra empresa — o contrato de leitura de outra empresa é um boolean
+// "não recebe", sem motivo/origem). Colunas cruas sem FK/back-relation, mesmo padrão
+// de Cadencia/Atividade/VendasComercialConfig (ver comentários desses models).
+model VendasContactSuppression {
+  id              String    @id @default(cuid())
+  contactType     String    // cnpj | phone | email
+  contactKey      String    // normalizado: dígitos (cnpj/phone) ou lowercase trim (email)
+  reason          String    // sem_interesse | nao_atendeu | contato_invalido | opt_out
+  suppressedAt    DateTime  @default(now())
+  expiresAt       DateTime? // null = permanente (opt_out, contato_invalido)
+  originCompanyId Int?
+  originLeadId    String?
+  createdAt       DateTime  @default(now())
+
+  @@index([contactType, contactKey, expiresAt])
+  @@index([originCompanyId, createdAt])
+}
+
 // WORM-12 (02/07, docs/PLANEJAMENTOS/worm/12-tela-atividades-agenda.md): agenda do
 // vendedor. Cada Atividade e uma tarefa datada amarrada a um card (VendasLead) — a
 // tela "Hoje" a le por responsavel+vencimento. Concluir (realizadaEm+resultado) escreve

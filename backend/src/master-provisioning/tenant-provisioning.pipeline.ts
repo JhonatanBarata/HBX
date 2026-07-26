@@ -137,6 +137,31 @@ export async function seedTenantModulesTx(
   return { resolvedModuleKeys: moduleRows.map((row: any) => String(row.key)) };
 }
 
+// S7 LEAD-CENTRICO (07-pool-raiz.md, item 3 "rebaixar Conversas por flag") —
+// passo COMPARTILHADO pelas 3 portas de nascimento de tenant (self_service em
+// auth.service.ts via seedDefaultCompanyModulesTx, master_invite em
+// companies.service.ts, master_full aqui embaixo em master-provisioning.service.ts).
+// Grava o post-it EXPLÍCITO enabled:false do módulo 'conversas' pra toda
+// empresa NOVA — é o único jeito de "nasce OFF" sem migração/backfill: empresa
+// SEM post-it segue SystemModule.defaultEnabled=true (structural-defaults.json),
+// ou seja, empresa EXISTENTE (nenhuma delas tem esta linha) continua
+// exatamente como está hoje ("ficam como estão", decisão do dono 25/07). O
+// master religa por empresa em /master quando quiser. Best-effort silencioso
+// se o módulo ainda não foi semeado no boot (ensureDefaultSystemModules) —
+// nunca derruba o nascimento do tenant por causa de um flag de UI opcional.
+export async function seedConversasOptOutTx(tx: any, companyId: number): Promise<void> {
+  const conversasModule = await tx.systemModule.findUnique({
+    where: { key: 'conversas' },
+    select: { id: true },
+  });
+  if (!conversasModule) return;
+  await tx.companyModule.upsert({
+    where: { companyId_moduleId: { companyId, moduleId: conversasModule.id } },
+    update: {},
+    create: { companyId, moduleId: conversasModule.id, enabled: false },
+  });
+}
+
 // Concede os entitlements comerciais do plano em modo 'manual' (cortesia master).
 // Só roda no preset full quando é acesso manual e o preço não é zero — mesmo gate
 // que o provisionamento tinha inline.

@@ -76,6 +76,7 @@ import {
   resolveObjetivo,
 } from './vendas-pre-voo';
 import { CADENCIA_SEEDS, sanitizePassos, type CadenciaPersona } from '../cadencia/cadencia-personas';
+import { VendasContactSuppressionService } from './vendas-contact-suppression.service';
 // S4 LEAD-CENTRICO (04-robozinho.md): freio compartilhado da cadência — instanciado
 // à mão (mesmo padrão de cadencia.service.ts/messaging.service.ts, NÃO é
 // @Injectable) porque não é registrado em nenhum módulo Nest.
@@ -360,6 +361,9 @@ export class VendasService {
   // intervalo). Mesmo padrão de instanciação manual do commercialContactControl acima
   // (evita import circular entre VendasModule e CadenciaModule).
   private readonly agendaDisparo: AgendaDisparoService;
+  // S7 LEAD-CENTRICO (07-pool-raiz.md) — marquinha/supressão global por contato.
+  // Mesmo padrão de instanciação manual acima (só depende de PrismaService).
+  private readonly contactSuppression: VendasContactSuppressionService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -379,6 +383,27 @@ export class VendasService {
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
+    this.contactSuppression = new VendasContactSuppressionService(this.prisma);
+  }
+
+  // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): lead encerrado com motivo
+  // estruturado grava a marca global do contato (cnpj/telefone/e-mail). CNPJ
+  // só existe quando o lead está linkado a um CustomerProfile PJ — busca
+  // best-effort, nunca bloqueia o encerramento. 'convertido'/'outro' não
+  // marcam (filtro dentro de applyAutoSuppressionForClosedLead).
+  private async applyContactSuppressionOnLeadClosed(companyId: number, lead: any): Promise<void> {
+    let cnpj: string | null = null;
+    if (lead?.customerProfileId) {
+      const profile = await this.prisma.customerProfile
+        .findUnique({ where: { id: lead.customerProfileId }, select: { cnpj: true } })
+        .catch(() => null);
+      cnpj = profile?.cnpj || null;
+    }
+    await this.contactSuppression.applyAutoSuppressionForClosedLead(
+      { cnpj, phone: lead?.phoneNormalized || lead?.phone, email: lead?.email },
+      lead?.closureReason,
+      { companyId, leadId: lead?.id },
+    );
   }
 
   async getAutomationBotConfigForUser(user: any) {
@@ -6783,6 +6808,16 @@ export class VendasService {
       status: 'opted_out',
     });
 
+    // S7 LEAD-CENTRICO: pedido EXPLÍCITO de remoção é o sinal mais forte que
+    // existe — marca opt_out PERMANENTE pra este e-mail na marquinha global
+    // (mais forte que o 'sem_interesse' de 12 meses que o encerramento
+    // abaixo vai gravar via applyContactSuppressionOnLeadClosed). Best-effort.
+    await this.contactSuppression
+      .mark({ email: recipientEmail }, 'opt_out', { companyId, leadId: lead.id })
+      .catch((error: any) => {
+        this.logger.warn(`[vendas-suppression] falha ao marcar opt_out e-mail lead=${lead.id}: ${String(error?.message || error)}`);
+      });
+
     let leadStatus = this.normalizeStatus((lead as any).status);
     if (leadStatus !== 'encerrado') {
       const result = await this.updateLeadForUser(user, normalizedLeadId, {
@@ -9097,8 +9132,23 @@ export class VendasService {
       skipReason?: string | null;
     }> = [];
     const failedImports: Array<{ name: string | null; phone: string | null; error: string }> = [];
+    let skippedBySuppressionCount = 0;
 
-    for (const item of incomingLeads) {
+    // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): ponto de ENTREGA — lead
+    // suprimido/resfriando (marquinha global de outra empresa) é pulado ANTES
+    // de virar card, com contador logado (visibilidade porta-a-porta). Uma
+    // query em lote pra não abrir N queries por item importado.
+    const { allowed: suppressionAllowedItems, suppressedCount: suppressionSkippedCount } =
+      await this.contactSuppression.filterSuppressed(incomingLeads, (raw: any) => ({
+        phone: raw?.phoneDigits || raw?.phone,
+        email: raw?.email,
+      }));
+    skippedBySuppressionCount = suppressionSkippedCount;
+    if (suppressionSkippedCount > 0) {
+      this.logger.log(`[vendas-suppression] import: ${suppressionSkippedCount} lead(s) pulado(s) por marquinha global (company=${context.companyId}).`);
+    }
+
+    for (const item of suppressionAllowedItems) {
       const itemName = this.normalizeText(item?.name);
       const itemPhone = this.normalizeText(item?.phone);
       const itemPhoneDigits = this.normalizePhone(item?.phoneDigits || item?.phone);
@@ -9495,6 +9545,11 @@ export class VendasService {
       skippedDuplicateCount,
       skippedProtectedCount,
       skippedByFilterCount,
+      // S7 LEAD-CENTRICO: quantos leads deste lote nem chegaram a ser
+      // avaliados por já estarem suprimidos/resfriando pra QUALQUER empresa
+      // (marquinha global) — contador logado separado do resto do funil de
+      // qualidade, pra visibilidade porta-a-porta.
+      skippedBySuppressionCount,
       leads: importedLeads,
       message:
         skippedWithoutWhatsapp > 0
@@ -9980,6 +10035,16 @@ export class VendasService {
     const previousSaleStatus = this.normalizeSaleStatus(existing.saleStatus);
     const updatedSaleStatus = this.normalizeSaleStatus(updated.saleStatus);
     const closedNow = statusChanged && nextStatus === 'encerrado';
+    // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1 "marquinha/supressão"): lead
+    // que ACABOU de fechar com motivo estruturado grava a marca global do
+    // contato (janela por motivo; 'convertido'/'outro' não marcam — filtro
+    // fica dentro do service). Best-effort: nunca derruba o encerramento que
+    // já foi persistido.
+    if (closedNow) {
+      await this.applyContactSuppressionOnLeadClosed(context.companyId, updated).catch((error: any) => {
+        this.logger.warn(`[vendas-suppression] falha ao marcar contato lead=${existing.id}: ${String(error?.message || error)}`);
+      });
+    }
     const saleConfirmedNow = updatedSaleStatus === 'sale_confirmed' && previousSaleStatus !== 'sale_confirmed';
     if (nextStatus === 'encerrado' || updatedSaleStatus === 'sale_confirmed') {
       await this.ensureCadastroFromVendasCard(context.companyId, updated, {

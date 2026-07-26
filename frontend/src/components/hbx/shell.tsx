@@ -777,6 +777,20 @@ export function isModuleVisible(
     if (!mod || mod.accessible !== true) return false;
   }
 
+  // S7 LEAD-CENTRICO (07-pool-raiz.md, item 3 "rebaixar Conversas por flag"):
+  // "atend" ganha um SEGUNDO gate independente por CIMA do de 'atendimento'
+  // (que continua intocado — é o dono de pairing/recovery/mensageria, não
+  // mexemos nele). 'conversas' é módulo companyAssignable próprio
+  // (defaultEnabled=true — empresa existente sem post-it "fica como está";
+  // empresa nova nasce com post-it OFF, ver seedConversasOptOutTx no
+  // backend). Cobre desktop (Sidebar/Topbar) e mobile (CascaTabBar) porque
+  // os 3 chamam isModuleVisible("atend", ...) — 1 lugar só.
+  if (id === "atend") {
+    if (!mods || !mods.loaded) return false;
+    const conversasMod = mods.byKey["conversas"];
+    if (!conversasMod || conversasMod.accessible !== true) return false;
+  }
+
   return true;
 }
 

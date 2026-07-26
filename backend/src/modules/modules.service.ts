@@ -151,14 +151,19 @@ const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
 //   dia a dia (Vendas, Radar, Atendimento, Cadastro, E-mail). Bot e Website são
 //   elegíveis mas nascem desligados (ferramenta de configuração da empresa, não
 //   do vendedor) — o admin liga pra quem quiser.
-const SELLER_ELIGIBLE_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento', 'cadastro', 'email', 'bot', 'website']);
-const SELLER_DEFAULT_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento', 'cadastro', 'email']);
+// S7 LEAD-CENTRICO: 'conversas' é o SEGUNDO gate da mesma tela de
+// 'atendimento' (isModuleVisible AND os dois) — precisa da MESMA régua de
+// cargo do vendedor, senão vendedor de empresa EXISTENTE (que hoje enxerga
+// Conversas) perderia o acesso por omissão (chave ausente = bloqueada em
+// resolveCargoModuleAllowed).
+const SELLER_ELIGIBLE_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento', 'conversas', 'cadastro', 'email', 'bot', 'website']);
+const SELLER_DEFAULT_MODULE_KEYS = new Set(['vendas', 'webscraping', 'atendimento', 'conversas', 'cadastro', 'email']);
 // Régua única (PR13062026007 P2): ACESSO POR CARGO. O molho do cargo Vendedor
 // (Company.sellerCargoAccessJson) decide o que o USER vê; nasce OPERACIONAL no
 // máximo (Vendas, Radar, Atendimento, Cadastro, E-mail). financeiro/gerencial
 // sao MURO do eixo Dono/Gerente — nunca entram no molho de vendedor (mesmo que o
 // JSON tente). ADMIN/master veem tudo da empresa.
-const SELLER_CARGO_DEFAULT_ACCESS = new Set(['vendas', 'webscraping', 'atendimento', 'cadastro', 'email']);
+const SELLER_CARGO_DEFAULT_ACCESS = new Set(['vendas', 'webscraping', 'atendimento', 'conversas', 'cadastro', 'email']);
 const SELLER_CARGO_WALL_MODULES = new Set(['financeiro', 'gerencial']);
 // Superficie do master puro (sem contexto de empresa): governo do sistema.
 // Planos, Email e Webwhats sao abas da central master; aqui ficam apenas os
@@ -166,6 +171,7 @@ const SELLER_CARGO_WALL_MODULES = new Set(['financeiro', 'gerencial']);
 const MASTER_SURFACE_MODULE_KEYS = new Set(['master', 'exclusoes']);
 const MODULE_DISPLAY_ORDER = [
   'atendimento',
+  'conversas',
   'vendas',
   'bot',
   'email',
@@ -2407,6 +2413,14 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       'cadastro',
       'email',
       'bot',
+      // S7 LEAD-CENTRICO: 'conversas' fica fora da caixa de qualquer plano
+      // (kill-switch por empresa, mesmo padrão de logistica/empresas/
+      // contatos/produtos) — precisa entrar SEMPRE aqui, senão empresa
+      // EXISTENTE (sem post-it) nunca aparece no /modules/me e o gate do
+      // frontend (isModuleVisible) esconde "Conversas" por engano (undefined
+      // != accessible:true) — o pedido do dono é o oposto: ela "fica como
+      // está" (visível, seguindo SystemModule.defaultEnabled=true).
+      'conversas',
     ]);
     for (const row of rows) {
       knownModuleKeys.add(this.normalizeRequestedModuleKey(row.systemModule.key));

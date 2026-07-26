@@ -22,6 +22,7 @@ import { COMPANY_KIND_PLATFORM_INFRA, isPlatformInfraCompany } from '../common/c
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import {
   buildProvisioningLedger,
+  seedConversasOptOutTx,
   seedTenantDefaultProductsTx,
   serializeProvisioningLedger,
   type TenantProvisioningLedgerStep,
@@ -545,6 +546,10 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         status: seededProducts.length ? 'done' : 'skipped',
         detail: `${seededProducts.filter((product) => product.created).length} criado(s)`,
       });
+
+      // S7 LEAD-CENTRICO: empresa nova nasce com o post-it 'conversas' OFF
+      // (ver seedConversasOptOutTx) — mesma regra das outras 2 portas.
+      await seedConversasOptOutTx(tx, company.id);
 
       let adminUser: any = null;
       if (contactEmail && inviteRawToken) {

@@ -52,6 +52,7 @@ import {
 import { allowsAdminMultiSession, MAX_ADMIN_WEB_SESSIONS } from './session-policy';
 import {
   buildProvisioningLedger,
+  seedConversasOptOutTx,
   seedTenantDefaultProductsTx,
   serializeProvisioningLedger,
 } from '../master-provisioning/tenant-provisioning.pipeline';
@@ -664,11 +665,18 @@ export class AuthService implements OnModuleInit {
     return 'Cadastro criado. Confirme seu e-mail para ativar sua conta.';
   }
 
-  private async seedDefaultCompanyModulesTx(_tx: any, _companyId: number) {
+  private async seedDefaultCompanyModulesTx(tx: any, companyId: number) {
     // Post-it (PR13062026007 PB2): a empresa NÃO nasce com cópia de módulos.
     // Ela segue a "caixa do plano" (ao vivo); CompanyModule passa a guardar só
     // post-it (exceção explícita do master, no Full). Sem seed = sem cópia
     // congelada que ignoraria as edições do plano.
+    //
+    // S7 LEAD-CENTRICO — ÚNICA exceção deliberada a essa regra: 'conversas'
+    // fica FORA da caixa de qualquer plano (não está em
+    // COMMERCIAL_PLAN_MODULE_KEYS), então sem post-it ela seguiria
+    // SystemModule.defaultEnabled — e o pedido do dono é "empresa nova nasce
+    // OFF". Grava o post-it explícito aqui (ver seedConversasOptOutTx).
+    await seedConversasOptOutTx(tx, companyId);
   }
 
   private async seedDefaultTenantProductsTx(tx: any, companyId: number) {

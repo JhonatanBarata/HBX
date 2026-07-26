@@ -17,6 +17,7 @@ import {
 import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from './dto/cadencia.dto';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
+import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { automationFlag } from '../automation/automation-flags';
 
 // ================================================================
@@ -75,6 +76,10 @@ export class CadenciaService {
   // daqui (janela/teto/intervalo da config comercial da empresa), nunca mais um
   // addDays cru. Mesmo padrão de instanciação manual do commercialContactControl.
   private readonly agendaDisparo: AgendaDisparoService;
+  // S7 LEAD-CENTRICO (07-pool-raiz.md) — cadência ESGOTADA (todos os passos
+  // rodaram sem resposta) é o gatilho de 'nao_atendeu' (resfriamento ~90
+  // dias). Mesmo padrão de instanciação manual acima.
+  private readonly contactSuppression: VendasContactSuppressionService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -92,6 +97,7 @@ export class CadenciaService {
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
+    this.contactSuppression = new VendasContactSuppressionService(this.prisma);
   }
 
   private get runnerEnabled(): boolean {
@@ -578,6 +584,13 @@ export class CadenciaService {
               status: 'completed',
               reason: 'all_steps_completed',
             });
+            // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): cadência esgotou os
+            // passos sem resposta = "não atendeu" -> resfriamento ~90 dias na
+            // marquinha global do contato. Best-effort: nunca derruba o
+            // fechamento do ciclo do runner.
+            await this.markNaoAtendeuAfterCadenciaExhausted(insc.companyId, insc.leadId).catch((error: any) => {
+              this.logger.warn(`[cadencia-suppression] falha ao marcar lead=${insc.leadId}: ${String(error?.message || error)}`);
+            });
           }
         } else {
           // Dia-alvo continua vindo da PERSONA (deltaDias, intocado); o servico de
@@ -624,6 +637,30 @@ export class CadenciaService {
     }
 
     return { ok: true, considered: due.length, executed, whatsSent, emailSent, concluded, failed };
+  }
+
+  // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): busca best-effort do contato
+  // (+ cnpj quando o lead está linkado a um CustomerProfile PJ) pra marcar
+  // 'nao_atendeu' (~90 dias) na marquinha global quando a cadência esgota os
+  // passos sem resposta alguma. Nunca lança — chamador já trata com .catch.
+  private async markNaoAtendeuAfterCadenciaExhausted(companyId: number, leadId: string): Promise<void> {
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: { id: leadId, companyId },
+      select: { id: true, phone: true, phoneNormalized: true, email: true, customerProfileId: true },
+    });
+    if (!lead) return;
+    let cnpj: string | null = null;
+    if (lead.customerProfileId) {
+      const profile = await this.prisma.customerProfile
+        .findUnique({ where: { id: lead.customerProfileId }, select: { cnpj: true } })
+        .catch(() => null);
+      cnpj = profile?.cnpj || null;
+    }
+    await this.contactSuppression.mark(
+      { cnpj, phone: lead.phoneNormalized || lead.phone, email: lead.email },
+      'nao_atendeu',
+      { companyId, leadId: lead.id },
+    );
   }
 
   // WhatsApp: reusa o caminho PROVADO do bot de prospeccao (com todos os freios).

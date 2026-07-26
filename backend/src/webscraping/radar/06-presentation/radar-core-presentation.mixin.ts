@@ -107,6 +107,11 @@ import { confirmedSegments } from '../../../users/segment-affinity.util';
 import { buildCnpjBaseQueryInputFromRadarFilters } from '../providers/cnpj-public/radar-base-availability.util';
 import type { CnpjBaseQueryInput } from '../providers/cnpj-public/cnpj-base-query.service';
 import { RadarSearchRateLimiterService } from '../search-rate-limit.service';
+// S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): marquinha/supressão global por
+// contato — instanciado à mão (só depende de PrismaService), mesmo padrão de
+// EventRuleService (cadencia-gatilho.service.ts), pra não abrir dependência
+// de módulo Nest entre Webscraping e Vendas só por causa disto.
+import { VendasContactSuppressionService } from '../../../vendas/vendas-contact-suppression.service';
 
 import type {
   AutonomousMassDataCandidate,
@@ -3004,16 +3009,36 @@ export class RadarCorePresentationMixin {
       filterKey: '',
       status: '',
     });
-    const availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
+    let availableRows = await this.queryRadarRowsForCompany(context.companyId, availabilityFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
       availableOnly: vitrine,
     });
-    const allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
+    let allRows = await this.queryRadarRowsForCompany(context.companyId, baseFilters, {
       limit: 2000,
       includeHidden: filters.includeHidden,
       availableOnly: vitrine,
     });
+    // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): ponto de SELEÇÃO do Radar —
+    // candidato com contato (telefone/e-mail) suprimido/resfriando por OUTRA
+    // empresa (marquinha global) some da vitrine/funil ANTES de virar card,
+    // contador logado (visibilidade porta-a-porta). Não toca o COUNT em SQL
+    // de `totalAvailable` (buildRadarWhere não conhece a marquinha ainda —
+    // limitação conhecida, documentada no relatório do sprint); a lista
+    // efetivamente exibida (allRows/availableRows/facets/paginação) já sai
+    // limpa.
+    if (allRows.length || availableRows.length) {
+      const suppression = new VendasContactSuppressionService(this.prisma);
+      const [allFiltered, availableFiltered] = await Promise.all([
+        suppression.filterSuppressed(allRows, (row: any) => ({ phone: row?.phoneDigits || row?.phone, email: row?.email })),
+        suppression.filterSuppressed(availableRows, (row: any) => ({ phone: row?.phoneDigits || row?.phone, email: row?.email })),
+      ]);
+      if (allFiltered.suppressedCount > 0) {
+        this.logger.log(`[radar-suppression] vitrine: ${allFiltered.suppressedCount} lead(s) pulado(s) por marquinha global (company=${context.companyId}).`);
+      }
+      allRows = allFiltered.allowed;
+      availableRows = availableFiltered.allowed;
+    }
     const filteredRows = filters.filterKey || filters.status || filters.ddd || filters.source || filters.scoreRange
       ? this.filterRadarRowsInMemory(allRows, filters)
       : allRows;

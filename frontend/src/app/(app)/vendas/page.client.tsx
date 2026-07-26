@@ -176,22 +176,10 @@ type BoardResponse = {
   };
 } | null;
 
-type TriagemItem = { key: string; label: string; ok: boolean };
-type Triagem = { confirmed: boolean; confirmedAt?: string | null; itens: TriagemItem[]; pendentes: string[]; pronto: boolean };
-type LiveStatus = {
-  status: string;
-  text?: string | null;
-  active?: boolean;
-  counters?: { todayPending: number; overdue: number; future: number; sent: number; positives: number; archived: number; failed: number };
-  nextScheduledAt?: string | null;
-  triagem?: Triagem | null;
-} | null;
-
-const PROSP_LABEL: Record<string, string> = {
-  parado: "Parada", pausado: "Pausada", erro: "Erro", dormindo: "Fora do horário",
-  buscando: "Buscando leads", importando: "Importando", agendando: "Agendando",
-  enviando: "Enviando", aguardando: "Aguardando",
-};
+// S7 LEAD-CENTRICO: os tipos TriagemItem/Triagem/LiveStatus e o dicionário
+// PROSP_LABEL do painel de status da Prospecção automática (start/pause/
+// resume/cancel + contadores) saíram daqui junto com o painel — a criação/
+// retomada de campanha foi aposentada no backend (07-pool-raiz.md, item 2).
 
 // Persistência do filtro de vendedor (admin) — sobrevive reload/navegação.
 const TEAM_FILTER_KEY = "hbx:vendas-team-filter";
@@ -1068,47 +1056,12 @@ export function VendasClient() {
     }
   }
 
-  // Prospecção automática (GET /vendas/automation/live-status + controles;
-  // exige entitlement Bot IA — sem plano, mostra o aviso do backend)
+  // S7 LEAD-CENTRICO (07-pool-raiz.md, item 2): o painel de status/controles
+  // (start/pause/resume/cancel) da Prospecção automática saiu daqui — a
+  // criação/retomada de campanha foi aposentada no backend. `prospOpen`
+  // continua: a drawer "Automações comerciais" ainda abre (config enxuta S5 +
+  // assistente).
   const [prospOpen, setProspOpen] = useState(false);
-  const [prosp, setProsp] = useState<LiveStatus>(null);
-  const [prospError, setProspError] = useState<string | null>(null);
-  const [prospBusy, setProspBusy] = useState(false);
-  const [prospCancelArm, setProspCancelArm] = useState(false);
-
-  const loadProsp = useCallback(() => {
-    return apiFetch<LiveStatus>("/vendas/automation/live-status")
-      .then(res => { setProsp(res); setProspError(null); })
-      .catch((err: unknown) => {
-        const e = err as Error & { status?: number };
-        setProsp(null);
-        setProspError(e?.status === 402
-          ? "Prospecção automática requer o módulo Bot IA liberado."
-          : e?.message || "Falha ao consultar a prospecção.");
-      });
-  }, []);
-
-  useEffect(() => {
-    if (!prospOpen) return;
-    let alive = true;
-    loadProsp();
-    const timer = setInterval(() => { if (alive) loadProsp(); }, 8000);
-    return () => { alive = false; clearInterval(timer); };
-  }, [prospOpen, loadProsp]);
-
-  async function prospAcao(path: string) {
-    if (prospBusy) return;
-    setProspBusy(true);
-    try {
-      await apiFetch(`/vendas/automation/prospecting/${path}`, { method: "POST", body: JSON.stringify({}) });
-      await loadProsp();
-    } catch (err) {
-      setProspError(err instanceof Error ? err.message : "Ação falhou.");
-    } finally {
-      setProspBusy(false);
-      setProspCancelArm(false);
-    }
-  }
 
   // S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA por empresa —
   // 1 cartão, 3 campos (janela de horário, teto de disparos/dia, intervalo mínimo).
@@ -1983,74 +1936,13 @@ export function VendasClient() {
                 Configurar assistente
               </button>
             </div>
-            <div className="field-label">Bot de prospecção</div>
-            {prospError && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)" }}>{prospError}</div>
-            )}
-            {prosp && (
-              <React.Fragment>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span className={"tag" + (prosp.active ? " teal" : prosp.status === "erro" ? " red" : " warn")}>
-                    {prosp.triagem && !prosp.triagem.confirmed ? "Aguardando triagem" : (PROSP_LABEL[prosp.status] || prosp.status)}
-                  </span>
-                  {prosp.nextScheduledAt && (
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.64rem", color: "var(--text-muted)" }}>
-                      próximo: {new Date(prosp.nextScheduledAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  )}
-                </div>
-                {prosp.text && <p style={{ margin: 0, fontSize: "0.72rem", lineHeight: 1.5, color: "var(--text-muted)" }}>{prosp.text}</p>}
-                <div className="kv">
-                  <div className="row"><span className="k">Para hoje</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{prosp.counters?.todayPending ?? 0}</span></div>
-                  <div className="row"><span className="k">Atrasados</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{prosp.counters?.overdue ?? 0}</span></div>
-                  <div className="row"><span className="k">Futuros</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{prosp.counters?.future ?? 0}</span></div>
-                  <div className="row"><span className="k">Enviados</span><span className="v" style={{ fontFamily: "var(--font-mono)" }}>{prosp.counters?.sent ?? 0}</span></div>
-                  <div className="row"><span className="k">Positivos</span><span className="v" style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-brand-strong)" }}>{prosp.counters?.positives ?? 0}</span></div>
-                  <div className="row"><span className="k">Falhas</span><span className="v" style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-danger)" }}>{prosp.counters?.failed ?? 0}</span></div>
-                </div>
-                {prosp.triagem && !prosp.triagem.confirmed && (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <div className="field-label">Triagem {prosp.triagem.pronto ? "completa — pronta para armar" : "pendente"}</div>
-                    <div className="kv">
-                      {prosp.triagem.itens.map(it => (
-                        <div className="row" key={it.key}>
-                          <span className="k">{it.label}</span>
-                          <span className={"tag" + (it.ok ? " teal" : " warn")}>{it.ok ? "✓ ok" : "pendente"}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-ink-muted" style={{ margin: 0, fontSize: "0.7rem", lineHeight: 1.5 }}>
-                      {prosp.triagem.pronto
-                        ? "O robô só dispara depois que o dono/gerente armar. Vendedor não liga."
-                        : "Configure os itens pendentes antes de ligar o robô. Sem triagem completa, a prospecção fica travada."}
-                    </p>
-                  </div>
-                )}
-                <div style={{ display: "grid", gap: 8 }}>
-                  {prosp.status === "parado" && (
-                    <button className="btn-teal" onClick={() => prospAcao("start")} disabled={prospBusy || (prosp.triagem ? !prosp.triagem.pronto : false)}>{prospBusy ? "Aguarde…" : "▶ Iniciar prospecção"}</button>
-                  )}
-                  {prosp.active && prosp.status !== "pausado" && (
-                    <button className="btn-ghost" onClick={() => prospAcao("pause")} disabled={prospBusy}>Pausar</button>
-                  )}
-                  {prosp.status === "pausado" && (
-                    <button className="btn-teal" onClick={() => prospAcao("resume")} disabled={prospBusy}>Retomar</button>
-                  )}
-                  {prosp.active && (
-                    prospCancelArm ? (
-                      <button className="btn-ghost" style={{ color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }} onClick={() => prospAcao("cancel")} disabled={prospBusy}>
-                        Confirmar cancelamento
-                      </button>
-                    ) : (
-                      <button className="btn-ghost" onClick={() => setProspCancelArm(true)} disabled={prospBusy}>Cancelar campanha</button>
-                    )
-                  )}
-                </div>
-              </React.Fragment>
-            )}
-            {!prosp && !prospError && (
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Consultando…</span>
-            )}
+            {/* S7 LEAD-CENTRICO (07-pool-raiz.md, item 2 "matar o puxa→dispara
+                PELA RAIZ"): o cadastro imenso de "Bot de prospecção" (iniciar/
+                pausar/retomar/cancelar campanha + contadores) SOMEU daqui — o
+                backend recusa criação/retomada de campanha nova com mensagem
+                clara (vendas-automation.service.ts). O único caminho de
+                disparo comercial que resta é o robozinho POR LEAD (aba
+                Planejar, dentro do lead — S4) usando a config enxuta acima. */}
           </div>
         </div>
       )}

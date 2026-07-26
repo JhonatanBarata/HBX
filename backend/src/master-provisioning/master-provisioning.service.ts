@@ -21,6 +21,7 @@ import {
 } from '../products/tenant-product-seed';
 import {
   buildProvisioningLedger,
+  seedConversasOptOutTx,
   seedManualEntitlementsTx,
   seedTenantModulesTx,
   serializeProvisioningLedger,
@@ -382,6 +383,10 @@ export class MasterProvisioningService {
         status: explicitModules ? 'done' : 'skipped',
         detail: explicitModules ? null : 'post-it vazio (módulos do plano ao vivo)',
       });
+
+      // S7 LEAD-CENTRICO: empresa nova nasce com o post-it 'conversas' OFF
+      // (ver seedConversasOptOutTx) — mesma regra das outras 2 portas.
+      await seedConversasOptOutTx(tx, company.id);
 
       const grantsEntitlements = plan.commercial.manualAccess && !plan.commercial.priceIsZero;
       if (grantsEntitlements) {

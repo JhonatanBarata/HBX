@@ -2113,7 +2113,24 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return out('handoff', 'yellow', 'Resposta neutra ou "falar depois". O bot pausa e deixa um humano dar sequência (não responde sozinho).');
   }
 
+  // S7 LEAD-CENTRICO (07-pool-raiz.md, item 2 "matar o puxa→dispara PELA
+  // RAIZ"): o motor de Prospecção automática deixa de existir como caminho de
+  // CRIAÇÃO/RETOMADA — "todo bot se perde e corre risco de ban, sem falar que
+  // manda msg nada a ver" (ordem do dono, 25/07). O único caminho de disparo
+  // comercial que resta é a CADÊNCIA por lead (S4, opt-in, robozinho) +
+  // agenda de slots (S5). Campanha viva em produção NÃO é parada/deletada por
+  // este sprint (decisão do dono no publish) — só a porta de entrada fecha.
+  // pauseProspectingForUser/cancelProspectingForUser/getLiveStatusForUser
+  // continuam de pé de propósito: quem já tem campanha rodando ainda
+  // consegue pausar/cancelar ela pelo próprio painel.
+  private refuseAutomaticProspectingCreation(): never {
+    throw new ForbiddenException(
+      'Prospecção automática por campanha foi aposentada. Use o robozinho por lead (aba Planejar, dentro do lead) — ele reusa a mesma cadência com os freios de sempre (parada na 1ª resposta, janela de horário, teto por chip, opt-out global).',
+    );
+  }
+
   async startProspectingForUser(user: any, dto: StartVendasProspectingDto) {
+    this.refuseAutomaticProspectingCreation();
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
     const botConfig = await this.inboxService.getBotConfig(user);
@@ -2227,6 +2244,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   async resumeProspectingForUser(user: any) {
+    // S7 LEAD-CENTRICO: "retomada" é o mesmo "puxa→dispara" pela porta de trás
+    // (ver refuseAutomaticProspectingCreation acima) — aposentada junto.
+    this.refuseAutomaticProspectingCreation();
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
@@ -3116,7 +3136,26 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  async enqueueLeadsForActiveCampaignForUser(user: any, leadIds: string[]) {
+  // S7 LEAD-CENTRICO (07-pool-raiz.md, item 2): esta era a outra ponta do
+  // "puxa→dispara" — syncTodayAgenda (ação corriqueira de abrir a agenda do
+  // dia) empurrava leads NOVOS pra dentro de uma campanha 'running' já
+  // existente, sem o vendedor clicar em nada sobre AQUELE lead. O método
+  // público abaixo (mesmo nome, chamado pelo controller) vira um no-op
+  // benigno — não cria job novo pra ninguém, mesmo se ainda existir uma
+  // campanha 'running' em prod (parar/deletar a campanha em si é decisão do
+  // dono no publish). A implementação ORIGINAL fica intacta, só renomeada e
+  // sem uso (mesmo padrão do S5 em business-hours.util.ts: colher por CÓPIA,
+  // preservar o original pra não perder regra nenhuma / permitir rollback).
+  async enqueueLeadsForActiveCampaignForUser(_user: any, leadIds: string[]) {
+    return {
+      ok: true,
+      queuedCount: 0,
+      skippedCount: Array.isArray(leadIds) ? leadIds.length : 0,
+      reason: 'prospeccao_automatica_aposentada',
+    };
+  }
+
+  private async enqueueLeadsForActiveCampaignForUser_legacyUnused(user: any, leadIds: string[]) {
     try {
       const context = this.resolveUserContext(user);
       const requestedLeadIds = Array.from(
