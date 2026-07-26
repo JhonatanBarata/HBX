@@ -1467,87 +1467,127 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    Zero cor literal — só token (5 Leis).
    ============================================================ */
 .vnd-cmd {
-  flex: none; margin: 8px 16px 10px; min-width: 0;
-  border: 1px solid var(--border-hairline); border-radius: var(--radius-lg);
-  background: var(--hbx-surface); box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  flex: none; margin: 0 0 6px; min-width: 0;
+  border-bottom: 1px solid var(--border-hairline);
+  background: transparent;
 }
-.vnd-cmd__top { display: flex; align-items: center; gap: 10px; padding: 8px 10px; min-width: 0; }
+.vnd-cmd__top {
+  display: flex; align-items: stretch; gap: 14px; padding: 0 12px; min-width: 0;
+  min-height: 38px;
+}
 
-/* Separador fino entre os 3 blocos da linha de comando (modo | etapas | ações) */
-.vnd-cmd__top > .vnd-stages { border-left: 1px solid var(--border-hairline); border-right: 1px solid var(--border-hairline); padding-inline: 8px; }
+/* MODOS — aba sublinhada, não pílula preenchida. A pílula gradiente era a
+   mesma forma dos chips, dos botões e das etapas: tudo virava balão igual. */
+.vnd-cmd__top > .vnd-segbtns { gap: 0; align-items: stretch; }
+.vnd-cmd__top .vnd-segbtn {
+  flex: none; padding: 0 11px; border: 0; border-radius: 0; background: transparent;
+  box-shadow: none; font-size: 0.76rem; font-weight: var(--weight-medium);
+  color: var(--text-muted); border-bottom: 2px solid transparent;
+}
+.vnd-cmd__top .vnd-segbtn:hover { background: transparent; color: var(--text-body); }
+.vnd-cmd__top .vnd-segbtn.is-on { color: var(--text-strong); border-bottom-color: var(--hbx-brand); }
+/* o vidro deslizante não entra aqui: quem marca o ativo é a linha-base */
+.vnd-cmd__top .vnd-segbtns > .glass-pill { display: none; }
 
-/* As 5 ETAPAS são a navegação principal — e carregam o número que os KPIs
-   diziam. Glass Pill deslizante (Lei nº2): a seleção nunca é borda própria. */
+/* GUIA DE ETAPAS — agora LÊ como guia: régua embaixo, ativo com linha cheia.
+   Antes dependia só da pílula deslizante e, sem etapa escolhida (estado
+   inicial!), não havia pílula nenhuma — virava texto solto (dono 26/07:
+   "nem parece que é um guia"). */
+/* Divisor entre MODO (Meu funil / Buscar) e ETAPA: sem ele os dois viram uma
+   fileira contínua de abas e some a diferença entre "onde estou" e "que etapa
+   estou olhando". Régua fina, não caixa. */
 .vnd-stages {
-  position: relative; display: flex; align-items: stretch; gap: 2px;
+  position: relative; display: flex; align-items: stretch; gap: 0;
   flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none;
-  --glass-pill-radius: var(--radius-sm);
+  margin-left: 4px; padding-left: 14px;
+  border-left: 1px solid var(--border-hairline);
 }
 .vnd-stages::-webkit-scrollbar { display: none; }
 .vnd-stagetab {
   position: relative; z-index: 1;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-  border: none; background: transparent; cursor: pointer;
-  padding: 5px 12px; border-radius: var(--radius-sm); white-space: nowrap;
-  font-family: var(--font-body); color: var(--text-muted);
-  transition: color var(--motion-fast);
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer;
+  padding: 0 12px; border-radius: 0; white-space: nowrap;
+  font-family: var(--font-body); font-size: 0.76rem; font-weight: var(--weight-regular);
+  color: var(--text-muted);
+  transition: color var(--motion-fast), border-color var(--motion-fast);
 }
 .vnd-stagetab:hover { color: var(--text-body); }
-.vnd-stagetab.is-on { color: var(--text-strong); }
+.vnd-stagetab.is-on { color: var(--text-strong); border-bottom-color: var(--hbx-brand); }
 .vnd-stagetab.is-static { cursor: default; }
-.vnd-stagetab__l { display: inline-flex; align-items: center; gap: 6px; font-size: 0.71rem; font-weight: 700; }
+.vnd-stagetab__l { display: inline-flex; align-items: center; gap: 6px; }
+/* o número anda na MESMA linha do rótulo e na mesma letra — só muda a cor */
 .vnd-stagetab__n {
-  font-family: var(--font-mono); font-size: 1.02rem; font-weight: 500; line-height: 1.05;
-  color: var(--text-strong); opacity: 0.5; transition: opacity var(--motion-fast), color var(--motion-fast);
+  font-family: var(--font-mono); font-size: 0.76rem; font-weight: var(--weight-regular);
+  line-height: 1; color: var(--text-strong); opacity: 0.45;
+  transition: opacity var(--motion-fast), color var(--motion-fast);
 }
-.vnd-stagetab.is-on .vnd-stagetab__n, .vnd-stagetab.is-static .vnd-stagetab__n { opacity: 1; }
-/* A etapa QUENTE ("Te chamou" com gente esperando) é o próprio alarme: o número
-   vira vermelho. Nada de badge repetindo a mesma contagem ao lado do rótulo. */
-.vnd-stagetab.is-hot .vnd-stagetab__l { color: var(--hbx-danger); }
+.vnd-stagetab:hover .vnd-stagetab__n,
+.vnd-stagetab.is-on .vnd-stagetab__n,
+.vnd-stagetab.is-static .vnd-stagetab__n { opacity: 1; }
+/* etapa quente ("Te chamou" com gente esperando): o número é o próprio alarme */
+.vnd-stagetab.is-hot { color: var(--hbx-danger); }
 .vnd-stagetab.is-hot .vnd-stagetab__n { color: var(--hbx-danger); opacity: 1; }
+.vnd-stagetab.is-hot.is-on { border-bottom-color: var(--hbx-danger); }
 .vnd-stagetab__dot {
-  width: 6px; height: 6px; border-radius: 999px; flex: none;
+  width: 5px; height: 5px; border-radius: 999px; flex: none;
   background: var(--hbx-brand); animation: vnd-dot-pulse 1.8s var(--ease-out-quint) infinite;
 }
 .vnd-stagetab__dot--hot { background: var(--hbx-danger); animation-duration: 1.4s; }
 @keyframes vnd-dot-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
-  50% { box-shadow: 0 0 0 5px transparent; }
+  50% { box-shadow: 0 0 0 4px transparent; }
 }
+/* Bloco só-leitura dos números do Radar (modo Buscar): rótulo e valor lado a
+   lado, sem virar aba clicável. */
+.vnd-stages--buscar { flex: none; gap: 18px; }
+.vnd-stages--buscar .vnd-stagetab { padding-inline: 0; }
 
-.vnd-cmd__acts { display: flex; align-items: center; gap: 6px; flex: none; }
+.vnd-cmd__acts { display: flex; align-items: center; gap: 4px; flex: none; }
 .vnd-cmd__acts .vnd-colspick, .vnd-cmd__acts .vnd-team { position: relative; display: inline-flex; }
 
-/* ── FAIXA DE CONTEXTO: onde você está, o que está rolando, o que fazer ──── */
+/* ── LINHA DE CONTEXTO: 1 linha, sem ícone-medalhão, sem faixa colorida ────
+   O bloco de antes tinha 62px de altura, círculo grande e degradê — comia a
+   tela que era pra ser da lista. Agora é uma frase e as ações dela. */
 .vnd-ctx {
-  display: flex; align-items: center; gap: 12px; min-width: 0;
-  padding: 10px 14px; border-top: 1px solid var(--border-hairline);
-  background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-brand) 7%, transparent), transparent 62%);
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 5px 12px; min-height: 28px;
+  border-top: 1px solid color-mix(in srgb, var(--border-hairline) 60%, transparent);
 }
-.vnd-ctx[data-tone="hot"] { background: linear-gradient(90deg, color-mix(in srgb, var(--hbx-danger) 12%, transparent), transparent 62%); }
-.vnd-ctx[data-tone="calm"] { background: linear-gradient(90deg, color-mix(in srgb, var(--text-body) 5%, transparent), transparent 62%); }
-.vnd-ctx__ic {
-  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--hbx-brand) 16%, transparent); color: var(--hbx-brand-strong);
+.vnd-ctx__txt {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px;
+  animation: vnd-ctx-swap 300ms var(--ease-out-quint);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
 }
-.vnd-ctx[data-tone="hot"] .vnd-ctx__ic { background: color-mix(in srgb, var(--hbx-danger) 14%, transparent); color: var(--hbx-danger); }
-.vnd-ctx__txt { flex: 1; min-width: 0; animation: vnd-ctx-swap 380ms var(--ease-out-quint); }
 .vnd-ctx__txt > b {
-  display: block; font-family: var(--font-display); font-size: 0.87rem; font-weight: 700;
-  line-height: 1.3; color: var(--text-strong);
+  flex: none; font-size: 0.76rem; font-weight: var(--weight-medium);
+  color: var(--text-strong); letter-spacing: -0.005em;
+}
+.vnd-ctx__txt > small {
+  min-width: 0; font-size: 0.72rem; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.vnd-ctx__txt > small { display: block; margin-top: 2px; font-size: 0.72rem; color: var(--text-body); }
-.vnd-ctx__n { font-family: var(--font-mono); font-weight: 500; color: var(--text-strong); }
-.vnd-ctx[data-tone="hot"] .vnd-ctx__n { color: var(--hbx-danger); }
-.vnd-ctx__dot { margin: 0 6px; color: var(--text-muted); }
-.vnd-ctx__acts { display: flex; align-items: center; gap: 8px; flex: none; }
-@keyframes vnd-ctx-swap { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+.vnd-ctx__n { font-family: var(--font-mono); color: var(--text-body); }
+.vnd-ctx[data-tone="hot"] .vnd-ctx__n,
+.vnd-ctx[data-tone="hot"] .vnd-ctx__txt > b { color: var(--hbx-danger); }
+.vnd-ctx__dot { margin: 0 5px; color: var(--text-muted); opacity: 0.6; }
+.vnd-ctx__acts { display: flex; align-items: center; gap: 6px; flex: none; }
+@keyframes vnd-ctx-swap { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
-/* "Buscando empresas" continua persistente nos 2 modos — mudou de andar. */
-.vnd-ctx > .vnd-supcard { flex: none; }
+/* "Buscando empresas": na barra antiga era um DISCO SEM TEXTO (o card foi
+   reduzido a "indicador visual puro"). Sozinho na linha vira bolha misteriosa —
+   ninguém adivinha que aquilo é o Radar e quantas vagas restam. Aqui ele volta
+   a FALAR: pontinho pequeno varrendo + rótulo + contagem. */
+.vnd-ctx > .vnd-supcard {
+  flex: none; gap: 6px; padding: 0; border: 0; background: transparent; box-shadow: none;
+}
+.vnd-ctx > .vnd-supcard .vnd-supcard__ic { width: 13px; height: 13px; border-width: 0; }
+.vnd-ctx > .vnd-supcard .vnd-supcard__txt {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  font-size: 0.72rem; color: var(--text-muted); white-space: nowrap;
+}
+.vnd-ctx > .vnd-supcard .vnd-supcard__val { font-family: var(--font-mono); color: var(--text-body); }
+.vnd-ctx > .vnd-supcard .vnd-supcard__cta { display: inline; color: var(--hbx-brand-strong); font-size: 0.72rem; }
 
 /* ============================================================
    /VENDAS — GRADE (planilha). 1 linha por lead, 1 dado por coluna,

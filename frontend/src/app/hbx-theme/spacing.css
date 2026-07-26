@@ -38,19 +38,23 @@
      (base.css) a densidade já vem daí, e 212px era estreito DEMAIS pro card
      show-off do Radar (disco 148px + paddings acumulados > 212px, cortava na
      borda direita). 240px dá folga real; o conteúdo também virou fluido. */
-  --rail-width: 228px;       /* primary nav rail (era 260px)   */
-  --rail-width-min: 64px;    /* rail colapsado — só ícone (novo) */
-  --context-width: 248px;    /* contextual sidebar — ORIGINAL (dono 06/07: densidade apertou o radar/aside que divide a linha com os cards; voltou 240→248) */
-  --shell-gap: 12px;
-  --content-gutter: 12px;
+  /* PASSE 1920x1080 (dono, 26/07: "parece tela 800x600"). O cromo estava
+     comendo ~25% da altura antes do primeiro dado aparecer. Estes números são
+     a régua: rail e aside mais estreitos, controles mais baixos, linha de lista
+     mais fina. Tudo o resto no app é rem/token e encolhe junto. */
+  --rail-width: 200px;       /* primary nav rail (era 228px)   */
+  --rail-width-min: 56px;    /* rail colapsado — só ícone (era 64px) */
+  --context-width: 232px;    /* contextual sidebar (era 248px) */
+  --shell-gap: 8px;
+  --content-gutter: 8px;
 
   /* ---- Control sizing ------------------------------------------------- */
-  --control-height: 32px;    /* default button (era 38px)     */
-  --control-height-sm: 28px; /* era 32px */
-  --field-height: 36px;      /* inputs (era 42px) */
+  --control-height: 28px;    /* default button (era 32px)     */
+  --control-height-sm: 24px; /* era 28px */
+  --field-height: 32px;      /* inputs (era 36px) */
 
   /* ---- Row sizing (novo — passe de densidade) -------------------------- */
-  --row-height: 48px;        /* linha densa de lista de dados */
+  --row-height: 36px;        /* linha densa de lista de dados (era 48px) */
 
   /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — métrica ESTRUTURAL da casca -----
      A régua aprovada pelo dono (violar = refazer): cromo ≤140px, topo 1 linha

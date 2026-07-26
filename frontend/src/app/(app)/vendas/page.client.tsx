@@ -548,7 +548,6 @@ export function VendasClient() {
   // etapa; clicar de novo na guia ativa limpa (null = mostra tudo). Estado
   // local só (não persiste). Seleção ativa = Glass Pill (Lei nº2).
   const [stageFilter, setStageFilter] = useState<VendasStage | null>(null);
-  const guidePill = useGlassPill<HTMLButtonElement>(stageFilter, view);
   // ── Grade (planilha): colunas do usuário, ordenação por coluna, edição inline.
   // Colunas e ordenação vivem em localStorage (por navegador/usuário logado).
   const [gridKeys, setGridKeys] = useState<string[]>(() => {
@@ -1364,7 +1363,10 @@ export function VendasClient() {
   // vendedor, a linha de fatos daquela etapa e as ações que fazem sentido ali.
   // Sem etapa escolhida a faixa vira o resumo do funil — que é exatamente o que
   // os 3 KPIs do topo diziam antes (total / atrasados / fechados).
-  const ctxBrief: { tone: string; icon: string[]; title: string; facts: React.ReactNode; actions: React.ReactNode } = (() => {
+  // O título é CURTO e diz o SENTIDO da etapa (o nome dela já está na guia logo
+  // acima — repetir seria ocupar linha à toa); os fatos vêm depois, na mesma
+  // linha, em cinza.
+  const ctxBrief: { tone: string; title: string; facts: React.ReactNode; actions: React.ReactNode } = (() => {
     const fato = (parts: React.ReactNode[]) => (
       <React.Fragment>
         {parts.filter(Boolean).map((p, i) => (
@@ -1375,8 +1377,8 @@ export function VendasClient() {
     const n = (v: number | string) => <b className="vnd-ctx__n">{v}</b>;
 
     if (stageFilter === "novo") return {
-      tone: "calm", icon: ICONS.vendas,
-      title: `Planejar — ${stageCounts.novo} lead${stageCounts.novo === 1 ? "" : "s"} esperando sua decisão`,
+      tone: "calm",
+      title: "Leia, decida e ligue o robô",
       facts: fato([
         <React.Fragment key="z">{n(briefing.comZap)} com WhatsApp</React.Fragment>,
         briefing.semContato > 0 ? <React.Fragment key="s">{n(briefing.semContato)} sem nenhum contato</React.Fragment> : null,
@@ -1391,8 +1393,8 @@ export function VendasClient() {
     };
 
     if (stageFilter === "contato") return {
-      tone: "bot", icon: ICONS.bot,
-      title: `Robô trabalhando — ${stageCounts.contato} em cadência, você não precisa fazer nada`,
+      tone: "bot",
+      title: "Cadência rodando — você não precisa fazer nada",
       facts: fato([
         briefing.proximoDisparo ? <React.Fragment key="d">próximo disparo {n(fmtHora(briefing.proximoDisparo) || "—")}</React.Fragment> : null,
         <React.Fragment key="j">janela {n(`${comercialConfigDraft.workingHoursStart}–${comercialConfigDraft.workingHoursEnd}`)}</React.Fragment>,
@@ -1402,8 +1404,8 @@ export function VendasClient() {
     };
 
     if (stageFilter === "retorno") return {
-      tone: "hot", icon: ICONS.clock,
-      title: `Te chamou — ${stageCounts.retorno} esperando VOCÊ responder`,
+      tone: "hot",
+      title: `${stageCounts.retorno} esperando você responder`,
       facts: fato([
         briefing.maisAntigo ? <React.Fragment key="e">espera mais antiga {n(fmtEspera(briefing.maisAntigo.at, agora) || "—")}</React.Fragment> : null,
         briefing.chamaramAtrasados > 0 ? <React.Fragment key="a">{n(briefing.chamaramAtrasados)} atrasado{briefing.chamaramAtrasados === 1 ? "" : "s"}</React.Fragment> : null,
@@ -1415,8 +1417,8 @@ export function VendasClient() {
     };
 
     if (stageFilter === "qualificado") return {
-      tone: "calm", icon: ICONS.check,
-      title: `Negociação — ${stageCounts.qualificado} lead${stageCounts.qualificado === 1 ? "" : "s"} que você assumiu`,
+      tone: "calm",
+      title: "Você assumiu: proposta e acompanhamento",
       facts: fato([
         // LEI DO VENDEDOR: soma em R$ só para quem o backend autoriza.
         board?.canViewValues && briefing.somaNegociacao > 0
@@ -1428,8 +1430,8 @@ export function VendasClient() {
     };
 
     if (stageFilter === "encerrado") return {
-      tone: "calm", icon: ICONS.check,
-      title: `Fechado — ${stageCounts.encerrado} contrato${stageCounts.encerrado === 1 ? "" : "s"}`,
+      tone: "calm",
+      title: `${stageCounts.encerrado} contrato${stageCounts.encerrado === 1 ? "" : "s"} fechado${stageCounts.encerrado === 1 ? "" : "s"}`,
       facts: fato([
         briefing.comissaoPendente > 0
           ? <React.Fragment key="c">{n(briefing.comissaoPendente)} com comissão pendente</React.Fragment>
@@ -1440,12 +1442,12 @@ export function VendasClient() {
 
     // Sem etapa escolhida: o resumo do funil (o que os 3 KPIs mostravam).
     return {
-      tone: "calm", icon: ICONS.vendas,
-      title: board?.team ? "Funil da empresa — escolha uma etapa acima" : "Seu funil — escolha uma etapa acima",
+      tone: "calm",
+      title: board?.team ? "Funil da empresa" : "Escolha uma etapa acima",
       facts: fato([
-        <React.Fragment key="t">{n(summary ? summary.total : "—")} cards no funil</React.Fragment>,
-        <React.Fragment key="a">{n(summary ? summary.overdue : "—")} atrasados</React.Fragment>,
-        <React.Fragment key="f">{n(summary ? summary.closed : "—")} fechados</React.Fragment>,
+        <React.Fragment key="t">{n(summary ? summary.total : "—")} {summary?.total === 1 ? "card" : "cards"} no funil</React.Fragment>,
+        <React.Fragment key="a">{n(summary ? summary.overdue : "—")} {summary?.overdue === 1 ? "atrasado" : "atrasados"}</React.Fragment>,
+        <React.Fragment key="f">{n(summary ? summary.closed : "—")} {summary?.closed === 1 ? "fechado" : "fechados"}</React.Fragment>,
       ]),
       actions: null,
     };
@@ -1539,9 +1541,11 @@ export function VendasClient() {
           <div className="vnd-cmd" data-mode={modo}>
             <div className="vnd-cmd__top">
               {segToggle}
+              {/* Sem Glass Pill no guia: quem marca a etapa aberta é a LINHA-BASE.
+                  A pílula preenchida por baixo do sublinhado eram duas marcações
+                  brigando — e o texto sumia dentro do verde. */}
               {modo === "funil" && (
-                <div className="vnd-stages glass-pill-track" role="tablist" aria-label="Etapa do lead" data-tut="vendas-etapas">
-                  <GlassPill {...guidePill} />
+                <div className="vnd-stages" role="tablist" aria-label="Etapa do lead" data-tut="vendas-etapas">
                   {STAGE_ORDER.map(stage => {
                     const active = stageFilter === stage.key;
                     const contagem = stageCounts[stage.key];
@@ -1554,11 +1558,10 @@ export function VendasClient() {
                       <button
                         key={stage.key}
                         type="button"
-                        ref={guidePill.itemRef(stage.key)}
                         role="tab"
                         aria-selected={active}
                         title={stage.sub}
-                        className={"vnd-stagetab glass-pill-item" + (active ? " is-on" : "") + (quente ? " is-hot" : "")}
+                        className={"vnd-stagetab" + (active ? " is-on" : "") + (quente ? " is-hot" : "")}
                         onClick={() => setStageFilter(f => (f === stage.key ? null : stage.key))}
                       >
                         <span className="vnd-stagetab__l">
@@ -1646,39 +1649,38 @@ export function VendasClient() {
             {/* Faixa de contexto — o "painel mais claro": diz onde você está, o
                 que está acontecendo ali e o que dá pra fazer. Seleção múltipla
                 assume a MESMA faixa (não nasce uma barra nova). */}
-            <div className={"vnd-ctx" + (selecionados.size > 0 ? " is-bulk" : "")} data-tone={selecionados.size > 0 ? "calm" : ctxBrief.tone}>
-              {selecionados.size > 0 ? (
-                <React.Fragment>
-                  <span className="vnd-ctx__ic" aria-hidden="true"><I d={ICONS.check} size={17} /></span>
-                  <span className="vnd-ctx__txt">
-                    <b>{selecionados.size} card{selecionados.size === 1 ? "" : "s"} selecionado{selecionados.size === 1 ? "" : "s"}</b>
-                    <small>{bulkMsg ? <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span> : "Escolha o que fazer com eles ou desmarque para voltar."}</small>
-                  </span>
-                  <span className="vnd-ctx__acts">
-                    <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
-                    <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
-                      <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
-                    </button>
-                  </span>
-                </React.Fragment>
-              ) : (
-                <React.Fragment>
-                  <span className="vnd-ctx__ic" aria-hidden="true"><I d={ctxBrief.icon} size={17} /></span>
-                  <span className="vnd-ctx__txt" key={"ctx-" + modo + "-" + (stageFilter || "todos")}>
-                    <b>{modo === "buscar" ? "Buscar empresas — o Radar procura, você escolhe quem entra no funil" : ctxBrief.title}</b>
-                    <small>{modo === "buscar" ? "Puxe um lead e ele nasce na etapa Planejar do seu funil." : ctxBrief.facts}</small>
-                  </span>
-                  {/* "Buscando empresas" continua persistente nos 2 modos — só mudou
-                      de andar: agora mora na faixa, não numa barra própria. */}
-                  {board?.radarSupply && (
-                    <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
-                  )}
-                  {modo === "funil" && ctxBrief.actions && (
-                    <span className="vnd-ctx__acts">{ctxBrief.actions}</span>
-                  )}
-                </React.Fragment>
-              )}
-            </div>
+            {/* No modo Buscar a linha de contexto NÃO existe: o Radar tem o
+                cabeçalho dele logo abaixo e duas explicações empilhadas
+                espremiam a lista, que é o que importa ali (dono 26/07). */}
+            {modo === "funil" && (
+              <div className={"vnd-ctx" + (selecionados.size > 0 ? " is-bulk" : "")} data-tone={selecionados.size > 0 ? "calm" : ctxBrief.tone}>
+                {selecionados.size > 0 ? (
+                  <React.Fragment>
+                    <span className="vnd-ctx__txt">
+                      <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
+                      <small>{bulkMsg ? <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span> : "Escolha o que fazer com eles ou desmarque para voltar."}</small>
+                    </span>
+                    <span className="vnd-ctx__acts">
+                      <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
+                      <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
+                        <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
+                      </button>
+                    </span>
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <span className="vnd-ctx__txt" key={"ctx-" + (stageFilter || "todos")}>
+                      <b>{ctxBrief.title}</b>
+                      <small>{ctxBrief.facts}</small>
+                    </span>
+                    {board?.radarSupply && (
+                      <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
+                    )}
+                    {ctxBrief.actions && <span className="vnd-ctx__acts">{ctxBrief.actions}</span>}
+                  </React.Fragment>
+                )}
+              </div>
+            )}
           </div>
 
           {/* STAGE — camadas SOBREPOSTAS em crossfade (uma casca só). */}

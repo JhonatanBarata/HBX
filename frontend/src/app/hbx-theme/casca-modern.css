@@ -25,12 +25,22 @@
    especificidade dos blocos de pele; este arquivo importa por último,
    então vence o empate — inclusive contra os --radius-* das peles. */
 [data-casca="modern"][data-theme] {
-  /* geometria: canto generoso do mockup (hero 28/30, cards 22/24) */
-  --radius-xs: 10px;
-  --radius-sm: 14px;
-  --radius-md: 18px;
-  --radius-lg: 24px;
-  --radius-xl: 30px;
+  /* GEOMETRIA (revista 26/07 — dono: "o balão redondo está gasto e repetitivo").
+     O canto generoso do mockup original (10/14/18/24/30) engordava tudo e dava
+     ar de tela pequena esticada. A escada nova é discreta: a forma some e o
+     conteúdo aparece. A pílula (999px) foi APOSENTADA no app — ver bloco
+     "fim da pílula" mais abaixo. */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 13px;
+  --radius-xl: 16px;
+
+  /* UMA LETRA SÓ (dono 26/07: "centralize a mesma letra"). As peles trazem duas
+     famílias (display + body); no app elas viram a MESMA — display vira apelido
+     do body. O contraste de hierarquia passa a vir de tamanho e cor, não de
+     trocar a fonte no meio da tela. O site público não usa esta casca. */
+  --font-display: var(--font-body);
 
   /* vidro mais profundo que qualquer pele clássica */
   --blur-chrome: 24px;
@@ -140,8 +150,45 @@
    Mesmo DOM de sempre: .app > .side + .main(.topbar + .app-page).
    ============================================================ */
 [data-casca="modern"] .app {
-  padding: 14px;
-  gap: 14px;
+  padding: 7px;
+  gap: 7px;
+}
+
+/* ============================================================
+   PASSE PREMIUM (dono, 26/07) — três ordens, resolvidas no CENTRO
+   para não virar caça a font-weight tela por tela:
+     1. "centralize a mesma letra"  → --font-display = --font-body (acima)
+     2. "nada de negrito"           → teto de peso no app inteiro
+     3. "o balão redondo está gasto e repetitivo, use outros"
+   Escopo: `.app` (o sistema). O site público e o login não entram.
+   ============================================================ */
+
+/* 2. TETO DE PESO. Bold começa em 700 — aqui o app inteiro para em 600, e o
+   texto corrido fica em 400/500. Especificidade [data-casca] + .app + tag ganha
+   das regras de tela (classe única), então nenhuma tela precisa ser editada. */
+[data-casca="modern"] .app :is(h1, h2, h3, h4, h5, h6, b, strong, th, dt, legend, summary, label, button, a) {
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
+}
+[data-casca="modern"] .app :is(p, td, span, small, li, input, textarea, select) {
+  font-weight: var(--weight-regular);
+}
+/* Rótulo em caixa-alta é o único lugar onde o peso não carrega a hierarquia —
+   quem separa é o tracking. Premium é isto: pouco peso, muito respiro. */
+[data-casca="modern"] .app :is(.hbx-overline, .nav-group-label, th) {
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+}
+
+/* 3. FIM DA PÍLULA. O 999px estava em botão redondo, chip, badge, aba, medidor
+   e avatar ao mesmo tempo — a mesma forma repetida em tudo apaga a diferença
+   entre as coisas. Agora só o que é REDONDO DE VERDADE (avatar, ponto de
+   status, anel de progresso) continua circular; o resto vira canto discreto. */
+[data-casca="modern"] .app :is(.round-btn, .search, .tag, .badge, .chip, .seg, .seg-toggle, .glass-pill, .glass-pill__glass) {
+  border-radius: var(--radius-sm);
+}
+[data-casca="modern"] .app :is(.tag, .badge, .chip) {
+  border-radius: var(--radius-xs);
 }
 
 /* rail de vidro — SEM backdrop-filter (painel grande, ver nota PERF acima):

@@ -476,7 +476,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
 
-  const stagePill = useGlassPill<HTMLButtonElement>(stage, COCKPIT_STAGES.length);
   const personaPill = useGlassPill<HTMLButtonElement>(selectedPersonaKey || "", preVoo?.personas?.length || 0);
 
   const channelTargets: Partial<Record<Canal, string>> = {
@@ -1401,22 +1400,24 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           </header>
 
           <div className="lead-cockpit__statusbar">
-            <nav className="glass-pill-track lead-cockpit__stage-track" aria-label="Etapa do lead">
-              <GlassPill {...stagePill} />
-              {COCKPIT_STAGES.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  ref={stagePill.itemRef(item.key)}
-                  className={`glass-pill-item lead-cockpit__stage-item${stage === item.key ? " is-active" : ""}`}
-                  aria-pressed={stage === item.key}
-                  onClick={() => void changeStage(item.key)}
-                  disabled={stageBusy}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </nav>
+            {/* 26/07 — a fileira Planejar/Robô/Te chamou/Negociação/Fechado saiu
+                daqui: era a MESMA guia da tela de trás, e dentro da ficha ela
+                lia como navegação ("por que estou vendo o funil de novo?").
+                Aqui a etapa é um DADO do lead, então virou um campo: mostra em
+                que etapa ele está e deixa mudar. Mesmo endpoint (changeStage). */}
+            <label className="lead-cockpit__stage-field">
+              <small>Etapa</small>
+              <select
+                value={stage}
+                disabled={stageBusy}
+                aria-label="Etapa do lead"
+                onChange={(event) => void changeStage(event.target.value as CockpitStage)}
+              >
+                {COCKPIT_STAGES.map((item) => (
+                  <option key={item.key} value={item.key}>{item.label}</option>
+                ))}
+              </select>
+            </label>
             <div className="lead-cockpit__header-next">
               <span><small>Próxima ação</small><strong>{lead.nextAction || "Primeiro contato"}</strong></span>
               <span><small>Quando</small><strong>{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</strong></span>

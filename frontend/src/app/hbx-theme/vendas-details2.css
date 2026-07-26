@@ -113,7 +113,7 @@
   overflow: hidden;
 }
 
-.hbx-modal.lead-cockpit.lead-cockpit--approved {
+.hbx-modal.lead-cockpit.lead-cockpit--workbench {
   /* MOLDURA ADAPTATIVA (22/07) — nenhum px de altura fixo, nunca mais.
      A escada cresce com a tela em vez de virar um selo ilhado:
        1368x648 útil → ~1180 x 624  (usa tudo o que existe, não corta)
@@ -172,7 +172,9 @@
   border-radius: 22px;
   background: var(--hbx-surface);
   box-shadow: var(--shadow-lg);
-  animation: lead-cockpit-approved-pop 0.28s var(--ease-out-quint) both;
+  /* sem `pop`: a entrada da ficha é o FLIP que cresce da linha clicada
+     (lead-cockpit-modal.tsx). Dois movimentos juntos = ficha nascendo torta. */
+  animation: none;
 }
 
 @keyframes lead-cockpit-approved-pop {
@@ -180,9 +182,9 @@
   to { opacity: 1; transform: none; }
 }
 
-.lead-cockpit--approved *,
-.lead-cockpit--approved *::before,
-.lead-cockpit--approved *::after {
+.lead-cockpit--workbench *,
+.lead-cockpit--workbench *::before,
+.lead-cockpit--workbench *::after {
   box-sizing: border-box;
 }
 
@@ -205,17 +207,17 @@
 /* Piso dos selos DENTRO da ficha. `.tag`/`.badge-win` nascem em 0.64rem no
    kit — medida do app inteiro, que não é assunto desta tela. Aqui só sobe o
    que aparece na ficha; o kit fica intocado. */
-.lead-cockpit--approved .tag,
-.lead-cockpit--approved .badge-win,
-.lead-cockpit--approved .radar-ai-badge,
-.lead-cockpit--approved .muted-note {
+.lead-cockpit--workbench .tag,
+.lead-cockpit--workbench .badge-win,
+.lead-cockpit--workbench .radar-ai-badge,
+.lead-cockpit--workbench .muted-note {
   font-size: var(--lc-fs-body);
 }
 
 /* O texto do canal (WhatsApp/E-mail) e o que a guia escreve dentro do corpo
    seguem o mesmo body — sem isto cada um herdava do kit e a ficha ficava com
    três tamanhos na mesma linha de leitura. */
-.lead-cockpit--approved .lead-cockpit__channel-body :where(.muted-note, p, small, button, input, textarea) {
+.lead-cockpit--workbench .lead-cockpit__channel-body :where(.muted-note, p, small, button, input, textarea) {
   font-size: var(--lc-fs-body);
 }
 
@@ -1672,7 +1674,7 @@
   background: var(--hbx-surface);
   box-shadow: var(--shadow-lg);
   transform: translate(-50%, -50%);
-  animation: lead-cockpit-approved-pop 0.22s var(--ease-out-quint) both;
+  animation: none;
 }
 
 .lead-cockpit__agenda-popover-head {
@@ -1710,7 +1712,7 @@
 }
 
 @media (max-width: 1180px) {
-  .hbx-modal.lead-cockpit.lead-cockpit--approved {
+  .hbx-modal.lead-cockpit.lead-cockpit--workbench {
     width: 100%;
     height: 100%;
   }
@@ -1766,7 +1768,7 @@
     align-items: stretch;
   }
 
-  .hbx-modal.lead-cockpit.lead-cockpit--approved {
+  .hbx-modal.lead-cockpit.lead-cockpit--workbench {
     width: 100%;
     height: 100%;
     grid-template-rows: auto auto minmax(0, 1fr);
@@ -1829,10 +1831,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lead-cockpit--approved,
-  .lead-cockpit--approved *,
-  .lead-cockpit--approved *::before,
-  .lead-cockpit--approved *::after {
+  .lead-cockpit--workbench,
+  .lead-cockpit--workbench *,
+  .lead-cockpit--workbench *::before,
+  .lead-cockpit--workbench *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
@@ -1868,7 +1870,7 @@
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
-  animation: lead-cockpit-approved-pop 0.28s var(--ease-out-quint) both;
+  animation: none;
 }
 
 .lead-cockpit--workbench *,
@@ -1886,54 +1888,48 @@
   font-weight: 800;
 }
 
+/* Barra de estado da ficha: 1 linha fina com a ETAPA (campo, não guia — ver
+   nota no TSX) e os dois dados de agenda. Era 56px com degradê; virou 34px. */
 .lead-cockpit__statusbar {
   min-width: 0;
-  min-height: 56px;
-  display: grid;
-  grid-template-columns: minmax(520px, 1fr) minmax(260px, auto);
-  align-items: center;
-  gap: 14px;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--border-hairline);
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--hbx-info) 6%, transparent), transparent 42%),
-    var(--hbx-surface-soft);
-}
-
-.lead-cockpit__stage-track {
-  width: min(760px, 100%);
-  min-width: 0;
-  padding: 3px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  --glass-pill-radius: var(--radius-pill);
-}
-
-.lead-cockpit__stage-track::-webkit-scrollbar {
-  display: none;
-}
-
-.lead-cockpit__stage-item {
-  min-width: max-content;
   min-height: 34px;
-  padding: 5px 13px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+
+/* ETAPA como campo: rótulo miúdo + select discreto. */
+.lead-cockpit__stage-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.lead-cockpit__stage-field > small {
   color: var(--text-muted);
-  font: 700 var(--lc-fs-body) / 1 var(--font-body);
-  white-space: nowrap;
+  font-size: var(--lc-fs-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lead-cockpit__stage-field > select {
+  min-height: var(--control-height-sm);
+  padding: 2px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--control-radius);
+  background: var(--hbx-field-surface);
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: var(--lc-fs-body);
   cursor: pointer;
 }
 
-.lead-cockpit__stage-item.is-active {
-  color: var(--hbx-info);
-}
-
-.lead-cockpit__stage-item:disabled {
-  cursor: wait;
-}
+.lead-cockpit__stage-field > select:disabled { cursor: wait; opacity: 0.6; }
 
 .lead-cockpit__header-next {
   min-width: 0;
@@ -1992,12 +1988,18 @@
   height: 100%;
 }
 
+/* 26/07 — o dono viu "dados perdidos abaixo de inteligência, tudo cortado":
+   era `overflow: hidden` numa coluna com 4+ cartões empilhados. O que não
+   coubesse na altura simplesmente sumia, sem barra e sem aviso. Agora rola. */
 .lead-cockpit__rail {
   display: grid;
   grid-auto-rows: max-content;
   align-content: start;
   gap: 7px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .lead-cockpit--workbench .lead-cockpit__compact-card {
@@ -2219,20 +2221,35 @@
   content: "Copiloto · ";
 }
 
+/* 26/07 — "copiloto em cima de histórico": aberto, o corpo do copiloto era um
+   flutuante (position:absolute) que pousava por cima do título "História do
+   lead" e das primeiras mensagens. Agora ele ABRE NO FLUXO, dentro da própria
+   faixa: a linha `auto` do history-column cresce e a conversa cede altura —
+   ninguém fica escondido embaixo de ninguém. */
+.lead-cockpit__smart-strip .copiloto { max-width: none; }
 .lead-cockpit__smart-strip .copiloto__body {
-  position: absolute;
-  z-index: 5;
-  top: calc(100% + 5px);
-  right: 0;
-  width: min(420px, 78vw);
+  position: static;
+  width: auto;
+  margin-top: 7px;
   display: grid;
   gap: 7px;
   padding: 9px;
   border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-lg);
-  background: var(--hbx-surface);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+  box-shadow: none;
 }
+/* com o corpo no fluxo, o copiloto ocupa a largura inteira da faixa quando
+   abre — o cabeçalho (ícone + frase) segue na linha de cima. */
+.lead-cockpit__smart-strip { grid-template-areas: "ic txt cop" "body body body"; }
+.lead-cockpit__smart-strip-icon { grid-area: ic; }
+.lead-cockpit__smart-strip > span:nth-child(2) { grid-area: txt; }
+/* display:contents dissolve o wrapper: cabeçalho e corpo viram itens da grade
+   da faixa e cada um vai pra sua área. Só existem esses dois filhos — result,
+   erro e mensagem moram DENTRO do corpo. */
+.lead-cockpit__smart-strip .copiloto { display: contents; }
+.lead-cockpit__smart-strip .copiloto__head { grid-area: cop; justify-self: end; }
+.lead-cockpit__smart-strip .copiloto__body { grid-area: body; }
 
 .lead-cockpit__smart-strip .copiloto__actions {
   display: flex;
