@@ -14,6 +14,7 @@ import {
 } from './cadencia-personas';
 import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from './dto/cadencia.dto';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
+import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
 import { automationFlag } from '../automation/automation-flags';
 
 // ================================================================
@@ -67,6 +68,11 @@ type CadenciaRow = {
 export class CadenciaService {
   private readonly logger = new Logger(CadenciaService.name);
   private readonly commercialContactControl: CommercialContactControlService;
+  // S5 LEAD-CENTRICO (05-agenda-slots.md) — quando o runner agenda o próximo passo
+  // (sucesso) ou adia por teto físico estourado, a DECISÃO de "quando" passa a vir
+  // daqui (janela/teto/intervalo da config comercial da empresa), nunca mais um
+  // addDays cru. Mesmo padrão de instanciação manual do commercialContactControl.
+  private readonly agendaDisparo: AgendaDisparoService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -76,6 +82,7 @@ export class CadenciaService {
     @Optional() private readonly emailOutbox?: EmailOutboxService,
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
+    this.agendaDisparo = new AgendaDisparoService(this.prisma);
   }
 
   private get runnerEnabled(): boolean {
@@ -456,18 +463,25 @@ export class CadenciaService {
         const emailCapReached = passo.canal === 'email' && this.emailEnabled && emailAlreadyToday >= CADENCIA_EMAIL_DAILY_CAP_PER_COMPANY;
 
         if (passo.canal === 'whats' && whatsCapReached) {
-          // Teto de chip atingido: NAO dispara, adia 1 dia (nunca fura o teto).
-          await (this.prisma as any).cadenciaInscricao.updateMany({
-            where: { id: insc.id, status: 'ativa' },
-            data: { nextStepAt: this.addDays(now, 1), lastError: 'whats_daily_cap_deferred' },
+          // Teto FISICO de chip atingido (freio intocado): NAO dispara. O "quando"
+          // do adiamento passa pelo servico de slots (S5) — proximo dia util NO
+          // HORARIO configurado, nunca mais "amanha nesta mesma hora" cru (podia
+          // cair de madrugada/fim de semana).
+          await this.agendaDisparo.reservarProximoDiaUtil({
+            companyId: insc.companyId,
+            inscricaoId: insc.id,
+            from: now,
+            extraData: { lastError: 'whats_daily_cap_deferred' },
           });
           continue;
         }
         if (passo.canal === 'email' && emailCapReached) {
-          // Teto de e-mail atingido: NAO envia, adia 1 dia (mesmo padrao do WhatsApp).
-          await (this.prisma as any).cadenciaInscricao.updateMany({
-            where: { id: insc.id, status: 'ativa' },
-            data: { nextStepAt: this.addDays(now, 1), lastError: 'email_daily_cap_deferred' },
+          // Teto de e-mail atingido: NAO envia (mesmo padrao do WhatsApp acima).
+          await this.agendaDisparo.reservarProximoDiaUtil({
+            companyId: insc.companyId,
+            inscricaoId: insc.id,
+            from: now,
+            extraData: { lastError: 'email_daily_cap_deferred' },
           });
           continue;
         }
@@ -557,24 +571,26 @@ export class CadenciaService {
             });
           }
         } else {
+          // Dia-alvo continua vindo da PERSONA (deltaDias, intocado); o servico de
+          // slots (S5) so decide a HORA dentro desse dia (ou empurra pro proximo
+          // dia util se a janela/teto/intervalo da empresa não deixar) — nunca fura
+          // janela/teto/intervalo (docs/PLANEJAMENTOS/PR25072026-LEAD-CENTRICO/05-agenda-slots.md).
           const deltaDias = Math.max(0, (passos[nextStep].dia ?? 0) - (passo.dia ?? 0));
-          const nextStepAt = this.addDays(now, deltaDias);
-          const advanced = await (this.prisma as any).cadenciaInscricao.updateMany({
-            where: { id: insc.id, status: 'ativa' },
-            data: {
-              currentStep: nextStep,
-              nextStepAt,
-              lastStepAt: now,
-              lastError: null,
-            },
+          const desiredAt = this.addDays(now, deltaDias);
+          const reserved = await this.agendaDisparo.reservarProximoSlot({
+            companyId: insc.companyId,
+            inscricaoId: insc.id,
+            desiredAt,
+            now,
+            extraData: { currentStep: nextStep, lastStepAt: now, lastError: null },
           });
-          if (Number(advanced?.count || 0) > 0) {
+          if (reserved.updatedCount > 0) {
             await this.commercialContactControl.advanceAutomationEnrollment({
               companyId: insc.companyId,
               legacySource: 'cadencia_inscricao',
               legacyExecutionId: insc.id,
               currentStep: nextStep,
-              nextStepAt,
+              nextStepAt: reserved.slot,
             });
           }
         }

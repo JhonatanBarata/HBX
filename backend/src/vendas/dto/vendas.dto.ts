@@ -224,6 +224,43 @@ export class LigarRoboDto {
   objetivo?: string;
 }
 
+// S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA por empresa — janela
+// de horário + teto de disparos por user/chip/dia + intervalo mínimo. 1 cartão, 3
+// campos + salvar (a UI é mínima de propósito; horário validado/normalizado no
+// service via normalizeTimeHHMM, então aqui basta string).
+export class UpdateVendasComercialConfigDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  workingHoursStart?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  workingHoursEnd?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  dailyLimitPerSender?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(240)
+  intervalMinutes?: number;
+}
+
+// GET /vendas/agenda-disparo/proximo-slot?desiredAt=ISO — desiredAt opcional (default
+// agora); devolve o próximo horário livre e, se desiredAt estava ocupado/fora da
+// janela, o motivo do conflito ("08:00 ocupado — próximo livre 08:15").
+export class ProximoSlotDisparoQueryDto {
+  @IsOptional()
+  @IsDateString()
+  desiredAt?: string;
+}
+
 export class CreateHbxSalesHandoffDto {
   @IsOptional()
   @Type(() => Number)

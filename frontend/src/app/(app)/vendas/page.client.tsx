@@ -773,6 +773,11 @@ export function VendasClient() {
   const [obs, setObs] = useState("");
   // Popup de Retorno e Sem Interesse (substituem o clutter do cockpit)
   const [retornoOpen, setRetornoOpen] = useState(false);
+  // S5 LEAD-CENTRICO (05-agenda-slots.md): preview do próximo slot livre pra data
+  // escolhida — não muda o que é salvo (o vendedor continua escolhendo a data),
+  // só avisa se está ocupado/fora do horário comercial e qual o próximo livre.
+  const [slotPreview, setSlotPreview] = useState<{ slot: string; conflito: boolean; motivoConflito: string | null } | null>(null);
+  const [slotPreviewBusy, setSlotPreviewBusy] = useState(false);
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const [semInteresseMotivo, setSemInteresseMotivo] = useState<string>("");
 
@@ -890,6 +895,26 @@ export function VendasClient() {
       setAcaoBusy(false);
     }
   }
+
+  // S5 LEAD-CENTRICO (05-agenda-slots.md): consulta o serviço de slots (janela +
+  // teto + intervalo da empresa) pra data escolhida no popup de retorno — só avisa,
+  // não muda o que agendarRetorno() grava. Debounce simples via cleanup do effect.
+  useEffect(() => {
+    if (!retornoOpen || !retornoData) return;
+    let alive = true;
+    const desiredAt = new Date(`${retornoData}T09:00:00`).toISOString();
+    const timer = setTimeout(() => {
+      if (!alive) return;
+      setSlotPreviewBusy(true);
+      apiFetch<{ slot: string; conflito: boolean; motivoConflito: string | null }>(
+        `/vendas/agenda-disparo/proximo-slot?desiredAt=${encodeURIComponent(desiredAt)}`,
+      )
+        .then(res => { if (alive) setSlotPreview(res); })
+        .catch(() => { if (alive) setSlotPreview(null); })
+        .finally(() => { if (alive) setSlotPreviewBusy(false); });
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [retornoOpen, retornoData]);
 
   // O FecharVendaModal compartilhado carrega catálogos/perfil e gerencia o próprio
   // estado (pré-cadastro, plano/valor, implantação, salvar, gerar link). Aqui só abre.
@@ -1082,6 +1107,64 @@ export function VendasClient() {
     } finally {
       setProspBusy(false);
       setProspCancelArm(false);
+    }
+  }
+
+  // S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA por empresa —
+  // 1 cartão, 3 campos (janela de horário, teto de disparos/dia, intervalo mínimo).
+  // Substitui (sem apagar ainda — S7 faz isso) o cadastro imenso da prospecção pra
+  // esse recorte específico. Leitura pra qualquer um do time; salvar é só dono/gerente
+  // (board?.team só vem preenchido pra quem gerencia — mesmo gate usado no seletor
+  // de vendedor do funil).
+  type ComercialConfig = { workingHoursStart: string; workingHoursEnd: string; dailyLimitPerSender: number; intervalMinutes: number };
+  const [comercialConfigDraft, setComercialConfigDraft] = useState<{ workingHoursStart: string; workingHoursEnd: string; dailyLimitPerSender: string; intervalMinutes: string }>({
+    workingHoursStart: "08:00", workingHoursEnd: "18:00", dailyLimitPerSender: "10", intervalMinutes: "15",
+  });
+  const [comercialConfigBusy, setComercialConfigBusy] = useState(false);
+  const [comercialConfigMsg, setComercialConfigMsg] = useState<string | null>(null);
+  const podeConfigurarDisparo = Boolean(board?.team);
+
+  const loadComercialConfig = useCallback(() => {
+    return apiFetch<ComercialConfig>("/vendas/agenda-disparo/config")
+      .then(res => setComercialConfigDraft({
+        workingHoursStart: res.workingHoursStart,
+        workingHoursEnd: res.workingHoursEnd,
+        dailyLimitPerSender: String(res.dailyLimitPerSender),
+        intervalMinutes: String(res.intervalMinutes),
+      }))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!prospOpen) return;
+    loadComercialConfig();
+  }, [prospOpen, loadComercialConfig]);
+
+  async function salvarComercialConfig() {
+    if (comercialConfigBusy) return;
+    setComercialConfigBusy(true);
+    setComercialConfigMsg(null);
+    try {
+      const res = await apiFetch<ComercialConfig>("/vendas/agenda-disparo/config", {
+        method: "PATCH",
+        body: JSON.stringify({
+          workingHoursStart: comercialConfigDraft.workingHoursStart,
+          workingHoursEnd: comercialConfigDraft.workingHoursEnd,
+          dailyLimitPerSender: Number(comercialConfigDraft.dailyLimitPerSender) || undefined,
+          intervalMinutes: Number(comercialConfigDraft.intervalMinutes) || undefined,
+        }),
+      });
+      setComercialConfigDraft({
+        workingHoursStart: res.workingHoursStart,
+        workingHoursEnd: res.workingHoursEnd,
+        dailyLimitPerSender: String(res.dailyLimitPerSender),
+        intervalMinutes: String(res.intervalMinutes),
+      });
+      setComercialConfigMsg("✓ Configuração salva.");
+    } catch (err) {
+      setComercialConfigMsg(err instanceof Error ? err.message : "Falha ao salvar.");
+    } finally {
+      setComercialConfigBusy(false);
     }
   }
 
@@ -1823,6 +1906,54 @@ export function VendasClient() {
               Automações comerciais
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProspOpen(false)}>✕</span>
             </h3>
+            {/* S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA — 1
+                cartão, 3 campos + salvar. Vale pro robô por lead (S4) e pra prospecção
+                antiga enquanto ela existir (S7 remove o cadastro imenso, não isto). */}
+            <div style={{ display: "grid", gap: 8 }}>
+              <div className="field-label">Horário e teto de disparo</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                  Início
+                  <input className="field-dark" type="time" value={comercialConfigDraft.workingHoursStart}
+                    disabled={!podeConfigurarDisparo}
+                    onChange={e => setComercialConfigDraft(d => ({ ...d, workingHoursStart: e.target.value }))}
+                    aria-label="Início do horário comercial" />
+                </label>
+                <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                  Fim
+                  <input className="field-dark" type="time" value={comercialConfigDraft.workingHoursEnd}
+                    disabled={!podeConfigurarDisparo}
+                    onChange={e => setComercialConfigDraft(d => ({ ...d, workingHoursEnd: e.target.value }))}
+                    aria-label="Fim do horário comercial" />
+                </label>
+              </div>
+              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Teto de disparos por dia (por vendedor/chip)
+                <input className="field-dark" type="number" min={1} max={200} value={comercialConfigDraft.dailyLimitPerSender}
+                  disabled={!podeConfigurarDisparo}
+                  onChange={e => setComercialConfigDraft(d => ({ ...d, dailyLimitPerSender: e.target.value }))}
+                  aria-label="Teto de disparos por dia" />
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Intervalo mínimo entre disparos (minutos)
+                <input className="field-dark" type="number" min={1} max={240} value={comercialConfigDraft.intervalMinutes}
+                  disabled={!podeConfigurarDisparo}
+                  onChange={e => setComercialConfigDraft(d => ({ ...d, intervalMinutes: e.target.value }))}
+                  aria-label="Intervalo mínimo entre disparos" />
+              </label>
+              {podeConfigurarDisparo ? (
+                <React.Fragment>
+                  {comercialConfigMsg && (
+                    <span style={{ fontSize: "0.7rem", fontWeight: 700, color: comercialConfigMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{comercialConfigMsg}</span>
+                  )}
+                  <button className="btn-ghost" onClick={salvarComercialConfig} disabled={comercialConfigBusy}>
+                    {comercialConfigBusy ? "Salvando…" : "Salvar horário e teto"}
+                  </button>
+                </React.Fragment>
+              ) : (
+                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Só o dono/gerente altera. O resto do time só visualiza.</span>
+              )}
+            </div>
             <div style={{ display: "grid", gap: 8 }}>
               <div className="field-label">Assistente de conversa</div>
               <div className="kv">
@@ -1977,8 +2108,19 @@ export function VendasClient() {
               <div className="vnd-popup__field">
                 <label className="dn-cockpit__label">Data do retorno</label>
                 <input className="field-dark" type="date" value={retornoData}
-                  onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); }}
+                  onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); setSlotPreview(null); }}
                   aria-label="Data do retorno" />
+                {retornoData && (
+                  <span style={{ fontSize: "0.7rem", color: slotPreview?.conflito ? "var(--hbx-warning)" : "var(--text-muted)" }}>
+                    {slotPreviewBusy
+                      ? "Consultando agenda…"
+                      : slotPreview
+                        ? (slotPreview.conflito
+                            ? `Ocupado — próximo horário livre: ${fmtWhen(slotPreview.slot) || "—"}`
+                            : `Horário livre: ${fmtWhen(slotPreview.slot) || "—"}`)
+                        : null}
+                  </span>
+                )}
               </div>
               <div className="vnd-popup__field">
                 <label className="dn-cockpit__label">Observação (opcional)</label>

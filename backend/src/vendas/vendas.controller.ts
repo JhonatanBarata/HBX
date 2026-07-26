@@ -16,10 +16,12 @@ import {
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
   LigarRoboDto,
+  ProximoSlotDisparoQueryDto,
   ReportVendasLeadDto,
   SimulateProspectingDto,
   StartVendasProspectingDto,
   UpdateSalesProfileDto,
+  UpdateVendasComercialConfigDto,
   UpdateVendasProspectingConfigDto,
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
@@ -380,6 +382,25 @@ export class VendasController {
   @Delete('lead/:leadId/robo')
   desligarRobo(@Req() req: any, @Param('leadId') leadId: string) {
     return this.vendasService.desligarRoboForUser(req.user, leadId);
+  }
+
+  // S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA por empresa
+  // (janela + teto/dia + intervalo) + serviço de slots. GET config = qualquer membro
+  // do time; PUT config = só Admin/USERMASTER (guard no service). O slot de preview
+  // é sempre leitura (nunca agenda nada sozinho).
+  @Get('agenda-disparo/config')
+  getAgendaDisparoConfig(@Req() req: any) {
+    return this.vendasService.getComercialConfigForUser(req.user);
+  }
+
+  @Patch('agenda-disparo/config')
+  updateAgendaDisparoConfig(@Req() req: any, @Body() dto: UpdateVendasComercialConfigDto) {
+    return this.vendasService.updateComercialConfigForUser(req.user, dto || {});
+  }
+
+  @Get('agenda-disparo/proximo-slot')
+  getProximoSlotDisparo(@Req() req: any, @Query() query: ProximoSlotDisparoQueryDto) {
+    return this.vendasService.getProximoSlotDisparoForUser(req.user, query || {});
   }
 
   @Post('lead/:leadId/presentation-draft')

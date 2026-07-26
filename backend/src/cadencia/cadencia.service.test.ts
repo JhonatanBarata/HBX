@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { CadenciaService } from './cadencia.service';
 import { COMPANY_EMAIL_NOT_CONFIGURED } from '../mail/company-mailer.service';
 import { sanitizePassos, MAX_WHATS_STEPS_PER_CADENCE } from './cadencia-personas';
+import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
 
 // Constroi um service "pelado" (prototype) com dependencias falsas, no mesmo
 // padrao dos testes de inbox/conversations.
@@ -36,7 +37,26 @@ function makeService(opts: {
 
   svc.prisma = {
     cadenciaInscricao: {
-      findMany: async () => inscricoes.filter((i) => i.status === 'ativa' && i.nextStepAt <= new Date()),
+      // Generico o bastante pra servir tanto a query "due" do proprio runDueSteps
+      // (where.status + nextStepAt.lte) quanto a query de "ja ocupado" do
+      // AgendaDisparoService (S5 — where.companyId/nextStepAt.gte+lte/id.not).
+      findMany: async (args: any = {}) => {
+        const where = args?.where || {};
+        let rows = inscricoes.filter((i) => {
+          if (where.status !== undefined && i.status !== where.status) return false;
+          if (where.companyId !== undefined && i.companyId !== where.companyId) return false;
+          if (where.id?.not !== undefined && i.id === where.id.not) return false;
+          if (where.nextStepAt?.lte !== undefined && !(i.nextStepAt.getTime() <= where.nextStepAt.lte.getTime())) return false;
+          if (where.nextStepAt?.gte !== undefined && !(i.nextStepAt.getTime() >= where.nextStepAt.gte.getTime())) return false;
+          return true;
+        });
+        if (args?.orderBy?.nextStepAt === 'asc') rows = rows.slice().sort((a, b) => a.nextStepAt.getTime() - b.nextStepAt.getTime());
+        if (typeof args?.take === 'number') rows = rows.slice(0, args.take);
+        if (args?.select && Object.keys(args.select).join(',') === 'nextStepAt') {
+          return rows.map((r) => ({ nextStepAt: r.nextStepAt }));
+        }
+        return rows;
+      },
       findFirst: async ({ where }: any) => inscricoes.find((i) =>
         i.id === where.id && i.companyId === where.companyId && i.leadId === where.leadId,
       ) || null,
@@ -103,6 +123,10 @@ function makeService(opts: {
     finishAutomationEnrollment: async () => null,
     advanceAutomationEnrollment: async () => null,
   };
+  // S5 LEAD-CENTRICO — instancia REAL (nao mock) contra o mesmo svc.prisma falso
+  // acima: exercita o algoritmo de slot de verdade (janela/teto/intervalo default,
+  // sem VendasComercialConfig na tabela falsa -> cai nos defaults 08:00-18:00/10/15).
+  svc.agendaDisparo = new AgendaDisparoService(svc.prisma);
 
   return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes };
 }

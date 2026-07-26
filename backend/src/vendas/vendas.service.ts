@@ -80,6 +80,7 @@ import { CADENCIA_SEEDS, sanitizePassos, type CadenciaPersona } from '../cadenci
 // à mão (mesmo padrão de cadencia.service.ts/messaging.service.ts, NÃO é
 // @Injectable) porque não é registrado em nenhum módulo Nest.
 import { CommercialContactControlService } from './commercial-contact-control.service';
+import { AgendaDisparoService } from './agenda-disparo.service';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
@@ -355,6 +356,10 @@ export class VendasService {
   // campo) porque depende de `this.prisma`, que só existe depois que os
   // parâmetros do construtor são atribuídos.
   private readonly commercialContactControl: CommercialContactControlService;
+  // S5 LEAD-CENTRICO (05-agenda-slots.md) — serviço de slots de disparo (janela/teto/
+  // intervalo). Mesmo padrão de instanciação manual do commercialContactControl acima
+  // (evita import circular entre VendasModule e CadenciaModule).
+  private readonly agendaDisparo: AgendaDisparoService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -373,6 +378,7 @@ export class VendasService {
     private readonly cockpitProjector: VendasLeadCockpitProjectorService,
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
+    this.agendaDisparo = new AgendaDisparoService(this.prisma);
   }
 
   async getAutomationBotConfigForUser(user: any) {
@@ -6141,6 +6147,38 @@ export class VendasService {
     }
 
     return { ok: true, desligou: result.canceledCadencias > 0 };
+  }
+
+  // S5 LEAD-CENTRICO (05-agenda-slots.md) — config comercial ENXUTA por empresa
+  // (janela + teto/dia + intervalo). Qualquer membro do time lê; só Admin/USERMASTER
+  // salva (mesmo padrão de assertCanManageProspecting em vendas-automation.service.ts).
+  private assertCanManageAgendaDisparo(context: VendasUserContext) {
+    const isAdmin = Boolean(context.access?.isSystemMaster) || context.access?.isAdmin === true || String(context.role || '').trim().toUpperCase() === 'USERMASTER';
+    this.assertVendasPermission(isAdmin, 'Só o dono/gerente pode configurar horário e teto de disparo.');
+  }
+
+  async getComercialConfigForUser(user: any) {
+    const context = await this.resolveVendasUserContext(user);
+    return this.agendaDisparo.getConfig(context.companyId);
+  }
+
+  async updateComercialConfigForUser(user: any, dto: { workingHoursStart?: string; workingHoursEnd?: string; dailyLimitPerSender?: number; intervalMinutes?: number }) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanManageAgendaDisparo(context);
+    return this.agendaDisparo.saveConfig(context.companyId, dto || {});
+  }
+
+  async getProximoSlotDisparoForUser(user: any, query: { desiredAt?: string }) {
+    const context = await this.resolveVendasUserContext(user);
+    const desiredAt = query?.desiredAt ? this.parseDate(query.desiredAt) : null;
+    const result = await this.agendaDisparo.proximoSlotLivre(context.companyId, { desiredAt: desiredAt || undefined });
+    return {
+      slot: result.slot.toISOString(),
+      requested: result.requested.toISOString(),
+      conflito: result.conflito,
+      motivoConflito: result.motivoConflito,
+      config: result.config,
+    };
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {

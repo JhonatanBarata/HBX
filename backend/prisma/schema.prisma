@@ -4441,6 +4441,25 @@ model CadenciaRotina {
   @@index([companyId, ativa, lastRunAt])
 }
 
+// S5 LEAD-CENTRICO (25/07, docs/PLANEJAMENTOS/PR25072026-LEAD-CENTRICO/05-agenda-slots.md)
+// — config comercial ENXUTA por empresa: 1 lugar só pra janela de horário + teto de
+// disparos por user/chip/dia + intervalo mínimo entre disparos. NÃO é a mesma coisa que
+// VendasAutomationCampaign (que é por-campanha/busca, várias linhas por empresa ao longo
+// do tempo, e cujo cadastro imenso morre no S7) — por isso nasce tabela nova em vez de
+// promover a campanha: aqui é "1 linha por empresa", lá é "1 linha por busca". Serviço
+// de leitura/escrita em backend/src/vendas/agenda-disparo.service.ts. Migration ADITIVA
+// (companyId cru sem back-relation, mesmo padrão de Cadencia/Atividade/AutomationAgent).
+model VendasComercialConfig {
+  id                  String   @id @default(cuid())
+  companyId           Int      @unique
+  workingHoursStart   String   @default("08:00") // HH:MM — mesmo fallback do motor antigo
+  workingHoursEnd     String   @default("18:00")
+  dailyLimitPerSender Int      @default(10) // teto de disparos por user/chip/dia
+  intervalMinutes     Int      @default(15) // intervalo mínimo entre disparos
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
 model TechAssistantInteraction {
   id                String   @id @default(cuid())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
