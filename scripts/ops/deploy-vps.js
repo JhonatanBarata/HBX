@@ -107,6 +107,16 @@ function syncMaster(cleanBranches) {
   }
 }
 
+function syncCommittedHead() {
+  ensureMaster();
+  runStep('git', ['fetch', remote, '--prune']);
+  const behind = Number(output('git', ['rev-list', '--count', `HEAD..${remote}/${branch}`])) || 0;
+  if (behind > 0) {
+    throw new Error(`O master local está ${behind} commit(s) atrás de ${remote}/${branch}.`);
+  }
+  console.log('Modo committed-only: alterações locais não serão adicionadas nem commitadas.');
+}
+
 function commitEverything(label) {
   runStep('git', ['add', '-A']);
   const staged = runStep('git', ['diff', '--cached', '--quiet'], { allowFailure: true });
@@ -543,6 +553,7 @@ function main(requestedMode) {
   }
 
   const dryRun = process.argv.includes('--dry-run');
+  const committedOnly = process.env.HBX_PUBLISH_COMMITTED_ONLY === '1';
   ensureMaster();
   const config = loadConfig();
 
@@ -557,8 +568,12 @@ function main(requestedMode) {
     return;
   }
 
-  syncMaster(mode === 'full');
-  commitEverything(mode === 'full' ? 'publish' : 'new');
+  if (committedOnly) {
+    syncCommittedHead();
+  } else {
+    syncMaster(mode === 'full');
+    commitEverything(mode === 'full' ? 'publish' : 'new');
+  }
   const changedFiles = changedFilesAheadOfRemote();
   const plan = classifyServices(changedFiles);
   // Decide o versionCode ANTES do build (ele entra no binário): só sobe se a
