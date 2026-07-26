@@ -64,8 +64,24 @@ deletado) — vira central de atendimento opcional pra empresa de volume.
   perdido); orquestrador re-rodou os checks 26/07: build limpo, 38/38 novas + 94/94
   vendas/cadência. ⚠️ Publish do dono `660bee43` (25/07 23:48) levou S1–S4 pra PROD —
   runner segue OFF (nada dispara sozinho).
-- S5 — Agenda slot-aware + config enxuta do admin (migrar regras vivas, matar cadastro imenso).
-- S6 — E-mail v1: perfil do remetente + assinatura + envio SMTP + registro + resposta por thread.
+- **S5 ✅** — `05-agenda-slots.md`: tabela nova `VendasComercialConfig` (1/empresa, defaults
+  08:00–18:00, 10/dia, 15min; campanha NÃO promovida — morre no S7), `business-hours.util`
+  (regras colhidas por CÓPIA, original intacto), `agenda-disparo.service` (slots com mutex
+  por empresa; limitação multi-réplica documentada), runner soldado (adia pra próximo dia
+  útil NO horário configurado), config no drawer "Automações comerciais" + preview de slot
+  no popup Agendar Retorno. Commit `5e536f53`. Checks 12/12 novos + 246/246 vendas/cadência.
+- **S6 ✅** — `06-email-v1.md`: `UserSenderProfile` (cargo/telefone/site — migration
+  aditiva) + `SenderIdentityService` (assinatura HTML sóbria + regra dura "sem
+  identidade não sai") embutida em todo e-mail comercial (cadência via `bodyHtml`
+  novo no outbox + envio manual do detalhes); bounce síncrono do SMTP invalida o
+  e-mail (`CommercialEmailMessageLog`) e vira evento na história do lead; cadência
+  passa a checar essa supressão antes de enviar; `POST /vendas/leads/:id/email/opt-out`
+  registra manualmente pedido de remoção (marca `closureReason` do S4 + suprime).
+  Campos Cargo/Telefone/Site em Configurações → Perfil. Commit `2fcdf766`. Checks
+  37/37 novos (`sender-identity`, `company-presentation-email`, `email-outbox-worker`,
+  `cadencia`) + 278/278 vendas/cadência/mail. ⚠️ SEM IMAP/webhook de recepção hoje —
+  resposta por thread (item 5 do briefing) fica de fora, documentado como gap; a
+  detecção manual de "sem interesse/remover" cobre a regra dura de supressão.
 - S7 — Pool/marquinha/resfriamento + rebaixar Conversas por flag + **remover pela raiz** o
   disparo "puxa→dispara" do motor de prospecção antigo.
 - (Adiado, sem sprint): motor de reembolso — depende dos dados de encerramento acumulados.
