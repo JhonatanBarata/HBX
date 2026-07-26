@@ -13,6 +13,7 @@ import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-o
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
+import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
@@ -113,6 +114,13 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
  * confiança do pino por parada. Reusa LogisticaConfigService/LogisticaOsrmService já
  * providos aqui; não precisa de novo import de módulo.
  *
+ * S6 CRÉDITOS-PREVIEW (25/07, PR25072026-ROTA-CONFERIDA): LogisticaCustoPreviewService
+ * é 100% LEITURA (Lei nº3: nenhum wallet.debit/prepareRoute) — espelha a MESMA
+ * fórmula de blocos do billing real (essentialBlocksForDeliveries, importada de
+ * logistica-route-billing.service.ts) pra devolver quanto o Iniciar VAI debitar
+ * antes do operador apertar o botão. Reusa CreditWalletService/LogisticaConfigService
+ * já providos aqui; não precisa de novo import de módulo.
+ *
  * S7 SAÚDE-DA-BASE (25/07, PR25072026-ROTA-CONFERIDA): LogisticaBaseSaudeController/
  * Service expõem `/logistica/base-saude` — a MESMA regra da S3 (`conferirParadas`)
  * apontada pro tenant inteiro em vez da rota do dia. Read-only puro (só
@@ -145,6 +153,7 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
     LogisticaMobileService,
     LogisticaRotaService,
     LogisticaConferenciaService,
+    LogisticaCustoPreviewService,
     LogisticaRotaModeloService,
     LogisticaLeituraService,
     LogisticaGeoService,

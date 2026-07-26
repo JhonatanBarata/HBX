@@ -30,6 +30,7 @@ import { isScoreFiadoEnabled } from './logistica-score.flags';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
+import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
@@ -120,6 +121,9 @@ export class LogisticaController {
     // Mesmo padrão de default acima: preserva testes legados que instanciam o
     // controller direto com poucos argumentos.
     private readonly conferencia: LogisticaConferenciaService = null as any,
+    // S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos (100% leitura).
+    // Mesmo padrão de default acima.
+    private readonly custoPreviewService: LogisticaCustoPreviewService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -664,6 +668,27 @@ export class LogisticaController {
       deliveryIds: dto?.deliveryIds,
       ordemManual: dto?.ordemManual,
     }, entregadorId);
+  }
+
+  /**
+   * S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos: quanto o
+   * Iniciar VAI debitar se rodar agora, ANTES do operador apertar o botão.
+   * GET (não POST) porque é puramente consultivo — 100% leitura, NENHUM
+   * wallet.debit/prepareRoute (Lei nº3 da frente). Mesmo escopo por ator do
+   * conferir (actorWhere.entregadorId): motorista só vê o próprio preview;
+   * admin sem motorista único no dia recebe 400 (mesma exigência do Iniciar
+   * de verdade). `deliveryIds` opcional, CSV (mesmo formato de query-string
+   * de listas já usado em outros controllers do backend).
+   */
+  @Get('rota/custo-preview')
+  async custoPreview(@Req() req: any, @Query('date') date?: string, @Query('deliveryIds') deliveryIdsRaw?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    const deliveryIds = deliveryIdsRaw
+      ? deliveryIdsRaw.split(',').map((id) => id.trim()).filter(Boolean)
+      : undefined;
+    return this.custoPreviewService.previewCusto(companyId, { date, deliveryIds }, entregadorId);
   }
 
   /**

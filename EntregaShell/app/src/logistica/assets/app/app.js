@@ -5007,6 +5007,30 @@
       : "";
     return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button><span class="badge ${info.badgeClass}">${info.label}</span>${ack}</div>`;
   }
+  // S6 (25/07, PR25072026-ROTA-CONFERIDA) — linha do preview de créditos, POR
+  // PAPEL (mesmo espírito do creditsLockOverlay/S7 APP-SOUNDS: o FATO é o
+  // mesmo, o que muda é quanto dele aparece). ADMIN/USERMASTER vê o número
+  // (isAdmin() == billing owner, LEI DO VENDEDOR já cobre o resto do app);
+  // entregador comum só vê o aviso quando o saldo NÃO cobre — nunca vê saldo
+  // nem custo. `rc.custo` null (endpoint indisponível ou flag OFF) = sem
+  // linha nenhuma, aprovação segue normal (item 4 do S6, degrada mudo).
+  function custoPreviewBanner(rc) {
+    const custo = rc && rc.custo;
+    if (!custo) return "";
+    if (!isAdmin()) {
+      if (custo.saldoCobre === false) {
+        return `<div class="hbx-aviso hbx-aviso--danger">Créditos insuficientes para iniciar — avise o administrador.</div>`;
+      }
+      return "";
+    }
+    const n = Math.max(0, Number(custo.creditosAIniciar) || 0);
+    const saldo = Number(custo.saldoAtual) || 0;
+    const texto = n > 0
+      ? `Iniciar vai debitar ${n} ${n === 1 ? "crédito" : "créditos"} · saldo ${saldo}`
+      : `Iniciar não vai debitar créditos agora · saldo ${saldo}`;
+    const kind = custo.saldoCobre === false ? "danger" : "ok";
+    return `<div class="hbx-aviso hbx-aviso--${kind}">${H.escape(texto)}</div>`;
+  }
   function conferenciaListaStep(rc) {
     const data = rc.data;
     if (!data && rc.loading) {
@@ -5018,7 +5042,7 @@
     if (!data) return centerModal({ icon: "route", title: "Conferência da rota", body: empty("Nada para conferir", ""), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "" });
     const pendentes = conferenciaVermelhasPendentes(rc);
     const rows = (data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("");
-    const body = `${routeEngineBanner()}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+    const body = `${routeEngineBanner()}${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
     return centerModal({
       icon: "route",
       title: "Conferência da rota",
@@ -5072,6 +5096,24 @@
     if (rc.step === "ficha" && rc.ficha) return conferenciaFichaStep(rc);
     return conferenciaListaStep(rc);
   }
+  // S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos: GET 100%
+  // leitura (Lei nº3, nunca debita) com a MESMA data/seleção do conferir.
+  // Best-effort de propósito (doc S6, item 4): endpoint fora do ar NUNCA
+  // trava a aprovação — só a linha de créditos some da tela (degrada mudo).
+  async function recarregarCustoPreview(date, deliveryIds) {
+    const rc = state.rotaConferencia;
+    if (!rc) return;
+    if (!configFlag("rotaConferidaAtiva")) { rc.custo = null; return; }
+    try {
+      const params = new URLSearchParams();
+      if (date) params.set("date", date);
+      if (deliveryIds && deliveryIds.length) params.set("deliveryIds", deliveryIds.join(","));
+      const qs = params.toString();
+      rc.custo = await H.api(`/logistica/rota/custo-preview${qs ? `?${qs}` : ""}`);
+    } catch (_) {
+      rc.custo = null;
+    }
+  }
   // Chama /logistica/rota/conferir (dry-run — Lei nº3) com a MESMA seleção de
   // deliveryIds que o planejar usou. S5 25/07 — fecha o furo da S4: agora manda
   // também a ordem manual ATIVA (ver ConferirRotaDto/LogisticaConferenciaService),
@@ -5093,7 +5135,11 @@
       const manualOrder = activeRouteOrdemManual();
       if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
       const antes = new Map((rc.data && rc.data.paradas || []).map((p, i) => [String(p.id), i + 1]));
+      // Preview roda em PARALELO (Lei nº2 "zero lentidão artificial") e nunca
+      // deixa a própria falha vazar pro catch do conferir — ver função acima.
+      const custoPromise = recarregarCustoPreview(body.date, body.deliveryIds);
       const result = await H.api("/logistica/rota/conferir", { method: "POST", body });
+      await custoPromise;
       applyRouteEngineState(result);
       rc.data = result;
       // "Fulano passou da parada 3 para a 8" — só quando ALGUÉM pediu foco
@@ -5121,8 +5167,10 @@
   }
   async function abrirRotaConferencia() {
     // `origem` (S5) é preenchida por recarregarConferencia a cada chamada —
-    // começa null aqui só pra documentar o formato do objeto.
-    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null };
+    // começa null aqui só pra documentar o formato do objeto. `custo` (S6) é
+    // o preview de créditos (null = ainda não chegou ou indisponível, ver
+    // recarregarCustoPreview — degrada mudo, nunca trava a tela).
+    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null };
     showModal("rota-conferencia");
     await recarregarConferencia();
   }
