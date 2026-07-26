@@ -1724,6 +1724,9 @@
     const value = Math.max(0, Math.round(Number(cents) || 0));
     return (value / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+  function moneyInputReais(value) {
+    return (Number(onlyDigits(value)) || 0) / 100;
+  }
   function attachMoneyInput(el, initialReais, onChange) {
     if (!el) return;
     // Idempotência (22/07): com o mount() reaproveitando nós iguais, este campo
@@ -1810,6 +1813,13 @@
       const row = draft.items.find(x => x.key === el.dataset.chegadaPreco);
       if (!row) return;
       attachMoneyInput(el, unitPriceFor(state.selected, row), value => { row.valorUnit = value; renderChegadaConta(); });
+    });
+    app.querySelectorAll("[data-product-price]").forEach(el => {
+      const editing = el.dataset.productPrice === "edit";
+      const initial = editing ? Number(state.editProductDraft && state.editProductDraft.precoCatalogo || 0) : 0;
+      attachMoneyInput(el, initial, value => {
+        if (editing && state.editProductDraft) state.editProductDraft.precoCatalogo = String(value);
+      });
     });
   }
   // Repinta SÓ as 3 linhas de valor enquanto o preço é digitado. Um render() aqui
@@ -2714,6 +2724,7 @@
   // exibe"). Com DDD → formata normal; 8-9 díg. sem DDD → mostra só o número
   // local (nunca chuta os 2 primeiros como DDD, que é o bug do formatPhone).
   function displayPhone(value) { const d = phoneDigits(value); if (!d) return ""; if (d.length >= 10) return formatPhone(d); if (d.length === 9) return `${d.slice(0, 5)}-${d.slice(5)}`; if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4)}`; return d; }
+  function formatPhoneInput(value) { const d = phoneDigits(value).slice(0, 11); return d.length < 10 ? displayPhone(d) : formatPhone(d); }
   function formatCpf(value) { const digits = onlyDigits(value).slice(0, 11); return digits.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2"); }
   function formatCep(value) { const digits = onlyDigits(value).slice(0, 8); if (digits.length <= 2) return digits; if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`; return `${digits.slice(0, 2)}.${digits.slice(2, 5)}-${digits.slice(5)}`; }
   // S4 21/07 (achado #0, 1a aplicacao da classe unica de aviso) - o status do
@@ -4170,12 +4181,12 @@
   function modal() {
     if (state.modal === "client-product") return clientEditorModal(false);
     if (state.modal === "new-client") return clientEditorModal(true);
-    if (state.modal === "new-product") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Novo produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="number" min="0" step="0.01"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block" type="submit">Cadastrar</button></form></section></div>`;
+    if (state.modal === "new-product") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Novo produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="text" inputmode="numeric" data-product-price="new"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block" type="submit">Cadastrar</button></form></section></div>`;
     if (state.modal === "edit-product") {
       const p = state.modalProduct || {};
       const d = state.editProductDraft || { nome: p.nome || p.name || "", unidade: p.unidade || "", precoCatalogo: p.precoCatalogo != null ? String(p.precoCatalogo) : "", estoque: p.estoque != null ? String(p.estoque) : "" };
       const active = p.ativo !== false;
-      return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="edit-product-title">Editar produto</h2><p class="center-modal-resumo">${H.escape(p.nome || p.name || "Produto")}</p><button class="close center-modal-close" type="button" data-action="close-modal">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(d.nome)}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(d.unidade)}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(d.precoCatalogo)}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" inputmode="numeric" value="${H.escape(d.estoque)}"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Salvar</button></form><div class="product-edit-danger"><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}">${active ? "Arquivar produto" : "Reativar produto"}</button></div></div></section></div>`;
+      return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="edit-product-title">Editar produto</h2><p class="center-modal-resumo">${H.escape(p.nome || p.name || "Produto")}</p><button class="close center-modal-close" type="button" data-action="close-modal">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(d.nome)}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(d.unidade)}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="text" inputmode="numeric" data-product-price="edit" value="${H.escape(d.precoCatalogo)}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" inputmode="numeric" value="${H.escape(d.estoque)}"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Salvar</button></form><div class="product-edit-danger"><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}">${active ? "Arquivar produto" : "Reativar produto"}</button></div></div></section></div>`;
     }
     if (state.modal === "new-delivery") {
       const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${new Date(Date.now() + 3600000).toISOString().slice(0,16)}"></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
@@ -7182,18 +7193,18 @@
     }
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "new-client-form" && ["productId", "qtdPadrao", "proximaData", "frequenciaDias", "scheduledAt", "precoAcordado"].includes(event.target.name)) { state.clientProductDraft[event.target.name] = event.target.value; return; }
-    if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { if (event.target.name === "phone") event.target.value = formatPhone(event.target.value); if (event.target.name === "cep") event.target.value = formatCep(event.target.value); if (event.target.name === "uf") event.target.value = event.target.value.toUpperCase(); state.clientPaymentDraft[event.target.name] = event.target.value; if (event.target.name === "cep") { if (onlyDigits(event.target.value).length === 8) void lookupClientCep(event.target.value); else { clientCepRequestId += 1; setClientCepStatus(""); } } return; }
+    if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { if (event.target.name === "phone") event.target.value = formatPhoneInput(event.target.value); if (event.target.name === "cep") event.target.value = formatCep(event.target.value); if (event.target.name === "uf") event.target.value = event.target.value.toUpperCase(); state.clientPaymentDraft[event.target.name] = event.target.value; if (event.target.name === "cep") { if (onlyDigits(event.target.value).length === 8) void lookupClientCep(event.target.value); else { clientCepRequestId += 1; setClientCepStatus(""); } } return; }
     if (event.target.form && event.target.form.id === "new-client-form" && event.target.name) {
-      const name = event.target.name; const value = name === "cep" ? formatCep(event.target.value) : name === "phone" ? formatPhone(event.target.value) : name === "cpf" ? formatCpf(event.target.value) : event.target.value;
+      const name = event.target.name; const value = name === "cep" ? formatCep(event.target.value) : name === "phone" ? formatPhoneInput(event.target.value) : name === "cpf" ? formatCpf(event.target.value) : event.target.value;
       event.target.value = value; state.newClientDraft[name] = value;
       if (name === "cep") { if (onlyDigits(value).length === 8) lookupNewClientCep(value); else state.newClientCepStatus = ""; }
       return;
     }
-    if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { if (event.target.name === "clientPhone") event.target.value = formatPhone(event.target.value); state.oneoffDraft[event.target.name] = event.target.value; return; }
+    if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { if (event.target.name === "clientPhone") event.target.value = formatPhoneInput(event.target.value); state.oneoffDraft[event.target.name] = event.target.value; return; }
     // PR20072026 W2 — Leitura de Rota.
     if (event.target.form && event.target.form.id === "leitura-novo-form" && event.target.name) {
       const name = event.target.name;
-      const value = name === "telefone" ? formatPhone(event.target.value) : name === "cep" ? formatCep(event.target.value) : name === "uf" ? event.target.value.toUpperCase() : event.target.value;
+      const value = name === "telefone" ? formatPhoneInput(event.target.value) : name === "cep" ? formatCep(event.target.value) : name === "uf" ? event.target.value.toUpperCase() : event.target.value;
       event.target.value = value;
       state.leituraNovoDraft[name] = value;
       // CEP digitado dispara ViaCEP + geocode.
@@ -7209,7 +7220,7 @@
       return;
     }
     if (event.target.id === "leitura-numero-input") { if (state.leituraEnd) state.leituraEnd.numero = event.target.value; return; }
-    if (event.target.id === "leitura-telefone-input") { event.target.value = formatPhone(event.target.value); state.leituraTelefoneValue = event.target.value; return; }
+    if (event.target.id === "leitura-telefone-input") { event.target.value = formatPhoneInput(event.target.value); state.leituraTelefoneValue = event.target.value; return; }
     // Observações da parada: foco/toque já parou a contagem; input só persiste o
     // rascunho sem renderizar e sem derrubar o teclado.
     if (event.target.id === "leitura-obs-input") { state.leituraObsDraft = event.target.value; stopLeituraObsCountdown(); return; }
@@ -7402,13 +7413,13 @@
         await loadClients(true, true);
         toast(state.clientProductMode === "oneoff" ? "Entrega avulsa adicionada." : wasEditing ? "Alterações salvas." : "Recorrência salva.");
       }
-      if (form.id === "new-product-form") { data.price = Number(data.price || 0); data.stock = Number(data.stock || 0); data.kind = "tenant_product"; data.status = "active"; data.usaLogistica = true; await H.api("/products", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Produto cadastrado."); }
+      if (form.id === "new-product-form") { data.price = moneyInputReais(data.price); data.stock = Number(data.stock || 0); data.kind = "tenant_product"; data.status = "active"; data.usaLogistica = true; await H.api("/products", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Produto cadastrado."); }
       if (form.id === "edit-product-form") {
         const product = state.modalProduct;
         if (!product || !product.id) throw new Error("Produto não encontrado.");
         // Contrato do backend (UpdateProdutoDto): campo de preço chama `preco`;
         // só manda o que foi preenchido (formValues já dropa vazios).
-        const body = { nome: data.nome, ...(data.unidade !== undefined ? { unidade: data.unidade } : {}), ...(data.precoCatalogo !== undefined ? { preco: Number(data.precoCatalogo) } : {}), ...(data.estoque !== undefined ? { estoque: Math.trunc(Number(data.estoque)) } : {}) };
+        const body = { nome: data.nome, ...(data.unidade !== undefined ? { unidade: data.unidade } : {}), ...(data.precoCatalogo !== undefined ? { preco: moneyInputReais(data.precoCatalogo) } : {}), ...(data.estoque !== undefined ? { estoque: Math.trunc(Number(data.estoque)) } : {}) };
         await H.api(`/logistica/produtos/${encodeURIComponent(product.id)}`, { method: "PATCH", body });
         await closeOverlay("modal");
         await refresh(true);
