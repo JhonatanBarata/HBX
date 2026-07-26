@@ -1,10 +1,14 @@
 # PR25072026-ROTA-CONFERIDA — a rota que prova antes de rodar
 
-> Status: **EM EXECUÇÃO (GO do dono 25/07)** — orquestração por ondas, workers 1/sprint.
-> Ondas: A=S0+S1 → B=S2 → C=S3 → D=S4+S7 (paralelo) → E=S5 → F=S6.
-> Contrato dos workers: `01-CONTRATO-WORKER.md`. Commits: só o orquestrador, local.
-> **Publish e testes ao vivo: SÓ com aviso ao dono (ele testa no depurador).**
-> Escopo aprovado: **S0–S7 numa leva só** (S7 incluído).
+> Status: **EXECUTADA 25/07 — 8 sprints commitadas LOCAL, aguarda publish do dono.**
+> Commits: `e9d32675` S0 · `0ebb81a9` S1 · `b6943de7` S2 · `759551bb` S3 ·
+> `23944b1a` S4 · `30c9845b` S5 · `b30cffd2` S6 · `0ceb5efb` S7 (+ `b8c9ee55` docs).
+> Gate final: 430 testes na bateria logística, 419 verdes; as 11 falhas são
+> pré-existentes (billing/tracking) ou do WIP paralelo do dono (agenda) — NENHUMA
+> em arquivo tocado pela frente (provado por git log no range fdf2347b..HEAD).
+> ⚠️ Flag `rotaConferidaAtiva`: coluna NÃO criada (drift pré-existente no schema,
+> `VendasCardComplaint` sem migration). S4/S5/S6 100% no código, inertes até a
+> coluna existir. Decisão do dono no publish.
 > Origem: pedido do dono (25/07) + análise externa (GPT) auditada contra o código.
 > Nada aqui foi implementado; nenhuma migration, nenhum débito novo.
 
