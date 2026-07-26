@@ -131,6 +131,9 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
         to: row.recipient,
         subject: row.subject,
         text: row.bodyText,
+        // S6 LEAD-CENTRICO (06-email-v1.md): HTML com a assinatura sóbria do
+        // remetente, quando a cadência montou um (bodyHtml é opcional/aditivo).
+        html: row.bodyHtml || undefined,
         disableTransportFallback: true,
       });
       if (result.ok) {
@@ -167,6 +170,15 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
           data: { status: 'failed', errorCode: result.errorCode, errorMessage: result.errorMessage, finishedAt: new Date() },
         });
         await this.fail(row, result.errorCode || 'email_confirmed_failure', result.errorMessage || 'Falha confirmada no envio.');
+        // S6 LEAD-CENTRICO (06-email-v1.md): rejeição SÍNCRONA do SMTP no destinatário
+        // (RCPT TO recusado) é o único sinal de bounce que a infra atual enxerga sem
+        // IMAP/webhook de provedor — vale como "bounce permanente": invalida o e-mail
+        // (não tenta de novo, nem aqui nem no envio manual) e registra na história do
+        // lead. NÃO vale pra COMPANY_EMAIL_NOT_CONFIGURED (é problema de config do
+        // tenant, não do endereço do contato).
+        if (String(result.errorCode || '') === 'COMPANY_EMAIL_RECIPIENT_REJECTED') {
+          await this.markBounced(row);
+        }
         return;
       }
 
@@ -221,6 +233,39 @@ export class EmailOutboxWorkerService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'failed', leaseUntil: null, lastErrorCode: code, lastErrorMessage: message },
     });
     await this.completeStep(row, 'failed', code, message);
+  }
+
+  // S6 LEAD-CENTRICO (06-email-v1.md): bounce permanente invalida o e-mail do lead —
+  // grava no CommercialEmailMessageLog (mesma fonte que o envio manual e o passo de
+  // e-mail da cadência checam antes de mandar) + evento na história do lead. Best-
+  // effort: nunca derruba o worker (defensivo pra tabela ausente/mock de teste).
+  private async markBounced(row: any) {
+    try {
+      if (typeof (this.prisma as any)?.commercialEmailMessageLog?.create === 'function') {
+        await (this.prisma as any).commercialEmailMessageLog.create({
+          data: {
+            companyId: row.companyId,
+            vendasLeadId: row.leadId || null,
+            recipientEmail: row.recipient,
+            subject: 'Bounce permanente (SMTP recusou o destinatário)',
+            status: 'do_not_contact',
+          },
+        });
+      }
+      if (row.leadId && typeof (this.prisma as any)?.vendasLeadTimelineEvent?.create === 'function') {
+        await (this.prisma as any).vendasLeadTimelineEvent.create({
+          data: {
+            leadId: row.leadId,
+            eventType: 'email_bounced',
+            title: 'E-mail com bounce permanente',
+            description: `O provedor recusou definitivamente ${row.recipient}. Novos e-mails comerciais para este endereço foram suprimidos.`,
+            sourceType: 'automacao',
+          },
+        });
+      }
+    } catch (error: any) {
+      this.logger.warn(`email_bounce_register_failed id=${row.id}: ${String(error?.message || error)}`);
+    }
   }
 
   private async unknown(row: any, code: string, message: string) {

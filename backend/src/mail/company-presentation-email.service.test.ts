@@ -21,9 +21,20 @@ const CARD_ASSET = {
   meta: { originalName: 'cartao-empresa.png', mimeType: 'image/png', size: 17 },
 };
 
+const READY_IDENTITY = {
+  ready: true,
+  missing: [],
+  name: 'Vendedor Teste',
+  jobTitle: 'Consultor Comercial',
+  phone: '(11) 90000-0000',
+  website: 'empresa.com.br',
+  companyName: 'Empresa Teste',
+};
+
 function buildService(overrides?: {
   mailer?: Record<string, any>;
   settings?: Record<string, any>;
+  senderIdentity?: Record<string, any>;
 }) {
   const sentMessages: Array<{ companyId: number; message: any }> = [];
   const mailer = {
@@ -66,11 +77,19 @@ function buildService(overrides?: {
     buildBusinessCardHtml: () => '<img src="cid:hbx-business-card">',
   } as any;
 
+  const senderIdentity = {
+    resolveSummary: async () => READY_IDENTITY,
+    buildCommercialFooterHtml: (summary: any) => (summary.ready ? '<div class="assinatura">Vendedor Teste</div>' : ''),
+    buildCommercialFooterText: (summary: any) => (summary.ready ? '--\nVendedor Teste' : ''),
+    ...(overrides?.senderIdentity || {}),
+  } as any;
+
   const service = new CompanyPresentationEmailService(
     mailer,
     settings,
     new EmailTemplateService({} as any),
     hbxPresentationEmails,
+    senderIdentity,
   );
   return { service, sentMessages };
 }
@@ -207,5 +226,48 @@ test('previewPresentationForCompany monta preview com anexos e cartão da empres
   assert.equal(preview.businessCard?.originalName, 'cartao-empresa.png');
   assert.match(preview.businessCard?.previewDataUrl || '', /^data:image\/png;base64,/);
   assert.match(preview.html, /cid:hbx-business-card/);
+  assert.match(preview.html, /class="assinatura"/, 'assinatura sóbria do remetente entra no HTML');
   assert.ok(!preview.warnings.some((warning) => /não configurad/.test(warning)));
+});
+
+// ================================================================
+// S6 LEAD-CENTRICO (06-email-v1.md): regra dura — e-mail comercial sem
+// identidade do remetente (nome+cargo+telefone) NÃO SAI.
+// ================================================================
+
+test('sendPresentationForCompany BLOQUEIA quando o remetente não tem perfil completo (regra dura)', async () => {
+  const { service, sentMessages } = buildService({
+    senderIdentity: {
+      resolveSummary: async () => ({ ready: false, missing: ['Cargo', 'Telefone'], name: 'Vendedor Teste', jobTitle: null, phone: null, website: null, companyName: 'Empresa Teste' }),
+    },
+  });
+
+  await assert.rejects(
+    () => service.sendPresentationForCompany(7, { ...BASE_INPUT }),
+    /Perfil do remetente incompleto/,
+  );
+  assert.equal(sentMessages.length, 0, 'nenhum e-mail sai sem identidade do remetente');
+});
+
+test('previewPresentationForCompany apenas AVISA (não bloqueia) quando falta perfil do remetente', async () => {
+  const { service } = buildService({
+    senderIdentity: {
+      resolveSummary: async () => ({ ready: false, missing: ['Cargo', 'Telefone'], name: 'Vendedor Teste', jobTitle: null, phone: null, website: null, companyName: 'Empresa Teste' }),
+    },
+  });
+
+  const preview = await service.previewPresentationForCompany(7, { ...BASE_INPUT });
+
+  assert.ok(preview.warnings.some((warning) => /Perfil do remetente incompleto/.test(warning)));
+  assert.ok(!preview.html.includes('class="assinatura"'), 'sem perfil pronto, HTML não ganha assinatura');
+});
+
+test('sendPresentationForCompany embute a assinatura sóbria no HTML e no texto quando o remetente está pronto', async () => {
+  const { service, sentMessages } = buildService();
+
+  await service.sendPresentationForCompany(7, { ...BASE_INPUT });
+
+  const message = sentMessages[0].message;
+  assert.match(message.html, /class="assinatura"/);
+  assert.match(message.text, /Vendedor Teste/);
 });

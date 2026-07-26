@@ -19,6 +19,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { CreditsModule } from '../credits/credits.module';
 import { EmailOutboxService } from './email-outbox.service';
 import { EmailOutboxWorkerService } from './email-outbox-worker.service';
+import { SenderIdentityService } from './sender-identity.service';
 
 @Module({
   imports: [PrismaModule, CreditsModule, forwardRef(() => ModulesAccessModule)],
@@ -37,6 +38,7 @@ import { EmailOutboxWorkerService } from './email-outbox-worker.service';
     GmailOAuthService,
     EmailOutboxService,
     EmailOutboxWorkerService,
+    SenderIdentityService,
   ],
   exports: [
     MailService,
@@ -49,6 +51,7 @@ import { EmailOutboxWorkerService } from './email-outbox-worker.service';
     CompanyPresentationEmailService,
     GmailOAuthService,
     EmailOutboxService,
+    SenderIdentityService,
   ],
 })
 export class MailModule {}

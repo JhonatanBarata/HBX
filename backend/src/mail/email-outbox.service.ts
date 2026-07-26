@@ -14,6 +14,10 @@ export class EmailOutboxService {
     recipient: string;
     subject: string;
     bodyText: string;
+    // S6 LEAD-CENTRICO (06-email-v1.md): versão HTML (texto + assinatura sóbria do
+    // remetente + frase de saída limpa). Opcional/aditiva — sem ela o worker manda
+    // só texto puro, igual comportamento de hoje.
+    bodyHtml?: string | null;
     sourceModule: string;
     purpose?: string;
     idempotencyKey: string;
@@ -28,6 +32,7 @@ export class EmailOutboxService {
       recipient: String(input.recipient || '').trim().toLowerCase(),
       subject: String(input.subject || '').trim().slice(0, 240),
       bodyText: String(input.bodyText || '').trim().slice(0, 20_000),
+      bodyHtml: input.bodyHtml ? String(input.bodyHtml).trim().slice(0, 40_000) || null : null,
       sourceModule: String(input.sourceModule || 'automation').trim(),
       purpose: String(input.purpose || 'commercial_contact').trim(),
       idempotencyKey: String(input.idempotencyKey || '').trim(),

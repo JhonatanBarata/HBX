@@ -4460,6 +4460,26 @@ model VendasComercialConfig {
   updatedAt           DateTime @updatedAt
 }
 
+// S6 LEAD-CENTRICO (26/07, docs/PLANEJAMENTOS/PR25072026-LEAD-CENTRICO/06-email-v1.md):
+// perfil do remetente POR USUÁRIO pra assinatura sóbria do e-mail comercial (nome vem
+// de User.name — só o que falta mora aqui: cargo, telefone, site). "Perfil completo"
+// (nome+cargo+telefone; site é opcional) é a regra dura que libera o passo de e-mail —
+// ver SenderIdentityService.resolveSummary. ADITIVA PURA: tabela nova, sem tocar em
+// User/Company. Sem relação/FK (mesmo padrão de Cadencia/Atividade/AutomationAgent:
+// companyId cru, só pra escopo/índice).
+model UserSenderProfile {
+  id        String   @id @default(cuid())
+  userId    Int      @unique
+  companyId Int
+  jobTitle  String?
+  phone     String?
+  website   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
 model TechAssistantInteraction {
   id                String   @id @default(cuid())
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -5684,6 +5704,11 @@ model EmailOutboundMessage {
   recipient            String
   subject              String
   bodyText             String
+  // S6 LEAD-CENTRICO (06-email-v1.md): versão HTML do corpo (texto + assinatura sóbria
+  // do remetente + frase de saída limpa). Nullable/aditiva — mensagens antigas (sem
+  // HTML) continuam válidas, o worker manda só texto quando ausente (mesmo comportamento
+  // de hoje).
+  bodyHtml             String?
   sourceModule         String
   purpose              String   @default("commercial_contact")
   idempotencyKey       String

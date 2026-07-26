@@ -5,6 +5,7 @@ import { EmailTemplateService } from './email-template.service';
 import { BUSINESS_CARD_CID, HbxPresentationEmailService, SendHbxPresentationInput } from './hbx-presentation-email.service';
 import { isValidHbxEmail, normalizeHbxEmail } from './hbx-email-intent.util';
 import { MailAttachment, MailSendResult } from './mail.service';
+import { SenderIdentityService } from './sender-identity.service';
 
 // PR12062026005: apresentação comercial do VENDAS enviada pelo e-mail DA
 // EMPRESA. Anexos (PPTX/cartão) vêm do CompanyEmailAsset da própria empresa e
@@ -63,6 +64,7 @@ export class CompanyPresentationEmailService {
     private readonly settingsService: CompanyEmailSettingsService,
     private readonly emailTemplates: EmailTemplateService,
     private readonly hbxPresentationEmails: HbxPresentationEmailService,
+    private readonly senderIdentity: SenderIdentityService,
   ) {}
 
   private normalizeCompanyId(companyId?: number | null) {
@@ -92,6 +94,12 @@ export class CompanyPresentationEmailService {
       : `E-mail da empresa não configurado. ${COMPANY_EMAIL_CONFIG_HINT}`;
   }
 
+  // S6 LEAD-CENTRICO: regra dura — e-mail comercial sem identidade do remetente
+  // (nome+cargo+telefone) NÃO SAI. Preview só avisa (não bloqueia); o send bloqueia.
+  private buildIdentityWarning(missing: string[]) {
+    return `Perfil do remetente incompleto (falta: ${missing.join(', ')}). Complete em Configurações → Perfil antes de enviar e-mails comerciais.`;
+  }
+
   private async readBusinessCardMeta(companyId: number, includePreview = false): Promise<CompanyEmailAssetMetaPayload | null> {
     const meta = await this.settingsService.readAssetMeta(companyId, 'business_card');
     if (!meta) return null;
@@ -112,6 +120,7 @@ export class CompanyPresentationEmailService {
     const attachmentMeta = await this.settingsService.readAssetMeta(normalizedCompanyId, 'presentation_pptx');
     const businessCardMeta = await this.readBusinessCardMeta(normalizedCompanyId, true);
     const hasBusinessCard = Boolean(businessCardMeta);
+    const identity = await this.senderIdentity.resolveSummary(input.userId, normalizedCompanyId);
 
     const variables = this.buildVariables(input, recipientName, recipientEmail);
     const subjectSource = this.emailTemplates.normalizeSubject(input.subject);
@@ -123,10 +132,16 @@ export class CompanyPresentationEmailService {
 
     const warnings: string[] = [];
     if (!readiness.usable) warnings.push(this.buildNotConfiguredWarning(readiness));
+    if (!identity.ready) warnings.push(this.buildIdentityWarning(identity.missing));
     warnings.push('Envio manual por card. Não é disparo em massa.');
     if (!recipientEmail) warnings.push('Preencha um e-mail de destino antes de enviar.');
     if (recipientEmail && !isValidHbxEmail(recipientEmail)) warnings.push('Revise o e-mail de destino antes de enviar.');
     if (!attachmentMeta) warnings.push('A apresentação PPTX da empresa ainda não foi configurada (Configurações → E-mail).');
+
+    const appendHtml = [
+      hasBusinessCard ? this.hbxPresentationEmails.buildBusinessCardHtml() : '',
+      identity.ready ? this.senderIdentity.buildCommercialFooterHtml(identity) : '',
+    ].filter(Boolean).join('');
 
     return {
       recipientName,
@@ -135,7 +150,7 @@ export class CompanyPresentationEmailService {
       text: renderedText,
       html: this.emailTemplates.buildHtmlEmail(renderedText, {
         html: renderedHtml,
-        appendHtml: hasBusinessCard ? this.hbxPresentationEmails.buildBusinessCardHtml() : null,
+        appendHtml: appendHtml || null,
       }),
       attachment: attachmentMeta,
       businessCard: businessCardMeta,
@@ -159,6 +174,13 @@ export class CompanyPresentationEmailService {
     const readiness = await this.companyMailer.isReadyForCompany(normalizedCompanyId);
     if (!readiness.usable) {
       throw new BadRequestException(this.buildNotConfiguredWarning(readiness));
+    }
+
+    // S6 LEAD-CENTRICO — regra dura: sem identidade do remetente (nome+cargo+
+    // telefone) o e-mail comercial NÃO SAI. Preview só avisa; aqui bloqueia de fato.
+    const identity = await this.senderIdentity.resolveSummary(input.userId, normalizedCompanyId);
+    if (!identity.ready) {
+      throw new BadRequestException(this.buildIdentityWarning(identity.missing));
     }
 
     const attachmentFile = await this.settingsService.readAssetContent(normalizedCompanyId, 'presentation_pptx');
@@ -200,14 +222,19 @@ export class CompanyPresentationEmailService {
     const renderedText = this.emailTemplates.renderString(textSource, variables);
     const renderedHtml = htmlSource ? this.emailTemplates.renderString(htmlSource, variables) : null;
 
+    const appendHtml = [
+      businessCardFile ? this.hbxPresentationEmails.buildBusinessCardHtml() : '',
+      this.senderIdentity.buildCommercialFooterHtml(identity),
+    ].filter(Boolean).join('');
+
     const delivery = await this.companyMailer.sendForCompany(normalizedCompanyId, {
       to: recipientEmail,
       replyTo: input.replyTo || null,
       subject: renderedSubject,
-      text: renderedText,
+      text: [renderedText, this.senderIdentity.buildCommercialFooterText(identity)].filter(Boolean).join('\n\n'),
       html: this.emailTemplates.buildHtmlEmail(renderedText, {
         html: renderedHtml,
-        appendHtml: businessCardFile ? this.hbxPresentationEmails.buildBusinessCardHtml() : null,
+        appendHtml: appendHtml || null,
       }),
       attachments,
     });

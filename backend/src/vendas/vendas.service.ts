@@ -6749,6 +6749,66 @@ export class VendasService {
     }
   }
 
+  // S6 LEAD-CENTRICO (06-email-v1.md, item 3): sem IMAP/webhook de recepção (gap
+  // documentado no relatório do sprint), a resposta "sem interesse/remover" chega
+  // pelo e-mail PESSOAL do vendedor — quem registra é o humano, no card. Isso:
+  // (1) grava a supressão na MESMA fonte que o envio manual e a cadência checam
+  // (CommercialEmailMessageLog.status='opted_out'), (2) marca o lead com o motivo
+  // estruturado do S4 via updateLeadForUser (reusa permissão + timeline + a parada
+  // global de cadência que já dispara pra status 'encerrado'), (3) grava 1 evento
+  // próprio na história do lead documentando a origem manual do registro.
+  async registerEmailOptOutForUser(user: any, leadId: string, body?: any) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertCanSendPresentationEmail(context);
+    const { companyId, userId } = context;
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      select: this.buildVendasLeadSelectWithoutAddress(),
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+    const recipientEmail = this.normalizeEmail(body?.recipientEmail || lead.email);
+    if (!recipientEmail) throw new BadRequestException('Lead sem e-mail para suprimir.');
+    const note = this.normalizeText(body?.note);
+
+    await this.logCommercialEmailMessage({
+      companyId,
+      userId,
+      vendasLeadId: lead.id,
+      recipientEmail,
+      recipientName: lead.name || null,
+      subject: 'Pedido de remoção / sem interesse (registrado manualmente)',
+      text: note,
+      status: 'opted_out',
+    });
+
+    let leadStatus = this.normalizeStatus((lead as any).status);
+    if (leadStatus !== 'encerrado') {
+      const result = await this.updateLeadForUser(user, normalizedLeadId, {
+        status: 'encerrado',
+        closureReason: 'sem_interesse',
+      } as UpdateVendasLeadDto);
+      leadStatus = this.normalizeStatus((result as any)?.lead?.status) || 'encerrado';
+    }
+
+    await this.prisma.vendasLeadTimelineEvent.create({
+      data: {
+        leadId: normalizedLeadId,
+        ...this.buildTimelineEvent({
+          eventType: 'email_opt_out_registered',
+          title: 'Resposta de remoção registrada',
+          description: `Contato pediu remoção/sem interesse por e-mail (${recipientEmail}). Novos e-mails comerciais para este endereço foram suprimidos.`,
+          sourceType: 'email_presentation',
+          resultLabel: 'opted_out',
+          createdByUserId: userId,
+        }),
+      },
+    }).catch(() => null);
+
+    return { ok: true, recipientEmail, leadStatus };
+  }
+
   private extractRadarLeadId(value: unknown) {
     const raw = String(value || '').trim();
     const match = raw.match(/^radar:([^:\s]+)$/i);

@@ -9,11 +9,22 @@ import assert from 'node:assert/strict';
 
 import { CadenciaService } from './cadencia.service';
 import { COMPANY_EMAIL_NOT_CONFIGURED } from '../mail/company-mailer.service';
+import { EmailTemplateService } from '../mail/email-template.service';
 import { sanitizePassos, MAX_WHATS_STEPS_PER_CADENCE } from './cadencia-personas';
 import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
 
 // Constroi um service "pelado" (prototype) com dependencias falsas, no mesmo
 // padrao dos testes de inbox/conversations.
+const READY_IDENTITY = {
+  ready: true,
+  missing: [],
+  name: 'Vendedor Teste',
+  jobTitle: 'Consultor Comercial',
+  phone: '(11) 90000-0000',
+  website: null,
+  companyName: 'Empresa Teste',
+};
+
 function makeService(opts: {
   runnerEnabled: boolean;
   inscricoes: any[];
@@ -22,6 +33,10 @@ function makeService(opts: {
   emailEnabled?: boolean;
   // Retorno (ou lanca) do sendForCompany; default = envio ok.
   mailerSend?: (companyId: number, message: any) => Promise<any>;
+  // S6 LEAD-CENTRICO: identidade do remetente (default = perfil completo/pronto)
+  // e supressão de e-mail por endereço (default = ninguém suprimido).
+  identityReady?: boolean;
+  suppressedEmails?: string[];
 }) {
   const svc = Object.create(CadenciaService.prototype) as any;
   const queueCalls: any[] = [];
@@ -90,6 +105,16 @@ function makeService(opts: {
         return {};
       },
     },
+    ...(opts.suppressedEmails
+      ? {
+          commercialEmailMessageLog: {
+            findFirst: async ({ where }: any) =>
+              (opts.suppressedEmails || []).includes(where?.recipientEmail)
+                ? { status: 'opted_out' }
+                : null,
+          },
+        }
+      : {}),
   };
   svc.conversations = {
     queueOutboundForCompany: async (companyId: number, payload: any) => {
@@ -110,6 +135,14 @@ function makeService(opts: {
       return { ok: true, queued: true, transport: 'smtp', messageId: 'mid1', accepted: [message.to], rejected: [], errorCode: null, errorMessage: null };
     },
   };
+  // S6 LEAD-CENTRICO — identidade do remetente (default: perfil completo/pronto)
+  // e o builder de HTML (real, é síncrono/sem prisma — ver EmailTemplateService.buildHtmlEmail).
+  svc.senderIdentity = {
+    resolveSummary: async () => (opts.identityReady === false ? { ready: false, missing: ['Nome', 'Cargo', 'Telefone'], name: null, jobTitle: null, phone: null, website: null, companyName: null } : READY_IDENTITY),
+    buildCommercialFooterHtml: (summary: any) => (summary.ready ? '<div class="assinatura">Vendedor Teste</div>' : ''),
+    buildCommercialFooterText: (summary: any) => (summary.ready ? '--\nVendedor Teste' : ''),
+  };
+  svc.emailTemplates = new EmailTemplateService(svc.prisma as any);
   svc.logger = { log() {}, warn() {}, error() {} };
   svc.commercialContactControl = {
     canCadenciaRun: async ({ companyId, leadId, inscricaoId }: any) => {
@@ -277,7 +310,9 @@ test('F1: flag ON + tenant configurado + lead com e-mail -> envia 1x e avanca', 
   assert.equal(mailerCalls[0].companyId, 7, 'remetente = tenant (companyId da inscricao)');
   assert.equal(mailerCalls[0].message.to, 'contato@empresa.com');
   assert.equal(mailerCalls[0].message.subject, 'Oi');
-  assert.equal(mailerCalls[0].message.text, 'Corpo do e-mail');
+  assert.match(mailerCalls[0].message.text, /^Corpo do e-mail/, 'corpo original preservado, assinatura vai no rodapé');
+  assert.match(mailerCalls[0].message.text, /Vendedor Teste/, 'assinatura sóbria do remetente vai no corpo (texto)');
+  assert.match(mailerCalls[0].message.html, /class="assinatura"/, 'assinatura sóbria do remetente vai no HTML');
   assert.equal((res as any).emailSent, 1);
   assert.equal(inscricoes[0].currentStep, 1, 'cadencia avanca apos enviar');
 });
@@ -360,4 +395,47 @@ test('F1: envio lanca erro -> best-effort, cadencia avanca, timeline com o erro'
   assert.equal((res as any).failed, 0, 'erro de envio NAO derruba o lead (best-effort)');
   assert.ok(timelineCalls.some((t) => /smtp boom/i.test(t.description || '')), 'timeline guarda o erro');
   assert.equal(inscricoes[0].currentStep, 1, 'cadencia avanca apesar do erro');
+});
+
+// ================================================================
+// S6 LEAD-CENTRICO (06-email-v1.md): assinatura sóbria + regra dura "sem
+// identidade não sai" + supressão (remoção/bounce permanente) na cadência.
+// ================================================================
+
+test('S6: SEM identidade do remetente -> passo pulado com log "sem identidade", NAO envia', async () => {
+  const { svc, mailerCalls, timelineCalls, inscricoes } = makeService({
+    runnerEnabled: true,
+    emailEnabled: true,
+    cadencia: cadenciaEmailPrimeiro,
+    lead: leadComEmail,
+    identityReady: false,
+    inscricoes: [inscricaoEmail('e1', 'lead1')],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal(mailerCalls.length, 0, 'regra dura: e-mail sem identidade nao sai');
+  assert.equal((res as any).emailSent, 0);
+  assert.ok(
+    timelineCalls.some((t) => /sem identidade/i.test(t.description || '')),
+    'timeline registra o motivo do skip',
+  );
+  assert.equal(inscricoes[0].currentStep, 1, 'cadencia avanca mesmo sem enviar (mesmo padrao dos outros skips)');
+});
+
+test('S6: e-mail suprimido (pedido de remoção/bounce permanente) -> passo pulado, NAO envia', async () => {
+  const { svc, mailerCalls, timelineCalls, inscricoes } = makeService({
+    runnerEnabled: true,
+    emailEnabled: true,
+    cadencia: cadenciaEmailPrimeiro,
+    lead: leadComEmail,
+    suppressedEmails: ['contato@empresa.com'],
+    inscricoes: [inscricaoEmail('e1', 'lead1')],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal(mailerCalls.length, 0, 'endereco suprimido nao pode receber e-mail comercial');
+  assert.equal((res as any).emailSent, 0);
+  assert.ok(
+    timelineCalls.some((t) => /suprimido/i.test(t.description || '')),
+    'timeline registra a supressao',
+  );
+  assert.equal(inscricoes[0].currentStep, 1, 'cadencia avanca mesmo sem enviar');
 });

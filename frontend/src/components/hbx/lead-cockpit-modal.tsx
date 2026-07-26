@@ -348,6 +348,10 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [emailPreview, setEmailPreview] = useState<{ subject: string; text: string; to: string } | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  // S6 LEAD-CENTRICO (06-email-v1.md): sem IMAP/webhook de recepção (gap
+  // documentado no sprint), quem lê a resposta de remoção é o vendedor no PRÓPRIO
+  // e-mail — este botão registra manualmente o que ele leu.
+  const [optOutBusy, setOptOutBusy] = useState(false);
   const [copilotoEnabled, setCopilotoEnabled] = useState(false);
   const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
   const [addedNotes, setAddedNotes] = useState<NonNullable<VendasLead["timeline"]>>([]);
@@ -702,6 +706,27 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     }
   }
 
+  // S6 LEAD-CENTRICO: registra manualmente a resposta de remoção/sem interesse
+  // (sem detecção automática de resposta — gap documentado). Marca o lead
+  // (closureReason do S4) e suprime novos e-mails comerciais pro contato.
+  async function registerEmailOptOut() {
+    if (optOutBusy) return;
+    setOptOutBusy(true);
+    setEmailMsg(null);
+    try {
+      await apiFetch(`/vendas/leads/${encodeURIComponent(lead.id)}/email/opt-out`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setEmailMsg("✓ Registrado — não vamos mandar mais e-mail comercial pra este contato.");
+      setEmailPreview(null);
+    } catch (error) {
+      setEmailMsg(error instanceof Error ? error.message : "Não foi possível registrar.");
+    } finally {
+      setOptOutBusy(false);
+    }
+  }
+
   function copyCnpj() {
     if (!cnpj) return;
     navigator.clipboard?.writeText(cnpj).then(
@@ -831,6 +856,11 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           </button>
         )}
         {emailMsg && <span className={`ctx-msg ${emailMsg.startsWith("✓") ? "ok" : "err"}`}>{emailMsg}</span>}
+        <div className="lead-cockpit__inline-actions">
+          <button type="button" className="btn-ghost btn-xs" onClick={registerEmailOptOut} disabled={optOutBusy}>
+            {optOutBusy ? "Registrando…" : "Contato pediu remoção / sem interesse"}
+          </button>
+        </div>
       </div>
     );
   }

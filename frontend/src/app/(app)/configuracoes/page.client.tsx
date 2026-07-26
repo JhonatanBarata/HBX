@@ -146,6 +146,12 @@ export function ConfiguracoesClient() {
 
   const [user, setUser] = useState<CurrentUser>(null);
   const [nome, setNome] = useState("");
+  // S6 LEAD-CENTRICO (06-email-v1.md): perfil do remetente — vira a assinatura
+  // sóbria de todo e-mail comercial (cadência + envio manual do detalhes do lead).
+  // Sem cargo+telefone preenchidos, o backend PULA o passo de e-mail (regra dura).
+  const [cargo, setCargo] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [site, setSite] = useState("");
   const [nichoInput, setNichoInput] = useState("");
   const [nichoBusy, setNichoBusy] = useState(false);
   const [nichoMsg, setNichoMsg] = useState<string | null>(null);
@@ -177,6 +183,14 @@ export function ConfiguracoesClient() {
         setNichoInput((res.company?.prospectingSegments || []).join(", "));
       })
       .catch(() => { /* sem sessão — AuthGate cuida */ });
+    apiFetch<{ jobTitle?: string | null; phone?: string | null; website?: string | null }>("/profile/sender-identity")
+      .then(res => {
+        if (!alive || !res) return;
+        setCargo(res.jobTitle || "");
+        setTelefone(res.phone || "");
+        setSite(res.website || "");
+      })
+      .catch(() => { /* seção fica com os campos vazios */ });
     apiFetch<CommercialPlansMe>("/commercial-plans/me")
       .then(res => { if (alive) setPlansMe(res); })
       .catch(() => { /* sem acesso comercial — seção fica oculta/limitada */ });
@@ -205,7 +219,13 @@ export function ConfiguracoesClient() {
         body: JSON.stringify({ name: nome }),
       });
       if (updated) setUser(updated);
-      setSaveMsg("✓ Nome atualizado.");
+      // Perfil do remetente (assinatura do e-mail comercial) salva junto — mesmo
+      // botão "Salvar alterações", sem seção separada (cadastro mínimo do S6).
+      await apiFetch("/profile/sender-identity", {
+        method: "PATCH",
+        body: JSON.stringify({ jobTitle: cargo, phone: telefone, website: site }),
+      });
+      setSaveMsg("✓ Perfil atualizado.");
     } catch (err) {
       setSaveMsg(err instanceof Error ? err.message : "Não foi possível salvar.");
     } finally {
@@ -402,8 +422,17 @@ export function ConfiguracoesClient() {
                       <div className="f"><label>Nome completo</label><input className="field-dark" value={nome} onChange={e => setNome(e.target.value)} /></div>
                       <div className="f"><label>Perfil de acesso</label><input className="field-dark" value={user ? roleLabel(user.role) : ""} readOnly /></div>
                       <div className="f"><label>E-mail</label><input className="field-dark" value={user?.email || ""} readOnly /></div>
-                      <div className="f"><label>Telefone</label><input className="field-dark" defaultValue="" placeholder="—" readOnly /></div>
+                      <div className="f"><label>Telefone</label><input className="field-dark" value={telefone} placeholder="(11) 90000-0000" onChange={e => setTelefone(e.target.value)} /></div>
                     </div>
+                    <div className="frow cfg-fields">
+                      <div className="f"><label>Cargo</label><input className="field-dark" value={cargo} placeholder="Ex.: Consultor Comercial" onChange={e => setCargo(e.target.value)} /></div>
+                      <div className="f"><label>Site</label><input className="field-dark" value={site} placeholder="seusite.com.br (opcional)" onChange={e => setSite(e.target.value)} /></div>
+                    </div>
+                    <p className="dica">
+                      Nome, cargo e telefone montam a assinatura dos seus e-mails comerciais (cadência e apresentação enviada
+                      pelo card do lead). Sem esses 3 campos preenchidos, o e-mail não sai — regra do HBX pra nunca mandar
+                      mensagem sem identificação de quem está falando.
+                    </p>
                     <div className="cfg-save-mobile">
                       {saveMsg && <span className={"cfg-save-msg" + (saveMsg.startsWith("✓") ? " ok" : " err")}>{saveMsg}</span>}
                       <button className="btn-teal" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>

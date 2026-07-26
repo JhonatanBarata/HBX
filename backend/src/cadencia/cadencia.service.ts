@@ -4,6 +4,8 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { AtividadesService } from '../atividades/atividades.service';
 import { CompanyMailerService, COMPANY_EMAIL_NOT_CONFIGURED } from '../mail/company-mailer.service';
 import { EmailOutboxService } from '../mail/email-outbox.service';
+import { EmailTemplateService } from '../mail/email-template.service';
+import { SenderIdentityService } from '../mail/sender-identity.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import {
   CADENCIA_SEEDS,
@@ -79,6 +81,13 @@ export class CadenciaService {
     private readonly conversations: ConversationsService,
     private readonly atividades: AtividadesService,
     private readonly mailer: CompanyMailerService,
+    // S6 LEAD-CENTRICO (06-email-v1.md): identidade do remetente (assinatura sóbria +
+    // regra dura "sem perfil não sai") e o builder de HTML do corpo. @Optional porque
+    // os testes unitários constroem o service via Object.create (bypassa o construtor)
+    // e atribuem svc.senderIdentity/svc.emailTemplates direto — em produção o Nest
+    // sempre resolve (MailModule exporta os dois).
+    @Optional() private readonly senderIdentity?: SenderIdentityService,
+    @Optional() private readonly emailTemplates?: EmailTemplateService,
     @Optional() private readonly emailOutbox?: EmailOutboxService,
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
@@ -675,7 +684,7 @@ export class CadenciaService {
   //  - tenant nao config.  -> SKIP gracioso (errorCode COMPANY_EMAIL_NOT_CONFIGURED): timeline + segue.
   //  - erro de envio       -> timeline com o erro, cadencia AVANCA.
   private async executeEmailStep(
-    insc: { leadId: string; companyId: number },
+    insc: { leadId: string; companyId: number; responsavelId?: number | null },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
     automationStepRunId?: string | null,
@@ -699,6 +708,14 @@ export class CadenciaService {
       return false;
     }
 
+    // S6 LEAD-CENTRICO (06-email-v1.md): contato pediu remoção/sem interesse OU
+    // teve bounce permanente — mesma fonte lida pelo envio manual (CommercialEmailMessageLog).
+    if (await this.isEmailSuppressed(to)) {
+      this.logger.log(`[cadencia-runner] email suprimido lead=${insc.leadId} — passo pulado`);
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'E-mail suprimido (remoção/bounce permanente) — passo pulado.');
+      return false;
+    }
+
     const subject = String(passo.titulo || 'Contato').slice(0, 200);
     const body = String(passo.corpo || '').trim();
     if (!body) {
@@ -707,6 +724,19 @@ export class CadenciaService {
       return false;
     }
 
+    // S6 LEAD-CENTRICO: regra dura — e-mail comercial sem identidade do remetente
+    // (nome+cargo+telefone) NAO SAI. Remetente = responsável pela inscrição de cadência.
+    const identity = await this.senderIdentity!.resolveSummary(insc.responsavelId ?? null, insc.companyId);
+    if (!identity.ready) {
+      this.logger.log(`[cadencia-runner] email sem identidade lead=${insc.leadId} — passo pulado`);
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'E-mail sem identidade do remetente — passo pulado.');
+      return false;
+    }
+    const bodyHtml = this.emailTemplates!.buildHtmlEmail(body, {
+      appendHtml: this.senderIdentity!.buildCommercialFooterHtml(identity),
+    });
+    const bodyWithSignature = [body, this.senderIdentity!.buildCommercialFooterText(identity)].filter(Boolean).join('\n\n');
+
     if (this.emailOutbox) {
       await this.emailOutbox.enqueue({
         companyId: insc.companyId,
@@ -714,7 +744,8 @@ export class CadenciaService {
         automationStepRunId: automationStepRunId || null,
         recipient: to,
         subject,
-        bodyText: body,
+        bodyText: bodyWithSignature,
+        bodyHtml,
         sourceModule: 'cadencia_email',
         purpose: 'commercial_contact',
         idempotencyKey: automationStepRunId || `cadencia:${cadencia.id}:${insc.leadId}:${passo.dia}`,
@@ -726,7 +757,7 @@ export class CadenciaService {
 
     // Compatibilidade para testes unitários que constroem o service sem o módulo.
     try {
-      const result = await this.mailer.sendForCompany(insc.companyId, { to, subject, text: body });
+      const result = await this.mailer.sendForCompany(insc.companyId, { to, subject, text: bodyWithSignature, html: bodyHtml });
       if (result.ok) {
         await this.writeEmailTimeline(insc.leadId, cadencia, passo, `E-mail enviado para ${to}.`);
         return true;
@@ -765,6 +796,24 @@ export class CadenciaService {
         },
       })
       .catch(() => null);
+  }
+
+  // S6 LEAD-CENTRICO (06-email-v1.md): mesma fonte de supressão lida pelo envio
+  // manual (vendas.service.ts assertEmailAllowsManualSend) — pedido de remoção OU
+  // bounce permanente gravam CommercialEmailMessageLog.status opted_out/do_not_contact.
+  // Defensivo: tabela ausente (ambiente sem a migration/tests sem mock) = nao suprime.
+  private async isEmailSuppressed(recipientEmail: string): Promise<boolean> {
+    try {
+      if (typeof (this.prisma as any)?.commercialEmailMessageLog?.findFirst !== 'function') return false;
+      const blocked = await (this.prisma as any).commercialEmailMessageLog.findFirst({
+        where: { recipientEmail, status: { in: ['opted_out', 'do_not_contact'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true },
+      });
+      return Boolean(blocked);
+    } catch {
+      return false;
+    }
   }
 
   // Atividade: usa o HOOK do WORM-12 (nao cria por caminho paralelo).

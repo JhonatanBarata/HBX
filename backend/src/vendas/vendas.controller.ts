@@ -418,6 +418,14 @@ export class VendasController {
     return this.vendasService.sendPresentationEmailForUser(req.user, leadId, body || {});
   }
 
+  // S6 LEAD-CENTRICO (06-email-v1.md): registro manual de resposta de remoção/sem
+  // interesse (sem IMAP/webhook de recepção — gap documentado no sprint). Marca o
+  // lead (closureReason do S4) e suprime novos e-mails pro contato.
+  @Post('leads/:leadId/email/opt-out')
+  registerEmailOptOut(@Req() req: any, @Param('leadId') leadId: string, @Body() body?: any) {
+    return this.vendasService.registerEmailOptOutForUser(req.user, leadId, body || {});
+  }
+
   @Post('leads/delete-bulk')
   deleteLeadsBulk(@Req() req: any, @Body() dto: BulkDeleteVendasLeadsDto) {
     return this.vendasService.deleteLeadsBulkForUser(req.user, dto || {});

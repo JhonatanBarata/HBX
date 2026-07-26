@@ -30,7 +30,7 @@ test('POST /profile/prospecting-segments retorna 200 e grava segmentos, estado e
     isSystemMaster: false,
     canViewBilling: true,
   }) as any;
-  const controller = new ProfileController(usersService, {} as any, {} as any, prisma as any);
+  const controller = new ProfileController(usersService, {} as any, {} as any, prisma as any, {} as any);
   const handler = ProfileController.prototype.saveProspectingSegments;
 
   assert.equal(Reflect.getMetadata(PATH_METADATA, ProfileController), 'profile');

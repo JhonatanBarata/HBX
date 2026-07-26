@@ -18,6 +18,7 @@ import {
   resolveOperationalAccessProjection,
   type OperationalAccessProjection,
 } from '../team/operational-capabilities';
+import { SenderIdentityService } from '../mail/sender-identity.service';
 
 class ChangePasswordDto {
   @IsString()
@@ -230,6 +231,7 @@ export class ProfileController {
     private readonly masterContextService: MasterContextService,
     private readonly themePreferencesService: ThemePreferencesService,
     private readonly prisma: PrismaService,
+    private readonly senderIdentity: SenderIdentityService,
   ) {}
 
   private async resolveMasterContext(req: any, user: any) {
@@ -419,6 +421,28 @@ export class ProfileController {
     await this.usersService.updateById(Number(req.user.id), { name });
     const updated = await this.usersService.findById(Number(req.user.id));
     return this.presentUser(req, updated);
+  }
+
+  // S6 LEAD-CENTRICO (06-email-v1.md): perfil do remetente (cargo/telefone/site) que
+  // vira a assinatura sóbria do e-mail comercial. `ready`/`missing` é a mesma regra
+  // dura que a cadência e o envio manual usam pra decidir se o e-mail sai ou é pulado.
+  @Get('sender-identity')
+  @UseGuards(JwtAuthGuard)
+  async getSenderIdentity(@Req() req: any) {
+    const user = await this.usersService.findById(req.user.id);
+    if (!user) throw new BadRequestException('Usuario invalido');
+    return this.senderIdentity.getPublicState(Number(user.id), Number((user as any).companyId || 0));
+  }
+
+  @Patch('sender-identity')
+  @UseGuards(JwtAuthGuard)
+  async updateSenderIdentity(
+    @Req() req: any,
+    @Body() body: { jobTitle?: string | null; phone?: string | null; website?: string | null },
+  ) {
+    const user = await this.usersService.findById(req.user.id);
+    if (!user) throw new BadRequestException('Usuario invalido');
+    return this.senderIdentity.save(Number(user.id), Number((user as any).companyId || 0), body || {});
   }
 
   // Avatar do usuário: armazenado como data URL (base64) na coluna avatarUrl do User.
