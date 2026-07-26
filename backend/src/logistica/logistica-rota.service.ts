@@ -555,19 +555,46 @@ export class LogisticaRotaService {
         });
       }
 
-      // Devolve o plano para a data limpa. `proximaData: { gt: start }` garante
-      // que só puxamos de volta quem foi adiantado por ESTE dia — plano que já
-      // aponta pra hoje ou pro passado fica como está.
-      const planoIds = [
-        ...new Set(alvos.map((row: any) => row.planoEntregaId).filter((id: any) => !!id)),
-      ] as string[];
+      // Devolve o plano para a DATA DE ORIGEM da ocorrência, não para o dia
+      // operacional que está sendo limpo.
+      //
+      // FIX 26/07 (a sexta que morreu) — "Montar Rota" materializa a ocorrência
+      // de OUTRO dia dentro do dia de hoje (escolher sexta 31/07 num domingo
+      // 26/07 cria as entregas com scheduledAt=26/07). Gravar `proximaData=26/07`
+      // no plano de sexta escreve uma data que NÃO cai no `diaSemana` dele — e
+      // `planOccursOn` (logistica-agenda.service.ts) só aceita a ocorrência
+      // quando `elapsedDays % 7 === 0` a partir da `proximaData`. Resultado: a
+      // sexta daquele plano nunca mais vencia, em NENHUMA semana. Somava-se o
+      // fuso: `resolveDayRange` usa meia-noite do fuso do PROCESSO (UTC no
+      // container) e a Agenda lê tudo em dia civil de São Paulo, escorregando a
+      // data mais um dia pra trás.
+      //
+      // A data certa já está gravada na chave da ocorrência
+      // (`agenda:<planoId>:<YYYY-MM-DD>`): ela é o dia civil SP em que o plano
+      // venceu e, por construção do `generateDay`, cai no `diaSemana` do plano.
+      // Entrega aberta SEM chave (nunca foi materializada pela Agenda) fica
+      // intocada de propósito — devolver um plano pra um dia arbitrário é
+      // exatamente o defeito que este bloco corrige.
+      const planosPorOrigem = new Map<string, Set<string>>();
+      for (const row of alvos as any[]) {
+        if (!row.planoEntregaId) continue;
+        const origem = sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey);
+        if (!origem) continue;
+        const grupo = planosPorOrigem.get(origem);
+        if (grupo) grupo.add(row.planoEntregaId);
+        else planosPorOrigem.set(origem, new Set([row.planoEntregaId]));
+      }
       let planosLiberados = 0;
-      if (planoIds.length) {
+      for (const [origem, ids] of planosPorOrigem) {
+        // `proximaData: { gt: alvoData }` garante que só puxamos de volta quem
+        // foi adiantado por ESTA ocorrência — plano que já aponta pra data de
+        // origem ou pro passado fica como está (idempotente na 2ª limpeza).
+        const alvoData = saoPauloMidnight(origem);
         const liberados = await tx.logisticaPlanoEntrega.updateMany({
-          where: { companyId, id: { in: planoIds }, proximaData: { gt: start } },
-          data: { proximaData: start },
+          where: { companyId, id: { in: [...ids] }, proximaData: { gt: alvoData } },
+          data: { proximaData: alvoData },
         });
-        planosLiberados = liberados.count;
+        planosLiberados += liberados.count;
       }
 
       // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
@@ -1328,6 +1355,25 @@ export function resolveDayRange(dateInput?: string): { start: Date; end: Date; d
   const end = new Date(base);
   end.setHours(23, 59, 59, 999);
   return { start, end, dayISO: toDayISO(start) };
+}
+
+/**
+ * `agenda:<planoId>:<YYYY-MM-DD>` → "YYYY-MM-DD" (a data de ORIGEM da ocorrência,
+ * já em dia civil de São Paulo — é assim que `generateDay` monta a chave).
+ * Qualquer outro formato devolve null: sem data confiável, não se mexe no plano.
+ */
+export function sourceDateFromOccurrenceKey(key: string | null | undefined): string | null {
+  const m = /^agenda:.+:(\d{4}-\d{2}-\d{2})$/.exec(String(key ?? '').trim());
+  return m ? m[1] : null;
+}
+
+/**
+ * Meia-noite do dia civil de SÃO PAULO — o MESMO carimbo que a Agenda grava em
+ * `proximaData` (`logistica-agenda.service.ts`). Usar a meia-noite do fuso do
+ * processo (UTC no container) faz a Agenda ler o dia ANTERIOR.
+ */
+export function saoPauloMidnight(dayISO: string): Date {
+  return new Date(`${dayISO}T00:00:00-03:00`);
 }
 
 function toDayISO(d: Date): string {

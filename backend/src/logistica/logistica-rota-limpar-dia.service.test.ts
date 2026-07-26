@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LogisticaRotaService, resolveDayRange } from './logistica-rota.service';
+import { LogisticaRotaService, resolveDayRange, saoPauloMidnight } from './logistica-rota.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 
 /**
@@ -353,7 +353,7 @@ test('limparDia: dia sem nenhuma entrega devolve resumo zerado, sem erro', async
 // seguinte + a `agendaOcorrenciaKey` presa na cancelada. Resultado: o dia ficava
 // impossível de regerar. Agora a limpeza DESFAZ a ocorrência.
 test('limparDia: devolve proximaData pro dia limpo e solta a chave da ocorrência', async () => {
-  const proximaSemana = new Date(DAY_START);
+  const proximaSemana = new Date(saoPauloMidnight(DATE));
   proximaSemana.setDate(proximaSemana.getDate() + 7);
 
   const h = buildHarness(
@@ -381,21 +381,32 @@ test('limparDia: devolve proximaData pro dia limpo e solta a chave da ocorrênci
   assert.equal(recorrente.planoEntregaId, 'plano-1', 'o vínculo com o plano é histórico — não some');
 
   const plano = h.planoStore.get('plano-1')!;
-  assert.deepEqual(plano.proximaData, DAY_START, 'plano volta a vencer no dia limpo');
+  assert.deepEqual(plano.proximaData, saoPauloMidnight(DATE), 'plano volta a vencer no dia limpo');
 });
 
 test('limparDia: plano que já vence hoje ou antes NÃO é puxado pra frente nem pra trás', async () => {
-  const semanaPassada = new Date(DAY_START);
+  const hoje = saoPauloMidnight(DATE);
+  const semanaPassada = new Date(hoje);
   semanaPassada.setDate(semanaPassada.getDate() - 7);
 
   const h = buildHarness(
     [
-      seedRow({ id: 'd-hoje', status: 'agendada', planoEntregaId: 'plano-hoje' }),
-      seedRow({ id: 'd-atrasado', status: 'agendada', planoEntregaId: 'plano-atrasado' }),
+      seedRow({
+        id: 'd-hoje',
+        status: 'agendada',
+        planoEntregaId: 'plano-hoje',
+        agendaOcorrenciaKey: `agenda:plano-hoje:${DATE}`,
+      }),
+      seedRow({
+        id: 'd-atrasado',
+        status: 'agendada',
+        planoEntregaId: 'plano-atrasado',
+        agendaOcorrenciaKey: `agenda:plano-atrasado:${DATE}`,
+      }),
     ],
     [],
     [
-      { id: 'plano-hoje', companyId: 7, proximaData: new Date(DAY_START) },
+      { id: 'plano-hoje', companyId: 7, proximaData: new Date(hoje) },
       { id: 'plano-atrasado', companyId: 7, proximaData: semanaPassada },
     ],
   );
@@ -403,8 +414,82 @@ test('limparDia: plano que já vence hoje ou antes NÃO é puxado pra frente nem
   const result = await h.service.limparDia(7, { date: DATE }, 42);
 
   assert.equal(result.resumo.planosLiberados, 0, 'nenhum precisava ser devolvido');
-  assert.deepEqual(h.planoStore.get('plano-hoje')!.proximaData, DAY_START);
+  assert.deepEqual(h.planoStore.get('plano-hoje')!.proximaData, hoje);
   assert.deepEqual(h.planoStore.get('plano-atrasado')!.proximaData, semanaPassada);
+});
+
+// ── 8. A SEXTA QUE MORREU (incidente 26/07) ─────────────────────────────────
+// "Montar Rota → sexta" num domingo materializa a ocorrência de 31/07 (sexta)
+// com scheduledAt = 26/07 (domingo, o dia OPERACIONAL). O Limpar Dia devolvia
+// `proximaData = 26/07` — um DOMINGO gravado num plano de SEXTA. `planOccursOn`
+// (logistica-agenda.service.ts) exige `elapsedDays % 7 === 0` a partir da
+// `proximaData`: de um domingo pra qualquer sexta dá 5, 12, 19… — nunca 0. A
+// sexta daquele cliente não voltava em NENHUMA semana. Prova real: empresa 48,
+// 10 planos de sexta com proximaData=2026-07-26 (domingo) e a prévia em 0.
+test('limparDia: devolve o plano pra DATA DE ORIGEM da ocorrência, não pro dia operacional', async () => {
+  const DOMINGO = '2026-07-26'; // dia operacional que está sendo limpo
+  const SEXTA = '2026-07-31'; // dia da ocorrência (diaSemana do plano)
+  const domingoRange = resolveDayRange(DOMINGO);
+  const seguinte = new Date(saoPauloMidnight(SEXTA));
+  seguinte.setDate(seguinte.getDate() + 7); // generateDay já empurrou pra 07/08
+
+  const h = buildHarness(
+    [
+      {
+        id: 'd-sexta-no-domingo',
+        companyId: 7,
+        entregadorId: 42,
+        status: 'agendada',
+        rotaOrdem: null,
+        etaAt: null,
+        startedAt: null,
+        scheduledAt: new Date(domingoRange.start.getTime() + 9 * 3600_000),
+        planoEntregaId: 'plano-sexta',
+        agendaOcorrenciaKey: `agenda:plano-sexta:${SEXTA}`,
+      },
+    ],
+    [],
+    [{ id: 'plano-sexta', companyId: 7, proximaData: seguinte }],
+  );
+
+  const result = await h.service.limparDia(7, { date: DOMINGO }, 42);
+
+  assert.equal(result.resumo.canceladas, 1);
+  assert.equal(result.resumo.planosLiberados, 1);
+
+  const plano = h.planoStore.get('plano-sexta')!;
+  assert.deepEqual(
+    plano.proximaData,
+    saoPauloMidnight(SEXTA),
+    'a data devolvida tem que cair na SEXTA (diaSemana do plano), nunca no domingo limpo',
+  );
+  // O invariante que realmente importa: a data gravada cai no mesmo dia da
+  // semana da ocorrência — é o que planOccursOn exige (elapsedDays % 7 === 0).
+  const diasDeDiferenca = Math.round(
+    (saoPauloMidnight(SEXTA).getTime() - plano.proximaData!.getTime()) / 86_400_000,
+  );
+  assert.equal(diasDeDiferenca % 7, 0, 'proximaData fora da cadência semanal mata o dia pra sempre');
+});
+
+test('limparDia: entrega aberta SEM chave de ocorrência não mexe na proximaData do plano', async () => {
+  const proximaSemana = new Date(saoPauloMidnight(DATE));
+  proximaSemana.setDate(proximaSemana.getDate() + 7);
+
+  const h = buildHarness(
+    [seedRow({ id: 'd-sem-chave', status: 'agendada', planoEntregaId: 'plano-x', agendaOcorrenciaKey: null })],
+    [],
+    [{ id: 'plano-x', companyId: 7, proximaData: proximaSemana }],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.canceladas, 1);
+  assert.equal(result.resumo.planosLiberados, 0);
+  assert.deepEqual(
+    h.planoStore.get('plano-x')!.proximaData,
+    proximaSemana,
+    'sem data de origem confiável não se chuta uma data no plano',
+  );
 });
 
 test('limparDia: entrega FECHADA não devolve o plano dela (só as abertas do dia)', async () => {
