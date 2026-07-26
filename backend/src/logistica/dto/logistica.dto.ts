@@ -410,8 +410,11 @@ export class IniciarRotaDto {
 }
 
 // S3 (25/07, PR25072026-ROTA-CONFERIDA) — conferir: DRY-RUN do motor de rota (mesmo
-// contrato de entrada do planejar), sem ordemManual/startAt — a conferência audita a
-// ordem que o MOTOR produziria hoje, não uma ordem manual já decidida pelo entregador.
+// contrato de entrada do planejar). S5 (furo achado pela própria S4): ganhou
+// `ordemManual` — sem ele, uma rota com ordem manual ativa era reconferida na ordem que
+// o MOTOR produziria hoje, não a ordem que o entregador vai RODAR de verdade (ver
+// LogisticaConferenciaService.conferir, que agora usa planRouteManual quando presente,
+// mesmo desvio do planejar).
 export class ConferirRotaDto {
   @IsOptional()
   @IsString()
@@ -436,6 +439,13 @@ export class ConferirRotaDto {
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   deliveryIds?: string[];
+
+  // S5 — mesma validação do ordemManual de IniciarRotaDto/PlanejarRotaDto.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  ordemManual?: string[];
 }
 
 // ── PR17072026 Onda 1 — encerrar rota (transacional, tudo-ou-nada) ───────────

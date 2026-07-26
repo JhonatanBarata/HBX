@@ -190,3 +190,30 @@ test('diverge_gps_ouro: DISTINCT ON traz o histórico de cli-2 divergindo ~1.4km
   const e1 = resultado.paradas.find((p) => p.id === 'e1')!;
   assert.ok(!e1.motivos.includes('diverge_gps_ouro'));
 });
+
+/**
+ * S5 (25/07, PR25072026-ROTA-CONFERIDA) — furo achado pela própria S4: uma rota com
+ * ordem manual ativa (aprovada na conferência) precisa ser AUDITADA nessa mesma ordem,
+ * não na ordem que o motor automático (NN+2-opt/OSRM) escolheria. `ordemManual` embaralha
+ * de propósito a ordem geográfica natural (e4 isolada vem PRIMEIRO) — se o service
+ * ignorasse o parâmetro e caísse no planRouteByRoads de sempre, a asserção de ORDEM abaixo
+ * quebraria (e1/e2/e3 sempre venceriam e4 no cluster/NN).
+ */
+test('ordemManual: conferir pula NN/2-opt/OSRM e roda planRouteManual (mesmo desvio do planejar)', async () => {
+  const osrm = buildFakeOsrm();
+  const tableSpy = mock.method(osrm, 'table');
+  const service = new LogisticaConferenciaService(buildPrismaMock() as any, configMock, osrm as any);
+  const ordemManual = ['e4', 'e1', 'e3', 'e2'];
+
+  const resultado = await service.conferir(41, { date: '2026-07-25', ordemManual });
+
+  assert.equal(tableSpy.mock.callCount(), 0, 'ordemManual não deve nem tentar a matriz OSRM (nem proxy nem público)');
+  assert.equal(resultado.engine, 'haversine', 'ordem manual é Haversine por ESCOLHA do entregador, não falha de rede');
+  assert.equal(resultado.degradedReason, null, 'ordem manual nunca preenche degradedReason (planRouteManual não é degradação)');
+  assert.deepEqual(resultado.paradas.map((p) => p.id), ordemManual, 'a ordem devolvida é EXATAMENTE a ordem manual dada, não a geográfica');
+
+  // O semáforo (motivos) continua rodando por cima da ordem manual normalmente —
+  // e4 segue vermelha (fora_do_casulo não depende de QUEM ordenou, só da distância).
+  const e4 = resultado.paradas.find((p) => p.id === 'e4')!;
+  assert.equal(e4.semaforo, 'vermelho');
+});

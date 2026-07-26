@@ -93,6 +93,10 @@
     routeModeloEditor: null,
     // ordem manual/salva ATIVA na rota planejada de hoje — sobrevive do
     // planejar até o "Iniciar rota" (ação separada, ver startPlannedRoute).
+    // S5 25/07 (PR25072026-ROTA-CONFERIDA) — quando esta ordem vem de uma
+    // APROVAÇÃO na conferência (conferencia-continuar), o objeto também carrega
+    // `origem: {lat,lng}` (o ponto usado no conferir aprovado); ver
+    // activeRouteOrdemManualOrigem/origemAprovadaDistanciaM.
     routeOrdemManual: H.cache.get("logistica-route-ordem-manual", null),
     clientProductDays: [],
     clientProductMode: "",
@@ -2258,10 +2262,21 @@
     if (!stored || !Array.isArray(stored.ids) || !stored.ids.length) return null;
     return stored.date === operationalDate() ? stored.ids : null;
   }
-  function setRouteOrdemManual(ids) {
+  // S5 25/07 — a origem (lat/lng) usada quando ESTA ordem foi aprovada na
+  // conferência (só quem chama setRouteOrdemManual com o 2º argumento
+  // preenche); "Minha ordem"/"Rota salva" seguem sem origem, e o drift-check
+  // (origemAprovadaDistanciaM) simplesmente não se aplica a esses fluxos —
+  // eles nunca tiveram o conceito de "onde foi conferido e aprovado".
+  function activeRouteOrdemManualOrigem() {
+    const stored = state.routeOrdemManual;
+    if (!stored || stored.date !== operationalDate() || !stored.origem) return null;
+    return stored.origem;
+  }
+  function setRouteOrdemManual(ids, origem) {
     const unique = [...new Set((ids || []).map(String).filter(Boolean))];
     if (!unique.length) return clearRouteOrdemManual();
-    state.routeOrdemManual = { date: operationalDate(), ids: unique };
+    const ponto = origem && validCoordinates(origem.lat, origem.lng) ? { lat: Number(origem.lat), lng: Number(origem.lng) } : null;
+    state.routeOrdemManual = { date: operationalDate(), ids: unique, ...(ponto ? { origem: ponto } : {}) };
     H.cache.set("logistica-route-ordem-manual", state.routeOrdemManual);
   }
   function clearRouteOrdemManual() {
@@ -5058,11 +5073,10 @@
     return conferenciaListaStep(rc);
   }
   // Chama /logistica/rota/conferir (dry-run — Lei nº3) com a MESMA seleção de
-  // deliveryIds que o planejar usou. ⚠️ Limitação herdada da S3: o endpoint
-  // conferir não aceita `ordemManual` (contrato fica só em rota/planejar|
-  // iniciar) — uma rota com ordem manual ativa é reconferida na ordem que o
-  // PRÓPRIO motor escolher, não na ordem manual salva (fora do escopo desta
-  // sprint mexer no contrato do S3; reportado no relatório).
+  // deliveryIds que o planejar usou. S5 25/07 — fecha o furo da S4: agora manda
+  // também a ordem manual ATIVA (ver ConferirRotaDto/LogisticaConferenciaService),
+  // pra uma rota com ordem manual ativa ser reconferida na ordem que o
+  // entregador vai RODAR de verdade, não na ordem que o motor escolheria.
   async function recarregarConferencia() {
     const rc = state.rotaConferencia;
     if (!rc) return;
@@ -5070,9 +5084,14 @@
     try {
       const position = await currentPosition();
       const body = { date: operationalDate() };
-      if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
+      // Guarda a origem desta conferência — se o operador aprovar (conferencia-
+      // continuar), ela vira a origem "aprovada" pro drift-check do Iniciar
+      // (ver origemAprovadaDistanciaM, ~startRoute).
+      if (position) { body.origemLat = position.lat; body.origemLng = position.lng; rc.origem = { lat: position.lat, lng: position.lng }; }
       const selection = activeRouteSelectionIds();
       if (selection) body.deliveryIds = [...selection];
+      const manualOrder = activeRouteOrdemManual();
+      if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
       const antes = new Map((rc.data && rc.data.paradas || []).map((p, i) => [String(p.id), i + 1]));
       const result = await H.api("/logistica/rota/conferir", { method: "POST", body });
       applyRouteEngineState(result);
@@ -5101,7 +5120,9 @@
     }
   }
   async function abrirRotaConferencia() {
-    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null };
+    // `origem` (S5) é preenchida por recarregarConferencia a cada chamada —
+    // começa null aqui só pra documentar o formato do objeto.
+    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null };
     showModal("rota-conferencia");
     await recarregarConferencia();
   }
@@ -5329,6 +5350,49 @@
   function syncNavWatch() {
     if (moduleActive && navModeActive()) startNavWatch(); else stopNavWatch();
   }
+  // ==========================================================================
+  // ROTA-CONFERIDA — S5 (25/07): "aprovar congela". A ordem aprovada em
+  // abrirRotaConferencia/conferencia-continuar já viaja pro Iniciar de graça
+  // (activeRouteOrdemManual — reusa o mecanismo de "Minha ordem"/"Rota salva"
+  // da Onda 3 de 18/07). Falta só o caso em que o motorista se afastou MUITO de
+  // onde aprovou: Lei nº6 é sobre a ORDEM ("a rota iniciada é a aprovada"),
+  // isto aqui é sobre "essa origem ainda faz sentido?" — nunca decide sozinho,
+  // sempre pergunta (popup no molde de state.confirmation, igual "finish-route").
+  // ==========================================================================
+  // Consumido 1x por "Manter sequência aprovada" (mesmo espírito do
+  // state.distanceOverrideDeliveryId em confirmDelivery) — sem isto, o próprio
+  // resume do popup perguntaria de novo ao re-executar a mesma função.
+  let rotaOrigemAprovadaOverride = false;
+  function origemAprovadaDistanciaM(position) {
+    if (rotaOrigemAprovadaOverride) return null;
+    if (!configFlag("rotaConferidaAtiva")) return null;
+    const manualOrder = activeRouteOrdemManual();
+    const origem = activeRouteOrdemManualOrigem();
+    if (!manualOrder || !manualOrder.length || !origem || !position) return null;
+    const dist = distanceMeters(origem, position);
+    return dist > 1000 ? dist : null;
+  }
+  // Devolve true quando INTERROMPEU o fluxo de iniciar (o chamador deve
+  // `return` na hora — a decisão do motorista chega depois, via accept-
+  // confirmation/"rota-origem-recalcular"). `resume` é o bastante pra
+  // re-executar o MESMO caminho do zero quando ele escolher "Manter".
+  function avisarDriftOrigemAprovada(position, resume) {
+    const distM = origemAprovadaDistanciaM(position);
+    if (distM == null) return false;
+    state.confirmation = {
+      type: "rota-origem-divergente",
+      title: "Longe do ponto de partida",
+      message: `Você está a ${formatRouteDistance(distM)} de onde a rota foi conferida e aprovada. Manter a sequência aprovada ou recalcular?`,
+      confirmLabel: "Manter sequência aprovada",
+      extraAction: "rota-origem-recalcular",
+      extraLabel: "Recalcular rota",
+      extraDanger: false,
+      icon: "route",
+      payload: resume,
+    };
+    render();
+    return true;
+  }
   async function startRoute(planOnly, generateToday, deliveryIds) {
     try {
       state.routePaused = false; H.cache.remove("logistica-route-paused");
@@ -5341,6 +5405,10 @@
       // separada, depois — sem isso a ordem manual se perderia no NN+2-opt).
       const manualOrder = activeRouteOrdemManual();
       if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
+      // S5 25/07 — drift de origem só entra pro Iniciar de VERDADE; planOnly
+      // sempre recalcula do zero com o GPS atual, nada congelado ainda pra
+      // divergir.
+      if (!planOnly && avisarDriftOrigemAprovada(position, { fn: "start-route", generateToday, deliveryIds })) return;
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
       applyRouteEngineState(result);
       if (!planOnly) activateNativeRoute(result, true);
@@ -5395,6 +5463,9 @@
       // iniciar direto: mesmo ator, resolve o único motorista já atribuído no
       // prepare (resolveSingleDriver) e mantém a MESMA ordem definida.
       const manualOrder = activeRouteOrdemManual();
+      // S5 25/07 — mesma trava de startRoute: ordem aprovada + GPS afastado
+      // > 1km de onde ela foi conferida pergunta antes de seguir.
+      if (avisarDriftOrigemAprovada(position, { fn: "start-planned-route" })) return;
       const started = manualOrder && manualOrder.length
         ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: operationalDate(), ordemManual: manualOrder, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
         : await H.api("/logistica/admin-route/start", { method: "POST", body });
@@ -5485,8 +5556,15 @@
         }
         // dayMode "start" (sem botão hoje, mantido por completude): mesma troca
         // acima — ordem manual pula admin-route/start e vai direto no iniciar.
-        const started = ordemManual && ordemManual.length
-          ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
+        // S5 25/07 — generaliza pro mesmo mecanismo de startRoute/
+        // startPlannedRoute: `ordemManual` local acima já foi persistido via
+        // setRouteOrdemManual/clearRouteOrdemManual (linhas acima), então
+        // activeRouteOrdemManual() aqui é o MESMO valor — só compartilha a
+        // fonte com o drift-check (avisarDriftOrigemAprovada).
+        const ordemAprovada = activeRouteOrdemManual();
+        if (avisarDriftOrigemAprovada(position, { fn: "begin-managed-route" })) return;
+        const started = ordemAprovada && ordemAprovada.length
+          ? await H.api("/logistica/rota/iniciar", { method: "POST", body: { date: today, deliveryIds: preparedIds, ordemManual: ordemAprovada, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } })
           : await H.api("/logistica/admin-route/start", { method: "POST", body: { operationalDate: today, ...(position ? { origemLat: position.lat, origemLng: position.lng } : {}) } });
         applyRouteEngineState(started);
         activateNativeRoute(started, true);
@@ -6152,6 +6230,18 @@
       }
       if (confirmation.type === "duplicate-new-client") openClientEditor(confirmation.payload && confirmation.payload.client);
       if (confirmation.type === "duplicate-leitura-client") chooseLeituraClient(confirmation.payload && confirmation.payload.client);
+      // S5 25/07 (PR25072026-ROTA-CONFERIDA) — "Manter sequência aprovada" do
+      // drift de origem: re-executa o MESMO caminho de iniciar do zero (ver
+      // avisarDriftOrigemAprovada); o override consumido 1x evita perguntar de
+      // novo no re-disparo (mesmo espírito de distanceOverrideDeliveryId).
+      if (confirmation.type === "rota-origem-divergente") {
+        const payload = confirmation.payload || {};
+        rotaOrigemAprovadaOverride = true;
+        if (payload.fn === "start-route") await startRoute(false, payload.generateToday, payload.deliveryIds);
+        else if (payload.fn === "start-planned-route") await startPlannedRoute();
+        else if (payload.fn === "begin-managed-route") await beginManagedRoute();
+        rotaOrigemAprovadaOverride = false;
+      }
       // type "info": só um aviso (OK) — nenhum efeito colateral.
       return;
     }
@@ -6315,6 +6405,14 @@
     if (action === "conferencia-continuar") {
       const rc = state.rotaConferencia;
       if (!rc || conferenciaVermelhasPendentes(rc).length > 0) return;
+      // S5 25/07 — "Aprovar rota": concluir a conferência (este botão, mesma
+      // copy/molde da S4 — Lei 7 "vermelho nunca bloqueia") CONGELA a ordem
+      // revisada via o mesmo mecanismo de "Minha ordem"/"Rota salva"
+      // (setRouteOrdemManual); a origem usada no conferir aprovado viaja junto
+      // (rc.origem, ver recarregarConferencia) pro drift-check do Iniciar.
+      if (rc.data && Array.isArray(rc.data.paradas) && rc.data.paradas.length) {
+        setRouteOrdemManual(rc.data.paradas.map(p => String(p.id)), rc.origem);
+      }
       await closeOverlay("modal");
       return;
     }
@@ -6363,6 +6461,20 @@
       rc.acknowledged.add(String(ficha.paradaId));
       rc.step = "lista"; rc.ficha = null;
       render();
+      return;
+    }
+    // S5 25/07 — "Recalcular" do popup de drift de origem (ver
+    // avisarDriftOrigemAprovada): a ordem aprovada não faz mais sentido
+    // geográfico daqui, descarta e replaneja do zero com o GPS atual; flag ON
+    // reabre a conferência sozinha (afterRoutaPlanejada, dentro de startRoute/
+    // beginManagedRoute). NUNCA chama iniciar/billing — só planeja de novo.
+    if (action === "rota-origem-recalcular") {
+      const payload = (state.confirmation && state.confirmation.payload) || {};
+      state.confirmation = null;
+      clearRouteOrdemManual();
+      render();
+      if (payload.fn === "begin-managed-route") await beginManagedRoute();
+      else await startRoute(true, false, payload.deliveryIds);
       return;
     }
     // F3.4 — toques nos chips do header.

@@ -7,6 +7,7 @@ import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import {
   haversineKm,
   planRouteByRoads,
+  planRouteManual,
   resolveDayRange,
   type Coord,
   type OsrmTablePayload,
@@ -37,6 +38,11 @@ const STATUS_ABERTO = ['agendada', 'em_rota'] as const;
  * estar matematicamente correta e ainda assim levar o entregador a um pino ERRADO (Lei
  * nº1) se a fonte da coordenada não foi provada no campo. É o aviso ANTES de sair de
  * casa, nunca um bloqueio (Lei nº7 — vermelho não impede iniciar a rota).
+ *
+ * S5 (25/07) — furo achado pela própria S4: com `ordemManual` ativo (ver
+ * IniciarRotaDto/PlanejarRotaDto), a conferência agora audita a ordem que o entregador
+ * VAI RODAR (planRouteManual, mesmo desvio do planejar — pula NN/2-opt/OSRM), não a que
+ * o motor automático escolheria hoje.
  */
 @Injectable()
 export class LogisticaConferenciaService {
@@ -57,6 +63,7 @@ export class LogisticaConferenciaService {
     const cfg = await this.config.getConfig(companyId);
     const origem = coordFromInput(input.origemLat, input.origemLng);
     const deliveryIds = normalizeDeliveryIds(input.deliveryIds);
+    const ordemManual = normalizeOrdemManual(input.ordemManual);
 
     const rows = await this.fetchParadasEstendidas(companyId, start, end, entregadorId, deliveryIds);
 
@@ -79,13 +86,23 @@ export class LogisticaConferenciaService {
 
     // DRY-RUN: roda o motor em memória. NUNCA persiste (sem prisma.entrega.update*
     // depois disto), NUNCA chama routeBilling — é só leitura + cálculo.
-    const plan = await planRouteByRoads(stops, {
-      origem,
-      velocidadeKmH: cfg.velocidadeMediaKmH,
-      paradaMin: cfg.tempoParadaMin,
-      partida: new Date(),
-      osrmTable: this.osrmTableFetcher(companyId),
-    });
+    // S5 — mesmo desvio do planejar (logistica-rota.service.ts): ordemManual presente
+    // pula NN/2-opt/OSRM inteiro (planRouteManual é síncrono e nunca falha em rede).
+    const partida = new Date();
+    const plan = ordemManual
+      ? planRouteManual(stops, ordemManual, {
+          origem,
+          velocidadeKmH: cfg.velocidadeMediaKmH,
+          paradaMin: cfg.tempoParadaMin,
+          partida,
+        })
+      : await planRouteByRoads(stops, {
+          origem,
+          velocidadeKmH: cfg.velocidadeMediaKmH,
+          paradaMin: cfg.tempoParadaMin,
+          partida,
+          osrmTable: this.osrmTableFetcher(companyId),
+        });
 
     const customerProfileIds = [...new Set(rows.map((r) => r.customerProfileId))];
     // nunca_entregue e diverge_gps_ouro: 1 query agregada CADA (nunca N+1 por parada).
@@ -291,6 +308,16 @@ function normalizeDeliveryIds(value?: string[]): string[] | undefined {
   return ids.length ? ids : undefined;
 }
 
+// S5 — duplicado de normalizeOrdemManual em logistica-rota.service.ts (privada lá,
+// mesmo motivo do normalizeDeliveryIds acima: reusar o método privado obrigaria a abrir
+// visibilidade num arquivo grande que o dono edita em paralelo). SEM dedupe/Set: a ORDEM
+// original importa aqui (planRouteManual resolve 1ª ocorrência vence sozinho).
+function normalizeOrdemManual(value?: string[]): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value.map((id) => String(id || '').trim()).filter((id) => id.length > 0 && id.length <= 80).slice(0, 500);
+  return ids.length ? ids : undefined;
+}
+
 // ── tipos de I/O ────────────────────────────────────────────────────────────────
 interface ParadaConferenciaRow {
   id: string;
@@ -314,6 +341,9 @@ export interface ConferirRotaInput {
   origemLat?: number;
   origemLng?: number;
   deliveryIds?: string[];
+  // S5 — ordem ATIVA no app (ver ConferirRotaDto); presente = audita ESSA ordem
+  // (planRouteManual), ausente = comportamento antigo (planRouteByRoads).
+  ordemManual?: string[];
 }
 
 export interface ConferirRotaParada {

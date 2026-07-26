@@ -27,9 +27,17 @@ pula o NN/2-opt e respeita a sequência ao pé da letra (linhas 85-92).
    Popup no padrão `state.confirmation` existente (ver "finish-route" ~L5872).
 4. Flag: mesmo gate `rotaConferidaAtiva` da S4 (OFF → tudo como hoje).
 
+## Item extra (furo achado pela S4)
+5. `/logistica/rota/conferir` (S3) NÃO aceita `ordemManual` — com ordem manual
+   ativa, a conferência audita a ordem do MOTOR, não a que o entregador vai
+   rodar. Estender o contrato: `ConferirRotaDto` ganha `ordemManual?: string[]`
+   (mesma validação do IniciarRotaDto) e `LogisticaConferenciaService.conferir`
+   usa `planRouteManual` quando presente (mesmo desvio do planejar). O APK
+   passa a mandar a ordem ativa (activeRouteOrdemManual) ao conferir.
+
 ## Explicitamente FORA
 - Tabelas plan/version/snapshot — REJEITADAS no plano (00-PLANO.md, veredito).
-- Mudanças no contrato do backend (ordemManual já cobre).
+- Outras mudanças de contrato no backend (além do item 5 acima, ordemManual já cobre).
 
 ## Aceite
 - Com flag ON: aprovar → iniciar reproduz a MESMA ordem (conferir manualmente

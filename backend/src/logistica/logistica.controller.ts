@@ -649,6 +649,8 @@ export class LogisticaController {
    * NUNCA chama prepareRoute/billing, NUNCA dispara WhatsApp (Lei nº3 da frente).
    * Mesmo escopo por ator do planejar (actorWhere.entregadorId) — motorista só
    * confere a própria rota; vermelho é aviso, nunca bloqueia a saída (Lei nº7).
+   * S5 — `ordemManual` (opcional) audita a ordem QUE O ENTREGADOR VAI RODAR (a
+   * ativa no app), não a que o motor escolheria hoje; ver ConferirRotaDto.
    */
   @Post('rota/conferir')
   async conferirRota(@Req() req: any, @Body() dto: ConferirRotaDto) {
@@ -660,6 +662,7 @@ export class LogisticaController {
       origemLat: dto?.origemLat,
       origemLng: dto?.origemLng,
       deliveryIds: dto?.deliveryIds,
+      ordemManual: dto?.ordemManual,
     }, entregadorId);
   }
 
