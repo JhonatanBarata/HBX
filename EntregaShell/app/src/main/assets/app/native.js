@@ -437,10 +437,17 @@
     },
     modules: {
       get() {
-        const mode = HBX.info().mode;
-        return { logistica: mode === "logistica", vendas: mode === "vendas" };
+        const saved = HBX.cache.get("mobile-modules", { logistica: true, vendas: true }) || {};
+        const modules = { logistica: saved.logistica !== false, vendas: saved.vendas !== false };
+        if (!modules.logistica && !modules.vendas) modules.logistica = true;
+        return modules;
       },
-      set() { return this.get(); },
+      set(next) {
+        const modules = { logistica: next && next.logistica !== false, vendas: next && next.vendas !== false };
+        if (!modules.logistica && !modules.vendas) return null;
+        HBX.cache.set("mobile-modules", modules);
+        return modules;
+      },
     },
     revealActiveNav() {
       requestAnimationFrame(() => {
@@ -743,7 +750,7 @@
     });
     appRoot.addEventListener("touchstart", event => {
       const target = event.target;
-      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current]")) { shellSwipe = null; return; }
+      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map")) { shellSwipe = null; return; }
       const touch = event.touches[0]; shellSwipe = { x: touch.clientX, y: touch.clientY };
     }, { passive: true });
     appRoot.addEventListener("touchend", event => {

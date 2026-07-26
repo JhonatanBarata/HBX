@@ -28,10 +28,9 @@
     oneoffDraft: {},
     // PR — os 3 KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue/Avulsos).
     routeFilter: "fila",
-    // S1 25/07 (PR25072026-ROTA-CONFERIDA) — crachá do motor de rota: guardado
-    // a partir do resultado de planejar/iniciar (ver applyRouteEngineState).
-    // Não vem do cache/GET da rota (fora do escopo desta sprint) — dura só a
-    // sessão, até o próximo planejar/iniciar.
+    // S1 25/07 (PR25072026-ROTA-CONFERIDA) — crachá do motor de rota. O resultado
+    // de planejar/iniciar é persistido e revalidado contra a rota carregada para
+    // o selo não desaparecer ao reabrir o app.
     routeEngine: null,
     routeDegradedReason: null,
     // S4 25/07 (PR25072026-ROTA-CONFERIDA) — estado da tela de conferência
@@ -3770,8 +3769,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
-      ${!leituraAtiva ? routeEngineBanner() : ""}
+    return shell(`${!leituraAtiva ? routeEngineBanner() : ""}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -3836,16 +3834,11 @@
         : clearDayVisible
           ? routeSatellite("route-cancel-icon", "clear-day-request", "Limpar o dia", "Limpar", "trash")
           : "";
-    // Rota pronta: o lado direito ABRE o menu para ACRESCENTAR paradas ao que
-    // já existe (não monta do zero — por isso "Adicionar", com o glifo +, e não
-    // "Montar rota", que é o nome do botão principal quando ainda não há rota).
-    // Durante a execução/pausa, volta a ser a navegação externa já existente.
-    // Sem rota pronta, o slot fica vazio.
-    const rightIcon = planned && !active && !paused
-      ? routeSatellite("route-nav-external", "plan-route", "Adicionar na rota", "Adicionar", "plus")
-      : openItems().length > 0 && (active || paused)
-        ? routeSatellite("route-nav-external", "show-map", "Abrir no Waze ou Google Maps", "Navegar", "navigation")
-        : "";
+    // Rota pronta: o lado direito mantém a entrada "Montar rota" acessível para
+    // acrescentar paradas usando a mesma tela existente, inclusive em execução.
+    const rightIcon = planned
+      ? routeSatellite("route-nav-external", "plan-route", "Montar Rota", "Montar Rota", "route")
+      : "";
     return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${leftIcon}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
@@ -3923,8 +3916,9 @@
     return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => productCatalogCard(p)).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
   }
   function settingsScreen() {
-    const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED";
+    const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED"; const modules = H.modules.get();
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
+      <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
@@ -4065,7 +4059,7 @@
     const c = item.cliente || {};
     const editando = state.deliveryEditingId === item.id;
     const debitoAtual = c.debitoAtual;
-    const financeiroAtivo = debitoAtual !== null && debitoAtual !== undefined;
+    const financeiroAtivo = configFlag("moduloFinanceiroAtivo") && debitoAtual !== null && debitoAtual !== undefined;
     const valorAntigo = financeiroAtivo ? Number(debitoAtual || 0) : 0;
     const valorAgora = draftValorAgora(item);
     const draft = deliveryDraftFor(item);
@@ -4074,8 +4068,8 @@
     const produtosNaEntrega = new Set(linhasVisiveis.map(row => String(row.productId)).filter(Boolean));
     const produtosParaAdicionar = produtosDisponiveis.filter(p => !produtosNaEntrega.has(String(p.id)));
     const linhas = linhasVisiveis.map(row => {
-      const preco = unitPriceFor(item, row);
-      const editandoPreco = state.deliveryPriceEdit === row.key;
+      const preco = financeiroAtivo ? unitPriceFor(item, row) : 0;
+      const editandoPreco = financeiroAtivo && state.deliveryPriceEdit === row.key;
       // Layout escolhido pelo dono (22/07, "opção A"): SEM moldura nenhuma. As três
       // caixas com borda (setas / produto / valor) dentro da caixa do bloco eram o
       // que deixava a chegada pesada. Aqui é uma linha só, centralizada: setas
@@ -4087,9 +4081,11 @@
         </div>
         <b class="chegada-qtd">${Number(row.qtd || 0)}</b>
         <button type="button" class="chegada-produto" data-action="delivery-swap" data-draft-item="${H.escape(row.key)}">${H.escape(row.nome)}</button>
-        ${editandoPreco
-          ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}">${icon("check", 18)}</button></form>`
-          : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`}
+        ${financeiroAtivo
+          ? editandoPreco
+            ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}">${icon("check", 18)}</button></form>`
+            : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`
+          : ""}
       </div>`;
     }).join("");
     const produtosDoPicker = state.deliverySwapKey ? produtosDisponiveis : produtosParaAdicionar;
@@ -4098,15 +4094,15 @@
       : produtosParaAdicionar.length
         ? `<button type="button" class="chegada-add" data-action="delivery-add-product">${icon("plus", 18)} Adicionar produto</button>`
         : "";
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}</section></div>`;
+    const acoes = financeiroAtivo
+      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
+      : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-nao-atendeu">${icon("close", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div>${acoes}</section></div>`;
   }
-  // PR18072026 Módulo Financeiro — nível 1 do contrato (financeiro OFF): nome
-  // grande + observações + "Não atendeu"/"Entregue", ZERO dinheiro na tela.
-  // Reusa confirmDelivery (sem receiptMethod, GPS-check preservado) e o fluxo
-  // de próxima parada já existente — nada de lógica nova de entrega aqui.
+  // Financeiro OFF reutiliza a chegada já existente, com produto, quantidade,
+  // troca e adição. A própria folha esconde preço/conta/Pago neste modo.
   function deliveryOfflineSheet(item) {
-    const c = item.cliente || {};
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">Chegada</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${H.escape(c.nome || "Cliente")}</h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}</div><div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-nao-atendeu">${icon("close", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div></section></div>`;
+    return deliverySimpleSheet(item);
   }
   function deliverySheet(item) {
     if (offlineModeActive(item)) return deliveryOfflineSheet(item);
@@ -4602,7 +4598,6 @@
     const loadingSaved = !!state.routeModelosLoading;
     const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
     const starting = !!state.leituraStarting;
-    const adicionando = routePlanned();
     const today = weekDays.find(day => day.n === todayIso()) || weekDays[0];
     const todayCount = state.dayCounts && state.dayCounts[today.n];
     const todayEnabled = agendaDayEnabled(today.n);
@@ -4612,7 +4607,7 @@
         ? `${today.nome} · carregando…`
         : `${today.nome} · ${todayCount} ${todayCount === 1 ? "parada" : "paradas"}`;
     const activeDays = workDays().length;
-    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon(adicionando ? "plus" : "route", 24)}</div><h2 id="day-home-title">${adicionando ? "Adicionar paradas" : "Montar Rota"}</h2><div class="day-home-actions">
+    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions">
       <button type="button" class="day-home-btn day-home-btn--primary" data-action="day-entry-today" ${todayEnabled ? "" : "disabled"}><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Hoje</strong><small>${H.escape(todayHint)}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Agenda</strong><small>${activeDays} ${activeDays === 1 ? "dia ativo" : "dias ativos"}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><span class="day-home-btn-copy"><strong>Rotas salvas</strong><small>${H.escape(savedHint)}</small></span><span class="day-home-btn-chev">›</span></button>
@@ -4925,10 +4920,63 @@
     const plan = result && result.engine !== undefined ? result : (result && result.plan) || null;
     state.routeEngine = (plan && plan.engine) || null;
     state.routeDegradedReason = (plan && plan.degradedReason) || null;
+    if (!["osrm", "haversine"].includes(state.routeEngine)) {
+      state.routeEngine = null;
+      state.routeDegradedReason = null;
+      H.cache.remove("logistica-route-engine");
+      return;
+    }
+    H.cache.set("logistica-route-engine", {
+      date: String(plan.date || operationalDate()),
+      routeId: result && result.routeId || state.route && state.route.routeId || null,
+      engine: state.routeEngine,
+      degradedReason: state.routeDegradedReason,
+    });
   }
-  // Selo discreto (osrm) ou faixa de alerta (haversine por FALHA). Ordem manual
-  // também é haversine, mas por ESCOLHA — o backend nunca manda degradedReason
-  // nesse caso, e é exatamente essa ausência que mantém a faixa calada aqui.
+  function routeEngineIdentity(route) {
+    if (!route || !Array.isArray(route.items)) return null;
+    const ids = route.items
+      .filter(item => item && item.status !== "cancelada" && item.id)
+      .map(item => `${String(item.id)}:${storedRouteOrder(item) ?? "-"}`)
+      .sort();
+    if (!ids.length) return null;
+    return {
+      date: String(route.date || operationalDate()),
+      routeId: route.routeId || null,
+      signature: ids.join("|"),
+    };
+  }
+  function clearRouteEngineState() {
+    state.routeEngine = null;
+    state.routeDegradedReason = null;
+    H.cache.remove("logistica-route-engine");
+  }
+  function restoreRouteEngineState(route) {
+    const cached = H.cache.get("logistica-route-engine", null);
+    const identity = routeEngineIdentity(route);
+    if (!cached || !identity || cached.date !== identity.date
+      || (cached.routeId && identity.routeId && cached.routeId !== identity.routeId)
+      || (cached.signature && cached.signature !== identity.signature)) {
+      clearRouteEngineState();
+      return;
+    }
+    state.routeEngine = cached.engine || null;
+    state.routeDegradedReason = cached.degradedReason || null;
+    if (!state.routeEngine) {
+      clearRouteEngineState();
+      return;
+    }
+    H.cache.set("logistica-route-engine", {
+      ...cached,
+      routeId: identity.routeId || cached.routeId || null,
+      signature: identity.signature,
+    });
+  }
+  // Selo discreto (osrm) ou faixa de alerta (haversine por FALHA). Rota pronta
+  // sem motor identificável também recebe a faixa: é o caso legado de uma rota
+  // calculada antes de o app persistir o resultado, e nunca pode ficar silencioso.
+  // Ordem manual também é haversine, mas por ESCOLHA — o backend nunca manda
+  // degradedReason nesse caso, e é essa ausência que mantém a faixa calada.
   // S2 25/07 (fix herdado do review da S1) — "coords_invalidas" (<2 paradas com
   // pino) é problema de DADO, não de REDE: a faixa "rede de rotas indisponível"
   // mentiria (a rede nem chegou a ser tentada). O estado "sem pino" já aparece
@@ -4938,6 +4986,9 @@
   function routeEngineBanner() {
     if (state.routeEngine === "osrm") return `<span class="badge">Calculada pelas ruas</span>`;
     if (state.routeEngine === "haversine" && state.routeDegradedReason && state.routeDegradedReason !== "coords_invalidas") {
+      return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
+    }
+    if (!state.routeEngine && routePlanned()) {
       return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
     }
     return "";
@@ -5243,7 +5294,13 @@
     // sem ele a retry escolheria a rota errada e repetiria o mesmo erro pra sempre.
     if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
-    if (results[0].status === "fulfilled") { state.route = results[0].value; H.cache.set("logistica-route", state.route); state.error = null; state.routeBootRetries = 0; }
+    if (results[0].status === "fulfilled") {
+      state.route = results[0].value;
+      H.cache.set("logistica-route", state.route);
+      restoreRouteEngineState(state.route);
+      state.error = null;
+      state.routeBootRetries = 0;
+    }
     // L4-F: saldo do admin em segundo plano — alimenta a trava "créditos esgotados"
     // (dirigindo termina o dia; falha de rede nunca tranca). Não bloqueia o boot.
     if (isAdmin()) void refreshCreditsLock();
@@ -5739,6 +5796,7 @@
       H.cache.remove("logistica-route-paused");
       clearRouteSelection();
       clearRouteOrdemManual();
+      clearRouteEngineState();
       H.stopRoute();
       // S2 21/07 — "encerrar rota limpa" a trilha (spec S2 #4): não sobrevive
       // de um dia pro outro (sobrevive só a pausa/retomada DO MESMO dia, ver
@@ -5822,6 +5880,7 @@
       H.cache.remove("logistica-route-paused");
       clearRouteSelection();
       clearRouteOrdemManual();
+      clearRouteEngineState();
       H.stopRoute();
       // S2 21/07 — mesma lógica de performEncerrarRota: "Limpar o dia" também
       // encerra a execução de hoje, então a trilha da navegação não deve
@@ -6089,6 +6148,16 @@
       H.cache.set("nav-mudo", state.navMudo);
       if (state.navMudo) H.speakStop();
       render();
+      return;
+    }
+    if (action === "module-toggle") {
+      const current = H.modules.get(); const module = target.dataset.module;
+      if (!Object.prototype.hasOwnProperty.call(current, module)) return;
+      const next = { ...current, [module]: !current[module] };
+      if (!H.modules.set(next)) { toast("Mantenha pelo menos um módulo ativo.", true); return; }
+      target.setAttribute("aria-checked", String(next[module]));
+      target.querySelector(".module-switch")?.classList.toggle("active", next[module]);
+      setTimeout(render, 220);
       return;
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
@@ -7561,6 +7630,7 @@
     }
   };
   if (!["route", "clients", "products", "settings"].includes(state.screen)) state.screen = "route";
+  restoreRouteEngineState(state.route);
   render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(true);
   // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
   // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
