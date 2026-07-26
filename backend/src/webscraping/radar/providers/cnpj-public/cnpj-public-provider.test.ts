@@ -119,16 +119,64 @@ test('provider: loga (sem quebrar o fluxo) rejeitado por cidade/UF fora do pedid
   assert.equal(result.rejectedCount, 1);
 });
 
-// C1 (03/07 — decisão do dono): CNAE sem match NÃO descarta mais. O candidato segue pela porta
-// (com log de AVISO) e é aceito normalmente — a fusão e o 02-filter decidem depois.
-test('provider: aceita COM AVISO registro cujo CNAE não casa (não descarta mais)', async () => {
+// S2 LEAD-CENTRICO (25/07 — dono reverteu a decisão de 03/07: "pedi distribuidora no segmento
+// e chegou cada lixo"). Segmento pedido explicito + CNAE sem match = REJEITADO de novo.
+test('provider: segmento pedido + CNAE sem match = rejeitado (rejectedCount++, fora do results)', async () => {
   const result = await provider.search({
     normalized: baseNormalized,
+    records: [baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina X', razaoSocial: 'Oficina X Ltda' })],
+  });
+  assert.equal(result.acceptedCount, 0);
+  assert.equal(result.rejectedCount, 1);
+  assert.equal(result.results.length, 0);
+});
+
+// Sem segmento pedido, o comportamento continua intacto: candidato com CNAE de qualquer
+// atividade passa igual (nenhum filtro de segmento se aplica quando o cliente não pediu um).
+test('provider: sem segmento pedido, candidato de qualquer CNAE passa (comportamento intacto)', async () => {
+  const semSegmento = { city: 'Fortaleza', state: 'CE', segment: '' } as any;
+  const result = await provider.search({
+    normalized: semSegmento,
     records: [baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina X', razaoSocial: 'Oficina X Ltda' })],
   });
   assert.equal(result.acceptedCount, 1);
   assert.equal(result.rejectedCount, 0);
   assert.equal(result.results.length, 1);
+});
+
+// Exclusão vence similaridade (S2, item 2 do briefing): nome com a palavra do segmento pedido
+// não basta — CNAE/nome numa atividade excluída daquele segmento é rejeitado igual.
+test('provider: exclusao vence nome parecido ("Distribuidora de Energia X" nao entra em distribuidora)', async () => {
+  const distribuidoraNormalized = { city: 'Fortaleza', state: 'CE', segment: 'distribuidora' } as any;
+  const result = await provider.search({
+    normalized: distribuidoraNormalized,
+    records: [baseRecord({
+      nomeFantasia: 'Distribuidora de Energia X',
+      razaoSocial: 'Distribuidora de Energia X Ltda',
+      cnae: '3511-5/01',
+      cnaeDescription: 'Geracao de energia eletrica',
+    })],
+  });
+  assert.equal(result.acceptedCount, 0);
+  assert.equal(result.rejectedCount, 1);
+  assert.equal(result.results.length, 0);
+});
+
+// Contraprova: distribuidora de verdade (do segmento pedido, sem cair em nenhuma exclusão)
+// continua sendo aceita normalmente.
+test('provider: distribuidora de verdade (sem exclusao) continua aceita', async () => {
+  const distribuidoraNormalized = { city: 'Fortaleza', state: 'CE', segment: 'distribuidora' } as any;
+  const result = await provider.search({
+    normalized: distribuidoraNormalized,
+    records: [baseRecord({
+      nomeFantasia: 'Distribuidora Boa Vista',
+      razaoSocial: 'Distribuidora Boa Vista Ltda',
+      cnae: '4635-4/99',
+      cnaeDescription: 'Comercio atacadista de bebidas',
+    })],
+  });
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.rejectedCount, 0);
 });
 
 // MEI/EI da RFB: razão social vem "<CNPJ básico formatado> <NOME>" e sem fantasia — o
@@ -167,17 +215,17 @@ test('provider.toContactResult: MEI sem fantasia entrega nome LIMPO (sem o CNPJ 
   assert.equal((mapped as any)?.legalName, 'MARIA HELENA NOVAES SOARES');
 });
 
-test('provider: 3 motivos de rejeicao (dv/ativa/cidade-uf) somam rejectedCount sem lancar excecao; segmento-sem-match agora passa', async () => {
+test('provider: 4 motivos de rejeicao (dv/ativa/cidade-uf/segmento-sem-match) somam rejectedCount sem lancar excecao', async () => {
   const result = await provider.search({
     normalized: baseNormalized,
     records: [
       baseRecord({ cnpj: '11222333000180' }), // dv_invalido
       baseRecord({ situacao: 'baixada' }), // situacao_nao_ativa
       baseRecord({ city: 'Recife', state: 'PE' }), // cidade_uf_fora_do_pedido
-      baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina Y', razaoSocial: 'Oficina Y Ltda' }), // segmento_sem_match_cnae -> agora aceito
+      baseRecord({ cnae: '4712-1/00', cnaeDescription: 'oficina mecanica', nomeFantasia: 'Oficina Y', razaoSocial: 'Oficina Y Ltda' }), // segmento_sem_match_cnae -> rejeitado (S2)
       baseRecord(), // aceito
     ],
   });
-  assert.equal(result.acceptedCount, 2);
-  assert.equal(result.rejectedCount, 3);
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.rejectedCount, 4);
 });

@@ -54,6 +54,10 @@ export type RadarLead = {
   opportunityScore: number;
   opportunityReason?: string | null;
   opportunitySignals?: string[] | null;
+  // Motivo de inclusão (S2 LEAD-CENTRICO, 25/07): por que o card entrou — códigos como
+  // "cnae_compativel"/"nome_combina_segmento"/"cidade_uf_ok" (ver INCLUSION_REASON_LABELS).
+  // Opcional: card antigo sem o campo não mostra o badge (idêntico a hoje).
+  inclusionReasons?: string[] | null;
   fitScore?: number | null;
   hasPhone?: boolean;
   hasEmail?: boolean;
@@ -237,6 +241,24 @@ const ORIGIN_BADGE_META: Record<string, { label: string; cls: string }> = {
 function originBadge(chain?: string | null): { label: string; cls: string } | null {
   const key = String(chain || "").trim().toLowerCase();
   return ORIGIN_BADGE_META[key] || null;
+}
+
+// Motivo de inclusão (S2 LEAD-CENTRICO, 25/07): rótulo curto PT-BR por código — mesmo
+// vocabulário gravado no backend (radar-inclusion-reasons.util.ts). Código sem rótulo aqui
+// (card futuro com motivo novo) cai no próprio código cru, nunca quebra o badge.
+const INCLUSION_REASON_LABELS: Record<string, string> = {
+  cnae_compativel: "CNAE compatível com o segmento",
+  nome_combina_segmento: "Nome combina com o segmento pedido",
+  sem_segmento_pedido: "Sem segmento pedido (não filtrado)",
+  cidade_uf_ok: "Cidade/UF batem com o pedido",
+  telefone_presente: "Telefone presente",
+  whatsapp_confirmado: "WhatsApp confirmado",
+  website_proprio: "Site próprio",
+  multiplas_fontes: "Confirmado por mais de uma fonte",
+};
+
+function inclusionReasonLabel(code: string): string {
+  return INCLUSION_REASON_LABELS[code] || code;
 }
 
 const SIGNAL_META: Record<string, { label: string; tone: "hot" | "warn" | "danger" }> = {
@@ -1789,12 +1811,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   function renderOriginBadge(row: RadarLead) {
     const ob = originBadge(row.sourceChain);
     const hasEnriched = Boolean(row.enrichedBy && row.enrichedBy.length);
-    if (!ob && !hasEnriched) return null;
+    const inclusionReasons = Array.isArray(row.inclusionReasons) ? row.inclusionReasons.filter(Boolean) : [];
+    const hasInclusionReasons = inclusionReasons.length > 0;
+    if (!ob && !hasEnriched && !hasInclusionReasons) return null;
     return (
       <div className="radar-origin">
         {ob && <span className={`radar-origin-badge ${ob.cls}`}>{ob.label}</span>}
         {hasEnriched && (
           <span className="radar-origin-enriched">enriquecido: {row.enrichedBy!.join(", ")}</span>
+        )}
+        {hasInclusionReasons && (
+          <span
+            className="radar-origin-enriched"
+            title={`Por que entrou: ${inclusionReasons.map(inclusionReasonLabel).join("; ")}`}
+          >
+            por que entrou
+          </span>
         )}
       </div>
     );

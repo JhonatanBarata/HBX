@@ -108,6 +108,62 @@ test('quality gate: UF conflitante ainda derruba cnpj_public (bypass nao cobre i
   assert.ok(result.hardBlockers.includes('state_conflict'));
 });
 
+// S2 LEAD-CENTRICO (25/07): a lane web (free_pj/scraping) ganha o mesmo mapa de exclusão da
+// porta da Receita. "Distribuidora de Energia X" tem "distribuidora" no nome (o
+// nameConflictsWithRequestedSegment permissivo do host deixaria passar), mas a exclusão de
+// segmento (energia/água/combustível) tem que vencer e rejeitar mesmo assim.
+test('quality gate: lane web com segmento pedido - exclusao vence nome parecido ("Distribuidora de Energia X" nao entra em distribuidora)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_scraping:free_pj',
+      name: 'Distribuidora de Energia X',
+      city: 'Fortaleza',
+      state: 'CE',
+      phoneDigits: '85999998888',
+      score: 60,
+    },
+    filters: { city: 'Fortaleza', state: 'CE', segment: 'distribuidora' } as any,
+    host: permissiveHost,
+  });
+  assert.equal(result.deliverable, false);
+  assert.equal(result.qualityDecision, 'reject');
+  assert.ok(result.hardBlockers.includes('segment_excluded_energia_agua_combustivel'));
+});
+
+test('quality gate: lane web - distribuidora de verdade (sem exclusao) nao e bloqueada pelo mapa de exclusao', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_scraping:free_pj',
+      name: 'Distribuidora Boa Vista Ltda',
+      city: 'Fortaleza',
+      state: 'CE',
+      phoneDigits: '85999998888',
+      score: 60,
+    },
+    filters: { city: 'Fortaleza', state: 'CE', segment: 'distribuidora' } as any,
+    host: permissiveHost,
+  });
+  assert.equal(result.deliverable, true);
+  assert.ok(!result.hardBlockers.some((code) => code.startsWith('segment_excluded_')));
+});
+
+test('quality gate: lane web sem segmento pedido - mapa de exclusao nunca entra (comportamento intacto)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_scraping:free_pj',
+      name: 'Distribuidora de Energia X',
+      city: 'Fortaleza',
+      state: 'CE',
+      phoneDigits: '85999998888',
+      score: 60,
+    },
+    filters: { city: 'Fortaleza', state: 'CE', segment: '' } as any,
+    host: permissiveHost,
+  });
+  assert.equal(result.deliverable, true);
+  assert.ok(!result.hardBlockers.some((code) => code.startsWith('segment_excluded_')));
+});
+
 test('quality gate: contato minimo ausente ainda derruba cnpj_public (regra comum das duas fontes)', () => {
   const noContactHost: RadarQualityGateHost = {
     ...permissiveHost,

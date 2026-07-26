@@ -3,6 +3,7 @@ import type { LeadQualityV2 } from '../../lead-quality-v2';
 import { looksLikeNonBusinessName, isRealisticBrPhone, RADAR_MARKETPLACE_HOST_HINTS } from '../shared/radar-core-shared';
 import type { LeadQualityResult } from '../shared/radar-core-shared';
 import type { NormalizedRadarFilters, NormalizedSearchInput } from '../shared/radar-types';
+import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
 
 export type RadarQualityGateResult = {
   deliverable: boolean;
@@ -203,6 +204,19 @@ export class RadarQualityGateService {
     if (!isCnpjPublic && looksLikeNonBusinessName(name)) {
       hardBlockers.push('non_business_name');
       return buildReject({ reason: 'Nome nao parece empresa (titulo de pagina/portal global/idioma estrangeiro).', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
+    }
+    // S2 LEAD-CENTRICO (25/07): mesmo critério da porta da Receita na lane web — quando há
+    // segmento explícito, exclusão vence similaridade de nome (mapa em
+    // radar-segment-exclusion.util.ts, compartilhado com o provider cnpj_public). É aqui que
+    // o `free_pj`/scraping web ganha o freio que hoje só existia (fraco) via
+    // nameConflictsWithRequestedSegment — checado ANTES dele, e vale mesmo se o nome "parece"
+    // bater por token (ex.: "Distribuidora de Energia X" não entra em "distribuidora").
+    if (!isCnpjPublic && requestedSegment) {
+      const exclusionMatch = findRadarSegmentExclusionMatch(requestedSegment, name, candidate.cnaeDescription, candidate.category);
+      if (exclusionMatch) {
+        hardBlockers.push(`segment_excluded_${exclusionMatch.code}`);
+        return buildReject({ reason: `Segmento excluido: ${exclusionMatch.label}.`, qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
+      }
     }
     if (!isCnpjPublic && requestedSegment && input.host.nameConflictsWithRequestedSegment(name, requestedSegment)) {
       hardBlockers.push('segment_mismatch');

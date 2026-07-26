@@ -2417,6 +2417,11 @@ export class RadarCorePresentationMixin {
       evidenceJson: includeSmartFields && Object.keys(evidenceJson).length ? evidenceJson : null,
       rejectReasons: includeSmartFields ? rejectReasons : [],
       qualityReason: includeSmartFields ? row?.qualityReason || null : null,
+      // Motivo de inclusão (S2 LEAD-CENTRICO, 25/07): por que este card entrou (cnae_compativel/
+      // nome_combina_segmento/sem_segmento_pedido + cidade_uf_ok/telefone_presente/etc — ver
+      // radar-inclusion-reasons.util.ts). Gravado em metadataJson no delivery; card antigo sem
+      // o campo devolve lista vazia (badge simplesmente não aparece).
+      inclusionReasons: includeSmartFields && Array.isArray((meta as any)?.inclusionReasons) ? (meta as any).inclusionReasons : [],
       visibilityTier: row?.visibilityTier || null,
       deliveryProduct: row?.deliveryProduct || null,
       qualityV2: includeSmartFields ? qualityV2 : null,
@@ -2499,6 +2504,7 @@ export class RadarCorePresentationMixin {
         qualityV2: null,
         qualityReason: null,
         rejectReasons: [],
+        inclusionReasons: [],
         opportunityReason: null,
         historySummary: [],
         rejectionReason: null,

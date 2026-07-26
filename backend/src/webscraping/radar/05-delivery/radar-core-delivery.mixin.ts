@@ -176,6 +176,7 @@ import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enr
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 import { buildRankedRadarContacts } from '../persistence/radar-ranked-contacts';
 import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
+import { buildRadarLeadInclusionReasons } from '../shared/radar-inclusion-reasons.util';
 
 export class RadarCoreDeliveryMixin {
   private _cnpjL4Enrichment: RadarCnpjL4EnrichmentService | null = null;
@@ -2447,6 +2448,22 @@ export class RadarCoreDeliveryMixin {
           ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),
           ...(((result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription) ? { cnaeDescription: (result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription } : {}),
           ...(((result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial) ? { razaoSocial: (result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial } : {}),
+          // Motivo de inclusão (S2 LEAD-CENTRICO, 25/07 — "se o sistema não explica por que a
+          // empresa entrou, ele não sabe por que ela entrou"). Aditivo dentro do blob existente,
+          // sem migration. Exposto em buildRadarLeadPublic e mostrado como badge no card.
+          inclusionReasons: buildRadarLeadInclusionReasons({
+            requestedSegment: input.segment,
+            requestedCity: input.city,
+            requestedState: input.state,
+            resultCity,
+            resultState,
+            source: mergedResult.source,
+            sourceEngine,
+            phoneDigits,
+            whatsappStatus: mergedWhatsappStatus,
+            website: mergedWebsite,
+            sourceEngines,
+          }),
         }),
         lastSeenAt: now,
       };
