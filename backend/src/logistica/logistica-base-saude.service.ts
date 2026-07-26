@@ -1,12 +1,17 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
-import {
-  conferirParadas,
-  type MotivoConferencia,
-  type ParadaConferenciaInput,
-  type SemaforoCor,
-} from './logistica-conferencia.util';
+import { conferirParadas, type MotivoConferencia, type ParadaConferenciaInput } from './logistica-conferencia.util';
+
+/**
+ * Semáforo PRÓPRIO do painel de saúde da base (26/07). A conferência da ROTA perdeu o
+ * amarelo naquela data (só pinta o que é impeditivo pro motorista que vai sair agora —
+ * ver logistica-conferencia.util.ts), mas AQUI o amarelo é o produto: este painel é do
+ * ADMIN, no PC, na véspera, e existe justamente pra mostrar a fila do "dá pra melhorar"
+ * ("154 clientes precisam de pino, 7 se resolvem sozinhos"). Tipo local, contrato do
+ * endpoint intacto (`verdes`/`amarelos`/`vermelhos` seguem iguais pro front).
+ */
+export type SemaforoBaseSaude = 'verde' | 'amarelo' | 'vermelho';
 
 // Mesmo recorte "entrega ABERTA" da S3 (logistica-conferencia.service.ts,
 // STATUS_ABERTO) — duplicado aqui de propósito: são 2 strings, e abrir a
@@ -38,7 +43,7 @@ const MOTIVOS_DE_ROTA_FORA_DE_ESCOPO = new Set<MotivoConferencia>([
   'rota_degradada',
 ]);
 
-// Espelha MOTIVOS_VERMELHOS de logistica-conferencia.util.ts (privado lá) SEM
+// Espelha MOTIVOS_IMPEDITIVOS de logistica-conferencia.util.ts (privado lá) SEM
 // fora_do_casulo/perna_outlier (que nunca chegam aqui — ver Set acima) — mantém
 // diverge_gps_ouro na lista por documentação/futuro, mas hoje nunca dispara
 // porque `distanciaGpsOuroM` sempre viaja `null` (ver ParadaConferenciaInput
@@ -164,6 +169,15 @@ export class LogisticaBaseSaudeService {
         // fonte_nao_confiavel/nunca_entregue como "regras que fazem sentido
         // base-a-base") — null nunca dispara essa comparação.
         distanciaGpsOuroM: null,
+        // CEP × endereço (26/07) é da CONFERÊNCIA DA ROTA: lá vale gastar o orçamento de
+        // ViaCEP pelas ~dezenas de paradas do dia. Aqui a base tem MILHARES de clientes —
+        // rodar a checagem inteira travaria o painel. Sempre false = o motivo nunca
+        // dispara; trazer isso pra cá é sprint própria (lote/assíncrono).
+        cepDivergente: false,
+        // Idem `endereco_sem_numero`: a regra é baratíssima (nenhuma rede), mas entrar
+        // aqui muda a contagem do painel (verdes/amarelos) e o contrato que o front já
+        // consome. Fica pra sprint própria deste painel, não de carona nesta.
+        enderecoSemNumero: false,
       };
     });
 
@@ -186,7 +200,7 @@ export class LogisticaBaseSaudeService {
       // filtrado — nunca confia no semáforo original quando um motivo saiu.
       const motivos = c.motivos.filter((m) => !MOTIVOS_DE_ROTA_FORA_DE_ESCOPO.has(m));
       const temVermelho = motivos.some((m) => MOTIVOS_VERMELHOS_BASE_SAUDE.has(m));
-      const semaforo: SemaforoCor = temVermelho ? 'vermelho' : motivos.length > 0 ? 'amarelo' : 'verde';
+      const semaforo: SemaforoBaseSaude = temVermelho ? 'vermelho' : motivos.length > 0 ? 'amarelo' : 'verde';
 
       if (semaforo === 'verde') verdes++;
       else if (semaforo === 'amarelo') amarelos++;
@@ -233,7 +247,7 @@ export class LogisticaBaseSaudeService {
 export interface BaseSaudeCliente {
   id: string;
   nome: string | null;
-  semaforo: SemaforoCor;
+  semaforo: SemaforoBaseSaude;
   motivos: MotivoConferencia[];
   localId: string | null;
   localApelido: string | null;

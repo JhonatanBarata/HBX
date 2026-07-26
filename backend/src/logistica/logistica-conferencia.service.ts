@@ -3,7 +3,13 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
-import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import { fonteEscolhidaMultilocal, resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import {
+  conferirCepsEmLote,
+  enderecoSemNumero,
+  type CepVeredito,
+  type EnderecoCadastrado,
+} from './logistica-cep.util';
 import {
   haversineKm,
   planRouteByRoads,
@@ -17,6 +23,7 @@ import {
 } from './logistica-rota.service';
 import {
   conferirParadas,
+  motivosVisiveisOrdenados,
   type MotivoConferencia,
   type ParadaConferenciaInput,
   type SemaforoCor,
@@ -71,9 +78,16 @@ export class LogisticaConferenciaService {
     // e guarda geoFonte/ids de junção à parte — `planRouteByRoads` só conhece `Stop`
     // (id/lat/lng/status/nome/rotaOrdem), o resto vive num Map por id.
     const extras = new Map<string, { geoFonte: string | null; customerProfileId: string; localId: string | null }>();
+    // Endereço a conferir contra o CEP, na MESMA ordem de `rows` (o veredito volta por
+    // índice) — sempre da fonte que `resolverCoordenadaMultilocal` escolheu pro pino.
+    const cadastros: EnderecoCadastrado[] = [];
+    const cadastroPorParada = new Map<string, EnderecoCadastrado>();
     const stops: Stop[] = rows.map((r) => {
       const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
       extras.set(r.id, { geoFonte: coord.geoFonte, customerProfileId: r.customerProfileId, localId: r.localId });
+      const cadastro = enderecoDaFonteEscolhida(r);
+      cadastros.push(cadastro);
+      cadastroPorParada.set(r.id, cadastro);
       return {
         id: r.id,
         lat: coord.lat,
@@ -82,6 +96,16 @@ export class LogisticaConferenciaService {
         nome: r.local?.apelido ?? r.customerProfile?.name ?? null,
         rotaOrdem: r.rotaOrdem ?? null,
       };
+    });
+
+    // CEP × endereço (26/07): DISPARA AGORA, sem `await` — corre em PARALELO com o motor
+    // de rota e com os 2 agregados abaixo (Lei nº2: a conferência não pode ficar mais
+    // lenta por causa desta checagem). `.catch` já aqui, e não só no `Promise.all`:
+    // promise pendurada que rejeita antes de ser aguardada vira unhandledRejection e
+    // derruba o processo — `conferirCepsEmLote` não lança, mas isto é o cinto de segurança.
+    const cepPromise: Promise<CepVeredito[]> = conferirCepsEmLote(cadastros).catch((err) => {
+      this.logger.warn(`[logistica] conferência company=${companyId}: checagem CEP falhou (segue sem ela) — ${err}`);
+      return cadastros.map(() => 'indeterminado' as CepVeredito);
     });
 
     // DRY-RUN: roda o motor em memória. NUNCA persiste (sem prisma.entrega.update*
@@ -106,10 +130,17 @@ export class LogisticaConferenciaService {
 
     const customerProfileIds = [...new Set(rows.map((r) => r.customerProfileId))];
     // nunca_entregue e diverge_gps_ouro: 1 query agregada CADA (nunca N+1 por parada).
-    const [entreguesPorCliente, ultimaEntregaConcluida] = await Promise.all([
+    const [entreguesPorCliente, ultimaEntregaConcluida, cepVereditos] = await Promise.all([
       this.contarEntreguesConcluidas(companyId, customerProfileIds),
       this.buscarUltimaEntregaConcluida(companyId, customerProfileIds),
+      cepPromise,
     ]);
+
+    // Só 'nao_bate' acusa. 'indeterminado' (CEP ausente/inexistente, ViaCEP fora, orçamento
+    // estourado) é SILÊNCIO — fail-OPEN, ver logistica-cep.util.ts.
+    const cepDivergentePorId = new Map<string, boolean>(
+      rows.map((r, i) => [r.id, cepVereditos[i] === 'nao_bate'] as const),
+    );
 
     const inputsConferencia: ParadaConferenciaInput[] = plan.paradas.map((p) => {
       const extra = extras.get(p.id);
@@ -127,6 +158,10 @@ export class LogisticaConferenciaService {
         legDistanceM: p.legDistanceM,
         temEntregaConcluida: extra ? entreguesPorCliente.has(chave) : false,
         distanciaGpsOuroM,
+        cepDivergente: cepDivergentePorId.get(p.id) === true,
+        // Custo zero e sem rede: roda SEMPRE (mesmo com ViaCEP fora, mesmo quando a
+        // checagem de CEP nem consultou).
+        enderecoSemNumero: enderecoSemNumero(cadastroPorParada.get(p.id) ?? {}),
       };
     });
 
@@ -148,6 +183,9 @@ export class LogisticaConferenciaService {
         legDurationS: p.legDurationS,
         semaforo: c.semaforo,
         motivos: c.motivos,
+        // O front lê SÓ isto (26/07): impeditivos, em ordem de gravidade. `motivos` segue
+        // completo no payload pra auditoria/saúde da base, mas não vira frase na tela.
+        motivosVisiveis: motivosVisiveisOrdenados(c.motivos),
       };
     });
 
@@ -161,8 +199,11 @@ export class LogisticaConferenciaService {
       engine: plan.engine,
       degradedReason: plan.degradedReason ?? null,
       total: paradas.length,
+      // comAviso = o número que a tela mostra ("2 de 97 precisam de correção"). Hoje é
+      // idêntico a `vermelhas` por construção (impeditivo é o que pinta), e é assim de
+      // propósito: se um dia existir aviso impeditivo que não pinte, o front não muda.
+      comAviso: paradas.filter((p) => p.motivosVisiveis.length > 0).length,
       verdes: paradas.filter((p) => p.semaforo === 'verde').length,
-      amarelas: paradas.filter((p) => p.semaforo === 'amarelo').length,
       vermelhas: paradas.filter((p) => p.semaforo === 'vermelho').length,
       distanciaTotalKm: Math.round(plan.distanciaTotalKm * 100) / 100,
       terminoPrevisto: plan.terminoPrevisto ? plan.terminoPrevisto.toISOString() : null,
@@ -204,8 +245,20 @@ export class LogisticaConferenciaService {
         rotaOrdem: true,
         customerProfileId: true,
         localId: true,
-        local: { select: { apelido: true, lat: true, lng: true, geoFonte: true } },
-        customerProfile: { select: { name: true, lat: true, lng: true, geoFonte: true } },
+        // cep/endereco/bairro/cidade/uf (26/07): colunas que JÁ existem nos dois models
+        // (nenhuma migration nesta mudança) — alimentam a checagem CEP × endereço.
+        local: {
+          select: {
+            apelido: true, lat: true, lng: true, geoFonte: true,
+            cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+          },
+        },
+        customerProfile: {
+          select: {
+            name: true, lat: true, lng: true, geoFonte: true,
+            cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+          },
+        },
       },
     });
   }
@@ -279,6 +332,46 @@ function chaveHistorico(customerProfileId: string, localId: string | null): stri
   return `${customerProfileId}|${localId ?? ''}`;
 }
 
+/** Tem QUALQUER coisa comparável contra o CEP? (bairro sozinho não conta — ele não entra
+ *  na comparação, ver logistica-cep.util.ts). */
+function temEnderecoUtil(e: EnderecoCadastrado | null): boolean {
+  if (!e) return false;
+  return Boolean(
+    String(e.cep ?? '').trim() ||
+      String(e.endereco ?? '').trim() ||
+      String(e.cidade ?? '').trim() ||
+      String(e.uf ?? '').trim(),
+  );
+}
+
+function enderecoDe(fonte: EnderecoCadastrado | null | undefined): EnderecoCadastrado {
+  return {
+    cep: fonte?.cep ?? null,
+    endereco: fonte?.endereco ?? null,
+    numero: fonte?.numero ?? null,
+    bairro: fonte?.bairro ?? null,
+    cidade: fonte?.cidade ?? null,
+    uf: fonte?.uf ?? null,
+  };
+}
+
+/**
+ * Endereço a conferir, tirado da MESMA fonte que deu o pino (`fonteEscolhidaMultilocal`)
+ * — nunca o CEP de um com a rua do outro: essa mistura é o "pino Frankenstein" que
+ * logistica-geo-fonte.util.ts existe pra impedir, só que em texto.
+ *
+ * Exceção única: a fonte escolhida (ou a ausência de fonte, quando ninguém tem pino) não
+ * tem endereço NENHUM — aí cai pro perfil, que no legado é onde o endereço mora. Fonte com
+ * endereço parcial NÃO cai: endereço meio preenchido do local é o endereço daquele local,
+ * completar com o do perfil recriaria a mistura.
+ */
+function enderecoDaFonteEscolhida(row: ParadaConferenciaRow): EnderecoCadastrado {
+  const escolhida = fonteEscolhidaMultilocal(row.local, row.customerProfile);
+  const daFonte = escolhida === 'local' ? enderecoDe(row.local) : enderecoDe(row.customerProfile);
+  if (temEnderecoUtil(daFonte)) return daFonte;
+  return enderecoDe(row.customerProfile);
+}
+
 // PR18072026 (duplicado de logistica-rota.service.ts, privado lá): valida
 // origemLat/Lng vindos do body — finito, dentro da faixa, nunca 0,0 (mesmo crivo do
 // planejador, pra origem inválida nunca ser tratada como um ponto real no oceano).
@@ -325,8 +418,10 @@ interface ParadaConferenciaRow {
   rotaOrdem: number | null;
   customerProfileId: string;
   localId: string | null;
-  local: { apelido: string | null; lat: number | null; lng: number | null; geoFonte: string | null } | null;
-  customerProfile: { name: string | null; lat: number | null; lng: number | null; geoFonte: string | null } | null;
+  local: ({ apelido: string | null; lat: number | null; lng: number | null; geoFonte: string | null } & EnderecoCadastrado) | null;
+  customerProfile:
+    | ({ name: string | null; lat: number | null; lng: number | null; geoFonte: string | null } & EnderecoCadastrado)
+    | null;
 }
 
 interface UltimaEntregaConcluidaRow {
@@ -356,7 +451,10 @@ export interface ConferirRotaParada {
   legDistanceM: number | null;
   legDurationS: number | null;
   semaforo: SemaforoCor;
+  /** TODOS os motivos apurados, inclusive os informativos (auditoria/saúde da base). */
   motivos: MotivoConferencia[];
+  /** O que o motorista VÊ: só impeditivos, em ordem de gravidade. O front lê SÓ este. */
+  motivosVisiveis: MotivoConferencia[];
 }
 
 export interface ConferirRotaResult {
@@ -364,8 +462,9 @@ export interface ConferirRotaResult {
   engine: RouteEngine;
   degradedReason: RouteDegradedReason | null;
   total: number;
+  /** Paradas com pelo menos 1 motivo impeditivo — o número que a tela mostra. */
+  comAviso: number;
   verdes: number;
-  amarelas: number;
   vermelhas: number;
   distanciaTotalKm: number;
   terminoPrevisto: string | null;

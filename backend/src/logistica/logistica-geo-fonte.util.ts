@@ -40,6 +40,22 @@ function temCoordenadaValida(
 }
 
 /**
+ * QUAL fonte a regra multilocal escolheu — 'local', 'perfil' ou nenhuma. Extraído
+ * (26/07) porque a conferência precisa ler o ENDEREÇO (cep/logradouro/cidade/uf) da
+ * MESMA fonte de onde veio o pino: ler o CEP do perfil e a rua do local (ou vice-versa)
+ * recria, no texto, exatamente o "pino Frankenstein" que este util nasceu pra matar.
+ * `resolverCoordenadaMultilocal` usa esta função — as duas NUNCA podem divergir.
+ */
+export function fonteEscolhidaMultilocal(
+  local: FonteGeoCoord | null | undefined,
+  perfil: FonteGeoCoord | null | undefined,
+): 'local' | 'perfil' | null {
+  if (temCoordenadaValida(local)) return 'local';
+  if (temCoordenadaValida(perfil)) return 'perfil';
+  return null;
+}
+
+/**
  * Resolve lat/lng/geoFonte pro MULTILOCAL: prioriza o LOCAL da entrega (cada porta
  * tem sua própria coordenada) — mas SÓ se ele tiver lat E lng válidos; senão a fonte
  * inteira cai pro PERFIL do cliente (legado). Nunca combina um campo de cada.
@@ -52,7 +68,8 @@ export function resolverCoordenadaMultilocal(
   local: FonteGeoCoord | null | undefined,
   perfil: FonteGeoCoord | null | undefined,
 ): CoordenadaResolvida {
-  const fonte = temCoordenadaValida(local) ? local : temCoordenadaValida(perfil) ? perfil : null;
+  const escolhida = fonteEscolhidaMultilocal(local, perfil);
+  const fonte = escolhida === 'local' ? local! : escolhida === 'perfil' ? perfil! : null;
   return {
     lat: fonte ? fonte.lat : null,
     lng: fonte ? fonte.lng : null,

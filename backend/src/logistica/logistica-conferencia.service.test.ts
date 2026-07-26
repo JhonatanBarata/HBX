@@ -2,6 +2,7 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
+import { limparCacheCep } from './logistica-cep.util';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { haversineKm, type Coord } from './logistica-rota.service';
 
@@ -168,14 +169,20 @@ test('composição: engine=osrm (degrau 1 via proxy fake), contagens batem e nun
   assert.equal(resultado.engine, 'osrm');
   assert.equal(resultado.degradedReason, null);
   assert.equal(resultado.total, 4);
-  assert.equal(resultado.verdes + resultado.amarelas + resultado.vermelhas, resultado.total);
+  assert.equal(resultado.verdes + resultado.vermelhas, resultado.total, 'só 2 cores desde 26/07 — amarelo morreu');
+  assert.equal(resultado.comAviso, resultado.vermelhas, 'comAviso conta quem tem motivo IMPEDITIVO');
 
   const e3 = resultado.paradas.find((p) => p.id === 'e3')!;
   assert.ok(e3.motivos.includes('nunca_entregue'), 'cli-3 está ausente do groupBy de entregues → nunca_entregue');
+  assert.equal(e3.semaforo, 'verde', 'nunca_entregue é informativo: não pinta e não aparece');
+  assert.deepEqual(e3.motivosVisiveis, []);
 
   const e4 = resultado.paradas.find((p) => p.id === 'e4')!;
   assert.equal(e4.semaforo, 'vermelho');
   assert.ok(e4.motivos.includes('fora_do_casulo'), 'cli-4 está a dezenas de km do cluster do dia');
+  // e4 está isolada: fora do casulo E com a perna gigante até ela. Os dois são
+  // impeditivos e saem na ORDEM DE GRAVIDADE (casulo antes de perna), não na de apuração.
+  assert.deepEqual(e4.motivosVisiveis, ['fora_do_casulo', 'perna_outlier']);
 });
 
 test('diverge_gps_ouro: DISTINCT ON traz o histórico de cli-2 divergindo ~1.4km do pino atual → vermelho', async () => {
@@ -216,4 +223,100 @@ test('ordemManual: conferir pula NN/2-opt/OSRM e roda planRouteManual (mesmo des
   // e4 segue vermelha (fora_do_casulo não depende de QUEM ordenou, só da distância).
   const e4 = resultado.paradas.find((p) => p.id === 'e4')!;
   assert.equal(e4.semaforo, 'vermelho');
+});
+
+/**
+ * 26/07 (ordem do dono) — fiação da checagem CEP × ENDEREÇO. Dois pontos que só o
+ * SERVIÇO pode errar (o util puro não tem como):
+ *  1. o endereço tem que sair da MESMA fonte que deu o pino (local, quando o local tem
+ *     coordenada) — nunca o CEP de um com a rua do outro;
+ *  2. veredito 'nao_bate' vira `cep_endereco_divergente` visível e pinta a parada.
+ * `fetch` global trocado por dublê: ZERO rede.
+ */
+test('CEP × endereço: usa o endereço da MESMA fonte do pino e o divergente vira aviso visível', async () => {
+  const ROWS_CEP = [
+    {
+      // Local COM coordenada → fonte = LOCAL. O CEP do local (13990000/Pinhal) bate com o
+      // endereço do local; o perfil carrega um CEP de OUTRA cidade de propósito — se o
+      // serviço misturasse as fontes, esta parada acusaria divergência à toa.
+      id: 'c1',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-1',
+      localId: 'loc-1',
+      local: {
+        apelido: 'Casa', lat: -22.4, lng: -47.55, geoFonte: 'gps_entrega',
+        cep: '13990000', endereco: 'Rua das Flores', numero: '10', bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+      customerProfile: {
+        name: 'Maria', lat: -22.9, lng: -47.9, geoFonte: 'geocode',
+        cep: '99999999', endereco: 'Avenida Brasil', numero: '1', bairro: null, cidade: 'Outra Cidade', uf: 'MG',
+      },
+    },
+    {
+      // Sem local → fonte = PERFIL, e o CEP dele aponta pra outra UF → nao_bate.
+      id: 'c2',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-2',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'João', lat: -22.401, lng: -47.551, geoFonte: 'gps_entrega',
+        cep: '99999999', endereco: 'Rua das Flores', numero: '20', bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+    },
+    {
+      // CEP bate, mas o endereço não tem número em lugar nenhum (nem coluna, nem texto).
+      id: 'c3',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-3',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Ana', lat: -22.402, lng: -47.552, geoFonte: 'gps_entrega',
+        cep: '13990000', endereco: 'Rua das Flores', numero: null, bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+    },
+  ];
+  const prisma = {
+    ...buildPrismaMock(),
+    entrega: { ...buildPrismaMock().entrega, findMany: async () => ROWS_CEP },
+    $queryRaw: async () => [],
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: any) => {
+    const cep = String(input).replace(/\D+/g, '').slice(-8);
+    const payload =
+      cep === '13990000'
+        ? { cep, logradouro: 'Rua das Flores', localidade: 'Pinhal', uf: 'SP' }
+        : { cep, logradouro: 'Rua Outra', localidade: 'Cidade Distante', uf: 'MG' };
+    return { ok: true, json: async () => payload } as any;
+  }) as any;
+  try {
+    limparCacheCep();
+    const service = new LogisticaConferenciaService(prisma as any, configMock, buildFakeOsrm() as any);
+    const resultado = await service.conferir(41, { date: '2026-07-25' });
+
+    const c1 = resultado.paradas.find((p) => p.id === 'c1')!;
+    assert.ok(!c1.motivos.includes('cep_endereco_divergente'), 'endereço e CEP vieram os DOIS do local — não diverge');
+    assert.equal(c1.semaforo, 'verde');
+
+    const c2 = resultado.paradas.find((p) => p.id === 'c2')!;
+    assert.ok(c2.motivos.includes('cep_endereco_divergente'));
+    assert.deepEqual(c2.motivosVisiveis, ['cep_endereco_divergente'], 'é impeditivo: o motorista VÊ');
+    assert.equal(c2.semaforo, 'vermelho');
+
+    const c3 = resultado.paradas.find((p) => p.id === 'c3')!;
+    assert.deepEqual(c3.motivosVisiveis, ['endereco_sem_numero'], 'CEP bate, mas falta o número da porta');
+    assert.equal(c3.semaforo, 'vermelho');
+
+    assert.equal(resultado.comAviso, 2);
+    assert.equal(resultado.verdes, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    limparCacheCep();
+  }
 });

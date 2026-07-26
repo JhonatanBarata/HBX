@@ -5,8 +5,8 @@ import { haversineKm, type Coord, type RouteEngine } from './logistica-rota.serv
  * PURA (sem banco, sem rede — Lei nº5 da frente: "gate 100% local, R$0"). Espelha o
  * espírito de `nucleo-geo.util.ts` (freio do geocode) e `logistica-geo-fonte.util.ts`
  * (multilocal): pino errado é PIOR que pino vazio (Lei nº1), então este util nunca
- * "confia por omissão" — verde é um ALLOWLIST fechado (fonte PROVADA no campo), tudo o
- * que não prova vira amarelo/vermelho.
+ * "confia por omissão" — todo problema detectado entra em `motivos[]`, sempre. O que
+ * mudou em 26/07 é só QUEM PINTA a parada (ver bloco "DUAS CORES" abaixo).
  *
  * ── POR QUE UM SEMÁFORO E NÃO UM BOOLEANO ────────────────────────────────────────
  * A rota planejada (planRouteByRoads) já é matematicamente correta dado o pino que
@@ -15,11 +15,17 @@ import { haversineKm, type Coord, type RouteEngine } from './logistica-rota.serv
  * então os `motivos[]` acumulam TODOS os problemas que bateram (Lei nº7: vermelho nunca
  * bloqueia a saída — é aviso, não trava).
  *
- * ── COMO O VERDE É DECIDIDO ───────────────────────────────────────────────────────
- * Não existe "default verde": uma parada só fica verde se NENHUM motivo (amarelo ou
- * vermelho) bateu. Vermelho sempre vence amarelo na cor final, mas o motivo amarelo que
- * bateu junto continua no array (auditoria completa, Lei nº4 "degradação nunca é
- * silenciosa").
+ * ── 26/07: DUAS CORES, NÃO TRÊS (ordem do dono) ──────────────────────────────────
+ * O amarelo MORREU. Medido em produção no dia 26/07: rota de 97 paradas → 0 verdes / 74
+ * vermelhas / 23 amarelas; rota de 10 → 0 verdes / 3 / 7. Motivo: `geocode_nao_provado_
+ * em_campo` e `nunca_entregue` são o estado NORMAL de cliente novo (pino veio de endereço
+ * digitado, ninguém entregou lá ainda) e QUALQUER motivo pintava — "verde" era
+ * matematicamente inalcançável numa base nova. Alarme que toca em 100% das paradas não é
+ * alarme, é ruído.
+ *
+ * Agora: só motivo IMPEDITIVO pinta (vermelho); o resto continua sendo apurado e
+ * devolvido em `motivos[]` (auditoria/saúde da base, Lei nº4 "degradação nunca é
+ * silenciosa") mas NÃO vira cor nem frase na tela. Sem motivo impeditivo = verde.
  */
 
 // ── LIMIARES (25/07) ──────────────────────────────────────────────────────────────
@@ -54,14 +60,17 @@ export const DIVERGE_GPS_OURO_METROS = 300;
 
 /** Fontes PROVADAS no campo (GPS real, seja da entrega ou do cadastro humano com
  *  precisão validada — ver GPS_ACCURACY_LIMITE_METROS em logistica-geo-fonte.util.ts).
- *  É o ÚNICO caminho pra verde; qualquer coisa fora daqui vira amarelo. */
+ *  Fora daqui o motivo é apurado e registrado, mas é INFORMATIVO (não pinta). */
 const GEOFONTES_PROVADAS = new Set(['gps_entrega', 'gps_cadastro']);
 
-export type SemaforoCor = 'verde' | 'amarelo' | 'vermelho';
+/** 26/07: o amarelo morreu (ver cabeçalho). Só existe "tem problema impeditivo" ou não. */
+export type SemaforoCor = 'verde' | 'vermelho';
 
 export type MotivoConferencia =
   | 'sem_pino'
   | 'pino_compartilhado'
+  | 'cep_endereco_divergente'
+  | 'endereco_sem_numero'
   | 'fora_do_casulo'
   | 'perna_outlier'
   | 'diverge_gps_ouro'
@@ -70,14 +79,75 @@ export type MotivoConferencia =
   | 'nunca_entregue'
   | 'rota_degradada';
 
-/** Motivos que, sozinhos, já colocam a parada em vermelho (vence qualquer amarelo). */
-const MOTIVOS_VERMELHOS = new Set<MotivoConferencia>([
+/**
+ * IMPEDITIVOS (26/07, ordem do dono) — os ÚNICOS que pintam a parada e que o motorista
+ * chega a ler. Todos têm a mesma cara: são coisa que ele PRECISA resolver antes de sair,
+ * porque o app não sabe onde ir ou sabe que vai pro lugar errado.
+ */
+const MOTIVOS_IMPEDITIVOS = new Set<MotivoConferencia>([
   'sem_pino',
   'pino_compartilhado',
+  'cep_endereco_divergente',
+  'endereco_sem_numero',
   'fora_do_casulo',
   'perna_outlier',
   'diverge_gps_ouro',
 ]);
+
+/**
+ * INFORMATIVOS — continuam sendo apurados e devolvidos em `motivos[]` (auditoria, saúde da
+ * base, sprints de qualidade), mas NUNCA pintam a parada nem viram frase na tela.
+ *
+ * Por que mudou (26/07): `geocode_nao_provado_em_campo` e `nunca_entregue` são o estado
+ * NORMAL de todo cliente novo — o pino veio de endereço digitado e ninguém entregou lá
+ * ainda. Com eles pintando, "verde" era matematicamente inalcançável numa base nova: as
+ * duas rotas medidas em produção deram 0 verdes de 97 e 0 de 10. `rota_degradada` é do
+ * MOTOR do dia inteiro, não desta parada, e já tem faixa própria na tela (routeEngineBanner)
+ * — pintar as 97 paradas com ele era dizer a mesma coisa 97 vezes.
+ */
+const MOTIVOS_INFORMATIVOS = new Set<MotivoConferencia>([
+  'geocode_nao_provado_em_campo',
+  'fonte_nao_confiavel',
+  'nunca_entregue',
+  'rota_degradada',
+]);
+
+/** Só o que é impeditivo aparece pro motorista — o resto é dado interno. */
+export function motivoEhImpeditivo(motivo: MotivoConferencia): boolean {
+  return MOTIVOS_IMPEDITIVOS.has(motivo);
+}
+
+/** Espelho de `motivoEhImpeditivo`, pra quem precisa filtrar o lado silencioso. */
+export function motivoEhInformativo(motivo: MotivoConferencia): boolean {
+  return MOTIVOS_INFORMATIVOS.has(motivo);
+}
+
+/**
+ * ORDEM DE GRAVIDADE do que o motorista lê. Primeiro o que ele CONSEGUE resolver agora e
+ * que invalida o endereço inteiro (CEP × endereço), depois o pino ausente/duplicado,
+ * depois as suspeitas geométricas. O front mostra `motivosVisiveis` NESTA ordem — a ordem
+ * em que os motivos foram empilhados durante a apuração é interna, nunca de exibição.
+ */
+export const ORDEM_GRAVIDADE_IMPEDITIVOS: readonly MotivoConferencia[] = [
+  'cep_endereco_divergente',
+  // Logo depois do CEP: é o erro mais BARATO de corrigir (uma edição de cadastro) e o que
+  // mais estraga entrega — endereço sem número manda o entregador pro meio da rua.
+  'endereco_sem_numero',
+  'sem_pino',
+  'pino_compartilhado',
+  'diverge_gps_ouro',
+  'fora_do_casulo',
+  'perna_outlier',
+];
+
+/**
+ * Filtra `motivos[]` pro que o motorista vê, já ordenado por gravidade. Único lugar que
+ * decide "o que aparece na tela" — nem o serviço nem o front repetem essa regra.
+ */
+export function motivosVisiveisOrdenados(motivos: MotivoConferencia[]): MotivoConferencia[] {
+  const presentes = new Set(motivos.filter(motivoEhImpeditivo));
+  return ORDEM_GRAVIDADE_IMPEDITIVOS.filter((m) => presentes.has(m));
+}
 
 /**
  * Entrada por parada — já resolvida (lat/lng/geoFonte pela regra multilocal,
@@ -102,11 +172,21 @@ export interface ParadaConferenciaInput {
    *  cliente/local; null = sem histórico de comparação (nunca entregue, ou parada sem
    *  coordenada — não dá pra medir divergência de um pino que não existe). */
   distanciaGpsOuroM: number | null;
+  /** O CEP cadastrado descreve OUTRO lugar (UF/cidade/rua) que não o endereço cadastrado?
+   *  Quem consulta o ViaCEP é o SERVIÇO (logistica-cep.util.ts, fail-OPEN: só `true` com
+   *  PROVA) — este util continua 100% puro e só recebe o veredito pronto. `false` cobre
+   *  os dois silêncios: bate, ou não deu pra saber. */
+  cepDivergente: boolean;
+  /** O endereço da fonte escolhida não tem número (nem na coluna `numero`, nem dentro do
+   *  texto composto `endereco` do legado) — ver `enderecoSemNumero` em
+   *  logistica-cep.util.ts. NÃO depende de rede: vale com o ViaCEP fora do ar. */
+  enderecoSemNumero: boolean;
 }
 
 export interface ConferenciaContexto {
-  /** Motor que produziu a rota (S1) — 'haversine' pinta TODAS de amarelo NO MÍNIMO
-   *  (rota_degradada), nunca em silêncio (Lei nº4). */
+  /** Motor que produziu a rota (S1) — 'haversine' acumula `rota_degradada` em TODAS as
+   *  paradas (auditoria, Lei nº4), mas é INFORMATIVO desde 26/07: quem avisa o motorista
+   *  disso é a faixa única do topo da tela, não 97 paradas repetindo a mesma frase. */
   engine: RouteEngine;
 }
 
@@ -200,6 +280,14 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
     const motivos: MotivoConferencia[] = [];
     const temCoord = temCoordenadaValida(p.lat, p.lng);
 
+    // CEP × endereço é sobre o CADASTRO, não sobre o pino: vale com ou sem coordenada
+    // (uma parada sem pino cujo CEP também está errado tem DOIS problemas pra corrigir,
+    // não um). Vem pronto do serviço — fail-OPEN, só `true` com prova (logistica-cep.util.ts).
+    if (p.cepDivergente) motivos.push('cep_endereco_divergente');
+    // Mesma natureza: é sobre o CADASTRO, não sobre o pino. Custo ZERO (nenhuma rede),
+    // então vale sempre — inclusive quando a checagem de CEP saiu em silêncio.
+    if (p.enderecoSemNumero) motivos.push('endereco_sem_numero');
+
     if (!temCoord) {
       // Sem pino: nenhuma das outras regras geográficas faz sentido (não dá pra medir
       // casulo/célula/perna de um ponto que não existe) — mas rota_degradada abaixo
@@ -223,12 +311,13 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
     }
 
     // rota_degradada é sobre o MOTOR do dia inteiro, não sobre o pino desta parada —
-    // acumula mesmo quando já há motivo vermelho (Lei nº4: nunca fica escondido atrás
-    // de um vermelho mais chamativo).
+    // acumula sempre (Lei nº4: nunca fica escondido), mas é INFORMATIVO: a tela avisa
+    // isso UMA vez, na faixa do topo, não 97 vezes parada a parada.
     if (contexto.engine === 'haversine') motivos.push('rota_degradada');
 
-    const temMotivoVermelho = motivos.some((m) => MOTIVOS_VERMELHOS.has(m));
-    const semaforo: SemaforoCor = temMotivoVermelho ? 'vermelho' : motivos.length > 0 ? 'amarelo' : 'verde';
+    // Duas cores só (26/07): impeditivo → vermelho; qualquer outra coisa → verde. Nada
+    // de "verde só se motivos[] estiver vazio" — motivo informativo é dado interno.
+    const semaforo: SemaforoCor = motivos.some(motivoEhImpeditivo) ? 'vermelho' : 'verde';
 
     return { id: p.id, semaforo, motivos };
   });

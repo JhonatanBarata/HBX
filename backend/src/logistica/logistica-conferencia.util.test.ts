@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   conferirParadas,
+  motivosVisiveisOrdenados,
   TETO_CASULO_KM,
   FATOR_PERNA_OUTLIER,
   PISO_PERNA_OUTLIER_M,
@@ -15,9 +16,14 @@ import {
 // 154/248 clientes dividindo o MESMO centroide de via ("pino compartilhado") e
 // divergências de 2.991m/1.512m/650m entre o cadastro e o GPS real da porta
 // ("diverge_gps_ouro") — mais os casos de borda exigidos pela sprint.
+//
+// 26/07 (ordem do dono) — o AMARELO morreu. Só motivo IMPEDITIVO pinta; motivo
+// informativo (`geocode_nao_provado_em_campo`, `fonte_nao_confiavel`, `nunca_entregue`,
+// `rota_degradada`) continua em `motivos[]` mas a parada segue VERDE. Os testes abaixo
+// que antes exigiam 'amarelo' agora exigem exatamente isto: verde COM o motivo dentro.
 
 /** Parada "limpa" por default (verde): fonte provada, entregue antes, sem outlier
- *  geométrico, engine osrm. Cada teste sobrescreve só o que quer isolar. */
+ *  geométrico, CEP batendo, engine osrm. Cada teste sobrescreve só o que quer isolar. */
 function base(overrides: Partial<ParadaConferenciaInput> & { id: string }): ParadaConferenciaInput {
   return {
     lat: -22.4,
@@ -26,6 +32,8 @@ function base(overrides: Partial<ParadaConferenciaInput> & { id: string }): Para
     legDistanceM: 1000,
     temEntregaConcluida: true,
     distanciaGpsOuroM: null,
+    cepDivergente: false,
+    enderecoSemNumero: false,
     ...overrides,
   };
 }
@@ -160,18 +168,21 @@ test(`perna_outlier: acima do piso E acima de ${FATOR_PERNA_OUTLIER}× a mediana
   assert.ok(longe.motivos.includes('perna_outlier'));
 });
 
-// ── amarelo: fonte não provada, nunca entregue, rota degradada ──────────────────
-test("geoFonte='geocode' → amarelo/geocode_nao_provado_em_campo (não vira vermelho sozinho)", () => {
+// ── INFORMATIVOS (26/07): apurados, guardados em motivos[], mas NÃO pintam ───────
+test("geoFonte='geocode' → VERDE com o motivo guardado (estado normal de cliente novo, não é aviso)", () => {
   const [p] = conferirParadas([base({ id: 'geo', geoFonte: 'geocode' })], { engine: 'osrm' });
-  assert.equal(p.semaforo, 'amarelo');
-  assert.deepEqual(p.motivos, ['geocode_nao_provado_em_campo']);
+  assert.equal(p.semaforo, 'verde', 'endereço não confirmado em campo NÃO pode aparecer pro motorista');
+  assert.deepEqual(p.motivos, ['geocode_nao_provado_em_campo'], 'o motivo continua no array (auditoria)');
+  assert.deepEqual(motivosVisiveisOrdenados(p.motivos), [], 'e nada disso é visível');
 });
 
-test("geoFonte='gps_impreciso' (ou fonte legada desconhecida) → amarelo/fonte_nao_confiavel, motivo DIFERENTE do geocode", () => {
+test("geoFonte='gps_impreciso' (ou fonte legada desconhecida) → verde/fonte_nao_confiavel, motivo DIFERENTE do geocode", () => {
   const [imprecisa] = conferirParadas([base({ id: 'imp', geoFonte: 'gps_impreciso' })], { engine: 'osrm' });
   const [legado] = conferirParadas([base({ id: 'leg', geoFonte: null })], { engine: 'osrm' });
   assert.deepEqual(imprecisa.motivos, ['fonte_nao_confiavel']);
   assert.deepEqual(legado.motivos, ['fonte_nao_confiavel']);
+  assert.equal(imprecisa.semaforo, 'verde');
+  assert.equal(legado.semaforo, 'verde');
 });
 
 test("geoFonte='gps_cadastro' também é verde (allowlist tem os DOIS, não só gps_entrega)", () => {
@@ -179,37 +190,110 @@ test("geoFonte='gps_cadastro' também é verde (allowlist tem os DOIS, não só 
   assert.equal(p.semaforo, 'verde');
 });
 
-test('nunca_entregue: cliente sem NENHUMA entrega concluída → amarelo', () => {
+test('nunca_entregue: cliente sem NENHUMA entrega concluída → VERDE (todo cliente novo é assim)', () => {
   const [p] = conferirParadas([base({ id: 'novo', temEntregaConcluida: false })], { engine: 'osrm' });
-  assert.equal(p.semaforo, 'amarelo');
+  assert.equal(p.semaforo, 'verde');
   assert.deepEqual(p.motivos, ['nunca_entregue']);
+  assert.deepEqual(motivosVisiveisOrdenados(p.motivos), []);
 });
 
-test('rota_degradada: engine haversine pinta TODAS de amarelo NO MÍNIMO, mesmo a que seria verde', () => {
+test('rota_degradada: engine haversine NÃO pinta parada nenhuma (a faixa do topo avisa 1 vez, não 97)', () => {
   // Coordenadas distintas: sem isso as 2 paradas cairiam na mesma célula (default de
   // `base()`) e a cor viraria vermelho por pino_compartilhado, mascarando o que este
-  // teste quer provar (rota_degradada sozinho já tira do verde, sem precisar de mais nada).
+  // teste quer provar.
   const resultado = conferirParadas(
     [base({ id: 'a', lat: -22.40, lng: -47.55 }), base({ id: 'b', lat: -22.41, lng: -47.56 })],
     { engine: 'haversine' },
   );
   for (const r of resultado) {
-    assert.equal(r.semaforo, 'amarelo', `${r.id} deveria ser amarelo (só rota_degradada, nenhum motivo vermelho)`);
-    assert.ok(r.motivos.includes('rota_degradada'));
+    assert.equal(r.semaforo, 'verde', `${r.id} deveria seguir verde (rota_degradada é informativo)`);
+    assert.ok(r.motivos.includes('rota_degradada'), 'mas o motivo continua registrado (Lei nº4)');
+    assert.deepEqual(motivosVisiveisOrdenados(r.motivos), []);
   }
 });
 
-// ── Lei: vermelho SEMPRE vence amarelo, motivos[] acumula TODOS ─────────────────
-test('vermelho vence amarelo mas motivos[] acumula os dois (pino compartilhado + geocode não provado)', () => {
+// ── REGRESSÃO do incidente 26/07: a base NOVA inteira tem que sair verde ─────────
+test('base NOVA (geocode + nunca entregue + haversine) → 0 vermelhas — era o 0/97 verdes medido em produção', () => {
+  const paradas = Array.from({ length: 97 }, (_, i) =>
+    base({
+      id: `novo-${i}`,
+      // pinos distintos (não é o caso de pino compartilhado — é base nova comum)
+      lat: -22.4 + i * 0.001,
+      lng: -47.55 + i * 0.001,
+      geoFonte: 'geocode',
+      temEntregaConcluida: false,
+      legDistanceM: 900 + i,
+    }),
+  );
+  const resultado = conferirParadas(paradas, { engine: 'haversine' });
+  assert.equal(resultado.filter((r) => r.semaforo === 'vermelho').length, 0, 'nenhum aviso: nada aqui é impeditivo');
+  assert.equal(resultado.filter((r) => r.semaforo === 'verde').length, 97);
+});
+
+// ── CEP × endereço (26/07): o ÚNICO aviso novo, e ele é IMPEDITIVO ───────────────
+test('cep_endereco_divergente: CEP não bate com o endereço → vermelho (obrigatório corrigir)', () => {
+  const [p] = conferirParadas([base({ id: 'cep-errado', cepDivergente: true })], { engine: 'osrm' });
+  assert.equal(p.semaforo, 'vermelho');
+  assert.deepEqual(p.motivos, ['cep_endereco_divergente']);
+  assert.deepEqual(motivosVisiveisOrdenados(p.motivos), ['cep_endereco_divergente']);
+});
+
+test('cepDivergente vale mesmo SEM pino: são dois problemas pra corrigir, não um', () => {
+  const [p] = conferirParadas(
+    [base({ id: 'sem-tudo', lat: null, lng: null, legDistanceM: null, cepDivergente: true })],
+    { engine: 'osrm' },
+  );
+  assert.deepEqual(p.motivos, ['cep_endereco_divergente', 'sem_pino']);
+  assert.equal(p.semaforo, 'vermelho');
+});
+
+test('motivosVisiveisOrdenados: filtra informativos e ordena por gravidade (CEP → número → pino → geometria)', () => {
+  const misturado: Parameters<typeof motivosVisiveisOrdenados>[0] = [
+    'rota_degradada',
+    'perna_outlier',
+    'nunca_entregue',
+    'sem_pino',
+    'cep_endereco_divergente',
+    'endereco_sem_numero',
+    'geocode_nao_provado_em_campo',
+  ];
+  assert.deepEqual(motivosVisiveisOrdenados(misturado), [
+    'cep_endereco_divergente',
+    'endereco_sem_numero',
+    'sem_pino',
+    'perna_outlier',
+  ]);
+  assert.deepEqual(motivosVisiveisOrdenados(['nunca_entregue', 'rota_degradada']), []);
+});
+
+// ── endereço sem número (26/07) ─────────────────────────────────────────────────
+test('endereco_sem_numero: impeditivo, pinta e aparece — e vale MESMO com pino provado', () => {
+  const [p] = conferirParadas([base({ id: 'sem-num', enderecoSemNumero: true })], { engine: 'osrm' });
+  assert.equal(p.semaforo, 'vermelho');
+  assert.deepEqual(p.motivos, ['endereco_sem_numero']);
+  assert.deepEqual(motivosVisiveisOrdenados(p.motivos), ['endereco_sem_numero']);
+});
+
+test('endereco_sem_numero + cep_endereco_divergente: os dois aparecem, CEP primeiro', () => {
+  const [p] = conferirParadas(
+    [base({ id: 'dois', cepDivergente: true, enderecoSemNumero: true })],
+    { engine: 'osrm' },
+  );
+  assert.deepEqual(motivosVisiveisOrdenados(p.motivos), ['cep_endereco_divergente', 'endereco_sem_numero']);
+});
+
+// ── Lei: motivos[] acumula TODOS, mas só impeditivo pinta ───────────────────────
+test('impeditivo pinta e motivos[] acumula o informativo junto (pino compartilhado + geocode não provado)', () => {
   const PINO = { lat: -22.4, lng: -47.55 };
   const paradas = [
     base({ id: 'x1', ...PINO, geoFonte: 'geocode' }),
     base({ id: 'x2', ...PINO, geoFonte: 'gps_entrega' }),
   ];
   const [x1] = conferirParadas(paradas, { engine: 'osrm' }).filter((r) => r.id === 'x1');
-  assert.equal(x1.semaforo, 'vermelho', 'vermelho (pino_compartilhado) vence o amarelo');
+  assert.equal(x1.semaforo, 'vermelho', 'pino_compartilhado é impeditivo → pinta');
   assert.ok(x1.motivos.includes('pino_compartilhado'));
-  assert.ok(x1.motivos.includes('geocode_nao_provado_em_campo'), 'motivo amarelo continua no array (Lei nº4)');
+  assert.ok(x1.motivos.includes('geocode_nao_provado_em_campo'), 'motivo informativo continua no array (Lei nº4)');
+  assert.deepEqual(motivosVisiveisOrdenados(x1.motivos), ['pino_compartilhado'], 'mas só o impeditivo é exibido');
 });
 
 test('sem_pino não acumula os motivos de coordenada (não dá pra medir casulo/célula/perna de um ponto inexistente)', () => {
