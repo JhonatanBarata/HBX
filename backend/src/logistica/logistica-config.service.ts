@@ -476,23 +476,10 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     aceitaFiado: c.aceitaFiado === undefined ? true : !!c.aceitaFiado,
     precoPorClienteAtivo: c.precoPorClienteAtivo === undefined ? true : !!c.precoPorClienteAtivo,
     cobrancaAutomatica: !!c.cobrancaAutomatica,
-    // S4 (25/07, PR25072026-ROTA-CONFERIDA) — flag de rollout empresa a empresa
-    // da tela de conferência no APK, MESMO padrão da `agendaV2Ativa` (coluna
-    // Boolean @default(false) em LogisticaConfig). ⚠️ A COLUNA NÃO FOI CRIADA
-    // NESTA SPRINT: `backend/prisma/schema.prisma` já tem drift pré-existente
-    // sem migration própria (`model VendasCardComplaint` — confirmado que a
-    // tabela existe em prod via `backend/backups/prod/2026071_*/prod-backup.sql`
-    // mas NENHUM arquivo em `backend/prisma/migrations/*/migration.sql` cria
-    // essa tabela); gerar uma migration agora arrastaria esse drift junto (a
-    // migration tentaria criar de novo uma tabela que já existe em prod).
-    // Leitura DEFENSIVA (cast, nunca via tipo do Prisma Client): sem a coluna,
-    // `(c as any).rotaConferidaAtiva` é sempre `undefined` → flag sempre OFF,
-    // zero risco de quebrar a query (SELECT não pede coluna inexistente,
-    // porque ela não está no schema.prisma). Quando o drift for resolvido,
-    // trocar por: 1) `rotaConferidaAtiva Boolean @default(false)` no model
-    // LogisticaConfig; 2) `prisma migrate dev` gera a migration de verdade.
+    // ROTA-CONFERIDA — coluna real desde 26/07 (baseline do drift
+    // VendasCardComplaint + migration logistica_flags_ligadas, ligada geral).
     // Operacional (todo ator, inclusive motorista) — o APK decide o fluxo.
-    rotaConferidaAtiva: !!(c as any)?.rotaConferidaAtiva,
+    rotaConferidaAtiva: !!c.rotaConferidaAtiva,
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,
@@ -626,9 +613,7 @@ export interface LogisticaConfigDTO {
   aceitaFiado: boolean;
   precoPorClienteAtivo: boolean;
   cobrancaAutomatica: boolean;
-  // S4 (25/07, PR25072026-ROTA-CONFERIDA) — rollout empresa a empresa da tela
-  // de conferência no APK. Ver comentário em `serializeConfig`: sem coluna no
-  // banco ainda (drift pré-existente bloqueia a migration), sempre `false`
-  // até o schema ganhar `rotaConferidaAtiva Boolean @default(false)` de verdade.
+  // ROTA-CONFERIDA — tela de conferência no APK. Coluna real desde 26/07
+  // (migration logistica_flags_ligadas), ligada pra todas as empresas.
   rotaConferidaAtiva: boolean;
 }

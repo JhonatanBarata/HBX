@@ -1976,9 +1976,12 @@ model LogisticaConfig {
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
   gerarDiaAutomatico    Boolean  @default(false)
-  // AGENDA-SEMANAL — cutover explícito por tenant. false mantém geração
-  // ClienteProduto legada e permite apenas projeção read-only na Agenda.
-  agendaV2Ativa         Boolean  @default(false)
+  // AGENDA-SEMANAL — cutover por tenant. Ligada geral em 26/07 (lei do dono:
+  // entregar é entregar LIGADO); default true = empresa nova nasce no fluxo atual.
+  agendaV2Ativa         Boolean  @default(true)
+  // ROTA-CONFERIDA (S4/S5/S6 PR25072026) — tela de conferência + rota congelada
+  // + preview de créditos no APK. Ligada geral em 26/07, mesma lei acima.
+  rotaConferidaAtiva    Boolean  @default(true)
   // PR18072026 W1 — "cobrança simples" (opt-in do dono): reservado para a UI
   // do app simplificar a folha de chegada (chips) quando ligado. Só a coluna
   // nasce aqui; o comportamento em si é de outra frente. Default false = 0
