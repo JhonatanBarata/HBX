@@ -25,7 +25,11 @@
  *   quem já rodou o dia.
  *
  * O QUE FAZ, por plano casado:
- *   1. `proximaData` volta pra data da ocorrência cancelada (o dia limpo);
+ *   1. `proximaData` volta pra DATA DE ORIGEM da ocorrência cancelada — a que está na
+ *      `agendaOcorrenciaKey`, sempre no `diaSemana` do plano e em dia civil de São Paulo.
+ *      (Correção 26/07: usar o `scheduledAt` da entrega, como esta versão fazia antes,
+ *      devolvia o DIA OPERACIONAL — um domingo num plano de sexta — e matava aquele dia
+ *      da semana pra sempre, porque `planOccursOn` exige `elapsedDays % 7 === 0`.);
  *   2. `agendaOcorrenciaKey` da entrega cancelada vira NULL (histórico preservado — a
  *      entrega segue cancelada, com o `planoEntregaId` intacto).
  * Nenhuma entrega é criada aqui. Depois do reparo o dia fica DISPONÍVEL: quem gera é o
@@ -69,6 +73,24 @@ function dayKey(date) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * FIX 26/07 — a data de origem da ocorrência vem da CHAVE
+ * (`agenda:<planoId>:<YYYY-MM-DD>`), nunca do `scheduledAt` da entrega.
+ * "Montar Rota → sexta" num domingo grava a entrega da sexta com
+ * `scheduledAt` = domingo (o dia OPERACIONAL); devolver o plano pro domingo
+ * escreve uma data fora do `diaSemana` dele e o `planOccursOn` da Agenda
+ * (`elapsedDays % 7 === 0`) nunca mais deixa aquele dia vencer.
+ */
+function sourceDateFromOccurrenceKey(key) {
+  const m = /^agenda:.+:(\d{4}-\d{2}-\d{2})$/.exec(String(key || '').trim());
+  return m ? m[1] : null;
+}
+
+/** Meia-noite do dia civil de SÃO PAULO — o mesmo carimbo que a Agenda grava. */
+function saoPauloMidnight(dayISO) {
+  return new Date(`${dayISO}T00:00:00-03:00`);
 }
 
 async function rollback(file) {
@@ -142,11 +164,15 @@ async function main() {
   const alvos = [];
   for (const plano of planos) {
     const entrega = canceladaPorPlano.get(plano.id);
-    if (!entrega || !entrega.scheduledAt) continue;
-    const diaLimpo = startOfDay(entrega.scheduledAt);
-    // Guarda: nunca puxar o plano pra trás de onde ele já está.
-    if (diaLimpo >= startOfDay(plano.proximaData)) continue;
-    alvos.push({ plano, entrega, diaLimpo });
+    if (!entrega) continue;
+    // A data VEM DA CHAVE, não do scheduledAt (ver sourceDateFromOccurrenceKey).
+    // Sem chave legível não há data confiável — o plano fica intocado.
+    const origemISO = sourceDateFromOccurrenceKey(entrega.agendaOcorrenciaKey);
+    if (!origemISO) continue;
+    const diaOrigem = saoPauloMidnight(origemISO);
+    // Guarda: nunca puxar o plano pra frente de onde ele já está.
+    if (diaOrigem.getTime() >= new Date(plano.proximaData).getTime()) continue;
+    alvos.push({ plano, entrega, diaOrigem });
   }
 
   if (!alvos.length) {
@@ -157,14 +183,14 @@ async function main() {
 
   const porEmpresa = new Map();
   for (const alvo of alvos) {
-    const chave = `${alvo.plano.companyId}|${alvo.plano.diaSemana}|${dayKey(alvo.diaLimpo)}`;
+    const chave = `${alvo.plano.companyId}|${alvo.plano.diaSemana}|${dayKey(alvo.diaOrigem)}`;
     porEmpresa.set(chave, (porEmpresa.get(chave) || 0) + 1);
   }
 
   log(`\nDIAS TRAVADOS ENCONTRADOS (${alvos.length} plano(s)):`);
   for (const [chave, total] of [...porEmpresa.entries()].sort()) {
     const [companyId, diaSemana, dia] = chave.split('|');
-    log(`  empresa ${companyId} · diaSemana ${diaSemana} · dia limpo ${dia} → ${total} plano(s)`);
+    log(`  empresa ${companyId} · diaSemana ${diaSemana} · dia de origem ${dia} → ${total} plano(s)`);
   }
 
   if (!APPLY) {
@@ -193,11 +219,11 @@ async function main() {
 
   let planosOk = 0;
   let entregasOk = 0;
-  for (const { plano, entrega, diaLimpo } of alvos) {
+  for (const { plano, entrega, diaOrigem } of alvos) {
     await prisma.$transaction([
       prisma.logisticaPlanoEntrega.update({
         where: { id: plano.id },
-        data: { proximaData: diaLimpo },
+        data: { proximaData: diaOrigem },
       }),
       prisma.entrega.update({
         where: { id: entrega.id },
