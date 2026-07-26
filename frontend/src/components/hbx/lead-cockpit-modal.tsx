@@ -34,8 +34,44 @@ import { onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { RadarAiLeadStatus } from "@/lib/radar-ai-status";
 
-type Guia = "atendimento" | "cadastro" | "financeiro";
+type Guia = "atendimento" | "planejar" | "cadastro" | "financeiro";
 type CanalAtendimento = "whatsapp" | "email";
+
+// S3 LEAD-CENTRICO (03-pre-voo.md): contrato do GET /vendas/lead/:id/pre-voo —
+// entendimento + prontidão + recomendação de persona (heurística) + revisão
+// das mensagens reais da cadência, com a regra dura do nome já resolvida
+// pelo backend (nome só entra com confiança alta; senão abertura neutra).
+type PreVooCanal = { status: "confirmado" | "duvidoso" | "faltante"; valor: string | null; detalhe: string };
+type PreVooPasso = { dia: number; canal: string; titulo: string | null; corpo: string | null; atividadeTipo: string | null };
+type PreVooPersona = { key: string; nome: string; descricao: string; recomendado: boolean; passos: PreVooPasso[] };
+type PreVoo = {
+  ok: boolean;
+  leadId: string;
+  locked: boolean;
+  empresa?: {
+    found: boolean;
+    cnpj: string | null;
+    razaoSocial: string | null;
+    nomeFantasia: string | null;
+    situacao: string | null;
+    cnae: string | null;
+    cnaeDescription: string | null;
+    cidade: string | null;
+    estado: string | null;
+  };
+  contato?: {
+    nome: string | null;
+    cargo: string | null;
+    confianca: "alta" | "media" | "baixa" | "ausente";
+    fonte: string | null;
+    candidatoDuvidoso: { nome: string; fonte: string } | null;
+  };
+  canais?: { whatsapp: PreVooCanal; email: PreVooCanal; telefoneVoz: { status: "confirmado" | "faltante"; valor: string | null } };
+  prontidao?: { confirmados: string[]; duvidosos: string[]; faltantes: string[]; veredito: "pronto" | "falta_dados"; veredictoLabel: string };
+  recomendacao?: { personaKey: string; motivo: string; source: string; abertura: string; objetivo: string };
+  personas?: PreVooPersona[];
+  enrichment?: { enabled: boolean; podeBuscar: boolean };
+} | null;
 
 type CockpitCompany = {
   found?: boolean;
@@ -296,6 +332,11 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [channel, setChannel] = useState<CanalAtendimento>("whatsapp");
   const [company, setCompany] = useState<CockpitCompany>(null);
   const [companyLoading, setCompanyLoading] = useState(true);
+  const [preVoo, setPreVoo] = useState<PreVoo>(null);
+  const [preVooLoading, setPreVooLoading] = useState(true);
+  const [selectedPersonaKey, setSelectedPersonaKey] = useState<string | null>(null);
+  const [preVooEnrichBusy, setPreVooEnrichBusy] = useState(false);
+  const [preVooEnrichMsg, setPreVooEnrichMsg] = useState<string | null>(null);
   const [waOk, setWaOk] = useState<boolean | null>(null);
   const [waConnectOpen, setWaConnectOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
@@ -388,14 +429,17 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const guides: Array<{ key: Guia; label: string; icon: string[] }> = canViewValues
     ? [
         { key: "atendimento", label: "Atendimento", icon: ICONS.msg },
+        { key: "planejar", label: "Planejar", icon: ICONS.bolt },
         { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
         { key: "financeiro", label: "Financeiro", icon: ICONS.money },
       ]
     : [
         { key: "atendimento", label: "Atendimento", icon: ICONS.msg },
+        { key: "planejar", label: "Planejar", icon: ICONS.bolt },
         { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
       ];
   const tabPill = useGlassPill<HTMLButtonElement>(tab, guides.length);
+  const personaPill = useGlassPill<HTMLButtonElement>(selectedPersonaKey || "", preVoo?.personas?.length || 0);
 
   const channelTargets: Partial<Record<Canal, string>> = {
     whatsapp: lead.phone || undefined,
@@ -440,6 +484,19 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         setCompanyLoading(false);
       });
 
+    apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`)
+      .then((response) => {
+        if (!alive) return;
+        setPreVoo(response ?? null);
+        setSelectedPersonaKey((current) => current || response?.personas?.find((p) => p.recomendado)?.key || response?.personas?.[0]?.key || null);
+        setPreVooLoading(false);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPreVoo(null);
+        setPreVooLoading(false);
+      });
+
     apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
       .then((response) => { if (alive) setWaOk(response?.whatsappSession?.accessible === true); })
       .catch(() => { if (alive) setWaOk(false); });
@@ -470,6 +527,26 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     if (!open || !canViewValues || !customerProfileId) return;
     void loadExtrato(customerProfileId);
   }, [canViewValues, customerProfileId, loadExtrato, open]);
+
+  // "Buscar dados" do Planejar — reusa o MESMO caminho de enriquecimento
+  // manual que já existe (POST /vendas/lead/:id/enrichment, base RFB local
+  // primeiro, credito da equipe); zero endpoint novo. Atrás da flag
+  // HBX_PREVOO_ENRICH_ENABLED (preVoo.enrichment.enabled), default OFF.
+  async function buscarDadosPreVoo() {
+    if (!lead.id || preVooEnrichBusy) return;
+    setPreVooEnrichBusy(true);
+    setPreVooEnrichMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/enrichment`, { method: "POST", body: JSON.stringify({}) });
+      const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
+      setPreVoo(response ?? null);
+      setPreVooEnrichMsg("✓ Dados atualizados.");
+    } catch (err) {
+      setPreVooEnrichMsg(err instanceof Error ? err.message : "Não foi possível buscar mais dados agora.");
+    } finally {
+      setPreVooEnrichBusy(false);
+    }
+  }
 
   const cityState = lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—";
   const cnpj = (company?.found && company.cnpj) || lead.cnpj || null;
@@ -862,6 +939,126 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     );
   }
 
+  // S3 LEAD-CENTRICO (03-pre-voo.md): "Planejar" — entendimento + prontidão à
+  // esquerda; escolha de persona (heurística, sem IA) + revisão das mensagens
+  // reais da cadência (regra dura do nome já vem resolvida do backend) à
+  // direita. Botão "Ligar robô" nasce desabilitado — a liberação é o S4.
+  function renderPlanejar() {
+    if (preVooLoading) return <div className="lead-cockpit__empty-state">Carregando entendimento do lead…</div>;
+    if (!preVoo || preVoo.locked || !preVoo.contato || !preVoo.canais || !preVoo.prontidao || !preVoo.recomendacao) {
+      return (
+        <div className="lead-cockpit__empty-state">
+          <strong>Entendimento indisponível</strong>
+          <span>Libere a inteligência do lead pra ver prontidão e plano de abordagem.</span>
+        </div>
+      );
+    }
+
+    const personas = preVoo.personas || [];
+    const selectedPersona = personas.find((p) => p.key === selectedPersonaKey) || personas.find((p) => p.recomendado) || personas[0] || null;
+    const prontidaoTotal = preVoo.prontidao.confirmados.length + preVoo.prontidao.duvidosos.length + preVoo.prontidao.faltantes.length;
+    const prontidaoScore = prontidaoTotal ? Math.round((preVoo.prontidao.confirmados.length / prontidaoTotal) * 100) : 0;
+    const canalTag = (canal: PreVooCanal, confirmadoLabel: string, duvidosoLabel: string, faltanteLabel: string) =>
+      canal.status === "confirmado"
+        ? <span className="tag teal">{confirmadoLabel}</span>
+        : canal.status === "duvidoso"
+          ? <span className="tag warn">{duvidosoLabel}</span>
+          : <span className="tag">{faltanteLabel}</span>;
+
+    return (
+      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--planejar">
+        <div className="lead-cockpit__planejar-left">
+          <section className="lead-cockpit__compact-card">
+            <CardTitle icon={ICONS.users} title="Entendimento" action={<span className="tag">{preVoo.empresa?.found ? "Receita Federal" : "Sem CNPJ"}</span>} />
+            <div className="lead-cockpit__person">
+              <Av name={preVoo.contato.nome || preVoo.empresa?.razaoSocial || lead.name || "—"} size={30} />
+              <span>
+                <strong>
+                  {preVoo.contato.nome
+                    || (preVoo.contato.candidatoDuvidoso ? `${preVoo.contato.candidatoDuvidoso.nome} (não confirmado)` : "Responsável não identificado")}
+                </strong>
+                <small>{preVoo.contato.cargo || preVoo.empresa?.razaoSocial || "—"}</small>
+              </span>
+            </div>
+            <InfoRow label="WhatsApp">{canalTag(preVoo.canais.whatsapp, "Confirmado", "Não confirmado", "Sem WhatsApp")}</InfoRow>
+            <InfoRow label="E-mail">{canalTag(preVoo.canais.email, "Confirmado", "Provável", "Sem e-mail")}</InfoRow>
+          </section>
+
+          <section className="lead-cockpit__compact-card lead-cockpit__quality-card">
+            <CardTitle
+              icon={ICONS.check}
+              title="Prontidão"
+              action={<span className={`tag${preVoo.prontidao.veredito === "pronto" ? " teal" : " warn"}`}>{preVoo.prontidao.veredito === "pronto" ? "Pronto" : "Falta dado"}</span>}
+            />
+            <div className="lead-cockpit__quality-main">
+              <AnimatedScore score={prontidaoScore} suffix="%" />
+              <span><strong>{preVoo.prontidao.veredictoLabel}</strong><small>Objetivo sugerido: {preVoo.recomendacao.objetivo}</small></span>
+            </div>
+            <div className="lead-cockpit__chips">
+              {preVoo.prontidao.faltantes.map((texto, index) => (
+                <span key={`falta-${index}`} className="tag red" title={texto}>{texto.split(" — ")[0].replace(/\.$/, "")}</span>
+              ))}
+              {preVoo.prontidao.duvidosos.map((texto, index) => (
+                <span key={`duvida-${index}`} className="tag warn" title={texto}>{texto.split(" — ")[0].replace(/\.$/, "")}</span>
+              ))}
+              {!preVoo.prontidao.faltantes.length && !preVoo.prontidao.duvidosos.length && (
+                <span className="tag teal">Tudo confirmado</span>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <div className="lead-cockpit__planejar-right">
+          <section className="lead-cockpit__compact-card">
+            <CardTitle icon={ICONS.bolt} title="Persona" action={<span className="tag">Recomendação por heurística</span>} />
+            <nav className="glass-pill-track lead-cockpit__persona-pick" role="tablist" aria-label="Escolha de persona da cadência">
+              <GlassPill {...personaPill} />
+              {personas.map((persona) => (
+                <button
+                  key={persona.key}
+                  type="button"
+                  ref={personaPill.itemRef(persona.key)}
+                  role="tab"
+                  aria-selected={selectedPersonaKey === persona.key}
+                  className={`glass-pill-item lead-cockpit__persona-chip${selectedPersonaKey === persona.key ? " is-active" : ""}`}
+                  onClick={() => setSelectedPersonaKey(persona.key)}
+                >
+                  {persona.nome.split(" (")[0]}{persona.recomendado ? <small> ★ sugerida</small> : null}
+                </button>
+              ))}
+            </nav>
+            {selectedPersona && <p className="muted-note">{selectedPersona.descricao}</p>}
+          </section>
+
+          <section className="lead-cockpit__compact-card lead-cockpit__planejar-review">
+            <CardTitle icon={ICONS.msg} title="Revisão da abordagem" />
+            <div className="lead-cockpit__steps">
+              {(selectedPersona?.passos || []).map((passo, index) => (
+                <span key={`${passo.canal}-${passo.dia}-${index}`}>
+                  <i>{index + 1}</i>
+                  <b>{passo.titulo || humanize(passo.canal)} · {passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</b>
+                  <small>{passo.corpo || (passo.atividadeTipo ? `Atividade: ${humanize(passo.atividadeTipo)}` : "—")}</small>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <div className="lead-cockpit__row-acts">
+            {preVoo.enrichment?.enabled && preVoo.enrichment?.podeBuscar && (
+              <button type="button" className="btn-ghost btn-xs" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
+                <I d={ICONS.search} size={12} /> <span>{preVooEnrichBusy ? "Buscando…" : "Buscar dados"}</span>
+              </button>
+            )}
+            <button type="button" className="btn-teal btn-xs" disabled title="Em breve — a liberação do robô chega no próximo sprint.">
+              <I d={ICONS.bolt} size={12} /> <span>Ligar robô</span>
+            </button>
+            {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderCompanyRows() {
     if (companyLoading) return <div className="lead-cockpit__empty-state">Carregando Receita Federal…</div>;
     const source = company?.found ? company : null;
@@ -1135,6 +1332,9 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           <div className="lead-cockpit__approved-body">
             <div className={`lead-cockpit__approved-panel${tab === "atendimento" ? " is-active" : ""}`} aria-hidden={tab !== "atendimento"}>
               {tab === "atendimento" && renderAtendimento()}
+            </div>
+            <div className={`lead-cockpit__approved-panel${tab === "planejar" ? " is-active" : ""}`} aria-hidden={tab !== "planejar"}>
+              {tab === "planejar" && renderPlanejar()}
             </div>
             <div className={`lead-cockpit__approved-panel${tab === "cadastro" ? " is-active" : ""}`} aria-hidden={tab !== "cadastro"}>
               {tab === "cadastro" && renderCadastro()}

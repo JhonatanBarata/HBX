@@ -61,6 +61,19 @@ import {
   UpdateVendasLeadDto,
 } from './dto/vendas.dto';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
+import {
+  buildAbertura,
+  buildPersonaPreviews,
+  buildProntidao,
+  isPreVooEnrichEnabled,
+  recommendPersona,
+  resolveCanalEmail,
+  resolveCanalTelefoneVoz,
+  resolveCanalWhatsapp,
+  resolveContact,
+  resolveObjetivo,
+} from './vendas-pre-voo';
+import { CADENCIA_SEEDS } from '../cadencia/cadencia-personas';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
@@ -5713,6 +5726,175 @@ export class VendasService {
     } catch {
       return [];
     }
+  }
+
+  // LeadPerson (WORM-16) — candidatos a "pessoa" do lead alem do QSA (source
+  // 'receita_qsa' | 'manual' | 'crawl' | 'ia'). Best-effort/fail-soft: tabela
+  // ausente ou erro nunca derruba o pre-voo, so degrada pra "sem candidato".
+  private async listLeadPersonCandidates(radarLeadId: string | null): Promise<Array<{ name: string; role: string | null; source: string }>> {
+    if (!radarLeadId) return [];
+    try {
+      const rows = await (this.prisma as any)?.leadPerson?.findMany?.({
+        where: { radarLeadId },
+        orderBy: [{ rank: 'asc' }],
+        take: 5,
+      });
+      return (Array.isArray(rows) ? rows : [])
+        .map((row: any) => ({
+          name: String(row?.name || '').trim(),
+          role: row?.role ? String(row.role).trim() : null,
+          source: String(row?.source || '').trim().toLowerCase(),
+        }))
+        .filter((row: any) => Boolean(row.name));
+    } catch {
+      return [];
+    }
+  }
+
+  // S3 LEAD-CENTRICO (03-pre-voo.md): entendimento do lead ANTES do vendedor
+  // disparar qualquer coisa — dono/socios via RFB local + LeadContact/LeadPerson
+  // com confianca de fonte, canais disponiveis, dados confirmados/duvidosos/
+  // faltantes, veredicto e recomendacao de persona por HEURISTICA (sem IA/LLM
+  // neste sprint — recomendacao.source:'heuristica'). Zero disparo, zero
+  // inscricao de cadencia. Mesma autz/gate do cockpit (canSeeLeadIntelligence).
+  async getLeadPreVooForUser(user: any, leadId: string) {
+    const context = await this.resolveVendasUserContext(user);
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      include: {
+        customerProfile: { select: { cnpj: true } },
+        timelineEvents: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 12,
+        },
+      },
+    });
+    if (!lead) throw new NotFoundException('Lead nao encontrado.');
+
+    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
+    const canSeeCompanyData =
+      planAccess.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(lead);
+    if (!canSeeCompanyData) {
+      return { ok: true, leadId: String(lead.id), locked: true };
+    }
+
+    // Mesma hidratacao/CNPJ do cockpit (radar pool -> intelligence -> fallback RFB local).
+    await this.hydrateRowsWithRadarPoolEnrichment([lead]);
+    const availability =
+      (await this.listWhatsappAvailabilityByLeadIds([String(lead.id)])).get(String(lead.id)) || null;
+    const intelligence = buildVendasLeadIntelligence({ lead, whatsappAvailability: availability });
+
+    let cnpjDigits = String(
+      (intelligence as any)?.cnpj || (lead as any)?.customerProfile?.cnpj || '',
+    ).replace(/\D/g, '');
+    let fallbackMatch: VendasRfbMatch<any> | null = null;
+    if (cnpjDigits.length !== 14) {
+      fallbackMatch = await this.findCockpitCompanyByLead(lead);
+      cnpjDigits = String(fallbackMatch?.company?.cnpj || '').replace(/\D/g, '');
+      if (cnpjDigits.length === 14 && fallbackMatch) {
+        await this.persistCockpitCompanyMatch(lead, fallbackMatch);
+      }
+    }
+
+    let companyRow: any = null;
+    let partners: Array<{ name: string; qualification: string | null }> = [];
+    if (cnpjDigits.length === 14) {
+      try {
+        companyRow = fallbackMatch?.company
+          || await this.prisma.cnpjPublicCompany.findUnique({ where: { cnpj: cnpjDigits } });
+        if (companyRow) {
+          partners = await this.listCockpitPartners(cnpjDigits, companyRow.rawJson);
+        }
+      } catch (error: any) {
+        this.logger.warn(
+          `[vendas-pre-voo] Falha ao ler base RFB local lead=${lead.id} company=${context.companyId}: ${String(error?.message || error)}`,
+        );
+      }
+    }
+
+    const radarLeadId = this.extractRadarLeadId((lead as any)?.sourceHistoryId);
+    const leadPersonCandidates = await this.listLeadPersonCandidates(radarLeadId);
+
+    const contact = resolveContact({
+      qsaPartnerName: partners[0]?.name || null,
+      qsaPartnerQualification: partners[0]?.qualification || null,
+      companyOwnerName: companyRow?.ownerName || null,
+      companyOwnerQualification: companyRow?.ownerQualification || null,
+      leadPersonCandidates,
+      radarOwnerName: (intelligence as any)?.ownerName || null,
+    });
+
+    const empresaNome =
+      (companyRow ? cleanRfbLegalName(companyRow.razaoSocial, companyRow.cnpj || cnpjDigits) : null)
+      || (lead as any)?.name
+      || null;
+
+    const whatsappCanal = resolveCanalWhatsapp(intelligence.whatsappStatus, (lead as any)?.phone || null);
+    const emailCanal = resolveCanalEmail(intelligence.emailStatus, (intelligence as any)?.email || (lead as any)?.email || null);
+    const telefoneVozCanal = resolveCanalTelefoneVoz((lead as any)?.phone || null);
+
+    const prontidao = buildProntidao({
+      empresaEncontrada: Boolean(companyRow),
+      whatsapp: whatsappCanal,
+      email: emailCanal,
+      contato: contact,
+    });
+
+    const recommendation = recommendPersona({
+      whatsappConfirmado: whatsappCanal.status === 'confirmado',
+      emailConfirmado: emailCanal.status === 'confirmado',
+      nomeAlta: contact.confianca === 'alta',
+    });
+
+    const abertura = buildAbertura({ nome: contact.nome, confianca: contact.confianca, empresaNome });
+    const objetivo = resolveObjetivo((lead as any)?.status);
+    const personas = buildPersonaPreviews(CADENCIA_SEEDS, abertura, recommendation.personaKey);
+
+    const faltantesCount = prontidao.faltantes.length;
+
+    return {
+      ok: true,
+      leadId: String(lead.id),
+      locked: false,
+      lead: {
+        name: (lead as any)?.name || null,
+        city: (lead as any)?.city || null,
+        state: (lead as any)?.state || null,
+        segment: (lead as any)?.segment || null,
+        status: (lead as any)?.status || null,
+      },
+      empresa: {
+        found: Boolean(companyRow),
+        cnpj: companyRow?.cnpj || cnpjDigits || null,
+        razaoSocial: companyRow ? cleanRfbLegalName(companyRow.razaoSocial, companyRow.cnpj || cnpjDigits) : null,
+        nomeFantasia: companyRow?.nomeFantasia || null,
+        situacao: companyRow?.situacao || null,
+        cnae: companyRow?.cnae || null,
+        cnaeDescription: companyRow?.cnaeDescription || null,
+        cidade: companyRow?.city || (lead as any)?.city || null,
+        estado: companyRow?.state || (lead as any)?.state || null,
+      },
+      contato: contact,
+      canais: {
+        whatsapp: whatsappCanal,
+        email: emailCanal,
+        telefoneVoz: telefoneVozCanal,
+      },
+      prontidao,
+      recomendacao: {
+        ...recommendation,
+        abertura,
+        objetivo,
+      },
+      personas,
+      enrichment: {
+        enabled: isPreVooEnrichEnabled(),
+        podeBuscar: Boolean(context.access?.canManualEnrichRadar) && faltantesCount > 0,
+      },
+    };
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {

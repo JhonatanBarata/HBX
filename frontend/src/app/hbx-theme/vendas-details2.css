@@ -1304,6 +1304,85 @@
   -webkit-line-clamp: 2;
 }
 
+/* S3 LEAD-CENTRICO (03-pre-voo.md): aba "Planejar" — entendimento + prontidão
+   à esquerda, persona/revisão à direita. Mesmo DNA das outras grades do cockpit
+   (largura/altura 100%, sem scroll de página — só a revisão rola por dentro). */
+.lead-cockpit__approved-grid--planejar {
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+}
+
+.lead-cockpit__planejar-left,
+.lead-cockpit__planejar-right {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.lead-cockpit__planejar-left {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.lead-cockpit__planejar-right {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.lead-cockpit__planejar-review {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.lead-cockpit__planejar-review .lead-cockpit__steps {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.lead-cockpit__persona-pick {
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-soft);
+  --glass-pill-radius: var(--radius-pill);
+}
+
+.lead-cockpit__persona-chip {
+  min-height: 24px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: var(--lc-fs-body);
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lead-cockpit__persona-chip.is-active {
+  color: var(--hbx-info);
+}
+
+.lead-cockpit__persona-chip small {
+  font-size: var(--lc-fs-micro);
+  font-weight: 700;
+  color: var(--hbx-brand-strong);
+}
+
 .lead-cockpit__approved-grid--finance {
   grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.18fr) minmax(0, 0.72fr);
 }

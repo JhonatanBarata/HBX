@@ -361,6 +361,13 @@ export class VendasController {
     return this.vendasService.getLeadCockpitForUser(req.user, leadId);
   }
 
+  // S3 LEAD-CENTRICO (03-pre-voo.md): entendimento + prontidao + recomendacao de
+  // persona (heuristica) + revisao das mensagens ANTES de qualquer disparo.
+  @Get('lead/:leadId/pre-voo')
+  getLeadPreVoo(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasService.getLeadPreVooForUser(req.user, leadId);
+  }
+
   @Post('lead/:leadId/presentation-draft')
   buildPresentationDraft(@Req() req: any, @Param('leadId') leadId: string) {
     return this.vendasService.buildPresentationEmailDraftForUser(req.user, leadId);
