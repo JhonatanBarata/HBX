@@ -4,6 +4,9 @@
 // Contratos reais (company-scoped, JWT; PATCH é ADMIN-only no backend):
 //   - GET   /logistica/config        → LogisticaConfig
 //   - PATCH /logistica/config {...}   → LogisticaConfig
+//   - PATCH /logistica/config/modo-rota {trackingAtivo?, modoRotaPadrao?}
+//     → LogisticaConfig (26/07: o modo comercial saiu do PATCH genérico pra
+//       fechar a porta do APK velho; este painel é o único caminho legítimo)
 //
 // O editor cobre:
 //   · Template do aviso WhatsApp "entregue" (variáveis {saudacao} {cliente}
@@ -154,13 +157,17 @@ export function LogisticaConfigClient() {
     });
   }, [template]);
 
-  // Patch de 1 toggle/campo direto (otimista com recarga; sempre via /config).
-  const patch = useCallback(
-    async (partial: Partial<Config>) => {
+  // Patch de 1 toggle/campo direto (otimista com recarga). `path` existe porque
+  // o MODO DA ROTA mudou de endereço em 26/07: ele tem endpoint próprio
+  // (/logistica/config/modo-rota) pra que o APK velho em campo, que mandava
+  // trackingAtivo/modoRotaPadrao no PATCH genérico, pare de conseguir trocar o
+  // modo. Este painel (só do billing owner, no PC) é o caminho legítimo.
+  const patchAt = useCallback(
+    async (path: string, partial: Record<string, unknown>) => {
       setSaving(true);
       setSavedMsg(null);
       try {
-        const res = await apiFetch<Config>("/logistica/config", {
+        const res = await apiFetch<Config>(path, {
           method: "PATCH",
           body: JSON.stringify(partial),
         });
@@ -173,6 +180,18 @@ export function LogisticaConfigClient() {
       }
     },
     [],
+  );
+
+  const patch = useCallback(
+    (partial: Partial<Config>) => patchAt("/logistica/config", partial),
+    [patchAt],
+  );
+
+  // Modo das novas rotas — endpoint separado (ver comentário acima).
+  const patchModoRota = useCallback(
+    (partial: { trackingAtivo?: boolean; modoRotaPadrao?: RouteMode }) =>
+      patchAt("/logistica/config/modo-rota", partial),
+    [patchAt],
   );
 
   const salvarTemplate = useCallback(() => {
@@ -231,7 +250,7 @@ export function LogisticaConfigClient() {
                       type="checkbox"
                       checked={!!cfg.trackingAtivo}
                       disabled={saving}
-                      onChange={(e) => patch({ trackingAtivo: e.target.checked })}
+                      onChange={(e) => patchModoRota({ trackingAtivo: e.target.checked })}
                       aria-describedby="tracking-availability"
                     />
                     <span>{cfg.trackingAtivo ? "Rastreamento permitido" : "Rastreamento desligado"}</span>
@@ -245,7 +264,7 @@ export function LogisticaConfigClient() {
                     aria-checked={(cfg.modoRotaPadrao ?? "ESSENTIAL") === "ESSENTIAL"}
                     className={`log-cfg__mode${(cfg.modoRotaPadrao ?? "ESSENTIAL") === "ESSENTIAL" ? " is-selected" : ""}`}
                     disabled={saving}
-                    onClick={() => patch({ modoRotaPadrao: "ESSENTIAL" })}
+                    onClick={() => patchModoRota({ modoRotaPadrao: "ESSENTIAL" })}
                   >
                     <span className="log-cfg__mode-title">Rota Essencial</span>
                     <span className="log-cfg__mode-copy">1 crédito por bloco iniciado de até 5 entregas únicas.</span>
@@ -257,7 +276,7 @@ export function LogisticaConfigClient() {
                     className={`log-cfg__mode${cfg.modoRotaPadrao === "TRACKED" ? " is-selected" : ""}`}
                     disabled={saving || !cfg.trackingDisponivel || !cfg.trackingAtivo}
                     aria-describedby="tracking-availability"
-                    onClick={() => patch({ modoRotaPadrao: "TRACKED" })}
+                    onClick={() => patchModoRota({ modoRotaPadrao: "TRACKED" })}
                   >
                     <span className="log-cfg__mode-title">Rota Rastreada</span>
                     <span className="log-cfg__mode-copy">2 créditos por entrega concluída durante uma sessão válida de rastreamento.</span>

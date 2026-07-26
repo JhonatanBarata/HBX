@@ -484,16 +484,14 @@ export class LimparDiaDto {
 // PATCH parcial da config da empresa: template do aviso + toggles + params de rota.
 // Só campos declarados passam (whitelist). companyId NUNCA vem do body (JWT).
 export class UpdateLogisticaConfigDto {
-  // PR1 — escolha comercial da rota. TRACKED só vira efetivo quando o toggle
-  // do tenant e a flag global estiverem ligados; o serviço aplica os gates.
-  @IsOptional()
-  @IsBoolean()
-  trackingAtivo?: boolean;
-
-  @IsOptional()
-  @IsIn(['ESSENTIAL', 'TRACKED'])
-  modoRotaPadrao?: 'ESSENTIAL' | 'TRACKED';
-
+  // ── 26/07 — `trackingAtivo` e `modoRotaPadrao` NÃO MORAM MAIS AQUI ───────────
+  // Eles migraram para o UpdateLogisticaRouteModeDto (PATCH /logistica/config/
+  // modo-rota). Motivo: o APK VELHO já instalado em campo ainda mandava esses
+  // dois campos neste PATCH e, se quem estivesse logado fosse o dono da conta,
+  // a troca passava. Fora daqui, o ValidationPipe global (whitelist +
+  // forbidNonWhitelisted, main.ts) devolve 400 pro payload antigo ANTES de
+  // qualquer código rodar — a porta fecha por CONTRATO, sem depender de
+  // User-Agent (string de cliente é forjável). Não reintroduzir os campos.
   @IsOptional()
   @IsBoolean()
   avisoWhatsEnabled?: boolean;
@@ -650,6 +648,22 @@ export class UpdateLogisticaConfigDto {
   @IsOptional()
   @IsBoolean()
   comprovanteCodigoObrigatorio?: boolean;
+}
+
+// ── 26/07 — MODO DA ROTA (Simples × Rastreada) EM ENDEREÇO PRÓPRIO ───────────
+// PATCH /logistica/config/modo-rota. Endpoint separado de propósito: é a ÚNICA
+// porta da escolha comercial do modo, e o bundle do APK (nem o velho em campo,
+// nem o novo) chama esta rota — o celular não decide modo comercial (ordem do
+// dono 26/07). Quem liga é o administrador NO PC, em /logistica/config.
+// Admin-only no controller + billing owner no serviço, como era antes.
+export class UpdateLogisticaRouteModeDto {
+  @IsOptional()
+  @IsBoolean()
+  trackingAtivo?: boolean;
+
+  @IsOptional()
+  @IsIn(['ESSENTIAL', 'TRACKED'])
+  modoRotaPadrao?: 'ESSENTIAL' | 'TRACKED';
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).

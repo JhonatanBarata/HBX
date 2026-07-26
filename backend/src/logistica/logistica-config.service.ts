@@ -167,10 +167,20 @@ export class LogisticaConfigService {
   ): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
 
+    // ── 26/07 — o MODO da rota não entra mais por aqui ────────────────────────
+    // Ele tem endpoint próprio (`updateRouteMode` / PATCH /logistica/config/
+    // modo-rota). Este guarda é cinto-e-suspensório: o ValidationPipe global
+    // (whitelist + forbidNonWhitelisted) já barra o payload do APK velho com
+    // 400, e quem chamar o serviço direto (script, outro módulo) bate aqui.
+    const forasteiro = input as Record<string, unknown>;
+    if (forasteiro.trackingAtivo !== undefined || forasteiro.modoRotaPadrao !== undefined) {
+      throw new ForbiddenException(
+        'O modo da rota só muda no painel do administrador, no computador.',
+      );
+    }
+
     const data: Record<string, unknown> = {};
     const changesCommercialConfig = [
-      input.trackingAtivo,
-      input.modoRotaPadrao,
       input.cobrancaNaEntrega,
       input.moduloFinanceiroAtivo,
       input.moduloRecoveryAtivo,
@@ -184,25 +194,6 @@ export class LogisticaConfigService {
     if (changesCommercialConfig && !isBillingOwnerActor(actor)) {
       throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
     }
-    if (input.trackingAtivo !== undefined) data.trackingAtivo = !!input.trackingAtivo;
-    if (input.modoRotaPadrao !== undefined) {
-      const mode = String(input.modoRotaPadrao || '').trim().toUpperCase();
-      if (mode !== 'ESSENTIAL' && mode !== 'TRACKED') {
-        throw new BadRequestException('Modo de rota inválido.');
-      }
-      data.modoRotaPadrao = mode;
-    }
-    // 26/07 — DESARMA a preferência órfã. Antes disso `trackingAtivo=false` +
-    // `modoRotaPadrao='TRACKED'` era um estado LEGAL: a rota caía em ESSENTIAL
-    // (effectiveRouteMode), mas o TRACKED ficava armado no banco e voltava
-    // sozinho no dia em que alguém religasse o toggle — foi exatamente assim que
-    // as companies 5 e 48 ficaram TRACKED em produção. Desligar o rastreamento
-    // agora zera a preferência junto: pra voltar pra Rastreada o administrador
-    // (no PC) liga o toggle E escolhe a Rastreada de novo — 2 atos conscientes,
-    // nenhum deles no celular. NÃO apaga nada da Rastreada: rota já iniciada
-    // guarda o modo congelado na própria LogisticaRoute e continua sendo lida
-    // nos dois modos.
-    if (data.trackingAtivo === false) data.modoRotaPadrao = 'ESSENTIAL';
     if (input.avisoWhatsEnabled !== undefined) data.avisoWhatsEnabled = !!input.avisoWhatsEnabled;
     if (input.templateAviso !== undefined) {
       const t = String(input.templateAviso ?? '').trim();
@@ -287,6 +278,60 @@ export class LogisticaConfigService {
     // PATCH é admin-only (RolesGuard + @Admin() no controller), mas o DTO é o
     // MESMO shape do GET — recalcula o booleano pra não devolver um valor
     // desatualizado pro admin que acabou de editar a config.
+    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
+    return serializeConfig(cfg, actor, creditosEsgotados);
+  }
+
+  // ── MODO DA ROTA (Simples × Rastreada) — PORTA ÚNICA, SÓ DO PC ──────────────
+  /**
+   * Grava a escolha comercial do modo das NOVAS rotas. Endpoint próprio
+   * (`PATCH /logistica/config/modo-rota`) por decisão de 26/07: enquanto os dois
+   * campos moravam no PATCH genérico da config, o APK VELHO já instalado em
+   * campo conseguia mandar a troca se quem estivesse logado fosse o dono da
+   * conta. Separar o endereço fecha a porta por CONTRATO — o payload antigo cai
+   * no ValidationPipe (400) e nenhum bundle do celular conhece esta rota. Não
+   * depende de User-Agent, que é string de cliente e se forja.
+   *
+   * Continua exigindo billing owner (a escolha mexe em quanto a empresa gasta:
+   * 2 créditos por entrega na Rastreada contra 1 por bloco de 5 na Simples).
+   */
+  async updateRouteMode(
+    companyId: number,
+    input: UpdateLogisticaRouteModeInput,
+    actor?: ActorKindUserLike,
+  ): Promise<LogisticaConfigDTO> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    if (!isBillingOwnerActor(actor)) {
+      throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
+    }
+
+    const data: Record<string, unknown> = {};
+    if (input.trackingAtivo !== undefined) data.trackingAtivo = !!input.trackingAtivo;
+    if (input.modoRotaPadrao !== undefined) {
+      const mode = String(input.modoRotaPadrao || '').trim().toUpperCase();
+      if (mode !== 'ESSENTIAL' && mode !== 'TRACKED') {
+        throw new BadRequestException('Modo de rota inválido.');
+      }
+      data.modoRotaPadrao = mode;
+    }
+    if (!Object.keys(data).length) throw new BadRequestException('Nada para alterar.');
+    // 26/07 — DESARMA a preferência órfã. Antes disso `trackingAtivo=false` +
+    // `modoRotaPadrao='TRACKED'` era um estado LEGAL: a rota caía em ESSENTIAL
+    // (effectiveRouteMode), mas o TRACKED ficava armado no banco e voltava
+    // sozinho no dia em que alguém religasse o toggle — foi exatamente assim que
+    // as companies 5 e 48 ficaram TRACKED em produção. Desligar o rastreamento
+    // agora zera a preferência junto: pra voltar pra Rastreada o administrador
+    // (no PC) liga o toggle E escolhe a Rastreada de novo — 2 atos conscientes,
+    // nenhum deles no celular. NÃO apaga nada da Rastreada: rota já iniciada
+    // guarda o modo congelado na própria LogisticaRoute e continua sendo lida
+    // nos dois modos.
+    if (data.trackingAtivo === false) data.modoRotaPadrao = 'ESSENTIAL';
+
+    const cfg = await this.prisma.logisticaConfig.upsert({
+      where: { companyId },
+      update: data,
+      create: { companyId, ...data },
+    });
     const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
     return serializeConfig(cfg, actor, creditosEsgotados);
   }
@@ -548,9 +593,14 @@ function effectiveRouteMode(c: any): LogisticaRouteMode {
 }
 
 // ── tipos ─────────────────────────────────────────────────────────────────────
-export interface UpdateLogisticaConfigInput {
+// 26/07 — `trackingAtivo`/`modoRotaPadrao` saíram deste input e viraram o
+// UpdateLogisticaRouteModeInput (endpoint próprio). Ver updateRouteMode.
+export interface UpdateLogisticaRouteModeInput {
   trackingAtivo?: boolean;
   modoRotaPadrao?: LogisticaRouteMode;
+}
+
+export interface UpdateLogisticaConfigInput {
   avisoWhatsEnabled?: boolean;
   templateAviso?: string | null;
   raioChegadaM?: number;

@@ -93,11 +93,17 @@ A Rastreada está **inteira e funcionando**, não é esqueleto:
   **só para billing owner** (`billingOwner &&`), e o radio Rastreada fica `disabled` enquanto o
   toggle/flag global não estiverem ligados. **Este é o "administrador pelo PC" que o dono pediu — já existe.**
 - **Backend fecha a porta pro celular** — `PATCH /logistica/config` é `@Admin()` + `RolesGuard`, e
-  campos comerciais (`trackingAtivo`, `modoRotaPadrao`, Pix, etc.) exigem `isBillingOwnerActor`.
+  campos comerciais (Pix, módulos, cobrança…) exigem `isBillingOwnerActor`. O MODO da rota nem mora
+  mais nesse endpoint: saiu pro `PATCH /logistica/config/modo-rota` em 26/07 (ver 5.3).
 
 **Entregue em 26/07 junto com este plano:**
 - APK: sumiu o modal "Modo das próximas rotas", a linha "Modo padrão" dos Ajustes e o handler que
   fazia `PATCH` do modo. **O celular não escolhe mais o modo comercial.**
+- APK (2ª leva, mesma noite): saiu também a seção **"Operação"** dos Ajustes — as duas linhas
+  só-leitura "Rastreamento: Disponível/Off" e "Modo da rota". Com a flag global ligada, a primeira
+  dizia "Disponível" pra TODO entregador, anunciando um produto que a empresa dele não usa — o
+  oposto de "manter a existência quieta". O cálculo `trackedAvailable` morreu junto;
+  `routeTracked()` ficou (o hero da tela ainda diz em que modo a rota está rodando).
 - Backend: desligar `trackingAtivo` agora **desarma** `modoRotaPadrao` junto (volta pra `ESSENTIAL`).
   Antes, `TRACKED` ficava armado no banco esperando alguém religar o toggle — foi assim que as
   companies 5 e 48 ficaram `TRACKED` em produção sem ninguém decidir isso.
@@ -114,12 +120,19 @@ Em ordem de custo:
 2. **[baixo] Ligar por empresa = 2 cliques no PC.** Já funciona: toggle + radio em `/logistica/config`.
    Falta só uma linha de confirmação dizendo o **preço** ("2 créditos por entrega, ~10× a Simples")
    antes de gravar — hoje o admin liga sem ver a conta.
-3. **[médio] Fechar a porta dos fundos do celular por contrato, não por tela.** Hoje um APK velho em
-   campo (cache antigo do bundle) ainda consegue mandar o `PATCH` se quem estiver logado for billing
-   owner. Opções: (a) rejeitar mudança de campo comercial quando o `User-Agent` for `HBX-*/Android`
-   (o app já manda esse UA em `NativeApiClient.kt` / `HbxMobileBridge.kt`); (b) separar num endpoint
-   próprio `PATCH /logistica/config/comercial` que o bundle do APK nunca chama. **Decisão do dono** —
-   (a) é 5 linhas mas depende de header; (b) é mais limpo e mais caro.
+3. ~~**[médio] Fechar a porta dos fundos do celular por contrato, não por tela.**~~ **FEITO 26/07 —
+   escolhida a saída (b), endpoint próprio.** `trackingAtivo` e `modoRotaPadrao` saíram do
+   `UpdateLogisticaConfigDto` e viraram `PATCH /logistica/config/modo-rota`
+   (`UpdateLogisticaRouteModeDto` + `LogisticaConfigService.updateRouteMode`, ainda ADMIN-only +
+   billing owner). Por que (b) e não o gate por `User-Agent`: UA é string que o cliente escreve —
+   forjável com um `curl`; endereço de endpoint + `whitelist`/`forbidNonWhitelisted` do
+   ValidationPipe global é contrato de servidor. Resultado: **3 fechaduras** —
+   (1) o payload do APK velho toma **400** no ValidationPipe antes de qualquer handler;
+   (2) `updateConfig` recusa os dois campos com `ForbiddenException` (cinto-e-suspensório pra quem
+   chamar o serviço direto); (3) a allowlist do `NativeApiClient.kt` casa segmentos EXATOS
+   (`PATCH ["logistica","config"]`) — a rota nova tem 3 segmentos e **nenhum APK, novo ou velho,
+   consegue chamá-la** pela ponte nativa. O painel do PC (`/logistica/config`) passou a bater no
+   endereço novo e continua sendo o único caminho legítimo.
 4. **[médio] Visão de master.** Hoje quem liga é o admin **da empresa**. Se a Rastreada virar item de
    plano/add-on vendido pelo HBX, quem deveria liberar é o **master** (`/master`), e o admin da
    empresa só escolheria dentro do que foi liberado. Isso é teto comercial, não existe hoje.

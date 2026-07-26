@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, RequestMethod } from '@nestjs/common';
 
 import { LogisticaController } from './logistica.controller';
 
@@ -120,6 +120,31 @@ test('logística: controller propaga o ator para leituras redigidas e configura�
   await controller.updateConfig(req, {} as any);
 
   assert.deepEqual(received, [owner, owner, owner, owner]);
+});
+
+// ── 26/07 — o caminho LEGÍTIMO do PC não pode ter quebrado ──────────────────
+// O modo das novas rotas saiu do PATCH genérico e ganhou endereço próprio
+// (PATCH /logistica/config/modo-rota) pra fechar a porta do APK velho. Este
+// teste trava as duas pontas: a rota existe com o path/método certos, e o
+// controller repassa companyId + ATOR (o billing owner é conferido no serviço).
+test('logística: PATCH config/modo-rota existe e propaga empresa e ator', async () => {
+  const recebido: Array<{ companyId: number; dto: unknown; actor: unknown }> = [];
+  const config: any = {
+    updateRouteMode: async (companyId: number, dto: unknown, actor: unknown) => {
+      recebido.push({ companyId, dto, actor });
+      return { modoRotaPadrao: 'TRACKED' };
+    },
+  };
+  const controller = controllerWith({}, {}, config);
+
+  const res = await controller.updateRouteMode({ user: owner }, { modoRotaPadrao: 'TRACKED' } as any);
+  assert.deepEqual(res, { modoRotaPadrao: 'TRACKED' });
+  assert.deepEqual(recebido, [{ companyId: 1, dto: { modoRotaPadrao: 'TRACKED' }, actor: owner }]);
+
+  // metadados do Nest: método PATCH no caminho 'config/modo-rota'.
+  const handler = (LogisticaController.prototype as any).updateRouteMode;
+  assert.equal(Reflect.getMetadata('path', handler), 'config/modo-rota');
+  assert.equal(Reflect.getMetadata('method', handler), RequestMethod.PATCH);
 });
 
 test('logística: dono continua autorizado no endpoint financeiro', async () => {

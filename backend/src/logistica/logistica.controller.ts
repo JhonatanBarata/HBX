@@ -68,6 +68,7 @@ import {
   UpdateClienteProdutoDto,
   UpdateFinanceiroClienteDto,
   UpdateLogisticaConfigDto,
+  UpdateLogisticaRouteModeDto,
   UpdateProdutoDto,
   UpdateRotaModeloDto,
   TipoComprovanteDto,
@@ -954,6 +955,23 @@ export class LogisticaController {
   updateConfig(@Req() req: any, @Body() dto: UpdateLogisticaConfigDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.config.updateConfig(companyId, dto, req.user);
+  }
+
+  /**
+   * 26/07 — MODO DAS NOVAS ROTAS (Simples × Rastreada), em endereço PRÓPRIO.
+   * A escolha comercial saiu do PATCH genérico acima porque o APK VELHO em campo
+   * ainda mandava `trackingAtivo`/`modoRotaPadrao` por lá e passava quando o
+   * logado era o dono da conta. Agora o payload antigo morre no ValidationPipe
+   * (400, forbidNonWhitelisted) e esta rota só existe no painel do PC
+   * (/logistica/config) — nenhum bundle do celular a conhece, e o gate não
+   * depende de User-Agent (forjável). ADMIN-only + billing owner no serviço.
+   */
+  @Patch('config/modo-rota')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  updateRouteMode(@Req() req: any, @Body() dto: UpdateLogisticaRouteModeDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.config.updateRouteMode(companyId, dto, req.user);
   }
 
   // ── S6 PORTAL-PEDIDO — link público de pedido (token opaco) ─────────────────

@@ -2,8 +2,9 @@ import 'reflect-metadata';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validate } from 'class-validator';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 
-import { UpdateLogisticaConfigDto } from './dto/logistica.dto';
+import { UpdateLogisticaConfigDto, UpdateLogisticaRouteModeDto } from './dto/logistica.dto';
 import { LogisticaConfigService } from './logistica-config.service';
 import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 
@@ -157,7 +158,7 @@ test('GET não-billing preserva operação e omite chaves administrativas/financ
 test('PATCH comercial é company-scoped e preserva a preferência mesmo com flag OFF', async () => {
   const { service, upsertCalls } = setup(row({ trackingAtivo: false, modoRotaPadrao: 'ESSENTIAL' }));
   await withTrackingFlag(undefined, async () => {
-    const config = await service.updateConfig(7, { trackingAtivo: true, modoRotaPadrao: 'TRACKED' }, OWNER);
+    const config = await service.updateRouteMode(7, { trackingAtivo: true, modoRotaPadrao: 'TRACKED' }, OWNER);
     assert.deepEqual(upsertCalls[0].where, { companyId: 7 });
     assert.deepEqual(upsertCalls[0].update, { trackingAtivo: true, modoRotaPadrao: 'TRACKED' });
     assert.equal(config.trackingAtivo, true);
@@ -198,7 +199,7 @@ test('empresa NOVA nasce em Logística Simples mesmo com a flag global LIGADA', 
 test('desligar o rastreamento DESARMA a preferência TRACKED (não fica armada no banco)', async () => {
   const { service, upsertCalls } = setup(row({ trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
   await withTrackingFlag('true', async () => {
-    const config = await service.updateConfig(7, { trackingAtivo: false }, OWNER);
+    const config = await service.updateRouteMode(7, { trackingAtivo: false }, OWNER);
     assert.deepEqual(upsertCalls[0].update, { trackingAtivo: false, modoRotaPadrao: 'ESSENTIAL' });
     assert.equal(config.modoRotaPadrao, 'ESSENTIAL');
     assert.equal(await service.resolveRouteMode(7), 'ESSENTIAL');
@@ -208,7 +209,7 @@ test('desligar o rastreamento DESARMA a preferência TRACKED (não fica armada n
 test('PATCH contraditório (tracking OFF + modo TRACKED) resolve em Simples', async () => {
   const { service, upsertCalls } = setup(row({ trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
   await withTrackingFlag('true', async () => {
-    const config = await service.updateConfig(7, { trackingAtivo: false, modoRotaPadrao: 'TRACKED' }, OWNER);
+    const config = await service.updateRouteMode(7, { trackingAtivo: false, modoRotaPadrao: 'TRACKED' }, OWNER);
     assert.equal(upsertCalls[0].update.modoRotaPadrao, 'ESSENTIAL');
     assert.equal(config.modoRotaPadrao, 'ESSENTIAL');
   });
@@ -217,7 +218,7 @@ test('PATCH contraditório (tracking OFF + modo TRACKED) resolve em Simples', as
 test('gerente não altera modo nem configuração financeira', async () => {
   const { service, upsertCalls } = setup();
   await assert.rejects(
-    () => service.updateConfig(7, { modoRotaPadrao: 'TRACKED' }, MANAGER),
+    () => service.updateRouteMode(7, { modoRotaPadrao: 'TRACKED' }, MANAGER),
     /Somente o responsável financeiro/,
   );
   await assert.rejects(
@@ -230,17 +231,61 @@ test('gerente não altera modo nem configuração financeira', async () => {
 test('serviço rejeita modo desconhecido antes de gravar', async () => {
   const { service, upsertCalls } = setup();
   await assert.rejects(
-    () => service.updateConfig(7, { modoRotaPadrao: 'INVALID' as any }, OWNER),
+    () => service.updateRouteMode(7, { modoRotaPadrao: 'INVALID' as any }, OWNER),
     /Modo de rota inválido/,
   );
   assert.equal(upsertCalls.length, 0);
 });
 
-test('DTO aceita apenas ESSENTIAL ou TRACKED', async () => {
-  const valid = Object.assign(new UpdateLogisticaConfigDto(), { modoRotaPadrao: 'TRACKED', trackingAtivo: true });
+test('DTO do modo aceita apenas ESSENTIAL ou TRACKED', async () => {
+  const valid = Object.assign(new UpdateLogisticaRouteModeDto(), { modoRotaPadrao: 'TRACKED', trackingAtivo: true });
   assert.equal((await validate(valid)).length, 0);
 
-  const invalid = Object.assign(new UpdateLogisticaConfigDto(), { modoRotaPadrao: 'LIVE' });
+  const invalid = Object.assign(new UpdateLogisticaRouteModeDto(), { modoRotaPadrao: 'LIVE' });
   const errors = await validate(invalid);
   assert.equal(errors.some((error) => error.property === 'modoRotaPadrao'), true);
+});
+
+// ── 26/07 — A PORTA DOS FUNDOS DO APK VELHO ─────────────────────────────────
+// O bundle antigo em campo mandava `trackingAtivo`/`modoRotaPadrao` no PATCH
+// genérico da config e passava quando o logado era o dono da conta. Agora os
+// dois campos moram só no endpoint próprio: o PATCH genérico recusa (e, na
+// borda HTTP, o ValidationPipe global já devolve 400 antes disso, porque o DTO
+// não declara mais esses campos e `forbidNonWhitelisted` está ligado).
+
+test('PATCH genérico da config RECUSA o modo da rota, mesmo vindo do dono', async () => {
+  const { service, upsertCalls } = setup();
+  await assert.rejects(
+    () => service.updateConfig(7, { modoRotaPadrao: 'TRACKED' } as any, OWNER),
+    /painel do administrador/,
+  );
+  await assert.rejects(
+    () => service.updateConfig(7, { trackingAtivo: true } as any, OWNER),
+    /painel do administrador/,
+  );
+  assert.equal(upsertCalls.length, 0);
+});
+
+test('ValidationPipe barra o payload do APK velho no PATCH genérico da config', async () => {
+  // MESMA configuração do main.ts (whitelist + forbidNonWhitelisted + transform).
+  const pipe = new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true });
+  const meta = { type: 'body' as const, metatype: UpdateLogisticaConfigDto };
+
+  const recusa = await pipe
+    .transform({ trackingAtivo: true, modoRotaPadrao: 'TRACKED' }, meta)
+    .then(() => null, (e: any) => e);
+  assert.ok(recusa instanceof BadRequestException, 'payload do APK velho tem que ser recusado');
+  const detalhe = JSON.stringify((recusa as any).getResponse());
+  assert.match(detalhe, /modoRotaPadrao/);
+  assert.match(detalhe, /trackingAtivo/);
+  // o resto da config continua passando normalmente (nada mais foi fechado).
+  const ok: any = await pipe.transform({ raioChegadaM: 80 }, meta);
+  assert.equal(ok.raioChegadaM, 80);
+
+  // e o endpoint próprio aceita exatamente os dois campos.
+  const modo: any = await pipe.transform(
+    { trackingAtivo: true, modoRotaPadrao: 'TRACKED' },
+    { type: 'body' as const, metatype: UpdateLogisticaRouteModeDto },
+  );
+  assert.equal(modo.modoRotaPadrao, 'TRACKED');
 });
