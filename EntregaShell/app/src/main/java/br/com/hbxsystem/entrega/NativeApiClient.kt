@@ -316,7 +316,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("products"),
             listOf("logistica", "leitura", "iniciar"),
         ) -> true
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes") -> true
+        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
         // PR20072026 W2 — sessão de leitura: parada/finalizar/cancelar por :id.

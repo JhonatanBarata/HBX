@@ -357,7 +357,8 @@ class NativeAppBridge(
 
     @JavascriptInterface
     fun openWhatsapp(phone: String, message: String) {
-        val digits = phone.filter(Char::isDigit).take(20)
+        val rawDigits = phone.filter(Char::isDigit).take(20)
+        val digits = if (rawDigits.length == 10 || rawDigits.length == 11) "55$rawDigits" else rawDigits
         if (digits.isBlank()) return
         val text = message.filterNot(Char::isISOControl).take(4_000)
         open(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=${Uri.encode(text)}")))

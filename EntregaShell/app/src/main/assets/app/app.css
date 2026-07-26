@@ -46,9 +46,7 @@
      aqui. Sem par dark pelo mesmo motivo do --on-brand acima: fundo sólido
      nos dois temas. */
   --on-solid: #fff;
-  /* 3) Fundo do mapa — placeholder atrás do tile (preview da revisão da rota
-     + mapa ao vivo da Rota/Leitura). O par dark já existia pro mapa ao vivo;
-     o preview (route-plan-preview-map) ficava sem — ganha aqui. */
+  /* 3) Fundo do mapa — placeholder atrás do tile (mapa ao vivo da Rota/Leitura). */
   --map-canvas: #e5ece1;
   --map-canvas-ink: #cbd5c6;
   /* 4) Vidro sobre o mapa — chip de status GPS + botão "seguir". Único caso
@@ -358,22 +356,6 @@ h3 { font-size: .95rem; }
 .day-preview-location-invalid { border-color: color-mix(in srgb, var(--danger) 58%, var(--line)); background: color-mix(in srgb, var(--danger) 9%, var(--surface)); }
 .day-preview-location-invalid .card-main strong { color: var(--danger); }
 .day-preview-location-warning { flex: 0 0 auto; margin-left: auto; padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); border-radius: 99px; color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); font-size: .62rem; font-weight: 850; letter-spacing: .02em; }
-.route-plan-review { display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
-.route-plan-review-copy { padding-top: 6px; text-align: center; }
-.route-plan-review-copy h2 { margin: 4px 0 2px; font-size: 1.35rem; }
-.route-plan-review-copy .subtitle { margin: 0; }
-.route-plan-preview-map { position: relative; flex: 1; min-height: 240px; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--map-canvas); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
-.route-plan-map-empty { display: grid; place-items: center; padding: 26px; color: var(--muted); text-align: center; font-size: .8rem; }
-.route-plan-confirm { display: grid; justify-items: center; gap: 3px; margin: 0; text-align: center; }
-.route-plan-confirm p { margin: 0; color: var(--muted); font-size: .76rem; font-weight: 700; }
-.route-plan-count { position: relative; display: grid; place-items: center; width: 62px; height: 62px; color: var(--brand-strong); font-size: 1.2rem; font-weight: 850; }
-.route-plan-count svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
-.route-plan-count circle { fill: none; stroke-width: 6; }
-.route-plan-count-track { stroke: var(--brand-soft); }
-.route-plan-count-progress { stroke: var(--brand); stroke-linecap: round; stroke-dasharray: 188.5; stroke-dashoffset: 188.5; animation: route-plan-confirm-fill 10s linear forwards; }
-.route-plan-count i { position: relative; z-index: 1; display: grid; place-items: center; width: 46px; height: 46px; border-radius: 50%; background: var(--surface); font: inherit; font-style: normal; }
-.route-plan-confirm-button { position: static !important; min-height: 54px; margin-top: 0 !important; }
-@keyframes route-plan-confirm-fill { to { stroke-dashoffset: 0; } }
 
 /* PR18072026 L4-E — "Montar rota" v2 (rp2-*). Corrige o CTA que flutuava por
    cima da lista de clientes (era `.route-plan-sheet > .btn` sticky sem folga):
@@ -472,8 +454,13 @@ h3 { font-size: .95rem; }
 
 /* Editor da rota salva: toque na parada mexe nos itens, segurar tira da rota
    (mesmo gesto de Clientes/Produtos/rota do dia — sem botão de excluir). */
-.rme-parada-main { flex: 1 1 auto; min-width: 0; padding: 0; border: 0; color: inherit; background: none; text-align: left; }
-.rme-parada-main strong { display: block; }
+/* Quando o .card-main é um <button> (editor da rota salva, conferência da rota)
+   o botão nativo entra com borda/fundo cinza e texto centralizado E, pior, com
+   largura mínima igual ao conteúdo: dentro do .list (grid) isso estourava a
+   coluna pra ~716px num modal de 360px e jogava a linha inteira pra fora da
+   tela. width: 0 com flex: 1 1 auto é o mesmo par já usado em
+   .lrt-client-row .card-main. Uma classe só, para os dois casos. */
+.card-main-btn { flex: 1 1 auto; width: 0; min-width: 0; padding: 0; border: 0; color: inherit; background: none; font: inherit; text-align: left; }
 .rme-dica { margin: 10px 2px 0; text-align: center; }
 /* O ::after do "segurar" precisa de position/overflow no próprio card, igual ao
    lead-card — senão o vermelho vaza pra folha inteira do modal. */

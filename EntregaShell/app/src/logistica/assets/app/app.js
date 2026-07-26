@@ -61,8 +61,6 @@
     dayPreviewError: null,
     dayMode: "start",
     dayStarting: false,
-    dayReview: false,
-    dayReviewCountdown: 10,
     // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e a
     // prévia/geração: null (dia-chips) → "choose" (3 cards) → "manual" (▲▼) ou
     // "saved" (lista de rota-modelos). dayOrderMode é o modo EFETIVO desta
@@ -271,7 +269,6 @@
   // nunca lixeira). Tem confirmação porque a linha já está persistida no servidor.
   let historicoHold = null;
   let dayPreviewRequestId = 0;
-  let dayReviewTimer = null;
   // PR18072026 L4-E — cache só de RENDER (não é estado de negócio) pra detectar,
   // no próprio dayOrderManualModal, se exatamente 2 posições trocaram desde o
   // último desenho (assinatura de um único ▲/▼) e dar um flash na linha movida.
@@ -681,9 +678,6 @@
     const sources = [client || {}, routeItem && routeItem.cliente || {}];
     for (const source of sources) { const lat = Number(source.lat ?? source.latitude); const lng = Number(source.lng ?? source.longitude); if (validCoordinates(lat, lng)) return { item: routeItem || client, lat, lng }; }
     return null;
-  }
-  function dayPreviewMapPoints() {
-    return (state.dayPreview || []).map((client, index) => { const point = dayPreviewCoordinates(client); return point ? { ...point, number: index + 1 } : null; }).filter(Boolean);
   }
   // PR18072026 L4-D — extraídas do corpo do mountMap pra serem reaproveitadas
   // tanto na criação (dentro do map.on("load")) quanto na atualização de um
@@ -1317,7 +1311,6 @@
     } catch (_) { if (host.isConnected) host.innerHTML = `<span class="route-map-unavailable">Não foi possível carregar o mapa agora.</span>`; }
   }
   function mountRouteMap() { return mountMap("route-live-map", routeMapPoints(), true); }
-  function mountDayReviewMap() { return mountMap("route-plan-preview-map", dayPreviewMapPoints(), false); }
 
   // ==========================================================================
   // S3 21/07 — mapa vivo da tela "Leitura de rota" (host #leitura-live-map,
@@ -2024,6 +2017,11 @@
     const value = Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
     return `${value.year}-${value.month}-${value.day}`;
   }
+  function localDateTimeInputValue(date) {
+    const value = date instanceof Date ? date : new Date(date);
+    const pad = number => String(number).padStart(2, "0");
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
+  }
   function operationalScheduledAt() { return `${operationalDate()}T12:00:00.000Z`; }
   function todayIso() { return new Date(`${operationalDate()}T12:00:00`).getDay() || 7; }
   function workDays() {
@@ -2450,7 +2448,6 @@
     // Sessão LEITURA (GPS) já ativa: volta para a própria tela Rota, onde os
     // controles de gravação ocupam o lugar do Play.
     if (state.leitura && state.leitura.modo === "LEITURA") { void openLeituraAtiva(); return; }
-    clearInterval(dayReviewTimer);
     state.dayMode = mode || "start";
     // Uma geração anterior pode ter terminado com o painel fechado. O estado
     // de processamento não pode sobreviver à abertura seguinte, senão o
@@ -2460,7 +2457,7 @@
     // uma escolha posterior (ex.: quinta) somar a quarta sem o operador pedir.
     // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
     state.daySelection = [];
-    state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.dayReview = false; state.dayReviewCountdown = 10; state.openingOverlay = "modal"; state.modal = "manage-day";
+    state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.openingOverlay = "modal"; state.modal = "manage-day";
     // PR20072026 (feedback dono) — a abertura agora cai num MENU centralizado
     // ("Montar Rota" → Por dia / Salvos), não mais direto no seletor de dias.
     state.dayOrderStep = "home"; state.dayOrderMode = "manual"; state.dayManualOrder = []; state.dayManualSave = false; state.dayAgendaOrderOriginal = [];
@@ -2620,7 +2617,8 @@
   // ainda lê `CustomerProfile.phoneNormalized`.
   async function saveClientPhone(client, phone) {
     await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: { phone } });
-    const principalId = state.clientDetail && state.clientDetail.contatoPrincipalId;
+    const detailMatchesClient = state.clientDetail && String(state.clientDetail.id || state.clientDetail.customerProfileId || "") === String(client.id);
+    const principalId = client.contatoPrincipalId || (detailMatchesClient && state.clientDetail.contatoPrincipalId);
     if (principalId) await H.api(`/nucleo/telefones/${encodeURIComponent(principalId)}`, { method: "PATCH", body: { whatsapp: phone, phone, isPrincipal: true } });
     else await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/telefones`, { method: "POST", body: { nome: client.nome || client.name || phone, whatsapp: phone, phone, isPrincipal: true } });
   }
@@ -2747,7 +2745,7 @@
     const isNew = mode === "new";
     const statusKind = cepStatusKind(status);
     const statusClass = statusKind ? `hbx-aviso hbx-aviso--${statusKind}` : "subtitle";
-    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="${statusClass} ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
+    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="${statusClass} ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions">${isNew ? `<button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps">${icon("gps", 16)} Usar minha localização</button>` : ""}<button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
   }
   function separateAddress(value, numberValue, districtValue) {
     let endereco = String(value || "").trim(); const numero = String(numberValue || "").trim(); const bairro = String(districtValue || "").trim();
@@ -3997,7 +3995,7 @@
     // a MESMA tela". Então a entrega concluída que está sendo editada entra aqui
     // mesmo estando 'entregue', e independe do toggle de cobrança simples (senão
     // "a mesma tela" mudaria de cara conforme a configuração do tenant).
-    if (!configFlag("moduloFinanceiroAtivo") || !item || state.deliverySimpleDetail) return false;
+    if (!configFlag("moduloFinanceiroAtivo") || !item || state.deliverySimpleDetail || state.deliveryNotDelivered) return false;
     if (state.deliveryEditingId === item.id) return true;
     return !!(state.config && state.config.cobrancaSimples) && item.status !== "entregue" && item.status !== "cancelada";
   }
@@ -4005,7 +4003,7 @@
     // Nível 1 do contrato Financeiro: módulo inteiro desligado. Ultra-simples,
     // sem nenhum dado de dinheiro na tela. Só entra enquanto a entrega segue
     // aberta — finalizada/cancelada cai na folha completa (reabrir, comprovante).
-    return !configFlag("moduloFinanceiroAtivo") && !!item && item.status !== "entregue" && item.status !== "cancelada";
+    return !configFlag("moduloFinanceiroAtivo") && !!item && !state.deliveryNotDelivered && item.status !== "entregue" && item.status !== "cancelada";
   }
   // Uma linha do histórico. O texto vem PRONTO do servidor (titulo/itensResumo):
   // congelar a frase lá é o que impede o histórico de ontem mudar quando a tela
@@ -4083,15 +4081,15 @@
   //   • PREÇO editável ao lado do produto — é o VALOR DE HOJE. "Se ontem vendeu
   //     por 10 e hoje é 50, vai ficar 60": o passado nunca é reescrito, o valor
   //     antigo continua lá e o total soma os dois.
-  //   • "Deve" morreu. No lugar, a conta aberta em 3 linhas (antigo / agora /
-  //     total) — é a conversa real na porta.
-  //   • 3 botões: [Pago] e [Entregue] na linha 1, "Sem atendimento" centralizado
-  //     na linha 2. Pago quita o TOTAL (dívida velha junto); Entregue só soma.
+  //   • Cobrança simples resume em "Deve R$ X" e pergunta se pagou ou ficou
+  //     devendo; a exibição detalhada preserva antigo / agora / total.
+  //   • "Não atendeu" pede o motivo; "Sem atendimento" mantém o atalho direto.
   function deliverySimpleSheet(item) {
     const c = item.cliente || {};
     const editando = state.deliveryEditingId === item.id;
     const debitoAtual = c.debitoAtual;
     const financeiroAtivo = configFlag("moduloFinanceiroAtivo") && debitoAtual !== null && debitoAtual !== undefined;
+    const cobrancaSimples = financeiroAtivo && !editando && !!(state.config && state.config.cobrancaSimples);
     const valorAntigo = financeiroAtivo ? Number(debitoAtual || 0) : 0;
     const valorAgora = draftValorAgora(item);
     const draft = deliveryDraftFor(item);
@@ -4127,9 +4125,12 @@
         ? `<button type="button" class="chegada-add" data-action="delivery-add-product">${icon("plus", 18)} Adicionar produto</button>`
         : "";
     const acoes = financeiroAtivo
-      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="${editando ? "cancel-delivery-edit" : "confirm-sem-atendimento"}">${editando ? "Voltar sem alterar" : "Sem atendimento"}</button></div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
-      : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-nao-atendeu">${icon("close", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${financeiroAtivo ? `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>` : ""}</div>${acoes}</section></div>`;
+      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} ${cobrancaSimples ? "Entregue e pagou" : "Pago"}</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} ${cobrancaSimples ? "Ficou devendo" : "Entregue"}</button>${editando ? `<button class="chegada-btn-sem" type="button" data-action="cancel-delivery-edit">Voltar sem alterar</button>` : `<button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não atendeu</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button>`}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
+      : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não atendeu</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("close", 20)} Sem atendimento</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
+    const conta = !financeiroAtivo ? "" : cobrancaSimples
+      ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Deve</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
+      : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}</div>${acoes}</section></div>`;
   }
   // Financeiro OFF reutiliza a chegada já existente, com produto, quantidade,
   // troca e adição. A própria folha esconde preço/conta/Pago neste modo.
@@ -4148,11 +4149,11 @@
     const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong><small>${H.money(unitPriceFor(item, row))}${row.novo ? " · Novo na entrega" : ""}</small></div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
     const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
     const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong><span>edite na hora</span></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">+ Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não atendeu</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
   }
   function newClientProductFields() {
     const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
-    const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
+    const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000));
     const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(draft.proximaData || defaultDate)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(draft.scheduledAt || defaultDateTime)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
     return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${(mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
   }
@@ -4178,7 +4179,7 @@
     const actions = `<div class="client-primary-actions ${phoneReady ? "has-contact" : ""}"><button class="btn btn-primary btn-block" type="submit">Salvar cliente</button>${phoneReady ? `<button type="button" class="btn btn-secondary" data-action="call-client">${icon("phone", 16)} Ligar</button><button type="button" class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 16)} WhatsApp</button>` : ""}${phoneIncomplete ? `<button type="button" class="btn btn-secondary" data-action="complete-ddd">${icon("phone", 16)} Completar DDD</button>` : ""}</div>`;
     let products = newClientProductFields();
     if (!isNew) {
-      const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = new Date().toISOString().slice(0, 10); const defaultDateTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
+      const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000)); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
       const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
       const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
@@ -4206,7 +4207,7 @@
       return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="edit-product-title">Editar produto</h2><p class="center-modal-resumo">${H.escape(p.nome || p.name || "Produto")}</p><button class="close center-modal-close" type="button" data-action="close-modal">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(d.nome)}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(d.unidade)}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="text" inputmode="numeric" data-product-price="edit" value="${H.escape(d.precoCatalogo)}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" inputmode="numeric" value="${H.escape(d.estoque)}"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Salvar</button></form><div class="product-edit-danger"><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}">${active ? "Arquivar produto" : "Reativar produto"}</button></div></div></section></div>`;
     }
     if (state.modal === "new-delivery") {
-      const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${new Date(Date.now() + 3600000).toISOString().slice(0,16)}"></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
+      const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${localDateTimeInputValue(new Date(Date.now() + 3600000))}"></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
     }
     // L4-F fix — o form da avulsa agora renderiza do rascunho (state.oneoffDraft):
     // qualquer re-render do shell (toast expirando, saldo chegando) apagava o que
@@ -4240,18 +4241,12 @@
       // PR20072026 (feedback dono) — menu de entrada centralizado.
       if (state.dayOrderStep === "home") return dayHomeModal();
       // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e
-      // a prévia/geração. Fica ANTES do dayReview: "Ordem do app" cai direto
-      // no fluxo antigo (dayReview), intocado.
+      // a geração: os dois modos caem direto no beginManagedRoute (a conferência
+      // da rota é a única tela de revisão).
       if (state.dayOrderStep === "choose") return dayOrderChooseModal();
       if (state.dayOrderStep === "manual") return dayOrderManualModal();
       if (state.dayOrderStep === "saved") return dayOrderSavedModal();
       const allowed = workDays(); const selected = state.daySelection; const preview = state.dayPreview || [];
-      if (state.dayReview) {
-        const located = dayPreviewMapPoints().length;
-        const count = Math.max(0, Number(state.dayReviewCountdown || 0));
-        const mapContent = located ? `<div id="route-plan-preview-map" class="route-plan-preview-map"><span class="route-map-loading">Desenhando rota…</span></div>` : `<div class="route-plan-preview-map route-plan-map-empty"><span>Os endereços desta rota ainda não têm GPS para desenhar o mapa.</span></div>`;
-        return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet route-plan-review"><div class="route-plan-review-copy"><span class="hero-kicker">Prévia</span><h2>${preview.length || selected.length} ${preview.length === 1 ? "parada" : "paradas"}</h2></div>${mapContent}<div class="route-plan-confirm"><div class="route-plan-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="route-plan-count-track" cx="35" cy="35" r="30"/><circle class="route-plan-count-progress" cx="35" cy="35" r="30"/></svg><i>${count || "✓"}</i></div><p>Gerando rota…</p></div><button class="btn btn-primary btn-block route-plan-confirm-button rp2-cta" data-action="confirm-managed-route" ${state.dayStarting ? "disabled" : ""}>Gerar agora</button></section></div>`;
-      }
       const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
       const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => {
         const key = dayPreviewKey(client);
@@ -4523,7 +4518,7 @@
     const rows = paradas.map((parada, index) => {
       const nome = rmeClienteNome(parada);
       const constraints = routeConstraintChips(routeConstraintSource(parada, clientById(parada.customerProfileId)));
-      return `<div class="row-card rp2-order-row" data-rme-parada="${index}"><label class="rp2-order-position"><span>Pos.</span><input type="number" min="1" max="${paradas.length}" inputmode="numeric" value="${index + 1}" data-rme-position-index="${index}" aria-label="Posição de ${H.escape(nome)}"></label><button type="button" class="card-main rme-parada-main" data-action="rme-editar-itens" data-index="${index}"><strong>${H.escape(nome)}</strong><span>${H.escape(rmeParadaResumo(parada))}</span>${constraints}</button><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="-1" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="1" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
+      return `<div class="row-card rp2-order-row" data-rme-parada="${index}"><label class="rp2-order-position"><span>Pos.</span><input type="number" min="1" max="${paradas.length}" inputmode="numeric" value="${index + 1}" data-rme-position-index="${index}" aria-label="Posição de ${H.escape(nome)}"></label><button type="button" class="card-main card-main-btn" data-action="rme-editar-itens" data-index="${index}"><strong>${H.escape(nome)}</strong><span>${H.escape(rmeParadaResumo(parada))}</span>${constraints}</button><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="-1" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="1" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
     }).join("");
     const body = `<div class="list day-order-list">${rows || empty("Rota sem paradas", "Toque em adicionar cliente abaixo.")}</div><button class="delivery-add" type="button" data-action="rme-add-cliente">+ Adicionar cliente</button><p class="subtitle rme-dica">Toque: itens · Segure: tirar</p>`;
     return centerModal({
@@ -4829,12 +4824,11 @@
     const centerModalBodyScroll = app.querySelector(".center-modal-body")?.scrollTop || 0;
     const sheetScroll = app.querySelector(".sheet")?.scrollTop || 0;
     // PR18072026 L4-D — só descarta o mapa vivo quando este render NÃO vai
-    // reexibi-lo; se vai (mesma tela/mesmo passo), mountMap/mountDayReviewMap
-    // reaproveita a instância (applyRouteMarkers/applyRouteLine) em vez de
-    // destruir e recriar o maplibre a cada render (piscada + peso, item 10).
-    const willShowRouteMap = state.screen === "route" && !state.dayReview;
-    const willShowDayReviewMap = state.modal === "manage-day" && state.dayReview;
-    if (!willShowRouteMap && !willShowDayReviewMap) disposeRouteMap();
+    // reexibi-lo; se vai (mesma tela), mountRouteMap reaproveita a instância
+    // (applyRouteMarkers/applyRouteLine) em vez de destruir e recriar o
+    // maplibre a cada render (piscada + peso, item 10).
+    const willShowRouteMap = state.screen === "route";
+    if (!willShowRouteMap) disposeRouteMap();
     // S3 21/07 — mesma regra pro mapa vivo da Leitura (host próprio, ver bloco
     // mountLeituraLiveMap acima): só descarta quando este render NÃO vai
     // reexibir a tela.
@@ -4874,7 +4868,6 @@
     syncKeyboardViewport();
     setupClientsAutoLoad();
     if (willShowRouteMap) void mountRouteMap();
-    if (willShowDayReviewMap) void mountDayReviewMap();
     if (willShowLeituraLiveMap) void mountLeituraLiveMap();
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
@@ -5089,7 +5082,7 @@
     const ack = parada.semaforo === "vermelho"
       ? `<span class="module-switch conferencia-ack${acknowledged ? " active" : ""}" data-action="conferencia-reconhecer" data-parada-id="${H.escape(id)}" role="switch" aria-checked="${acknowledged}" aria-label="Estou ciente desta pendência"><i></i></span>`
       : "";
-    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button><span class="badge ${info.badgeClass}">${info.label}</span>${ack}</div>`;
+    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main card-main-btn" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button><span class="badge ${info.badgeClass}">${info.label}</span>${ack}</div>`;
   }
   // S6 (25/07, PR25072026-ROTA-CONFERIDA) — linha do preview de créditos, POR
   // PAPEL (mesmo espírito do creditsLockOverlay/S7 APP-SOUNDS: o FATO é o
@@ -5619,26 +5612,11 @@
     } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
     finally { hideLoading(); state.dayStarting = false; }
   }
-  function startDayReview() {
-    if (!state.daySelection.length || state.dayStarting || (state.dayPreviewLoading && !state.dayPreview.length)) return;
-    clearInterval(dayReviewTimer);
-    state.dayReview = true; state.dayReviewCountdown = 10;
-    render();
-    dayReviewTimer = setInterval(() => {
-      if (!state.dayReview || state.modal !== "manage-day" || state.dayStarting) { clearInterval(dayReviewTimer); return; }
-      state.dayReviewCountdown = Math.max(0, state.dayReviewCountdown - 1);
-      const count = document.querySelector(".route-plan-count i");
-      if (count) count.textContent = state.dayReviewCountdown ? String(state.dayReviewCountdown) : "✓";
-      if (state.dayReviewCountdown === 0) { clearInterval(dayReviewTimer); void beginManagedRoute(); }
-    }, 1000);
-  }
   async function beginManagedRoute() {
     if (!state.daySelection.length || state.dayStarting) return;
-    clearInterval(dayReviewTimer);
-    state.dayReview = false;
     state.dayStarting = true; render();
-    // 22/07 — este caminho (Play › Por dia › Automático/Minha ordem › "Gerar
-    // agora") era o ÚNICO sem véu: só desabilitava o botão e ficava mudo por
+    // 22/07 — este caminho (Play › Agenda › Sequência automática/Minha ordem)
+    // era o ÚNICO sem véu: só desabilitava o botão e ficava mudo por
     // vários segundos (gerar-dia + prepare + refresh + planejar + OSRM), então
     // a tela parecia travar/piscar e pulava seca pra Rota. O overlay já existia
     // e só estava ligado em Rotas Salvas. Mesmo par showLoading/hideLoading:
@@ -6002,7 +5980,7 @@
     // outra chamada de código que tente fechar o modal por baixo (handleBack
     // já para antes de chegar aqui, mas esta é a segunda barreira).
     if (kind === "modal" && state.modal === "app-update" && state.updateInfo && state.updateInfo.obrigatoria) return Promise.resolve();
-    if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; clearInterval(leituraObsTimer); }
+    if (kind === "modal") clearInterval(leituraObsTimer);
     // S4 25/07 (PR25072026-ROTA-CONFERIDA) — a mini-ficha da conferência abre o
     // editor de cliente REAL (openClientEditor/"client-product") por cima da
     // tela de conferência em vez de duplicar o formulário de endereço. Fechar
@@ -6455,8 +6433,6 @@
     // ficava sem jeito de limpar). Mesma confirmação/type "limpar-dia" de cima,
     // reusa performLimparDia via accept-confirmation — zero duplicação de API.
     if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Limpar hoje?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
-    if (action === "review-managed-route") startDayReview();
-    if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
     // Entrada simples: Agenda deixa a seleção em branco para o operador
     // escolher o dia (hoje aparece marcado "Hoje" na lista). Rotas salvas
@@ -6492,7 +6468,11 @@
     if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
     // Voltar hierárquico: choose→dias, dias→menu, manual→choose, saved→menu.
     if (action === "back-route-order") { state.dayOrderStep = state.dayOrderStep === "choose" ? null : state.dayOrderStep === "manual" ? "choose" : "home"; render(); return; }
-    if (action === "order-mode-app") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; startDayReview(); return; }
+    // A sequência automática vai DIRETO montar a rota (igual "Minha ordem" via
+    // confirm-manual-order). A revisão é a Conferência da rota, que abre sozinha
+    // no fim do planejamento (afterRoutaPlanejada) — não existe mais uma prévia
+    // separada com contagem regressiva dizendo a mesma coisa duas vezes.
+    if (action === "order-mode-app") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; await beginManagedRoute(); return; }
     if (action === "order-mode-manual") { state.dayOrderStep = "manual"; state.dayOrderMode = "manual"; state.dayManualOrder = (state.dayPreview || []).map(dayPreviewKey); state.dayManualSave = false; render(); return; }
     if (action === "manual-order-up" || action === "manual-order-down") {
       const key = target.dataset.orderKey; const list = state.dayManualOrder; const index = list.indexOf(key);
@@ -6856,6 +6836,16 @@
     if (action === "leitura-telefone-salvar") {
       const input = document.getElementById("leitura-telefone-input");
       const value = formatPhone(input ? input.value : state.leituraTelefoneValue);
+      if (state.leituraSelectedClient && value) {
+        try {
+          const selectedClient = state.leituraSelectedClient;
+          const detail = await H.api(`/nucleo/clientes/${encodeURIComponent(selectedClient.id)}`);
+          await saveClientPhone({ ...selectedClient, contatoPrincipalId: detail && detail.contatoPrincipalId }, value);
+        } catch (error) {
+          toast(humanApiError(error), true);
+          return;
+        }
+      }
       state.leituraTelefoneValue = value;
       state.leituraTelefoneConfirmado = !!value;
       state.leituraTelefoneCorrigindo = false;
@@ -7490,7 +7480,17 @@
   // !navMudo é a MESMA porta de todo H.speak desta frente (nunca em Leitura/
   // pausada, respeita mudo); a chamada é 1x por evento (o nativo dispara uma
   // vez por chegada, não há loop pra deduplicar aqui).
-  document.addEventListener("hbx:arrival", event => { const item = items().find(x => x.id === event.detail.deliveryId); if (item) { state.screen = "route"; showSheet(item, true); toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`); if (navModeActive() && !state.navMudo) H.speak("Você chegou"); } });
+  document.addEventListener("hbx:arrival", event => {
+    const item = items().find(x => x.id === event.detail.deliveryId);
+    if (!item) return;
+    state.screen = "route";
+    showSheet(item, true);
+    toast(`Você chegou em ${item.cliente.nome || "uma parada"}.`);
+    if (navModeActive() && !state.navMudo) H.speak("Você chegou");
+    // O backend aplica configuração de distância, idempotência e fila segura.
+    // A mensagem é best effort e nunca bloqueia a folha de chegada.
+    void H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/chegando`, { method: "POST", body: {} }).catch(() => {});
+  });
   document.addEventListener("hbx:theme", render);
   // Fix visual de alta frequência (~3s): move posição/precisão/câmera, mas não
   // entra na trilha gravada. O nativo mantém a gravação filtrada em 8m/15s.
@@ -7578,13 +7578,6 @@
           return true;
         }
         if (state.modal === "manage-day") {
-          if (state.dayReview) {
-            // Aborta a prévia (não confirma rota) e mata o timer pra não sobrar rodando sozinho.
-            clearInterval(dayReviewTimer);
-            state.dayReview = false;
-            render();
-            return true;
-          }
           // Espelha data-action="back-route-order" (PR20072026): manual→choose,
           // choose→dias, dias/saved→menu de entrada. Só o menu ("home") fecha o modal.
           if (state.dayOrderStep !== "home") {
