@@ -97,6 +97,12 @@ export class LogisticaAgendaService {
           customerProfileId: true,
           diaSemana: true,
           ativo: true,
+          // FIX 25/07 — a cadência ENTRA no resumo. Sem estes três campos o
+          // contador do dia era um número de catálogo, e a prévia (que aplica
+          // `planOccursOn` na data real) mostrava outra coisa.
+          proximaData: true,
+          frequencia: true,
+          intervaloDias: true,
           itens: { select: { id: true } },
         },
       }),
@@ -114,6 +120,8 @@ export class LogisticaAgendaService {
       }),
     ]);
 
+    const hoje = startOfDay(new Date());
+
     return {
       modo: context.mode,
       agendaV2Ativa: true,
@@ -122,14 +130,23 @@ export class LogisticaAgendaService {
         const day = index + 1;
         const dayPlans = plans.filter((plan) => plan.diaSemana === day);
         const route = routes.find((item) => item.diaSemana === day) ?? null;
+        // FIX 25/07 (o dia que dizia 98 e listava 0): o contador do chip tem que
+        // contar EXATAMENTE o que a prévia daquele dia vai mostrar. A prévia roda
+        // em `dateForIsoDay(dia)` — hoje, se o dia é hoje; senão a próxima
+        // ocorrência do dia da semana — e filtra por `planOccursOn`. Antes daqui
+        // saía `route._count.paradas` (paradas do MODELO de rota, sem data
+        // nenhuma), então plano pausado, quinzenal em semana de folga ou dia já
+        // gerado/limpo continuavam contando. `totalPlanos` guarda o número cru.
+        const dataReferencia = nextDateForWeekday(day, hoje);
+        const ocorrem = dayPlans.filter((plan) => planOccursOn(plan, dataReferencia));
         return {
           diaSemana: day,
           nome,
           ativo: route ? route.ativo : dayPlans.some((plan) => plan.ativo),
           rota: route ? routeDto(route) : null,
           totalPlanos: dayPlans.length,
-          totalParadas: route?._count?.paradas ?? dayPlans.length,
-          totalClientes: new Set(dayPlans.map((plan) => plan.customerProfileId)).size,
+          totalParadas: ocorrem.length,
+          totalClientes: new Set(ocorrem.map((plan) => plan.customerProfileId)).size,
           avisos: dayPlans.length && !route
             ? [{ codigo: 'SEM_ROTA', mensagem: 'Defina a sequência deste dia.' }]
             : [],
@@ -2526,6 +2543,19 @@ function moveDateToWeekday(value: Date, destination: number): Date {
   const delta = (destination - isoWeekday(result) + 7) % 7;
   result.setDate(result.getDate() + (delta || 7));
   return result;
+}
+
+/**
+ * Espelha o `dateForIsoDay` do APK (app.js:2021): a data que a prévia daquele dia
+ * vai consultar — HOJE quando o dia é hoje, senão a próxima ocorrência do dia da
+ * semana dentro dos 7 dias seguintes. É o que faz o contador do resumo bater com
+ * a lista da prévia.
+ */
+function nextDateForWeekday(day: number, from: Date): Date {
+  const base = startOfDay(from);
+  const delta = (Number(day) - isoWeekday(base) + 7) % 7;
+  base.setDate(base.getDate() + delta);
+  return base;
 }
 
 function nextOccurrenceDate(plan: any, current: Date): Date {

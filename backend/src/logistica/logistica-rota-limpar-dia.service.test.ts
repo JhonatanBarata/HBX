@@ -20,6 +20,16 @@ type EntregaRow = {
   etaAt: Date | null;
   startedAt: Date | null;
   scheduledAt: Date | null;
+  // 25/07 — vínculo com a Agenda: sem desfazer estes dois o dia limpo nunca
+  // podia ser regerado (ver o FIX no limparDia).
+  planoEntregaId?: string | null;
+  agendaOcorrenciaKey?: string | null;
+};
+
+type PlanoRow = {
+  id: string;
+  companyId: number;
+  proximaData: Date | null;
 };
 
 type RouteRow = {
@@ -69,9 +79,10 @@ function matchesWhere(row: EntregaRow, where: any): boolean {
   return true;
 }
 
-function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = []) {
+function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed: PlanoRow[] = []) {
   const store = new Map<string, EntregaRow>(seed.map((row) => [row.id, { ...row }]));
   const routeStore = new Map<string, RouteRow>(routeSeed.map((row) => [row.id, { ...row }]));
+  const planoStore = new Map<string, PlanoRow>(planoSeed.map((row) => [row.id, { ...row }]));
   const financeiroChargeCalls: string[] = [];
   let failNextUpdateMany = false;
 
@@ -87,6 +98,12 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = []) {
     return clone;
   }
 
+  function clonePlanos(): Map<string, PlanoRow> {
+    const clone = new Map<string, PlanoRow>();
+    for (const [id, row] of planoStore) clone.set(id, { ...row });
+    return clone;
+  }
+
   function financeiroChargeGuard(method: string) {
     return async () => {
       financeiroChargeCalls.push(method);
@@ -94,14 +111,47 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = []) {
     };
   }
 
-  function buildTx(working: Map<string, EntregaRow>, workingRoutes: Map<string, RouteRow>) {
+  function buildTx(
+    working: Map<string, EntregaRow>,
+    workingRoutes: Map<string, RouteRow>,
+    workingPlanos: Map<string, PlanoRow>,
+  ) {
     return {
       entrega: {
+        findMany: async ({ where }: any) => {
+          const rows: EntregaRow[] = [];
+          for (const row of working.values()) {
+            if (!matchesWhere(row, where)) continue;
+            rows.push({ ...row });
+          }
+          return rows;
+        },
         updateMany: async ({ where, data }: any) => {
           if (failNextUpdateMany) throw new Error('falha injetada (simulando erro de banco no meio da transação)');
           let count = 0;
           for (const row of working.values()) {
-            if (!matchesWhere(row, where)) continue;
+            // O 2º updateMany (soltar a chave da ocorrência) mira por id, não
+            // pelo escopo do dia.
+            if (where.id?.in) {
+              if (where.companyId != null && row.companyId !== where.companyId) continue;
+              if (!where.id.in.includes(row.id)) continue;
+            } else if (!matchesWhere(row, where)) continue;
+            Object.assign(row, data);
+            count++;
+          }
+          return { count };
+        },
+      },
+      logisticaPlanoEntrega: {
+        updateMany: async ({ where, data }: any) => {
+          let count = 0;
+          for (const row of workingPlanos.values()) {
+            if (where.companyId != null && row.companyId !== where.companyId) continue;
+            if (where.id?.in && !where.id.in.includes(row.id)) continue;
+            if (where.proximaData?.gt) {
+              if (!row.proximaData) continue;
+              if (row.proximaData.getTime() <= new Date(where.proximaData.gt).getTime()) continue;
+            }
             Object.assign(row, data);
             count++;
           }
@@ -136,12 +186,15 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = []) {
     $transaction: async (callback: (tx: any) => Promise<any>) => {
       const working = cloneStore();
       const workingRoutes = cloneRoutes();
-      const tx = buildTx(working, workingRoutes);
+      const workingPlanos = clonePlanos();
+      const tx = buildTx(working, workingRoutes, workingPlanos);
       const result = await callback(tx); // se lançar, propaga SEM tocar os stores (rollback)
       store.clear();
       for (const [id, row] of working) store.set(id, row);
       routeStore.clear();
       for (const [id, row] of workingRoutes) routeStore.set(id, row);
+      planoStore.clear();
+      for (const [id, row] of workingPlanos) planoStore.set(id, row);
       return result;
     },
   };
@@ -150,6 +203,7 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = []) {
     service: new LogisticaRotaService(prisma, {} as any),
     store,
     routeStore,
+    planoStore,
     financeiroChargeCalls,
     setFailNextUpdateMany: (value: boolean) => { failNextUpdateMany = value; },
   };
@@ -164,6 +218,8 @@ function seedRow(overrides: Partial<EntregaRow> & { id: string }): EntregaRow {
     etaAt: null,
     startedAt: null,
     scheduledAt: atHour(9),
+    planoEntregaId: null,
+    agendaOcorrenciaKey: null,
     ...overrides,
   };
 }
@@ -289,7 +345,99 @@ test('limparDia: 2ª chamada seguida acha 0 abertas → canceladas: 0, sem erro'
 test('limparDia: dia sem nenhuma entrega devolve resumo zerado, sem erro', async () => {
   const h = buildHarness([]);
   const result = await h.service.limparDia(7, { date: DATE }, 42);
-  assert.deepEqual(result, { ok: true, resumo: { canceladas: 0 } });
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 0, planosLiberados: 0 } });
+});
+
+// ── 7. O DIA VOLTA (incidente 25/07: "98 paradas" que listavam 0) ────────────
+// Limpar Dia cancelava a entrega e deixava o plano com `proximaData` na semana
+// seguinte + a `agendaOcorrenciaKey` presa na cancelada. Resultado: o dia ficava
+// impossível de regerar. Agora a limpeza DESFAZ a ocorrência.
+test('limparDia: devolve proximaData pro dia limpo e solta a chave da ocorrência', async () => {
+  const proximaSemana = new Date(DAY_START);
+  proximaSemana.setDate(proximaSemana.getDate() + 7);
+
+  const h = buildHarness(
+    [
+      seedRow({
+        id: 'd-recorrente',
+        status: 'agendada',
+        planoEntregaId: 'plano-1',
+        agendaOcorrenciaKey: `agenda:plano-1:${DATE}`,
+      }),
+      seedRow({ id: 'd-avulsa', status: 'agendada' }),
+    ],
+    [],
+    [{ id: 'plano-1', companyId: 7, proximaData: proximaSemana }],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.canceladas, 2);
+  assert.equal(result.resumo.planosLiberados, 1);
+
+  const recorrente = h.store.get('d-recorrente')!;
+  assert.equal(recorrente.status, 'cancelada');
+  assert.equal(recorrente.agendaOcorrenciaKey, null, 'a chave tem que sair pra permitir gerar de novo');
+  assert.equal(recorrente.planoEntregaId, 'plano-1', 'o vínculo com o plano é histórico — não some');
+
+  const plano = h.planoStore.get('plano-1')!;
+  assert.deepEqual(plano.proximaData, DAY_START, 'plano volta a vencer no dia limpo');
+});
+
+test('limparDia: plano que já vence hoje ou antes NÃO é puxado pra frente nem pra trás', async () => {
+  const semanaPassada = new Date(DAY_START);
+  semanaPassada.setDate(semanaPassada.getDate() - 7);
+
+  const h = buildHarness(
+    [
+      seedRow({ id: 'd-hoje', status: 'agendada', planoEntregaId: 'plano-hoje' }),
+      seedRow({ id: 'd-atrasado', status: 'agendada', planoEntregaId: 'plano-atrasado' }),
+    ],
+    [],
+    [
+      { id: 'plano-hoje', companyId: 7, proximaData: new Date(DAY_START) },
+      { id: 'plano-atrasado', companyId: 7, proximaData: semanaPassada },
+    ],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.planosLiberados, 0, 'nenhum precisava ser devolvido');
+  assert.deepEqual(h.planoStore.get('plano-hoje')!.proximaData, DAY_START);
+  assert.deepEqual(h.planoStore.get('plano-atrasado')!.proximaData, semanaPassada);
+});
+
+test('limparDia: entrega FECHADA não devolve o plano dela (só as abertas do dia)', async () => {
+  const proximaSemana = new Date(DAY_START);
+  proximaSemana.setDate(proximaSemana.getDate() + 7);
+
+  const h = buildHarness(
+    [
+      seedRow({
+        id: 'd-entregue',
+        status: 'entregue',
+        planoEntregaId: 'plano-entregue',
+        agendaOcorrenciaKey: `agenda:plano-entregue:${DATE}`,
+      }),
+    ],
+    [],
+    [{ id: 'plano-entregue', companyId: 7, proximaData: proximaSemana }],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.canceladas, 0);
+  assert.equal(result.resumo.planosLiberados, 0);
+  assert.deepEqual(
+    h.planoStore.get('plano-entregue')!.proximaData,
+    proximaSemana,
+    'entrega já feita não pode ressuscitar a ocorrência',
+  );
+  assert.equal(
+    h.store.get('d-entregue')!.agendaOcorrenciaKey,
+    `agenda:plano-entregue:${DATE}`,
+    'a chave da entrega concluída fica — senão o gerador criaria uma 2ª entrega no mesmo dia',
+  );
 });
 
 // ── extra: companyId ausente rejeita antes de abrir transação ─────────────
