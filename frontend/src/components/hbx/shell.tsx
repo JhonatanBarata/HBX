@@ -477,10 +477,6 @@ type PlanMe = {
     accessState?: string | null;
     // NEUTRO (sobrevive p/ vendedor): empresa não pode operar.
     accessPaused?: boolean | null;
-    // Tier de inteligência de lead (additive 25/06)
-    tier?: 'list' | 'lead' | 'full' | null;
-    canSeeLeadIntelligence?: boolean | null;
-    canSeeCompanyData?: boolean | null;
     // Conta de crédito (modelo grátis/cortesia): o card da sidebar mostra saldo de
     // crédito no lugar da cota de plano ("Leads do mês x/2.200"). Ver decisão C, 07/07.
     creditsAccount?: boolean | null;
@@ -516,16 +512,10 @@ export function useEntitlements() {
     loaded: boolean;
     planKey: string | null;
     entitlements: Entitlements;
-    tier: 'list' | 'lead' | 'full';
-    canSeeLeadIntelligence: boolean;
-    canSeeCompanyData: boolean;
   }>({
     loaded: false,
     planKey: null,
     entitlements: {},
-    tier: 'lead',
-    canSeeLeadIntelligence: true,
-    canSeeCompanyData: false,
   });
   useEffect(() => {
     let alive = true;
@@ -533,22 +523,10 @@ export function useEntitlements() {
     fetchPlanMeCached().then(res => {
       if (!alive) return;
       const cur = res?.current;
-      // Deriva tier do campo explícito (additive 25/06) ou do planKey legado.
-      // Antes do backend estar atualizado, planKey=null → assume 'lead' (não trava ninguém).
-      let tier: 'list' | 'lead' | 'full' = (cur?.tier as 'list' | 'lead' | 'full' | null | undefined) || 'lead';
-      if (!cur?.tier) {
-        const pk = cur?.planKey || '';
-        if (pk === 'hbx_lite') tier = 'list';
-        else if (pk === 'hbx_pro' || pk === 'hbx_melhor') tier = 'full';
-        else tier = 'lead';
-      }
       setState({
         loaded: true,
         planKey: cur?.planKey || null,
         entitlements: cur?.entitlements || {},
-        tier,
-        canSeeLeadIntelligence: cur?.canSeeLeadIntelligence != null ? Boolean(cur.canSeeLeadIntelligence) : tier !== 'list',
-        canSeeCompanyData: cur?.canSeeCompanyData != null ? Boolean(cur.canSeeCompanyData) : tier === 'full',
       });
     });
     return () => { alive = false; };

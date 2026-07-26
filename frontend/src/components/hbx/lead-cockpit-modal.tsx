@@ -9,7 +9,6 @@ import {
   AgendaLeadPanel,
   ConversationPanel,
   clientTimelineDescription,
-  LockGate,
   formatPhoneDisplay,
   humanize,
   vendasEngagementMeta,
@@ -47,7 +46,6 @@ type PreVooPersona = { key: string; nome: string; descricao: string; recomendado
 type PreVoo = {
   ok: boolean;
   leadId: string;
-  locked: boolean;
   empresa?: {
     found: boolean;
     cnpj: string | null;
@@ -82,7 +80,6 @@ type PreVoo = {
 
 type CockpitCompany = {
   found?: boolean;
-  locked?: boolean;
   cnpj?: string | null;
   razaoSocial?: string | null;
   nomeFantasia?: string | null;
@@ -332,7 +329,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const entitlements = useEntitlements();
   const currentUser = useCurrentUser();
   const modules = useMyModules();
-  const canSeeIntelligence = !entitlements.loaded || entitlements.canSeeLeadIntelligence;
   const conciergeVisible = isModuleVisible("concierge", entitlements, currentUser, modules);
 
   const [tab, setTab] = useState<Guia>("atendimento");
@@ -972,24 +968,22 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
             até 4px; deitadas em 3 colunas sobra altura pra escala legível sem
             estourar a moldura (que continua com o clamp adaptativo da S1/S2). */}
         <div className="lead-cockpit__service-far">
-          <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
-            <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
-              <CardTitle icon={ICONS.scrape} title="Inteligência do lead" action={<span className="tag">Enriquecido</span>} />
-              <div className="lead-cockpit__intelligence-main">
-                <AnimatedScore score={opportunityScore} />
-                <span>
-                  <strong>Boa oportunidade de abordagem</strong>
-                  <TypewriterText key={`${lead.id}-reason`} text={approachReason} delay={130} />
-                </span>
-              </div>
-              <div className="lead-cockpit__signals">
-                <span><small>Canal</small><strong>{recommendedChannel}</strong></span>
-                <span><small>Dor</small><strong>{pain}</strong></span>
-                <span><small>Contato</small><strong>{lead.phone || lead.email ? "Confirmado" : "Parcial"}</strong></span>
-                <span><small>Temperatura</small><strong>{lead.leadTemperature ? humanize(lead.leadTemperature) : "Morno"}</strong></span>
-              </div>
-            </section>
-          </LockGate>
+          <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
+            <CardTitle icon={ICONS.scrape} title="Inteligência do lead" action={<span className="tag">Enriquecido</span>} />
+            <div className="lead-cockpit__intelligence-main">
+              <AnimatedScore score={opportunityScore} />
+              <span>
+                <strong>Boa oportunidade de abordagem</strong>
+                <TypewriterText key={`${lead.id}-reason`} text={approachReason} delay={130} />
+              </span>
+            </div>
+            <div className="lead-cockpit__signals">
+              <span><small>Canal</small><strong>{recommendedChannel}</strong></span>
+              <span><small>Dor</small><strong>{pain}</strong></span>
+              <span><small>Contato</small><strong>{lead.phone || lead.email ? "Confirmado" : "Parcial"}</strong></span>
+              <span><small>Temperatura</small><strong>{lead.leadTemperature ? humanize(lead.leadTemperature) : "Morno"}</strong></span>
+            </div>
+          </section>
 
           <section className="lead-cockpit__compact-card lead-cockpit__template-card">
             <CardTitle
@@ -1025,7 +1019,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   // direita. Botão "Ligar robô" nasce desabilitado — a liberação é o S4.
   function renderPlanejar() {
     if (preVooLoading) return <div className="lead-cockpit__empty-state">Carregando entendimento do lead…</div>;
-    if (!preVoo || preVoo.locked || !preVoo.contato || !preVoo.canais || !preVoo.prontidao || !preVoo.recomendacao) {
+    if (!preVoo || !preVoo.contato || !preVoo.canais || !preVoo.prontidao || !preVoo.recomendacao) {
       return (
         <div className="lead-cockpit__empty-state">
           <strong>Entendimento indisponível</strong>

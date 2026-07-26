@@ -9,10 +9,9 @@
 // │  [costura "O que fazer"]                                                    │
 // │  ZONA 2 "O que fazer": ações + meta compacta + histórico recolhido          │
 // │                                                                             │
-// │  GATING por TIER do plano (não por entitlement):                            │
-// │    list  → básico apenas (nome, phone, cidade, seg, canais, site, email)   │
-// │    lead  → + inteligência (score, motivo, canal recomendado, wa verificado) │
-// │    full  → + empresa (CNPJ, razão, CNAE, sócio, situação)                  │
+// │  S9 LEAD-CENTRICO: o gate por TIER do plano (list/lead/full) foi removido  │
+// │  — era paywall morto desde o crédito virar modelo único (bacb2725). Todo   │
+// │  dado do lead (inteligência + empresa) é sempre exibido.                    │
 // │                                                                             │
 // │  HUMANIZAÇÃO: zero snake_case na tela. Mapa central LABEL_MAP.             │
 // └─────────────────────────────────────────────────────────────────────────────┘
@@ -24,7 +23,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, PhotoLightbox, WhatsAppMark, useEntitlements } from "@/components/hbx/shell";
+import { Av, I, ICONS, PhotoLightbox, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { useWaOpenMode } from "@/lib/wa-open-mode";
@@ -254,7 +253,7 @@ export type NegocioDetail = {
   // WORM-16: PESSOAS estruturadas (sócio da Receita = nome + cargo). Cada uma vira linha na
   // seção "Pessoas" com botão wa.me + copiar. Opcional — card antigo sem `people` não mostra a seção.
   people?: Array<{ name: string; role?: string | null; source?: string | null; phoneDigits?: string | null }> | null;
-  // Dados PESSOAIS do dono/sócio (L4 CNPJ→qsa) — sensíveis, gate por tier.
+  // Dados PESSOAIS do dono/sócio (L4 CNPJ→qsa).
   ownerPhone?: string | null;
   ownerInstagram?: string | null;
   ownerFacebook?: string | null;
@@ -615,29 +614,6 @@ function ChevronDown() {
   );
 }
 
-// ── Gate de plano — borrado + cadeado + CTA quando locked ────────────────────
-// Exportado (LEAD-COCKPIT, 11/07): o cockpit reusa o MESMO cadeado de tier no
-// bloco Empresa/Abordagem — nada de recriar o overlay em outra tela.
-
-export function LockGate({ locked, ctaText, children }: { locked: boolean; ctaText?: string; children: React.ReactNode }) {
-  if (!locked) return <>{children}</>;
-  return (
-    <div className="dn-locked">
-      {children}
-      <div className="dn-lock-overlay">
-        <span className="dn-lock-overlay__icon">🔒</span>
-        <button
-          type="button"
-          className="dn-lock-overlay__cta"
-          onClick={() => { window.location.href = "/configuracoes"; }}
-        >
-          {ctaText || "Disponível no HBX Lead+/Pro"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ── Score ring circular ───────────────────────────────────────────────────────
 
 function ScoreRing({ score }: { score: number }) {
@@ -736,7 +712,6 @@ function ChannelRow({
   waQrActive,
   waCanInternal,
   onDelete,
-  canSeeIntelligence = true,
 }: {
   n: NegocioDetail;
   onWaExternal?: () => void;
@@ -744,7 +719,6 @@ function ChannelRow({
   waQrActive?: boolean;
   waCanInternal?: boolean;
   onDelete?: () => void;
-  canSeeIntelligence?: boolean;
 }) {
   const li = n.leadIntelligence;
   const mode = useWaOpenMode();
@@ -884,11 +858,9 @@ function ChannelRow({
       })}
     </div>
     {waVerified && (
-      <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
-        <span className="dn-wa-verified">
-          ✓ WhatsApp VERIFICADO
-        </span>
-      </LockGate>
+      <span className="dn-wa-verified">
+        ✓ WhatsApp VERIFICADO
+      </span>
     )}
     </div>
   );
@@ -1830,12 +1802,7 @@ export function DetalhesNegocio({
     return () => window.clearTimeout(timer);
   }, [deleteArm]);
 
-  // ── Gate de plano por TIER (não por entitlement opportunity_score que estava errado)
-  // Enquanto não carrega: assume canSeeIntelligence=true e canSeeCompany=false
-  const ent = useEntitlements();
   const waOpenMode = useWaOpenMode();
-  const canSeeIntelligence = !ent.loaded || ent.canSeeLeadIntelligence;
-  const canSeeCompany = ent.loaded && ent.canSeeCompanyData;
 
   const li = n?.leadIntelligence;
   const recChannel = li?.recommendedChannel ? toCanal(li.recommendedChannel) : null;
@@ -1882,7 +1849,7 @@ export function DetalhesNegocio({
         <span className="dn-score-inline-label">Score de oportunidade</span>
       </div>
     );
-    return <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">{content}</LockGate>;
+    return content;
   }
 
   function renderOpportunityTeaser() {
@@ -1904,7 +1871,7 @@ export function DetalhesNegocio({
         <p className="dn-opportunity-teaser__text">{text}</p>
       </div>
     );
-    return <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">{content}</LockGate>;
+    return content;
   }
 
   function renderStatusChip() {
@@ -2004,9 +1971,8 @@ export function DetalhesNegocio({
           </a>
         )}
 
-        {/* Bloco EMPRESA — tier full (Pro/Implantação) */}
+        {/* Bloco EMPRESA */}
         {hasCompanyData && (
-          <LockGate locked={!canSeeCompany} ctaText="Disponível no HBX Pro">
             <div style={{ display: "grid", gap: 4 }}>
               <span className="dn-section-head">
                 <I d={ICONS.mapin} size={11} /> Empresa
@@ -2073,13 +2039,10 @@ export function DetalhesNegocio({
                 </div>
               )}
             </div>
-          </LockGate>
         )}
 
-        {/* Bloco PESSOAS (WORM-16) — sócio da Receita e contatos estruturados, com wa.me + copiar.
-            Mesmo gate de tier do bloco Empresa (dado cadastral/pessoal). */}
+        {/* Bloco PESSOAS (WORM-16) — sócio da Receita e contatos estruturados, com wa.me + copiar. */}
         {peopleList.length > 0 && (
-          <LockGate locked={!canSeeCompany} ctaText="Disponível no HBX Pro">
             <div style={{ display: "grid", gap: 4 }}>
               <span className="dn-section-head">
                 <I d={ICONS.users} size={11} /> {peopleList.length > 1 ? "Pessoas" : "Pessoa"}
@@ -2088,12 +2051,11 @@ export function DetalhesNegocio({
                 <PersonRow key={`person-${i}-${p.name}`} person={p} />
               ))}
             </div>
-          </LockGate>
         )}
 
-        {/* Empresa AINDA sendo buscada (enriquecendo, sem dado, tier libera):
+        {/* Empresa AINDA sendo buscada (enriquecendo, sem dado):
             placeholder pulsante das linhas-chave em vez de sumir a seção. */}
-        {isEnriching && !hasCompanyData && canSeeCompany && (
+        {isEnriching && !hasCompanyData && (
           <div style={{ display: "grid", gap: 4 }}>
             <span className="dn-section-head">
               <I d={ICONS.mapin} size={11} /> Empresa
@@ -2393,7 +2355,7 @@ export function DetalhesNegocio({
         )}
       </div>
     );
-    return <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">{content}</LockGate>;
+    return content;
   }
 
   function renderOrigin() {
@@ -2530,15 +2492,13 @@ export function DetalhesNegocio({
         {hasAnyKv && (
           <div className="kv">
             {hasRecChannel && (
-              <LockGate locked={!canSeeIntelligence} ctaText="Disponível no HBX Lead+/Pro">
-                <div className="row dn-kv-row">
-                  <span className="k">Canal recomendado</span>
-                  <span className="v">
-                    <CanalIcon canal={recChannel!} size="sm" />{" "}
-                    <TypedText text={humanize(recChannel)} speed={46} delay={0} />
-                  </span>
-                </div>
-              </LockGate>
+              <div className="row dn-kv-row">
+                <span className="k">Canal recomendado</span>
+                <span className="v">
+                  <CanalIcon canal={recChannel!} size="sm" />{" "}
+                  <TypedText text={humanize(recChannel)} speed={46} delay={0} />
+                </span>
+              </div>
             )}
             {hasQuality && (
               <div className="row dn-kv-row">
@@ -2771,7 +2731,6 @@ export function DetalhesNegocio({
                 waQrActive={waQrActive}
                 waCanInternal={waCanInternal}
                 onDelete={showAgenda ? undefined : onDelete}
-                canSeeIntelligence={canSeeIntelligence}
               />
             </div>
 
