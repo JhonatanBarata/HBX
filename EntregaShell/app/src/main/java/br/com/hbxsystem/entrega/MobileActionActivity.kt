@@ -143,7 +143,7 @@ class MobileActionActivity : AppCompatActivity() {
 
     private fun showActionScreen() {
         root.removeAllViews()
-        root.addView(label("HBX MOBILE", 13f, PRIMARY, bold = true).apply { letterSpacing = 0.16f })
+        root.addView(label("HBX LOGÍSTICA", 13f, PRIMARY, bold = true).apply { letterSpacing = 0.16f })
         root.addView(label(
             if (kind == "call") "Ligação preparada" else "Conversa preparada",
             24f,

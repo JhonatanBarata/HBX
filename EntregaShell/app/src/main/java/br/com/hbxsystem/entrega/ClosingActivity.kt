@@ -17,7 +17,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.webkit.WebViewAssetLoader
 
-/** Reproduz a abertura ao contrário antes de fechar ou desvincular o HBX Mobile. */
+/** Reproduz a abertura ao contrário antes de fechar ou desvincular o HBX Logística. */
 class ClosingActivity : AppCompatActivity() {
     companion object {
         private const val EXTRA_NEXT_PAIRING = "next_pairing"

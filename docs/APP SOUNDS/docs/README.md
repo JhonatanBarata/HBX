@@ -1,6 +1,6 @@
 # HBX Sound Pack v2
 
-Pacote sonoro operacional para o HBX Mobile.
+Pacote sonoro operacional para o HBX Logística.
 
 ## Estrutura
 

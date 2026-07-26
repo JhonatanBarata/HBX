@@ -192,7 +192,7 @@ function StageVisual({ stage }: { stage: StageKey }) {
 
 function PhoneVisual({ stage }: { stage: StageKey }) {
   return (
-    <div className="f1-phone" aria-label="Prévia da esteira HBX no celular">
+    <div className="f1-phone" aria-label="Prévia do HBX Logística no celular">
       <div className="f1-phone__notch" />
       <div className="f1-phone__screen">
         <header className="f1-phone__status"><span>9:41</span><b>HBX</b><span><i /> 100%</span></header>
@@ -416,12 +416,12 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           </article>
           <article className="f1-mobile-app f1-mobile-app--android">
             <div className="f1-mobile-app__copy">
-              <small>HBX para Android</small>
+              <small>HBX Logística para Android</small>
               <strong>A operação na<br />palma da mão.</strong>
-              <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar para Android <Icon name="arrow" /></a>
+              <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
             </div>
             <div className="f1-mobile-app__art-wrap">
-              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do aplicativo HBX" />
+              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do HBX Logística" />
             </div>
           </article>
         </section>

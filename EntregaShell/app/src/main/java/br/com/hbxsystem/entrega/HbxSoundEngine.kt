@@ -9,7 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * S1 (PR22072026-APP-SOUNDS) — motor de áudio do HBX Mobile: gate único
+ * S1 (PR22072026-APP-SOUNDS) — motor de áudio do HBX Logística: gate único
  * (`play`) por onde TODO som do app passa, pra nunca reaparecer um `if` de
  * mudo/volume/`APP_MODE` espalhado tela por tela (Lei nº1 do 00-PLANO). Este
  * Engine só entrega o cano; NENHUM sprint chama `play()` ainda — S1 termina

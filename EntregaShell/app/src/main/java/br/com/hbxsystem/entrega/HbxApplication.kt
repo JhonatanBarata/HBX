@@ -45,7 +45,7 @@ class HbxApplication : Application(), Application.ActivityLifecycleCallbacks {
             TrackingSync.rescheduleIfPending(this)
             OperationalSync.rescheduleIfPending(this)
         }
-        // O HBX Mobile também contém a experiência de Vendas, portanto a
+        // O HBX Logística também contém a experiência de Vendas, portanto a
         // mesma ponte de ações e push funciona nos dois flavors.
         HbxMobileBridge.initialize(this)
     }

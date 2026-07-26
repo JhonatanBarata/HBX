@@ -13,7 +13,7 @@ import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 /**
  * Mantém todo o CRUD legado de ClienteProduto, mas troca os dois pontos de
  * materialização (preview + gerar-dia) pelo motor de ocorrências. Assim o cron,
- * o painel antigo e o novo HBX Mobile compartilham a mesma idempotência:
+ * o painel antigo e o novo HBX Logística compartilham a mesma idempotência:
  * recorrência/data de origem nunca vira uma segunda Entrega silenciosa.
  */
 @Injectable()

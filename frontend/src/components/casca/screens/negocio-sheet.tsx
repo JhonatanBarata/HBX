@@ -161,9 +161,9 @@ export function NegocioSheet({
         }),
       });
       setWaChoice(false);
-      setMsg("WhatsApp enviado ao HBX Mobile.");
+      setMsg("WhatsApp enviado ao HBX Logística.");
     } catch {
-      setMsg("Não foi possível enviar ao HBX Mobile.");
+      setMsg("Não foi possível enviar ao HBX Logística.");
     } finally {
       setBusy(false);
     }
@@ -261,7 +261,7 @@ export function NegocioSheet({
                   onClick={() => { setWaOpenMode("mobile"); void enviarAoHbxMobile(); }}
                   disabled={!shown.phone || busy}
                 >
-                  <I d={ICONS.phone} size={16} /> Enviar ao HBX Mobile
+                  <I d={ICONS.phone} size={16} /> Enviar ao HBX Logística
                   {waMode === "mobile" && <I d={ICONS.check} size={15} />}
                 </button>
                 <small>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>

@@ -11,19 +11,19 @@ const MOBILE_ICON = [
 
 export function MobileAppLoginCard() {
   return (
-    <section className={styles.card} aria-label="Aplicativo móvel HBX">
+    <section className={styles.card} aria-label="HBX Logística">
       <span className={styles.icon} aria-hidden="true">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           {MOBILE_ICON.map((path, index) => <path key={index} d={path} />)}
         </svg>
       </span>
       <div className={styles.copy}>
-        <strong>HBX no celular</strong>
-        <span>Baixe o aplicativo HBX e vincule o aparelho à mesma conta do HBX.</span>
+        <strong>HBX Logística</strong>
+        <span>Baixe o HBX Logística e vincule o aparelho à mesma conta do HBX.</span>
       </div>
       <div className={styles.actions}>
         <a className={styles.download} href={MOBILE_APK_URL} target="_blank" rel="noreferrer">
-          Baixar aplicativo HBX
+          Baixar HBX Logística
         </a>
       </div>
     </section>

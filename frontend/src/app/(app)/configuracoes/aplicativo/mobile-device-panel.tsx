@@ -139,7 +139,7 @@ export function MobileDevicePanel() {
         <div className="panel-head" style={{ gap: 12, flexWrap: "wrap" }}>
           <div>
             <h2 style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <I d={ICONS.phone} size={18} /> Aplicativo móvel
+              <I d={ICONS.phone} size={18} /> HBX Logística
             </h2>
             <p className={styles.description} style={{ margin: "5px 0 0" }}>
               Este aparelho será ligado à mesma conta que você já usa no HBX web.
@@ -153,13 +153,13 @@ export function MobileDevicePanel() {
         <div style={{ padding: 18, display: "grid", gap: 18 }}>
           <div className={styles.setupGrid}>
             <article className={styles.setupCard}>
-              <strong>1. Instale o aplicativo HBX</strong>
+              <strong>1. Instale o HBX Logística</strong>
               <p className={styles.description}>
                 Um único aplicativo reúne Vendas e Logística. Ele não exibe o site HBX nem pede e-mail e senha.
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
-                  Baixar aplicativo HBX
+                  Baixar HBX Logística
                 </a>
               </div>
             </article>

@@ -1,4 +1,4 @@
-# Gerar e instalar o HBX Mobile
+# Gerar e instalar o HBX Logística
 
 Esta versão do APK depende dos endpoints do backend adicionados neste mesmo conjunto de alterações. Portanto, a ordem obrigatória é:
 
@@ -122,7 +122,7 @@ EntregaShell\app\build\outputs\bundle\logisticaRelease\app-logistica-release.aab
 
 ## 6. Antes de atualizar o celular
 
-Abra o HBX Mobile com internet e confira em Ajustes/Sincronização que não há:
+Abra o HBX Logística com internet e confira em Ajustes/Sincronização que não há:
 
 - entregas pendentes de sincronização;
 - fotos pendentes;

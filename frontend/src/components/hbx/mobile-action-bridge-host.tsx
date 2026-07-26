@@ -122,12 +122,12 @@ export function MobileActionBridgeHost() {
         show({
           kind,
           title: kind === "call" ? "Ligação enviada" : "WhatsApp preparado",
-          detail: `${device} receberá enquanto o HBX Mobile estiver aberto.`,
+          detail: `${device} receberá enquanto o HBX Logística estiver aberto.`,
         });
       } catch (error) {
         show({
           kind,
-          title: "Não foi possível usar o HBX Mobile",
+          title: "Não foi possível usar o HBX Logística",
           detail: error instanceof Error ? error.message : "Abrindo neste dispositivo.",
           error: true,
         });

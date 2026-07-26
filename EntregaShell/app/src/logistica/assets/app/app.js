@@ -6713,7 +6713,7 @@
       if (isAdmin()) { toast("Atualizando saldo…", false, { mudo: true }); void refreshCreditsLock(); }
       else { toast("Atualizando…", false, { mudo: true }); void refresh(true); }
     }
-    if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Mobile.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
+    if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Logística.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
     // ---- PR20072026 W2 — Leitura de Rota ----
     // A entrada da leitura parte de "day-entry-leitura".
     if (action === "leitura-cancelar") { promptCancelLeitura(); return; }

@@ -8,7 +8,7 @@ Fazer o dono de uma pequena distribuidora entender, em menos de um minuto, que o
 
 ### Cena 1 — abertura
 
-**Visual:** abertura oficial do HBX Mobile, renderizada diretamente do HTML/CSS do aplicativo. O encerramento local apresenta “HBX Entregas”.
+**Visual:** abertura oficial do HBX Logística, renderizada diretamente do HTML/CSS do aplicativo. O encerramento local apresenta “HBX Entregas”.
 
 **Locução:**
 

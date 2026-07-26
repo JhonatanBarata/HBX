@@ -62,7 +62,7 @@ class NativeApiClient(
         bytes: ByteArray,
         clientKey: String,
     ): Response {
-        require(BuildConfig.APP_MODE == "logistica") { "Upload disponível somente no HBX Mobile." }
+        require(BuildConfig.APP_MODE == "logistica") { "Upload disponível somente no HBX Logística." }
         require(deliveryId.matches(Regex("^[A-Za-z0-9_-]{1,120}$"))) { "Entrega inválida." }
         require(type == "foto" || type == "assinatura") { "Tipo de comprovante inválido." }
         require(bytes.isNotEmpty() && bytes.size <= 5 * 1024 * 1024) { "A imagem deve ter no máximo 5 MB." }

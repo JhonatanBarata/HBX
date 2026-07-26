@@ -118,7 +118,7 @@ export function HomePage() {
       <main>
         <section className="hbx-sales-hero" id="entrada">
           <div className="hbx-hero-copy">
-            <StatusPill label="HBX Mobile / Leads / Recovery" tone="success" />
+            <StatusPill label="HBX Logística / Leads / Recovery" tone="success" />
             <p className="hbx-hero-kicker">O vazamento de receita esta no WhatsApp.</p>
             <h1>Escolha sua entrada antes que o lead esfrie.</h1>
             <p className="hero-text hbx-hero-text">

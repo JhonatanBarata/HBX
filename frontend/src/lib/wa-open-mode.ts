@@ -1,7 +1,7 @@
 "use client";
 
 // Preferência "ao clicar no WhatsApp de um lead, abrir onde?": atendimento INTERNO,
-// WhatsApp EXTERNO neste computador ou HBX MOBILE (manda número + texto ao celular
+// WhatsApp EXTERNO neste computador ou HBX LOGÍSTICA (manda número + texto ao celular
 // vinculado). É um padrão escolhido uma vez e respeitado pelos atalhos globais.
 // Guardado por dispositivo no localStorage. Default = externo.
 

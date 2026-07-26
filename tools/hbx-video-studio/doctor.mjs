@@ -40,7 +40,7 @@ async function main() {
   add('Abertura Android real', await exists(OPENING_SOURCE), OPENING_SOURCE);
 
   const opening = await fs.readFile(OPENING_SOURCE, 'utf8').catch(() => '');
-  const hasOpeningCore = opening.includes('HBX Mobile — Abertura') && opening.includes('class="hub-wrap"');
+  const hasOpeningCore = opening.includes('HBX Logística — Abertura') && opening.includes('class="hub-wrap"');
   const hasOpeningHandoff = opening.includes('class="pairing"') || opening.includes('class="handoff"');
   add(
     'Contrato da abertura',

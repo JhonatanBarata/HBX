@@ -126,7 +126,7 @@ android {
             versionCode = hbxLogisticaVersionCode
             versionName = "beta1.3.2"
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
-            manifestPlaceholders["hbxAppLabel"] = "HBX Mobile"
+            manifestPlaceholders["hbxAppLabel"] = "HBX Logística"
         }
     }
 

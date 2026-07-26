@@ -605,7 +605,7 @@ class PairingActivity : AppCompatActivity() {
     }
 
     private fun openWhatsAppSupport() {
-        val message = Uri.encode("Olá, preciso de ajuda para vincular meu aparelho ao HBX Mobile.")
+        val message = Uri.encode("Olá, preciso de ajuda para vincular meu aparelho ao HBX Logística.")
         val uri = Uri.parse("https://wa.me/5519997024884?text=$message")
         val whatsappPackage = listOf("com.whatsapp", "com.whatsapp.w4b")
             .firstOrNull { packageManager.getLaunchIntentForPackage(it) != null }

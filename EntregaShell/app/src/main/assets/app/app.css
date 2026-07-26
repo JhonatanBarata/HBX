@@ -1329,7 +1329,7 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 .hbx-route-schematic small { position: absolute; left: 12px; right: 12px; bottom: 8px; text-align: center; font-size: .68rem; opacity: .65; }
 
 /* ===========================================================================
-   RECARGA — vitrine e checkout completo dentro do HBX Mobile.
+   RECARGA — vitrine e checkout completo dentro do HBX Logística.
    O cartão visual espelha apenas dados mascarados; campos reais participam do
    Autofill Framework do Android e são tokenizados pelo Mercado Pago.
    ========================================================================== */

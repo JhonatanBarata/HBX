@@ -302,7 +302,7 @@ class NativeAppBridge(
         val safeId = id.take(80)
         executor.execute {
             try {
-                require(BuildConfig.APP_MODE == "logistica") { "Comprovante disponível somente no HBX Mobile." }
+                require(BuildConfig.APP_MODE == "logistica") { "Comprovante disponível somente no HBX Logística." }
                 require(JSONObject(operational.statusJson()).optBoolean("grantReady")) {
                     "A rota ainda não está protegida para operar sem sinal. Mantenha a internet e tente novamente."
                 }

@@ -35,7 +35,7 @@ class NotificationPermissionActivity : AppCompatActivity() {
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Ações do HBX no celular")
+            .setTitle("Ações do HBX Logística")
             .setMessage(
                 "Permita notificações para receber ligações, leads e conversas preparadas pelo HBX web mesmo com o aplicativo fechado ou o celular bloqueado."
             )

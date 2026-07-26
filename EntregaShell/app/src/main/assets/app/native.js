@@ -306,7 +306,7 @@
   const HBX = {
     api(path, options) {
       if (!bridge || typeof bridge.request !== "function") {
-        return Promise.reject(new Error("Abra esta tela pelo aplicativo HBX."));
+        return Promise.reject(new Error("Abra esta tela pelo HBX Logística."));
       }
       const opts = options || {};
       const id = `req_${Date.now()}_${++sequence}`;

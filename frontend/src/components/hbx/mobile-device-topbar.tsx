@@ -84,7 +84,7 @@ function isOnline(device: MobileDevice | undefined, now: number) {
 function MobileDeviceAction() {
   const router = useRouter();
   const currentUser = useCurrentUser();
-  // A ponte HBX Mobile é exclusiva de contas de EMPRESA (vendedor/entregador).
+  // A ponte HBX Logística é exclusiva de contas de EMPRESA (vendedor/entregador).
   // O MASTER — puro ou com contexto de empresa assumido pelo /master — mantém o
   // próprio JWT (isSystemMaster); o backend rejeita essa conta por design em
   // /mobile/devices (resolvePairingOwner → 400) e /mobile/actions/history
@@ -161,12 +161,12 @@ function MobileDeviceAction() {
   const linked = activeDevices.length > 0;
   const state = failed ? "error" : online ? "active" : "off";
   const title = failed
-    ? "HBX Mobile — não foi possível consultar o aparelho"
+    ? "HBX Logística — não foi possível consultar o aparelho"
     : online
-      ? "HBX Mobile — online"
+      ? "HBX Logística — online"
       : linked
-        ? "HBX Mobile — aparelho offline"
-        : "HBX Mobile — vincular aparelho";
+        ? "HBX Logística — aparelho offline"
+        : "HBX Logística — vincular aparelho";
   const buttonClass = "round-btn wa-action-btn"
     + (state === "active" ? " wa-action-btn--active" : "")
     + (state === "error" ? " wa-action-btn--error" : "");
@@ -189,11 +189,11 @@ function MobileDeviceAction() {
         {!loading && linked && <span className={`${styles.statusDot} ${online ? styles.statusDotOnline : ""}`} />}
       </button>
       {open && (
-        <div className={`hbx-pop ${styles.popover}`} role="dialog" aria-label="HBX Mobile">
+        <div className={`hbx-pop ${styles.popover}`} role="dialog" aria-label="HBX Logística">
           <div className={styles.heading}>
             <span className={styles.deviceGlyph}><I d={MOBILE_ICON} size={18} /></span>
             <div>
-              <strong>HBX Mobile</strong>
+              <strong>HBX Logística</strong>
               <span className={online ? styles.onlineText : styles.mutedText}>
                 {online ? "Online agora" : linked ? "Offline" : "Nenhum aparelho vinculado"}
               </span>
@@ -273,7 +273,7 @@ function MobileDeviceAction() {
             </button>
             <div className={styles.downloads}>
               <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer">
-                Baixar aplicativo HBX
+                Baixar HBX Logística
               </a>
             </div>
           </div>
@@ -285,7 +285,7 @@ function MobileDeviceAction() {
 
 export function MobileDeviceTopbarBridge() {
   const currentUser = useCurrentUser();
-  // Mesmo motivo do guard interno: o master não usa a ponte HBX Mobile. Nem
+  // Mesmo motivo do guard interno: o master não usa a ponte HBX Logística. Nem
   // inserimos o host no topo — um <span> vazio viraria item-flex e somaria o
   // gap de 12px do `.top-actions` (buraco no topo só pro master).
   const isSystemMaster = Boolean(currentUser?.isSystemMaster)
