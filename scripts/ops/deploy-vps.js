@@ -16,16 +16,17 @@ const remote = 'origin';
 const branch = 'master';
 const engineServices = Array.from({ length: 20 }, (_, index) => `hbx-engine-${index + 1}`);
 const androidProjectDir = path.join(repoRoot, 'EntregaShell');
-const androidApkPath = path.join(
-  androidProjectDir,
-  'app',
-  'build',
-  'outputs',
-  'apk',
-  'logistica',
-  'release',
-  'app-logistica-release.apk',
-);
+const androidDistDir = path.join(androidProjectDir, 'dist');
+const androidApkPaths = {
+  logistica: {
+    built: path.join(androidProjectDir, 'app', 'build', 'outputs', 'apk', 'logistica', 'release', 'app-logistica-release.apk'),
+    named: path.join(androidDistDir, 'Loghbx.apk'),
+  },
+  vendas: {
+    built: path.join(androidProjectDir, 'app', 'build', 'outputs', 'apk', 'vendas', 'release', 'app-vendas-release.apk'),
+    named: path.join(androidDistDir, 'Salehbx.apk'),
+  },
+};
 
 function runStep(command, args, options = {}) {
   console.log(`\n> ${[command, ...args].join(' ')}`);
@@ -164,6 +165,12 @@ function loadConfig() {
     androidApkUrl: String(
       env.NEXT_PUBLIC_ANDROID_APK_URL || 'https://www.hbxsystem.com.br/download/android-logistica',
     ).trim(),
+    androidVendasApkRemotePath: String(
+      env.HOSTINGER_ANDROID_VENDAS_APK_PATH || '/var/www/hbx-downloads/hbx-mobile.apk',
+    ).trim(),
+    androidVendasApkUrl: String(
+      env.NEXT_PUBLIC_ANDROID_VENDAS_APK_URL || 'https://www.hbxsystem.com.br/download/android',
+    ).trim(),
   };
 }
 
@@ -296,31 +303,34 @@ function buildAndroidApk(version) {
   const versionArg = version && version.versionCode
     ? [`-PhbxLogisticaVersionCode=${version.versionCode}`]
     : [];
+  const buildTasks = [':app:assembleLogisticaRelease', ':app:assembleVendasRelease'];
   if (process.platform === 'win32') {
     // gradlew.bat pelo CAMINHO ABSOLUTO: ambientes com NoDefaultCurrentDirectoryInExePath=1
     // (sandbox/hardening) fazem o cmd.exe ignorar o diretório atual, então o nome puro
     // "gradlew.bat" não é encontrado mesmo com cwd correto. Caminho absoluto resolve sempre.
     runStep(
       process.env.comspec || 'cmd.exe',
-      ['/d', '/s', '/c', path.join(androidProjectDir, 'gradlew.bat'), ':app:assembleLogisticaRelease', ...versionArg, '--stacktrace'],
+      ['/d', '/s', '/c', path.join(androidProjectDir, 'gradlew.bat'), ...buildTasks, ...versionArg, '--stacktrace'],
       { cwd: androidProjectDir },
     );
   } else {
-    runStep('./gradlew', [':app:assembleLogisticaRelease', ...versionArg, '--stacktrace'], { cwd: androidProjectDir });
+    runStep('./gradlew', [...buildTasks, ...versionArg, '--stacktrace'], { cwd: androidProjectDir });
   }
 
-  if (!fs.existsSync(androidApkPath)) {
-    throw new Error(`APK Android não foi gerado em ${androidApkPath}.`);
-  }
-
-  const stat = fs.statSync(androidApkPath);
-  if (!stat.isFile() || stat.size < 100_000) {
-    throw new Error(`APK Android inválido: ${androidApkPath} (${stat.size} bytes).`);
-  }
-
-  const sha256 = sha256File(androidApkPath);
-  console.log(`APK Android pronto: ${stat.size} bytes, SHA-256 ${sha256}.`);
-  return { filePath: androidApkPath, sha256, size: stat.size };
+  fs.mkdirSync(androidDistDir, { recursive: true });
+  return Object.fromEntries(Object.entries(androidApkPaths).map(([app, paths]) => {
+    if (!fs.existsSync(paths.built)) {
+      throw new Error(`APK ${app} não foi gerado em ${paths.built}.`);
+    }
+    fs.copyFileSync(paths.built, paths.named);
+    const stat = fs.statSync(paths.named);
+    if (!stat.isFile() || stat.size < 100_000) {
+      throw new Error(`APK ${app} inválido: ${paths.named} (${stat.size} bytes).`);
+    }
+    const sha256 = sha256File(paths.named);
+    console.log(`${path.basename(paths.named)} pronto: ${stat.size} bytes, SHA-256 ${sha256}.`);
+    return [app, { filePath: paths.named, sha256, size: stat.size }];
+  }));
 }
 
 function buildRemoteScript(config, fullDeploy, services) {
@@ -384,9 +394,9 @@ function deploy(config, fullDeploy, services) {
   runStep('ssh', sshArgs, { stdin: buildRemoteScript(config, fullDeploy, services) });
 }
 
-function publishAndroidApk(config, apk) {
-  const remoteDirectory = path.posix.dirname(config.androidApkRemotePath);
-  const remoteFileName = path.posix.basename(config.androidApkRemotePath);
+function publishAndroidApk(config, apk, remotePath, publicUrl) {
+  const remoteDirectory = path.posix.dirname(remotePath);
+  const remoteFileName = path.posix.basename(remotePath);
   const remoteTemporaryPath = path.posix.join(
     remoteDirectory,
     `.${remoteFileName}.${formatTimestamp()}.tmp`,
@@ -401,12 +411,12 @@ function publishAndroidApk(config, apk) {
   if (config.sshPort) sshArgs.push('-p', config.sshPort);
   sshArgs.push(remoteTarget, 'bash', '-s');
 
-  const verificationUrl = new URL(config.androidApkUrl);
+  const verificationUrl = new URL(publicUrl);
   verificationUrl.searchParams.set('sha256', apk.sha256.slice(0, 12));
   const remoteScript = [
     'set -euo pipefail',
     `APK_TMP=${shellQuote(remoteTemporaryPath)}`,
-    `APK_TARGET=${shellQuote(config.androidApkRemotePath)}`,
+    `APK_TARGET=${shellQuote(remotePath)}`,
     `EXPECTED_SHA256=${shellQuote(apk.sha256)}`,
     `EXPECTED_SIZE=${shellQuote(apk.size)}`,
     `APK_URL=${shellQuote(verificationUrl.toString())}`,
@@ -542,7 +552,7 @@ function main(requestedMode) {
       mode,
       full: mode === 'full' || plan.full,
       services: plan.services,
-      androidApk: true,
+      androidApks: ['Loghbx.apk', 'Salehbx.apk'],
     }, null, 2));
     return;
   }
@@ -556,16 +566,17 @@ function main(requestedMode) {
   // resolveAndroidVersion(). Nunca deixa o publish cair se der ruim na leitura
   // do que está no ar: cai no piso do gradle e avisa no log.
   const androidVersion = resolveAndroidVersion(config);
-  const androidApk = buildAndroidApk(androidVersion);
+  const androidApks = buildAndroidApk(androidVersion);
   runStep('git', ['push', remote, branch]);
   deploy(config, mode === 'full' || plan.full, plan.services);
-  publishAndroidApk(config, androidApk);
+  publishAndroidApk(config, androidApks.logistica, config.androidApkRemotePath, config.androidApkUrl);
+  publishAndroidApk(config, androidApks.vendas, config.androidVendasApkRemotePath, config.androidVendasApkUrl);
 
   // PR20072026-ROTA-SALVA F4 — version-logistica.json (auto-update do APK).
   // NUNCA pode derrubar o publish: o APK já subiu e validou acima; isto é só
   // um adicional pro app checar update sozinho.
   try {
-    publishVersionJson(config, androidApk, androidVersion);
+    publishVersionJson(config, androidApks.logistica, androidVersion);
   } catch (error) {
     console.warn(
       `[version.json] pulado (não bloqueante): ${error && error.message ? error.message : error}`,

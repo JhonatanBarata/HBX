@@ -251,7 +251,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openRechargeCheckout(packKey: String) {
-        if (BuildConfig.APP_MODE != "logistica" || isFinishing || isDestroyed) return
+        if (isFinishing || isDestroyed) return
         recargaLauncher.launch(
             Intent(this, RechargeCheckoutActivity::class.java)
                 .putExtra(RechargeCheckoutActivity.EXTRA_PACK_KEY, packKey),

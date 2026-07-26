@@ -1,8 +1,6 @@
 (function () {
   "use strict";
   const H = window.HBX;
-  const isMobileModule = H.info().mode === "logistica";
-  const embedded = document.currentScript && document.currentScript.hasAttribute("data-embedded-sales");
   const cached = H.cache.get("vendas-board", null);
   const state = {
     screen: new URLSearchParams(window.location.search).get("screen") || "funnel",
@@ -21,6 +19,9 @@
     refreshing: false,
     error: null,
     toast: null,
+    recargaCatalog: null,
+    recargaLoading: false,
+    recargaError: null,
   };
   const stages = [
     ["novo", "Prospecção", "Faça o 1º contato"],
@@ -30,7 +31,7 @@
     ["encerrado", "Fechamento", "Contrato e compromissos"],
   ];
   const app = document.getElementById("app");
-  let moduleActive = !embedded;
+  let moduleActive = true;
   let screenMotionTimer = null;
 
   const paths = {
@@ -49,6 +50,9 @@
     users: "<circle cx='9' cy='7' r='4'/><path d='M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M16 3.2a4 4 0 0 1 0 7.6M18 15.2A4 4 0 0 1 22 19v2'/>",
     sales: "<path d='M4 5h16l-6 7v5l-4 2v-7z'/>",
     chart: "<path d='M4 20V10M10 20V4M16 20v-7M22 20V7'/>",
+    wallet: "<path d='M4 7h14a2 2 0 0 1 2 2v10H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13v4'/><path d='M16 13h4'/>",
+    lock: "<rect x='5' y='10' width='14' height='11' rx='2'/><path d='M8 10V7a4 4 0 0 1 8 0v3'/>",
+    check: "<path d='m5 12 4 4L19 6'/>",
     logout: "<path d='M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9'/>",
     back: "<path d='m15 18-6-6 6-6'/>",
     route: "<path d='M5 19c4-7 10-7 14-14'/><circle cx='5' cy='19' r='2'/><circle cx='19' cy='5' r='2'/>",
@@ -77,7 +81,7 @@
     return H.mobileShell.frame({ appName: "vendas", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function navigateSales(nextScreen, motion) {
-    const screens = ["funnel", "chat", "agenda"]; const currentIndex = screens.indexOf(state.screen); const nextIndex = screens.indexOf(nextScreen);
+    const screens = ["funnel", "chat", "agenda", "more"]; const currentIndex = screens.indexOf(state.screen); const nextIndex = screens.indexOf(nextScreen);
     state.screenMotion = motion || (nextIndex >= currentIndex ? "forward" : "back"); state.screen = nextScreen; state.selected = null; state.modal = null; render(); state.screenMotion = "";
     clearTimeout(screenMotionTimer);
   }
@@ -118,7 +122,7 @@
     const team = state.board && state.board.team;
     return shell(`<div class="screen-head"><div><h1>Mais</h1><p class="subtitle">Operação, relatório e aplicativo</p></div></div><div class="compact-grid"><section class="card card-pad"><div class="section-title section-title-flush"><strong>Conversão · 30 dias</strong>${icon("chart", 18)}</div><div class="kpis kpis-flush"><div class="kpi"><span>Cards</span><strong>${Number(report.totalLeads || report.summary && report.summary.total || state.board && state.board.summary.total || 0)}</strong></div><div class="kpi"><span>Fechados</span><strong>${Number(report.closedLeads || report.summary && report.summary.closed || state.board && state.board.summary.closed || 0)}</strong></div><div class="kpi"><span>Taxa</span><strong>${Number(report.conversionRate || report.summary && report.summary.conversionRate || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong></div></div></section>
       ${team ? `<section class="card card-pad"><div class="section-title section-title-flush"><strong>Equipe</strong><span>${(team.sellers || []).length}</span></div><div class="list">${(team.sellers || []).slice(0, 6).map(s => `<div class="lead-card"><div class="avatar">${H.escape(initials(s.name))}</div><div class="card-main"><strong>${H.escape(s.name)}</strong><span>${s.active ? "Ativo" : "Inativo"}${s.isMe ? " · você" : ""}</span></div><span class="badge ${s.active ? "success" : ""}">${s.active ? "Online" : "Pausado"}</span></div>`).join("")}</div></section>` : ""}</div>
-      <div class="section-title"><strong>Ajustes</strong></div><section class="card flat"><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema claro/escuro</strong><span>Segue o aparelho e pode ser alternado</span></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong><span>Atualiza carteira, agenda e relatório</span></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair deste aparelho</strong><span>Remove somente o vínculo local</span></div><span>›</span></button></section><p class="subtitle subtitle-footer">Versão ${H.escape(H.info().versionName || "local")} · interface Android independente</p>`);
+      <div class="section-title"><strong>Ajustes</strong></div><section class="card flat"><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong><span>Saldo e pacotes da empresa</span></div><span>›</span></button><button class="settings-row" data-action="theme"><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema claro/escuro</strong><span>Segue o aparelho e pode ser alternado</span></div><span>›</span></button><button class="settings-row" data-action="refresh"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong><span>Atualiza carteira, agenda e relatório</span></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair deste aparelho</strong><span>Remove somente o vínculo local</span></div><span>›</span></button></section><p class="subtitle subtitle-footer">Versão ${H.escape(H.info().versionName || "local")} · interface Android independente</p>`);
   }
   function leadSheet(lead) {
     const timeline = Array.isArray(lead.timeline) ? lead.timeline.slice(0, 6) : [];
@@ -132,6 +136,7 @@
       ${timeline.length ? `<div class="section-title"><strong>Histórico</strong></div><div class="list">${timeline.map(event => `<div class="row-card"><div class="card-main"><strong>${H.escape(event.title || "Atualização")}</strong><span>${H.escape(event.description || event.resultLabel || "")}</span><small>${H.date(event.createdAt)}</small></div></div>`).join("")}</div>` : ""}</section></div>`;
   }
   function modal() {
+    if (state.modal === "recarga") return recargaModal();
     if (state.modal === "search") return `<div class="modal-wrap" data-action="close-modal"><section class="modal search-modal"><div class="sheet-head"><div class="avatar">${icon("search", 18)}</div><div><h2>Buscar</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${searchContent()}</section></div>`;
     if (state.modal === "new-lead") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Novo lead</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-lead-form"><div class="form-grid"><div class="field"><label>Nome ou empresa</label><input name="name" maxlength="120" required></div><div class="field"><label>Telefone</label><input name="phone" inputmode="tel" maxlength="24"></div><div class="field"><label>E-mail</label><input name="email" type="email"></div><div class="field"><label>Retorno</label><input name="returnAt" type="datetime-local"></div></div><div class="field"><label>Endereço</label><input name="address" maxlength="280"></div><div class="field"><label>Próxima ação</label><input name="nextAction" maxlength="140" value="Primeiro contato"></div><div class="field"><label>Observação</label><textarea name="shortNote" maxlength="280"></textarea></div><button class="btn btn-primary btn-block" type="submit">Cadastrar</button></form></section></div>`;
     if (state.modal === "team") {
@@ -142,9 +147,53 @@
     if (state.modal === "sale" && state.selected) return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("chart", 18)}</div><div><h2>Fechar venda</h2><p class="subtitle">${H.escape(state.selected.name || "Lead")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="sale-form"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto definido</option>${(state.products || []).map(product => `<option value="${H.escape(product.id)}">${H.escape(product.nome || product.name || "Produto")}</option>`).join("")}</select></div><div class="field"><label>Valor combinado</label><input name="saleValue" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(state.selected.saleValue || "")}" required></div><p class="subtitle">A confirmação fecha o card no funil. Cobranças e contratação seguem as permissões do VPS.</p><button class="btn btn-primary btn-block" type="submit">Confirmar venda</button></form></section></div>`;
     return "";
   }
+  function recargaPacks() {
+    return state.recargaCatalog && Array.isArray(state.recargaCatalog.packs) ? state.recargaCatalog.packs : [];
+  }
+  function beginRecargaCheckout(packKey) {
+    const pack = recargaPacks().find(item => String(item.key) === String(packKey));
+    if (!pack || pack.paused) return;
+    if (!H.recharge(pack.key)) toast("Atualize o aplicativo para concluir a recarga.", true);
+  }
+  function recargaPacksView() {
+    const catalog = state.recargaCatalog || {};
+    const packs = recargaPacks();
+    const balance = Number(catalog.balance || 0);
+    const units = packs.filter(pack => !pack.paused && Number(pack.credits) > 0 && Number(pack.price) > 0).map(pack => Number(pack.price) / Number(pack.credits));
+    const worstUnit = units.length ? Math.max(...units) : 0;
+    const skeletons = `<div class="recarga-pack-track" aria-hidden="true">${[0, 1, 2].map(() => `<div class="recarga-pack recarga-pack-skeleton loading"></div>`).join("")}</div>`;
+    const error = `<div class="recarga-load-error"><div class="recarga-load-error-icon">${icon("wallet", 22)}</div><strong>Não foi possível abrir a recarga</strong><p>${H.escape(state.recargaError || "Tente novamente em instantes.")}</p><button type="button" class="btn btn-secondary" data-action="recarga-reload">Tentar novamente</button></div>`;
+    const cards = packs.map(pack => {
+      const credits = Number(pack.credits || 0); const price = Number(pack.price || 0); const unit = credits > 0 ? price / credits : 0;
+      const save = !pack.paused && worstUnit > 0 && unit > 0 ? Math.round((1 - unit / worstUnit) * 100) : 0;
+      const badge = pack.badge || (pack.recommended ? "Mais escolhido" : "");
+      return `<article class="recarga-pack${pack.recommended ? " is-best" : ""}${pack.paused ? " is-paused" : ""}" data-recarga-pack="${H.escape(pack.key)}">${badge ? `<span class="recarga-pack-badge">${H.escape(badge)}</span>` : ""}<span class="recarga-pack-title">${H.escape(pack.title || "Pacote")}</span><div class="recarga-pack-credits"><strong>${credits.toLocaleString("pt-BR")}</strong><span>créditos</span></div><strong class="recarga-pack-price">${H.money(price)}</strong><span class="recarga-pack-unit">${H.money(unit)} por crédito</span>${save > 0 ? `<span class="recarga-pack-save">Economize ${save}% por crédito</span>` : `<span class="recarga-pack-save is-neutral">Recarga rápida e sem assinatura</span>`}<span class="recarga-pack-expiry">Validade de ${Number(pack.defaultExpiryDays || 0)} dias</span><button type="button" class="btn btn-primary btn-block recarga-pack-cta" data-action="recarga-select-pack" data-pack-key="${H.escape(pack.key)}" ${pack.paused ? "disabled" : ""}>${pack.paused ? "Em breve" : "Escolher pacote"}</button></article>`;
+    }).join("");
+    const content = state.recargaLoading ? skeletons : state.recargaError ? error : packs.length ? `<div class="recarga-pack-track">${cards}</div>` : `<div class="recarga-load-error"><strong>Sem pacotes no momento</strong><p>Fale com o suporte HBX.</p></div>`;
+    return `<div class="recarga-head"><div class="recarga-head-icon">${icon("wallet", 19)}</div><div class="recarga-head-copy"><h2>Recarga de créditos</h2><p>Escolha o pacote ideal para sua operação</p></div><button type="button" class="close recarga-close" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button></div><section class="recarga-balance-hero"><span class="recarga-balance-kicker">Saldo disponível</span><div class="recarga-balance-value"><strong>${Number.isFinite(balance) ? balance.toLocaleString("pt-BR") : "0"}</strong><span>créditos</span></div><p>Os créditos entram na hora após a aprovação.</p><span class="recarga-balance-orbit one"></span><span class="recarga-balance-orbit two"></span></section><div class="recarga-section-title"><div><strong>Pacotes</strong><span>Sem assinatura e sem fidelidade</span></div><span class="recarga-secure-chip">${icon("lock", 13)} Seguro</span></div>${content}<div class="recarga-trust-row"><span>${icon("check", 14)} Aprovação imediata</span><span>${icon("check", 14)} Preço do servidor</span><span>${icon("lock", 14)} Cartão protegido</span></div>`;
+  }
+  function recargaModal() {
+    return `<div class="sheet-wrap recarga-wrap" data-action="close-modal"><section class="sheet recarga-sheet">${recargaPacksView()}</section></div>`;
+  }
+  function openRecarga() {
+    state.recargaLoading = true;
+    state.recargaError = null;
+    state.recargaCatalog = null;
+    state.modal = "recarga";
+    render();
+    void H.api("/credits/me").then(wallet => {
+      if (!wallet || wallet.balance === undefined || !Array.isArray(wallet.packs)) throw new Error("A recarga está disponível somente para o responsável pela conta.");
+      state.recargaCatalog = wallet;
+    }).catch(error => {
+      state.recargaError = errorText(error);
+    }).finally(() => {
+      state.recargaLoading = false;
+      render();
+    });
+  }
   function render() {
     if (!moduleActive) return;
-    const screens = { funnel: funnelScreen, chat: chatScreen, agenda: agendaScreen };
+    const screens = { funnel: funnelScreen, chat: chatScreen, agenda: agendaScreen, more: moreScreen };
     H.mobileShell.mount(app, (screens[state.screen] || funnelScreen)());
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "vendas", currentScreen: state.screen, navigate: navigateSales });
@@ -216,18 +265,14 @@
     const target = event.target.closest("[data-screen],[data-nav],[data-action],[data-block],[data-lead],[data-wa]");
     if (!target) return;
     if (target.dataset.screen) { navigateSales(target.dataset.screen); return; }
-    if (target.dataset.nav) {
-      const logScreens = { "log-route": "route", "log-clients": "clients", "log-products": "products", settings: "settings" };
-      if (logScreens[target.dataset.nav] && H.logisticaModule) { H.logisticaModule.activate(logScreens[target.dataset.nav], target.dataset.nav === "settings" ? "forward" : "back"); return; }
-      if (logScreens[target.dataset.nav]) window.location.href = `../app/index.html?screen=${logScreens[target.dataset.nav]}&motion=${target.dataset.nav === "settings" ? "forward" : "back"}`;
-      return;
-    }
     if (target.dataset.block) { state.block = target.dataset.block; render(); return; }
     if (target.dataset.lead) { state.selected = allLeads().find(item => item.id === target.dataset.lead) || null; render(); return; }
     if (target.dataset.wa) { const lead = allLeads().find(item => item.id === target.dataset.wa); if (lead) openWhatsapp(lead); return; }
     const action = target.dataset.action;
+    if (action === "recarga-select-pack") { beginRecargaCheckout(target.dataset.packKey); return; }
+    if (action === "recarga-reload") { openRecarga(); return; }
+    if (action === "open-recarga") { openRecarga(); return; }
     if (action === "open-search") { state.modal = "search"; render(); }
-    if (action === "mobile-home" && isMobileModule) { window.location.replace("../app/index.html"); return; }
     if (action === "theme") { H.theme.toggle(); render(); }
     if (action === "refresh") refresh(false);
     if (action === "new-lead") { state.modal = "new-lead"; render(); }
@@ -242,7 +287,7 @@
     if (action === "close-sheet") { state.selected = null; render(); }
     if (action === "call" && state.selected) { registerAttempt(state.selected, "ligacao"); H.call(state.selected.phone || state.selected.phoneNormalized); }
     if (action === "whatsapp" && state.selected) openWhatsapp(state.selected);
-    if (action === "logout") { if (confirm(`Desvincular este aparelho do ${isMobileModule ? "HBX Mobile" : "HBX Vendas"}?`)) H.logout(); }
+    if (action === "logout") { if (confirm("Desvincular este aparelho do HBX Vendas?")) H.logout(); }
   });
   app.addEventListener("input", event => {
     if (event.target.id !== "lead-search") return;
@@ -295,19 +340,25 @@
   });
   document.addEventListener("hbx:theme", render);
   window.addEventListener("online", () => refresh(true));
-  // Embutido na logística, HBXApp já existe (logistica/app.js carrega antes) e tem
-  // handleBack/routeActivated/locationPermissionChanged — não pode ser sobrescrito.
-  if (!window.HBXApp) window.HBXApp = { refresh };
-  if (!["funnel", "chat", "agenda"].includes(state.screen)) state.screen = "funnel";
-  H.salesModule = {
-    activate(screen, motion) {
-      moduleActive = true;
-      H.logisticaModule && H.logisticaModule.deactivate();
-      navigateSales(screen || "funnel", motion || "forward");
+  window.HBXApp = {
+    refresh,
+    rechargeCompleted(detail) {
+      const result = detail && typeof detail === "object" ? detail : {};
+      const balanceAfter = Number(result.balanceAfter);
+      const credited = Number(result.credited);
+      if (Number.isFinite(balanceAfter) && state.recargaCatalog) {
+        state.recargaCatalog = { ...state.recargaCatalog, balance: balanceAfter };
+      }
+      if (state.modal === "recarga") state.modal = null;
+      toast(Number.isFinite(credited) && credited > 0 ? `${credited.toLocaleString("pt-BR")} créditos adicionados com sucesso.` : "Recarga concluída. Saldo atualizado.");
     },
-    deactivate() { moduleActive = false; },
+    handleBack() {
+      if (state.modal) { state.modal = null; render(); return true; }
+      if (state.selected) { state.selected = null; render(); return true; }
+      if (state.screen !== "funnel") { navigateSales("funnel", "back"); return true; }
+      return false;
+    },
   };
-  window.dispatchEvent(new CustomEvent("hbx:sales-ready"));
-  if (!embedded && !H.modules.get().vendas) window.location.replace("../app/index.html?screen=route");
-  else { render(); refresh(true, true); state.screenMotion = ""; }
+  if (!["funnel", "chat", "agenda", "more"].includes(state.screen)) state.screen = "funnel";
+  render(); refresh(true, true); state.screenMotion = "";
 })();

@@ -208,26 +208,21 @@ android {
     }
 }
 
-// O HBX Mobile reaproveita o frontend canônico do flavor Vendas sem duplicá-lo
-// no repositório. No APK Logística ele é empacotado em /assets/vendas e usa a
-// mesma bridge/sessão nativa do restante do aplicativo.
-val generatedMobileVendasAssets = layout.buildDirectory.dir("generated/mobileVendasAssets")
-val prepareMobileVendasAssets = tasks.register<Sync>("prepareMobileVendasAssets") {
-    into(generatedMobileVendasAssets)
-    from("src/vendas/assets/app") { into("vendas") }
-    from("src/main/assets/app") {
-        include("app.css", "native.js")
-        into("vendas")
-    }
+// Recarga é função geral do sistema: os dois APKs usam o mesmo checkout
+// isolado, sem duplicar os arquivos sensíveis do frontend.
+val generatedVendasCheckoutAssets = layout.buildDirectory.dir("generated/vendasCheckoutAssets")
+val prepareVendasCheckoutAssets = tasks.register<Sync>("prepareVendasCheckoutAssets") {
+    into(generatedVendasCheckoutAssets)
+    from("src/logistica/assets/checkout") { into("checkout") }
 }
 
-android.sourceSets.getByName("logistica").assets.srcDir(generatedMobileVendasAssets)
+android.sourceSets.getByName("vendas").assets.srcDir(generatedVendasCheckoutAssets)
 tasks.configureEach {
     if (name.endsWith("VideoStudioGoogleServices")) enabled = false
-    val empacotaAssetsLogistica = name.startsWith("mergeLogistica") && name.endsWith("Assets")
-    val validaAssetsLogistica = name.contains("Logistica") && name.contains("lint", ignoreCase = true)
-    if (empacotaAssetsLogistica || validaAssetsLogistica) {
-        dependsOn(prepareMobileVendasAssets)
+    val empacotaAssetsVendas = name.startsWith("mergeVendas") && name.endsWith("Assets")
+    val validaAssetsVendas = name.contains("Vendas") && name.contains("lint", ignoreCase = true)
+    if (empacotaAssetsVendas || validaAssetsVendas) {
+        dependsOn(prepareVendasCheckoutAssets)
     }
 }
 

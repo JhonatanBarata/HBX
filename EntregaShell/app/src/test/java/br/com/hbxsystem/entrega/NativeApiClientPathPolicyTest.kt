@@ -22,12 +22,12 @@ class NativeApiClientPathPolicyTest {
     }
 
     @Test
-    fun hbxMobileAllowsTheUsedSalesEndpointsWithTheirExactMethods() {
-        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/vendas/board"))
-        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/products"))
-        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/webscraping/radar/leads"))
-        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/webscraping/radar/leads/lead-1/send-to-vendas"))
-        assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/vendas/lead/lead-1"))
+    fun logisticaDoesNotExposeSalesEndpoints() {
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/vendas/board"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/products"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/webscraping/radar/leads"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/webscraping/radar/leads/lead-1/send-to-vendas"))
+        assertFalse(isMobileEndpointAllowed("logistica", "PATCH", "/vendas/lead/lead-1"))
         assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/vendas/lead/lead-1"))
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/webscraping/radar/leads"))
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/webscraping/radar/admin"))
@@ -85,9 +85,9 @@ class NativeApiClientPathPolicyTest {
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/financeiro/credits/recharge"))
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/financeiro/credits/recharge"))
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/financeiro/payments-config"))
-        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/credits/me"))
-        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/financeiro/payments-config"))
-        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/financeiro/credits/recharge"))
+        assertTrue(isMobileEndpointAllowed("vendas", "GET", "/credits/me"))
+        assertTrue(isMobileEndpointAllowed("vendas", "GET", "/financeiro/payments-config"))
+        assertTrue(isMobileEndpointAllowed("vendas", "POST", "/financeiro/credits/recharge"))
     }
 
     @Test

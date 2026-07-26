@@ -1,12 +1,15 @@
 # Aplicativos Android do HBX
 
-O Android agora entrega duas experiências independentes. Nenhuma delas carrega
-o frontend web do HBX:
+O Android entrega duas experiências independentes. Nenhuma delas carrega o
+frontend web do HBX:
 
-- **HBX Vendas** (`br.com.hbxsystem`): atualiza o antigo APK e mantém o
+- **Salehbx.apk** (`br.com.hbxsystem`): atualiza o antigo APK e mantém o
   pareamento, ligações, WhatsApp pessoal, fila persistida no VPS e despertar FCM.
-- **HBX Logística** (`br.com.hbxsystem.logistica`): rota, clientes, produtos,
+- **Loghbx.apk** (`br.com.hbxsystem.logistica`): rota, clientes, produtos,
   comprovantes, GPS durante a rota, fila offline de posições e rastreamento ao vivo.
+
+Recarga, tema, sincronização e vínculo do aparelho são funções gerais e ficam
+disponíveis nos dois aplicativos.
 
 ## Instalação
 
@@ -26,13 +29,14 @@ o frontend web do HBX:
 
 As interfaces ficam em `app/src/vendas/assets/app` e
 `app/src/logistica/assets/app`. CSS e cliente nativo compartilhados ficam em
-`app/src/main/assets/app`. A bridge limita Vendas a `/vendas` e Logística a
-`/logistica`, `/cadastros`, `/products` e aos endpoints canônicos exatos
-`/nucleo/clientes` e `/nucleo/contas`; a credencial do aparelho e o JWT nunca
-são expostos ao JavaScript.
+`app/src/main/assets/app`. O publicador copia os builds assinados para
+`EntregaShell/dist/Loghbx.apk` e `EntregaShell/dist/Salehbx.apk`. A bridge
+limita cada APK ao próprio módulo e aos endpoints gerais exatos; a credencial
+do aparelho e o JWT nunca são expostos ao JavaScript.
 
 ## Publicação
 
-`npm run publish` e `npm run new` sempre geram o APK `LogisticaRelease`
-assinado, publicam em `/download/android-logistica` por troca atômica e validam
-o SHA-256 baixado pela URL pública antes de concluir.
+`npm run publish` e `npm run new` geram os dois APKs assinados, publicam
+`Loghbx.apk` em `/download/android-logistica` e `Salehbx.apk` em
+`/download/android`, por troca atômica, e validam o SHA-256 baixado pelas duas
+URLs públicas antes de concluir.

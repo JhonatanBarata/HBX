@@ -486,7 +486,6 @@ class NativeAppBridge(
     /** Abre a Activity privada; nenhum dado de cartão atravessa a bridge do shell. */
     @JavascriptInterface
     fun openRechargeCheckout(packKeyInput: String): Boolean {
-        if (BuildConfig.APP_MODE != "logistica") return false
         val packKey = packKeyInput.trim()
         if (!packKey.matches(Regex("^[a-z0-9][a-z0-9_-]{0,39}$"))) return false
         activity.runOnUiThread { onRechargeCheckoutRequested(packKey) }

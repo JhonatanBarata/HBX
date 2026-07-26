@@ -253,6 +253,14 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("vendas", "lead") -> true
         else -> false
     }
+    val systemEndpoint = when {
+        method == "GET" && segments in listOf(
+            listOf("credits", "me"),
+            listOf("financeiro", "payments-config"),
+        ) -> true
+        method == "POST" && segments == listOf("financeiro", "credits", "recharge") -> true
+        else -> false
+    }
     val logisticaEndpoint = when {
         method == "GET" && segments in listOf(
             listOf("logistica", "agenda"),
@@ -331,8 +339,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         else -> false
     }
     return when (appMode) {
-        "vendas" -> vendasEndpoint
-        "logistica" -> logisticaEndpoint || vendasEndpoint
+        "vendas" -> vendasEndpoint || systemEndpoint
+        "logistica" -> logisticaEndpoint || systemEndpoint
         else -> false
     }
 }

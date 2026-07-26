@@ -437,17 +437,10 @@
     },
     modules: {
       get() {
-        const saved = HBX.cache.get("mobile-modules", { logistica: true, vendas: true }) || {};
-        const modules = { logistica: saved.logistica !== false, vendas: saved.vendas !== false };
-        if (!modules.logistica && !modules.vendas) modules.logistica = true;
-        return modules;
+        const mode = HBX.info().mode;
+        return { logistica: mode === "logistica", vendas: mode === "vendas" };
       },
-      set(next) {
-        const modules = { logistica: next && next.logistica !== false, vendas: next && next.vendas !== false };
-        if (!modules.logistica && !modules.vendas) return null;
-        HBX.cache.set("mobile-modules", modules);
-        return modules;
-      },
+      set() { return this.get(); },
     },
     revealActiveNav() {
       requestAnimationFrame(() => {
@@ -466,13 +459,12 @@
       context: null,
       setContext(context) { this.context = context; },
       navigation(appName, currentScreen, icon) {
-        const modules = HBX.modules.get(); const items = [];
-        if (modules.logistica) items.push(["logistica", "route", "route", "Rota"], ["logistica", "clients", "users", "Clientes"], ["logistica", "products", "box", "Produtos"]);
-        if (modules.vendas) items.push(["vendas", "funnel", "sales", "Vendas"], ["vendas", "chat", "wa", "WhatsApp"], ["vendas", "agenda", "calendar", "Agenda"]);
-        items.push(["logistica", "settings", "gear", "Ajustes"]);
+        const items = appName === "vendas"
+          ? [["vendas", "funnel", "sales", "Vendas"], ["vendas", "chat", "wa", "WhatsApp"], ["vendas", "agenda", "calendar", "Agenda"], ["vendas", "more", "gear", "Ajustes"]]
+          : [["logistica", "route", "route", "Rota"], ["logistica", "clients", "users", "Clientes"], ["logistica", "products", "box", "Produtos"], ["logistica", "settings", "gear", "Ajustes"]];
         const activeIndex = Math.max(0, items.findIndex(([itemApp, screen]) => itemApp === appName && screen === currentScreen));
-        const indicator = HBX.navIndicator(activeIndex); const centered = modules.logistica !== modules.vendas;
-        return `<nav class="bottom-nav ${centered ? "is-centered" : ""}" style="--nav-count:${items.length};--nav-from:${indicator.from};--nav-to:${indicator.to}" aria-label="Navegação principal"><i class="nav-water ${indicator.moving ? "is-moving" : ""}" aria-hidden="true"></i>${items.map(([itemApp, screen, iconName, label]) => {
+        const indicator = HBX.navIndicator(activeIndex);
+        return `<nav class="bottom-nav is-centered" style="--nav-count:${items.length};--nav-from:${indicator.from};--nav-to:${indicator.to}" aria-label="Navegação principal"><i class="nav-water ${indicator.moving ? "is-moving" : ""}" aria-hidden="true"></i>${items.map(([itemApp, screen, iconName, label]) => {
           return `<button class="nav-btn ${itemApp === appName && currentScreen === screen ? "active" : ""}" data-destination="${itemApp}:${screen}">${icon(iconName)}<span>${label}</span></button>`;
         }).join("")}</nav>`;
       },
@@ -644,17 +636,12 @@
       },
       navigate(direction) {
         const context = this.context; if (!context) return;
-        const modules = HBX.modules.get(); const screens = [];
-        if (modules.logistica) screens.push(["logistica", "route"], ["logistica", "clients"], ["logistica", "products"]);
-        if (modules.vendas) screens.push(["vendas", "funnel"], ["vendas", "chat"], ["vendas", "agenda"]);
-        screens.push(["logistica", "settings"]);
+        const screens = context.appName === "vendas"
+          ? [["vendas", "funnel"], ["vendas", "chat"], ["vendas", "agenda"], ["vendas", "more"]]
+          : [["logistica", "route"], ["logistica", "clients"], ["logistica", "products"], ["logistica", "settings"]];
         const index = Math.max(0, screens.findIndex(([appName, screen]) => appName === context.appName && screen === context.currentScreen));
         const next = screens[(index + direction + screens.length) % screens.length]; const motion = direction > 0 ? "forward" : "back";
-        if (next[0] === context.appName) context.navigate(next[1], motion);
-        else if (next[0] === "vendas" && HBX.salesModule) HBX.salesModule.activate(next[1], motion);
-        else if (next[0] === "logistica" && HBX.logisticaModule) HBX.logisticaModule.activate(next[1], motion);
-        else if (next[0] === "vendas") window.location.href = `../vendas/index.html?screen=${next[1]}&motion=${motion}&from=mobile`;
-        else window.location.href = `../app/index.html?screen=${next[1]}&motion=${motion}`;
+        context.navigate(next[1], motion);
       },
     },
     escape(value) {
@@ -678,14 +665,11 @@
     },
   };
 
-  // A abertura só libera o shell quando os módulos ativos terminarem a primeira
-  // leitura real. Cada resposta concluída avança a barra; erro concluído também
-  // conta, pois o próprio módulo abrirá no estado de erro recuperável.
+  // A abertura só libera o shell quando o módulo fixo deste APK termina a
+  // primeira leitura real. Erro concluído também conta, pois a própria tela
+  // abrirá no estado de erro recuperável.
   const bootMode = HBX.info().mode;
-  const bootModules = HBX.modules.get();
-  const bootExpected = bootMode === "vendas"
-    ? ["vendas"]
-    : [bootModules.logistica && "logistica", bootModules.vendas && "vendas"].filter(Boolean);
+  const bootExpected = [bootMode === "vendas" ? "vendas" : "logistica"];
   const bootState = new Map(bootExpected.map(name => [name, { done: 0, total: 1, ready: false }]));
   let bootReadySent = false;
   function publishBootProgress() {

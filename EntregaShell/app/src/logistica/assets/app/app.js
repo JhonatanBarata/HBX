@@ -3923,9 +3923,8 @@
     return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => productCatalogCard(p)).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
   }
   function settingsScreen() {
-    const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED"; const modules = H.modules.get();
+    const cfg = state.config || {}; const trackedAvailable = !!cfg.trackingDisponivel; const defaultTracked = cfg.modoRotaPadrao === "TRACKED";
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${routeActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
-      <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="module-toggle" data-module="vendas" role="switch" aria-checked="${modules.vendas}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Vendas</strong></div><span class="module-switch ${modules.vendas ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       <div class="section-title"><strong>Operação</strong></div><section class="card flat"><div class="settings-row"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Rastreamento</strong></div><span class="badge ${trackedAvailable ? "success" : ""}">${trackedAvailable ? "Disponível" : "Off"}</span></div><div class="settings-row"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo da rota</strong></div><strong>${routeTracked() ? "Rastreada" : "Essencial"}</strong></div></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="route-mode"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Modo padrão</strong></div><strong>${defaultTracked ? "Rastreada" : "Essencial"}</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
@@ -6059,17 +6058,11 @@
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
     if (event.detail === 0) replayIconMotion(event.target);
-    const target = event.target.closest("[data-screen],[data-nav],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
+    const target = event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
     // O wrapper fecha somente pelo toque no fundo. Controles dentro do modal não
     // podem herdar o data-action="close-modal" do wrapper.
     if (target.matches(".modal-wrap,.sheet-wrap") && event.target !== target) return;
     if (target.dataset.screen) { navigateTo(target.dataset.screen); return; }
-    if (target.dataset.nav) {
-      const salesScreens = { "sales-clients": "funnel", "sales-chat": "chat", "sales-agenda": "agenda" };
-      if (salesScreens[target.dataset.nav] && H.salesModule) { H.salesModule.activate(salesScreens[target.dataset.nav], "forward"); return; }
-      if (salesScreens[target.dataset.nav]) window.location.href = `../vendas/index.html?screen=${salesScreens[target.dataset.nav]}&motion=forward&from=mobile`;
-      return;
-    }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
     if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } openClientEditor(clientById(target.dataset.client)); return; }
     if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
@@ -6096,16 +6089,6 @@
       H.cache.set("nav-mudo", state.navMudo);
       if (state.navMudo) H.speakStop();
       render();
-      return;
-    }
-    if (action === "module-toggle") {
-      const current = H.modules.get(); const module = target.dataset.module;
-      if (!Object.prototype.hasOwnProperty.call(current, module)) return;
-      const next = { ...current, [module]: !current[module] };
-      if (!H.modules.set(next)) { toast("Mantenha pelo menos um módulo ativo.", true); return; }
-      target.setAttribute("aria-checked", String(next[module]));
-      target.querySelector(".module-switch")?.classList.toggle("active", next[module]);
-      setTimeout(render, 220);
       return;
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
@@ -7578,31 +7561,13 @@
     }
   };
   if (!["route", "clients", "products", "settings"].includes(state.screen)) state.screen = "route";
-  H.logisticaModule = {
-    activate(screen, motion) {
-      moduleActive = true;
-      H.salesModule && H.salesModule.deactivate();
-      navigateTo(screen || "route", motion || "back");
-      syncKeyboardViewport();
-    },
-    // S2 21/07 — trocar de módulo (ex.: Vendas assume a tela) não passa mais
-    // por render() nenhum aqui — stopNavWatch() explícito, senão o watch da
-    // navegação ficaria vivo em segundo plano sem tela nenhuma pra atualizar.
-    deactivate() { moduleActive = false; stopNavWatch(); clearKeyboardViewport(); },
-  };
-  if (!H.modules.get().logistica && state.screen !== "settings") {
-    moduleActive = false;
-    window.addEventListener("hbx:sales-ready", () => H.salesModule.activate("funnel", "forward"), { once: true });
-  }
-  else {
-    render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(true);
-    // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
-    // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); } });
-    // Voltar da tela de permissão do Android nem sempre passa por
-    // visibilitychange em toda WebView — o focus da janela é o segundo laço de
-    // segurança. retomarUpdatePosPermissao() é idempotente (sai na hora se o
-    // modal não for o de update), então rodar duas vezes não custa nada.
-    window.addEventListener("focus", () => retomarUpdatePosPermissao());
-  }
+  render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(true);
+  // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
+  // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); } });
+  // Voltar da tela de permissão do Android nem sempre passa por
+  // visibilitychange em toda WebView — o focus da janela é o segundo laço de
+  // segurança. retomarUpdatePosPermissao() é idempotente (sai na hora se o
+  // modal não for o de update), então rodar duas vezes não custa nada.
+  window.addEventListener("focus", () => retomarUpdatePosPermissao());
 })();

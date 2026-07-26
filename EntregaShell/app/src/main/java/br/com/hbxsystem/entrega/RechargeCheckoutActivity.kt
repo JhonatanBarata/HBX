@@ -59,7 +59,7 @@ class RechargeCheckoutActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         packKey = intent.getStringExtra(EXTRA_PACK_KEY)?.trim().orEmpty()
-        if (BuildConfig.APP_MODE != "logistica" || !packKey.matches(PACK_KEY_PATTERN)) {
+        if (!packKey.matches(PACK_KEY_PATTERN)) {
             finish()
             return
         }
