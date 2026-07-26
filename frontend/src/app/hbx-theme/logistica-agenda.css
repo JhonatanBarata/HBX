@@ -24,7 +24,8 @@
 .log-guide {
   position: relative;
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(138px, 1fr));
+  /* S7 — 3ª aba (Saúde da base) somou-se a Rota de hoje/Agenda semanal. */
+  grid-template-columns: repeat(3, minmax(118px, 1fr));
   gap: 3px;
   padding: 4px;
   border: 1px solid var(--border-hairline);
@@ -1108,7 +1109,7 @@
   }
 
   .log-guide {
-    width: min(100%, 360px);
+    width: min(100%, 460px);
   }
 
   .log-agenda__surface {
@@ -1210,5 +1211,99 @@
   .log-agenda__skeleton::after,
   .log-agenda__skeleton-line {
     animation: none;
+  }
+}
+
+/* ================================================================
+   S7 SAÚDE-DA-BASE (25/07, PR25072026-ROTA-CONFERIDA) — semáforo da BASE
+   inteira (não é a rota do dia — ver logistica-conferencia.util.ts). Reusa
+   .log-agenda-impact__stat (mesma pintura de card já usada no preview de
+   impacto da agenda) numa grade mais larga; zero cor nova, só os tokens de
+   estado já usados no resto do arquivo (--hbx-success/warning/danger).
+   ================================================================ */
+
+.log-saude__stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.log-saude__stats .is-ok { color: var(--hbx-success); }
+.log-saude__stats .is-warn { color: var(--hbx-warning); }
+.log-saude__stats .is-danger { color: var(--hbx-danger); }
+
+/* Filtro por semáforo — Lei nº2 do Design System: grupo de chips com 1 ativo
+   por vez usa Glass Pill; a track/tab aqui é a MESMA receita visual de
+   .log-agenda-action-tabs (existente), só com 4 colunas em vez de 2. */
+.log-saude__filtro {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(4, minmax(76px, 1fr));
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-soft);
+  --glass-pill-radius: var(--radius-pill);
+}
+
+.log-saude__filtro-tab {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.log-saude__filtro-tab.is-active {
+  color: var(--text-strong);
+}
+
+/* Lista — mesma trava de altura de .log-agenda-import__list (base pode ter
+   milhares de clientes; a PÁGINA não rola, a LISTA rola dentro do card). */
+.log-saude__lista {
+  display: grid;
+  gap: 7px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.log-saude__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+}
+
+.log-saude__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.log-saude__semaforo {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: none;
+}
+
+.log-saude__semaforo--verde { background: var(--hbx-success); }
+.log-saude__semaforo--amarelo { background: var(--hbx-warning); }
+.log-saude__semaforo--vermelho { background: var(--hbx-danger); }
+
+@media (max-width: 760px) {
+  .log-saude__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

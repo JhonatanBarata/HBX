@@ -25,6 +25,7 @@ import { isTenantAdmin } from "@/lib/roles";
 
 import { RouteBuilderDialog } from "./route-builder";
 import { WeeklyAgenda } from "./weekly-agenda";
+import { BaseSaude } from "./base-saude";
 
 type Cliente = {
   id: string;
@@ -68,7 +69,7 @@ type Rota = {
   items: Entrega[];
 };
 
-type LogisticsView = "today" | "weekly";
+type LogisticsView = "today" | "weekly" | "saude";
 
 const STATUS_LABEL: Record<string, string> = {
   agendada: "Agendada",
@@ -453,6 +454,19 @@ export function LogisticaClient() {
             >
               Agenda semanal
             </button>
+            <button
+              ref={viewPill.itemRef("saude")}
+              id="log-tab-saude"
+              type="button"
+              role="tab"
+              aria-controls="logistica-view-saude"
+              aria-selected={view === "saude"}
+              tabIndex={view === "saude" ? 0 : -1}
+              className={`log-guide__tab glass-pill-item${view === "saude" ? " is-active" : ""}`}
+              onClick={() => setView("saude")}
+            >
+              Saúde da base
+            </button>
           </div>
         </div>
       )}
@@ -555,6 +569,8 @@ export function LogisticaClient() {
       {admin && view === "weekly" && (
         <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
       )}
+
+      {admin && view === "saude" && <BaseSaude />}
 
       {open && (
         <EntregaDetail

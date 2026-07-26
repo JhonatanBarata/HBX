@@ -42,6 +42,8 @@ import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-
 import { LogisticaOfflineReservationReconcilerService } from './logistica-offline-reservation-reconciler.service';
 import { LogisticaAgendaController } from './logistica-agenda.controller';
 import { LogisticaAgendaService } from './logistica-agenda.service';
+import { LogisticaBaseSaudeController } from './logistica-base-saude.controller';
+import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -110,6 +112,12 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
  * rotaOrdem/etaAt, nunca chama LogisticaRouteBillingService) e devolve o semáforo de
  * confiança do pino por parada. Reusa LogisticaConfigService/LogisticaOsrmService já
  * providos aqui; não precisa de novo import de módulo.
+ *
+ * S7 SAÚDE-DA-BASE (25/07, PR25072026-ROTA-CONFERIDA): LogisticaBaseSaudeController/
+ * Service expõem `/logistica/base-saude` — a MESMA regra da S3 (`conferirParadas`)
+ * apontada pro tenant inteiro em vez da rota do dia. Read-only puro (só
+ * findMany/groupBy); nenhuma dependência nova de módulo (só PrismaModule, já
+ * importado acima).
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
@@ -122,6 +130,7 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
     LogisticaOfflineController,
     LogisticaOsrmController,
     LogisticaAgendaController,
+    LogisticaBaseSaudeController,
   ],
   providers: [
     LogisticaService,
@@ -157,6 +166,7 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
     LogisticaOfflineReservationReconcilerService,
     LogisticaTrackingBonusService,
     LogisticaAgendaService,
+    LogisticaBaseSaudeService,
   ],
   exports: [
     LogisticaService,
