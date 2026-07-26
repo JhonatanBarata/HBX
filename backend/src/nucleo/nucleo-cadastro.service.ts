@@ -584,7 +584,10 @@ export class NucleoCadastroService {
     const where: any = { companyId, isCliente: true };
     if (uf) where.uf = uf;
     if (query) {
-      const queryDigits = query.replace(/\D+/g, '');
+      // Só trata como telefone/documento quando a consulta inteira é numérica
+      // (aceitando a pontuação usual). Em "123teste", aproveitar apenas "123"
+      // traz clientes cujo telefone contém 123, mesmo sem relação com o nome.
+      const queryDigits = /^[\d\s()+./-]+$/.test(query) ? query.replace(/\D+/g, '') : '';
       const or: any[] = [
         { name: { contains: query, mode: 'insensitive' } },
         { cidade: { contains: query, mode: 'insensitive' } },

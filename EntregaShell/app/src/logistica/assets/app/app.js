@@ -3133,6 +3133,23 @@
     const product = (state.products || []).find(p => String(p.id) === String(productId));
     return product ? Number(product.precoCatalogo ?? product.price ?? 0) : 0;
   }
+  function normalizeCatalogProducts(rows) {
+    return (Array.isArray(rows) ? rows : [])
+      .filter(product => !product || !product.kind || (product.kind === "tenant_product" && product.usaLogistica !== false))
+      .map(product => {
+        if (!product) return product;
+        const fromManager = product.status !== undefined || product.priceCents !== undefined || product.stock !== undefined;
+        return {
+          ...product,
+          nome: product.nome || product.name || "",
+          ativo: fromManager ? String(product.status || "").toLowerCase() === "active" : product.ativo !== false,
+          precoCatalogo: product.precoCatalogo != null
+            ? Number(product.precoCatalogo)
+            : (product.priceCents != null ? Number(product.priceCents) / 100 : (product.price != null ? Number(product.price) : null)),
+          estoque: product.estoque != null ? Number(product.estoque) : (product.stock != null ? Number(product.stock) : null),
+        };
+      });
+  }
   function itemLabel(productId) { const p = (state.products || []).find(pr => String(pr.id) === String(productId)); return p ? `${p.nome || p.name || "Produto"} · ${p.unidade || "unidade"}` : "Produto"; }
   // PR20072026 fix 20/07 — carrega os produtos JÁ cadastrados do cliente e (a)
   // guarda o preço acordado por produto (usado como valor sugerido) e (b)
@@ -4267,7 +4284,7 @@
       return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Agenda</h2><p class="subtitle">Escolha um ou mais dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-days">${dayRows}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Definir sequência ›</button></div></section></div>`;
     }
     if (state.modal === "route-mode") {
-      const locked = routeActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
+      const locked = serverRouteActive(); const current = state.config && state.config.modoRotaPadrao || "ESSENTIAL";
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Modo das próximas rotas</h2><p class="subtitle">A escolha é congelada quando a rota inicia</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${locked ? empty("Rota em andamento", "O modo atual não pode ser alterado no meio da rota.") : `<div class="list"><button class="row-card" data-mode="ESSENTIAL"><div class="card-main"><strong>Rota Essencial</strong><span>Sem localização ao vivo · cobrança por blocos de 5</span></div>${current === "ESSENTIAL" ? `<span class="badge success">Atual</span>` : ""}</button><button class="row-card" data-mode="TRACKED" ${state.config && state.config.trackingDisponivel ? "" : "disabled"}><div class="card-main"><strong>Rota Rastreada</strong><span>Localização ao vivo · cobrança por entrega concluída</span></div>${current === "TRACKED" ? `<span class="badge success">Atual</span>` : ""}</button></div>`}</section></div>`;
     }
     if (state.modal === "arrival-radius") { const radius = Math.max(20, Number(state.config && state.config.raioChegadaM || 60)); return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Avisar chegada</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="arrival-radius-form"><div class="field"><label>Metros</label><input name="raioChegadaM" type="number" min="20" max="1000" step="10" inputmode="numeric" value="${radius}" required></div><button class="btn btn-primary btn-block" type="submit">Salvar</button></form></section></div>`; }
@@ -5310,7 +5327,8 @@
   async function refresh(silent, boot) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
     const routePath = isAdmin() ? "/logistica/admin-route/route" : "/logistica/rota";
-    const requests = [H.api(`${routePath}?date=${encodeURIComponent(operationalDate())}`), H.api("/logistica/produtos"), H.api("/logistica/config")];
+    const productsPath = isAdmin() ? "/products" : "/logistica/produtos";
+    const requests = [H.api(`${routePath}?date=${encodeURIComponent(operationalDate())}`), H.api(productsPath), H.api("/logistica/config")];
     const bootTotal = requests.length + (state.screen === "clients" ? 1 : 0);
     if (boot) H.boot.begin("logistica", bootTotal);
     const tracked = boot ? requests.map(request => Promise.resolve(request).finally(() => H.boot.step("logistica"))) : requests;
@@ -5318,7 +5336,7 @@
     // Aplica produtos/config ANTES de tratar a rota: no primeiro login a rota pode
     // falhar, mas o config precisa entrar mesmo assim — isAdmin() depende dele, e
     // sem ele a retry escolheria a rota errada e repetiria o mesmo erro pra sempre.
-    if (results[1].status === "fulfilled") { state.products = results[1].value || []; H.cache.set("logistica-products", state.products); }
+    if (results[1].status === "fulfilled") { state.products = normalizeCatalogProducts(results[1].value); H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
     if (results[0].status === "fulfilled") {
       state.route = results[0].value;
@@ -6157,7 +6175,7 @@
     if (target.dataset.paymentForm) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.formaPagamento = target.dataset.paymentForm; if (draft.formaPagamento !== "na_hora") draft.metodoPadrao = ""; render(); return; }
     if (target.dataset.paymentMethod) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.metodoPadrao = target.dataset.paymentMethod; render(); return; }
     if (target.dataset.mode) {
-      if (routeActive()) return toast("O modo está congelado até encerrar a rota.", true);
+      if (serverRouteActive()) return toast("O modo está congelado até encerrar a rota.", true);
       try { await H.api("/logistica/config", { method: "PATCH", body: { trackingAtivo: target.dataset.mode === "TRACKED", modoRotaPadrao: target.dataset.mode } }); await closeOverlay("modal"); await refresh(true); toast("Modo padrão atualizado."); } catch (error) { toast(humanApiError(error), true); }
       return;
     }

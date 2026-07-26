@@ -24,7 +24,6 @@ class NativeApiClientPathPolicyTest {
     @Test
     fun logisticaDoesNotExposeSalesEndpoints() {
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/vendas/board"))
-        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/products"))
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/webscraping/radar/leads"))
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/webscraping/radar/leads/lead-1/send-to-vendas"))
         assertFalse(isMobileEndpointAllowed("logistica", "PATCH", "/vendas/lead/lead-1"))
@@ -38,6 +37,8 @@ class NativeApiClientPathPolicyTest {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/mobile/route"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/mobile/materialize"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/conferir"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota/custo-preview"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/iniciar"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/admin-route/route"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/admin-route/adjustments"))
@@ -50,12 +51,15 @@ class NativeApiClientPathPolicyTest {
         assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/admin-route/prepare"))
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/admin-route/unknown"))
         assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/rota"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota/conferir"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/custo-preview"))
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/admin"))
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/products/item-1"))
     }
 
     @Test
     fun pr18072026EndpointsFollowTheExactMethodPolicy() {
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/products"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/limpar-dia"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota-modelos"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-modelos"))

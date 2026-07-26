@@ -267,6 +267,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "dia-preview"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "rota"),
+            listOf("logistica", "rota", "custo-preview"),
             listOf("logistica", "mobile", "route"),
             listOf("logistica", "produtos"),
             listOf("logistica", "config"),
@@ -278,6 +279,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "rota-modelos"),
             listOf("nucleo", "clientes"),
             listOf("logistica", "leitura", "atual"),
+            // O gerenciador de Produtos precisa dos ativos e arquivados para
+            // tornar a ação "Reativar produto" alcançável.
+            listOf("products"),
         ) -> true
         method == "GET" && segments.size == 5
             && segments.take(3) == listOf("logistica", "agenda", "dias")
@@ -299,6 +303,7 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "mobile", "materialize"),
             listOf("logistica", "rota", "planejar"),
+            listOf("logistica", "rota", "conferir"),
             listOf("logistica", "rota", "iniciar"),
             listOf("logistica", "rota", "encerrar"),
             listOf("logistica", "rota", "limpar-dia"),

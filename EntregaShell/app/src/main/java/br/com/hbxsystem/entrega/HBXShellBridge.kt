@@ -24,7 +24,7 @@ class HBXShellBridge(
         private const val MAX_IDENTIFIER_CHARS = 120
         private const val MAX_NAME_CHARS = 160
         private const val MIN_RADIUS_M = 20
-        private const val MAX_RADIUS_M = 500
+        private const val MAX_RADIUS_M = 1_000
         private const val MAX_MAP_URL_CHARS = 4_096
     }
 

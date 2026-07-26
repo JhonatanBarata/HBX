@@ -155,6 +155,20 @@ test('MOBILE lista só clientes e permite busca por telefone/endereço', async (
   assert.equal(res.items[0].numero, '10');
 });
 
+test('MOBILE busca alfanumérica não usa o fragmento numérico como telefone/documento', async () => {
+  const row = baseRow();
+  const { prisma, store } = buildPrismaMock({ pageRows: [row], universe: [row] });
+
+  await new NucleoCadastroService(prisma).listClientes(7, { query: '123teste' });
+  const pageArgs = store.customerFindManyArgs.find((args) => Number(args?.take) > 0);
+  const filters = pageArgs?.where?.OR || [];
+
+  assert.ok(filters.some((filter: any) => filter.name?.contains === '123teste'));
+  assert.equal(filters.some((filter: any) => filter.phoneNormalized), false);
+  assert.equal(filters.some((filter: any) => filter.document), false);
+  assert.equal(filters.some((filter: any) => filter.cnpj), false);
+});
+
 test('W5 listClientes: pendências na ordem fixa endereco→numero→gps→dia→whatsapp', async () => {
   const row = baseRow({ endereco: '  ', numero: null, lat: null, phoneNormalized: null });
   const { prisma } = buildPrismaMock({ pageRows: [row], universe: [row], vinculos: [] });
