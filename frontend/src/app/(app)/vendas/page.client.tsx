@@ -241,16 +241,18 @@ function fmtWhen(iso: string | null) {
 type VendasStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 // Subtítulo = a AÇÃO da etapa (onboarding embutido): o vendedor lê "o que fazer
 // aqui" sem tour. Mapeado sobre os 5 status reais do VendasLead (nada de máquina
-// de estados nova). Prospecção→Qualificação→Proposta→Negociação→Fechamento.
+// de estados nova). LEAD-CÊNTRICO (S1, 25/07): rótulos renomeados pra falar a
+// língua do fluxo real (Planejar→Robô trabalhando→Te chamou→Negociação→
+// Fechado) — chaves/ordem/tone INTOCADOS (nada de migração).
 const STAGE_ORDER: { key: VendasStage; label: string; sub: string; tone: string }[] = [
-  { key: "novo", label: "Prospecção", sub: "Novos leads — faça o 1º contato", tone: "new" },
-  { key: "contato", label: "Qualificação", sub: "Classifique e ranqueie", tone: "contact" },
-  { key: "retorno", label: "Proposta", sub: "Em negociação — envie a oferta", tone: "return" },
-  { key: "qualificado", label: "Negociação", sub: "Follow-up até o sim", tone: "qualified" },
-  { key: "encerrado", label: "Fechamento", sub: "Contrato e compromissos", tone: "ended" },
+  { key: "novo", label: "Planejar", sub: "Lead novo — leia, planeje e ligue o robô", tone: "new" },
+  { key: "contato", label: "Robô trabalhando", sub: "Em cadência — contatos em andamento", tone: "contact" },
+  { key: "retorno", label: "Te chamou", sub: "Respondeu ou pediu retorno — sua vez", tone: "return" },
+  { key: "qualificado", label: "Negociação", sub: "Você assumiu — proposta e follow-up", tone: "qualified" },
+  { key: "encerrado", label: "Fechado", sub: "Contrato e compromissos", tone: "ended" },
 ];
 const STAGE_LABEL: Record<VendasStage, string> = {
-  novo: "Novo lead", contato: "Em contato", retorno: "Retorno", qualificado: "Qualificado", encerrado: "Encerrado",
+  novo: "Planejar", contato: "Robô trabalhando", retorno: "Te chamou", qualificado: "Negociação", encerrado: "Fechado",
 };
 function normalizeStage(status: string | null | undefined): VendasStage {
   const s = String(status || "").trim().toLowerCase();
@@ -531,6 +533,11 @@ export function VendasClient() {
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
+  // Guias de etapa da LISTA (S1 LEAD-CENTRICO): 1 clique filtra a planilha por
+  // etapa; clicar de novo na guia ativa limpa (null = mostra tudo). Estado
+  // local só (não persiste). Seleção ativa = Glass Pill (Lei nº2).
+  const [stageFilter, setStageFilter] = useState<VendasStage | null>(null);
+  const guidePill = useGlassPill<HTMLButtonElement>(stageFilter, view);
   // ── Grade (planilha): colunas do usuário, ordenação por coluna, edição inline.
   // Colunas e ordenação vivem em localStorage (por navegador/usuário logado).
   const [gridKeys, setGridKeys] = useState<string[]>(() => {
@@ -1109,6 +1116,14 @@ export function VendasClient() {
     return sortLeads(list, gridSort);
   })();
 
+  // Guias de etapa da LISTA: contagem por etapa sobre os MESMOS leads carregados
+  // (busca + equipe já aplicados em flatLeads) — bate com as colunas do quadro
+  // pros mesmos dados. listLeads é a planilha efetivamente renderizada: compõe
+  // busca + guia de etapa (guia ativa filtra; nenhuma = mostra tudo).
+  const stageCounts: Record<VendasStage, number> = { novo: 0, contato: 0, retorno: 0, qualificado: 0, encerrado: 0 };
+  for (const c of flatLeads) stageCounts[normalizeStage(c.status)]++;
+  const listLeads: VendasLead[] = stageFilter ? flatLeads.filter(c => normalizeStage(c.status) === stageFilter) : flatLeads;
+
   // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
   const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
     onTerminal: (radarLeadId) => { void refreshBoardLead(radarLeadId); },
@@ -1159,13 +1174,15 @@ export function VendasClient() {
     applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
   }
 
-  // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada).
-  const todosSelecionados = flatLeads.length > 0 && flatLeads.every(c => selecionados.has(c.id));
+  // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada — busca + guia de etapa).
+  const todosSelecionados = listLeads.length > 0 && listLeads.every(c => selecionados.has(c.id));
   function toggleTodos() {
-    setSelecionados(todosSelecionados ? new Set() : new Set(flatLeads.map(c => c.id)));
+    setSelecionados(todosSelecionados ? new Set() : new Set(listLeads.map(c => c.id)));
   }
 
-  // Navega com ↑/↓ entre leads igual Excel — só na lista desktop
+  // Navega com ↑/↓ entre leads igual Excel — só na lista desktop. Usa a MESMA
+  // listLeads da planilha (busca + guia de etapa) pra nunca pousar numa linha
+  // fora do que está visível na tela.
   useEffect(() => {
     if (view !== "list") return;
     function onKey(e: KeyboardEvent) {
@@ -1174,10 +1191,7 @@ export function VendasClient() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (fecharOpen || novoOpen || prospOpen || agendaOpen || retornoOpen || semInteresseOpen || cockpitOpen) return;
       e.preventDefault();
-      const q = searchQuery.toLowerCase();
-      const list = sortLeads(BLOCK_ORDER.flatMap(({ key }) => (board?.blocks?.[key] || []).filter(card =>
-        !searchQuery || [card.name, card.phone, card.email, card.segment, card.city, card.state, card.nextAction, card.shortNote].some(v => v?.toLowerCase().includes(q))
-      )), gridSort);
+      const list = listLeads;
       const idx = sel ? list.findIndex(c => c.id === sel.id) : -1;
       const next = e.key === "ArrowDown"
         ? (idx < list.length - 1 ? list[idx + 1] : list[0]) ?? null
@@ -1189,7 +1203,7 @@ export function VendasClient() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [view, board, searchQuery, gridSort, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen, cockpitOpen]);
+  }, [view, board, searchQuery, gridSort, stageFilter, listLeads, sel, fecharOpen, novoOpen, prospOpen, agendaOpen, retornoOpen, semInteresseOpen, cockpitOpen]);
 
   const summary = board?.summary;
 
@@ -1399,6 +1413,29 @@ export function VendasClient() {
                   (VendasFullscreenBridge), que é onde o lead se edita. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <div className="vnd-grid-wrap">
+                  {/* Guias de etapa (S1 LEAD-CENTRICO): 1 tab por etapa do lead, com
+                      contagem — clique filtra a planilha (2º clique na guia ativa
+                      limpa). Compõe com busca/equipe (já aplicados em listLeads). */}
+                  <div className="vnd-guides glass-pill-track" role="tablist" aria-label="Etapa do lead">
+                    <GlassPill {...guidePill} />
+                    {STAGE_ORDER.map(stage => {
+                      const active = stageFilter === stage.key;
+                      return (
+                        <button
+                          key={stage.key}
+                          type="button"
+                          ref={guidePill.itemRef(stage.key)}
+                          role="tab"
+                          aria-selected={active}
+                          className={"vnd-guide" + (active ? " is-on" : "")}
+                          onClick={() => setStageFilter(f => (f === stage.key ? null : stage.key))}
+                        >
+                          {stage.label}
+                          <span className="vnd-guide__count">{stageCounts[stage.key]}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                   {(selecionados.size > 0 || bulkMsg) && (
                     <div className="vnd-grid-bar">
                       {selecionados.size > 0 && (
@@ -1434,7 +1471,7 @@ export function VendasClient() {
                       </tr>
                     </thead>
                     <tbody>
-                      {flatLeads.map(card => {
+                      {listLeads.map(card => {
                         const engagement = vendasEngagementMeta(card.engagement, card.conversation);
                         const ag = agendaInfo(card);
                         return (
@@ -1566,6 +1603,13 @@ export function VendasClient() {
                                       ? <span className="vnd-card__owner"><Av name={card.owner.name} size={16} />{card.owner.name}</span>
                                       : <span className="vnd-card__owner vnd-card__owner--none">Sem dono</span>}
                                     <span className={engagement.className}>{engagement.label}</span>
+                                    {/* Selo de tentativa (S1 LEAD-CENTRICO): discreto, só quando já
+                                        houve contato — nunca duplica o chip de agenda (ag) acima. */}
+                                    {(card.attemptCount ?? 0) > 0 && (
+                                      <span className="tag" title={`${card.attemptCount} tentativa${card.attemptCount === 1 ? "" : "s"} de contato`}>
+                                        {card.attemptCount}º contato
+                                      </span>
+                                    )}
                                     {card.automation && <span className="tag warn" title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
                                   </div>
                                 </article>

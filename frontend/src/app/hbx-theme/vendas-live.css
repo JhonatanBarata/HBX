@@ -1463,6 +1463,29 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    cabeçalho fixo, edição inline. Zero cor literal: só token central.
    ============================================================ */
 .vnd-grid-wrap { display: grid; min-width: 0; }
+
+/* Guias de etapa (S1 LEAD-CENTRICO): 5 tabs acima da planilha, uma por etapa
+   do lead, com contagem — clique filtra a grade (2º clique na guia ativa
+   limpa). Mesmo padrão de .dn-convo__tabs/.dn-convo__tab (kit.css): seleção
+   ativa é SEMPRE Glass Pill deslizante (Lei nº2), nunca borda/fundo próprios. */
+.vnd-guides { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; padding: 0 16px 10px; --glass-pill-radius: var(--radius-xs); }
+.vnd-guide {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 7px;
+  border: none; background: transparent;
+  font-family: var(--font-body); font-size: 0.72rem; font-weight: 700; color: var(--text-muted);
+  cursor: pointer; padding: 7px 12px; border-radius: var(--radius-xs);
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.vnd-guide:hover { color: var(--text-body); }
+.vnd-guide.is-on { color: var(--hbx-brand-strong); }
+.vnd-guide__count {
+  font-family: var(--font-mono); font-size: 0.64rem; font-weight: 700; color: inherit;
+  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
+  padding: 1px 7px; border-radius: 999px;
+}
+.vnd-guide.is-on .vnd-guide__count { background: color-mix(in srgb, var(--hbx-brand-strong) 16%, transparent); }
+
 .vnd-grid-bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 0 16px 8px;
