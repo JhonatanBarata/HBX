@@ -26,8 +26,12 @@ import {
 } from './logistica-agenda-sequencia.util';
 import { AgendaAlertaJanela, calcularEtas } from './logistica-agenda-eta.util';
 import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
+// FUSO (26/07) — a Agenda passou a usar os MESMOS helpers de dia civil de São Paulo
+// que o resto do módulo já usava; ver o bloco "FUSO" no fim deste arquivo.
+import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
 
 const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'] as const;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const PRESERVED_ROUTE_STATUS = ['em_rota'] as const;
 const FINISHED_DELIVERY_STATUS = ['entregue', 'cancelada'] as const;
 
@@ -2153,34 +2157,69 @@ function orderLegacyGroups(groups: LegacyGroup[], paradasJson: unknown): LegacyG
   });
 }
 
-function parseOperationalDate(value?: string): Date {
-  const parsed = parseDateOrNull(value);
-  const date = parsed ?? new Date();
-  if (value && !parsed) throw new BadRequestException('Data inválida. Use YYYY-MM-DD.');
-  return startOfDay(date);
-}
+// ── FUSO (26/07) — a Agenda pensa em SÃO PAULO, nunca no fuso do processo ────────
+// Incidente 26/07 (company 48, "o app parou de gerar rota"): estas 4 funções usavam
+// os métodos LOCAIS do Date (`setHours`, `getDay`, `getFullYear`). Isso equivale a
+// "meia-noite do fuso de quem está rodando o código" — em dev (Windows do dono, -03)
+// dá meia-noite de Brasília e tudo funciona; no CONTAINER (TZ=UTC) dá meia-noite UTC,
+// que é 21h do dia ANTERIOR em Brasília. Resultado medido em prod: `materializeForRoute`
+// gravava `scheduledAt = 2026-07-26T00:00:00Z` e o `/admin-route/prepare` procurava a
+// partir de `2026-07-26T00:00:00-03:00` (= 03:00Z) — as paradas nasciam 3h ANTES da
+// janela que as busca, ficavam invisíveis, e cada clique em "Montar rota"
+// materializava um lote novo (98 + 73 + 7 = 178 entregas órfãs) enquanto a tela dizia
+// "Nenhuma parada foi encontrada para a rota de hoje".
+//
+// LEI: data de operação é dia CIVIL de São Paulo, explicitamente — nunca herdada do
+// fuso do processo (o mesmo código roda no Windows do dono e num container UTC, e os
+// dois têm que decidir o MESMO dia). Mesmo padrão que `logistica-occurrence.service.ts`
+// (saoPauloDateKey/isoWeekdayForDate) e `logistica-admin-route.service.ts` (`-03:00`)
+// já usavam — a Agenda era a peça fora do compasso.
+const SAO_PAULO_UTC_OFFSET = '-03:00';
 
+/** Meia-noite (00:00) do dia civil de São Paulo a que este instante pertence. */
 function startOfDay(date: Date): Date {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
+  return new Date(`${dateKey(date)}T00:00:00${SAO_PAULO_UTC_OFFSET}`);
 }
 
+/** Último milissegundo do dia civil de São Paulo (23:59:59.999 em SP). */
 function endOfDay(date: Date): Date {
-  const result = new Date(date);
-  result.setHours(23, 59, 59, 999);
-  return result;
+  return new Date(startOfDay(date).getTime() + DAY_IN_MS - 1);
 }
 
+/** Dia da semana (1=segunda … 7=domingo) do dia civil de São Paulo. */
 function isoWeekday(date: Date): number {
-  return date.getDay() || 7;
+  return isoWeekdayForDate(dateKey(date));
 }
 
+/** Data civil "YYYY-MM-DD" em São Paulo — independente do fuso do processo. */
 function dateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return saoPauloDateKey(date) ?? '';
+}
+
+/**
+ * Converte o que a UI manda (`?date=YYYY-MM-DD`) na meia-noite de São Paulo daquele
+ * dia. Um "YYYY-MM-DD" puro é DIA CIVIL, não um instante: interpretá-lo com o parser
+ * genérico (que usa o fuso do processo) é justamente o que escorregava o dia inteiro
+ * no container. Datas com hora/offset explícitos seguem o parse normal e são
+ * ancoradas no dia civil SP correspondente.
+ */
+function parseOperationalDate(value?: string): Date {
+  const raw = String(value ?? '').trim();
+  if (raw) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const anchored = new Date(`${raw}T00:00:00${SAO_PAULO_UTC_OFFSET}`);
+      // Round-trip: "2026-02-30" é bem-formada mas impossível — o Date rolaria pro
+      // dia seguinte em silêncio (mesmo cuidado de parseDateOrNull/dateParts).
+      if (Number.isNaN(anchored.getTime()) || dateKey(anchored) !== raw) {
+        throw new BadRequestException('Data inválida. Use YYYY-MM-DD.');
+      }
+      return anchored;
+    }
+    const parsed = parseDateOrNull(raw);
+    if (!parsed) throw new BadRequestException('Data inválida. Use YYYY-MM-DD.');
+    return startOfDay(parsed);
+  }
+  return startOfDay(new Date());
 }
 
 function planOccursOn(plan: any, date: Date): boolean {
@@ -2571,3 +2610,13 @@ function nextOccurrenceDate(plan: any, current: Date): Date {
   }
   return base;
 }
+
+/**
+ * FUSO (26/07) — superfície SÓ de teste das funções de dia civil (ver o bloco "FUSO"
+ * acima). Elas são privadas de propósito: quem escreve regra de agenda usa os
+ * helpers, não recalcula data na mão. Mas o incidente 26/07 mostrou que elas
+ * PRECISAM de teste rodando com TZ=UTC (o fuso do container, onde o bug aparecia e o
+ * fuso do dono escondia), então ficam alcançáveis por aqui — nunca use isto em
+ * código de produção. Ver `logistica-agenda-fuso.test.ts`.
+ */
+export const __fusoInternals = { startOfDay, endOfDay, isoWeekday, dateKey, parseOperationalDate };
