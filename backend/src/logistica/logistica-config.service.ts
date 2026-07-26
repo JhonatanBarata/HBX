@@ -74,6 +74,15 @@ export class LogisticaConfigService {
    * Fonte única do modo EFETIVO usado pela inicialização e pela cobrança.
    * A preferência TRACKED fica dormente enquanto qualquer um dos dois gates
    * (flag global + toggle do tenant) estiver desligado.
+   *
+   * ── 26/07 — LOGÍSTICA SIMPLES É O PADRÃO DE TODO MUNDO (ordem do dono) ──────
+   * Empresa nova nasce ESSENTIAL: o schema defaulta `modoRotaPadrao='ESSENTIAL'`
+   * e `trackingAtivo=false`, e `ensureRow` cria a linha SÓ com o companyId — não
+   * existe caminho de código que faça uma empresa nascer Rastreada. A Rastreada
+   * continua inteira no backend, dormente, e só liga por AÇÃO EXPLÍCITA DO
+   * ADMINISTRADOR NO PC (`/logistica/config` → "Modo das novas rotas", PATCH
+   * admin + billing owner). O celular não escolhe mais o modo — o modal do APK
+   * saiu em 26/07.
    */
   async resolveRouteMode(companyId: number): Promise<LogisticaRouteMode> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
@@ -183,6 +192,17 @@ export class LogisticaConfigService {
       }
       data.modoRotaPadrao = mode;
     }
+    // 26/07 — DESARMA a preferência órfã. Antes disso `trackingAtivo=false` +
+    // `modoRotaPadrao='TRACKED'` era um estado LEGAL: a rota caía em ESSENTIAL
+    // (effectiveRouteMode), mas o TRACKED ficava armado no banco e voltava
+    // sozinho no dia em que alguém religasse o toggle — foi exatamente assim que
+    // as companies 5 e 48 ficaram TRACKED em produção. Desligar o rastreamento
+    // agora zera a preferência junto: pra voltar pra Rastreada o administrador
+    // (no PC) liga o toggle E escolhe a Rastreada de novo — 2 atos conscientes,
+    // nenhum deles no celular. NÃO apaga nada da Rastreada: rota já iniciada
+    // guarda o modo congelado na própria LogisticaRoute e continua sendo lida
+    // nos dois modos.
+    if (data.trackingAtivo === false) data.modoRotaPadrao = 'ESSENTIAL';
     if (input.avisoWhatsEnabled !== undefined) data.avisoWhatsEnabled = !!input.avisoWhatsEnabled;
     if (input.templateAviso !== undefined) {
       const t = String(input.templateAviso ?? '').trim();
@@ -516,6 +536,12 @@ function storedRouteMode(value: unknown): LogisticaRouteMode {
   return String(value || '').trim().toUpperCase() === 'TRACKED' ? 'TRACKED' : 'ESSENTIAL';
 }
 
+/**
+ * 3 gates, todos obrigatórios, e qualquer buraco cai em ESSENTIAL (Logística
+ * Simples): flag global `HBX_LOGISTICA_TRACKING_ENABLED` + toggle do tenant
+ * `trackingAtivo` + preferência salva `modoRotaPadrao='TRACKED'`. Empresa sem
+ * linha de config, com linha nova ou com valor sujo no banco → ESSENTIAL.
+ */
 function effectiveRouteMode(c: any): LogisticaRouteMode {
   if (!isLogisticaTrackingEnabled() || !c?.trackingAtivo) return 'ESSENTIAL';
   return storedRouteMode(c?.modoRotaPadrao);

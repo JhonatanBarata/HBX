@@ -166,6 +166,54 @@ test('PATCH comercial é company-scoped e preserva a preferência mesmo com flag
   await withTrackingFlag('true', async () => assert.equal(await service.resolveRouteMode(7), 'TRACKED'));
 });
 
+// ── 26/07 — LOGÍSTICA SIMPLES É O PADRÃO DE TODO MUNDO (ordem do dono) ────────
+// A Rastreada continua existindo inteira, mas dormente: empresa nova nasce
+// Simples e a ativação é ato explícito do administrador NO PC. Estes 3 testes
+// são o freio pra ninguém reverter isso "sem querer" num refactor futuro.
+
+test('empresa NOVA nasce em Logística Simples mesmo com a flag global LIGADA', async () => {
+  // ensureRow cria a linha só com o companyId → vale o default do schema
+  // (modoRotaPadrao='ESSENTIAL', trackingAtivo=false).
+  let current: any = null;
+  const prisma: any = {
+    logisticaConfig: {
+      findUnique: async () => current,
+      create: async ({ data }: any) => {
+        // espelha o default do schema.prisma pra linha recém-criada
+        current = { ...data, trackingAtivo: false, modoRotaPadrao: 'ESSENTIAL' };
+        return current;
+      },
+      upsert: async () => current,
+    },
+  };
+  const service = new LogisticaConfigService(prisma, { getBalance: async () => 100 } as any);
+  await withTrackingFlag('true', async () => {
+    assert.equal(await service.resolveRouteMode(99), 'ESSENTIAL');
+    const config = await service.getConfig(99, OWNER);
+    assert.equal(config.trackingAtivo, false);
+    assert.equal(config.modoRotaPadrao, 'ESSENTIAL');
+  });
+});
+
+test('desligar o rastreamento DESARMA a preferência TRACKED (não fica armada no banco)', async () => {
+  const { service, upsertCalls } = setup(row({ trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
+  await withTrackingFlag('true', async () => {
+    const config = await service.updateConfig(7, { trackingAtivo: false }, OWNER);
+    assert.deepEqual(upsertCalls[0].update, { trackingAtivo: false, modoRotaPadrao: 'ESSENTIAL' });
+    assert.equal(config.modoRotaPadrao, 'ESSENTIAL');
+    assert.equal(await service.resolveRouteMode(7), 'ESSENTIAL');
+  });
+});
+
+test('PATCH contraditório (tracking OFF + modo TRACKED) resolve em Simples', async () => {
+  const { service, upsertCalls } = setup(row({ trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
+  await withTrackingFlag('true', async () => {
+    const config = await service.updateConfig(7, { trackingAtivo: false, modoRotaPadrao: 'TRACKED' }, OWNER);
+    assert.equal(upsertCalls[0].update.modoRotaPadrao, 'ESSENTIAL');
+    assert.equal(config.modoRotaPadrao, 'ESSENTIAL');
+  });
+});
+
 test('gerente não altera modo nem configuração financeira', async () => {
   const { service, upsertCalls } = setup();
   await assert.rejects(
