@@ -846,7 +846,10 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .row-dense {
   display: grid;
   grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1.3fr) 84px minmax(0, 1fr) auto;
-  gap: 10px; align-items: center; height: var(--row-height); padding: 0 14px;
+  /* min-height, NUNCA height: a linha do Radar empilha nome + segmento em dois
+     andares. Com altura travada (e o passe de densidade baixando --row-height)
+     o segundo andar vazava por cima do nome da linha seguinte. */
+  gap: 10px; align-items: center; min-height: var(--row-height); padding: 4px 14px;
   border: none; border-bottom: 1px solid var(--border-hairline); background: transparent;
   font-family: var(--font-body); color: var(--text-body); text-align: left; cursor: pointer;
   transition: background var(--motion-fast);
