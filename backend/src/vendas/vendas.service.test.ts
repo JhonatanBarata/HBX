@@ -50,6 +50,13 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findMany: async () => [],
       ...(overrides?.companyConversation || {}),
     },
+    // S8 LEAD-CENTRICO (08-destravar-robo.md): default = config do Admin "existe"
+    // (linha salva) — não trava testes que não são sobre essa trava específica;
+    // cenários dedicados sobrescrevem via overrides.prisma.vendasComercialConfig
+    // (ex.: findUnique async () => null pra simular "config ausente").
+    vendasComercialConfig: {
+      findUnique: async () => ({ companyId: 1 }),
+    },
     user: {
       findFirst: async ({ where }: any) => ({
         id: Number(where?.id || 99),
@@ -110,6 +117,10 @@ function createService(overrides?: Partial<Record<string, any>>) {
     getBotConfig: async () => null,
     updateBotConfig: async (_user: any, payload: unknown) => payload,
     getAgendaConfig: async () => null,
+    // S8 LEAD-CENTRICO (08-destravar-robo.md): fonte única de "WhatsApp conectado"
+    // usada por resolveRoboBloqueio — default "conectado" pra não quebrar testes
+    // que não são sobre a trava de WhatsApp; cenários dedicados sobrescrevem.
+    getWhatsappHealth: async () => ({ connectedForUi: true }),
     ...(overrides?.inboxService || {}),
   } as any;
 
@@ -2177,21 +2188,38 @@ test('deleteLeadForUser pausa cadência ativa do lead antes de excluir (paradas 
 // idempotente nos dois sentidos.
 // ================================================================
 
-function createRoboHarness(opts: { leadStatus?: string } = {}) {
-  const now = new Date();
+function createRoboHarness(opts: {
+  leadStatus?: string;
+  comercialConfigMissing?: boolean;
+  whatsappConnected?: boolean;
+  leadPhone?: string | null;
+  leadEmail?: string | null;
+} = {}) {
   const lead: any = {
     id: 'lead-1',
     companyId: 7,
     assignedUserId: 99,
     status: opts.leadStatus || 'contato',
     name: 'Lead Robô',
+    // S8 LEAD-CENTRICO: default COM canal (whats+email) — cenários dedicados de
+    // "lead sem canal" zeram os dois via leadPhone/leadEmail: null.
+    phone: opts.leadPhone !== undefined ? opts.leadPhone : '11999998888',
+    email: opts.leadEmail !== undefined ? opts.leadEmail : 'lead@exemplo.com',
   };
   const inscricaoRows = new Map<string, any>();
   const cadenciaRows = new Map<string, any>();
   const timelineCalls: any[] = [];
   const { service } = createService({
     vendasLead: { findFirst: async () => lead },
+    inboxService: {
+      getWhatsappHealth: async () => ({ connectedForUi: opts.whatsappConnected !== false }),
+    },
     prisma: {
+      // S8 LEAD-CENTRICO: default = config do Admin "existe"; comercialConfigMissing
+      // simula a trava (1) — linha nunca salva pra empresa.
+      vendasComercialConfig: {
+        findUnique: async () => (opts.comercialConfigMissing ? null : { companyId: 7 }),
+      },
       cadencia: {
         findFirst: async ({ where }: any) => {
           if (where?.id) return cadenciaRows.get(where.id) || null;
@@ -2207,7 +2235,7 @@ function createRoboHarness(opts: { leadStatus?: string } = {}) {
         },
         update: async ({ where, data }: any) => {
           const row = { ...cadenciaRows.get(where.id), ...data };
-          cadenciaRows.set(where.id, row);
+          cadenciaRows.set(row.id, row);
           return row;
         },
       },
@@ -2217,8 +2245,16 @@ function createRoboHarness(opts: { leadStatus?: string } = {}) {
             const key = `${where.cadenciaId}:${where.leadId}`;
             return inscricaoRows.get(key) || null;
           }
-          // Checagem de conflito por status (findActiveConflict) — sem cadência
-          // custom ativa nos cenários de teste, nunca acha nada aqui.
+          // Checagem de conflito por status (findActiveConflict, S8): acha a
+          // primeira inscrição ativa/pausada do lead numa cadência DIFERENTE —
+          // é o que sustenta o cenário "cadência×cadência vira troca com aviso".
+          if (where.status?.in) {
+            return (
+              [...inscricaoRows.values()].find(
+                (r) => r.leadId === where.leadId && where.status.in.includes(r.status),
+              ) || null
+            );
+          }
           return null;
         },
         create: async ({ data }: any) => {
@@ -2324,6 +2360,199 @@ test('ligarRoboForUser recusa lead ja qualificado/encerrado', async () => {
       { personaKey: 'moderado' },
     ),
     /já avançado\/encerrado/i,
+  );
+});
+
+// ================================================================
+// S8 LEAD-CENTRICO (08-destravar-robo.md, ordem do dono 26/07) — as ÚNICAS
+// travas de ATIVAÇÃO passam a ser (1) config do Admin salva e (2) WhatsApp
+// conectado; tudo o mais (cadência desativada, resíduo de campanha legada,
+// outra cadência ativa, persona não escolhida) religa/troca/usa default
+// sozinho. Lead sem NENHUM canal continua bloqueando, com explicação.
+// ================================================================
+
+test('ligarRoboForUser bloqueia com motivo quando a config do Admin (VendasComercialConfig) nunca foi salva', async () => {
+  const { service } = createRoboHarness({ comercialConfigMissing: true });
+
+  await assert.rejects(
+    () => service.ligarRoboForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { personaKey: 'moderado' },
+    ),
+    /configuração de disparo.*ainda não foi feita/i,
+  );
+});
+
+test('ligarRoboForUser bloqueia com motivo quando o WhatsApp da empresa não está conectado', async () => {
+  const { service } = createRoboHarness({ whatsappConnected: false });
+
+  await assert.rejects(
+    () => service.ligarRoboForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { personaKey: 'moderado' },
+    ),
+    /whatsapp.*não está conectado/i,
+  );
+});
+
+test('ligarRoboForUser bloqueia com motivo quando o lead não tem whatsapp, telefone nem e-mail', async () => {
+  const { service } = createRoboHarness({ leadPhone: null, leadEmail: null });
+
+  await assert.rejects(
+    () => service.ligarRoboForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { personaKey: 'moderado' },
+    ),
+    /não tem whatsapp, telefone nem e-mail/i,
+  );
+});
+
+test('ligarRoboForUser config feita + chip conectado -> liga normalmente (as 2 travas passam)', async () => {
+  const { service, inscricaoRows } = createRoboHarness();
+
+  const result = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { personaKey: 'moderado' },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.ligou, true);
+  assert.equal(inscricaoRows.size, 1);
+});
+
+test('ligarRoboForUser religa sozinho uma cadência-seed desativada (nunca mais manda "ative-a antes")', async () => {
+  const { service, cadenciaRows, inscricaoRows } = createRoboHarness();
+  // Pré-semeia a cadência-seed 'moderado' já DESATIVADA — antes do S8 isto
+  // lançava BadRequestException ("ative-a antes de ligar o robô").
+  cadenciaRows.set('cad-seed', {
+    id: 'cad-seed',
+    companyId: 7,
+    persona: 'moderado',
+    nome: 'Moderado',
+    isSeed: true,
+    ativa: false,
+  });
+
+  const result = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { personaKey: 'moderado' },
+  );
+  assert.equal(result.ligou, true, 'liga mesmo com a seed desativada — religa sozinho');
+  assert.equal(cadenciaRows.get('cad-seed').ativa, true, 'a seed foi reativada como efeito colateral');
+  assert.equal(inscricaoRows.size, 1);
+});
+
+test('ligarRoboForUser sem personaKey nao trava mais pedindo escolha manual (usa default)', async () => {
+  const { service, inscricaoRows } = createRoboHarness();
+
+  const result = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    {},
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.ligou, true, 'liga usando uma persona default em vez de exigir personaKey');
+  assert.equal(inscricaoRows.size, 1);
+});
+
+test('ligarRoboForUser: resíduo de campanha de prospecção legada (motor morto no S7) não trava — cancela sozinho e liga', async () => {
+  const lead: any = {
+    id: 'lead-1', companyId: 7, assignedUserId: 99, status: 'contato', name: 'Lead Residuo', phone: '11999998888', email: null,
+  };
+  const inscricaoRows = new Map<string, any>();
+  const cadenciaRows = new Map<string, any>();
+  const timelineCalls: any[] = [];
+  const jobUpdateCalls: any[] = [];
+  let jobCanceled = false;
+
+  const { service } = createService({
+    vendasLead: { findFirst: async () => lead },
+    inboxService: { getWhatsappHealth: async () => ({ connectedForUi: true }) },
+    prisma: {
+      vendasComercialConfig: { findUnique: async () => ({ companyId: 7 }) },
+      // Resíduo: um job da campanha legada 'sent'/ativo (campaign ainda 'running'
+      // no cadastro antigo) que o findActiveConflict legado (commercial-contact-
+      // control.service.ts) acha via `campaign: { status: 'running' }`.
+      vendasAutomationJob: {
+        findMany: async () => (jobCanceled ? [] : [{ id: 'job-legacy-1', status: 'sent', classification: null }]),
+        updateMany: async (args: any) => { jobCanceled = true; jobUpdateCalls.push(args); return { count: 1 }; },
+      },
+      cadencia: {
+        findFirst: async ({ where }: any) => {
+          if (where?.id) return cadenciaRows.get(where.id) || null;
+          const found = [...cadenciaRows.values()].find(
+            (c) => c.companyId === where.companyId && c.persona === where.persona && c.isSeed === where.isSeed,
+          );
+          return found || null;
+        },
+        create: async ({ data }: any) => {
+          const row = { id: `cad-${cadenciaRows.size + 1}`, ...data };
+          cadenciaRows.set(row.id, row);
+          return row;
+        },
+        update: async ({ where, data }: any) => {
+          const row = { ...cadenciaRows.get(where.id), ...data };
+          cadenciaRows.set(row.id, row);
+          return row;
+        },
+      },
+      cadenciaInscricao: {
+        findFirst: async ({ where }: any) => {
+          if (where.cadenciaId && where.leadId) return inscricaoRows.get(`${where.cadenciaId}:${where.leadId}`) || null;
+          return null;
+        },
+        create: async ({ data }: any) => {
+          const id = `insc-${inscricaoRows.size + 1}`;
+          const row = { id, ...data };
+          inscricaoRows.set(`${data.cadenciaId}:${data.leadId}`, row);
+          return row;
+        },
+        updateMany: async () => ({ count: 0 }),
+        findMany: async () => [],
+      },
+      vendasLeadTimelineEvent: {
+        create: async ({ data }: any) => { timelineCalls.push(data); return {}; },
+      },
+    },
+  });
+
+  const result = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { personaKey: 'moderado' },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.ligou, true, 'resíduo de campanha legada nunca trava — cancela e liga');
+  assert.equal(jobUpdateCalls.length, 1, 'o job legado residual foi cancelado');
+  assert.equal(inscricaoRows.size, 1, 'a cadência do robô foi criada normalmente');
+});
+
+test('ligarRoboForUser: conflito cadência×cadência vira TROCA com aviso na timeline (nunca bloqueia)', async () => {
+  const { service, cadenciaRows, inscricaoRows, timelineCalls } = createRoboHarness();
+  // Cadência antiga já ativa pro mesmo lead (persona diferente da que vai ser pedida).
+  cadenciaRows.set('cad-old', {
+    id: 'cad-old', companyId: 7, persona: 'conservador', nome: 'Conservador', isSeed: true, ativa: true,
+  });
+  inscricaoRows.set('cad-old:lead-1', {
+    id: 'insc-old', companyId: 7, leadId: 'lead-1', cadenciaId: 'cad-old', status: 'ativa',
+  });
+
+  const result = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { personaKey: 'agressivo' },
+  );
+  assert.equal(result.ligou, true, 'troca em vez de bloquear');
+  assert.equal(inscricaoRows.get('cad-old:lead-1').status, 'cancelada', 'a cadência anterior foi pausada/cancelada');
+  const novaInscricao = [...inscricaoRows.values()].find((r) => r.status === 'ativa');
+  assert.ok(novaInscricao, 'a nova cadência (agressivo) ficou ativa');
+  assert.ok(
+    timelineCalls.some((e) => e.eventType === 'robo_trocado'),
+    'grava o aviso de troca na timeline do lead',
   );
 });
 

@@ -73,6 +73,11 @@ type PreVoo = {
   enrichment?: { enabled: boolean; podeBuscar: boolean };
   // S4 LEAD-CENTRICO (04-robozinho.md): estado ligado/desligado do robô pra este lead.
   robo?: { ligado: boolean; enrollmentId: string | null; cadenciaId: string | null; status: string | null; currentStep: number };
+  // S8 LEAD-CENTRICO (08-destravar-robo.md): motivo + próximo passo quando "Ligar
+  // robô" está bloqueado (config do Admin ausente / WhatsApp desconectado / lead
+  // sem canal nenhum) — null quando não há bloqueio. O botão NUNCA fica
+  // desabilitado mudo: isto é sempre exibido junto.
+  roboBloqueado?: { motivo: string; acao: string; codigo: "config_ausente" | "whatsapp_desconectado" | "lead_sem_canal" } | null;
 } | null;
 
 type CockpitCompany = {
@@ -1136,11 +1141,30 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                   <I d={ICONS.search} size={12} /> <span>{preVooEnrichBusy ? "Buscando…" : "Buscar dados"}</span>
                 </button>
               )}
-              <button type="button" className="btn-teal btn-xs" onClick={ligarRobo} disabled={roboBusy || !selectedPersonaKey}>
+              {/* S8 LEAD-CENTRICO (08-destravar-robo.md): motivo "WhatsApp
+                  desconectado" ganha atalho direto pra conectar — mesmo modal/
+                  fluxo já usado na aba Atendimento (nunca API crua do motor). */}
+              {preVoo.roboBloqueado?.codigo === "whatsapp_desconectado" && (
+                <button type="button" className="btn-ghost btn-xs" onClick={() => setWaConnectOpen(true)}>
+                  <WhatsAppMark size={13} /> <span>Conectar WhatsApp</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-teal btn-xs"
+                onClick={ligarRobo}
+                disabled={roboBusy || !selectedPersonaKey || Boolean(preVoo.roboBloqueado)}
+                title={preVoo.roboBloqueado ? `${preVoo.roboBloqueado.motivo} ${preVoo.roboBloqueado.acao}` : undefined}
+              >
                 <I d={ICONS.bolt} size={12} /> <span>{roboBusy ? "Ligando…" : "Ligar robô"}</span>
               </button>
               {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
               {roboMsg && <span className="muted-note">{roboMsg}</span>}
+              {/* PRIMORDIAL pro dono (26/07): nunca deixar o botão desabilitado
+                  mudo — motivo + próximo passo sempre visíveis quando bloqueado. */}
+              {!roboMsg && preVoo.roboBloqueado && (
+                <span className="muted-note">{preVoo.roboBloqueado.motivo} {preVoo.roboBloqueado.acao}</span>
+              )}
             </div>
           )}
           {!preVoo.robo?.ligado && (
