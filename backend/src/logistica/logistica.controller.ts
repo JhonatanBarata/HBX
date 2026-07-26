@@ -29,6 +29,7 @@ import { LogisticaService } from './logistica.service';
 import { isScoreFiadoEnabled } from './logistica-score.flags';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
@@ -49,6 +50,7 @@ import {
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
+  ConferirRotaDto,
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
@@ -114,6 +116,10 @@ export class LogisticaController {
     private readonly geo: LogisticaGeoService = null as any,
     // AGENDA-SEMANAL — mantém os construtores diretos dos testes legados.
     private readonly agenda: LogisticaAgendaService = null as any,
+    // S3 (25/07, PR25072026-ROTA-CONFERIDA) — "conferir" (dry-run do motor de rota).
+    // Mesmo padrão de default acima: preserva testes legados que instanciam o
+    // controller direto com poucos argumentos.
+    private readonly conferencia: LogisticaConferenciaService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -633,6 +639,28 @@ export class LogisticaController {
       deliveryIds: dto?.deliveryIds,
       ordemManual: dto?.ordemManual,
     }, entregadorId, Number(req.user?.id) || null);
+  }
+
+  /**
+   * S3 (25/07, PR25072026-ROTA-CONFERIDA) — "conferir": DRY-RUN ABSOLUTO. Roda o
+   * MESMO motor de rota (planRouteByRoads) em memória e devolve o semáforo de
+   * confiança por parada (pino_compartilhado/fora_do_casulo/geocode_nao_provado_em_
+   * campo/etc — ver logistica-conferencia.util.ts). NUNCA grava rotaOrdem/etaAt,
+   * NUNCA chama prepareRoute/billing, NUNCA dispara WhatsApp (Lei nº3 da frente).
+   * Mesmo escopo por ator do planejar (actorWhere.entregadorId) — motorista só
+   * confere a própria rota; vermelho é aviso, nunca bloqueia a saída (Lei nº7).
+   */
+  @Post('rota/conferir')
+  async conferirRota(@Req() req: any, @Body() dto: ConferirRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    return this.conferencia.conferir(companyId, {
+      date: dto?.date,
+      origemLat: dto?.origemLat,
+      origemLng: dto?.origemLng,
+      deliveryIds: dto?.deliveryIds,
+    }, entregadorId);
   }
 
   /**

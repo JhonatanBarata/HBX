@@ -12,6 +12,7 @@ import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaRotaService } from './logistica-rota.service';
+import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
@@ -103,6 +104,12 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
  * quebrar se algum teste instanciar o serviço sem ele) como DEGRAU 1 da cadeia
  * proxy→público→Haversine de planRouteByRoads. Mesmo provider desta entrada, só
  * ganhou mais um consumidor dentro do módulo.
+ *
+ * S3 VALIDADOR-CONFERÊNCIA (25/07, PR25072026-ROTA-CONFERIDA): LogisticaConferenciaService
+ * roda o MESMO planRouteByRoads em memória (DRY-RUN ABSOLUTO — Lei nº3: nunca grava
+ * rotaOrdem/etaAt, nunca chama LogisticaRouteBillingService) e devolve o semáforo de
+ * confiança do pino por parada. Reusa LogisticaConfigService/LogisticaOsrmService já
+ * providos aqui; não precisa de novo import de módulo.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
@@ -128,6 +135,7 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
     LogisticaAdminRouteViewService,
     LogisticaMobileService,
     LogisticaRotaService,
+    LogisticaConferenciaService,
     LogisticaRotaModeloService,
     LogisticaLeituraService,
     LogisticaGeoService,

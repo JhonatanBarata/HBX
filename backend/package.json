@@ -26,6 +26,7 @@
     "test:cobranca-whats": "npm run build && node --test dist/logistica/logistica-cobranca-aviso.service.test.js",
     "test:score-fiado": "npm run build && node --test dist/logistica/logistica-score.test.js",
     "test:resumo-diario": "npm run build && node --test dist/logistica/resumo-diario.service.test.js",
+    "test:rota-conferencia": "npm run build && node --test dist/logistica/logistica-conferencia.util.test.js dist/logistica/logistica-conferencia.service.test.js",
     "test:logistica-billing": "npm run build && node --test dist/logistica/logistica-route-billing.service.test.js dist/logistica/logistica-tracked-billing.service.test.js dist/logistica/logistica-tracking-bonus.service.test.js",
     "test:logistica-offline": "npm run build && node --test dist/logistica/logistica-offline-grant.test.js",
     "test:logistica-admin-route": "npm run build && node --test dist/logistica/logistica-admin-route.service.test.js",

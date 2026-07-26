@@ -409,6 +409,35 @@ export class IniciarRotaDto {
   ordemManual?: string[];
 }
 
+// S3 (25/07, PR25072026-ROTA-CONFERIDA) — conferir: DRY-RUN do motor de rota (mesmo
+// contrato de entrada do planejar), sem ordemManual/startAt — a conferência audita a
+// ordem que o MOTOR produziria hoje, não uma ordem manual já decidida pelo entregador.
+export class ConferirRotaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  origemLat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  origemLng?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(300)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  deliveryIds?: string[];
+}
+
 // ── PR17072026 Onda 1 — encerrar rota (transacional, tudo-ou-nada) ───────────
 // Substitui o loop `cancelar` por parada: abertas (agendada/em_rota) voltam
 // para PENDÊNCIA (nunca cancelamento); entregues/canceladas ficam intocadas.

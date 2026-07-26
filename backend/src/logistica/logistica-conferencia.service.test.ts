@@ -1,0 +1,192 @@
+import test, { mock } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { LogisticaConferenciaService } from './logistica-conferencia.service';
+import { LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { haversineKm, type Coord } from './logistica-rota.service';
+
+/**
+ * S3 (25/07, PR25072026-ROTA-CONFERIDA) — prova a fiação do SERVIÇO (mock de Prisma +
+ * OSRM determinístico, ZERO rede real — a suite não pode nunca tentar
+ * `router.project-osrm.org` de verdade) e, principalmente, o TESTE-INVARIANTE da Lei
+ * nº3: conferir é DRY-RUN ABSOLUTO — nenhum `update`/`updateMany` em Entrega, nenhuma
+ * chamada a `LogisticaRouteBillingService.prepareRoute`.
+ *
+ * Fixture: 4 "entregas" abertas (estilo empresa 41) — cli-1/cli-2/cli-3 num cluster
+ * apertado (~150-300m entre si), cli-4 isolada a dezenas de km (fora do casulo):
+ *   e1 (cli-1): fonte provada, JÁ entregue antes, histórico de GPS bate com o pino atual.
+ *   e2 (cli-2): fonte provada (LOCAL), JÁ entregue antes, mas o histórico de GPS
+ *               diverge >300m do pino atual → diverge_gps_ouro.
+ *   e3 (cli-3): fonte provada, NUNCA teve entrega concluída → nunca_entregue.
+ *   e4 (cli-4): isolada, fora do casulo do dia.
+ */
+
+const ROWS = [
+  {
+    id: 'e1',
+    status: 'agendada',
+    rotaOrdem: null,
+    customerProfileId: 'cli-1',
+    localId: null,
+    local: null,
+    customerProfile: { name: 'Maria', lat: -22.400, lng: -47.550, geoFonte: 'gps_entrega' },
+  },
+  {
+    id: 'e2',
+    status: 'agendada',
+    rotaOrdem: null,
+    customerProfileId: 'cli-2',
+    localId: 'loc-2',
+    local: { apelido: 'Casa', lat: -22.401, lng: -47.551, geoFonte: 'gps_entrega' },
+    customerProfile: { name: 'João', lat: -22.9, lng: -47.9, geoFonte: 'geocode' }, // ofuscado pelo local
+  },
+  {
+    id: 'e3',
+    status: 'em_rota',
+    rotaOrdem: null,
+    customerProfileId: 'cli-3',
+    localId: null,
+    local: null,
+    customerProfile: { name: 'Pedro', lat: -22.402, lng: -47.552, geoFonte: 'gps_entrega' },
+  },
+  {
+    id: 'e4',
+    status: 'agendada',
+    rotaOrdem: null,
+    customerProfileId: 'cli-4',
+    localId: null,
+    local: null,
+    customerProfile: { name: 'Ana', lat: -22.700, lng: -47.900, geoFonte: 'gps_entrega' },
+  },
+];
+
+// groupBy: quantas 'entregue' cada (cliente, local) já teve. cli-3 fica de FORA de
+// propósito (nunca entregue).
+const ENTREGUES_CONCLUIDAS = [
+  { customerProfileId: 'cli-1', localId: null },
+  { customerProfileId: 'cli-1', localId: null },
+  { customerProfileId: 'cli-2', localId: 'loc-2' },
+  { customerProfileId: 'cli-4', localId: null },
+];
+
+// $queryRaw (DISTINCT ON): última entrega CONCLUÍDA por (cliente, local). cli-1/cli-4
+// batem com o pino atual (divergência 0); cli-2 diverge ~1.4km (>300m); cli-3 não
+// aparece (consistente com nunca ter sido entregue).
+const HISTORICO = [
+  { customerProfileId: 'cli-1', localId: null, deliveredLat: -22.400, deliveredLng: -47.550 },
+  { customerProfileId: 'cli-2', localId: 'loc-2', deliveredLat: -22.410, deliveredLng: -47.561 },
+  { customerProfileId: 'cli-4', localId: null, deliveredLat: -22.700, deliveredLng: -47.900 },
+];
+
+function buildPrismaMock() {
+  return {
+    entrega: {
+      findMany: async () => ROWS,
+      groupBy: async (args: any) => {
+        const ids: string[] = args?.where?.customerProfileId?.in ?? [];
+        const counts = new Map<string, number>();
+        for (const e of ENTREGUES_CONCLUIDAS) {
+          if (!ids.includes(e.customerProfileId)) continue;
+          const key = `${e.customerProfileId}|${e.localId ?? ''}`;
+          counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+        return [...counts.entries()].map(([key, count]) => {
+          const [customerProfileId, localIdRaw] = key.split('|');
+          return { customerProfileId, localId: localIdRaw || null, _count: { _all: count } };
+        });
+      },
+      // Espiões-guarda (mesmo padrão de logistica-rota-encerrar.service.test.ts,
+      // `financeiroChargeGuard`): se o serviço algum dia tentar gravar, o teste
+      // quebra na hora com uma mensagem que aponta a Lei violada — não é só um
+      // contador silencioso.
+      update: async () => {
+        throw new Error('LEI Nº3 VIOLADA: conferir NUNCA pode chamar entrega.update');
+      },
+      updateMany: async () => {
+        throw new Error('LEI Nº3 VIOLADA: conferir NUNCA pode chamar entrega.updateMany');
+      },
+    },
+    // Ignora a query SQL de verdade (Prisma.sql) — devolve o histórico fabricado.
+    // Suficiente pra provar a PLUMAGEM (o service usa o resultado corretamente);
+    // a query em si é só SQL parametrizado, não tem lógica pra testar aqui.
+    $queryRaw: async () => HISTORICO,
+  };
+}
+
+const configMock = { getConfig: async () => ({ velocidadeMediaKmH: 25, tempoParadaMin: 5 }) } as any;
+
+/**
+ * OSRM FALSO determinístico — nunca bate na rede real. Constrói uma matriz de
+ * distância/duração AUTOCONSISTENTE via Haversine entre os pontos recebidos (mesma
+ * fórmula pura já testada em logistica-rota.service.test.ts), então
+ * `planRouteByRoads` sempre resolve no DEGRAU 1 (engine='osrm') sem jamais tentar o
+ * degrau 2 (fetch ao `router.project-osrm.org`) — exigência dura do contrato do
+ * worker: zero teste ao vivo, zero rede externa.
+ */
+function buildFakeOsrm() {
+  return {
+    table: async (_companyId: number, coordsRaw: string) => {
+      const pontos: Coord[] = coordsRaw.split(';').map((par) => {
+        const [lng, lat] = par.split(',').map(Number);
+        return { lat, lng };
+      });
+      const n = pontos.length;
+      const distances: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+      const durations: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          const distM = haversineKm(pontos[i], pontos[j]) * 1000;
+          distances[i][j] = distM;
+          durations[i][j] = distM / (25_000 / 3600); // 25km/h constante — só p/ ser determinístico
+        }
+      }
+      return { code: 'Ok', distances, durations };
+    },
+  };
+}
+
+test('Lei nº3 (invariante) — conferir NUNCA grava rotaOrdem/etaAt nem chama billing (dry-run absoluto)', async () => {
+  const service = new LogisticaConferenciaService(buildPrismaMock() as any, configMock, buildFakeOsrm() as any);
+  const spy = mock.method(LogisticaRouteBillingService.prototype, 'prepareRoute', async () => {
+    throw new Error('LEI Nº3 VIOLADA: conferir chamou LogisticaRouteBillingService.prepareRoute');
+  });
+  try {
+    const resultado = await service.conferir(41, { date: '2026-07-25' });
+    // Se update/updateMany tivessem sido chamados, a Promise acima já teria rejeitado
+    // (guard lança) — chegar aqui já é metade da prova. A outra metade é o spy:
+    assert.equal(resultado.total, ROWS.length);
+    assert.equal(spy.mock.callCount(), 0, 'prepareRoute/billing NUNCA deve ser chamado por conferir');
+  } finally {
+    spy.mock.restore();
+  }
+});
+
+test('composição: engine=osrm (degrau 1 via proxy fake), contagens batem e nunca_entregue vem do groupBy', async () => {
+  const service = new LogisticaConferenciaService(buildPrismaMock() as any, configMock, buildFakeOsrm() as any);
+  const resultado = await service.conferir(41, { date: '2026-07-25' });
+
+  assert.equal(resultado.engine, 'osrm');
+  assert.equal(resultado.degradedReason, null);
+  assert.equal(resultado.total, 4);
+  assert.equal(resultado.verdes + resultado.amarelas + resultado.vermelhas, resultado.total);
+
+  const e3 = resultado.paradas.find((p) => p.id === 'e3')!;
+  assert.ok(e3.motivos.includes('nunca_entregue'), 'cli-3 está ausente do groupBy de entregues → nunca_entregue');
+
+  const e4 = resultado.paradas.find((p) => p.id === 'e4')!;
+  assert.equal(e4.semaforo, 'vermelho');
+  assert.ok(e4.motivos.includes('fora_do_casulo'), 'cli-4 está a dezenas de km do cluster do dia');
+});
+
+test('diverge_gps_ouro: DISTINCT ON traz o histórico de cli-2 divergindo ~1.4km do pino atual → vermelho', async () => {
+  const service = new LogisticaConferenciaService(buildPrismaMock() as any, configMock, buildFakeOsrm() as any);
+  const resultado = await service.conferir(41, { date: '2026-07-25' });
+
+  const e2 = resultado.paradas.find((p) => p.id === 'e2')!;
+  assert.ok(e2.motivos.includes('diverge_gps_ouro'));
+  assert.equal(e2.semaforo, 'vermelho');
+
+  // e1: histórico bate com o pino atual (divergência 0) → não deveria acusar.
+  const e1 = resultado.paradas.find((p) => p.id === 'e1')!;
+  assert.ok(!e1.motivos.includes('diverge_gps_ouro'));
+});
