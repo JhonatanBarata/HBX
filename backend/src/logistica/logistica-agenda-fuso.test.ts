@@ -26,7 +26,11 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
 // Trava o fuso do processo em UTC ANTES de exercitar qualquer data: reproduz o
 // container. Se as funções da Agenda voltarem a depender do fuso do processo, os
 // asserts abaixo quebram.
-process.env.TZ = 'UTC';
+//
+// O runner `npm run test:agenda-fuso` reexecuta ESTE MESMO arquivo em outros fusos
+// passando `HBX_TEST_TZ` — inclusive um COM horário de verão, que é o único lugar
+// onde `setDate(getDate() + n)` escorrega de dia civil. Rodado na mão, continua UTC.
+process.env.TZ = process.env.HBX_TEST_TZ || 'UTC';
 
 const service = LogisticaAgendaService.prototype as any;
 
@@ -84,6 +88,65 @@ test('CONTRATO ANTI-REGRESSÃO: o scheduledAt materializado cai DENTRO da janela
       `${start.toISOString()} e ${end.toISOString()} — fora disso o prepare devolve ` +
       '"Nenhuma parada foi encontrada" e cada clique duplica o lote (incidente 26/07)',
   );
+});
+
+/**
+ * 2ª RODADA (26/07) — a primeira passada ancorou startOfDay/dateKey/isoWeekday em São
+ * Paulo mas DEIXOU a aritmética de dias (`nextDateForWeekday`, `nextOccurrenceDate`,
+ * `moveDateToWeekday`) andando com `setDate(getDate() + n)`, que são métodos do fuso do
+ * PROCESSO. Sintoma: `logistica-agenda-resumo.service.test.ts` verde no Windows do dono
+ * (-03) e VERMELHO com TZ=UTC — o fuso que vale em produção. Agora a conta passa por
+ * `addDays` (instante + re-âncora no dia civil) e estes asserts travam isso.
+ */
+test('addDays anda no calendário de SÃO PAULO (meia-noite SP continua meia-noite SP)', () => {
+  const addDays = requireInternal('addDays');
+  const sabado = new Date('2026-08-01T00:00:00-03:00');
+  assert.equal(addDays(sabado, 14).toISOString(), '2026-08-15T03:00:00.000Z');
+  assert.equal(addDays(sabado, -14).toISOString(), '2026-07-18T03:00:00.000Z');
+  // Entrada suja (instante qualquer do dia) é ancorada antes de somar.
+  assert.equal(addDays(new Date('2026-08-01T20:37:00.000Z'), 1).toISOString(), '2026-08-02T03:00:00.000Z');
+});
+
+test('addDays não escorrega quando o fuso do PROCESSO tem horário de verão', () => {
+  const addDays = requireInternal('addDays');
+  // 01/03/2026 em SP + 14 dias = 15/03, sempre. Com `setDate` (que anda no calendário
+  // do PROCESSO) e rodando num fuso que adianta o relógio dia 08/03, o instante perde
+  // 1h e o resultado cai em 14/03 23:00 SP — o dia civil ERRADO, e o quinzenal some.
+  // Este assert só tem dente quando o runner reexecuta o arquivo com HBX_TEST_TZ
+  // apontando pra um fuso com horário de verão (ver scripts/test-agenda-fuso.mjs).
+  assert.equal(
+    addDays(new Date('2026-03-01T00:00:00-03:00'), 14).toISOString(),
+    '2026-03-15T03:00:00.000Z',
+    `dia civil errado rodando com TZ=${process.env.TZ}`,
+  );
+});
+
+test('nextDateForWeekday: a partir de 26/07 22:00 SP (= 27/07 01:00Z) o sábado é 01/08', () => {
+  const nextDateForWeekday = requireInternal('nextDateForWeekday');
+  // Instante em que UTC já virou segunda (27/07) mas São Paulo ainda é domingo (26/07):
+  // quem contar pelo fuso do processo pula uma semana ou erra o dia.
+  const agora = new Date('2026-07-27T01:00:00.000Z');
+  assert.equal(nextDateForWeekday(6, agora).toISOString(), '2026-08-01T03:00:00.000Z');
+  assert.equal(nextDateForWeekday(7, agora).toISOString(), '2026-07-26T03:00:00.000Z', 'hoje em SP é o próprio domingo');
+});
+
+test('a cadência QUINZENAL fecha em 14 dias civis exatos (era o contador que mentia)', () => {
+  const nextOccurrenceDate = requireInternal('nextOccurrenceDate');
+  const plano = { frequencia: 'QUINZENAL', diaSemana: 6, intervaloDias: null };
+  const proxima = nextOccurrenceDate(plano, new Date('2026-07-18T00:00:00-03:00'));
+  assert.equal(proxima.toISOString(), '2026-08-01T03:00:00.000Z');
+  assert.equal(
+    (proxima.getTime() - new Date('2026-07-18T00:00:00-03:00').getTime()) / (24 * 60 * 60 * 1000),
+    14,
+    'quinzenal que não fecha 14 dias redondos some do resumo E da prévia',
+  );
+});
+
+test('moveDateToWeekday nunca devolve o mesmo dia nem escorrega de dia civil', () => {
+  const moveDateToWeekday = requireInternal('moveDateToWeekday');
+  const sabado = new Date('2026-08-01T00:00:00-03:00');
+  assert.equal(moveDateToWeekday(sabado, 6).toISOString(), '2026-08-08T03:00:00.000Z', 'mesmo dia ⇒ semana que vem');
+  assert.equal(moveDateToWeekday(sabado, 2).toISOString(), '2026-08-04T03:00:00.000Z');
 });
 
 /**

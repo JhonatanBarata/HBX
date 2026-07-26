@@ -2181,6 +2181,22 @@ function startOfDay(date: Date): Date {
   return new Date(`${dateKey(date)}T00:00:00${SAO_PAULO_UTC_OFFSET}`);
 }
 
+/**
+ * Soma N dias CIVIS de São Paulo. Existe porque `setDate(getDate() + n)` — o jeito
+ * "óbvio" — anda no calendário do PROCESSO, não no de São Paulo: `getDate()` lê a
+ * meia-noite de SP (03:00Z) com o relógio de quem está rodando, e se esse relógio
+ * cruzar um horário de verão o instante escorrega 1h e cai no dia civil ERRADO em SP.
+ * Aqui a conta é feita no instante e RE-ANCORADA no dia civil, então o resultado é o
+ * mesmo no Windows do dono (-03), no container (UTC) e em qualquer outro fuso.
+ *
+ * REGRA DO MÓDULO (26/07, 2ª vez que este furo aparece): nenhuma data de operação
+ * pode passar por método LOCAL do Date (`setDate/getDate/setHours/getDay/...`). Quem
+ * precisar mexer em dia usa `startOfDay` + `addDays` + `isoWeekday`, ponto.
+ */
+function addDays(date: Date, days: number): Date {
+  return startOfDay(new Date(startOfDay(date).getTime() + days * DAY_IN_MS));
+}
+
 /** Último milissegundo do dia civil de São Paulo (23:59:59.999 em SP). */
 function endOfDay(date: Date): Date {
   return new Date(startOfDay(date).getTime() + DAY_IN_MS - 1);
@@ -2578,10 +2594,9 @@ function normalizedFromPlan(plan: any, day: number) {
 }
 
 function moveDateToWeekday(value: Date, destination: number): Date {
-  const result = startOfDay(new Date(value));
-  const delta = (destination - isoWeekday(result) + 7) % 7;
-  result.setDate(result.getDate() + (delta || 7));
-  return result;
+  const base = startOfDay(new Date(value));
+  const delta = (destination - isoWeekday(base) + 7) % 7;
+  return addDays(base, delta || 7);
 }
 
 /**
@@ -2593,20 +2608,18 @@ function moveDateToWeekday(value: Date, destination: number): Date {
 function nextDateForWeekday(day: number, from: Date): Date {
   const base = startOfDay(from);
   const delta = (Number(day) - isoWeekday(base) + 7) % 7;
-  base.setDate(base.getDate() + delta);
-  return base;
+  return addDays(base, delta);
 }
 
 function nextOccurrenceDate(plan: any, current: Date): Date {
-  const base = startOfDay(current);
   const interval = plan.frequencia === 'QUINZENAL'
     ? 14
     : plan.frequencia === 'INTERVALO'
       ? Math.max(1, Math.trunc(Number(plan.intervaloDias) || 1))
       : 7;
-  base.setDate(base.getDate() + interval);
+  let base = addDays(current, interval);
   while (isoWeekday(base) !== Number(plan.diaSemana)) {
-    base.setDate(base.getDate() + 1);
+    base = addDays(base, 1);
   }
   return base;
 }
@@ -2619,4 +2632,17 @@ function nextOccurrenceDate(plan: any, current: Date): Date {
  * fuso do dono escondia), então ficam alcançáveis por aqui — nunca use isto em
  * código de produção. Ver `logistica-agenda-fuso.test.ts`.
  */
-export const __fusoInternals = { startOfDay, endOfDay, isoWeekday, dateKey, parseOperationalDate };
+export const __fusoInternals = {
+  startOfDay,
+  endOfDay,
+  isoWeekday,
+  dateKey,
+  parseOperationalDate,
+  // Aritmética de dia (26/07, 2ª rodada): `addDays` e quem depende dela também
+  // entram aqui — foi exatamente a conta de dias que sobrou usando `setDate` na
+  // primeira passada, e é o que os testes de fuso agora travam.
+  addDays,
+  nextDateForWeekday,
+  nextOccurrenceDate,
+  moveDateToWeekday,
+};
