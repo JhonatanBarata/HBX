@@ -4613,7 +4613,7 @@
         ? `${today.nome} · carregando…`
         : `${today.nome} · ${todayCount} ${todayCount === 1 ? "parada" : "paradas"}`;
     const activeDays = workDays().length;
-    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon(adicionando ? "plus" : "route", 24)}</div><h2 id="day-home-title">${adicionando ? "Adicionar paradas" : "Organizar rota"}</h2><div class="day-home-actions">
+    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon(adicionando ? "plus" : "route", 24)}</div><h2 id="day-home-title">${adicionando ? "Adicionar paradas" : "Montar Rota"}</h2><div class="day-home-actions">
       <button type="button" class="day-home-btn day-home-btn--primary" data-action="day-entry-today" ${todayEnabled ? "" : "disabled"}><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Hoje</strong><small>${H.escape(todayHint)}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Agenda</strong><small>${activeDays} ${activeDays === 1 ? "dia ativo" : "dias ativos"}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><span class="day-home-btn-copy"><strong>Rotas salvas</strong><small>${H.escape(savedHint)}</small></span><span class="day-home-btn-chev">›</span></button>
@@ -6103,7 +6103,9 @@
       if (!Object.prototype.hasOwnProperty.call(current, module)) return;
       const next = { ...current, [module]: !current[module] };
       if (!H.modules.set(next)) { toast("Mantenha pelo menos um módulo ativo.", true); return; }
-      render();
+      target.setAttribute("aria-checked", String(next[module]));
+      target.querySelector(".module-switch")?.classList.toggle("active", next[module]);
+      setTimeout(render, 220);
       return;
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }

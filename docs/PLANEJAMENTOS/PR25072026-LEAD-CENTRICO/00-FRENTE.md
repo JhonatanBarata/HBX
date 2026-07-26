@@ -57,9 +57,13 @@ deletado) — vira central de atendimento opcional pra empresa de volume.
   "Ligar robô" desabilitado até S4). Flag `HBX_PREVOO_ENRICH_ENABLED` default OFF ("Buscar
   dados" reusa POST /vendas/lead/:id/enrichment existente). Commit `8c837870`. Strings de UI
   novas listadas no transcript do sprint pro dono revisar.
-- S4 — Robozinho: ligar cadência POR LEAD + paradas globais + classificador de resposta
-  (qwen3:4b já roda em prod no WhatsApp) + alerta "te chamou" com contexto (quem, o quê, por quê,
-  até quando, o que o HBX já fez).
+- **S4 ✅** — `04-robozinho.md`: POST/DELETE /vendas/lead/:id/robo (opt-in idempotente),
+  `cadencia-gatilho.service` (paradas globais), `vendas-robo-heat` (quente com hook pra IA;
+  opt-out não é quente), `closureReason` no VendasLead (migration aditiva IF NOT EXISTS),
+  selo 🤖 + botão na aba Planejar. Commit `58539570`. Worker morreu APÓS commitar (relatório
+  perdido); orquestrador re-rodou os checks 26/07: build limpo, 38/38 novas + 94/94
+  vendas/cadência. ⚠️ Publish do dono `660bee43` (25/07 23:48) levou S1–S4 pra PROD —
+  runner segue OFF (nada dispara sozinho).
 - S5 — Agenda slot-aware + config enxuta do admin (migrar regras vivas, matar cadastro imenso).
 - S6 — E-mail v1: perfil do remetente + assinatura + envio SMTP + registro + resposta por thread.
 - S7 — Pool/marquinha/resfriamento + rebaixar Conversas por flag + **remover pela raiz** o
