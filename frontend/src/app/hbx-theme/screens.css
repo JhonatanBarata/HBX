@@ -830,54 +830,34 @@ html, body { height: 100%; }
 /* ── Vendas: UMA casca, 2 modos (Meu funil ↔ Buscar empresas) — 29/06 ──────────
    NADA desliza. Topo persistente (toggle + 3 cards) + stage com 2 camadas
    SOBREPOSTAS em crossfade; só os DADOS trocam. Tudo token (5 Leis). */
-.vnd-modehost { flex: 1; min-height: 0; position: relative; }
-
-/* ── BARRA DE 7 BOTÕES (vnd-funhead) ─────────────────────────────────────────
-   7 elementos distribuídos uniformemente na coluna esquerda. Todos partilham a
-   mesma forma-base (card arredondado, border hairline, superfície suave). O
-   wrapper de toggle e a área de stats viram recipientes transparentes que deixam
-   os filhos herdarem a forma. right:360px = largura do aside de detalhe. */
-.vnd-funhead { position: absolute; top: 0; left: 0; right: 360px; z-index: 6;
-  display: flex; align-items: stretch; gap: 8px; padding: 8px 16px; min-height: 58px; pointer-events: none; }
-.vnd-funhead > * { pointer-events: auto; }
+/* PAINEL-ÚNICO (26/07): o modehost virou coluna — o painel de comando ocupa o
+   fluxo normal no topo e o stage fica com o resto da altura. Antes a barra era
+   `position:absolute` sobreposta e cada camada compensava com padding-top fixo
+   (74px); com 2 andares no painel esse número passaria a mentir. */
+.vnd-modehost { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 
 /* Toggle wrapper: sem visual próprio — distribui 2 filhos. Glass Pill (Lei
    nº2) — mesma forma quadrada (12px) que já usava; o preenchimento sólido/
    invertido de antes virou o vidro genérico (a cor do texto ativo já entrega
    o contraste). */
-.vnd-segbtns { flex: 2; display: flex; align-items: stretch; gap: 8px;
+.vnd-segbtns { display: flex; align-items: stretch; gap: 4px;
   background: none; border: none; box-shadow: none; padding: 0; border-radius: 0;
   position: relative; --glass-pill-radius: 12px; }
 
-/* Forma-base compartilhada por segbtn (2) + kpi (3) + supcard (1) + foco (1) = 7 */
+/* Forma-base dos 2 modos (Meu funil ↔ Buscar empresas). Compacta desde o
+   PAINEL-ÚNICO: divide a linha do painel de comando com as 5 etapas. */
 .vnd-segbtn {
   position: relative; z-index: 1;
-  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 0 14px; border: 1px solid var(--border-hairline);
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 8px 13px; border: 1px solid var(--border-hairline);
   background: var(--hbx-surface-soft); border-radius: 12px;
-  color: var(--text-body); font-family: var(--font-display); font-size: 0.86rem; font-weight: 700;
+  color: var(--text-body); font-family: var(--font-display); font-size: 0.78rem; font-weight: 700;
   letter-spacing: -0.01em; cursor: pointer; white-space: nowrap;
   box-shadow: var(--shadow-xs);
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease; }
 .vnd-segbtn:hover { background: var(--hbx-surface); border-color: var(--border-strong); color: var(--text-strong); }
 .vnd-segbtn.is-on { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
 .vnd-segbtn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring-brand); }
-
-/* Stats: área flex que distribui os 3 KPIs como colunas iguais */
-.vnd-stats { flex: 3; position: relative; min-width: 0; display: flex; flex-direction: column; }
-.vnd-stats__layer:not(.is-on) { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
-.vnd-stats__layer.is-on { flex: 1; display: flex; position: relative; }
-.vnd-stats__layer .kpis { flex: 1; display: flex; gap: 8px; align-items: stretch; }
-/* KPI como card vertical: label pequeno + número grande, centrados */
-.vnd-stats__layer .kpi { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 6px 10px; gap: 1px;
-  background: var(--hbx-surface-soft); border: 1px solid var(--border-hairline); border-radius: 12px;
-  box-shadow: var(--shadow-xs); }
-.vnd-stats__layer .kpi .kpi-icon { display: none; }
-.vnd-stats__layer .kpi > div { display: flex; flex-direction: column; align-items: center; gap: 0; }
-.vnd-stats__layer .kpi .kpi-label { font-size: 0.67rem; font-weight: 500; color: var(--text-muted); line-height: 1.3; white-space: nowrap; }
-.vnd-stats__layer .kpi .kpi-value { font-size: 1.3rem; font-weight: 800; margin-top: 0; line-height: 1.1; }
-.vnd-stats__layer .kpi .kpi-foot { display: none; }
 
 /* Seletor de vendedor do funil (admin) — botão .btn-ghost central + menu flutuante.
    Cor/borda/sombra vêm de tokens; aqui só posição e layout (Lei 5). */
@@ -892,9 +872,9 @@ html, body { height: 100%; }
 .vnd-team-item:hover { background: var(--hbx-surface-sunken, color-mix(in srgb, var(--text-body) 6%, transparent)); }
 .vnd-team-item.on { background: color-mix(in srgb, var(--hbx-accent) 16%, transparent); color: var(--hbx-accent); }
 
-/* Stage — preenche o modehost do TOPO (a barra fica POR CIMA). 2 camadas
+/* Stage — pega a altura que sobra abaixo do painel de comando. 2 camadas
    SOBREPOSTAS (a casca) em crossfade + sobe/escala. */
-.vnd-stage { position: absolute; inset: 0; }
+.vnd-stage { position: relative; flex: 1; min-height: 0; }
 .vnd-layer { position: absolute; inset: 0; display: flex; opacity: 0; pointer-events: none;
   /* Card de detalhe (aside.ctx) do mesmo tamanho do Atendimento (345px, .a-content) —
      sem isso herda --context-width (248px), estreito demais pro cockpit de vendas.
@@ -905,10 +885,10 @@ html, body { height: 100%; }
 .vnd-layer.is-on { opacity: 1; pointer-events: auto; }
 .vnd-layer > .content { flex: 1; min-width: 0; }
 .vnd-layer--buscar { flex-direction: column; }
-/* A LISTA (esquerda) abre espaço pra barra sobreposta; o card de detalhe NÃO
-   (sobe até o topo). Buscar: a lista do Radar também desce. */
-.vnd-layer.is-on .content > .work { padding-top: 74px; }
-.vnd-layer--buscar.is-on .content .work { padding-top: 74px; }
+/* PAINEL-ÚNICO (26/07): o painel de comando não sobrepõe mais nada — não existe
+   barra flutuante pra compensar, então o padding-top de 74px saiu daqui. */
+.vnd-layer.is-on .content > .work { padding-top: 0; }
+.vnd-layer--buscar.is-on .content .work { padding-top: 0; }
 /* Card de detalhe encosta no topo, com respiro suave */
 .vnd-layer aside.ctx { padding-top: 14px; }
 

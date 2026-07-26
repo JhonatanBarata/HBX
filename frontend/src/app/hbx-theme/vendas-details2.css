@@ -44,6 +44,59 @@
   100% { filter: brightness(1); transform: translateZ(0); }
 }
 
+/* ============================================================
+   ENTRADA E RETORNO DA FICHA (PAINEL-ÚNICO, 26/07)
+   A ficha CRESCE de dentro da linha clicada e VOLTA pra ela ao fechar;
+   a tela de trás recua (escala + desfoque) e a linha de origem pisca no
+   retorno, pro olho reencontrar onde estava. O JS só mede e aplica o
+   transform (FLIP) — duração, curva e cor moram AQUI (5 Leis).
+   ============================================================ */
+.hbx-modal.lead-cockpit--workbench {
+  /* o keyframe genérico do kit (hbx-modal-in) brigaria com o FLIP: animação
+     ganha de style inline, e a ficha nasceria no lugar errado. */
+  animation: none;
+  will-change: transform, opacity;
+  --lc-flip-in: 480ms;
+  --lc-flip-out: 400ms;
+}
+.lead-cockpit__veil.is-closing {
+  pointer-events: none;
+  animation: lead-cockpit-veil-out 400ms var(--ease-out-quint) forwards;
+}
+@keyframes lead-cockpit-veil-out { to { opacity: 0; } }
+
+/* Tela de trás recuando. `.vnd-modehost` é IRMÃO do véu no DOM — se fosse
+   ancestral, este `filter` viraria containing block do `position: fixed` e a
+   ficha ficaria presa dentro dele. */
+.vnd-modehost > .vnd-cmd,
+.vnd-modehost > .vnd-stage {
+  transition: transform var(--motion-base), filter var(--motion-base), opacity var(--motion-base);
+}
+.vnd-modehost.is-cockpit-zoom > .vnd-cmd,
+.vnd-modehost.is-cockpit-zoom > .vnd-stage {
+  transform: scale(0.985) translateY(-4px);
+  filter: blur(6px) saturate(0.7);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Retorno: a linha de origem pisca com a cor da marca e apaga sozinha. */
+#vendas-panel-funil tr.is-cockpit-back > td,
+#vendas-panel-funil .vnd-card.is-cockpit-back {
+  animation: lead-cockpit-back 1.1s var(--ease-out-quint);
+}
+@keyframes lead-cockpit-back {
+  0% { background: color-mix(in srgb, var(--hbx-brand) 40%, transparent); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vnd-modehost.is-cockpit-zoom > .vnd-cmd,
+  .vnd-modehost.is-cockpit-zoom > .vnd-stage { filter: none; transform: none; opacity: 1; }
+  #vendas-panel-funil tr.is-cockpit-back > td,
+  #vendas-panel-funil .vnd-card.is-cockpit-back { animation: none; }
+}
+
 .lead-cockpit__veil {
   /* Folga do véu é FLUIDA: 8px num notebook baixo, 24px em monitor grande. */
   --lead-cockpit-gutter: clamp(8px, 1.4vh, 24px);

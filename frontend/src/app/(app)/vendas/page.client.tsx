@@ -12,7 +12,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, KpiRow, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
+import { Av, I, ICONS, WhatsAppMark, isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "@/components/hbx/shell";
 import {
   vendasEngagementMeta,
   type VendasConversationRef,
@@ -208,6 +208,26 @@ function fmtMoney(value: number | null | undefined) {
 
 function leadValueLabel(lead: VendasLead) {
   return lead.product?.priceLabel || fmtMoney(lead.saleValue) || "—";
+}
+
+// Hora do relógio (HH:MM) — usada na faixa de contexto do painel de comando.
+function fmtHora(ms: number | null | undefined) {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+// "há 2h11" / "há 3 dias" — o tempo de espera dito do jeito que o vendedor fala.
+// `agora` entra por parâmetro (e não por Date.now() aqui dentro) porque isto roda
+// no render: relógio lido durante o render é impuro e o lint barra.
+function fmtEspera(ms: number | null | undefined, agora: number) {
+  if (ms == null || !Number.isFinite(ms) || !agora) return null;
+  const min = Math.max(0, Math.floor((agora - ms) / 60000));
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min}min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h}h${String(min % 60).padStart(2, "0")}`;
+  const d = Math.floor(h / 24);
+  return `há ${d} dia${d === 1 ? "" : "s"}`;
 }
 
 function fmtWhen(iso: string | null) {
@@ -487,6 +507,9 @@ export function VendasClient() {
   const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }>(
     { totalBrasil: null, disponiveis: null, cotaLabel: "Cota do mês", cotaValue: "—", cotaPct: 0 });
   const [board, setBoard] = useState<BoardResponse>(null);
+  // Relógio carimbado junto com o board (ver loadBoard) — referência de "há
+  // quanto tempo" da faixa de contexto do painel de comando.
+  const [agora, setAgora] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
   // vendedor (inclui "Eu" quando o admin prospecta). Refaz o board ao mudar.
@@ -630,6 +653,11 @@ export function VendasClient() {
       .then(res => {
         setBoard(res);
         boardRef.current = res;
+        // Carimba o relógio JUNTO com os dados: a faixa de contexto diz "há 2h11"
+        // em cima do mesmo instante que o board retrata. Ler o relógio no render
+        // seria impuro; ler num efeito dispara render em cascata — o lugar certo
+        // é aqui, quando a resposta chega.
+        setAgora(Date.now());
         setLoadError(null);
         // Auto-cura: filtro persistido que o backend rejeitou (vendedor desativado/
         // removido → selectedSellerId volta null) é limpo p/ não ficar fantasma.
@@ -1194,6 +1222,60 @@ export function VendasClient() {
   for (const c of flatLeads) stageCounts[normalizeStage(c.status)]++;
   const listLeads: VendasLead[] = stageFilter ? flatLeads.filter(c => normalizeStage(c.status) === stageFilter) : flatLeads;
 
+  // ── BRIEFING DA ETAPA (PAINEL-ÚNICO, 26/07) ────────────────────────────────
+  // A faixa de contexto do painel de comando responde "o que está acontecendo
+  // AQUI e o que eu faço agora". Tudo sai dos leads já carregados (flatLeads) —
+  // nenhum endpoint novo, nenhum número inventado. Quando não dá pra afirmar um
+  // fato (campo ausente), o fato simplesmente não entra na linha.
+  const briefing = (() => {
+    const porEtapa = (k: VendasStage) => flatLeads.filter(c => normalizeStage(c.status) === k);
+    const novos = porEtapa("novo");
+    const emCadencia = porEtapa("contato");
+    const chamaram = porEtapa("retorno");
+    const negociando = porEtapa("qualificado");
+    const fechados = porEtapa("encerrado");
+
+    const comZap = novos.filter(c => vendasCanais(c).includes("whatsapp")).length;
+    const semContato = novos.filter(c => vendasCanais(c).length === 0).length;
+
+    const roboAtivo = flatLeads.filter(c => c.automation).length;
+    // relógio congelado no momento em que o board chegou (ver `agora`): ler
+    // Date.now() aqui seria impuro — o render tem que dar sempre o mesmo resultado.
+    const proximoDisparo = emCadencia
+      .map(c => c.automation?.nextStepAt)
+      .filter((iso): iso is string => Boolean(iso))
+      .map(iso => new Date(iso).getTime())
+      .filter(t => Number.isFinite(t))
+      .sort((a, b) => a - b)[0];
+    const mudos48h = emCadencia.filter(c => {
+      const out = c.engagement?.lastOutboundAt;
+      if (!out || c.engagement?.hasInboundReply) return false;
+      const t = new Date(out).getTime();
+      return Number.isFinite(t) && agora > 0 && agora - t > 48 * 3600 * 1000;
+    }).length;
+
+    // "Te chamou": o lead que está esperando há mais tempo é o que abre primeiro.
+    const esperando = chamaram
+      .map(c => ({ card: c, at: new Date(c.engagement?.lastInboundAt || c.returnAt || 0).getTime() }))
+      .filter(x => Number.isFinite(x.at) && x.at > 0)
+      .sort((a, b) => a.at - b.at);
+    const maisAntigo = esperando[0] || null;
+    const chamaramAtrasados = chamaram.filter(c => c.block === "overdue").length;
+
+    const somaNegociacao = negociando.reduce((acc, c) => acc + (c.saleValue || 0), 0);
+    const negociacaoHoje = negociando.filter(c => c.block === "today").length;
+    const negociacaoSemAcao = negociando.filter(c => !c.nextAction).length;
+
+    const comissaoPendente = fechados.filter(c =>
+      String(c.commissionStatusLabel || "").toLocaleLowerCase("pt-BR").includes("pend")).length;
+
+    return {
+      comZap, semContato, roboAtivo, proximoDisparo, mudos48h,
+      maisAntigo, chamaramAtrasados, somaNegociacao, negociacaoHoje, negociacaoSemAcao,
+      comissaoPendente,
+    };
+  })();
+
   // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
   const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
     onTerminal: (radarLeadId) => { void refreshBoardLead(radarLeadId); },
@@ -1277,6 +1359,151 @@ export function VendasClient() {
 
   const summary = board?.summary;
 
+  // ── FAIXA DE CONTEXTO (PAINEL-ÚNICO, 26/07) ────────────────────────────────
+  // O conteúdo da faixa é uma FUNÇÃO da etapa aberta: título em português do
+  // vendedor, a linha de fatos daquela etapa e as ações que fazem sentido ali.
+  // Sem etapa escolhida a faixa vira o resumo do funil — que é exatamente o que
+  // os 3 KPIs do topo diziam antes (total / atrasados / fechados).
+  const ctxBrief: { tone: string; icon: string[]; title: string; facts: React.ReactNode; actions: React.ReactNode } = (() => {
+    const fato = (parts: React.ReactNode[]) => (
+      <React.Fragment>
+        {parts.filter(Boolean).map((p, i) => (
+          <React.Fragment key={i}>{i > 0 && <span className="vnd-ctx__dot" aria-hidden="true">·</span>}{p}</React.Fragment>
+        ))}
+      </React.Fragment>
+    );
+    const n = (v: number | string) => <b className="vnd-ctx__n">{v}</b>;
+
+    if (stageFilter === "novo") return {
+      tone: "calm", icon: ICONS.vendas,
+      title: `Planejar — ${stageCounts.novo} lead${stageCounts.novo === 1 ? "" : "s"} esperando sua decisão`,
+      facts: fato([
+        <React.Fragment key="z">{n(briefing.comZap)} com WhatsApp</React.Fragment>,
+        briefing.semContato > 0 ? <React.Fragment key="s">{n(briefing.semContato)} sem nenhum contato</React.Fragment> : null,
+        <React.Fragment key="a">nenhum foi abordado ainda</React.Fragment>,
+      ]),
+      actions: (
+        <React.Fragment>
+          <button type="button" className="btn-teal btn-xs" onClick={() => setProspOpen(true)}>Configurar o robô</button>
+          <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/leads")}>Puxar mais leads</button>
+        </React.Fragment>
+      ),
+    };
+
+    if (stageFilter === "contato") return {
+      tone: "bot", icon: ICONS.bot,
+      title: `Robô trabalhando — ${stageCounts.contato} em cadência, você não precisa fazer nada`,
+      facts: fato([
+        briefing.proximoDisparo ? <React.Fragment key="d">próximo disparo {n(fmtHora(briefing.proximoDisparo) || "—")}</React.Fragment> : null,
+        <React.Fragment key="j">janela {n(`${comercialConfigDraft.workingHoursStart}–${comercialConfigDraft.workingHoursEnd}`)}</React.Fragment>,
+        briefing.mudos48h > 0 ? <React.Fragment key="m">{n(briefing.mudos48h)} sem resposta há mais de 48h</React.Fragment> : null,
+      ]),
+      actions: <button type="button" className="btn-ghost btn-xs" onClick={() => setProspOpen(true)}>Ver a cadência</button>,
+    };
+
+    if (stageFilter === "retorno") return {
+      tone: "hot", icon: ICONS.clock,
+      title: `Te chamou — ${stageCounts.retorno} esperando VOCÊ responder`,
+      facts: fato([
+        briefing.maisAntigo ? <React.Fragment key="e">espera mais antiga {n(fmtEspera(briefing.maisAntigo.at, agora) || "—")}</React.Fragment> : null,
+        briefing.chamaramAtrasados > 0 ? <React.Fragment key="a">{n(briefing.chamaramAtrasados)} atrasado{briefing.chamaramAtrasados === 1 ? "" : "s"}</React.Fragment> : null,
+        <React.Fragment key="r">o robô para sozinho quando o cliente responde</React.Fragment>,
+      ]),
+      actions: briefing.maisAntigo
+        ? <button type="button" className="btn-teal btn-xs" onClick={() => { setSel(briefing.maisAntigo!.card); setCockpitOpen(true); }}>Abrir quem espera há mais tempo</button>
+        : null,
+    };
+
+    if (stageFilter === "qualificado") return {
+      tone: "calm", icon: ICONS.check,
+      title: `Negociação — ${stageCounts.qualificado} lead${stageCounts.qualificado === 1 ? "" : "s"} que você assumiu`,
+      facts: fato([
+        // LEI DO VENDEDOR: soma em R$ só para quem o backend autoriza.
+        board?.canViewValues && briefing.somaNegociacao > 0
+          ? <React.Fragment key="v">{n(fmtMoney(briefing.somaNegociacao) || "—")} em jogo</React.Fragment> : null,
+        briefing.negociacaoHoje > 0 ? <React.Fragment key="h">{n(briefing.negociacaoHoje)} com retorno hoje</React.Fragment> : null,
+        briefing.negociacaoSemAcao > 0 ? <React.Fragment key="s">{n(briefing.negociacaoSemAcao)} sem próxima ação definida</React.Fragment> : null,
+      ]),
+      actions: <button type="button" className="btn-ghost btn-xs" onClick={() => setAgendaOpen(true)}>Agenda de retornos</button>,
+    };
+
+    if (stageFilter === "encerrado") return {
+      tone: "calm", icon: ICONS.check,
+      title: `Fechado — ${stageCounts.encerrado} contrato${stageCounts.encerrado === 1 ? "" : "s"}`,
+      facts: fato([
+        briefing.comissaoPendente > 0
+          ? <React.Fragment key="c">{n(briefing.comissaoPendente)} com comissão pendente</React.Fragment>
+          : <React.Fragment key="c">nenhuma comissão pendente</React.Fragment>,
+      ]),
+      actions: <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/financeiro")}>Abrir o financeiro</button>,
+    };
+
+    // Sem etapa escolhida: o resumo do funil (o que os 3 KPIs mostravam).
+    return {
+      tone: "calm", icon: ICONS.vendas,
+      title: board?.team ? "Funil da empresa — escolha uma etapa acima" : "Seu funil — escolha uma etapa acima",
+      facts: fato([
+        <React.Fragment key="t">{n(summary ? summary.total : "—")} cards no funil</React.Fragment>,
+        <React.Fragment key="a">{n(summary ? summary.overdue : "—")} atrasados</React.Fragment>,
+        <React.Fragment key="f">{n(summary ? summary.closed : "—")} fechados</React.Fragment>,
+      ]),
+      actions: null,
+    };
+  })();
+
+  // Organizador de colunas — o menu inteiro. Virou variável (PAINEL-ÚNICO, 26/07)
+  // porque o botão que o abre mudou de casa: saiu do cabeçalho do painel e foi
+  // pro cluster de ações do painel de comando. O conteúdo é o MESMO de antes.
+  const columnPicker = (
+    <React.Fragment>
+      <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={cancelColumnPicker} />
+      <div className="vnd-colspick__menu" role="dialog" aria-label="Colunas da planilha">
+        <div className="vnd-colspick__head">
+          <span><strong>Organizar colunas</strong><small>{columnDraft.length} de {GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).length} colunas visíveis</small></span>
+          <button type="button" className="icon-ghost" aria-label="Fechar" onClick={cancelColumnPicker}>✕</button>
+        </div>
+        <div className="vnd-colspick__boards">
+          <section className="vnd-colspick__board" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && dropColumnAt(columnDrag, columnDraft.length)}>
+            <div className="vnd-colspick__boardhead"><span><b>Ordem das colunas</b><small>De cima para baixo = esquerda para direita</small></span><button type="button" onClick={() => { setColumnDraft([]); setPinnedDraft([]); }}>Remover todas</button></div>
+            <div className="vnd-collist">
+              {columnDraft.map((key, i) => {
+                const col = GRID_COLUMNS.find(c => c.key === key);
+                if (!col) return null;
+                return <div key={key} className={"vnd-colrow" + (columnDropIndex === i ? " is-drop" : "")} draggable
+                  onDragStart={() => setColumnDrag(key)} onDragEnd={() => { setColumnDrag(null); setColumnDropIndex(null); }}
+                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); setColumnDropIndex(i); }} onDrop={e => { e.preventDefault(); e.stopPropagation(); columnDrag && dropColumnAt(columnDrag, i); }}>
+                  <span className="vnd-colrow__grip" aria-hidden="true">⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
+                  <button type="button" className={"vnd-colrow__pin" + (pinnedDraft.includes(key) ? " is-on" : "")} onClick={() => setPinnedDraft(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key])} aria-label={`${pinnedDraft.includes(key) ? "Desafixar" : "Fixar"} ${col.label}`} title="Fixar na rolagem horizontal">●</button>
+                  <button type="button" className="vnd-colrow__remove" onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
+                </div>;
+              })}
+              {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste colunas para cá</span>}
+            </div>
+            <small className="vnd-colspick__hint">⠿ Arraste para reordenar</small>
+          </section>
+          <section className="vnd-colspick__board vnd-colspick__available" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && removeDraftColumn(columnDrag)}>
+            <div className="vnd-colspick__boardhead"><span><b>Colunas disponíveis</b><small>Arraste ou dê dois cliques para adicionar</small></span><button type="button" onClick={() => setColumnDraft(GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).map(c => c.key))}>Adicionar todas</button></div>
+            <label className="vnd-colsearch"><span aria-hidden="true">⌕</span><input value={columnSearch} onChange={e => setColumnSearch(e.target.value)} placeholder="Buscar coluna" aria-label="Buscar coluna" /></label>
+            <div className="vnd-colavailable">
+              {GRID_COLUMN_GROUPS.map(group => {
+                const cols = group.keys.map(key => GRID_COLUMNS.find(c => c.key === key)).filter((c): c is GridColumn => Boolean(c) && !columnDraft.includes(c!.key) && (c!.gate !== "values" || Boolean(board?.canViewValues)) && c!.label.toLocaleLowerCase("pt-BR").includes(columnSearch.trim().toLocaleLowerCase("pt-BR")));
+                if (!cols.length) return null;
+                return <div key={group.label} className="vnd-colgroup"><b>{group.label}</b>{cols.map(col => <button key={col.key} type="button" draggable onDragStart={() => setColumnDrag(col.key)} onDragEnd={() => setColumnDrag(null)} onDoubleClick={() => setColumnDraft(keys => [...keys, col.key])}><span aria-hidden="true">⠿</span>{col.label}</button>)}</div>;
+              })}
+            </div>
+            <small className="vnd-colspick__hint">Arraste para adicionar</small>
+          </section>
+        </div>
+        <div className="vnd-colpreview"><b>Prévia:</b><span>{columnDraft.slice(0, 7).map(key => GRID_COLUMNS.find(c => c.key === key)?.label).join(" → ")}{columnDraft.length > 7 ? "…" : ""}</span></div>
+        <div className="vnd-colspick__actions">
+          <button type="button" className="btn-ghost" onClick={cancelColumnPicker}>Cancelar</button>
+          <button type="button" className="btn-ghost" onClick={() => { setColumnDraft(GRID_DEFAULT_KEYS); setPinnedDraft([]); }}>Restaurar padrão</button>
+          <button type="button" className="btn-teal" onClick={saveColumnPicker}>Salvar</button>
+        </div>
+      </div>
+    </React.Fragment>
+  );
+
   // Modos acoplados — vivem no topo persistente da casca ÚNICA,
   // à esquerda dos 3 cards. Ficam fixos enquanto as camadas crossfadeiam por baixo.
   // Ativo destacado (preenchido).
@@ -1300,113 +1527,82 @@ export function VendasClient() {
     <React.Fragment>
         <div className="vnd-modehost" data-mode={modo} data-fx={EFFECTS_ON ? "on" : "off"}>
 
-          {/* TOPO — UMA casca: toggle + cards. Os NÚMEROS trocam por modo
-              (funil ↔ Radar ↔ status) em crossfade no MESMO lugar. */}
-          <div className="vnd-funhead">
-            {segToggle}
-            <div className="vnd-stats">
-              <div className={"vnd-stats__layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <KpiRow items={[
-                  // board.team só vem preenchido pra quem gerencia o time (canManageTeam,
-                  // ver tipo BoardResponse acima) — pra esse perfil o summary é o AGREGADO
-                  // da empresa (todos os vendedores), nunca "meu funil" (VENDAS-REFAB 04/07).
-                  { icon: "users", label: board?.team ? "Cards no funil (empresa)" : "Cards no funil", value: summary ? String(summary.total) : "—", delta: "—" },
-                  { icon: "doc", label: "Atrasados", value: summary ? String(summary.overdue) : "—", delta: "—", down: Boolean(summary && summary.overdue > 0) },
-                  { icon: "check", label: "Fechados", value: summary ? String(summary.closed) : "—", delta: "—" },
-                ]} />
-              </div>
-              <div className={"vnd-stats__layer" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
-                {/* Cards puxados (mês) foi removido: o indicador não representa
-                    mais uma regra operacional válida. */}
-                <KpiRow items={[
-                  { icon: "scrape", label: "Total no Brasil", value: buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—", delta: "—" },
-                  { icon: "users", label: "Disponíveis", value: buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—", delta: "—" },
-                ]} />
-              </div>
-            </div>
-            {/* 4º botão — a faixa "Buscando empresas" virou card destacado (persistente
-                nos 2 modos). Mora na barra (limitada à esquerda) → não invade o card. */}
-            {board?.radarSupply && (
-              <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
-            )}
-          </div>
-
-          {/* STAGE — camadas SOBREPOSTAS em crossfade (uma casca só). */}
-          <div className="vnd-stage">
-            <div id="vendas-panel-funil" role="tabpanel" aria-labelledby="vendas-tab-funil"
-              className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <div className="content">
-                  <div className="work">
-            <section className="panel">
-              <div className="panel-head">
-                <h2><TypedText key={"t-funil-" + modo} text="Pipeline de vendas" />{board && <span style={{ fontSize: "0.72rem", fontWeight: 400, color: "var(--text-muted)", marginLeft: 8 }}>{searchQuery ? `${flatLeads.length} de ${summary?.total ?? 0} cards` : `${summary?.total ?? 0} cards`}</span>}
-                </h2>
-                <div className="meta">
+          {/* ── PAINEL DE COMANDO (PAINEL-ÚNICO, 26/07) ────────────────────────
+              Eram QUATRO faixas empilhadas antes do primeiro lead aparecer:
+              modo+3 KPIs (vnd-funhead), cabeçalho do painel com 7 controles,
+              guias de etapa e a barra de seleção — que ainda empurrava a tabela
+              pra baixo quando alguém marcava um card.
+              Virou UMA. As 5 etapas do lead são a navegação e carregam o número
+              (os 3 KPIs repetiam esses mesmos dados); a faixa de baixo explica a
+              etapa aberta e traz só as ações dela. Seleção múltipla e mensagens
+              trocam o CONTEÚDO dessa mesma faixa — nada empurra a tabela. */}
+          <div className="vnd-cmd" data-mode={modo}>
+            <div className="vnd-cmd__top">
+              {segToggle}
+              {modo === "funil" && (
+                <div className="vnd-stages glass-pill-track" role="tablist" aria-label="Etapa do lead" data-tut="vendas-etapas">
+                  <GlassPill {...guidePill} />
+                  {STAGE_ORDER.map(stage => {
+                    const active = stageFilter === stage.key;
+                    const contagem = stageCounts[stage.key];
+                    // Sinal vivo: verde pulsando = robô rodando; vermelho = cliente
+                    // esperando resposta. O número da etapa quente é o próprio alarme
+                    // (nada de badge repetindo o mesmo número ao lado).
+                    const vivo = stage.key === "contato" && briefing.roboAtivo > 0;
+                    const quente = stage.key === "retorno" && contagem > 0;
+                    return (
+                      <button
+                        key={stage.key}
+                        type="button"
+                        ref={guidePill.itemRef(stage.key)}
+                        role="tab"
+                        aria-selected={active}
+                        title={stage.sub}
+                        className={"vnd-stagetab glass-pill-item" + (active ? " is-on" : "") + (quente ? " is-hot" : "")}
+                        onClick={() => setStageFilter(f => (f === stage.key ? null : stage.key))}
+                      >
+                        <span className="vnd-stagetab__l">
+                          {vivo && <span className="vnd-stagetab__dot" aria-hidden="true" />}
+                          {quente && <span className="vnd-stagetab__dot vnd-stagetab__dot--hot" aria-hidden="true" />}
+                          {stage.label}
+                        </span>
+                        <span className="vnd-stagetab__n">{contagem}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {modo === "buscar" && (
+                <div className="vnd-stages vnd-stages--buscar" aria-label="Números do Radar">
+                  <span className="vnd-stagetab is-static">
+                    <span className="vnd-stagetab__l">Total no Brasil</span>
+                    <span className="vnd-stagetab__n">{buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—"}</span>
+                  </span>
+                  <span className="vnd-stagetab is-static">
+                    <span className="vnd-stagetab__l">Disponíveis</span>
+                    <span className="vnd-stagetab__n">{buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—"}</span>
+                  </span>
+                </div>
+              )}
+              {modo === "funil" && (
+                <div className="vnd-cmd__acts">
                   <span className="seg-toggle" role="group" aria-label="Visão do pipeline" data-tut="vendas-visao">
-                    <button className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
-                    <button className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
+                    <button type="button" className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
+                    <button type="button" className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
                   </span>
                   {view === "list" && (
                     <div className="vnd-colspick">
-                      <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
-                        onClick={() => colsOpen ? cancelColumnPicker() : openColumnPicker()} title="Escolher e ordenar as colunas">
-                        <I d={ICONS.edit} size={14} /> Colunas ▾
+                      <button type="button" className="icon-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
+                        onClick={() => colsOpen ? cancelColumnPicker() : openColumnPicker()} title="Escolher e ordenar as colunas" aria-label="Colunas da planilha">
+                        <I d={ICONS.edit} size={16} />
                       </button>
-                      {colsOpen && (
-                        <React.Fragment>
-                          <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={cancelColumnPicker} />
-                          <div className="vnd-colspick__menu" role="dialog" aria-label="Colunas da planilha">
-                            <div className="vnd-colspick__head">
-                              <span><strong>Organizar colunas</strong><small>{columnDraft.length} de {GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).length} colunas visíveis</small></span>
-                              <button type="button" className="icon-ghost" aria-label="Fechar" onClick={cancelColumnPicker}>✕</button>
-                            </div>
-                            <div className="vnd-colspick__boards">
-                              <section className="vnd-colspick__board" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && dropColumnAt(columnDrag, columnDraft.length)}>
-                                <div className="vnd-colspick__boardhead"><span><b>Ordem das colunas</b><small>De cima para baixo = esquerda para direita</small></span><button type="button" onClick={() => { setColumnDraft([]); setPinnedDraft([]); }}>Remover todas</button></div>
-                                <div className="vnd-collist">
-                                  {columnDraft.map((key, i) => {
-                                    const col = GRID_COLUMNS.find(c => c.key === key);
-                                    if (!col) return null;
-                                    return <div key={key} className={"vnd-colrow" + (columnDropIndex === i ? " is-drop" : "")} draggable
-                                      onDragStart={() => setColumnDrag(key)} onDragEnd={() => { setColumnDrag(null); setColumnDropIndex(null); }}
-                                      onDragOver={e => { e.preventDefault(); e.stopPropagation(); setColumnDropIndex(i); }} onDrop={e => { e.preventDefault(); e.stopPropagation(); columnDrag && dropColumnAt(columnDrag, i); }}>
-                                      <span className="vnd-colrow__grip" aria-hidden="true">⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
-                                      <button type="button" className={"vnd-colrow__pin" + (pinnedDraft.includes(key) ? " is-on" : "")} onClick={() => setPinnedDraft(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key])} aria-label={`${pinnedDraft.includes(key) ? "Desafixar" : "Fixar"} ${col.label}`} title="Fixar na rolagem horizontal">●</button>
-                                      <button type="button" className="vnd-colrow__remove" onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
-                                    </div>;
-                                  })}
-                                  {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste colunas para cá</span>}
-                                </div>
-                                <small className="vnd-colspick__hint">⠿ Arraste para reordenar</small>
-                              </section>
-                              <section className="vnd-colspick__board vnd-colspick__available" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && removeDraftColumn(columnDrag)}>
-                                <div className="vnd-colspick__boardhead"><span><b>Colunas disponíveis</b><small>Arraste ou dê dois cliques para adicionar</small></span><button type="button" onClick={() => setColumnDraft(GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).map(c => c.key))}>Adicionar todas</button></div>
-                                <label className="vnd-colsearch"><span aria-hidden="true">⌕</span><input value={columnSearch} onChange={e => setColumnSearch(e.target.value)} placeholder="Buscar coluna" aria-label="Buscar coluna" /></label>
-                                <div className="vnd-colavailable">
-                                  {GRID_COLUMN_GROUPS.map(group => {
-                                    const cols = group.keys.map(key => GRID_COLUMNS.find(c => c.key === key)).filter((c): c is GridColumn => Boolean(c) && !columnDraft.includes(c!.key) && (c!.gate !== "values" || Boolean(board?.canViewValues)) && c!.label.toLocaleLowerCase("pt-BR").includes(columnSearch.trim().toLocaleLowerCase("pt-BR")));
-                                    if (!cols.length) return null;
-                                    return <div key={group.label} className="vnd-colgroup"><b>{group.label}</b>{cols.map(col => <button key={col.key} type="button" draggable onDragStart={() => setColumnDrag(col.key)} onDragEnd={() => setColumnDrag(null)} onDoubleClick={() => setColumnDraft(keys => [...keys, col.key])}><span aria-hidden="true">⠿</span>{col.label}</button>)}</div>;
-                                  })}
-                                </div>
-                                <small className="vnd-colspick__hint">Arraste para adicionar</small>
-                              </section>
-                            </div>
-                            <div className="vnd-colpreview"><b>Prévia:</b><span>{columnDraft.slice(0, 7).map(key => GRID_COLUMNS.find(c => c.key === key)?.label).join(" → ")}{columnDraft.length > 7 ? "…" : ""}</span></div>
-                            <div className="vnd-colspick__actions">
-                              <button type="button" className="btn-ghost" onClick={cancelColumnPicker}>Cancelar</button>
-                              <button type="button" className="btn-ghost" onClick={() => { setColumnDraft(GRID_DEFAULT_KEYS); setPinnedDraft([]); }}>Restaurar padrão</button>
-                              <button type="button" className="btn-teal" onClick={saveColumnPicker}>Salvar</button>
-                            </div>
-                          </div>
-                        </React.Fragment>
-                      )}
+                      {colsOpen && columnPicker}
                     </div>
                   )}
-                  <button className="icon-ghost" title="Automações comerciais" aria-label="Automações comerciais" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
+                  <button type="button" className="icon-ghost" title="Automações comerciais" aria-label="Automações comerciais" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
                   </button>
-                  <button className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" data-tut="vendas-agenda" onClick={() => setAgendaOpen(o => !o)}>
+                  <button type="button" className="icon-ghost" title="Agenda de retornos" aria-label="Agenda de retornos" data-tut="vendas-agenda" onClick={() => setAgendaOpen(o => !o)}>
                     <I d={ICONS.clock} size={16} />
                   </button>
                   {board?.team && (() => {
@@ -1415,7 +1611,7 @@ export function VendasClient() {
                     const label = !teamFilter ? "Todas as equipes" : selSeller ? (selSeller.isMe ? "Eu" : selSeller.name) : "Todas as equipes";
                     return (
                       <div className="vnd-team">
-                        <button type="button" className="btn-ghost" aria-haspopup="menu" aria-expanded={teamMenuOpen}
+                        <button type="button" className="btn-ghost btn-xs" aria-haspopup="menu" aria-expanded={teamMenuOpen}
                           onClick={() => setTeamMenuOpen(o => !o)}>
                           {label} ▾
                         </button>
@@ -1440,9 +1636,58 @@ export function VendasClient() {
                       </div>
                     );
                   })()}
-                  <button className="btn-teal" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}><I d={ICONS.plus} size={14} /> Novo lead</button>
+                  <button type="button" className="btn-teal btn-xs" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}>
+                    <I d={ICONS.plus} size={14} /> Novo lead
+                  </button>
                 </div>
-              </div>
+              )}
+            </div>
+
+            {/* Faixa de contexto — o "painel mais claro": diz onde você está, o
+                que está acontecendo ali e o que dá pra fazer. Seleção múltipla
+                assume a MESMA faixa (não nasce uma barra nova). */}
+            <div className={"vnd-ctx" + (selecionados.size > 0 ? " is-bulk" : "")} data-tone={selecionados.size > 0 ? "calm" : ctxBrief.tone}>
+              {selecionados.size > 0 ? (
+                <React.Fragment>
+                  <span className="vnd-ctx__ic" aria-hidden="true"><I d={ICONS.check} size={17} /></span>
+                  <span className="vnd-ctx__txt">
+                    <b>{selecionados.size} card{selecionados.size === 1 ? "" : "s"} selecionado{selecionados.size === 1 ? "" : "s"}</b>
+                    <small>{bulkMsg ? <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span> : "Escolha o que fazer com eles ou desmarque para voltar."}</small>
+                  </span>
+                  <span className="vnd-ctx__acts">
+                    <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
+                    <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
+                      <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
+                    </button>
+                  </span>
+                </React.Fragment>
+              ) : (
+                <React.Fragment>
+                  <span className="vnd-ctx__ic" aria-hidden="true"><I d={ctxBrief.icon} size={17} /></span>
+                  <span className="vnd-ctx__txt" key={"ctx-" + modo + "-" + (stageFilter || "todos")}>
+                    <b>{modo === "buscar" ? "Buscar empresas — o Radar procura, você escolhe quem entra no funil" : ctxBrief.title}</b>
+                    <small>{modo === "buscar" ? "Puxe um lead e ele nasce na etapa Planejar do seu funil." : ctxBrief.facts}</small>
+                  </span>
+                  {/* "Buscando empresas" continua persistente nos 2 modos — só mudou
+                      de andar: agora mora na faixa, não numa barra própria. */}
+                  {board?.radarSupply && (
+                    <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
+                  )}
+                  {modo === "funil" && ctxBrief.actions && (
+                    <span className="vnd-ctx__acts">{ctxBrief.actions}</span>
+                  )}
+                </React.Fragment>
+              )}
+            </div>
+          </div>
+
+          {/* STAGE — camadas SOBREPOSTAS em crossfade (uma casca só). */}
+          <div className="vnd-stage">
+            <div id="vendas-panel-funil" role="tabpanel" aria-labelledby="vendas-tab-funil"
+              className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
+                <div className="content">
+                  <div className="work">
+            <section className="panel">
               {loadError && (
                 <div style={{ padding: "12px 16px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>
                   {loadError}
@@ -1483,42 +1728,8 @@ export function VendasClient() {
                   (VendasFullscreenBridge), que é onde o lead se edita. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <div className="vnd-grid-wrap">
-                  {/* Guias de etapa (S1 LEAD-CENTRICO): 1 tab por etapa do lead, com
-                      contagem — clique filtra a planilha (2º clique na guia ativa
-                      limpa). Compõe com busca/equipe (já aplicados em listLeads). */}
-                  <div className="vnd-guides glass-pill-track" role="tablist" aria-label="Etapa do lead">
-                    <GlassPill {...guidePill} />
-                    {STAGE_ORDER.map(stage => {
-                      const active = stageFilter === stage.key;
-                      return (
-                        <button
-                          key={stage.key}
-                          type="button"
-                          ref={guidePill.itemRef(stage.key)}
-                          role="tab"
-                          aria-selected={active}
-                          className={"vnd-guide" + (active ? " is-on" : "")}
-                          onClick={() => setStageFilter(f => (f === stage.key ? null : stage.key))}
-                        >
-                          {stage.label}
-                          <span className="vnd-guide__count">{stageCounts[stage.key]}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {(selecionados.size > 0 || bulkMsg) && (
-                    <div className="vnd-grid-bar">
-                      {selecionados.size > 0 && (
-                        <React.Fragment>
-                          <span className="sub2">{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</span>
-                          <button className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
-                            <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
-                          </button>
-                        </React.Fragment>
-                      )}
-                      {bulkMsg && <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span>}
-                    </div>
-                  )}
+                  {/* As guias de etapa e a barra de seleção subiram pro painel de
+                      comando (PAINEL-ÚNICO, 26/07) — aqui embaixo só a planilha. */}
                   <div className="tbl-wrap">
                   <table className="tbl vnd-grid" data-tut="vendas-funil">
                     <thead>
@@ -1649,6 +1860,8 @@ export function VendasClient() {
                               return (
                                 <article
                                   key={card.id}
+                                  // a ficha usa isto pra crescer de dentro DESTE card (e voltar pra ele)
+                                  data-lead-id={card.id}
                                   className={"vnd-card" + (sel?.id === card.id ? " is-sel" : "") + (dragId === card.id ? " is-dragging" : "") + (card.block === "closed" ? " is-locked" : "")}
                                   draggable={card.block !== "closed"}
                                   onDragStart={card.block !== "closed" ? (e => onCardDragStart(e, card)) : undefined}

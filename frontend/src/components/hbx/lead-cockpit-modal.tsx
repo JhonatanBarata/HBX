@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copiloto-panel";
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
@@ -346,6 +346,92 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const modules = useMyModules();
   const conciergeVisible = isModuleVisible("concierge", entitlements, currentUser, modules);
 
+  // ── ENTRADA E RETORNO (PAINEL-ÚNICO, 26/07) ──────────────────────────────
+  // A ficha CRESCE de dentro da linha/card que foi clicado e, ao fechar, VOLTA
+  // pra ele — que pisca pro olho reencontrar onde estava. Sem isso o cockpit
+  // aparecia e sumia seco, e quem fechava perdia o lugar na planilha.
+  // A origem é achada pelo id do lead (a linha já é `vnd-row-<id>`; o card do
+  // quadro carrega `data-lead-id`). Não achou origem → entrada simples, como antes.
+  const shellRef = useRef<HTMLElement | null>(null);
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<number | null>(null);
+
+  const originEl = useCallback(() => {
+    if (typeof document === "undefined" || !lead.id) return null;
+    return document.getElementById(`vnd-row-${lead.id}`)
+      || document.querySelector<HTMLElement>(`.vnd-card[data-lead-id="${CSS.escape(lead.id)}"]`);
+  }, [lead.id]);
+
+  // Marca a tela de trás pra ela recuar (escala + desfoque) enquanto a ficha
+  // está aberta. É o `.vnd-modehost` (painel de comando + planilha juntos) —
+  // o modal é irmão dele no DOM, então o `filter` daqui não vira containing
+  // block do `position: fixed` da ficha.
+  const setListZoom = useCallback((on: boolean) => {
+    if (typeof document === "undefined") return;
+    document.querySelector(".vnd-modehost")?.classList.toggle("is-cockpit-zoom", on);
+  }, []);
+
+  // FLIP: leva o painel da caixa de origem até o tamanho final (ou o contrário).
+  // Sem requestAnimationFrame de propósito — em aba sem composição o rAF não
+  // dispara e a animação morreria no meio, deixando a ficha travada.
+  const flip = useCallback((el: HTMLElement, from: DOMRect, back: boolean) => {
+    const to = el.getBoundingClientRect();
+    if (!to.width || !to.height) return false;
+    const sx = from.width / to.width;
+    const sy = from.height / to.height;
+    const boxed = `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${sx}, ${sy})`;
+    el.style.transition = "none";
+    el.style.transformOrigin = "top left";
+    if (back) {
+      el.style.transform = "none";
+      void el.offsetWidth;
+      el.style.transition = "transform var(--lc-flip-out) var(--ease-out-quint), opacity var(--lc-flip-out) var(--ease-out-quint)";
+      el.style.transform = boxed;
+      el.style.opacity = "0";
+    } else {
+      el.style.transform = boxed;
+      el.style.opacity = "0.35";
+      void el.offsetWidth;
+      el.style.transition = "transform var(--lc-flip-in) var(--ease-out-quint), opacity var(--lc-flip-in) var(--ease-out-quint)";
+      el.style.transform = "none";
+      el.style.opacity = "1";
+    }
+    return true;
+  }, []);
+
+  const requestClose = useCallback(() => {
+    if (closing) return;
+    const el = shellRef.current;
+    const origem = originEl();
+    setListZoom(false);
+    if (!el || !origem) { onClose(); return; }
+    // a lista volta ao lugar ao MESMO tempo que a ficha voa de volta pra linha
+    if (!flip(el, origem.getBoundingClientRect(), true)) { onClose(); return; }
+    setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      origem.classList.remove("is-cockpit-back");
+      void origem.offsetWidth;
+      origem.classList.add("is-cockpit-back");
+      window.setTimeout(() => origem.classList.remove("is-cockpit-back"), 1200);
+      onClose();
+    }, 420);
+  }, [closing, flip, onClose, originEl, setListZoom]);
+
+  // useLayoutEffect: a ficha tem que já nascer encolhida na linha. Com useEffect
+  // o navegador chega a pintar um quadro dela inteira antes de encolher — dá um
+  // "pisca" na abertura, exatamente o defeito que a transição vem consertar.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = shellRef.current;
+    const origem = originEl();
+    setListZoom(true);
+    if (el && origem) flip(el, origem.getBoundingClientRect(), false);
+    return () => {
+      setListZoom(false);
+      if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    };
+  }, [open, flip, originEl, setListZoom]);
+
   const [drawer, setDrawer] = useState<CockpitDrawer>(null);
   const [stage, setStage] = useState<CockpitStage>(() => normalizeCockpitStage(lead.status));
   const [stageBusy, setStageBusy] = useState(false);
@@ -435,11 +521,11 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
       else if (reagendarOpen) setReagendarOpen(false);
       else if (semInteresseOpen) setSemInteresseOpen(false);
       else if (drawer) setDrawer(null);
-      else onClose();
+      else requestClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [agendaOpen, closureReasonOpen, drawer, onClose, open, reagendarOpen, semInteresseOpen]);
+  }, [agendaOpen, closureReasonOpen, drawer, requestClose, open, reagendarOpen, semInteresseOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -1249,8 +1335,8 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
 
   return (
     <>
-      <div className="hbx-veil lead-cockpit__veil" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-        <section className="hbx-modal lead-cockpit lead-cockpit--workbench" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
+      <div className={"hbx-veil lead-cockpit__veil" + (closing ? " is-closing" : "")} onClick={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+        <section ref={shellRef} className="hbx-modal lead-cockpit lead-cockpit--workbench" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
           <header className="lead-cockpit__approved-head">
             <div className="lead-cockpit__approved-identity">
               <Av name={lead.name || "—"} size={44} />
@@ -1310,7 +1396,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                   <I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span>
                 </button>
               )}
-              <button type="button" className="lead-cockpit__approved-close" onClick={onClose} aria-label="Fechar">×</button>
+              <button type="button" className="lead-cockpit__approved-close" onClick={requestClose} aria-label="Fechar">×</button>
             </div>
           </header>
 
