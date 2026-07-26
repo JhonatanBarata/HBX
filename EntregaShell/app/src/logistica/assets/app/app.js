@@ -1447,6 +1447,10 @@
   // CIRCULARES GRANDES (‹ voltar / › próximo). `backAction`/`nextAction` são
   // data-action (delegação de clique já existente); omitir desabilita a seta.
   // `extra` é HTML livre entre o corpo e as setas (ex.: botões Sim/Não).
+  // `backGlyph` (26/07) troca o desenho da seta da esquerda: a moldura é reusada
+  // por telas onde o botão da esquerda NÃO volta passo nenhum (ex.: "Cancelar
+  // rota" da conferência) — ali o "‹" prometia voltar e mentia; quem não volta
+  // manda o próprio glifo ("×").
   // ==========================================================================
   function centerModal(opts) {
     const o = opts || {};
@@ -1462,7 +1466,7 @@
       <div class="center-modal-body">${o.body || ""}</div>
       ${o.extra || ""}
       <div class="center-modal-nav">
-        <button type="button" class="center-arrow center-arrow--back" data-action="${o.backAction || ""}" ${!o.backAction ? "disabled" : ""} aria-label="${H.escape(o.backLabel || "Voltar")}"><span class="center-arrow-glyph">‹</span><span class="center-arrow-label">${H.escape(o.backLabel || "Voltar")}</span></button>
+        <button type="button" class="center-arrow center-arrow--back" data-action="${o.backAction || ""}" ${!o.backAction ? "disabled" : ""} aria-label="${H.escape(o.backLabel || "Voltar")}"><span class="center-arrow-glyph">${o.backGlyph || "‹"}</span><span class="center-arrow-label">${H.escape(o.backLabel || "Voltar")}</span></button>
         <button type="button" class="center-arrow center-arrow--next" data-action="${o.nextAction || ""}" ${o.nextDisabled || !o.nextAction ? "disabled" : ""} aria-label="${H.escape(o.nextLabel || "Próximo")}"><span class="center-arrow-glyph">›</span><span class="center-arrow-label">${H.escape(o.nextLabel || "Próximo")}</span></button>
       </div>
     </section></div>`;
@@ -3888,7 +3892,11 @@
   // usa .badge.danger (mesmo tom de alerta já usado noutros pontos do app).
   function routeLegConnector(item) {
     if (item.semCoordenada) {
-      return `<div class="route-leg-connector"><span class="badge danger">sem trajeto — endereço sem pino</span></div>`;
+      // 26/07 — jargão fora da tela do motorista (ordem do dono: a palavra
+      // "pino" não diz nada pra quem dirige). `semCoordenadaLabel` encurta o
+      // selo quando a MESMA linha já explica o motivo logo abaixo (conferência).
+      const txt = item.semCoordenadaLabel || "sem trajeto — não sei onde fica este endereço";
+      return `<div class="route-leg-connector"><span class="badge danger">${H.escape(txt)}</span></div>`;
     }
     if (!Number.isFinite(item.legDistanceM)) return ""; // 1ª parada da fila: sem perna anterior pra mostrar
     const distTxt = item.legDistanceM < 1000 ? `${Math.round(item.legDistanceM)} m` : `${(item.legDistanceM / 1000).toFixed(1).replace(".", ",")} km`;
@@ -5010,8 +5018,11 @@
   // nos conectores da lista (routeLegConnector, abaixo) e no semáforo da S3 —
   // aqui fica CALADO só pra esse motivo; timeout/rate_limit/upstream (falha de
   // rede de verdade) continuam acendendo a faixa normalmente.
+  // 26/07 — o selo "Calculada pelas ruas" (caso osrm, tudo certo) SAIU: é
+  // detalhe de motor e o motorista não tem o que fazer com ele. Sobra só o que
+  // é problema REAL — a faixa de rota degradada, que muda o que ele vê na rua.
   function routeEngineBanner() {
-    if (state.routeEngine === "osrm") return `<span class="badge">Calculada pelas ruas</span>`;
+    if (state.routeEngine === "osrm") return "";
     if (state.routeEngine === "haversine" && state.routeDegradedReason && state.routeDegradedReason !== "coords_invalidas") {
       return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
     }
@@ -5032,35 +5043,52 @@
   // (catálogo do APK) e o editor REAL de cliente (openClientEditor) pra
   // "Corrigir endereço"/"Usar meu GPS daqui" — zero formulário duplicado.
   // ==========================================================================
+  // 26/07 (ordem do dono) — frases VISÍVEIS, só do que é IMPEDITIVO. O backend
+  // manda `motivosVisiveis` já filtrado e ordenado por gravidade; o campo
+  // `motivos` é auditoria interna e NUNCA é lido aqui. Código que não estiver
+  // neste mapa não vira texto na tela (o backend pode ganhar motivo novo antes
+  // de a tela ter uma frase de motorista pra ele — melhor calado que críptico).
+  // Jargão proibido: nenhuma frase daqui pode falar de "pino"/coordenada.
   const CONFERENCIA_MOTIVO_FRASE = {
-    sem_pino: "Sem coordenada cadastrada",
-    pino_compartilhado: "Mesmo pino de outro cliente",
-    fora_do_casulo: "Muito longe das outras paradas do dia",
-    perna_outlier: "Salto grande demais até aqui",
-    diverge_gps_ouro: "Divergente da última entrega confirmada",
-    geocode_nao_provado_em_campo: "Endereço nunca confirmado em campo",
-    fonte_nao_confiavel: "Fonte do pino não confiável",
-    nunca_entregue: "Cliente nunca recebeu entrega aqui",
-    rota_degradada: "Rota calculada em linha reta (sem rede de ruas)",
+    cep_endereco_divergente: "CEP e endereço não batem",
+    sem_pino: "Não sei onde fica este endereço",
+    pino_compartilhado: "Endereço igual ao de outro cliente",
+    diverge_gps_ouro: "Diferente de onde você já entregou",
+    // Padronizar é IGUALAR: pro motorista os dois motivos de distância dizem a
+    // mesma coisa, então dizem com a MESMA frase (o dedupe abaixo evita repetir
+    // quando a parada acumula os dois).
+    fora_do_casulo: "Muito longe das outras paradas",
+    perna_outlier: "Muito longe das outras paradas",
   };
-  function conferenciaMotivosTexto(motivos) {
-    return (Array.isArray(motivos) ? motivos : []).map(m => CONFERENCIA_MOTIVO_FRASE[m] || m).join(" · ");
+  function conferenciaMotivosTexto(parada) {
+    const lista = Array.isArray(parada && parada.motivosVisiveis) ? parada.motivosVisiveis : [];
+    const frases = [];
+    lista.forEach(motivo => {
+      const frase = CONFERENCIA_MOTIVO_FRASE[motivo];
+      if (frase && frases.indexOf(frase) === -1) frases.push(frase);
+    });
+    return frases.join(" · ");
   }
+  // Verde não ganha selo NENHUM (26/07): parada sem problema é só número, nome
+  // e a distância do conector — repetir "Pronta"/"Aviso" em 10 linhas iguais
+  // não informa nada. Só o impeditivo se anuncia.
   function conferenciaSemaforoInfo(semaforo) {
-    if (semaforo === "verde") return { badgeClass: "success", label: "Pronta" };
-    if (semaforo === "amarelo") return { badgeClass: "warning", label: "Aviso" };
-    return { badgeClass: "danger", label: "Corrigir" };
+    return semaforo === "vermelho" ? { badgeClass: "danger", label: "Corrigir" } : null;
   }
-  function conferenciaResumoTexto(data) {
-    const partes = [
-      `${data.total} ${data.total === 1 ? "parada" : "paradas"}`,
-      `${data.verdes} ${data.verdes === 1 ? "pronta" : "prontas"}`,
+  // Duas linhas, no formato escrito pelo dono. `comAviso` = paradas impeditivas
+  // (backend antigo/ausente → conta os vermelhos aqui em vez de quebrar).
+  function conferenciaResumoLinhas(data) {
+    const total = Number(data.total) || 0;
+    const comAvisoBruto = Number(data.comAviso);
+    const comAviso = Number.isFinite(comAvisoBruto)
+      ? comAvisoBruto
+      : (data.paradas || []).filter(p => p.semaforo === "vermelho").length;
+    const km = Math.round(Number(data.distanciaTotalKm) || 0);
+    const fim = data.terminoPrevisto ? H.date(data.terminoPrevisto, { hour: "2-digit", minute: "2-digit" }) : "";
+    return [
+      `${total} ${total === 1 ? "parada" : "paradas"}, ${comAviso} com aviso${comAviso === 1 ? "" : "s"}.`,
+      fim ? `Total ${km} km. Previsão de finalizar: ${fim}.` : `Total ${km} km.`,
     ];
-    if (data.vermelhas > 0) partes.push(`${data.vermelhas} corrigir`);
-    if (data.amarelas > 0) partes.push(`${data.amarelas} aviso${data.amarelas === 1 ? "" : "s"}`);
-    partes.push(`${Math.round(data.distanciaTotalKm || 0)} km`);
-    if (data.terminoPrevisto) partes.push(`fim ~${H.date(data.terminoPrevisto, { hour: "2-digit", minute: "2-digit" })}`);
-    return partes.join(" · ");
   }
   // Vermelhas que AINDA exigem o toque de ciência (Lei nº7) — corrigidas ou
   // retiradas da rota somem daqui sozinhas no próximo recarregarConferencia().
@@ -5070,10 +5098,12 @@
   }
   function conferenciaParadaRow(parada, index, rc) {
     const info = conferenciaSemaforoInfo(parada.semaforo);
-    const frase = conferenciaMotivosTexto(parada.motivos);
-    // Mesmo componente da S2 (routeLegConnector) — "sem trajeto" quando a
-    // parada não tem pino válido, "↓ N m · N min" quando tem perna medida.
-    const conector = routeLegConnector({ semCoordenada: !validCoordinates(parada.lat, parada.lng), legDistanceM: parada.legDistanceM, legDurationS: parada.legDurationS });
+    const frase = conferenciaMotivosTexto(parada);
+    // Mesmo componente da S2 (routeLegConnector) — selo curto "sem trajeto"
+    // quando a parada não tem coordenada (o porquê já está na frase da própria
+    // linha, repetir seria o mesmo texto duas vezes), "↓ N m · N min" quando
+    // tem perna medida.
+    const conector = routeLegConnector({ semCoordenada: !validCoordinates(parada.lat, parada.lng), semCoordenadaLabel: "sem trajeto", legDistanceM: parada.legDistanceM, legDurationS: parada.legDurationS });
     const id = String(parada.id);
     const acknowledged = rc.acknowledged.has(id);
     // Switch do catálogo (.module-switch, já usado em Ajustes/"salvar como
@@ -5082,7 +5112,8 @@
     const ack = parada.semaforo === "vermelho"
       ? `<span class="module-switch conferencia-ack${acknowledged ? " active" : ""}" data-action="conferencia-reconhecer" data-parada-id="${H.escape(id)}" role="switch" aria-checked="${acknowledged}" aria-label="Estou ciente desta pendência"><i></i></span>`
       : "";
-    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main card-main-btn" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button><span class="badge ${info.badgeClass}">${info.label}</span>${ack}</div>`;
+    const selo = info ? `<span class="badge ${info.badgeClass}">${info.label}</span>` : "";
+    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main card-main-btn" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button>${selo}${ack}</div>`;
   }
   // S6 (25/07, PR25072026-ROTA-CONFERIDA) — linha do preview de créditos, POR
   // PAPEL (mesmo espírito do creditsLockOverlay/S7 APP-SOUNDS: o FATO é o
@@ -5096,45 +5127,65 @@
     if (!custo) return "";
     if (!isAdmin()) {
       if (custo.saldoCobre === false) {
-        return `<div class="hbx-aviso hbx-aviso--danger">Créditos insuficientes para iniciar — avise o administrador.</div>`;
+        return `<div class="hbx-aviso hbx-aviso--danger">Créditos insuficientes para confirmar — avise o administrador.</div>`;
       }
       return "";
     }
-    const n = Math.max(0, Number(custo.creditosAIniciar) || 0);
+    // 26/07 — dois NÚMEROS diretos, no formato escrito pelo dono. A frase
+    // condicional antiga ("Iniciar não vai debitar créditos agora") era leitura
+    // do sistema, não do bolso dele: o que o operador quer saber é quanto tem e
+    // quanto sai. Zero também é resposta — mostra 0, não some. O verbo é
+    // "Confirmar" porque é o CONFIRMAR desta tela que cobra (o Play da tela
+    // Rota, depois, não debita de novo).
+    const debita = Math.max(0, Number(custo.creditosAIniciar) || 0);
     const saldo = Number(custo.saldoAtual) || 0;
-    const texto = n > 0
-      ? `Iniciar vai debitar ${n} ${n === 1 ? "crédito" : "créditos"} · saldo ${saldo}`
-      : `Iniciar não vai debitar créditos agora · saldo ${saldo}`;
     const kind = custo.saldoCobre === false ? "danger" : "ok";
-    return `<div class="hbx-aviso hbx-aviso--${kind}">${H.escape(texto)}</div>`;
+    return `<div class="hbx-aviso hbx-aviso--${kind} conferencia-creditos"><span>Créditos atual: ${H.escape(String(saldo))}</span><span>Confirmar Debitará: ${H.escape(String(debita))}</span></div>`;
   }
   function conferenciaListaStep(rc) {
     const data = rc.data;
+    // Estados sem lista: aqui não há rota conferida pra cancelar nem pra
+    // iniciar, então a esquerda é só "Fechar" — e fechar é o que ela faz.
     if (!data && rc.loading) {
-      return centerModal({ icon: "route", title: "Conferência da rota", body: loading(), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "" });
+      return centerModal({ icon: "route", title: "Conferência de rota", body: loading(), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", backGlyph: "×", nextAction: "" });
     }
     if (!data && rc.error) {
-      return centerModal({ icon: "route", title: "Conferência da rota", body: `<div class="hbx-aviso hbx-aviso--danger">${H.escape(rc.error)}</div>`, closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "conferencia-tentar-de-novo", nextLabel: "Tentar de novo" });
+      return centerModal({ icon: "route", title: "Conferência de rota", body: `<div class="hbx-aviso hbx-aviso--danger">${H.escape(rc.error)}</div>`, closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", backGlyph: "×", nextAction: "conferencia-tentar-de-novo", nextLabel: "Tentar de novo" });
     }
-    if (!data) return centerModal({ icon: "route", title: "Conferência da rota", body: empty("Nada para conferir", ""), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "" });
+    if (!data) return centerModal({ icon: "route", title: "Conferência de rota", body: empty("Nada para conferir", ""), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", backGlyph: "×", nextAction: "" });
     const pendentes = conferenciaVermelhasPendentes(rc);
     const rows = (data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("");
     const body = `${routeEngineBanner()}${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+    const resumo = conferenciaResumoLinhas(data).map(linha => `<span class="conferencia-resumo-linha">${H.escape(linha)}</span>`).join("");
     return centerModal({
       icon: "route",
-      title: "Conferência da rota",
-      resumo: H.escape(conferenciaResumoTexto(data)),
+      title: "Conferência de rota",
+      resumo,
       body,
       closeAction: "close-modal",
       closeButtonAction: "close-modal",
-      backAction: "close-modal",
-      backLabel: "Fechar",
-      // Lei nº7 (dono, 25/07): vermelho NUNCA bloqueia a saída — o botão
-      // "Continuar mesmo assim" nunca SOME; só fica desabilitado enquanto
-      // sobrar vermelha sem o toque individual de ciência (nunca "ignorar
-      // todas" — o desabilitado cai sozinho a cada toque no switch da linha).
+      // 26/07 — o botão da esquerda MENTIA: era um "‹ Fechar" com cara de
+      // voltar, mas quando esta tela abre a rota JÁ FOI GERADA — não havia pra
+      // onde voltar. Agora ele faz o que diz: "cancel-route" (a MESMA
+      // confirmação da tela Rota) desfaz só o PLANEJAMENTO — as entregas
+      // abertas voltam pra pendência, Agenda e financeiro não mudam (ver
+      // POST /logistica/rota/encerrar). O caminho destrutivo de verdade
+      // ("Limpar hoje e cancelar as abertas") continua onde sempre esteve:
+      // botão extra DENTRO daquela confirmação, com segunda confirmação.
+      // Fechar sem cancelar nada continua no × do canto e no toque no fundo.
+      backAction: "cancel-route",
+      backLabel: "Cancelar rota",
+      backGlyph: "×",
+      // Lei nº7 (dono, 25/07): vermelho NUNCA bloqueia a saída — o botão só
+      // fica desabilitado enquanto sobrar vermelha sem o toque individual de
+      // ciência (nunca "ignorar todas" — o desabilitado cai sozinho a cada
+      // toque no switch da linha). 26/07: o rótulo parou de acusar o motorista
+      // ("Continuar mesmo assim") e passou a dizer exatamente o que o botão
+      // faz — CONFIRMAR a conferência (é o confirmar que cobra, ver a linha de
+      // créditos acima). Ele NÃO é o Play: confirmar devolve a tela Rota com a
+      // rota montada, e o Play de lá é que inicia.
       nextAction: "conferencia-continuar",
-      nextLabel: rc.loading ? "Atualizando…" : "Continuar mesmo assim",
+      nextLabel: rc.loading ? "Atualizando…" : "Confirmar rota",
       nextDisabled: rc.loading || pendentes.length > 0,
     });
   }
@@ -5143,21 +5194,23 @@
     if (!ficha) return conferenciaListaStep(rc);
     const parada = ficha.parada;
     const info = conferenciaSemaforoInfo(parada.semaforo);
-    const frase = conferenciaMotivosTexto(parada.motivos);
+    const frase = conferenciaMotivosTexto(parada);
     // Mesma moldura do menu "Montar Rota" (dayHomeModal: day-home-btn com
-    // glifo+título+dica+seta) — 4 ações do plano (S4.md); "ajustar o pino no
-    // mapa" ficou de fora porque o app não tem componente de arrastar pino
+    // glifo+título+dica+seta) — 4 ações do plano (S4.md); "ajustar no mapa"
+    // ficou de fora porque o app não tem componente de arrastar marcador
     // ainda (investigado: só existe captura de GPS/geocode, não drag no mapa).
     const acoes = `<div class="day-home-actions">
-      <button type="button" class="day-home-btn" data-action="conferencia-usar-gps"><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Usar meu GPS daqui</strong><small>Grava sua posição atual como o pino</small></span><span class="day-home-btn-chev">›</span></button>
+      <button type="button" class="day-home-btn" data-action="conferencia-usar-gps"><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Usar meu GPS daqui</strong><small>Marca este endereço onde você está agora</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="conferencia-corrigir-endereco"><span class="day-home-btn-glyph">${icon("map", 20)}</span><span class="day-home-btn-copy"><strong>Corrigir endereço</strong><small>Abre o cadastro do cliente</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="conferencia-tirar-da-rota"><span class="day-home-btn-glyph">${icon("route", 20)}</span><span class="day-home-btn-copy"><strong>Tirar desta rota</strong><small>Sai só de hoje</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn day-home-btn--quiet" data-action="conferencia-deixar-pendencia"><span class="day-home-btn-glyph">${icon("close", 20)}</span><span class="day-home-btn-copy"><strong>Deixar como pendência</strong><small>Segue na rota, sem corrigir agora</small></span><span class="day-home-btn-chev">›</span></button>
     </div>`;
-    const body = `<span class="badge ${info.badgeClass}">${info.label}</span>${frase ? `<p class="subtitle">${H.escape(frase)}</p>` : ""}${acoes}`;
+    const body = `${info ? `<span class="badge ${info.badgeClass}">${info.label}</span>` : ""}${frase ? `<p class="subtitle">${H.escape(frase)}</p>` : ""}${acoes}`;
     return centerModal({
       icon: "route",
-      title: H.escape(parada.nome || "Parada"),
+      // centerModal já escapa o título — escapar aqui de novo virava &#39; na
+      // tela pra cliente com apóstrofo no nome.
+      title: parada.nome || "Parada",
       resumo: "Como resolver?",
       body,
       closeAction: "conferencia-fechar-ficha",
@@ -6324,6 +6377,14 @@
           await recarregarConferencia();
         }
       }
+      // 26/07 — "Cancelar rota"/"Limpar hoje" podem nascer DENTRO da tela de
+      // conferência (botão da esquerda). Depois de cancelar não existe mais
+      // rota pra conferir: o cartão sai junto, senão ficaria aberto mostrando a
+      // conferência de uma rota que não existe mais.
+      if ((confirmation.type === "cancel-route" || confirmation.type === "limpar-dia") && state.modal === "rota-conferencia") {
+        await closeOverlay("modal");
+        state.rotaConferencia = null;
+      }
       if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", {});
       if (confirmation.type === "finish-route") await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true });
       if (confirmation.type === "limpar-dia") await performLimparDia();
@@ -6522,15 +6583,22 @@
     if (action === "conferencia-continuar") {
       const rc = state.rotaConferencia;
       if (!rc || conferenciaVermelhasPendentes(rc).length > 0) return;
-      // S5 25/07 — "Aprovar rota": concluir a conferência (este botão, mesma
-      // copy/molde da S4 — Lei 7 "vermelho nunca bloqueia") CONGELA a ordem
-      // revisada via o mesmo mecanismo de "Minha ordem"/"Rota salva"
-      // (setRouteOrdemManual); a origem usada no conferir aprovado viaja junto
-      // (rc.origem, ver recarregarConferencia) pro drift-check do Iniciar.
+      // S5 25/07 — "Aprovar rota": concluir a conferência (Lei 7 "vermelho
+      // nunca bloqueia") CONGELA a ordem revisada via o mesmo mecanismo de
+      // "Minha ordem"/"Rota salva" (setRouteOrdemManual); a origem usada no
+      // conferir aprovado viaja junto (rc.origem, ver recarregarConferencia).
       if (rc.data && Array.isArray(rc.data.paradas) && rc.data.paradas.length) {
         setRouteOrdemManual(rc.data.paradas.map(p => String(p.id)), rc.origem);
       }
       await closeOverlay("modal");
+      // 26/07 (dono) — CONFIRMAR não é o Play: o débito acontece no confirmar
+      // (backend), e o motorista tem que cair na tela Rota com a rota montada,
+      // pronta pro Play — sem passo extra, sem toast mandando ele fazer mais
+      // nada. O fechamento do cartão já devolve a tela de baixo, que nos
+      // caminhos de hoje é a Rota; este navigateTo é a garantia de que é
+      // SEMPRE ela (mesmo idioma de openNextStop, ~L6100) caso um caminho
+      // futuro planeje a rota de outra tela.
+      if (state.screen !== "route") navigateTo("route");
       return;
     }
     if (action === "conferencia-reconhecer") {
