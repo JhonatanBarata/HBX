@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CreditActionUsageService } from './credit-action-usage.service';
+import { CreditActionConfigService } from './credit-action-config.service';
+import { clearCreditActionOverrides, CREDIT_ACTION_KEYS } from './credit-action-catalog';
 
 test.beforeEach(() => {
   process.env.HBX_CREDITS_ENABLED = 'true';
@@ -64,4 +66,82 @@ test('saldo insuficiente bloqueia a ação e devolve eventual débito parcial', 
   assert.equal(result.allowed, false);
   assert.equal(result.charged, 0);
   assert.equal(refunded, true);
+});
+
+/**
+ * TRAVA DE DINHEIRO: o preço que o master edita no "Catálogo de ações" tem que
+ * SAIR da carteira, não só ficar salvo na tabela. Aqui o config é o serviço REAL
+ * (sem stub) por cima de um Prisma falso — mudar o override tem que mudar o valor
+ * que chega em wallet.debit. Se alguém voltar a cravar o custo no chamador, este
+ * teste fica vermelho.
+ */
+test('override do master muda o valor efetivamente debitado', async () => {
+  clearCreditActionOverrides();
+  const rows: Array<{ actionKey: string; configJson: string }> = [];
+  const prisma = {
+    creditActionConfig: {
+      findMany: async () => rows.map((row) => ({ ...row })),
+      findUnique: async ({ where }: any) => rows.find((row) => row.actionKey === where.actionKey) || null,
+      upsert: async ({ where, update, create }: any) => {
+        const row = rows.find((item) => item.actionKey === where.actionKey);
+        if (row) { Object.assign(row, update); return { ...row }; }
+        rows.push({ ...create });
+        return { ...create };
+      },
+      deleteMany: async ({ where }: any) => {
+        const index = rows.findIndex((row) => row.actionKey === where.actionKey);
+        if (index >= 0) rows.splice(index, 1);
+        return { count: index >= 0 ? 1 : 0 };
+      },
+    },
+  };
+  const config = new CreditActionConfigService(prisma as any);
+  const debits: number[] = [];
+  const service = new CreditActionUsageService(
+    config as any,
+    {
+      debit: async (_companyId: number, amount: number) => { debits.push(amount); return { debited: amount }; },
+      refund: async () => ({ refunded: 0 }),
+    } as any,
+    { isEnforceActiveForCompany: async () => true } as any,
+  );
+
+  // Sem override: vale o custo do catálogo.
+  const padrao = await service.authorize({
+    companyId: 7,
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+    refId: 'bloco-1',
+  });
+  assert.equal(padrao.charged, 1);
+
+  // Master sobe 1 → 2: a carteira PRECISA debitar 2.
+  await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'debit', cost: 2 });
+  const editado = await service.authorize({
+    companyId: 7,
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+    refId: 'bloco-2',
+  });
+  assert.equal(editado.charged, 2);
+  assert.deepEqual(debits, [1, 2]);
+
+  // Master desativa (Grátis): para de debitar, sem apagar a ação do catálogo.
+  await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'free', cost: 0 });
+  const desligado = await service.authorize({
+    companyId: 7,
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+    refId: 'bloco-3',
+  });
+  assert.equal(desligado.applied, false);
+  assert.equal(desligado.charged, 0);
+  assert.deepEqual(debits, [1, 2]);
+
+  // Restaurar padrão volta ao custo do catálogo.
+  await config.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
+  const restaurado = await service.authorize({
+    companyId: 7,
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+    refId: 'bloco-4',
+  });
+  assert.equal(restaurado.charged, 1);
+  clearCreditActionOverrides();
 });

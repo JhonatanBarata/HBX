@@ -65,6 +65,21 @@
 .cw-faq p { margin: 0; padding: 12px 16px 14px; font-size: 0.78rem; line-height: 1.6; color: var(--text-body); text-align: left; }
 .cw-extrato .tbl-wrap { margin: 4px 12px 12px; }
 
+/* ── Master → Créditos → Catálogo de ações: LEGIBILIDADE (dono 26/07) ──
+   O `.tbl .co` do kit corta em 180px com reticências. Aqui cada linha é
+   DINHEIRO: o master precisa LER o nome inteiro e a unidade de cobrança
+   antes de mexer no preço. Modificador escopado — o kit segue intacto
+   para as demais tabelas. Só estrutura (largura/quebra), zero cor. */
+.tbl--acoes { table-layout: auto; }
+/* Colunas de controle encolhem até o conteúdo e devolvem a folga à "Ação". */
+.tbl--acoes th:not(:first-child),
+.tbl--acoes td:not(:first-child) { width: 1%; white-space: nowrap; }
+.tbl--acoes th:first-child,
+.tbl--acoes td:first-child { white-space: normal; }
+.tbl--acoes .co { max-width: none; gap: 4px; }
+.tbl--acoes .co strong { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.35; }
+.tbl--acoes .sub2 { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.45; max-width: 62ch; }
+
 /* ── Banner "confirme seu WhatsApp" (F3 — CONFIRMACAO-TELEFONE) ─────────
    Pós-login Google sem telefone verificado: destrava SÓ o brinde (nunca o
    app). Card flutuante, não bloqueante. Só aparece com o gate ON (default

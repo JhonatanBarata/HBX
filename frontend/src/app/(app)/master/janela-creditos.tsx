@@ -119,6 +119,14 @@ const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
   { value: "debit", label: "Débito" },
 ];
 
+// Apoio curto embaixo do rótulo: só a UNIDADE de cobrança. É o que evita errar o
+// preço — "Logística Simples" cobra por BLOCO, "Logística Rastreada" por ENTREGA.
+const ACTION_UNIT_HINT: Record<string, string> = {
+  lead_delivery: "cobrado na entrega do lead",
+  logistica_essential_block: "cobra 1x por bloco iniciado de até 5 entregas",
+  logistica_tracked_delivery: "cobra 1x por entrega concluída com rastreamento válido",
+};
+
 function toForm(p: CreditPack | null): PackForm {
   return {
     title: p?.title || "",
@@ -730,7 +738,8 @@ export function JanelaCreditos({ companies, reload }: {
           {actionsLoadError && <div className="sc-intro"><div className="sc-msg is-warn">{actionsLoadError}</div></div>}
           {actionMsg && <div className="sc-intro"><div className={"sc-msg " + (actionMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{actionMsg}</div></div>}
           <div className="tbl-wrap">
-            <table className="tbl">
+            {/* --acoes: cada linha é DINHEIRO — nome e unidade de cobrança nunca truncam. */}
+            <table className="tbl tbl--acoes">
               <thead>
                 <tr><th>Ação</th><th>Modo</th><th>Custo</th><th>Status</th><th aria-label="Editar"></th></tr>
               </thead>
@@ -742,15 +751,18 @@ export function JanelaCreditos({ companies, reload }: {
                   <tr><td colSpan={5} className="muted-note">{actionsLoadError || "Nenhuma ação encontrada."}</td></tr>
                 )}
                 {(actions || []).map(a => {
-                  const isLead = a.actionKey === "lead_delivery";
+                  const hint = ACTION_UNIT_HINT[a.actionKey];
                   const form = actionForms[a.actionKey] || { mode: a.effective.mode, cost: String(a.effective.cost) };
                   const busy = actionBusyKey === a.actionKey;
+                  // Desativada = o master editou a ação para Grátis (não cobra mais).
+                  // Grátis de fábrica (sem override) segue como "padrão".
+                  const desativada = !!a.override && a.effective.mode === "free";
                   return (
                     <tr key={a.actionKey}>
                       <td>
                         <div className="co">
                           <strong>{a.label}</strong>
-                          {isLead && <span className="sub2">cobrado na entrega do lead</span>}
+                          {hint && <span className="sub2">{hint}</span>}
                         </div>
                       </td>
                       <td>
@@ -765,7 +777,9 @@ export function JanelaCreditos({ companies, reload }: {
                           onChange={e => setActionForms(prev => ({ ...prev, [a.actionKey]: { ...form, cost: e.target.value } }))} />
                       </td>
                       <td>
-                        <span className={a.override ? "tag teal" : "tag"}>{a.override ? "editado" : "padrão"}</span>
+                        <span className={desativada ? "tag warn" : a.override ? "tag teal" : "tag"}>
+                          {desativada ? "desativada" : a.override ? "editado" : "padrão"}
+                        </span>
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: 6 }}>

@@ -56,17 +56,19 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
     cost: 0,
     label: 'Entrega avulsa — absorvida pela rota',
   },
+  // Rótulos comerciais (dono 26/07). As CHAVES continuam as mesmas —
+  // ledger e extrato históricos apontam para elas.
   [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
     mode: 'debit',
     cost: 1,
-    label: 'Bloco iniciado de até 5 entregas (Rota Essencial)',
+    label: 'Logística Simples',
   },
   [CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
     mode: 'debit',
     cost: 2,
-    label: 'Entrega concluída com rastreamento válido',
+    label: 'Logística Rastreada',
   },
 };
 
