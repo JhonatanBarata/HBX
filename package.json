@@ -30,6 +30,8 @@
 		"abner": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-abner-firebase.ps1",
 		"abner:hosting": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-abner-firebase.ps1 -Only hosting",
 		"abner:functions": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-abner-firebase.ps1 -Only functions",
+		"test:back": "cd backend && npm run test:all",
+		"test:node": "node --test \"tests/*.test.mjs\"",
 		"test:e2e": "playwright test",
 		"test:e2e:ui": "playwright test --ui",
 		"video:test": "node ./tools/hbx-video-studio/preflight.mjs --self-test && node ./tools/hbx-video-studio/self-test.mjs",
