@@ -82,8 +82,40 @@ deletado) — vira central de atendimento opcional pra empresa de volume.
   `cadencia`) + 278/278 vendas/cadência/mail. ⚠️ SEM IMAP/webhook de recepção hoje —
   resposta por thread (item 5 do briefing) fica de fora, documentado como gap; a
   detecção manual de "sem interesse/remover" cobre a regra dura de supressão.
-- S7 — Pool/marquinha/resfriamento + rebaixar Conversas por flag + **remover pela raiz** o
-  disparo "puxa→dispara" do motor de prospecção antigo.
+- **S7 ✅** — `07-pool-raiz.md`: `VendasContactSuppression` (append-only, janelas 365d/90d/
+  permanente via env `HBX_SUPPRESSION_*_DIAS`; leitura só boolean, fail-open) com gatilhos
+  automáticos no encerramento/cadência-esgotada/opt-out; solda no import e na vitrine do
+  Radar (contador logado; ⚠️ COUNT `totalAvailable` ainda não desconta supressão — registrado);
+  puxa→dispara MORTO (start/resume recusam com ForbiddenException apontando pro robozinho;
+  `enqueueLeadsForActiveCampaignForUser` virou no-op, original preservado `_legacyUnused`;
+  painel "Bot de prospecção" removido do /vendas); Conversas = módulo próprio `conversas`
+  (só TELA/nav; `atendimento` NÃO tocado — ele gateia pairing/recovery/mensageria; empresa
+  nova nasce OFF nas 3 portas de nascimento, existente fica como está). Commit `befc4802`.
+  Checks: 14 testes novos verdes; 462/467 nas suítes tocadas (4 falhas pré-existentes
+  alheias). ⚠️ 1 campanha automática `running` viva em prod (companyId=5, de 30/06) —
+  SÓ RELATADA; parar é decisão do dono no publish.
+
+## FRENTE COMPLETA (S1–S7) — FECHAMENTO 26/07 (ordens do dono executadas)
+**TUDO EM PROD** — VPS conferida no `f0cc0b35` (publish novo não deixa commit `chore: publish`;
+mudou em `a5050b38`). Fechamento por ordem do dono 26/07:
+- (a) ✅ publish confirmado pelo dono e conferido na VPS.
+- (b) ✅ campanha running da empresa 5 CANCELADA de vez na VPS (semântica do
+  `cancelProspectingForUser` em SQL: campanha `canceled`, 0 jobs pendentes, 0 enrollments)
+  + cópia legada `_legacyUnused` removida (`547e84c6`, LOCAL — entra no próximo publish).
+  Motor de campanha (live-status etc.) ficou INERTE, demolição total = frente futura.
+- (c) ✅ CHAVES: runner + email da cadência JÁ ESTAVAM VIVOS no container (nomes legados
+  `HBX_CADENCIA_RUNNER_ENABLED`/`HBX_CADENCIA_EMAIL_ENABLED=true`, o código aceita fallback);
+  `HBX_AUTOMATION_RUNNER_ENABLED=true` + `HBX_PREVOO_ENRICH_ENABLED=true` ARMADAS no
+  `/root/HBX/backend/.env` (linhas 147–148) — valem no próximo recreate/publish (liga o botão
+  "Buscar dados"). LIÇÃO GRAVADA: chave desligada esquecida = "bug" pro dono; ligar na entrega.
+- (d) strings de UI → entram JUNTO com o cockpit visual grande (chip aberto em sessão própria).
+- Restam (futuro): gap IMAP (resposta por thread); motor de reembolso (dados já sendo
+  colhidos); demolição total do motor de campanha.
+
+## S8 (26/07, ordem nova do dono) — DESTRAVAR O ROBÔ
+`08-destravar-robo.md` — regra: travas de ativação = SÓ config do Admin (S5) feita + WhatsApp
+conectado; bloqueio SEMPRE com explicação + próximo passo (primordial); resto remove/auto-cura.
+Worker despachado 26/07.
 - (Adiado, sem sprint): motor de reembolso — depende dos dados de encerramento acumulados.
 
 ## Guardrails de TODO worker desta frente

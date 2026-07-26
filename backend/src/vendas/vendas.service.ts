@@ -5938,6 +5938,16 @@ export class VendasService {
           .catch(() => null)
       : null;
 
+    // S8 LEAD-CENTRICO (08-destravar-robo.md): só faz sentido explicar por que
+    // "Ligar robô" está bloqueado quando ele ainda NÃO está ligado — desligar
+    // nunca é bloqueado por isto.
+    const roboBloqueado = activeEnrollment
+      ? null
+      : await this.resolveRoboBloqueio(context, user, {
+          phone: (lead as any)?.phone || null,
+          email: (intelligence as any)?.email || (lead as any)?.email || null,
+        });
+
     return {
       ok: true,
       leadId: String(lead.id),
@@ -5984,7 +5994,140 @@ export class VendasService {
         status: activeEnrollment ? String(activeEnrollment.status || 'active') : null,
         currentStep: activeEnrollment ? Math.max(0, Math.trunc(Number(activeEnrollment.currentStep || 0))) : 0,
       },
+      // S8 LEAD-CENTRICO (08-destravar-robo.md, ordem do dono 26/07): "o cliente
+      // entender o porquê não dá pra ativar é PRIMORDIAL" — o front NUNCA deixa o
+      // botão desabilitado mudo, sempre mostra motivo + próximo passo daqui.
+      roboBloqueado,
     };
+  }
+
+  // ================================================================
+  // S8 LEAD-CENTRICO (08-destravar-robo.md, ordem do dono 26/07: "a única [trava]
+  // vai ser a config do Admin — feito, já libera. E LÓGICO, ter o WhatsApp").
+  // Fonte ÚNICA das travas de ATIVAÇÃO do robô — usada tanto pelo GET pré-voo
+  // (pra mostrar o botão nunca desabilitado mudo) quanto pelo POST /robo (pra
+  // enforçar de verdade, mesmo se o front for ignorado). Ordem de checagem =
+  // ordem de prioridade da mensagem: (1) config do Admin, (2) WhatsApp
+  // conectado, (3) lead sem canal nenhum (não é trava da empresa, é ausência de
+  // dado do lead — mesmo assim precisa de explicação, por ordem do dono).
+  // ================================================================
+  private async resolveRoboBloqueio(
+    context: VendasUserContext,
+    user: any,
+    lead: { phone?: string | null; email?: string | null },
+  ): Promise<{ motivo: string; acao: string; codigo: 'config_ausente' | 'whatsapp_desconectado' | 'lead_sem_canal' } | null> {
+    // 1) Config do Admin (S5, VendasComercialConfig) — precisa EXISTIR linha
+    // salva pra empresa. AgendaDisparoService.getConfig() devolve default sem
+    // persistir nada, então a existência é checada direto aqui.
+    const configRow = await (this.prisma as any).vendasComercialConfig
+      ?.findUnique?.({ where: { companyId: context.companyId }, select: { companyId: true } })
+      .catch(() => null);
+    if (!configRow) {
+      return {
+        codigo: 'config_ausente',
+        motivo: 'Configuração de disparo (horário e teto) ainda não foi feita para esta empresa.',
+        acao: this.canManageAgendaDisparo(context)
+          ? 'Configure horário e teto em Automações comerciais (ícone no topo do Vendas) antes de ligar o robô.'
+          : 'Peça ao dono/gerente pra configurar horário e teto em Automações comerciais.',
+      };
+    }
+
+    // 2) WhatsApp da empresa conectado — MESMA fonte que a tela já usa
+    // (InboxService.getWhatsappHealth -> connectedForUi, "verdade única" PR1),
+    // nunca API crua do motor.
+    let whatsappConnected = false;
+    try {
+      const health = await this.inboxService.getWhatsappHealth(user);
+      whatsappConnected = Boolean((health as any)?.connectedForUi);
+    } catch {
+      whatsappConnected = false;
+    }
+    if (!whatsappConnected) {
+      return {
+        codigo: 'whatsapp_desconectado',
+        motivo: 'WhatsApp da empresa não está conectado.',
+        acao: 'Conecte o WhatsApp antes de ligar o robô.',
+      };
+    }
+
+    // 3) Lead sem NENHUM canal — não tem o que disparar.
+    const hasPhone = Boolean(String(lead?.phone || '').trim());
+    const hasEmail = Boolean(String(lead?.email || '').trim());
+    if (!hasPhone && !hasEmail) {
+      return {
+        codigo: 'lead_sem_canal',
+        motivo: 'Este lead não tem WhatsApp, telefone nem e-mail cadastrado.',
+        acao: 'Use "Buscar dados" pra tentar localizar um contato antes de ligar o robô.',
+      };
+    }
+
+    return null;
+  }
+
+  // S8 LEAD-CENTRICO: "outra automação ativa" só pode ser RESÍDUO — o motor de
+  // campanha morreu no S7 (puxa→dispara aposentado, `refuseAutomaticProspectingCreation`).
+  // source 'bot' = campanha de prospecção legada: cancela o resíduo DESTE lead e
+  // segue (nunca mais bloqueia). source 'cadencia' = outra cadência ainda ativa
+  // pro MESMO lead: TROCA (pausa a anterior com aviso na timeline) em vez de
+  // recusar. Nunca mexe em outbox/disjuntor/atendimento/recovery — só estado de
+  // inscrição + ledger canônico (mesma superfície de pauseCommercialAutomationForLead).
+  private async autoResolveRoboConflict(
+    context: VendasUserContext,
+    leadId: string,
+    conflict: { source: string; id: string; status: string },
+  ): Promise<boolean> {
+    if (conflict.source === 'bot') {
+      await (this.prisma as any).vendasAutomationJob
+        ?.updateMany?.({
+          where: {
+            companyId: context.companyId,
+            leadId,
+            status: { in: ['pending', 'scheduled', 'sending', 'sent'] },
+          },
+          data: {
+            status: 'canceled',
+            archivedAt: new Date(),
+            classification: 'legacy_prospecting_retired',
+            errorMessage: 'legacy_prospecting_retired_auto_cleared',
+          },
+        })
+        .catch(() => null);
+      await this.commercialContactControl
+        .finishAutomationEnrollment({
+          companyId: context.companyId,
+          legacySource: 'vendas_automation_job',
+          legacyExecutionId: conflict.id,
+          status: 'canceled',
+          reason: 'legacy_prospecting_retired_auto_cleared',
+        })
+        .catch(() => null);
+      return true;
+    }
+    if (conflict.source === 'cadencia') {
+      const result = await this.commercialContactControl.pauseCommercialAutomationForLead({
+        companyId: context.companyId,
+        leadId,
+        reason: 'lead_robo_trocado_automatico',
+      });
+      if (result.canceledCadencias > 0) {
+        await this.prisma.vendasLeadTimelineEvent
+          .create({
+            data: {
+              leadId,
+              ...this.buildTimelineEvent({
+                eventType: 'robo_trocado',
+                title: 'Robô trocado',
+                description: 'Cadência anterior pausada automaticamente para ligar a nova.',
+                resultLabel: 'robo_trocado',
+                createdByUserId: context.userId,
+              }),
+            },
+          })
+          .catch(() => null);
+      }
+      return true;
+    }
+    return false;
   }
 
   // ================================================================
@@ -6006,7 +6149,13 @@ export class VendasService {
         select: { id: true, nome: true, ativa: true },
       });
       if (!row) throw new NotFoundException('Cadência não encontrada.');
-      if (!row.ativa) throw new BadRequestException('Cadência desativada — ative-a antes de ligar o robô.');
+      // S8 LEAD-CENTRICO: cadência desativada NÃO trava mais — religa sozinha
+      // (mesmo tratamento do caminho por persona/seed logo abaixo; "ative-a
+      // antes" foi removido pela ordem do dono de 26/07 — nada de burocracia
+      // impede ligar o robô além da config do Admin + WhatsApp).
+      if (!row.ativa) {
+        await (this.prisma as any).cadencia.update({ where: { id: row.id }, data: { ativa: true } }).catch(() => null);
+      }
       return { id: row.id, nome: row.nome };
     }
 
@@ -6049,7 +6198,7 @@ export class VendasService {
 
     const lead = await this.prisma.vendasLead.findFirst({
       where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
-      select: { id: true, assignedUserId: true, status: true, name: true },
+      select: { id: true, assignedUserId: true, status: true, name: true, phone: true, email: true },
     });
     if (!lead) throw new NotFoundException('Lead não encontrado.');
     const status = this.normalizeStatus(lead.status);
@@ -6057,28 +6206,64 @@ export class VendasService {
       throw new BadRequestException('Lead já avançado/encerrado — o robô não liga aqui (humano assumiu).');
     }
 
-    const cadencia = await this.resolveRoboCadencia(context, dto);
+    // S8 LEAD-CENTRICO (08-destravar-robo.md): as 2 travas de ativação (config do
+    // Admin + WhatsApp conectado) + o motivo permitido de "lead sem canal" — a
+    // MESMA fonte que o pré-voo expõe em `roboBloqueado`, aqui enforçada de
+    // verdade (nunca confia só no front pra não deixar ligar).
+    const bloqueio = await this.resolveRoboBloqueio(context, user, {
+      phone: (lead as any).phone,
+      email: (lead as any).email,
+    });
+    if (bloqueio) {
+      throw new BadRequestException(`${bloqueio.motivo} ${bloqueio.acao}`.trim());
+    }
+
+    let personaKey = this.normalizeText(dto?.personaKey);
+    const explicitCadenciaId = this.normalizeText(dto?.cadenciaId);
+    if (!personaKey && !explicitCadenciaId) {
+      // S8 LEAD-CENTRICO: sem personaKey -> usa a MESMA recomendação heurística
+      // do pré-voo como default (nunca trava pedindo pra escolher manualmente).
+      const preVoo = await this.getLeadPreVooForUser(user, normalizedLeadId).catch(() => null);
+      personaKey = (preVoo as any)?.recomendacao?.personaKey || 'conservador';
+    }
+    const cadencia = await this.resolveRoboCadencia(context, {
+      personaKey: personaKey || undefined,
+      cadenciaId: explicitCadenciaId || undefined,
+    });
     const objetivo = this.normalizeText(dto?.objetivo);
 
-    const slot = await this.commercialContactControl.createCadenciaInscricao({
-      companyId: context.companyId,
-      leadId: lead.id,
-      data: {
-        cadenciaId: cadencia.id,
+    const attemptEnroll = () =>
+      this.commercialContactControl.createCadenciaInscricao({
         companyId: context.companyId,
         leadId: lead.id,
-        responsavelId: lead.assignedUserId,
-        status: 'ativa',
-        currentStep: 0,
-        startedAt: new Date(),
-        nextStepAt: new Date(),
-      },
-    });
+        data: {
+          cadenciaId: cadencia.id,
+          companyId: context.companyId,
+          leadId: lead.id,
+          responsavelId: lead.assignedUserId,
+          status: 'ativa',
+          currentStep: 0,
+          startedAt: new Date(),
+          nextStepAt: new Date(),
+        },
+      });
+
+    let slot = await attemptEnroll();
+    if (!slot.created && slot.conflict) {
+      // S8 LEAD-CENTRICO: nunca bloqueia por resíduo/outra automação — resolve
+      // sozinho (cancela resíduo legado OU troca a cadência anterior com aviso)
+      // e tenta 1x de novo. Sem loop: só uma retentativa.
+      const resolved = await this.autoResolveRoboConflict(context, lead.id, slot.conflict);
+      if (!resolved) {
+        throw new ConflictException('Já existe outra automação comercial ativa para este lead (outra cadência ou campanha).');
+      }
+      slot = await attemptEnroll();
+      if (!slot.created && slot.conflict) {
+        throw new ConflictException('Já existe outra automação comercial ativa para este lead (outra cadência ou campanha).');
+      }
+    }
 
     let ligou = slot.created;
-    if (!slot.created && slot.conflict) {
-      throw new ConflictException('Já existe outra automação comercial ativa para este lead (outra cadência ou campanha).');
-    }
     if (!slot.created && slot.alreadyEnrolled) {
       // Já existe uma linha pra (cadência, lead) — pode ser a MESMA que já está
       // ativa (idempotente: no-op real) ou uma cancelada por um "desligar"
@@ -6177,9 +6362,15 @@ export class VendasService {
   // S5 LEAD-CENTRICO (05-agenda-slots.md) — config comercial ENXUTA por empresa
   // (janela + teto/dia + intervalo). Qualquer membro do time lê; só Admin/USERMASTER
   // salva (mesmo padrão de assertCanManageProspecting em vendas-automation.service.ts).
+  // Extraído em método próprio (S8 LEAD-CENTRICO) — resolveRoboBloqueio reusa a
+  // MESMA checagem pra decidir se a mensagem de bloqueio diz "configure você" ou
+  // "peça ao dono/gerente".
+  private canManageAgendaDisparo(context: VendasUserContext): boolean {
+    return Boolean(context.access?.isSystemMaster) || context.access?.isAdmin === true || String(context.role || '').trim().toUpperCase() === 'USERMASTER';
+  }
+
   private assertCanManageAgendaDisparo(context: VendasUserContext) {
-    const isAdmin = Boolean(context.access?.isSystemMaster) || context.access?.isAdmin === true || String(context.role || '').trim().toUpperCase() === 'USERMASTER';
-    this.assertVendasPermission(isAdmin, 'Só o dono/gerente pode configurar horário e teto de disparo.');
+    this.assertVendasPermission(this.canManageAgendaDisparo(context), 'Só o dono/gerente pode configurar horário e teto de disparo.');
   }
 
   async getComercialConfigForUser(user: any) {
