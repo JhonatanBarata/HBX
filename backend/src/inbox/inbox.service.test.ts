@@ -2645,7 +2645,12 @@ test('Fase B (c): ADMIN company mode inclui conversa só-Meta quando metaActive'
   const rowMeta = { whatsappConnectionSessionId: null };
   const rowWebwhats = { whatsappConnectionSessionId: 'some-session' };
   assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowMeta, scope), true);
-  assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowWebwhats, scope), false);
+  // Contrato de 25/06 (`b6118316`): ADMIN-dono em company mode vê a EMPRESA INTEIRA,
+  // inclusive conversa de sessão fora de `sessionIds` — o filtro antigo escondia o
+  // histórico a cada publish (re-link pisca a sessão pra 'disconnected' no banco).
+  // Este assert esperava `false` pela spec de 18/06 e ficou 1 mês vermelho sem ninguém
+  // rodar (censo 26/07); quem segue filtrando por sessão é só o gerente `restricted`.
+  assert.equal((service as any).isRowVisibleForWhatsappSessionScope(rowWebwhats, scope), true);
 });
 
 // ---------------------------------------------------------------------------
