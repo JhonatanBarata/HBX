@@ -233,10 +233,10 @@ type VendasStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 // língua do fluxo real (Planejar→Robô trabalhando→Te chamou→Negociação→
 // Fechado) — chaves/ordem/tone INTOCADOS (nada de migração).
 const STAGE_ORDER: { key: VendasStage; label: string; sub: string; tone: string }[] = [
-  { key: "novo", label: "Planejar", sub: "Lead novo — leia, planeje e ligue o robô", tone: "new" },
+  { key: "novo", label: "Planejar", sub: "Lead novo — leia, planeje e decida se vai ligar o robô", tone: "new" },
   { key: "contato", label: "Robô trabalhando", sub: "Em cadência — contatos em andamento", tone: "contact" },
   { key: "retorno", label: "Te chamou", sub: "Respondeu ou pediu retorno — sua vez", tone: "return" },
-  { key: "qualificado", label: "Negociação", sub: "Você assumiu — proposta e follow-up", tone: "qualified" },
+  { key: "qualificado", label: "Negociação", sub: "Você assumiu — proposta e acompanhamento", tone: "qualified" },
   { key: "encerrado", label: "Fechado", sub: "Contrato e compromissos", tone: "ended" },
 ];
 const STAGE_LABEL: Record<VendasStage, string> = {
@@ -1579,7 +1579,7 @@ export function VendasClient() {
                                   ) : col.key === "stage" ? (
                                     <React.Fragment>
                                       <span className="tag">{texto}</span>
-                                      {card.automation && <span className="tag warn vnd-grid__gap" title={`Passo ${card.automation.currentStep + 1}`}>{"🤖 " + card.automation.label}</span>}
+                                      {card.automation && <span className="tag warn vnd-grid__gap" title={`Passo ${card.automation.currentStep + 1}`}>🤖 Robô ativo</span>}
                                     </React.Fragment>
                                   ) : col.key === "owner" && card.owner?.name ? (
                                     <span className="vnd-grid__owner"><Av name={card.owner.name} size={18} />{card.owner.name}</span>
@@ -1680,7 +1680,7 @@ export function VendasClient() {
                                         {card.attemptCount}º contato
                                       </span>
                                     )}
-                                    {card.automation && <span className="tag warn" title={`Passo ${card.automation.currentStep + 1}`}>{"🤖 " + card.automation.label}</span>}
+                                    {card.automation && <span className="tag warn" title={`Passo ${card.automation.currentStep + 1}`}>🤖 Robô ativo</span>}
                                   </div>
                                 </article>
                               );
@@ -1904,7 +1904,7 @@ export function VendasClient() {
                   </button>
                 </React.Fragment>
               ) : (
-                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Só o dono/gerente altera. O resto do time só visualiza.</span>
+                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Somente o dono ou gerente pode alterar. O restante do time apenas visualiza.</span>
               )}
             </div>
             <div style={{ display: "grid", gap: 8 }}>

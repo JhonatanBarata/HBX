@@ -7,13 +7,16 @@ import { CopilotoPanel, type CopilotoFicha } from "@/app/(app)/leads/[id]/copilo
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
 import {
   AgendaLeadPanel,
-  ConversationPanel,
-  clientTimelineDescription,
   formatPhoneDisplay,
   humanize,
-  vendasEngagementMeta,
 } from "@/components/hbx/detalhes-negocio";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import {
+  LeadCockpitHistory,
+  type LeadCockpitCommand,
+  type LeadCockpitComposerMode,
+  type LeadCockpitTimelineEvent,
+} from "@/components/hbx/lead-cockpit-history";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { CANAL_LABEL, CanalIcon, type Canal } from "@/components/hbx/canal-icon";
 import {
@@ -26,26 +29,42 @@ import {
   useEntitlements,
   useMyModules,
 } from "@/components/hbx/shell";
-import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
+import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch } from "@/lib/api";
 import { onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { RadarAiLeadStatus } from "@/lib/radar-ai-status";
 
-type Guia = "atendimento" | "planejar" | "cadastro" | "financeiro";
-type CanalAtendimento = "whatsapp" | "email";
+type CockpitDrawer = "cadastro" | "financeiro" | null;
+type CockpitStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 
-// S3 LEAD-CENTRICO (03-pre-voo.md): contrato do GET /vendas/lead/:id/pre-voo —
-// entendimento + prontidão + recomendação de persona (heurística) + revisão
-// das mensagens reais da cadência, com a regra dura do nome já resolvida
-// pelo backend (nome só entra com confiança alta; senão abertura neutra).
-type PreVooCanal = { status: "confirmado" | "duvidoso" | "faltante"; valor: string | null; detalhe: string };
-type PreVooPasso = { dia: number; canal: string; titulo: string | null; corpo: string | null; atividadeTipo: string | null };
-type PreVooPersona = { key: string; nome: string; descricao: string; recomendado: boolean; passos: PreVooPasso[] };
+type PreVooCanal = {
+  status: "confirmado" | "duvidoso" | "faltante";
+  valor: string | null;
+  detalhe: string;
+};
+
+type PreVooPasso = {
+  dia: number;
+  canal: string;
+  titulo: string | null;
+  corpo: string | null;
+  atividadeTipo: string | null;
+};
+
+type PreVooPersona = {
+  key: string;
+  nome: string;
+  descricao: string;
+  recomendado: boolean;
+  passos: PreVooPasso[];
+};
+
 type PreVoo = {
   ok: boolean;
   leadId: string;
+  locked: boolean;
   empresa?: {
     found: boolean;
     cnpj: string | null;
@@ -64,22 +83,44 @@ type PreVoo = {
     fonte: string | null;
     candidatoDuvidoso: { nome: string; fonte: string } | null;
   };
-  canais?: { whatsapp: PreVooCanal; email: PreVooCanal; telefoneVoz: { status: "confirmado" | "faltante"; valor: string | null } };
-  prontidao?: { confirmados: string[]; duvidosos: string[]; faltantes: string[]; veredito: "pronto" | "falta_dados"; veredictoLabel: string };
-  recomendacao?: { personaKey: string; motivo: string; source: string; abertura: string; objetivo: string };
+  canais?: {
+    whatsapp: PreVooCanal;
+    email: PreVooCanal;
+    telefoneVoz: { status: "confirmado" | "faltante"; valor: string | null };
+  };
+  prontidao?: {
+    confirmados: string[];
+    duvidosos: string[];
+    faltantes: string[];
+    veredito: "pronto" | "falta_dados";
+    veredictoLabel: string;
+  };
+  recomendacao?: {
+    personaKey: string;
+    motivo: string;
+    source: string;
+    abertura: string;
+    objetivo: string;
+  };
   personas?: PreVooPersona[];
   enrichment?: { enabled: boolean; podeBuscar: boolean };
-  // S4 LEAD-CENTRICO (04-robozinho.md): estado ligado/desligado do robô pra este lead.
-  robo?: { ligado: boolean; enrollmentId: string | null; cadenciaId: string | null; status: string | null; currentStep: number };
-  // S8 LEAD-CENTRICO (08-destravar-robo.md): motivo + próximo passo quando "Ligar
-  // robô" está bloqueado (config do Admin ausente / WhatsApp desconectado / lead
-  // sem canal nenhum) — null quando não há bloqueio. O botão NUNCA fica
-  // desabilitado mudo: isto é sempre exibido junto.
-  roboBloqueado?: { motivo: string; acao: string; codigo: "config_ausente" | "whatsapp_desconectado" | "lead_sem_canal" } | null;
+  robo?: {
+    ligado: boolean;
+    enrollmentId: string | null;
+    cadenciaId: string | null;
+    status: string | null;
+    currentStep: number;
+  };
+  roboBloqueado?: {
+    motivo: string;
+    acao: string;
+    codigo: "config_ausente" | "whatsapp_desconectado" | "lead_sem_canal";
+  } | null;
 } | null;
 
 type CockpitCompany = {
   found?: boolean;
+  locked?: boolean;
   cnpj?: string | null;
   razaoSocial?: string | null;
   nomeFantasia?: string | null;
@@ -113,6 +154,44 @@ type Extrato = {
   total: number;
   charges: ExtratoCharge[];
 } | null;
+
+type NextSlot = {
+  slot: string;
+  conflito: boolean;
+  motivoConflito: string | null;
+} | null;
+
+const COCKPIT_STAGES: Array<{ key: CockpitStage; label: string }> = [
+  { key: "novo", label: "Planejar" },
+  { key: "contato", label: "Robô trabalhando" },
+  { key: "retorno", label: "Te chamou" },
+  { key: "qualificado", label: "Negociação" },
+  { key: "encerrado", label: "Fechado" },
+];
+
+const CLOSURE_REASONS = [
+  { key: "convertido", label: "Convertido" },
+  { key: "sem_interesse", label: "Sem interesse" },
+  { key: "nao_atendeu", label: "Não atendeu" },
+  { key: "contato_invalido", label: "Contato inválido" },
+  { key: "outro", label: "Outro motivo" },
+] as const;
+
+const INCLUSION_REASON_LABELS: Record<string, string> = {
+  cnae_compativel: "CNAE compatível com o segmento",
+  nome_combina_segmento: "Nome combina com o segmento pedido",
+  sem_segmento_pedido: "Sem segmento pedido (não filtrado)",
+  cidade_uf_ok: "Cidade/UF batem com o pedido",
+  telefone_presente: "Telefone presente",
+  whatsapp_confirmado: "WhatsApp confirmado",
+  website_proprio: "Site próprio",
+  multiplas_fontes: "Confirmado por mais de uma fonte",
+};
+
+function normalizeCockpitStage(value: string | null | undefined): CockpitStage {
+  if (value === "contato" || value === "retorno" || value === "qualificado" || value === "encerrado") return value;
+  return "novo";
+}
 
 function fmtMoney(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
@@ -171,88 +250,14 @@ function sourceModuleLabel(source?: string | null): string {
   return humanize(key);
 }
 
-function TypewriterText({ text, speed = 14, delay = 90, className = "" }: {
-  text: string;
-  speed?: number;
-  delay?: number;
-  className?: string;
-}) {
-  const [shown, setShown] = useState("");
-  const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    if (!text) return;
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    if (reduceMotion) {
-      const frame = window.requestAnimationFrame(() => {
-        setShown(text);
-        setDone(true);
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    let interval: ReturnType<typeof setInterval> | undefined;
-    const timeout = window.setTimeout(() => {
-      let index = 0;
-      interval = setInterval(() => {
-        index += 1;
-        setShown(text.slice(0, index));
-        if (index >= text.length) {
-          if (interval) clearInterval(interval);
-          setDone(true);
-        }
-      }, speed);
-    }, delay);
-
-    return () => {
-      window.clearTimeout(timeout);
-      if (interval) clearInterval(interval);
-    };
-  }, [delay, speed, text]);
-
-  return (
-    <span className={`lead-cockpit__typed${done ? " is-done" : ""}${className ? ` ${className}` : ""}`} title={text}>
-      {shown}
-    </span>
-  );
-}
-
-function AnimatedScore({ score, suffix = "/100", compact = false }: {
-  score: number;
-  suffix?: string;
-  compact?: boolean;
-}) {
-  const target = Math.max(0, Math.min(100, Math.round(Number(score) || 0)));
-  const [value, setValue] = useState(0);
-
-  useEffect(() => {
-    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    if (reduceMotion) {
-      const frame = window.requestAnimationFrame(() => setValue(target));
-      return () => window.cancelAnimationFrame(frame);
-    }
-
-    let frame = 0;
-    let started = 0;
-    const duration = 1350;
-    const tick = (time: number) => {
-      if (!started) started = time;
-      const progress = Math.min(1, (time - started) / duration);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setValue(Math.round(target * eased));
-      if (progress < 1) frame = window.requestAnimationFrame(tick);
-    };
-    frame = window.requestAnimationFrame(tick);
-    return () => window.cancelAnimationFrame(frame);
-  }, [target]);
-
-  const style = { "--lead-cockpit-score": `${value}%` } as React.CSSProperties;
-  return (
-    <span className={`lead-cockpit__animated-score${compact ? " is-compact" : ""}`} style={style} title={`Score: ${target}${suffix}`}>
-      <strong>{value}</strong>
-      <small>{suffix}</small>
-    </span>
-  );
+function displayPersonaDescription(value: string): string {
+  if (value === "Ritmo equilibrado ao longo de ~9 dias, sem sobrecarregar o WhatsApp.") {
+    return "Ritmo equilibrado por cerca de 9 dias, sem sobrecarregar o WhatsApp.";
+  }
+  if (value === "Mais TOQUES (e-mail/atividade) e presença firme — o WhatsApp segue espaçado (teto de chip fixo).") {
+    return "Mais contatos por e-mail e atividades, com WhatsApp espaçado dentro do limite do chip.";
+  }
+  return value;
 }
 
 function InfoRow({ label, children, mono = false }: {
@@ -270,7 +275,7 @@ function InfoRow({ label, children, mono = false }: {
 
 function CopyRow({ label, value, mono = true, badge }: {
   label: string;
-  value: string | null | undefined;
+  value?: string | null;
   mono?: boolean;
   badge?: React.ReactNode;
 }) {
@@ -282,7 +287,7 @@ function CopyRow({ label, value, mono = true, badge }: {
     navigator.clipboard?.writeText(value).then(
       () => {
         setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
+        window.setTimeout(() => setCopied(false), 1_400);
       },
       () => undefined,
     );
@@ -291,12 +296,12 @@ function CopyRow({ label, value, mono = true, badge }: {
   return (
     <div className="lead-cockpit__kv-row">
       <span className="lead-cockpit__kv-key">{label}</span>
-      <span className="lead-cockpit__copy-value">
-        <span className={mono ? "hbx-mono" : ""} title={value || undefined}>{display}</span>
+      <span className={`lead-cockpit__copy-value${mono ? " hbx-mono" : ""}`}>
+        <span>{display}</span>
         {badge}
         {value && (
           <button type="button" className="lead-cockpit__copy-button" onClick={copy} aria-label={`Copiar ${label}`}>
-            <I d={copied ? ICONS.check : ICONS.doc} size={11} />
+            <I d={copied ? ICONS.check : ICONS.doc} size={10} />
           </button>
         )}
       </span>
@@ -310,9 +315,19 @@ function CardTitle({ icon, title, action }: {
   action?: React.ReactNode;
 }) {
   return (
-    <div className="lead-cockpit__compact-card-head">
-      <span><I d={icon} size={12} /> {title}</span>
+    <header className="lead-cockpit__compact-card-head">
+      <span><I d={icon} size={14} /> {title}</span>
       {action}
+    </header>
+  );
+}
+
+function Score({ value, label }: { value: number; label: string }) {
+  const safeValue = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  return (
+    <div className="lead-cockpit__score">
+      <span><strong>{safeValue}%</strong><small>{label}</small></span>
+      <progress max={100} value={safeValue} aria-label={`${label}: ${safeValue}%`} />
     </div>
   );
 }
@@ -331,8 +346,17 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const modules = useMyModules();
   const conciergeVisible = isModuleVisible("concierge", entitlements, currentUser, modules);
 
-  const [tab, setTab] = useState<Guia>("atendimento");
-  const [channel, setChannel] = useState<CanalAtendimento>("whatsapp");
+  const [drawer, setDrawer] = useState<CockpitDrawer>(null);
+  const [stage, setStage] = useState<CockpitStage>(() => normalizeCockpitStage(lead.status));
+  const [stageBusy, setStageBusy] = useState(false);
+  const [stageMsg, setStageMsg] = useState<string | null>(null);
+  const [closureReasonOpen, setClosureReasonOpen] = useState(false);
+  const [nextActionDraft, setNextActionDraft] = useState(lead.nextAction || "");
+  const [nextActionBusy, setNextActionBusy] = useState(false);
+  const [workspaceCommand, setWorkspaceCommand] = useState<LeadCockpitCommand>({
+    mode: "whatsapp",
+    seq: 0,
+  });
   const [company, setCompany] = useState<CockpitCompany>(null);
   const [companyLoading, setCompanyLoading] = useState(true);
   const [preVoo, setPreVoo] = useState<PreVoo>(null);
@@ -344,18 +368,13 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [roboMsg, setRoboMsg] = useState<string | null>(null);
   const [waOk, setWaOk] = useState<boolean | null>(null);
   const [waConnectOpen, setWaConnectOpen] = useState(false);
-  const [agendaOpen, setAgendaOpen] = useState(false);
   const [emailReady, setEmailReady] = useState<boolean | null>(null);
-  const [emailPreview, setEmailPreview] = useState<{ subject: string; text: string; to: string } | null>(null);
-  const [emailBusy, setEmailBusy] = useState(false);
-  const [emailMsg, setEmailMsg] = useState<string | null>(null);
-  // S6 LEAD-CENTRICO (06-email-v1.md): sem IMAP/webhook de recepção (gap
-  // documentado no sprint), quem lê a resposta de remoção é o vendedor no PRÓPRIO
-  // e-mail — este botão registra manualmente o que ele leu.
-  const [optOutBusy, setOptOutBusy] = useState(false);
   const [copilotoEnabled, setCopilotoEnabled] = useState(false);
-  const [draftSignal, setDraftSignal] = useState<{ text: string; seq: number }>({ text: "", seq: 0 });
   const [addedNotes, setAddedNotes] = useState<NonNullable<VendasLead["timeline"]>>([]);
+  const [radarReasons, setRadarReasons] = useState<string[]>([]);
+  const [radarReasonsLoading, setRadarReasonsLoading] = useState(Boolean(lead.radarLeadId));
+  const [nextSlot, setNextSlot] = useState<NextSlot>(null);
+  const [nextSlotLoading, setNextSlotLoading] = useState(true);
   const [cnpjCopied, setCnpjCopied] = useState(false);
   const [templateCopied, setTemplateCopied] = useState(false);
   const [customerProfileId, setCustomerProfileId] = useState<string | null>(lead.customerProfileId || null);
@@ -363,91 +382,15 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [extratoError, setExtratoError] = useState(false);
   const [financeBusy, setFinanceBusy] = useState<string | null>(null);
   const [financeMessage, setFinanceMessage] = useState<string | null>(null);
-
-  // ── Painel de ações do lead (religado do antigo card lateral morto, 23/07):
-  //    Observações + Fechar venda / Reagendar / Sem interesse. Reusa endpoints
-  //    já existentes da tela Vendas — PATCH /vendas/lead/:id (shortNote/returnAt),
-  //    POST /vendas/lead/:id/negativar. Zero backend novo.
-  const [obsDraft, setObsDraft] = useState<string>(lead.shortNote || "");
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
+  const [agendaOpen, setAgendaOpen] = useState(false);
   const [reagendarData, setReagendarData] = useState("");
   const [reagendarOpen, setReagendarOpen] = useState(false);
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const [fecharOpen, setFecharOpen] = useState(false);
 
-  async function salvarObs() {
-    if (!lead.id || acaoBusy) return;
-    setAcaoBusy(true);
-    setAcaoMsg(null);
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ shortNote: obsDraft.trim().slice(0, 280) }),
-      });
-      setAcaoMsg("✓ Observação salva.");
-      await onConversationChanged?.();
-    } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível salvar a observação.");
-    } finally {
-      setAcaoBusy(false);
-    }
-  }
-
-  async function reagendarContato() {
-    if (!lead.id || !reagendarData || acaoBusy) return;
-    setAcaoBusy(true);
-    setAcaoMsg(null);
-    try {
-      const body: Record<string, unknown> = { returnAt: new Date(`${reagendarData}T09:00:00`).toISOString() };
-      if (obsDraft.trim()) body.shortNote = obsDraft.trim().slice(0, 280);
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
-      });
-      setAcaoMsg("✓ Contato reagendado.");
-      setReagendarData("");
-      setReagendarOpen(false);
-      await onConversationChanged?.();
-    } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Falha ao reagendar o contato.");
-    } finally {
-      setAcaoBusy(false);
-    }
-  }
-
-  async function marcarSemInteresse(motivo: string) {
-    if (!lead.id || !motivo || acaoBusy) return;
-    setAcaoBusy(true);
-    setAcaoMsg(null);
-    try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/negativar`, {
-        method: "POST",
-        body: JSON.stringify({ status: motivo }),
-      });
-      setSemInteresseOpen(false);
-      await onConversationChanged?.();
-      onClose();
-    } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível finalizar o lead.");
-    } finally {
-      setAcaoBusy(false);
-    }
-  }
-
-  const guides: Array<{ key: Guia; label: string; icon: string[] }> = canViewValues
-    ? [
-        { key: "atendimento", label: "Atendimento", icon: ICONS.msg },
-        { key: "planejar", label: "Planejar", icon: ICONS.bolt },
-        { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
-        { key: "financeiro", label: "Financeiro", icon: ICONS.money },
-      ]
-    : [
-        { key: "atendimento", label: "Atendimento", icon: ICONS.msg },
-        { key: "planejar", label: "Planejar", icon: ICONS.bolt },
-        { key: "cadastro", label: "Cadastro", icon: ICONS.doc },
-      ];
-  const tabPill = useGlassPill<HTMLButtonElement>(tab, guides.length);
+  const stagePill = useGlassPill<HTMLButtonElement>(stage, COCKPIT_STAGES.length);
   const personaPill = useGlassPill<HTMLButtonElement>(selectedPersonaKey || "", preVoo?.personas?.length || 0);
 
   const channelTargets: Partial<Record<Canal, string>> = {
@@ -458,24 +401,45 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     facebook: lead.leadIntelligence?.facebookUrl || lead.ownerFacebook || undefined,
     site: lead.website ? (lead.website.startsWith("http") ? lead.website : `https://${lead.website}`) : undefined,
   };
-  // Ordem da fileira do topo: LIGAR sempre primeiro (ordem do dono), o resto
-  // depois. Só entra canal que o lead realmente tem — o filtro abaixo é o que
-  // garante isso, então a fileira nunca mostra um ícone que não leva a lugar
-  // nenhum.
   const availableChannels = (["telefone", "whatsapp", "email", "instagram", "facebook", "site"] as Canal[])
     .filter((canal) => Boolean(channelTargets[canal]));
+
+  const loadPreVoo = useCallback(async () => {
+    const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
+    setPreVoo(response ?? null);
+    setSelectedPersonaKey((current) => current
+      || response?.personas?.find((persona) => persona.recomendado)?.key
+      || response?.personas?.[0]?.key
+      || null);
+    setPreVooLoading(false);
+    return response;
+  }, [lead.id]);
+
+  const loadExtrato = useCallback(async (id: string) => {
+    try {
+      const response = await apiFetch<Extrato>(`/financeiro-tenant/clientes/${encodeURIComponent(id)}/extrato`);
+      setExtrato(response ?? null);
+      setExtratoError(response == null);
+    } catch {
+      setExtrato(null);
+      setExtratoError(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (agendaOpen) setAgendaOpen(false);
-        else onClose();
-      }
+      if (event.key !== "Escape") return;
+      if (agendaOpen) setAgendaOpen(false);
+      else if (closureReasonOpen) setClosureReasonOpen(false);
+      else if (reagendarOpen) setReagendarOpen(false);
+      else if (semInteresseOpen) setSemInteresseOpen(false);
+      else if (drawer) setDrawer(null);
+      else onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [agendaOpen, onClose, open]);
+  }, [agendaOpen, closureReasonOpen, drawer, onClose, open, reagendarOpen, semInteresseOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -493,18 +457,15 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         setCompanyLoading(false);
       });
 
-    apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`)
-      .then((response) => {
-        if (!alive) return;
-        setPreVoo(response ?? null);
-        setSelectedPersonaKey((current) => current || response?.personas?.find((p) => p.recomendado)?.key || response?.personas?.[0]?.key || null);
-        setPreVooLoading(false);
-      })
-      .catch(() => {
+    void (async () => {
+      try {
+        await loadPreVoo();
+      } catch {
         if (!alive) return;
         setPreVoo(null);
         setPreVooLoading(false);
-      });
+      }
+    })();
 
     apiFetch<{ whatsappSession?: { accessible?: boolean } }>("/inbox/whatsapp-session")
       .then((response) => { if (alive) setWaOk(response?.whatsappSession?.accessible === true); })
@@ -518,49 +479,75 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
       .then((response) => { if (alive) setCopilotoEnabled(response?.enabled === true); })
       .catch(() => { if (alive) setCopilotoEnabled(false); });
 
-    return () => { alive = false; };
-  }, [lead.id, open]);
+    apiFetch<Exclude<NextSlot, null>>("/vendas/agenda-disparo/proximo-slot")
+      .then((response) => {
+        if (!alive) return;
+        setNextSlot(response ?? null);
+        setNextSlotLoading(false);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setNextSlot(null);
+        setNextSlotLoading(false);
+      });
 
-  const loadExtrato = useCallback(async (id: string) => {
-    try {
-      const response = await apiFetch<Extrato>(`/financeiro-tenant/clientes/${encodeURIComponent(id)}/extrato`);
-      setExtrato(response ?? null);
-      setExtratoError(response == null);
-    } catch {
-      setExtrato(null);
-      setExtratoError(true);
+    if (lead.radarLeadId) {
+      apiFetch<{ item?: { inclusionReasons?: string[] | null } }>(
+        `/webscraping/radar/leads/${encodeURIComponent(lead.radarLeadId)}`,
+      )
+        .then((response) => {
+          if (!alive) return;
+          setRadarReasons(Array.isArray(response?.item?.inclusionReasons)
+            ? response.item.inclusionReasons.filter(Boolean)
+            : []);
+          setRadarReasonsLoading(false);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setRadarReasons([]);
+          setRadarReasonsLoading(false);
+        });
     }
-  }, []);
+
+    return () => { alive = false; };
+  }, [lead.id, lead.radarLeadId, loadPreVoo, open]);
 
   useEffect(() => {
     if (!open || !canViewValues || !customerProfileId) return;
-    void loadExtrato(customerProfileId);
+    void (async () => {
+      await loadExtrato(customerProfileId);
+    })();
   }, [canViewValues, customerProfileId, loadExtrato, open]);
 
-  // "Buscar dados" do Planejar — reusa o MESMO caminho de enriquecimento
-  // manual que já existe (POST /vendas/lead/:id/enrichment, base RFB local
-  // primeiro, credito da equipe); zero endpoint novo. Atrás da flag
-  // HBX_PREVOO_ENRICH_ENABLED (preVoo.enrichment.enabled), default OFF.
+  useEffect(() => {
+    queueMicrotask(() => {
+      setStage(normalizeCockpitStage(lead.status));
+      setNextActionDraft(lead.nextAction || "");
+    });
+  }, [lead.nextAction, lead.status]);
+
+  function focusWorkspace(mode: LeadCockpitComposerMode, draft?: string) {
+    setWorkspaceCommand((current) => ({ mode, draft, seq: current.seq + 1 }));
+  }
+
   async function buscarDadosPreVoo() {
     if (!lead.id || preVooEnrichBusy) return;
     setPreVooEnrichBusy(true);
     setPreVooEnrichMsg(null);
     try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/enrichment`, { method: "POST", body: JSON.stringify({}) });
-      const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
-      setPreVoo(response ?? null);
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/enrichment`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await loadPreVoo();
       setPreVooEnrichMsg("✓ Dados atualizados.");
-    } catch (err) {
-      setPreVooEnrichMsg(err instanceof Error ? err.message : "Não foi possível buscar mais dados agora.");
+    } catch (error) {
+      setPreVooEnrichMsg(error instanceof Error ? error.message : "Não foi possível buscar mais dados agora.");
     } finally {
       setPreVooEnrichBusy(false);
     }
   }
 
-  // S4 LEAD-CENTRICO (04-robozinho.md): liga/desliga a cadência POR LEAD. Freios
-  // de canal (disjuntor, teto, warmup) continuam SEMPRE por baixo — isto só cria/
-  // pausa a inscrição; o runner segue atrás da flag do dono (HBX_AUTOMATION_
-  // RUNNER_ENABLED, hoje OFF).
   async function ligarRobo() {
     if (!lead.id || roboBusy || !selectedPersonaKey) return;
     setRoboBusy(true);
@@ -570,12 +557,12 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         method: "POST",
         body: JSON.stringify({ personaKey: selectedPersonaKey }),
       });
-      const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
-      setPreVoo(response ?? null);
+      await loadPreVoo();
+      setStage("contato");
       setRoboMsg("✓ Robô ligado.");
       await onConversationChanged?.();
-    } catch (err) {
-      setRoboMsg(err instanceof Error ? err.message : "Não foi possível ligar o robô agora.");
+    } catch (error) {
+      setRoboMsg(error instanceof Error ? error.message : "Não foi possível ligar o robô agora.");
     } finally {
       setRoboBusy(false);
     }
@@ -587,164 +574,138 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     setRoboMsg(null);
     try {
       await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/robo`, { method: "DELETE" });
-      const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
-      setPreVoo(response ?? null);
+      await loadPreVoo();
       setRoboMsg("✓ Robô desligado.");
       await onConversationChanged?.();
-    } catch (err) {
-      setRoboMsg(err instanceof Error ? err.message : "Não foi possível desligar o robô agora.");
+    } catch (error) {
+      setRoboMsg(error instanceof Error ? error.message : "Não foi possível desligar o robô agora.");
     } finally {
       setRoboBusy(false);
     }
   }
 
-  const cityState = lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—";
-  const cnpj = (company?.found && company.cnpj) || lead.cnpj || null;
-  const intelligence = lead.leadIntelligence;
-  const templateText = typeof intelligence?.messageTemplate === "string"
-    ? intelligence.messageTemplate
-    : String((intelligence?.messageTemplate as { text?: string } | null | undefined)?.text || "");
-  const opportunityScore = Math.max(0, Math.min(100, Math.round(Number(lead.opportunityScore) || 0)));
-  const conversationState = vendasEngagementMeta(lead.engagement, lead.conversation).state;
-  const hasConversation = conversationState !== "no_conversation" && conversationState !== "no_messages";
-  const phones = [lead.phone, ...(Array.isArray(lead.phones) ? lead.phones : [])]
-    .filter((item): item is string => Boolean(item))
-    .filter((item, index, all) => all.findIndex((other) => onlyDigits(other) === onlyDigits(item)) === index);
-  const emails = [lead.email, ...(Array.isArray(lead.emails) ? lead.emails : [])]
-    .filter((item): item is string => Boolean(item))
-    .filter((item, index, all) => all.indexOf(item) === index);
-  const whatsappMap = lead.phonesWhatsapp || {};
-  const history = [...addedNotes, ...(lead.timeline || [])].slice(0, 6);
-  const primaryPartner = company?.partners?.[0];
-  const keyPersonName = primaryPartner?.name || lead.ownerName || lead.ownerNames?.[0] || "—";
-  const keyPersonRole = primaryPartner?.qualification || (keyPersonName !== "—" ? "Pessoa-chave" : "Não identificada");
+  async function changeStage(nextStage: CockpitStage, closureReason?: string) {
+    if (!lead.id || stageBusy) return;
+    if (nextStage === "encerrado" && !closureReason) {
+      setClosureReasonOpen(true);
+      return;
+    }
+    if (nextStage === stage && nextStage !== "encerrado") return;
 
-  const registrationValues = [
-    lead.phone,
-    lead.email,
-    cnpj,
-    company?.razaoSocial || lead.razaoSocial,
-    company?.cnae || lead.cnae,
-    lead.city,
-    lead.state,
-    keyPersonName !== "—" ? keyPersonName : null,
-    lead.address,
-    lead.website,
-  ];
-  const registrationQuality = Math.round((registrationValues.filter(Boolean).length / registrationValues.length) * 100);
+    const previousStage = stage;
+    setStage(nextStage);
+    setStageBusy(true);
+    setStageMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: nextStage,
+          ...(closureReason ? { closureReason } : {}),
+        }),
+      });
+      setClosureReasonOpen(false);
+      setStageMsg("✓ Etapa atualizada.");
+      if (nextStage === "qualificado" || nextStage === "encerrado") await loadPreVoo();
+      await onConversationChanged?.();
+    } catch (error) {
+      setStage(previousStage);
+      setStageMsg(error instanceof Error ? error.message : "Não foi possível atualizar a etapa.");
+    } finally {
+      setStageBusy(false);
+    }
+  }
 
-  const recommendedChannel = intelligence?.recommendedChannel ? humanize(intelligence.recommendedChannel) : (lead.email ? "E-mail" : "WhatsApp");
-  const pain = intelligence?.painType ? humanize(intelligence.painType) : (lead.website ? "Atendimento" : "Sem site");
-  const smartTitle = recommendedChannel.toLowerCase().includes("mail")
-    ? "Próxima melhor ação: e-mail curto, WhatsApp no retorno"
-    : `Próxima melhor ação: iniciar por ${recommendedChannel}`;
-  const smartReason = intelligence?.painPitch
-    || intelligence?.opportunityReason
-    || "Use o contato confirmado e uma mensagem curta para abrir a conversa sem parecer invasivo.";
-  const approachReason = intelligence?.opportunityReason
-    || "Contato confirmado e sinais comerciais suficientes para uma abordagem consultiva e objetiva.";
+  async function saveNextAction() {
+    if (!lead.id || nextActionBusy) return;
+    setNextActionBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ nextAction: nextActionDraft.trim() || null }),
+      });
+      setAcaoMsg("✓ Próxima ação atualizada.");
+      await onConversationChanged?.();
+    } catch (error) {
+      setAcaoMsg(error instanceof Error ? error.message : "Não foi possível atualizar a próxima ação.");
+    } finally {
+      setNextActionBusy(false);
+    }
+  }
 
-  const copilotoFicha: CopilotoFicha = {
-    nome: lead.name,
-    razaoSocial: (company?.found && company.razaoSocial) || lead.razaoSocial || null,
-    cnpj: (company?.found && company.cnpj) || lead.cnpj || null,
-    cnae: (company?.found && company.cnae) || lead.cnae || null,
-    segmento: lead.segment,
-    cidade: lead.city,
-    uf: lead.state,
-    situacao: (company?.found && company.situacao) || lead.companySituation || null,
-  };
+  async function reagendarContato() {
+    if (!lead.id || !reagendarData || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ returnAt: new Date(`${reagendarData}T09:00:00`).toISOString() }),
+      });
+      setAcaoMsg("✓ Contato reagendado.");
+      setReagendarData("");
+      setReagendarOpen(false);
+      await onConversationChanged?.();
+    } catch (error) {
+      setAcaoMsg(error instanceof Error ? error.message : "Falha ao reagendar o contato.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
 
-  function handleCopilotoDraft(text: string) {
-    setDraftSignal((current) => ({ text, seq: current.seq + 1 }));
-    setChannel("whatsapp");
+  async function marcarSemInteresse(motivo: string) {
+    if (!lead.id || !motivo || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/negativar`, {
+        method: "POST",
+        body: JSON.stringify({ status: motivo }),
+      });
+      setSemInteresseOpen(false);
+      await onConversationChanged?.();
+      onClose();
+    } catch (error) {
+      setAcaoMsg(error instanceof Error ? error.message : "Não foi possível finalizar o lead.");
+    } finally {
+      setAcaoBusy(false);
+    }
   }
 
   async function saveCopilotoNote(text: string) {
-    const response = await apiFetch<{ event?: NonNullable<VendasLead["timeline"]>[number] }>(
+    const response = await apiFetch<{ event?: LeadCockpitTimelineEvent }>(
       `/vendas/lead/${encodeURIComponent(lead.id)}/note`,
       { method: "POST", body: JSON.stringify({ note: text }) },
     );
-    if (response?.event?.id) setAddedNotes((current) => [response.event as NonNullable<VendasLead["timeline"]>[number], ...current]);
-  }
-
-  async function generateEmailPreview() {
-    if (emailBusy) return;
-    setEmailBusy(true);
-    setEmailMsg(null);
-    try {
-      const response = await apiFetch<{ subject?: string; text?: string; recipientEmail?: string }>(
-        `/vendas/leads/${encodeURIComponent(lead.id)}/email/presentation/preview`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
-      setEmailPreview({
-        subject: response?.subject || "",
-        text: response?.text || "",
-        to: response?.recipientEmail || lead.email || "",
-      });
-    } catch (error) {
-      setEmailMsg(error instanceof Error ? error.message : "Não foi possível gerar a prévia.");
-    } finally {
-      setEmailBusy(false);
+    if (response?.event?.id) {
+      setAddedNotes((current) => [response.event as NonNullable<VendasLead["timeline"]>[number], ...current]);
     }
-  }
-
-  async function sendEmail() {
-    if (!emailPreview || emailBusy) return;
-    setEmailBusy(true);
-    setEmailMsg(null);
-    try {
-      await apiFetch(`/vendas/leads/${encodeURIComponent(lead.id)}/email/presentation/send`, {
-        method: "POST",
-        body: JSON.stringify({ subject: emailPreview.subject, text: emailPreview.text }),
-      });
-      setEmailMsg(`✓ E-mail enviado${emailPreview.to ? ` para ${emailPreview.to}` : ""}.`);
-      setEmailPreview(null);
-    } catch (error) {
-      setEmailMsg(error instanceof Error ? error.message : "Não foi possível enviar o e-mail.");
-    } finally {
-      setEmailBusy(false);
-    }
-  }
-
-  // S6 LEAD-CENTRICO: registra manualmente a resposta de remoção/sem interesse
-  // (sem detecção automática de resposta — gap documentado). Marca o lead
-  // (closureReason do S4) e suprime novos e-mails comerciais pro contato.
-  async function registerEmailOptOut() {
-    if (optOutBusy) return;
-    setOptOutBusy(true);
-    setEmailMsg(null);
-    try {
-      await apiFetch(`/vendas/leads/${encodeURIComponent(lead.id)}/email/opt-out`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setEmailMsg("✓ Registrado — não vamos mandar mais e-mail comercial pra este contato.");
-      setEmailPreview(null);
-    } catch (error) {
-      setEmailMsg(error instanceof Error ? error.message : "Não foi possível registrar.");
-    } finally {
-      setOptOutBusy(false);
-    }
+    await onConversationChanged?.();
   }
 
   function copyCnpj() {
+    const cnpj = (company?.found && company.cnpj) || lead.cnpj || null;
     if (!cnpj) return;
     navigator.clipboard?.writeText(cnpj).then(
       () => {
         setCnpjCopied(true);
-        window.setTimeout(() => setCnpjCopied(false), 1500);
+        window.setTimeout(() => setCnpjCopied(false), 1_500);
       },
       () => undefined,
     );
   }
 
   function copyTemplate() {
-    if (!templateText) return;
-    navigator.clipboard?.writeText(templateText).then(
+    const intelligence = lead.leadIntelligence;
+    const template = typeof intelligence?.messageTemplate === "string"
+      ? intelligence.messageTemplate
+      : String((intelligence?.messageTemplate as { text?: string } | null | undefined)?.text || "");
+    if (!template) return;
+    navigator.clipboard?.writeText(template).then(
       () => {
         setTemplateCopied(true);
-        window.setTimeout(() => setTemplateCopied(false), 1500);
+        window.setTimeout(() => setTemplateCopied(false), 1_500);
       },
       () => undefined,
     );
@@ -757,7 +718,9 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
         city: lead.city || "",
         state: lead.state || "",
       }));
-    } catch { /* segue sem storage */ }
+    } catch {
+      // A busca segue sem pré-preenchimento quando o storage estiver indisponível.
+    }
     router.push("/concierge");
   }
 
@@ -798,378 +761,71 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     }
   }
 
-  function renderWhatsapp() {
-    if (!lead.phone) return <div className="lead-cockpit__empty-state">Lead sem telefone.</div>;
-    if (waOk === false && !hasConversation) {
-      return (
-        <div className="lead-cockpit__empty-state">
-          <strong>WhatsApp ainda não conectado</strong>
-          <span>Conecte a sessão da empresa para conversar sem sair do funil.</span>
-          <button type="button" className="btn-teal btn-xs" onClick={() => setWaConnectOpen(true)}>
-            <WhatsAppMark size={13} /> Conectar WhatsApp
-          </button>
-        </div>
-      );
-    }
-    if (waOk == null && !hasConversation) return <div className="lead-cockpit__empty-state">Verificando conexão…</div>;
-    return (
-      <ConversationPanel
-        key={lead.id}
-        phone={lead.phone}
-        name={lead.name}
-        draftSignal={draftSignal}
-        leadId={lead.id}
-        conversationId={lead.conversation?.id}
-        conversationSnapshot={{ conversation: lead.conversation, engagement: lead.engagement }}
-        onConversationChanged={onConversationChanged}
-      />
-    );
-  }
-
-  function renderEmail() {
-    if (!lead.email) return <div className="lead-cockpit__empty-state">Lead sem e-mail.</div>;
-    if (emailReady === false) {
-      return (
-        <div className="lead-cockpit__empty-state">
-          <strong>E-mail da empresa não configurado</strong>
-          <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/configuracoes")}>Configurar e-mail</button>
-        </div>
-      );
-    }
-    if (emailReady == null) return <div className="lead-cockpit__empty-state">Verificando configuração…</div>;
-    return (
-      <div className="lead-cockpit__email-workspace">
-        <InfoRow label="Para">{lead.email}</InfoRow>
-        {emailPreview ? (
-          <div className="lead-cockpit__email-preview">
-            <strong>{emailPreview.subject || "Sem assunto"}</strong>
-            <TypewriterText key={emailPreview.text} text={emailPreview.text || "—"} className="lead-cockpit__email-preview-text" />
-            <div className="lead-cockpit__inline-actions">
-              <button type="button" className="btn-ghost btn-xs" onClick={generateEmailPreview} disabled={emailBusy}>Gerar de novo</button>
-              <button type="button" className="btn-teal btn-xs" onClick={sendEmail} disabled={emailBusy}>
-                <I d={ICONS.send} size={11} /> {emailBusy ? "Enviando…" : "Enviar"}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button type="button" className="lead-cockpit__email-generate" onClick={generateEmailPreview} disabled={emailBusy}>
-            <I d={ICONS.mail} size={13} /> {emailBusy ? "Gerando…" : "Gerar prévia de apresentação"}
-          </button>
-        )}
-        {emailMsg && <span className={`ctx-msg ${emailMsg.startsWith("✓") ? "ok" : "err"}`}>{emailMsg}</span>}
-        <div className="lead-cockpit__inline-actions">
-          <button type="button" className="btn-ghost btn-xs" onClick={registerEmailOptOut} disabled={optOutBusy}>
-            {optOutBusy ? "Registrando…" : "Contato pediu remoção / sem interesse"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  function renderAtendimento() {
-    return (
-      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--service">
-        <div className="lead-cockpit__service-left">
-          <section className="lead-cockpit__smart-card">
-            <span className="lead-cockpit__smart-icon"><I d={ICONS.bolt} size={17} /></span>
-            <span className="lead-cockpit__smart-copy">
-              <strong>{smartTitle}</strong>
-              <TypewriterText key={`${lead.id}-smart`} text={smartReason} />
-            </span>
-            <span className="lead-cockpit__smart-actions">
-              {copilotoEnabled ? (
-                <CopilotoPanel
-                  leadId={lead.id}
-                  ficha={copilotoFicha}
-                  onDraft={handleCopilotoDraft}
-                  onSaveNote={saveCopilotoNote}
-                />
-              ) : (
-                <span className="muted-note">Copiloto indisponível</span>
-              )}
-            </span>
-          </section>
-
-          <section className="lead-cockpit__chat-card">
-            <div className="lead-cockpit__channel-tabs">
-              <button type="button" className={channel === "whatsapp" ? "is-active" : ""} onClick={() => setChannel("whatsapp")}>
-                <WhatsAppMark size={13} /> WhatsApp
-              </button>
-              <button type="button" className={channel === "email" ? "is-active" : ""} onClick={() => setChannel("email")}>
-                <I d={ICONS.mail} size={12} /> E-mail
-              </button>
-              <span className="lead-cockpit__channel-status">
-                {channel === "whatsapp" ? (hasConversation ? "Conversa existente" : "Sem mensagens") : (lead.email ? "E-mail disponível" : "Sem e-mail")}
-              </span>
-            </div>
-            <div className="lead-cockpit__channel-body">
-              {channel === "whatsapp" ? renderWhatsapp() : renderEmail()}
-            </div>
-          </section>
-        </div>
-
-        <div className="lead-cockpit__service-right">
-          <div className="lead-cockpit__service-top-two">
-            <section className="lead-cockpit__compact-card">
-              {/* S00 (PADRAO-MERCADO) — B1: selo só com prova real (whatsappMap), não por telefone
-                  preenchido; mesma condição da linha ~771 deste arquivo (evita "check" falso). */}
-              <CardTitle icon={ICONS.phone} title="Contato rápido" action={whatsappMap[onlyDigits(lead.phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined} />
-              <InfoRow label="Telefone" mono>{lead.phone ? formatPhoneDisplay(lead.phone) : "—"}</InfoRow>
-              <InfoRow label="E-mail">{lead.email || "—"}</InfoRow>
-            </section>
-
-            <section className="lead-cockpit__compact-card lead-cockpit__agenda-summary">
-              <CardTitle
-                icon={ICONS.clock}
-                title="Agenda"
-                action={<button type="button" className="lead-cockpit__micro-button" onClick={() => setAgendaOpen(true)}>Agendar</button>}
-              />
-              <InfoRow label="Próximo passo">{lead.nextAction || "Primeiro contato"}</InfoRow>
-              <InfoRow label="Prazo">{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</InfoRow>
-            </section>
-          </div>
-
-          {/* Painel religado (23/07) — Observações + ações do lead, abaixo da
-              Agenda. Voltou o que morreu junto do card lateral: Fechar venda,
-              Reagendar e Sem interesse (finalizar). */}
-          <section className="lead-cockpit__compact-card lead-cockpit__acoes-card">
-            <CardTitle icon={ICONS.doc} title="Observações" />
-            <textarea
-              className="field-dark"
-              rows={3}
-              maxLength={280}
-              placeholder="Anotações deste lead…"
-              value={obsDraft}
-              onChange={(e) => setObsDraft(e.target.value)}
-              style={{ resize: "vertical", width: "100%", paddingTop: 8, paddingBottom: 8 }}
-            />
-            {acaoMsg && <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>}
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
-              <button className="btn-ghost" disabled={acaoBusy} onClick={salvarObs}>
-                {acaoBusy ? "Salvando…" : "Salvar observação"}
-              </button>
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              <button className="btn-teal" disabled={acaoBusy} onClick={() => setFecharOpen(true)}>
-                <I d={ICONS.money} size={13} /> Fechar venda
-              </button>
-              <button className={"btn-ghost" + (reagendarOpen ? " is-active" : "")} disabled={acaoBusy} onClick={() => { setReagendarOpen((o) => !o); setSemInteresseOpen(false); }}>
-                <I d={ICONS.clock} size={13} /> Reagendar
-              </button>
-              <button className={"btn-ghost" + (semInteresseOpen ? " is-active" : "")} disabled={acaoBusy} onClick={() => { setSemInteresseOpen((o) => !o); setReagendarOpen(false); }}>
-                Sem interesse {semInteresseOpen ? "▴" : "▾"}
-              </button>
-            </div>
-          </section>
-        </div>
-
-        {/* 3ª coluna (22/07): Inteligência + Mensagem saíram de baixo do Contato/
-            Agenda e vieram pro lado. Empilhadas em 0.88fr elas espremiam a letra
-            até 4px; deitadas em 3 colunas sobra altura pra escala legível sem
-            estourar a moldura (que continua com o clamp adaptativo da S1/S2). */}
-        <div className="lead-cockpit__service-far">
-          <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
-            <CardTitle icon={ICONS.scrape} title="Inteligência do lead" action={<span className="tag">Enriquecido</span>} />
-            <div className="lead-cockpit__intelligence-main">
-              <AnimatedScore score={opportunityScore} />
-              <span>
-                <strong>Boa oportunidade de abordagem</strong>
-                <TypewriterText key={`${lead.id}-reason`} text={approachReason} delay={130} />
-              </span>
-            </div>
-            <div className="lead-cockpit__signals">
-              <span><small>Canal</small><strong>{recommendedChannel}</strong></span>
-              <span><small>Dor</small><strong>{pain}</strong></span>
-              <span><small>Contato</small><strong>{lead.phone || lead.email ? "Confirmado" : "Parcial"}</strong></span>
-              <span><small>Temperatura</small><strong>{lead.leadTemperature ? humanize(lead.leadTemperature) : "Morno"}</strong></span>
-            </div>
-          </section>
-
-          <section className="lead-cockpit__compact-card lead-cockpit__template-card">
-            <CardTitle
-              icon={ICONS.mail}
-              title="Mensagem sugerida"
-              action={templateText ? (
-                <button type="button" className="lead-cockpit__micro-button" onClick={copyTemplate}>
-                  <I d={templateCopied ? ICONS.check : ICONS.doc} size={10} /> {templateCopied ? "Copiado" : "Copiar"}
-                </button>
-              ) : undefined}
-            />
-            <blockquote>
-              <TypewriterText
-                key={`${lead.id}-template`}
-                text={templateText || "Use uma mensagem curta, personalizada e consultiva para validar a dor antes de apresentar a solução."}
-                delay={180}
-              />
-            </blockquote>
-            <div className="lead-cockpit__chips">
-              <span className="tag teal">Curta</span>
-              <span className="tag teal">Personalizada</span>
-              <span className="tag">Tom consultivo</span>
-            </div>
-          </section>
-        </div>
-      </div>
-    );
-  }
-
-  // S3 LEAD-CENTRICO (03-pre-voo.md): "Planejar" — entendimento + prontidão à
-  // esquerda; escolha de persona (heurística, sem IA) + revisão das mensagens
-  // reais da cadência (regra dura do nome já vem resolvida do backend) à
-  // direita. Botão "Ligar robô" nasce desabilitado — a liberação é o S4.
-  function renderPlanejar() {
-    if (preVooLoading) return <div className="lead-cockpit__empty-state">Carregando entendimento do lead…</div>;
-    if (!preVoo || !preVoo.contato || !preVoo.canais || !preVoo.prontidao || !preVoo.recomendacao) {
-      return (
-        <div className="lead-cockpit__empty-state">
-          <strong>Entendimento indisponível</strong>
-          <span>Libere a inteligência do lead pra ver prontidão e plano de abordagem.</span>
-        </div>
-      );
-    }
-
-    const personas = preVoo.personas || [];
-    const selectedPersona = personas.find((p) => p.key === selectedPersonaKey) || personas.find((p) => p.recomendado) || personas[0] || null;
-    const prontidaoTotal = preVoo.prontidao.confirmados.length + preVoo.prontidao.duvidosos.length + preVoo.prontidao.faltantes.length;
-    const prontidaoScore = prontidaoTotal ? Math.round((preVoo.prontidao.confirmados.length / prontidaoTotal) * 100) : 0;
-    const canalTag = (canal: PreVooCanal, confirmadoLabel: string, duvidosoLabel: string, faltanteLabel: string) =>
-      canal.status === "confirmado"
-        ? <span className="tag teal">{confirmadoLabel}</span>
-        : canal.status === "duvidoso"
-          ? <span className="tag warn">{duvidosoLabel}</span>
-          : <span className="tag">{faltanteLabel}</span>;
-
-    return (
-      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--planejar">
-        <div className="lead-cockpit__planejar-left">
-          <section className="lead-cockpit__compact-card">
-            <CardTitle icon={ICONS.users} title="Entendimento" action={<span className="tag">{preVoo.empresa?.found ? "Receita Federal" : "Sem CNPJ"}</span>} />
-            <div className="lead-cockpit__person">
-              <Av name={preVoo.contato.nome || preVoo.empresa?.razaoSocial || lead.name || "—"} size={30} />
-              <span>
-                <strong>
-                  {preVoo.contato.nome
-                    || (preVoo.contato.candidatoDuvidoso ? `${preVoo.contato.candidatoDuvidoso.nome} (não confirmado)` : "Responsável não identificado")}
-                </strong>
-                <small>{preVoo.contato.cargo || preVoo.empresa?.razaoSocial || "—"}</small>
-              </span>
-            </div>
-            <InfoRow label="WhatsApp">{canalTag(preVoo.canais.whatsapp, "Confirmado", "Não confirmado", "Sem WhatsApp")}</InfoRow>
-            <InfoRow label="E-mail">{canalTag(preVoo.canais.email, "Confirmado", "Provável", "Sem e-mail")}</InfoRow>
-          </section>
-
-          <section className="lead-cockpit__compact-card lead-cockpit__quality-card">
-            <CardTitle
-              icon={ICONS.check}
-              title="Prontidão"
-              action={<span className={`tag${preVoo.prontidao.veredito === "pronto" ? " teal" : " warn"}`}>{preVoo.prontidao.veredito === "pronto" ? "Pronto" : "Falta dado"}</span>}
-            />
-            <div className="lead-cockpit__quality-main">
-              <AnimatedScore score={prontidaoScore} suffix="%" />
-              <span><strong>{preVoo.prontidao.veredictoLabel}</strong><small>Objetivo sugerido: {preVoo.recomendacao.objetivo}</small></span>
-            </div>
-            <div className="lead-cockpit__chips">
-              {preVoo.prontidao.faltantes.map((texto, index) => (
-                <span key={`falta-${index}`} className="tag red" title={texto}>{texto.split(" — ")[0].replace(/\.$/, "")}</span>
-              ))}
-              {preVoo.prontidao.duvidosos.map((texto, index) => (
-                <span key={`duvida-${index}`} className="tag warn" title={texto}>{texto.split(" — ")[0].replace(/\.$/, "")}</span>
-              ))}
-              {!preVoo.prontidao.faltantes.length && !preVoo.prontidao.duvidosos.length && (
-                <span className="tag teal">Tudo confirmado</span>
-              )}
-            </div>
-          </section>
-        </div>
-
-        <div className="lead-cockpit__planejar-right">
-          <section className="lead-cockpit__compact-card">
-            <CardTitle icon={ICONS.bolt} title="Persona" action={<span className="tag">Recomendação por heurística</span>} />
-            <nav className="glass-pill-track lead-cockpit__persona-pick" role="tablist" aria-label="Escolha de persona da cadência">
-              <GlassPill {...personaPill} />
-              {personas.map((persona) => (
-                <button
-                  key={persona.key}
-                  type="button"
-                  ref={personaPill.itemRef(persona.key)}
-                  role="tab"
-                  aria-selected={selectedPersonaKey === persona.key}
-                  className={`glass-pill-item lead-cockpit__persona-chip${selectedPersonaKey === persona.key ? " is-active" : ""}`}
-                  onClick={() => setSelectedPersonaKey(persona.key)}
-                >
-                  {persona.nome.split(" (")[0]}{persona.recomendado ? <small> ★ sugerida</small> : null}
-                </button>
-              ))}
-            </nav>
-            {selectedPersona && <p className="muted-note">{selectedPersona.descricao}</p>}
-          </section>
-
-          <section className="lead-cockpit__compact-card lead-cockpit__planejar-review">
-            <CardTitle icon={ICONS.msg} title="Revisão da abordagem" />
-            <div className="lead-cockpit__steps">
-              {(selectedPersona?.passos || []).map((passo, index) => (
-                <span key={`${passo.canal}-${passo.dia}-${index}`}>
-                  <i>{index + 1}</i>
-                  <b>{passo.titulo || humanize(passo.canal)} · {passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</b>
-                  <small>{passo.corpo || (passo.atividadeTipo ? `Atividade: ${humanize(passo.atividadeTipo)}` : "—")}</small>
-                </span>
-              ))}
-            </div>
-          </section>
-
-          {/* S4 LEAD-CENTRICO (04-robozinho.md): opt-in POR LEAD — nunca dispara
-              sozinho ao abrir o lead. Ligado mostra estado + desligar; desligado
-              mostra o aviso curto de responsabilidade antes do botão. */}
-          {preVoo.robo?.ligado ? (
-            <div className="lead-cockpit__row-acts">
-              <span className="tag teal">🤖 Robô ligado · passo {preVoo.robo.currentStep + 1}</span>
-              <button type="button" className="btn-ghost btn-xs" onClick={desligarRobo} disabled={roboBusy}>
-                <I d={ICONS.bolt} size={12} /> <span>{roboBusy ? "Desligando…" : "Desligar robô"}</span>
-              </button>
-              {roboMsg && <span className="muted-note">{roboMsg}</span>}
-            </div>
-          ) : (
-            <div className="lead-cockpit__row-acts">
-              {preVoo.enrichment?.enabled && preVoo.enrichment?.podeBuscar && (
-                <button type="button" className="btn-ghost btn-xs" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
-                  <I d={ICONS.search} size={12} /> <span>{preVooEnrichBusy ? "Buscando…" : "Buscar dados"}</span>
-                </button>
-              )}
-              {/* S8 LEAD-CENTRICO (08-destravar-robo.md): motivo "WhatsApp
-                  desconectado" ganha atalho direto pra conectar — mesmo modal/
-                  fluxo já usado na aba Atendimento (nunca API crua do motor). */}
-              {preVoo.roboBloqueado?.codigo === "whatsapp_desconectado" && (
-                <button type="button" className="btn-ghost btn-xs" onClick={() => setWaConnectOpen(true)}>
-                  <WhatsAppMark size={13} /> <span>Conectar WhatsApp</span>
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn-teal btn-xs"
-                onClick={ligarRobo}
-                disabled={roboBusy || !selectedPersonaKey || Boolean(preVoo.roboBloqueado)}
-                title={preVoo.roboBloqueado ? `${preVoo.roboBloqueado.motivo} ${preVoo.roboBloqueado.acao}` : undefined}
-              >
-                <I d={ICONS.bolt} size={12} /> <span>{roboBusy ? "Ligando…" : "Ligar robô"}</span>
-              </button>
-              {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
-              {roboMsg && <span className="muted-note">{roboMsg}</span>}
-              {/* PRIMORDIAL pro dono (26/07): nunca deixar o botão desabilitado
-                  mudo — motivo + próximo passo sempre visíveis quando bloqueado. */}
-              {!roboMsg && preVoo.roboBloqueado && (
-                <span className="muted-note">{preVoo.roboBloqueado.motivo} {preVoo.roboBloqueado.acao}</span>
-              )}
-            </div>
-          )}
-          {!preVoo.robo?.ligado && (
-            <p className="muted-note">
-              Ao ligar, a IA conduz os toques da cadência sozinha — acompanhe e assuma quando o lead responder.
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const cityState = lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—";
+  const cnpj = (company?.found && company.cnpj) || lead.cnpj || null;
+  const intelligence = lead.leadIntelligence;
+  const templateText = typeof intelligence?.messageTemplate === "string"
+    ? intelligence.messageTemplate
+    : String((intelligence?.messageTemplate as { text?: string } | null | undefined)?.text || "");
+  const opportunityScore = Math.max(0, Math.min(100, Math.round(Number(lead.opportunityScore) || 0)));
+  const phones = [lead.phone, ...(Array.isArray(lead.phones) ? lead.phones : [])]
+    .filter((item): item is string => Boolean(item))
+    .filter((item, index, all) => all.findIndex((other) => onlyDigits(other) === onlyDigits(item)) === index);
+  const emails = [lead.email, ...(Array.isArray(lead.emails) ? lead.emails : [])]
+    .filter((item): item is string => Boolean(item))
+    .filter((item, index, all) => all.indexOf(item) === index);
+  const whatsappMap = lead.phonesWhatsapp || {};
+  const primaryPartner = company?.partners?.[0];
+  const keyPersonName = primaryPartner?.name || lead.ownerName || lead.ownerNames?.[0] || "—";
+  const keyPersonRole = primaryPartner?.qualification || (keyPersonName !== "—" ? "Pessoa-chave" : "Não identificada");
+  const keyPersonRoleLabel = keyPersonName !== "—" ? humanize(keyPersonRole) : "Não identificada";
+  const registrationValues = [
+    lead.phone,
+    lead.email,
+    cnpj,
+    company?.razaoSocial || lead.razaoSocial,
+    company?.cnae || lead.cnae,
+    lead.city,
+    lead.state,
+    keyPersonName !== "—" ? keyPersonName : null,
+    lead.address,
+    lead.website,
+  ];
+  const registrationQuality = Math.round((registrationValues.filter(Boolean).length / registrationValues.length) * 100);
+  const recommendedChannel = intelligence?.recommendedChannel
+    ? humanize(intelligence.recommendedChannel)
+    : lead.email ? "E-mail" : "WhatsApp";
+  const pain = intelligence?.painType ? humanize(intelligence.painType) : lead.website ? "Atendimento" : "Sem site";
+  const smartTitle = recommendedChannel.toLowerCase().includes("mail")
+    ? "Próxima melhor ação: e-mail curto, WhatsApp no retorno"
+    : `Próxima melhor ação: iniciar por ${recommendedChannel}`;
+  const smartReason = intelligence?.painPitch
+    || intelligence?.opportunityReason
+    || "Use o contato confirmado e uma mensagem curta para abrir a conversa sem parecer invasivo.";
+  const approachReason = intelligence?.opportunityReason
+    || "Contato confirmado e sinais comerciais suficientes para uma abordagem consultiva e objetiva.";
+  const copilotoFicha: CopilotoFicha = {
+    nome: lead.name,
+    razaoSocial: (company?.found && company.razaoSocial) || lead.razaoSocial || null,
+    cnpj: (company?.found && company.cnpj) || lead.cnpj || null,
+    cnae: (company?.found && company.cnae) || lead.cnae || null,
+    segmento: lead.segment,
+    cidade: lead.city,
+    uf: lead.state,
+    situacao: (company?.found && company.situacao) || lead.companySituation || null,
+  };
+  const selectedPersona = preVoo?.personas?.find((persona) => persona.key === selectedPersonaKey)
+    || preVoo?.personas?.find((persona) => persona.recomendado)
+    || preVoo?.personas?.[0]
+    || null;
+  const readinessTotal = preVoo?.prontidao
+    ? preVoo.prontidao.confirmados.length + preVoo.prontidao.duvidosos.length + preVoo.prontidao.faltantes.length
+    : 0;
+  const readinessScore = readinessTotal && preVoo?.prontidao
+    ? Math.round((preVoo.prontidao.confirmados.length / readinessTotal) * 100)
+    : 0;
+  const timeline = [...addedNotes, ...(lead.timeline || [])]
+    .filter((event, index, all) => all.findIndex((candidate) => candidate.id === event.id) === index);
 
   function renderCompanyRows() {
     if (companyLoading) return <div className="lead-cockpit__empty-state">Carregando Receita Federal…</div>;
@@ -1197,55 +853,300 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     );
   }
 
+  function renderIntelligenceRail() {
+    return (
+      <aside className="lead-cockpit__rail lead-cockpit__rail--intelligence" aria-label="Inteligência do lead">
+        <section className="lead-cockpit__compact-card">
+          <CardTitle
+            icon={ICONS.users}
+            title="Empresa e contato"
+            action={<span className="tag">{preVoo?.empresa?.found ? "Receita Federal" : "Dados do lead"}</span>}
+          />
+          <div className="lead-cockpit__person">
+            <Av name={keyPersonName !== "—" ? keyPersonName : lead.name || "—"} size={30} />
+            <span>
+              <strong>{keyPersonName !== "—" ? keyPersonName : "Responsável não identificado"}</strong>
+              <small>{keyPersonRoleLabel}</small>
+            </span>
+          </div>
+          <InfoRow label="Empresa">{preVoo?.empresa?.nomeFantasia || preVoo?.empresa?.razaoSocial || lead.name || "—"}</InfoRow>
+          <InfoRow label="Segmento">{lead.segment || "—"}</InfoRow>
+          <InfoRow label="Cidade/UF">{cityState}</InfoRow>
+          <InfoRow label="WhatsApp">
+            {preVoo?.canais?.whatsapp.status === "confirmado"
+              ? <span className="tag teal">Confirmado</span>
+              : preVoo?.canais?.whatsapp.status === "duvidoso"
+                ? <span className="tag warn">Não confirmado</span>
+                : <span className="tag">Sem WhatsApp</span>}
+          </InfoRow>
+          <InfoRow label="E-mail">
+            {preVoo?.canais?.email.status === "confirmado"
+              ? <span className="tag teal">Confirmado</span>
+              : preVoo?.canais?.email.status === "duvidoso"
+                ? <span className="tag warn">Provável</span>
+                : <span className="tag">Sem e-mail</span>}
+          </InfoRow>
+        </section>
+
+        <section className="lead-cockpit__compact-card">
+          <CardTitle
+            icon={ICONS.check}
+            title="Prontidão"
+            action={preVoo?.prontidao
+              ? <span className={`tag${preVoo.prontidao.veredito === "pronto" ? " teal" : " warn"}`}>{preVoo.prontidao.veredito === "pronto" ? "Pronto" : "Faltam dados"}</span>
+              : undefined}
+          />
+          {preVooLoading ? (
+            <div className="lead-cockpit__empty-state">Carregando entendimento do lead…</div>
+          ) : !preVoo?.prontidao || preVoo.locked ? (
+            <div className="lead-cockpit__empty-state">
+              <strong>Entendimento indisponível</strong>
+              <span>A inteligência deste lead ainda não está disponível.</span>
+            </div>
+          ) : (
+            <>
+              <Score value={readinessScore} label="prontidão" />
+              <p className="lead-cockpit__card-copy">{preVoo.prontidao.veredictoLabel}</p>
+              <div className="lead-cockpit__chips">
+                {preVoo.prontidao.faltantes.map((text, index) => (
+                  <span key={`missing-${index}`} className="tag red" title={text}>{text.split(" — ")[0].replace(/\.$/, "")}</span>
+                ))}
+                {preVoo.prontidao.duvidosos.map((text, index) => (
+                  <span key={`uncertain-${index}`} className="tag warn" title={text}>{text.split(" — ")[0].replace(/\.$/, "")}</span>
+                ))}
+                {!preVoo.prontidao.faltantes.length && !preVoo.prontidao.duvidosos.length && <span className="tag teal">Tudo confirmado</span>}
+              </div>
+              {preVoo.enrichment?.enabled && preVoo.enrichment.podeBuscar && (
+                <button type="button" className="btn-ghost btn-xs lead-cockpit__card-action" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
+                  <I d={ICONS.search} size={12} /> {preVooEnrichBusy ? "Buscando…" : "Buscar dados"}
+                </button>
+              )}
+              {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
+            </>
+          )}
+        </section>
+
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.scrape} title="Por que entrou no Radar" />
+          {radarReasonsLoading ? (
+            <div className="lead-cockpit__empty-state">Carregando motivos…</div>
+          ) : radarReasons.length ? (
+            <ul className="lead-cockpit__reason-list">
+              {radarReasons.map((reason) => (
+                <li key={reason}><I d={ICONS.check} size={11} /> {INCLUSION_REASON_LABELS[reason] || humanize(reason)}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="lead-cockpit__empty-state">Motivo de inclusão não informado.</div>
+          )}
+        </section>
+
+        <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
+          <CardTitle icon={ICONS.bolt} title="Inteligência" action={<span className="tag">{opportunityScore}/100</span>} />
+          <strong>Boa oportunidade de abordagem</strong>
+          <p className="lead-cockpit__card-copy">{approachReason}</p>
+          <div className="lead-cockpit__signals">
+            <span><small>Canal</small><strong>{recommendedChannel}</strong></span>
+            <span><small>Dor</small><strong>{pain}</strong></span>
+          </div>
+          {templateText && (
+            <button type="button" className="lead-cockpit__template-copy" onClick={copyTemplate}>
+              <span>{templateText}</span>
+              <b><I d={templateCopied ? ICONS.check : ICONS.doc} size={10} /> {templateCopied ? "Copiado" : "Copiar mensagem"}</b>
+            </button>
+          )}
+        </section>
+      </aside>
+    );
+  }
+
+  function renderOperationsRail() {
+    const personas = preVoo?.personas || [];
+    return (
+      <aside className="lead-cockpit__rail lead-cockpit__rail--operations" aria-label="Operação do lead">
+        <section className="lead-cockpit__compact-card">
+          <CardTitle
+            icon={ICONS.clock}
+            title="Próxima ação"
+            action={<button type="button" className="lead-cockpit__micro-button" onClick={() => setAgendaOpen(true)}>Agenda</button>}
+          />
+          <input
+            className="field-dark"
+            maxLength={140}
+            value={nextActionDraft}
+            placeholder="Defina o próximo passo"
+            onChange={(event) => setNextActionDraft(event.target.value)}
+            aria-label="Próxima ação do lead"
+          />
+          <div className="lead-cockpit__next-action-meta">
+            <span><small>Prazo atual</small><strong>{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</strong></span>
+            <span>
+              <small>Próximo horário livre</small>
+              <strong>{nextSlotLoading ? "Consultando…" : nextSlot?.slot ? fmtDateTime(nextSlot.slot) : "Não informado"}</strong>
+            </span>
+          </div>
+          {nextSlot?.conflito && nextSlot.motivoConflito && <span className="muted-note">{nextSlot.motivoConflito}</span>}
+          <div className="lead-cockpit__row-acts">
+            <button type="button" className="btn-ghost btn-xs" onClick={() => setReagendarOpen(true)}>
+              <I d={ICONS.clock} size={11} /> Reagendar
+            </button>
+            <button type="button" className="btn-teal btn-xs" onClick={saveNextAction} disabled={nextActionBusy}>
+              {nextActionBusy ? "Salvando…" : "Salvar próxima ação"}
+            </button>
+          </div>
+          {acaoMsg && <span className={`ctx-msg ${acaoMsg.startsWith("✓") ? "ok" : "err"}`}>{acaoMsg}</span>}
+        </section>
+
+        <section className="lead-cockpit__compact-card lead-cockpit__cadence-card">
+          <CardTitle
+            icon={ICONS.bolt}
+            title="Plano ativo"
+            action={<span className={`tag${preVoo?.robo?.ligado ? " teal" : ""}`}>{preVoo?.robo?.ligado ? "Robô ativo" : "Aguardando decisão"}</span>}
+          />
+          {preVooLoading ? (
+            <div className="lead-cockpit__empty-state">Carregando plano…</div>
+          ) : !preVoo || preVoo.locked ? (
+            <div className="lead-cockpit__empty-state">Plano indisponível.</div>
+          ) : (
+            <>
+              <nav className="glass-pill-track lead-cockpit__persona-pick" aria-label="Escolha de persona da cadência">
+                <GlassPill {...personaPill} />
+                {personas.map((persona) => (
+                  <button
+                    key={persona.key}
+                    type="button"
+                    ref={personaPill.itemRef(persona.key)}
+                    className={`glass-pill-item lead-cockpit__persona-chip${selectedPersonaKey === persona.key ? " is-active" : ""}`}
+                    aria-pressed={selectedPersonaKey === persona.key}
+                    onClick={() => setSelectedPersonaKey(persona.key)}
+                  >
+                    {persona.nome.split(" (")[0]}{persona.recomendado ? <small> ★ sugerida</small> : null}
+                  </button>
+                ))}
+              </nav>
+              {selectedPersona && (
+                <>
+                  <p className="lead-cockpit__card-copy">{displayPersonaDescription(selectedPersona.descricao)}</p>
+                  <div className="lead-cockpit__cadence-steps">
+                    {selectedPersona.passos.map((passo, index) => (
+                      <span key={`${passo.canal}-${passo.dia}-${index}`}>
+                        <i>{index + 1}</i>
+                        <b>{passo.titulo || humanize(passo.canal)}</b>
+                        <small>{passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</small>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </section>
+
+        <section className="lead-cockpit__compact-card lead-cockpit__robot-card">
+          <CardTitle icon={ICONS.bolt} title="Robô e vendedor" />
+          {preVoo?.robo?.ligado ? (
+            <>
+              <div className="lead-cockpit__robot-state is-active">
+                <span><I d={ICONS.bolt} size={14} /></span>
+                <p><strong>Robô ativo · passo {preVoo.robo.currentStep + 1}</strong><small>Acompanhe a história e assuma quando houver resposta.</small></p>
+              </div>
+              <div className="lead-cockpit__row-acts">
+                <button type="button" className="btn-ghost btn-xs" onClick={desligarRobo} disabled={roboBusy}>
+                  {roboBusy ? "Desligando…" : "Desligar robô"}
+                </button>
+                <button type="button" className="btn-teal btn-xs" onClick={() => void changeStage("qualificado")} disabled={stageBusy}>
+                  Assumir atendimento
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="lead-cockpit__responsibility">
+                Ao ligar, o robô executa a cadência escolhida; revise o plano, pois a responsabilidade pelos contatos enviados continua sendo da sua empresa.
+              </p>
+              {preVoo?.roboBloqueado && (
+                <div className="lead-cockpit__robot-block">
+                  <strong>{preVoo.roboBloqueado.motivo}</strong>
+                  <span>{preVoo.roboBloqueado.acao}</span>
+                </div>
+              )}
+              <div className="lead-cockpit__row-acts">
+                {preVoo?.roboBloqueado?.codigo === "whatsapp_desconectado" && (
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => setWaConnectOpen(true)}>
+                    <WhatsAppMark size={12} /> Conectar WhatsApp
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-teal btn-xs"
+                  onClick={ligarRobo}
+                  disabled={roboBusy || !selectedPersonaKey || Boolean(preVoo?.roboBloqueado)}
+                  title={preVoo?.roboBloqueado ? `${preVoo.roboBloqueado.motivo} ${preVoo.roboBloqueado.acao}` : undefined}
+                >
+                  {roboBusy ? "Ligando…" : "Ligar robô"}
+                </button>
+              </div>
+            </>
+          )}
+          {roboMsg && <span className={`ctx-msg ${roboMsg.startsWith("✓") ? "ok" : "err"}`}>{roboMsg}</span>}
+          {stageMsg && <span className={`ctx-msg ${stageMsg.startsWith("✓") ? "ok" : "err"}`}>{stageMsg}</span>}
+        </section>
+
+        <section className="lead-cockpit__compact-card lead-cockpit__lead-actions">
+          <CardTitle icon={ICONS.check} title="Ações do vendedor" />
+          <div className="lead-cockpit__action-grid">
+            <button type="button" className="btn-teal btn-xs" onClick={() => setFecharOpen(true)}>
+              <I d={ICONS.money} size={11} /> Fechar venda
+            </button>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => setSemInteresseOpen(true)}>Sem interesse</button>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => setDrawer("cadastro")}>Ver cadastro</button>
+            {canViewValues && <button type="button" className="btn-ghost btn-xs" onClick={() => setDrawer("financeiro")}>Ver financeiro</button>}
+          </div>
+        </section>
+      </aside>
+    );
+  }
+
   function renderCadastro() {
     return (
-      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--registration">
-        <div className="lead-cockpit__registration-left">
-          <section className="lead-cockpit__compact-card">
-            <CardTitle icon={ICONS.phone} title="Contatos" />
-            {phones.length ? phones.slice(0, 2).map((phone, index) => (
-              <CopyRow
-                key={phone}
-                label={index === 0 ? "Telefone" : `Telefone ${index + 1}`}
-                value={formatPhoneDisplay(phone)}
-                badge={whatsappMap[onlyDigits(phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
-              />
-            )) : <InfoRow label="Telefone">—</InfoRow>}
-            {emails.length ? emails.slice(0, 2).map((email, index) => (
-              <CopyRow key={email} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`} value={email} mono={false} />
-            )) : <InfoRow label="E-mail">—</InfoRow>}
-            <InfoRow label="Cidade/UF">{cityState}</InfoRow>
-            <InfoRow label="Site">{lead.website || "Não encontrado"}</InfoRow>
-          </section>
+      <div className="lead-cockpit__drawer-grid">
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.phone} title="Contatos" />
+          {phones.length ? phones.map((phone, index) => (
+            <CopyRow
+              key={phone}
+              label={index === 0 ? "Telefone" : `Telefone ${index + 1}`}
+              value={formatPhoneDisplay(phone)}
+              badge={whatsappMap[onlyDigits(phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
+            />
+          )) : <InfoRow label="Telefone">—</InfoRow>}
+          {emails.length ? emails.map((item, index) => (
+            <CopyRow key={item} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`} value={item} mono={false} />
+          )) : <InfoRow label="E-mail">—</InfoRow>}
+          <InfoRow label="Cidade/UF">{cityState}</InfoRow>
+          <InfoRow label="Site">{lead.website || "Não encontrado"}</InfoRow>
+        </section>
 
-          <section className="lead-cockpit__compact-card">
-            <CardTitle icon={ICONS.users} title="Pessoa-chave" />
-            <div className="lead-cockpit__person">
-              <Av name={keyPersonName} size={30} />
-              <span><strong>{keyPersonName}</strong><small>{humanize(keyPersonRole)}</small></span>
-            </div>
-            <InfoRow label="Telefone" mono>{lead.ownerPhone ? formatPhoneDisplay(lead.ownerPhone) : (lead.phone ? formatPhoneDisplay(lead.phone) : "—")}</InfoRow>
-            <InfoRow label="Instagram">{lead.ownerInstagram || "Não localizado"}</InfoRow>
-            <InfoRow label="Facebook">{lead.ownerFacebook || "Não localizado"}</InfoRow>
-          </section>
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.users} title="Pessoa-chave" />
+          <div className="lead-cockpit__person">
+            <Av name={keyPersonName} size={30} />
+            <span><strong>{keyPersonName}</strong><small>{keyPersonRoleLabel}</small></span>
+          </div>
+          <InfoRow label="Telefone">{lead.ownerPhone ? formatPhoneDisplay(lead.ownerPhone) : lead.phone ? formatPhoneDisplay(lead.phone) : "—"}</InfoRow>
+          <InfoRow label="Instagram">{lead.ownerInstagram || "Não localizado"}</InfoRow>
+          <InfoRow label="Facebook">{lead.ownerFacebook || "Não localizado"}</InfoRow>
+        </section>
 
-          <section className="lead-cockpit__compact-card lead-cockpit__origin-card">
-            <CardTitle icon={ICONS.scrape} title="Origem" action={<span className="tag">Radar</span>} />
-            <div className="lead-cockpit__chips">
-              {lead.phone && <span className="tag teal">Telefone confirmado</span>}
-              {lead.email && <span className="tag teal">E-mail confirmado</span>}
-              {!lead.website && <span className="tag">Sem site</span>}
-              {lead.timesSeen != null && lead.timesSeen > 1 && <span className="tag">Visto {lead.timesSeen}×</span>}
-            </div>
-          </section>
-        </div>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__company-card">
+        <section className="lead-cockpit__compact-card lead-cockpit__drawer-company">
           <CardTitle icon={ICONS.empresas} title="Empresa" action={<span className="tag">Receita Federal</span>} />
           <div className="lead-cockpit__company-kv">{renderCompanyRows()}</div>
-          <div className="lead-cockpit__company-partners">
-            <CardTitle icon={ICONS.users} title="Quadro societário" action={<span className="tag">{company?.partners?.length || 0} pessoa(s)</span>} />
-            {company?.partners?.length ? company.partners.slice(0, 3).map((partner, index) => (
+        </section>
+
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.users} title="Quadro societário" action={<span className="tag">{company?.partners?.length || 0} pessoa(s)</span>} />
+          <div className="lead-cockpit__partner-list">
+            {company?.partners?.length ? company.partners.map((partner, index) => (
               <div className="lead-cockpit__person" key={`${partner.name || "partner"}-${index}`}>
                 <Av name={partner.name || "—"} size={28} />
                 <span><strong>{partner.name || "—"}</strong><small>{partner.qualification ? humanize(partner.qualification) : "Sócio"}</small></span>
@@ -1254,67 +1155,52 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           </div>
         </section>
 
-        <div className="lead-cockpit__registration-right">
-          <section className="lead-cockpit__compact-card lead-cockpit__quality-card">
-            <CardTitle icon={ICONS.check} title="Qualidade" action={<span className="tag">{registrationQuality}% completo</span>} />
-            <div className="lead-cockpit__quality-main">
-              <AnimatedScore score={registrationQuality} suffix="%" />
-              <span><strong>Cadastro utilizável</strong><small>Contato, Receita e pessoa-chave organizados para o primeiro contato.</small></span>
-            </div>
-          </section>
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.check} title="Qualidade do cadastro" action={<span className="tag">{registrationQuality}% completo</span>} />
+          <Score value={registrationQuality} label="cadastro" />
+          <p className="lead-cockpit__card-copy">Contato, Receita e pessoa-chave organizados para o trabalho comercial.</p>
+        </section>
 
-          <section className="lead-cockpit__compact-card lead-cockpit__history-card">
-            <CardTitle icon={ICONS.relat} title="Responsável e histórico" />
-            <div className="lead-cockpit__person">
-              <Av name={lead.owner?.name || "Sem responsável"} size={28} />
-              <span><strong>{lead.owner?.name || "Sem responsável"}</strong><small>Responsável pelo lead</small></span>
-            </div>
-            <div className="lead-cockpit__compact-timeline">
-              {history.length ? history.map((event) => (
-                <span key={event.id}>
-                  <i aria-hidden="true" />
-                  <strong>{event.title || "Atualização"}</strong>
-                  <small>{clientTimelineDescription(event.description) || event.resultLabel || fmtDateTime(event.createdAt)}</small>
-                </span>
-              )) : <span className="muted-note">Sem histórico ainda.</span>}
-            </div>
-          </section>
-        </div>
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.scrape} title="Origem" action={<span className="tag">Radar</span>} />
+          <div className="lead-cockpit__chips">
+            {lead.phone && <span className="tag teal">Telefone presente</span>}
+            {lead.email && <span className="tag teal">E-mail presente</span>}
+            {!lead.website && <span className="tag">Sem site</span>}
+            {lead.timesSeen != null && lead.timesSeen > 1 && <span className="tag">Visto {lead.timesSeen}×</span>}
+          </div>
+        </section>
       </div>
     );
   }
 
   function renderFinanceiro() {
     return (
-      <div className="lead-cockpit__approved-grid lead-cockpit__approved-grid--finance">
-        <div className="lead-cockpit__finance-left">
-          <section className="lead-cockpit__compact-card lead-cockpit__commercial-summary">
-            <CardTitle icon={ICONS.money} title="Resumo comercial" action={<span className={`tag${lead.saleStatus === "sale_confirmed" ? " teal" : " warn"}`}>{lead.saleStatusLabel || "Sem venda"}</span>} />
-            <strong className="lead-cockpit__money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0"}</strong>
-            <small>Valor fechado neste card</small>
-            <div className="lead-cockpit__metrics">
-              <span><small>Produto</small><strong>{lead.product?.name || "Não definido"}</strong></span>
-              <span><small>Etapa</small><strong>{lead.statusLabel || "Prospecção"}</strong></span>
-              <span><small>Comissão</small><strong>{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</strong></span>
-              <span><small>Recorrência</small><strong>{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</strong></span>
-            </div>
-          </section>
+      <div className="lead-cockpit__drawer-grid lead-cockpit__drawer-grid--finance">
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.money} title="Resumo comercial" action={<span className={`tag${lead.saleStatus === "sale_confirmed" ? " teal" : " warn"}`}>{lead.saleStatusLabel || "Sem venda"}</span>} />
+          <strong className="lead-cockpit__money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0"}</strong>
+          <div className="lead-cockpit__metrics">
+            <span><small>Produto</small><strong>{lead.product?.name || "Não definido"}</strong></span>
+            <span><small>Etapa</small><strong>{lead.statusLabel || "Prospecção"}</strong></span>
+            <span><small>Comissão</small><strong>{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</strong></span>
+            <span><small>Recorrência</small><strong>{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</strong></span>
+          </div>
+        </section>
 
-          <section className="lead-cockpit__compact-card lead-cockpit__proposal-card">
-            <CardTitle icon={ICONS.doc} title="Proposta" />
-            <InfoRow label="Produto sugerido">{lead.product?.name || "HBX Atendimento + Vendas"}</InfoRow>
-            <InfoRow label="Implantação">{lead.setupValue != null ? fmtMoney(lead.setupValue) : "Não definida"}</InfoRow>
-            <InfoRow label="Mensalidade">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "Não definida"}</InfoRow>
-            <InfoRow label="Responsável">{lead.owner?.name || "—"}</InfoRow>
-          </section>
-        </div>
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.doc} title="Proposta" />
+          <InfoRow label="Produto sugerido">{lead.product?.name || "HBX Atendimento + Vendas"}</InfoRow>
+          <InfoRow label="Implantação">{lead.setupValue != null ? fmtMoney(lead.setupValue) : "Não definida"}</InfoRow>
+          <InfoRow label="Mensalidade">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "Não definida"}</InfoRow>
+          <InfoRow label="Responsável">{lead.owner?.name || "—"}</InfoRow>
+        </section>
 
-        <section className="lead-cockpit__compact-card lead-cockpit__statement-card">
+        <section className="lead-cockpit__compact-card lead-cockpit__drawer-statement">
           <CardTitle icon={ICONS.relat} title="Extrato do cliente" action={<span className="tag">{extrato?.charges.length || 0} títulos</span>} />
           {financeMessage && <span className={`ctx-msg ${financeMessage.startsWith("✓") ? "ok" : "err"}`}>{financeMessage}</span>}
           {!customerProfileId ? (
             <div className="lead-cockpit__finance-empty">
-              <span className="lead-cockpit__coin">$</span>
               <strong>Ainda não há movimentação financeira</strong>
               <small>O extrato nasce quando a venda é confirmada e o primeiro título é gerado.</small>
               {(lead.saleValue ?? 0) > 0 && (
@@ -1332,7 +1218,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           ) : (
             <div className="lead-cockpit__charges">
               <div className="lead-cockpit__balance"><span>Saldo em aberto</span><strong>{fmtMoney(extrato.saldoAberto)}</strong></div>
-              {extrato.charges.slice(0, 6).map((charge) => (
+              {extrato.charges.slice(0, 8).map((charge) => (
                 <div className="lead-cockpit__charge-row" key={charge.id}>
                   <span><strong>{charge.description || "Título"}</strong><small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small></span>
                   <span className={chargeTagClass(charge.status)}>{chargeStatusLabel(charge.status)}</span>
@@ -1348,24 +1234,13 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           )}
         </section>
 
-        <div className="lead-cockpit__finance-right">
-          <section className="lead-cockpit__compact-card">
-            <CardTitle icon={ICONS.check} title="Próximos passos" />
-            <div className="lead-cockpit__steps">
-              <span><i>1</i><b>Qualificar interesse</b><small>Registrar resposta e dor real.</small></span>
-              <span><i>2</i><b>Definir produto e valor</b><small>Plano, implantação e condição comercial.</small></span>
-              <span><i>3</i><b>Confirmar a venda</b><small>Gerar cobrança e vincular o cliente.</small></span>
-            </div>
-          </section>
-
-          <section className="lead-cockpit__compact-card">
-            <CardTitle icon={ICONS.money} title="Comissão" action={<span className="tag">{lead.commissionStatusLabel || "Pendente"}</span>} />
-            <InfoRow label="Valor">{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</InfoRow>
-            <InfoRow label="Vencimento">{lead.commissionDueAt ? fmtDate(lead.commissionDueAt) : "—"}</InfoRow>
-            <InfoRow label="Recorrente">{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</InfoRow>
-            <InfoRow label="Implantação">{lead.setupCommissionAmount != null ? fmtMoney(lead.setupCommissionAmount) : "—"}</InfoRow>
-          </section>
-        </div>
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.money} title="Comissão" action={<span className="tag">{lead.commissionStatusLabel || "Pendente"}</span>} />
+          <InfoRow label="Valor">{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</InfoRow>
+          <InfoRow label="Vencimento">{lead.commissionDueAt ? fmtDate(lead.commissionDueAt) : "—"}</InfoRow>
+          <InfoRow label="Recorrente">{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</InfoRow>
+          <InfoRow label="Implantação">{lead.setupCommissionAmount != null ? fmtMoney(lead.setupCommissionAmount) : "—"}</InfoRow>
+        </section>
       </div>
     );
   }
@@ -1375,33 +1250,33 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   return (
     <>
       <div className="hbx-veil lead-cockpit__veil" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-        <section className="hbx-modal lead-cockpit lead-cockpit--approved" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
-          {/* Topo em três zonas de largura simétrica: identidade à esquerda,
-              fileira de canais no CENTRO da ficha, ações à direita. As zonas
-              laterais são 1fr cada, então o centro é o centro de verdade —
-              não desloca quando o nome do lead é longo ou curto. */}
+        <section className="hbx-modal lead-cockpit lead-cockpit--workbench" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
           <header className="lead-cockpit__approved-head">
             <div className="lead-cockpit__approved-identity">
               <Av name={lead.name || "—"} size={44} />
               <div className="lead-cockpit__approved-id">
                 <span className="lead-cockpit__approved-title-row">
                   <h2>{lead.name || "—"}</h2>
-                  <span className="lead-cockpit__approved-badges">
-                    <RadarAiBadge status={aiStatus} />
-                  </span>
+                  <span className="lead-cockpit__approved-badges"><RadarAiBadge status={aiStatus} /></span>
                 </span>
                 <p title={[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ")}>
                   {[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ") || "—"}
                 </p>
               </div>
             </div>
+
             {availableChannels.length > 0 && (
               <span className="lead-cockpit__approved-channels" aria-label="Canais do lead">
                 {availableChannels.map((canal) => {
                   if (canal === "whatsapp" || canal === "email") {
                     return (
-                      <button key={canal} type="button" title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                        onClick={() => { setTab("atendimento"); setChannel(canal); }}>
+                      <button
+                        key={canal}
+                        type="button"
+                        title={CANAL_LABEL[canal]}
+                        aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                        onClick={() => focusWorkspace(canal)}
+                      >
                         <CanalIcon canal={canal} size="xl" />
                       </button>
                     );
@@ -1409,68 +1284,182 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                   const href = channelTargets[canal]!;
                   const external = canal === "instagram" || canal === "facebook" || canal === "site";
                   return (
-                    <a key={canal} href={href} title={CANAL_LABEL[canal]} aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                      target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined}>
+                    <a
+                      key={canal}
+                      href={href}
+                      title={CANAL_LABEL[canal]}
+                      aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                      target={external ? "_blank" : undefined}
+                      rel={external ? "noopener noreferrer" : undefined}
+                    >
                       <CanalIcon canal={canal} size="xl" />
                     </a>
                   );
                 })}
               </span>
             )}
+
             <div className="lead-cockpit__approved-actions">
-              {cnpj && <button type="button" className="btn-ghost btn-xs" onClick={copyCnpj}><I d={cnpjCopied ? ICONS.check : ICONS.doc} size={12} /> <span>{cnpjCopied ? "Copiado" : "Copiar CNPJ"}</span></button>}
-              {conciergeVisible && <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}><I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span></button>}
+              {cnpj && (
+                <button type="button" className="btn-ghost btn-xs" onClick={copyCnpj}>
+                  <I d={cnpjCopied ? ICONS.check : ICONS.doc} size={12} /> <span>{cnpjCopied ? "Copiado" : "Copiar CNPJ"}</span>
+                </button>
+              )}
+              {conciergeVisible && (
+                <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}>
+                  <I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span>
+                </button>
+              )}
               <button type="button" className="lead-cockpit__approved-close" onClick={onClose} aria-label="Fechar">×</button>
             </div>
           </header>
 
-          <nav className="glass-pill-track lead-cockpit__approved-tabs" role="tablist" aria-label="Guias dos detalhes">
-            <GlassPill {...tabPill} />
-            {guides.map((guide) => (
-              <button
-                key={guide.key}
-                type="button"
-                ref={tabPill.itemRef(guide.key)}
-                role="tab"
-                aria-selected={tab === guide.key}
-                className={`glass-pill-item lead-cockpit__approved-tab${tab === guide.key ? " is-active" : ""}`}
-                onClick={() => setTab(guide.key)}
-              >
-                <I d={guide.icon} size={13} /> {guide.label}
-              </button>
-            ))}
-          </nav>
-
-          <div className="lead-cockpit__approved-body">
-            <div className={`lead-cockpit__approved-panel${tab === "atendimento" ? " is-active" : ""}`} aria-hidden={tab !== "atendimento"}>
-              {tab === "atendimento" && renderAtendimento()}
+          <div className="lead-cockpit__statusbar">
+            <nav className="glass-pill-track lead-cockpit__stage-track" aria-label="Etapa do lead">
+              <GlassPill {...stagePill} />
+              {COCKPIT_STAGES.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  ref={stagePill.itemRef(item.key)}
+                  className={`glass-pill-item lead-cockpit__stage-item${stage === item.key ? " is-active" : ""}`}
+                  aria-pressed={stage === item.key}
+                  onClick={() => void changeStage(item.key)}
+                  disabled={stageBusy}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+            <div className="lead-cockpit__header-next">
+              <span><small>Próxima ação</small><strong>{lead.nextAction || "Primeiro contato"}</strong></span>
+              <span><small>Quando</small><strong>{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</strong></span>
             </div>
-            <div className={`lead-cockpit__approved-panel${tab === "planejar" ? " is-active" : ""}`} aria-hidden={tab !== "planejar"}>
-              {tab === "planejar" && renderPlanejar()}
-            </div>
-            <div className={`lead-cockpit__approved-panel${tab === "cadastro" ? " is-active" : ""}`} aria-hidden={tab !== "cadastro"}>
-              {tab === "cadastro" && renderCadastro()}
-            </div>
-            {canViewValues && (
-              <div className={`lead-cockpit__approved-panel${tab === "financeiro" ? " is-active" : ""}`} aria-hidden={tab !== "financeiro"}>
-                {tab === "financeiro" && renderFinanceiro()}
-              </div>
-            )}
           </div>
+
+          <div className="lead-cockpit__workspace">
+            {renderIntelligenceRail()}
+
+            <main className="lead-cockpit__history-column">
+              <section className="lead-cockpit__smart-strip">
+                <span className="lead-cockpit__smart-strip-icon"><I d={ICONS.bolt} size={15} /></span>
+                <span>
+                  <strong>{smartTitle}</strong>
+                  <small>{smartReason}</small>
+                </span>
+                {copilotoEnabled ? (
+                  <CopilotoPanel
+                    leadId={lead.id}
+                    ficha={copilotoFicha}
+                    onDraft={(text) => focusWorkspace("whatsapp", text)}
+                    onSaveNote={saveCopilotoNote}
+                  />
+                ) : <span className="muted-note">Copiloto indisponível</span>}
+              </section>
+
+              <LeadCockpitHistory
+                leadId={lead.id}
+                leadName={lead.name}
+                phone={lead.phone}
+                email={lead.email}
+                currentNote={lead.shortNote}
+                conversationId={lead.conversation?.id}
+                timeline={timeline}
+                whatsappStatus={waOk}
+                emailReady={emailReady}
+                command={workspaceCommand}
+                onConnectWhatsapp={() => setWaConnectOpen(true)}
+                onConfigureEmail={() => router.push("/configuracoes")}
+                onChanged={onConversationChanged}
+              />
+            </main>
+
+            {renderOperationsRail()}
+          </div>
+
+          {drawer && (
+            <div className="hbx-veil lead-cockpit__contained-veil to-right" onClick={(event) => { if (event.target === event.currentTarget) setDrawer(null); }}>
+              <aside className="hbx-drawer lead-cockpit__drawer" aria-label={drawer === "cadastro" ? "Cadastro do lead" : "Financeiro do lead"}>
+                <header className="lead-cockpit__drawer-head">
+                  <span>
+                    <strong>{drawer === "cadastro" ? "Cadastro do lead" : "Financeiro do lead"}</strong>
+                    <small>{lead.name}</small>
+                  </span>
+                  <button type="button" onClick={() => setDrawer(null)} aria-label="Fechar gaveta">×</button>
+                </header>
+                <div className="lead-cockpit__drawer-body">
+                  {drawer === "cadastro" ? renderCadastro() : renderFinanceiro()}
+                </div>
+              </aside>
+            </div>
+          )}
+
+          {agendaOpen && (
+            <div className="hbx-veil lead-cockpit__contained-veil to-right" onClick={(event) => { if (event.target === event.currentTarget) setAgendaOpen(false); }}>
+              <aside className="hbx-drawer lead-cockpit__drawer lead-cockpit__drawer--agenda" aria-label="Agenda do lead">
+                <header className="lead-cockpit__drawer-head">
+                  <span><strong>Agenda do lead</strong><small>{lead.name}</small></span>
+                  <button type="button" onClick={() => setAgendaOpen(false)} aria-label="Fechar agenda">×</button>
+                </header>
+                <div className="lead-cockpit__drawer-body"><AgendaLeadPanel key={lead.id} leadId={lead.id} /></div>
+              </aside>
+            </div>
+          )}
+
+          {closureReasonOpen && (
+            <div className="hbx-veil lead-cockpit__contained-veil" onClick={(event) => { if (event.target === event.currentTarget) setClosureReasonOpen(false); }}>
+              <div className="hbx-pop lead-cockpit__decision-pop" role="dialog" aria-modal="true" aria-label="Motivo do encerramento">
+                <strong>Por que está encerrando?</strong>
+                <div className="lead-cockpit__decision-list">
+                  {CLOSURE_REASONS.map((reason) => (
+                    <button key={reason.key} type="button" className="nav-item" onClick={() => void changeStage("encerrado", reason.key)} disabled={stageBusy}>
+                      {reason.label}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className="btn-ghost" onClick={() => setClosureReasonOpen(false)}>Cancelar</button>
+              </div>
+            </div>
+          )}
+
+          {reagendarOpen && (
+            <div className="hbx-veil lead-cockpit__contained-veil" onClick={(event) => { if (event.target === event.currentTarget) setReagendarOpen(false); }}>
+              <div className="hbx-pop lead-cockpit__decision-pop" role="dialog" aria-modal="true" aria-label="Reagendar contato">
+                <strong>Reagendar contato · {lead.name}</strong>
+                <input className="field-dark" type="date" value={reagendarData} onChange={(event) => setReagendarData(event.target.value)} />
+                <div className="lead-cockpit__decision-actions">
+                  <button type="button" className="btn-ghost" onClick={() => setReagendarOpen(false)}>Cancelar</button>
+                  <button type="button" className="btn-teal" disabled={!reagendarData || acaoBusy} onClick={reagendarContato}>
+                    {acaoBusy ? "Salvando…" : "Confirmar"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {semInteresseOpen && (
+            <div className="hbx-veil lead-cockpit__contained-veil" onClick={(event) => { if (event.target === event.currentTarget) setSemInteresseOpen(false); }}>
+              <div className="hbx-pop lead-cockpit__decision-pop" role="dialog" aria-modal="true" aria-label="Motivo de desinteresse">
+                <strong>Sem interesse · {lead.name}</strong>
+                <div className="lead-cockpit__decision-list">
+                  {[
+                    { key: "sem_interesse", label: "Sem interesse geral" },
+                    { key: "ja_tem", label: "Já tem solução" },
+                    { key: "preco", label: "Preço alto demais" },
+                    { key: "sem_perfil", label: "Fora do perfil" },
+                    { key: "nao_ligar", label: "Não ligar mais" },
+                  ].map(({ key, label }) => (
+                    <button key={key} type="button" className="nav-item" disabled={acaoBusy} onClick={() => marcarSemInteresse(key)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" className="btn-ghost" onClick={() => setSemInteresseOpen(false)}>Cancelar</button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
-
-      {agendaOpen && (
-        <div className="lead-cockpit__agenda-popover" role="dialog" aria-modal="true" aria-label="Agenda do lead">
-          <div className="lead-cockpit__agenda-popover-head">
-            <strong>Agenda · {lead.name}</strong>
-            <button type="button" onClick={() => setAgendaOpen(false)} aria-label="Fechar agenda">×</button>
-          </div>
-          <div className="lead-cockpit__agenda-popover-body">
-            <AgendaLeadPanel key={lead.id} leadId={lead.id} />
-          </div>
-        </div>
-      )}
 
       {waConnectOpen && (
         <WhatsAppConnectModal
@@ -1489,52 +1478,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           onClose={() => setFecharOpen(false)}
           onDone={() => { setFecharOpen(false); onConversationChanged?.(); }}
         />
-      )}
-
-      {/* Overlay flutuante — Reagendar / Sem interesse abrem POR CIMA (fora do
-          card que corta), com fundo pra fechar. Assim dá pra rolar e clicar. */}
-      {(reagendarOpen || semInteresseOpen) && (
-        <div
-          className="hbx-veil"
-          style={{ zIndex: 80 }}
-          onClick={(e) => { if (e.target === e.currentTarget) { setReagendarOpen(false); setSemInteresseOpen(false); } }}
-        >
-          <div className="hbx-pop" style={{ width: "min(340px, 92vw)", maxHeight: "80vh", overflowY: "auto", padding: 14, display: "grid", gap: 10 }}>
-            {reagendarOpen && (
-              <>
-                <strong style={{ fontSize: "0.85rem" }}>Reagendar contato · {lead.name}</strong>
-                <input className="field-dark" type="date" value={reagendarData} onChange={(e) => setReagendarData(e.target.value)} />
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <button className="btn-ghost" onClick={() => setReagendarOpen(false)}>Cancelar</button>
-                  <button className="btn-teal" disabled={!reagendarData || acaoBusy} onClick={reagendarContato}>
-                    {acaoBusy ? "Salvando…" : "Confirmar"}
-                  </button>
-                </div>
-              </>
-            )}
-            {semInteresseOpen && (
-              <>
-                <strong style={{ fontSize: "0.85rem" }}>Sem interesse · {lead.name}</strong>
-                <div style={{ display: "grid", gap: 2 }}>
-                  {[
-                    { key: "sem_interesse", label: "Sem interesse geral" },
-                    { key: "ja_tem", label: "Já tem solução" },
-                    { key: "preco", label: "Preço alto demais" },
-                    { key: "sem_perfil", label: "Fora do perfil" },
-                    { key: "nao_ligar", label: "Não ligar mais" },
-                  ].map(({ key, label }) => (
-                    <button key={key} className="nav-item" style={{ minHeight: 34, textAlign: "left" }} disabled={acaoBusy} onClick={() => marcarSemInteresse(key)}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button className="btn-ghost" onClick={() => setSemInteresseOpen(false)}>Cancelar</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
       )}
     </>
   );

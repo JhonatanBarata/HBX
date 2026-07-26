@@ -10,7 +10,7 @@ import { EmailTemplateService } from './email-template.service';
 // e-mail "sem identidade"). Site é opcional (não bloqueia).
 
 export const COMMERCIAL_EMAIL_OPT_OUT_LINE =
-  'Se não fizer sentido pra vocês, me avisa por aqui que não volto a incomodar.';
+  'Se não fizer sentido para vocês, me avise por aqui e não farei novos contatos.';
 
 export type SenderIdentitySummary = {
   ready: boolean;

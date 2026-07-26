@@ -49,7 +49,7 @@ export const CADENCIA_SEEDS: readonly SeedPersona[] = [
   {
     key: 'moderado',
     nome: 'Estratégico (Moderado)',
-    descricao: 'Ritmo equilibrado ao longo de ~9 dias, sem sobrecarregar o WhatsApp.',
+    descricao: 'Ritmo equilibrado por cerca de 9 dias, sem sobrecarregar o WhatsApp.',
     passos: [
       { dia: 0, canal: 'whats', titulo: 'Abertura', corpo: 'Olá! Tenho uma ideia que pode encaixar bem no seu negócio. Posso te contar rapidinho?' },
       { dia: 2, canal: 'email', titulo: 'E-mail de valor', corpo: 'Segue um resumo do que fazemos e de como isso te ajuda.' },
@@ -60,7 +60,7 @@ export const CADENCIA_SEEDS: readonly SeedPersona[] = [
   {
     key: 'agressivo',
     nome: 'Determinado (Agressivo)',
-    descricao: 'Mais TOQUES (e-mail/atividade) e presença firme — o WhatsApp segue espaçado (teto de chip fixo).',
+    descricao: 'Mais contatos por e-mail e atividades, com WhatsApp espaçado dentro do limite do chip.',
     passos: [
       { dia: 0, canal: 'whats', titulo: 'Abertura', corpo: 'Olá! Consigo te mostrar em minutos como a gente ajuda empresas como a sua. Te chamo?' },
       { dia: 1, canal: 'email', titulo: 'E-mail 1', corpo: 'Deixei aqui um material rápido — vale a pena dar uma olhada.' },

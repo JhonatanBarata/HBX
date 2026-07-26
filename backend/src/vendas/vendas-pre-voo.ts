@@ -241,7 +241,7 @@ export function recommendPersona(input: {
 export function buildAbertura(input: { nome: string | null; confianca: PreVooConfidence; empresaNome: string | null }): string {
   const empresa = normalize(input.empresaNome) || 'a empresa';
   if (input.confianca === 'alta' && normalize(input.nome)) {
-    return `Olá, ${normalize(input.nome)}! Sou da HBX e queria falar rapidinho sobre a ${empresa}.`;
+    return `Olá, ${normalize(input.nome)}! Tudo bem? Queria falar rapidinho sobre a ${empresa}.`;
   }
   return `Olá, tudo bem? Estou tentando falar com o responsável pela ${empresa}...`;
 }

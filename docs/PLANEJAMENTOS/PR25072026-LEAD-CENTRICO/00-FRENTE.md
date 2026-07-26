@@ -112,10 +112,31 @@ mudou em `a5050b38`). Fechamento por ordem do dono 26/07:
 - Restam (futuro): gap IMAP (resposta por thread); motor de reembolso (dados já sendo
   colhidos); demolição total do motor de campanha.
 
-## S8 (26/07, ordem nova do dono) — DESTRAVAR O ROBÔ
-`08-destravar-robo.md` — regra: travas de ativação = SÓ config do Admin (S5) feita + WhatsApp
-conectado; bloqueio SEMPRE com explicação + próximo passo (primordial); resto remove/auto-cura.
-Worker despachado 26/07.
+## S8 ✅ (26/07, ordem nova do dono) — DESTRAVAR O ROBÔ
+`08-destravar-robo.md` — regra implantada: travas de ativação = SÓ config do Admin feita
+(gate criado — não existia) + WhatsApp conectado (via `InboxService.getWhatsappHealth`);
+cadência desativada religa sozinha; sem persona → usa a recomendada; resíduo de campanha
+legada auto-cancela; cadência×cadência vira troca com evento na timeline; lead sem NENHUM
+canal bloqueia apontando o "Buscar dados". `roboBloqueado {motivo, acao}` exposto no pré-voo;
+botão nunca desabilita mudo. Tabela completa da auditoria no transcript do sprint.
+⚠️ ACHADO: o publish do dono `8b0ec1c4` (09:05) capturou o BACKEND do S8 em edição (+ a
+limpeza `547e84c6`) → backend JÁ EM PROD sob "chore: publish"; testes rodados depois =
+368/368 verdes. O commit `e1b7c576` (testes + FRONT da explicação/atalho Conectar WhatsApp)
+está LOCAL — próximo publish leva a parte visual (até lá, o motivo aparece como erro no
+clique, não mudo). 🔶 RESOLVIDA 26/07: rastreio provou que o gate é LEGADO MORTO —
+`getCommercialPlanTier()` sempre 'full' e capabilities todas true desde `bacb2725`
+("crédito vira modelo único", Fase 2 CRÉDITOS); paywall inalcançável. Dono mandou
+"limpa tudo, sem legado" → S9.
+
+## S9 ✅ (26/07) — TIER LIST/LEAD/FULL REMOVIDO
+`09-limpar-tier-legado.md` — commits LOCAIS `eca57a3d` (backend, -286 linhas) + `ea772d24`
+(front, -108): tier/capabilities/locked/LockGate/paywalls "HBX Lead Plus" mortos REMOVIDOS;
+grep de aceite ZERO ocorrências; 143/143 testes + builds verdes; comportamento inalterado
+(tudo já respondia "pode"). `decorateManualEnrichmentIntelligence` MANTIDA (proveniência
+real de exibição; helper renomeado `wasManuallyEnriched`). Governor de custo por planKey
+(nunca foi paywall) intacto. ⚠️ Worker conviveu com rewrite paralelo do dono no
+lead-cockpit-modal (drawer/stage + lead-cockpit-history.tsx) — extraiu só os hunks do S9
+via índice; nada revertido. Aguarda publish do dono (junto com e1b7c576 do S8).
 - (Adiado, sem sprint): motor de reembolso — depende dos dados de encerramento acumulados.
 
 ## Guardrails de TODO worker desta frente

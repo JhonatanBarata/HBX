@@ -59,7 +59,8 @@ test('lead sem nenhum dado confiavel -> ausente', () => {
 
 test('confianca alta -> abertura usa o nome', () => {
   const abertura = buildAbertura({ nome: 'Maria Souza', confianca: 'alta', empresaNome: 'Padaria Sol' });
-  assert.match(abertura, /Maria Souza/);
+  assert.equal(abertura, 'Olá, Maria Souza! Tudo bem? Queria falar rapidinho sobre a Padaria Sol.');
+  assert.doesNotMatch(abertura, /HBX/);
 });
 
 test('sem dado confiavel -> abertura NEUTRA, nunca com nome inventado', () => {
