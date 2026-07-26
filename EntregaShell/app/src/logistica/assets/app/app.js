@@ -2600,12 +2600,16 @@
       state.dddPrompt = null;
       await loadClientDetail();
       await loadClients(true, true);
+      render();
       toast("DDD adicionado.");
     } catch (error) { prompt.saving = false; render(); toast(humanApiError(error), true); }
   }
   // Grava o telefone no contato PRINCIPAL (PATCH) ou cria um (POST) — mesmo
-  // caminho do salvar-cliente, isolado pra reuso do fluxo de DDD.
+  // caminho do salvar-cliente, isolado pra reuso do fluxo de DDD. Mantém
+  // também o espelho da conta porque a lista/busca de versões antigas da API
+  // ainda lê `CustomerProfile.phoneNormalized`.
   async function saveClientPhone(client, phone) {
+    await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: { phone } });
     const principalId = state.clientDetail && state.clientDetail.contatoPrincipalId;
     if (principalId) await H.api(`/nucleo/telefones/${encodeURIComponent(principalId)}`, { method: "PATCH", body: { whatsapp: phone, phone, isPrincipal: true } });
     else await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/telefones`, { method: "POST", body: { nome: client.nome || client.name || phone, whatsapp: phone, phone, isPrincipal: true } });
@@ -4128,6 +4132,14 @@
     const client = isNew ? state.newClientDraft : (state.modalClient || {}); const fields = isNew ? state.newClientDraft : state.clientPaymentDraft;
     const pending = isNew ? [] : clientPendingKeys(client);
     const phone = isNew ? state.newClientDraft.phone : (state.clientDetail ? fields.phone : displayPhone(client.phone || client.phoneNormalized || client.whatsapp || ""));
+    // A ficha detalhada é atualizada antes do card que abriu o modal. Depois de
+    // salvar/completar o telefone, não mantenha o "Tel" antigo só porque
+    // modalClient ainda é o snapshot anterior da lista.
+    if (!isNew) {
+      const telIndex = pending.indexOf("Tel");
+      if (phoneComplete(phone) && telIndex !== -1) pending.splice(telIndex, 1);
+      else if (!phoneComplete(phone) && telIndex === -1) pending.unshift("Tel");
+    }
     // PR20072026 (feedback dono) — número sem DDD APARECE (não some) mas não é
     // discável: no lugar de Ligar/WhatsApp entra "Completar DDD", que pergunta o
     // DDD já sugerindo o da região do CEP.
@@ -4741,7 +4753,10 @@
     // "Tel" pendente = sem número OU número sem DDD (incompleto, não discável).
     // Antes só checava existência → número sem DDD sumia SEM acender alerta.
     const anyPhone = client.phone || client.phoneNormalized || client.whatsapp;
-    if (pending.includes("whatsapp") || !anyPhone || !phoneComplete(anyPhone)) missing.push("Tel");
+    // A lista já traz o telefone operacional resolvido entre perfil e contato
+    // principal. Se esse número atual está completo, não preserve uma pendência
+    // `whatsapp` antiga devolvida pelo servidor.
+    if (!anyPhone || !phoneComplete(anyPhone)) missing.push("Tel");
     if (pending.some(item => ["endereco", "numero", "gps"].includes(item))) missing.push("End");
     if (pending.includes("dia") || !(client.diasEntrega || []).length) missing.push("Dia");
     if (configFlag("moduloFinanceiroAtivo") && (!client.formaPagamento || (client.formaPagamento === "mensal" && !client.diaFechamento))) missing.push("Pag");
@@ -7378,7 +7393,7 @@
         const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); await H.api(`/logistica/clientes/${encodeURIComponent(client.id)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } });
         const savesProduct = !!state.clientProductMode;
         if (savesProduct) await persistClientProduct(client.id, formValues(app.querySelector("#client-product-form")));
-        await closeOverlay("modal"); await loadClients(true, true); toast(savesProduct ? "Cliente e produto salvos." : "Cliente salvo.");
+        await closeOverlay("modal"); await loadClients(true, true); render(); toast(savesProduct ? "Cliente e produto salvos." : "Cliente salvo.");
       }
       if (form.id === "client-product-form") {
         const wasEditing = !!state.clientProductEditingId;
