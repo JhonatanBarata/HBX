@@ -34,6 +34,11 @@
     // sessão, até o próximo planejar/iniciar.
     routeEngine: null,
     routeDegradedReason: null,
+    // S4 25/07 (PR25072026-ROTA-CONFERIDA) — estado da tela de conferência
+    // (flag rotaConferidaAtiva). null = tela fechada; `abrirRotaConferencia()`
+    // monta o objeto inteiro de novo a cada abertura (nunca reaproveita entre
+    // sessões). Ver bloco "ROTA-CONFERIDA — S4" perto de routeEngineBanner.
+    rotaConferencia: null,
     filter: "Todos",
     query: "",
     selected: null,
@@ -2492,7 +2497,7 @@
     finally { state.clientProductsLoading = false; render(); }
   }
   function openClientEditor(client) {
-    if (!client || !client.id) return;
+    if (!client || !client.id) return undefined;
     state.modalClient = client;
     state.clientDetail = null;
     state.clientProducts = [];
@@ -2503,7 +2508,13 @@
     state.clientProductFormOpen = false;
     showModal("client-product");
     void loadClientProducts();
-    void loadClientDetail();
+    // S4 25/07 (PR25072026-ROTA-CONFERIDA) — devolve a MESMA promise de
+    // loadClientDetail pra quem precisar esperar o detalhe chegar antes de
+    // mexer no draft (ver abrirFichaComEditor/capturarGpsParaEdicaoCliente,
+    // que só grava o GPS DEPOIS do fetch preencher clientPaymentDraft — senão
+    // a resposta em voo sobrescreveria o pino capturado). Chamadores antigos
+    // continuam ignorando o retorno (fire-and-forget, comportamento idêntico).
+    return loadClientDetail();
   }
   async function loadClientDetail() {
     const client = state.modalClient;
@@ -4238,6 +4249,7 @@
     }
     if (state.modal === "route-modelos") return routeModelosModal();
     if (state.modal === "route-modelo-editor") return routeModeloEditorModal();
+    if (state.modal === "rota-conferencia") return rotaConferenciaModal();
     if (state.modal === "recarga") return recargaModal();
     if (state.modal === "financeiro") return financeiroModal();
     if (state.modal === "sons") return sonsModal();
@@ -4916,6 +4928,240 @@
     }
     return "";
   }
+
+  // ==========================================================================
+  // ROTA-CONFERIDA — S4 (25/07): tela de conferência (flag `rotaConferidaAtiva`,
+  // ver configFlag/state.config). Flag OFF → `afterRoutaPlanejada` só chama
+  // `toast(...)`, idêntico ao comportamento antigo (nenhum destes caminhos é
+  // sequer chamado). Flag ON → depois de PLANEJAR (nunca de iniciar), troca o
+  // toast seco pela tela de conferência (POST /logistica/rota/conferir,
+  // dry-run — Lei nº3, nunca debita). Reusa: routeEngineBanner (S1),
+  // routeLegConnector (S2), centerModal/.row-card/.order/.badge/.module-switch
+  // (catálogo do APK) e o editor REAL de cliente (openClientEditor) pra
+  // "Corrigir endereço"/"Usar meu GPS daqui" — zero formulário duplicado.
+  // ==========================================================================
+  const CONFERENCIA_MOTIVO_FRASE = {
+    sem_pino: "Sem coordenada cadastrada",
+    pino_compartilhado: "Mesmo pino de outro cliente",
+    fora_do_casulo: "Muito longe das outras paradas do dia",
+    perna_outlier: "Salto grande demais até aqui",
+    diverge_gps_ouro: "Divergente da última entrega confirmada",
+    geocode_nao_provado_em_campo: "Endereço nunca confirmado em campo",
+    fonte_nao_confiavel: "Fonte do pino não confiável",
+    nunca_entregue: "Cliente nunca recebeu entrega aqui",
+    rota_degradada: "Rota calculada em linha reta (sem rede de ruas)",
+  };
+  function conferenciaMotivosTexto(motivos) {
+    return (Array.isArray(motivos) ? motivos : []).map(m => CONFERENCIA_MOTIVO_FRASE[m] || m).join(" · ");
+  }
+  function conferenciaSemaforoInfo(semaforo) {
+    if (semaforo === "verde") return { badgeClass: "success", label: "Pronta" };
+    if (semaforo === "amarelo") return { badgeClass: "warning", label: "Aviso" };
+    return { badgeClass: "danger", label: "Corrigir" };
+  }
+  function conferenciaResumoTexto(data) {
+    const partes = [
+      `${data.total} ${data.total === 1 ? "parada" : "paradas"}`,
+      `${data.verdes} ${data.verdes === 1 ? "pronta" : "prontas"}`,
+    ];
+    if (data.vermelhas > 0) partes.push(`${data.vermelhas} corrigir`);
+    if (data.amarelas > 0) partes.push(`${data.amarelas} aviso${data.amarelas === 1 ? "" : "s"}`);
+    partes.push(`${Math.round(data.distanciaTotalKm || 0)} km`);
+    if (data.terminoPrevisto) partes.push(`fim ~${H.date(data.terminoPrevisto, { hour: "2-digit", minute: "2-digit" })}`);
+    return partes.join(" · ");
+  }
+  // Vermelhas que AINDA exigem o toque de ciência (Lei nº7) — corrigidas ou
+  // retiradas da rota somem daqui sozinhas no próximo recarregarConferencia().
+  function conferenciaVermelhasPendentes(rc) {
+    if (!rc || !rc.data) return [];
+    return (rc.data.paradas || []).filter(p => p.semaforo === "vermelho" && !rc.acknowledged.has(String(p.id)));
+  }
+  function conferenciaParadaRow(parada, index, rc) {
+    const info = conferenciaSemaforoInfo(parada.semaforo);
+    const frase = conferenciaMotivosTexto(parada.motivos);
+    // Mesmo componente da S2 (routeLegConnector) — "sem trajeto" quando a
+    // parada não tem pino válido, "↓ N m · N min" quando tem perna medida.
+    const conector = routeLegConnector({ semCoordenada: !validCoordinates(parada.lat, parada.lng), legDistanceM: parada.legDistanceM, legDurationS: parada.legDurationS });
+    const id = String(parada.id);
+    const acknowledged = rc.acknowledged.has(id);
+    // Switch do catálogo (.module-switch, já usado em Ajustes/"salvar como
+    // minha rota") direto no <span> — vira o próprio alvo clicável (role=switch)
+    // pra não precisar de um botão-reset novo só pra caber neste cartão.
+    const ack = parada.semaforo === "vermelho"
+      ? `<span class="module-switch conferencia-ack${acknowledged ? " active" : ""}" data-action="conferencia-reconhecer" data-parada-id="${H.escape(id)}" role="switch" aria-checked="${acknowledged}" aria-label="Estou ciente desta pendência"><i></i></span>`
+      : "";
+    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button><span class="badge ${info.badgeClass}">${info.label}</span>${ack}</div>`;
+  }
+  function conferenciaListaStep(rc) {
+    const data = rc.data;
+    if (!data && rc.loading) {
+      return centerModal({ icon: "route", title: "Conferência da rota", body: loading(), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "" });
+    }
+    if (!data && rc.error) {
+      return centerModal({ icon: "route", title: "Conferência da rota", body: `<div class="hbx-aviso hbx-aviso--danger">${H.escape(rc.error)}</div>`, closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "conferencia-tentar-de-novo", nextLabel: "Tentar de novo" });
+    }
+    if (!data) return centerModal({ icon: "route", title: "Conferência da rota", body: empty("Nada para conferir", ""), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", nextAction: "" });
+    const pendentes = conferenciaVermelhasPendentes(rc);
+    const rows = (data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("");
+    const body = `${routeEngineBanner()}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+    return centerModal({
+      icon: "route",
+      title: "Conferência da rota",
+      resumo: H.escape(conferenciaResumoTexto(data)),
+      body,
+      closeAction: "close-modal",
+      closeButtonAction: "close-modal",
+      backAction: "close-modal",
+      backLabel: "Fechar",
+      // Lei nº7 (dono, 25/07): vermelho NUNCA bloqueia a saída — o botão
+      // "Continuar mesmo assim" nunca SOME; só fica desabilitado enquanto
+      // sobrar vermelha sem o toque individual de ciência (nunca "ignorar
+      // todas" — o desabilitado cai sozinho a cada toque no switch da linha).
+      nextAction: "conferencia-continuar",
+      nextLabel: rc.loading ? "Atualizando…" : "Continuar mesmo assim",
+      nextDisabled: rc.loading || pendentes.length > 0,
+    });
+  }
+  function conferenciaFichaStep(rc) {
+    const ficha = rc.ficha;
+    if (!ficha) return conferenciaListaStep(rc);
+    const parada = ficha.parada;
+    const info = conferenciaSemaforoInfo(parada.semaforo);
+    const frase = conferenciaMotivosTexto(parada.motivos);
+    // Mesma moldura do menu "Montar Rota" (dayHomeModal: day-home-btn com
+    // glifo+título+dica+seta) — 4 ações do plano (S4.md); "ajustar o pino no
+    // mapa" ficou de fora porque o app não tem componente de arrastar pino
+    // ainda (investigado: só existe captura de GPS/geocode, não drag no mapa).
+    const acoes = `<div class="day-home-actions">
+      <button type="button" class="day-home-btn" data-action="conferencia-usar-gps"><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Usar meu GPS daqui</strong><small>Grava sua posição atual como o pino</small></span><span class="day-home-btn-chev">›</span></button>
+      <button type="button" class="day-home-btn" data-action="conferencia-corrigir-endereco"><span class="day-home-btn-glyph">${icon("map", 20)}</span><span class="day-home-btn-copy"><strong>Corrigir endereço</strong><small>Abre o cadastro do cliente</small></span><span class="day-home-btn-chev">›</span></button>
+      <button type="button" class="day-home-btn" data-action="conferencia-tirar-da-rota"><span class="day-home-btn-glyph">${icon("route", 20)}</span><span class="day-home-btn-copy"><strong>Tirar desta rota</strong><small>Sai só de hoje</small></span><span class="day-home-btn-chev">›</span></button>
+      <button type="button" class="day-home-btn day-home-btn--quiet" data-action="conferencia-deixar-pendencia"><span class="day-home-btn-glyph">${icon("close", 20)}</span><span class="day-home-btn-copy"><strong>Deixar como pendência</strong><small>Segue na rota, sem corrigir agora</small></span><span class="day-home-btn-chev">›</span></button>
+    </div>`;
+    const body = `<span class="badge ${info.badgeClass}">${info.label}</span>${frase ? `<p class="subtitle">${H.escape(frase)}</p>` : ""}${acoes}`;
+    return centerModal({
+      icon: "route",
+      title: H.escape(parada.nome || "Parada"),
+      resumo: "Como resolver?",
+      body,
+      closeAction: "conferencia-fechar-ficha",
+      closeButtonAction: "conferencia-fechar-ficha",
+      backAction: "conferencia-fechar-ficha",
+      backLabel: "Voltar",
+      nextAction: "",
+    });
+  }
+  function rotaConferenciaModal() {
+    const rc = state.rotaConferencia;
+    if (!rc) return "";
+    if (rc.step === "ficha" && rc.ficha) return conferenciaFichaStep(rc);
+    return conferenciaListaStep(rc);
+  }
+  // Chama /logistica/rota/conferir (dry-run — Lei nº3) com a MESMA seleção de
+  // deliveryIds que o planejar usou. ⚠️ Limitação herdada da S3: o endpoint
+  // conferir não aceita `ordemManual` (contrato fica só em rota/planejar|
+  // iniciar) — uma rota com ordem manual ativa é reconferida na ordem que o
+  // PRÓPRIO motor escolher, não na ordem manual salva (fora do escopo desta
+  // sprint mexer no contrato do S3; reportado no relatório).
+  async function recarregarConferencia() {
+    const rc = state.rotaConferencia;
+    if (!rc) return;
+    rc.loading = true; rc.error = null; render();
+    try {
+      const position = await currentPosition();
+      const body = { date: operationalDate() };
+      if (position) { body.origemLat = position.lat; body.origemLng = position.lng; }
+      const selection = activeRouteSelectionIds();
+      if (selection) body.deliveryIds = [...selection];
+      const antes = new Map((rc.data && rc.data.paradas || []).map((p, i) => [String(p.id), i + 1]));
+      const result = await H.api("/logistica/rota/conferir", { method: "POST", body });
+      applyRouteEngineState(result);
+      rc.data = result;
+      // "Fulano passou da parada 3 para a 8" — só quando ALGUÉM pediu foco
+      // (voltou de corrigir/GPS numa parada específica); nunca compara a lista
+      // inteira sozinha (ruído a cada refresh automático).
+      if (rc.focusParadaId) {
+        const id = String(rc.focusParadaId);
+        const depoisIndex = (result.paradas || []).findIndex(p => String(p.id) === id);
+        const antesPos = antes.get(id);
+        if (depoisIndex !== -1 && antesPos && antesPos !== depoisIndex + 1) {
+          const nome = result.paradas[depoisIndex].nome || "A parada";
+          toast(`${nome} passou da parada ${antesPos} para a ${depoisIndex + 1}.`);
+        }
+        rc.focusParadaId = null;
+      }
+      // Só as vermelhas ATUAIS seguem exigindo o toque — quem corrigiu ou saiu
+      // da rota não carrega mais o "ciente" pendurado pra sempre.
+      const vermelhasAtuais = new Set((result.paradas || []).filter(p => p.semaforo === "vermelho").map(p => String(p.id)));
+      rc.acknowledged = new Set([...rc.acknowledged].filter(id => vermelhasAtuais.has(id)));
+    } catch (error) {
+      rc.error = humanApiError(error);
+    } finally {
+      rc.loading = false; render();
+    }
+  }
+  async function abrirRotaConferencia() {
+    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null };
+    showModal("rota-conferencia");
+    await recarregarConferencia();
+  }
+  // Ponto único chamado depois de TODO caminho que só PLANEJA (nunca inicia) —
+  // ver startRoute(planOnly) e o ramo dayMode==="plan" de beginManagedRoute.
+  async function afterRoutaPlanejada(toastMessage) {
+    if (!configFlag("rotaConferidaAtiva")) { toast(toastMessage); return; }
+    await abrirRotaConferencia();
+  }
+  // Chamado pelo closeOverlay ao fechar o editor de cliente ABERTO pela ficha
+  // (ver conferencia-corrigir-endereco/conferencia-usar-gps e o guard
+  // `voltaParaConferencia` dentro de closeOverlay). Volta pra LISTA (nunca
+  // reabre a ficha antiga) e reconfere — salvou ou só cancelou, tanto faz: o
+  // cache OSRM de 10min torna a rechecada barata (Lei "zero lentidão
+  // artificial" já cobre o custo real).
+  async function reabrirConferenciaAposEdicao() {
+    const rc = state.rotaConferencia;
+    if (!rc) return;
+    rc.step = "lista";
+    rc.ficha = null;
+    rc.focusParadaId = rc.retornoParadaId;
+    rc.retornoParadaId = null;
+    state.modal = "rota-conferencia";
+    await recarregarConferencia();
+  }
+  // "Corrigir endereço" e "Usar meu GPS daqui" abrem o MESMO editor real
+  // (openClientEditor) — nunca duplicam o PATCH de local-vs-perfil que já
+  // resolve corretamente qual dos dois (local ou perfil) é a fonte multilocal
+  // vigente. capturarGps=true só PRÉ-PREENCHE o pino (lat/lng/geoFonte) antes
+  // do operador ver o formulário; ele ainda decide "Salvar cliente".
+  async function abrirFichaComEditor(capturarGps) {
+    const rc = state.rotaConferencia; const ficha = rc && rc.ficha;
+    const client = ficha && ficha.item && ficha.item.cliente;
+    if (!client || !client.id) { toast("Cliente não encontrado nesta parada.", true); return; }
+    rc.retornoParadaId = String(ficha.paradaId);
+    const detailLoaded = openClientEditor(client);
+    if (capturarGps) {
+      // openClientEditor devolve a promise de loadClientDetail — espera ela
+      // preencher clientPaymentDraft (perfil+local reais) ANTES de gravar o
+      // GPS; sem isso a resposta em voo sobrescreveria o pino capturado.
+      if (detailLoaded) await detailLoaded;
+      await capturarGpsParaEdicaoCliente();
+    }
+  }
+  // SÓ o pino muda (geoFonte:'gps_cadastro') — nunca o texto do endereço
+  // (diferente de useCurrentLocationForNewClient, que reverse-geocodifica pra
+  // PREENCHER um cadastro em branco; aqui o endereço já existe e pode estar
+  // certo, só o pino estava errado). Reusa currentPosition() — a esta altura
+  // da sessão o GPS já foi concedido pelo fluxo de planejar/iniciar a rota.
+  async function capturarGpsParaEdicaoCliente() {
+    setClientCepStatus("Lendo localização…");
+    const position = await currentPosition();
+    if (!position) { setClientCepStatus("Não foi possível obter a localização."); return; }
+    Object.assign(state.clientPaymentDraft, {
+      lat: position.lat, lng: position.lng, geoFonte: "gps_cadastro",
+      ...(Number.isFinite(position.accuracy) ? { gpsAccuracy: position.accuracy } : {}),
+    });
+    setClientCepStatus("Localização atual capturada. Toque em Salvar cliente para confirmar.");
+  }
+
   async function refresh(silent, boot) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
     const routePath = isAdmin() ? "/logistica/admin-route/route" : "/logistica/rota";
@@ -5098,7 +5344,11 @@
       const result = await H.api(planOnly ? "/logistica/rota/planejar" : "/logistica/rota/iniciar", { method: "POST", body });
       applyRouteEngineState(result);
       if (!planOnly) activateNativeRoute(result, true);
-      await refresh(true); toast(planOnly ? "Rota recalculada." : "Rota iniciada.");
+      await refresh(true);
+      // S4 25/07 (PR25072026-ROTA-CONFERIDA) — só o PLANEJAR troca o toast pela
+      // tela de conferência (flag rotaConferidaAtiva); iniciar segue idêntico.
+      if (planOnly) await afterRoutaPlanejada("Rota recalculada.");
+      else toast("Rota iniciada.");
       // S2 21/07 (PR21072026-NAVEGAÇÃO) — fim do troca-troca: NÃO abre mais
       // Waze/Maps. Fica na tela Rota; navModeActive() vira true sozinho (rota
       // ativa, não pausada, sem Leitura) e o render() acima (dentro do
@@ -5229,7 +5479,8 @@
         await closeOverlay("modal");
         if (state.dayMode === "plan") {
           await refresh(true);
-          toast("Rota planejada.");
+          // S4 25/07 (PR25072026-ROTA-CONFERIDA) — mesmo ponto único de startRoute.
+          await afterRoutaPlanejada("Rota planejada.");
           return;
         }
         // dayMode "start" (sem botão hoje, mantido por completude): mesma troca
@@ -5533,6 +5784,14 @@
     // já para antes de chegar aqui, mas esta é a segunda barreira).
     if (kind === "modal" && state.modal === "app-update" && state.updateInfo && state.updateInfo.obrigatoria) return Promise.resolve();
     if (kind === "modal") { clearInterval(dayReviewTimer); state.dayReview = false; clearInterval(leituraObsTimer); }
+    // S4 25/07 (PR25072026-ROTA-CONFERIDA) — a mini-ficha da conferência abre o
+    // editor de cliente REAL (openClientEditor/"client-product") por cima da
+    // tela de conferência em vez de duplicar o formulário de endereço. Fechar
+    // esse editor (salvar OU só cancelar) precisa VOLTAR pra conferência, não
+    // cair na tela Rota crua — a intenção é capturada AGORA (state.modal ainda
+    // não mudou; rotaConferencia.retornoParadaId só existe enquanto esse editor
+    // está aberto vindo da ficha, ver abrirFichaComEditor).
+    const voltaParaConferencia = kind === "modal" && state.modal === "client-product" && state.rotaConferencia && state.rotaConferencia.retornoParadaId;
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
@@ -5541,6 +5800,7 @@
       // modo edição). Sem isso, a próxima parada abriria com o estado da anterior.
       if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
       state.closingOverlay = null;
+      if (voltaParaConferencia) void reabrirConferenciaAposEdicao();
       render();
       resolve();
     }, 180));
@@ -5859,7 +6119,18 @@
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
       if (confirmation.type === "archive-product") await performArchiveProduct((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
       if (confirmation.type === "archive-product-edit") await performArchiveProductFromEdit((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
-      if (confirmation.type === "remove-route-stop") await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
+      if (confirmation.type === "remove-route-stop") {
+        await performRemoveStopForToday(items().find(item => item.id === confirmation.itemId), confirmation.reason);
+        // S4 25/07 (PR25072026-ROTA-CONFERIDA) — "tirar desta rota" tocado de
+        // dentro da mini-ficha: volta pra lista e reconfere (o conjunto do dia
+        // mudou — fora_do_casulo/perna_outlier dependem de TODAS as paradas,
+        // não só da que saiu).
+        const rcRemove = state.rotaConferencia;
+        if (rcRemove && rcRemove.ficha && String(rcRemove.ficha.paradaId) === String(confirmation.itemId)) {
+          rcRemove.step = "lista"; rcRemove.ficha = null;
+          await recarregarConferencia();
+        }
+      }
       if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", {});
       if (confirmation.type === "finish-route") await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true });
       if (confirmation.type === "limpar-dia") await performLimparDia();
@@ -6035,6 +6306,63 @@
         if (avisos.length) toast(avisos.length === 1 ? avisos[0] : `${avisos.length} cliente(s) pulado(s).`);
       } catch (error) { toast(humanApiError(error), true); }
       finally { hideLoading(); state.dayStarting = false; render(); }
+      return;
+    }
+    // S4 25/07 (PR25072026-ROTA-CONFERIDA) — ações da tela de conferência
+    // (lista + mini-ficha). Ver bloco "ROTA-CONFERIDA — S4" perto de
+    // routeEngineBanner pras funções chamadas aqui.
+    if (action === "conferencia-tentar-de-novo") { await recarregarConferencia(); return; }
+    if (action === "conferencia-continuar") {
+      const rc = state.rotaConferencia;
+      if (!rc || conferenciaVermelhasPendentes(rc).length > 0) return;
+      await closeOverlay("modal");
+      return;
+    }
+    if (action === "conferencia-reconhecer") {
+      const rc = state.rotaConferencia;
+      if (!rc) return;
+      const id = String(target.dataset.paradaId);
+      if (rc.acknowledged.has(id)) rc.acknowledged.delete(id); else rc.acknowledged.add(id);
+      render();
+      return;
+    }
+    if (action === "conferencia-abrir-ficha") {
+      const rc = state.rotaConferencia;
+      if (!rc || !rc.data) return;
+      const id = String(target.dataset.paradaId);
+      const parada = (rc.data.paradas || []).find(p => String(p.id) === id);
+      if (!parada) return;
+      rc.ficha = { paradaId: id, parada, item: allRouteItems().find(it => String(it.id) === id) || null };
+      rc.step = "ficha";
+      render();
+      return;
+    }
+    if (action === "conferencia-fechar-ficha") {
+      const rc = state.rotaConferencia;
+      if (rc) { rc.step = "lista"; rc.ficha = null; }
+      render();
+      return;
+    }
+    if (action === "conferencia-usar-gps") { await abrirFichaComEditor(true); return; }
+    if (action === "conferencia-corrigir-endereco") { await abrirFichaComEditor(false); return; }
+    if (action === "conferencia-tirar-da-rota") {
+      const rc = state.rotaConferencia; const ficha = rc && rc.ficha;
+      if (!ficha || !ficha.item) { toast("Entrega não encontrada nesta parada.", true); return; }
+      // Abre a MESMA confirmação (.app-confirm) que o long-press de tirar da
+      // rota já usa em outros lugares do app — o retorno pra lista + reconferir
+      // acontece só se o operador CONFIRMAR (ver accept-confirmation acima).
+      await removeStopForToday(ficha.item);
+      return;
+    }
+    if (action === "conferencia-deixar-pendencia") {
+      const rc = state.rotaConferencia; const ficha = rc && rc.ficha;
+      if (!rc || !ficha) return;
+      // Lei nº7 — "deixar como pendência" É o toque consciente: marca ciente
+      // sem chamar servidor (a parada segue vermelha na lista, só destrava o
+      // "Continuar mesmo assim").
+      rc.acknowledged.add(String(ficha.paradaId));
+      rc.step = "lista"; rc.ficha = null;
+      render();
       return;
     }
     // F3.4 — toques nos chips do header.
@@ -6810,7 +7138,22 @@
         const client = state.modalClient; const phoneDigits = onlyDigits(data.phone); const placeholderPhone = phoneDigits.length > 0 && /^0+$/.test(phoneDigits); const phone = (phoneDigits.length === 10 || phoneDigits.length === 11) && !placeholderPhone ? formatPhone(phoneDigits) : "";
         if (!client || !client.id) throw new Error("Cliente não encontrado.");
         if (phoneDigits.length && !placeholderPhone && !phone) throw new Error("Telefone incompleto.");
-        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const lat = Number(d.lat); const lng = Number(d.lng); const hasCoordinates = d.lat !== null && d.lat !== "" && d.lng !== null && d.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0); const observacoes = String(form.elements.namedItem("observacoes")?.value || "").trim().slice(0, 500); const addressBody = { nome: String(data.name || "").trim(), endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), observacoes, ...(hasCoordinates ? { lat, lng } : {}) };
+        const d = state.clientPaymentDraft; const endereco = composeAddress(d); const lat = Number(d.lat); const lng = Number(d.lng); const hasCoordinates = d.lat !== null && d.lat !== "" && d.lng !== null && d.lng !== "" && Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0); const observacoes = String(form.elements.namedItem("observacoes")?.value || "").trim().slice(0, 500);
+        // S4 25/07 (PR25072026-ROTA-CONFERIDA) — achado durante a mini-ficha da
+        // conferência: este PATCH nunca mandava `geoFonte`/`gpsAccuracy`, então
+        // "Consultar local" (geocode) e o novo "Usar meu GPS daqui" moviam o
+        // pino mas o freio de precisão (`decidirGeoFonteCadastro`) nunca era
+        // chamado — o pino corrigido continuava marcado com a fonte ANTIGA (ex.:
+        // 'geocode' cru, sem nunca virar 'gps_cadastro'), então a conferência
+        // seguiria acusando o mesmo motivo pra sempre. `d.geoFonte` só entra
+        // quando é um valor que o backend ACEITA como input ('geocode'/
+        // 'gps_cadastro'/'gps_impreciso') — nunca 'gps_entrega' (exclusivo do
+        // confirmarEntrega, rejeitado pelo @IsIn do DTO) nem o vazio do cadastro
+        // ainda não tocado nesta sessão; editar só o texto do endereço sem
+        // mexer no pino continua sem mandar geoFonte, byte a byte como antes.
+        const geoFonteEditavel = d.geoFonte === "geocode" || d.geoFonte === "gps_cadastro" || d.geoFonte === "gps_impreciso";
+        const gpsAccuracyNum = Number(d.gpsAccuracy);
+        const addressBody = { nome: String(data.name || "").trim(), endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), observacoes, ...(hasCoordinates ? { lat, lng, ...(geoFonteEditavel ? { geoFonte: d.geoFonte, ...(Number.isFinite(gpsAccuracyNum) ? { gpsAccuracy: gpsAccuracyNum } : {}) } : {}) } : {}) };
         await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: addressBody });
         try {
           const localBody = { ...addressBody, endereco }; delete localBody.observacoes;
@@ -7027,6 +7370,16 @@
         // regra: consome o evento (true) e NÃO fecha nem cai pro fallback de
         // sair da tela/app.
         if (state.modal === "app-update" && state.updateInfo && state.updateInfo.obrigatoria) return true;
+        // S4 25/07 (PR25072026-ROTA-CONFERIDA) — Lei 10: a ficha da conferência
+        // é um PASSO dentro do mesmo modal (como manage-day/leitura-parada
+        // acima); voltar sai da ficha pra lista, só fecha o modal inteiro
+        // quando já está na lista (cai no fallback genérico abaixo).
+        if (state.modal === "rota-conferencia" && state.rotaConferencia && state.rotaConferencia.step === "ficha") {
+          state.rotaConferencia.step = "lista";
+          state.rotaConferencia.ficha = null;
+          render();
+          return true;
+        }
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
