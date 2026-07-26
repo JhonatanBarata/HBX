@@ -974,6 +974,11 @@ export function VendasClient() {
   // sob o cursor (highlight). Move é otimista + PATCH + reconcilia no loadBoard.
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<VendasStage | null>(null);
+  // S4 LEAD-CENTRICO (04-robozinho.md, item 5): motivo de encerramento agora é
+  // obrigatório no backend — soltar um card na coluna "Encerrado" abre este
+  // popup em vez de já mandar o PATCH.
+  const [closureReasonPrompt, setClosureReasonPrompt] = useState<{ leadId: string } | null>(null);
+  const [closureReasonBusy, setClosureReasonBusy] = useState(false);
 
   function onCardDragStart(e: React.DragEvent, card: VendasLead) {
     setDragId(card.id);
@@ -995,6 +1000,11 @@ export function VendasClient() {
     if (!id) return;
     const card = BLOCK_ORDER.flatMap(({ key }) => board?.blocks?.[key] || []).find(c => c.id === id);
     if (!card || normalizeStage(card.status) === stage) return;
+    // Encerrar exige motivo estruturado (S4) — abre o popup em vez de já mover.
+    if (stage === "encerrado") {
+      setClosureReasonPrompt({ leadId: id });
+      return;
+    }
     setAcaoMsg(null);
     setBoard(prev => patchCardStage(prev, id, stage)); // otimista
     try {
@@ -1006,6 +1016,30 @@ export function VendasClient() {
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Falha ao mover a etapa.");
       await loadBoard(); // desfaz o otimista voltando à verdade do servidor
+    }
+  }
+
+  // S4 LEAD-CENTRICO (04-robozinho.md, item 5): confirma o encerramento com
+  // motivo estruturado (sem_interesse | nao_atendeu | contato_invalido |
+  // convertido | outro) — mesmos 5 valores que o backend aceita.
+  async function confirmarEncerramento(closureReason: string) {
+    const leadId = closureReasonPrompt?.leadId;
+    if (!leadId || closureReasonBusy) return;
+    setClosureReasonBusy(true);
+    setAcaoMsg(null);
+    setBoard(prev => patchCardStage(prev, leadId, "encerrado")); // otimista
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(leadId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "encerrado", closureReason }),
+      });
+      setClosureReasonPrompt(null);
+      await loadBoard();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao encerrar o lead.");
+      await loadBoard();
+    } finally {
+      setClosureReasonBusy(false);
     }
   }
 
@@ -1509,7 +1543,7 @@ export function VendasClient() {
                                   ) : col.key === "stage" ? (
                                     <React.Fragment>
                                       <span className="tag">{texto}</span>
-                                      {card.automation && <span className="tag warn vnd-grid__gap" title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
+                                      {card.automation && <span className="tag warn vnd-grid__gap" title={`Passo ${card.automation.currentStep + 1}`}>{"🤖 " + card.automation.label}</span>}
                                     </React.Fragment>
                                   ) : col.key === "owner" && card.owner?.name ? (
                                     <span className="vnd-grid__owner"><Av name={card.owner.name} size={18} />{card.owner.name}</span>
@@ -1610,7 +1644,7 @@ export function VendasClient() {
                                         {card.attemptCount}º contato
                                       </span>
                                     )}
-                                    {card.automation && <span className="tag warn" title={`Passo ${card.automation.currentStep + 1}`}>{card.automation.label}</span>}
+                                    {card.automation && <span className="tag warn" title={`Passo ${card.automation.currentStep + 1}`}>{"🤖 " + card.automation.label}</span>}
                                   </div>
                                 </article>
                               );
@@ -2021,6 +2055,41 @@ export function VendasClient() {
               </div>
               <div className="vnd-popup__foot">
                 <button className="btn-ghost" onClick={() => setExcluirMotivoOpen(null)}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Popup: motivo de encerramento (S4 LEAD-CENTRICO, 04-robozinho.md item 5) —
+          obrigatório no backend ao soltar um card na coluna "Encerrado". Alimenta
+          S7 (marquinha/pool) e o reembolso futuro. */}
+      {closureReasonPrompt && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setClosureReasonPrompt(null); }}>
+          <div className="hbx-modal vnd-popup" onClick={e => e.stopPropagation()}>
+            <div className="vnd-popup__head">
+              <span className="vnd-popup__title">Por que está encerrando?</span>
+              <button className="vnd-popup__close" onClick={() => setClosureReasonPrompt(null)} aria-label="Fechar">✕</button>
+            </div>
+            <div className="vnd-popup__body">
+              {acaoMsg && <div className="ctx-msg err">{acaoMsg}</div>}
+              <div className="vnd-si-opts">
+                {([
+                  { key: "convertido", label: "Convertido" },
+                  { key: "sem_interesse", label: "Sem interesse" },
+                  { key: "nao_atendeu", label: "Não atendeu" },
+                  { key: "contato_invalido", label: "Contato inválido" },
+                  { key: "outro", label: "Outro motivo" },
+                ] as { key: string; label: string }[]).map(opt => (
+                  <button key={opt.key} type="button" className="vnd-si-opt"
+                    onClick={() => confirmarEncerramento(opt.key)}
+                    disabled={closureReasonBusy}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="vnd-popup__foot">
+                <button className="btn-ghost" onClick={() => setClosureReasonPrompt(null)}>Cancelar</button>
               </div>
             </div>
           </div>

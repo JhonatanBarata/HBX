@@ -3906,6 +3906,10 @@ model VendasLead {
   lastResult        String?
   wasClosedBefore   Boolean  @default(false)
   closedAt          DateTime?
+  // S4 LEAD-CENTRICO (04-robozinho.md): motivo de encerramento ESTRUTURADO —
+  // sem_interesse | nao_atendeu | contato_invalido | convertido | outro.
+  // Aditivo (nullable): leads encerrados antes deste sprint ficam null.
+  closureReason     String?
   createdByUserId   Int?
   assignedUserId    Int?
   assignedByUserId  Int?

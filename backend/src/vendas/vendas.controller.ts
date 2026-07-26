@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAtendimentoBotConfigDto } from '../inbox/dto/update-atendimento-bot-config.dto';
 import { BotArmed } from '../modules/bot-armed.decorator';
@@ -15,6 +15,7 @@ import {
   CreateMasterNoticeDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
+  LigarRoboDto,
   ReportVendasLeadDto,
   SimulateProspectingDto,
   StartVendasProspectingDto,
@@ -366,6 +367,19 @@ export class VendasController {
   @Get('lead/:leadId/pre-voo')
   getLeadPreVoo(@Req() req: any, @Param('leadId') leadId: string) {
     return this.vendasService.getLeadPreVooForUser(req.user, leadId);
+  }
+
+  // S4 LEAD-CENTRICO (04-robozinho.md): liga/desliga a cadência POR LEAD (opt-in).
+  // Ligar = inscreve o lead na cadência (persona seed ou cadenciaId explícito);
+  // desligar = pausa QUALQUER cadência ativa do lead. Idempotente nos dois.
+  @Post('lead/:leadId/robo')
+  ligarRobo(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: LigarRoboDto) {
+    return this.vendasService.ligarRoboForUser(req.user, leadId, dto || {});
+  }
+
+  @Delete('lead/:leadId/robo')
+  desligarRobo(@Req() req: any, @Param('leadId') leadId: string) {
+    return this.vendasService.desligarRoboForUser(req.user, leadId);
   }
 
   @Post('lead/:leadId/presentation-draft')

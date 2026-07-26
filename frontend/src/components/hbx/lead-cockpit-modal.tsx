@@ -71,6 +71,8 @@ type PreVoo = {
   recomendacao?: { personaKey: string; motivo: string; source: string; abertura: string; objetivo: string };
   personas?: PreVooPersona[];
   enrichment?: { enabled: boolean; podeBuscar: boolean };
+  // S4 LEAD-CENTRICO (04-robozinho.md): estado ligado/desligado do robô pra este lead.
+  robo?: { ligado: boolean; enrollmentId: string | null; cadenciaId: string | null; status: string | null; currentStep: number };
 } | null;
 
 type CockpitCompany = {
@@ -337,6 +339,8 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [selectedPersonaKey, setSelectedPersonaKey] = useState<string | null>(null);
   const [preVooEnrichBusy, setPreVooEnrichBusy] = useState(false);
   const [preVooEnrichMsg, setPreVooEnrichMsg] = useState<string | null>(null);
+  const [roboBusy, setRoboBusy] = useState(false);
+  const [roboMsg, setRoboMsg] = useState<string | null>(null);
   const [waOk, setWaOk] = useState<boolean | null>(null);
   const [waConnectOpen, setWaConnectOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
@@ -545,6 +549,47 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
       setPreVooEnrichMsg(err instanceof Error ? err.message : "Não foi possível buscar mais dados agora.");
     } finally {
       setPreVooEnrichBusy(false);
+    }
+  }
+
+  // S4 LEAD-CENTRICO (04-robozinho.md): liga/desliga a cadência POR LEAD. Freios
+  // de canal (disjuntor, teto, warmup) continuam SEMPRE por baixo — isto só cria/
+  // pausa a inscrição; o runner segue atrás da flag do dono (HBX_AUTOMATION_
+  // RUNNER_ENABLED, hoje OFF).
+  async function ligarRobo() {
+    if (!lead.id || roboBusy || !selectedPersonaKey) return;
+    setRoboBusy(true);
+    setRoboMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/robo`, {
+        method: "POST",
+        body: JSON.stringify({ personaKey: selectedPersonaKey }),
+      });
+      const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
+      setPreVoo(response ?? null);
+      setRoboMsg("✓ Robô ligado.");
+      await onConversationChanged?.();
+    } catch (err) {
+      setRoboMsg(err instanceof Error ? err.message : "Não foi possível ligar o robô agora.");
+    } finally {
+      setRoboBusy(false);
+    }
+  }
+
+  async function desligarRobo() {
+    if (!lead.id || roboBusy) return;
+    setRoboBusy(true);
+    setRoboMsg(null);
+    try {
+      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/robo`, { method: "DELETE" });
+      const response = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
+      setPreVoo(response ?? null);
+      setRoboMsg("✓ Robô desligado.");
+      await onConversationChanged?.();
+    } catch (err) {
+      setRoboMsg(err instanceof Error ? err.message : "Não foi possível desligar o robô agora.");
+    } finally {
+      setRoboBusy(false);
     }
   }
 
@@ -1043,17 +1088,36 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
             </div>
           </section>
 
-          <div className="lead-cockpit__row-acts">
-            {preVoo.enrichment?.enabled && preVoo.enrichment?.podeBuscar && (
-              <button type="button" className="btn-ghost btn-xs" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
-                <I d={ICONS.search} size={12} /> <span>{preVooEnrichBusy ? "Buscando…" : "Buscar dados"}</span>
+          {/* S4 LEAD-CENTRICO (04-robozinho.md): opt-in POR LEAD — nunca dispara
+              sozinho ao abrir o lead. Ligado mostra estado + desligar; desligado
+              mostra o aviso curto de responsabilidade antes do botão. */}
+          {preVoo.robo?.ligado ? (
+            <div className="lead-cockpit__row-acts">
+              <span className="tag teal">🤖 Robô ligado · passo {preVoo.robo.currentStep + 1}</span>
+              <button type="button" className="btn-ghost btn-xs" onClick={desligarRobo} disabled={roboBusy}>
+                <I d={ICONS.bolt} size={12} /> <span>{roboBusy ? "Desligando…" : "Desligar robô"}</span>
               </button>
-            )}
-            <button type="button" className="btn-teal btn-xs" disabled title="Em breve — a liberação do robô chega no próximo sprint.">
-              <I d={ICONS.bolt} size={12} /> <span>Ligar robô</span>
-            </button>
-            {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
-          </div>
+              {roboMsg && <span className="muted-note">{roboMsg}</span>}
+            </div>
+          ) : (
+            <div className="lead-cockpit__row-acts">
+              {preVoo.enrichment?.enabled && preVoo.enrichment?.podeBuscar && (
+                <button type="button" className="btn-ghost btn-xs" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
+                  <I d={ICONS.search} size={12} /> <span>{preVooEnrichBusy ? "Buscando…" : "Buscar dados"}</span>
+                </button>
+              )}
+              <button type="button" className="btn-teal btn-xs" onClick={ligarRobo} disabled={roboBusy || !selectedPersonaKey}>
+                <I d={ICONS.bolt} size={12} /> <span>{roboBusy ? "Ligando…" : "Ligar robô"}</span>
+              </button>
+              {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
+              {roboMsg && <span className="muted-note">{roboMsg}</span>}
+            </div>
+          )}
+          {!preVoo.robo?.ligado && (
+            <p className="muted-note">
+              Ao ligar, a IA conduz os toques da cadência sozinha — acompanhe e assuma quando o lead responder.
+            </p>
+          )}
         </div>
       </div>
     );

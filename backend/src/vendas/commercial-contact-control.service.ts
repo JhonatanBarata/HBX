@@ -249,6 +249,44 @@ export class CommercialContactControlService {
     );
   }
 
+  // S4 LEAD-CENTRICO (04-robozinho.md, "paradas globais"): pausa TODA inscrição de
+  // cadência ativa/pausada de um lead, com motivo — usado quando o HUMANO assume
+  // (status -> qualificado/encerrado) ou quando o card sai do Vendas (negativar/
+  // excluir/opt-out). Espelha exatamente o que `cancelarInscricoes` (CadenciaService)
+  // já faz por cadência+usuário, só que aqui é por LEAD inteiro e sem gate de
+  // permissão (é um efeito colateral do ciclo de vida do lead, não uma ação de
+  // gestão de automação). NUNCA toca em outbox/disjuntor/warmup — só o estado da
+  // inscrição + o ledger canônico (auditoria: motivo + evidência).
+  async pauseCommercialAutomationForLead(input: {
+    companyId: number;
+    leadId: string;
+    reason: string;
+  }): Promise<{ canceledCadencias: number }> {
+    const where = {
+      companyId: input.companyId,
+      leadId: input.leadId,
+      status: { in: [...ACTIVE_CADENCE_STATUSES] },
+    };
+    const affected = typeof (this.prisma as any)?.cadenciaInscricao?.findMany === 'function'
+      ? await (this.prisma as any).cadenciaInscricao.findMany({ where, select: { id: true } })
+      : [];
+    if (!affected.length) return { canceledCadencias: 0 };
+    await (this.prisma as any).cadenciaInscricao.updateMany({
+      where,
+      data: { status: 'cancelada', lastStepAt: new Date(), lastError: input.reason },
+    });
+    for (const row of affected) {
+      await this.finishAutomationEnrollment({
+        companyId: input.companyId,
+        legacySource: 'cadencia_inscricao',
+        legacyExecutionId: String(row.id),
+        status: 'canceled',
+        reason: input.reason,
+      });
+    }
+    return { canceledCadencias: affected.length };
+  }
+
   async canCadenciaRun(input: { companyId: number; leadId: string; inscricaoId: string }): Promise<boolean> {
     const enrollment = await (this.prisma as any).cadenciaInscricao.findFirst({
       where: { id: input.inscricaoId, companyId: input.companyId, leadId: input.leadId },

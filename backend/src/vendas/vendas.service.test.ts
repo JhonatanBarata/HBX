@@ -2005,7 +2005,8 @@ test('updateLeadForUser cria cadastro confirmado ao encerrar card com venda', as
   const result = await service.updateLeadForUser(
     { companyId: 7, id: 99, role: 'USER' },
     'lead-1',
-    { status: 'encerrado' } as any,
+    // S4 LEAD-CENTRICO: motivo estruturado agora é obrigatório ao encerrar.
+    { status: 'encerrado', closureReason: 'convertido' } as any,
   );
 
   assert.equal(result.ok, true);
@@ -2023,7 +2024,7 @@ test('updateLeadForUser cria cadastro pendente ao encerrar card sem venda', asyn
   const result = await service.updateLeadForUser(
     { companyId: 7, id: 99, role: 'USER' },
     'lead-1',
-    { status: 'encerrado' } as any,
+    { status: 'encerrado', closureReason: 'sem_interesse' } as any,
   );
 
   assert.equal(result.ok, true);
@@ -2042,6 +2043,288 @@ test('updateLeadForUser nao cria cadastro enquanto o card segue aberto', async (
 
   assert.equal(result.ok, true);
   assert.equal(registryCalls.length, 0);
+});
+
+// ================================================================
+// S4 LEAD-CENTRICO (04-robozinho.md) — motivo de encerramento obrigatório +
+// paradas globais (pausa cadência ao mover pra qualificado/encerrado ou ao
+// excluir/negativar o card).
+// ================================================================
+
+test('updateLeadForUser exige motivo estruturado ao encerrar', async () => {
+  const { service } = createCloseCardHarness({ saleStatus: 'none' });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { status: 'encerrado' } as any,
+    ),
+    /motivo do encerramento/i,
+  );
+});
+
+test('updateLeadForUser rejeita motivo de encerramento fora da lista canônica', async () => {
+  const { service } = createCloseCardHarness({ saleStatus: 'none' });
+
+  await assert.rejects(
+    () => service.updateLeadForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { status: 'encerrado', closureReason: 'motivo-inventado' } as any,
+    ),
+    /motivo do encerramento/i,
+  );
+});
+
+test('updateLeadForUser persiste o motivo de encerramento estruturado', async () => {
+  const { service } = createCloseCardHarness({ saleStatus: 'none' });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { status: 'encerrado', closureReason: 'nao_atendeu' } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.lead.closureReason, 'nao_atendeu');
+});
+
+test('updateLeadForUser pausa cadência ativa do lead ao mover pra qualificado (paradas globais)', async () => {
+  const now = new Date();
+  let row: any = {
+    id: 'lead-1',
+    companyId: 7,
+    assignedUserId: 99,
+    status: 'contato',
+    attemptCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    timelineEvents: [],
+  };
+  const cadenciaCalls: any[] = [];
+  const { service } = createService({
+    vendasLead: { findFirst: async ({ where }: any) => (where?.phoneNormalized ? null : row) },
+    prisma: {
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          update: async ({ data }: any) => { row = { ...row, ...data, updatedAt: now }; return row; },
+          findUniqueOrThrow: async () => ({ ...row, timelineEvents: [] }),
+        },
+        vendasLeadTimelineEvent: { createMany: async () => ({ count: 0 }) },
+      }),
+      cadenciaInscricao: {
+        findMany: async () => [{ id: 'insc1' }],
+        updateMany: async (args: any) => { cadenciaCalls.push(args); return { count: 1 }; },
+      },
+    },
+  });
+
+  const result = await service.updateLeadForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { status: 'qualificado' } as any,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(cadenciaCalls.length, 1, 'pausou a cadência ativa do lead');
+  assert.equal(cadenciaCalls[0].data.status, 'cancelada');
+  assert.equal(cadenciaCalls[0].data.lastError, 'lead_status_qualificado');
+});
+
+test('deleteLeadForUser pausa cadência ativa do lead antes de excluir (paradas globais)', async () => {
+  const cadenciaCalls: any[] = [];
+  const { service } = createService({
+    vendasLead: {
+      findMany: async () => [{
+        id: 'lead-1',
+        companyId: 7,
+        status: 'contato',
+        sourceHistoryId: null,
+        name: 'Lead X',
+        phone: null,
+        phoneNormalized: null,
+        city: null,
+        state: null,
+        segment: null,
+        shortNote: null,
+      }],
+      deleteMany: async () => ({ count: 1 }),
+    },
+    prisma: {
+      userTeamPolicy: {
+        findUnique: async () => buildRuntimePolicy({
+          access: { 'vendas.cards.delete': true },
+        }),
+      },
+      cadenciaInscricao: {
+        findMany: async () => [{ id: 'insc1' }],
+        updateMany: async (args: any) => { cadenciaCalls.push(args); return { count: 1 }; },
+      },
+    },
+  });
+
+  const result = await service.deleteLeadForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1');
+
+  assert.equal(result.ok, true);
+  assert.equal(result.deletedCount, 1);
+  assert.equal(cadenciaCalls.length, 1, 'pausou a cadência antes do delete');
+  assert.equal(cadenciaCalls[0].data.status, 'cancelada');
+});
+
+// ================================================================
+// S4 LEAD-CENTRICO — "Ligar robô" / "Desligar robô" (item 1): opt-in por lead,
+// idempotente nos dois sentidos.
+// ================================================================
+
+function createRoboHarness(opts: { leadStatus?: string } = {}) {
+  const now = new Date();
+  const lead: any = {
+    id: 'lead-1',
+    companyId: 7,
+    assignedUserId: 99,
+    status: opts.leadStatus || 'contato',
+    name: 'Lead Robô',
+  };
+  const inscricaoRows = new Map<string, any>();
+  const cadenciaRows = new Map<string, any>();
+  const timelineCalls: any[] = [];
+  const { service } = createService({
+    vendasLead: { findFirst: async () => lead },
+    prisma: {
+      cadencia: {
+        findFirst: async ({ where }: any) => {
+          if (where?.id) return cadenciaRows.get(where.id) || null;
+          const found = [...cadenciaRows.values()].find(
+            (c) => c.companyId === where.companyId && c.persona === where.persona && c.isSeed === where.isSeed,
+          );
+          return found || null;
+        },
+        create: async ({ data }: any) => {
+          const row = { id: `cad-${cadenciaRows.size + 1}`, ...data };
+          cadenciaRows.set(row.id, row);
+          return row;
+        },
+        update: async ({ where, data }: any) => {
+          const row = { ...cadenciaRows.get(where.id), ...data };
+          cadenciaRows.set(where.id, row);
+          return row;
+        },
+      },
+      cadenciaInscricao: {
+        findFirst: async ({ where }: any) => {
+          if (where.cadenciaId && where.leadId) {
+            const key = `${where.cadenciaId}:${where.leadId}`;
+            return inscricaoRows.get(key) || null;
+          }
+          // Checagem de conflito por status (findActiveConflict) — sem cadência
+          // custom ativa nos cenários de teste, nunca acha nada aqui.
+          return null;
+        },
+        create: async ({ data }: any) => {
+          const id = `insc-${inscricaoRows.size + 1}`;
+          const row = { id, ...data };
+          inscricaoRows.set(`${data.cadenciaId}:${data.leadId}`, row);
+          return row;
+        },
+        // Cobre os dois formatos de `where` usados no service: por `id` (religar
+        // uma inscrição específica) e por `companyId+leadId+status.in` (pausa em
+        // massa via CommercialContactControlService.pauseCommercialAutomationForLead).
+        updateMany: async ({ where, data }: any) => {
+          let count = 0;
+          for (const entry of inscricaoRows.values()) {
+            if (where.id && entry.id !== where.id) continue;
+            if (where.companyId != null && entry.companyId !== where.companyId) continue;
+            if (where.leadId && entry.leadId !== where.leadId) continue;
+            if (where.status?.in && !where.status.in.includes(entry.status)) continue;
+            Object.assign(entry, data);
+            count += 1;
+          }
+          return { count };
+        },
+        findMany: async ({ where }: any) => {
+          return [...inscricaoRows.values()].filter(
+            (r) => r.leadId === where.leadId && ['ativa', 'pausada'].includes(r.status),
+          );
+        },
+      },
+      vendasLeadTimelineEvent: {
+        create: async ({ data }: any) => { timelineCalls.push(data); return {}; },
+      },
+    },
+  });
+
+  // Helper direto pro mock do CommercialContactControlService.createCadenciaInscricao
+  // (transação real do prisma — nosso mock não tem $transaction custom, então cai no
+  // fallback `callback(this.prisma)` do próprio service. Simulamos a criação aqui.)
+  return { service, inscricaoRows, cadenciaRows, timelineCalls, lead };
+}
+
+test('ligarRoboForUser cria a inscrição e é idempotente (ligar 2x nao duplica)', async () => {
+  const { service, inscricaoRows, timelineCalls } = createRoboHarness();
+
+  const first = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { personaKey: 'moderado', objetivo: 'Reengajar' },
+  );
+  assert.equal(first.ok, true);
+  assert.equal(first.ligou, true);
+  assert.equal(inscricaoRows.size, 1);
+  assert.equal(timelineCalls.filter((e) => e.eventType === 'robo_ligado').length, 1);
+
+  const second = await service.ligarRoboForUser(
+    { companyId: 7, id: 99, role: 'USER' },
+    'lead-1',
+    { personaKey: 'moderado' },
+  );
+  assert.equal(second.ok, true);
+  assert.equal(second.ligou, false, 'segunda chamada e idempotente — nao duplica');
+  assert.equal(inscricaoRows.size, 1, 'continua so 1 inscricao');
+  assert.equal(timelineCalls.filter((e) => e.eventType === 'robo_ligado').length, 1, 'nao grava um segundo evento');
+});
+
+test('desligarRoboForUser pausa a inscrição ativa e é idempotente', async () => {
+  const { service, inscricaoRows, timelineCalls } = createRoboHarness();
+
+  await service.ligarRoboForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1', { personaKey: 'conservador' });
+
+  const first = await service.desligarRoboForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1');
+  assert.equal(first.ok, true);
+  assert.equal(first.desligou, true);
+  const row = [...inscricaoRows.values()][0];
+  assert.equal(row.status, 'cancelada');
+
+  const second = await service.desligarRoboForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1');
+  assert.equal(second.ok, true);
+  assert.equal(second.desligou, false, 'ja estava desligado — idempotente');
+  assert.equal(timelineCalls.filter((e) => e.eventType === 'robo_desligado').length, 1);
+});
+
+test('ligarRoboForUser religa apos um desligar anterior (mesma persona)', async () => {
+  const { service, inscricaoRows } = createRoboHarness();
+
+  await service.ligarRoboForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1', { personaKey: 'agressivo' });
+  await service.desligarRoboForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1');
+  assert.equal([...inscricaoRows.values()][0].status, 'cancelada');
+
+  const relig = await service.ligarRoboForUser({ companyId: 7, id: 99, role: 'USER' }, 'lead-1', { personaKey: 'agressivo' });
+  assert.equal(relig.ligou, true, 'religa a mesma cadencia depois de desligar');
+  assert.equal(inscricaoRows.size, 1, 'reusa a mesma linha, nao cria outra');
+  assert.equal([...inscricaoRows.values()][0].status, 'ativa');
+});
+
+test('ligarRoboForUser recusa lead ja qualificado/encerrado', async () => {
+  const { service } = createRoboHarness({ leadStatus: 'qualificado' });
+
+  await assert.rejects(
+    () => service.ligarRoboForUser(
+      { companyId: 7, id: 99, role: 'USER' },
+      'lead-1',
+      { personaKey: 'moderado' },
+    ),
+    /já avançado\/encerrado/i,
+  );
 });
 
 test('updateLeadForUser requires products.sell before linking catalog product', async () => {

@@ -10,12 +10,18 @@ import { EventRuleService } from '../automation/event-rule.service';
 // verdade sobre o MESMO `svc.prisma` e chama `svc.onModuleInit()` (que
 // registra o handler 'lead_respondeu_whatsapp' nele) antes de exercitar os
 // cenários — SEM mudar nenhum cenário/asserção existente.
-function makeService(opts: { gatilhos: any[]; lead: any | null }) {
+function makeService(opts: {
+  gatilhos: any[];
+  lead: any | null;
+  cadenciaInscricao?: any | null;
+  cadencia?: any | null;
+}) {
   const svc = Object.create(CadenciaGatilhoService.prototype) as any;
   const statusUpdates: any[] = [];
   const atividadeCalls: any[] = [];
   const timelineCalls: any[] = [];
   const realtimeCalls: any[] = [];
+  const createdIdempotencyKeys = new Set<string>();
 
   svc.prisma = {
     cadenciaGatilho: {
@@ -31,9 +37,23 @@ function makeService(opts: { gatilhos: any[]; lead: any | null }) {
     },
     vendasLeadTimelineEvent: {
       create: async ({ data }: any) => {
+        if (data.idempotencyKey) {
+          if (createdIdempotencyKeys.has(data.idempotencyKey)) {
+            const err: any = new Error('duplicate');
+            err.code = 'P2002';
+            throw err;
+          }
+          createdIdempotencyKeys.add(data.idempotencyKey);
+        }
         timelineCalls.push(data);
         return {};
       },
+    },
+    cadenciaInscricao: {
+      findFirst: async () => opts.cadenciaInscricao ?? null,
+    },
+    cadencia: {
+      findUnique: async () => opts.cadencia ?? null,
     },
   };
   svc.atividades = {
@@ -94,4 +114,88 @@ test('gatilho nao faz nada quando nenhum lead casa o telefone', async () => {
   await svc.handleInbound({ companyId: 7, fromPhone: '5511999990000' });
   assert.equal(statusUpdates.length, 0);
   assert.equal(atividadeCalls.length, 0);
+});
+
+// ================================================================
+// S4 LEAD-CENTRICO (04-robozinho.md, item 4) — "Te chamou": resposta QUENTE de
+// lead com robô ligado (cadência acabou de ser pausada por interruptForInbound,
+// lastError='inbound_received') move etapa -> retorno + cria atividade com
+// contexto. Sem gatilho configurado nenhum (lista vazia) — é comportamento
+// embutido, não depende de CadenciaGatilho.
+// ================================================================
+test('te chamou: resposta quente com robo ligado move p/ retorno e cria atividade', async () => {
+  const { svc, statusUpdates, atividadeCalls, timelineCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'contato' },
+    cadenciaInscricao: { id: 'insc1', cadenciaId: 'cad1', currentStep: 1, updatedAt: new Date() },
+    cadencia: { nome: 'Estratégico (Moderado)' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5511988887777', text: 'Quanto custa isso?' });
+
+  assert.equal(statusUpdates.length, 1, 'status deve mover pra retorno');
+  assert.equal(statusUpdates[0].data.status, 'retorno');
+  assert.equal(atividadeCalls.length, 1, 'atividade com contexto criada');
+  assert.equal(atividadeCalls[0].responsavelId, 33);
+  assert.match(atividadeCalls[0].titulo, /Te chamou/);
+  assert.equal(timelineCalls.length, 1);
+  assert.equal(timelineCalls[0].eventType, 'robo_te_chamou');
+  assert.match(timelineCalls[0].description, /Quanto custa isso/);
+});
+
+test('te chamou: idempotente — mesmo inbound processado 2x nao duplica', async () => {
+  const { svc, statusUpdates, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'contato' },
+    cadenciaInscricao: { id: 'insc1', cadenciaId: 'cad1', currentStep: 1, updatedAt: new Date() },
+    cadencia: { nome: 'Estratégico (Moderado)' },
+  });
+
+  const evt = { companyId: 7, fromPhone: '5511988887777', text: 'Quanto custa isso?' };
+  await svc.handleInbound(evt);
+  await svc.handleInbound(evt);
+
+  assert.equal(statusUpdates.length, 1, 'status so muda 1 vez');
+  assert.equal(atividadeCalls.length, 1, 'atividade so criada 1 vez');
+});
+
+test('te chamou: sem robo ligado (sem inscricao pausada recente) nao faz nada', async () => {
+  const { svc, statusUpdates, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'contato' },
+    cadenciaInscricao: null,
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5511988887777', text: 'Quanto custa isso?' });
+
+  assert.equal(statusUpdates.length, 0);
+  assert.equal(atividadeCalls.length, 0);
+});
+
+test('te chamou: robo ligado mas resposta neutra (nao quente) nao faz nada', async () => {
+  const { svc, statusUpdates, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'contato' },
+    cadenciaInscricao: { id: 'insc1', cadenciaId: 'cad1', currentStep: 1, updatedAt: new Date() },
+    cadencia: { nome: 'Estratégico (Moderado)' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5511988887777', text: 'oi, quem é vc?' });
+
+  assert.equal(statusUpdates.length, 0);
+  assert.equal(atividadeCalls.length, 0);
+});
+
+test('te chamou: nao regride lead ja qualificado/encerrado (so cria atividade, nao mexe status)', async () => {
+  const { svc, statusUpdates, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'qualificado' },
+    cadenciaInscricao: { id: 'insc1', cadenciaId: 'cad1', currentStep: 2, updatedAt: new Date() },
+    cadencia: { nome: 'Determinado (Agressivo)' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5511988887777', text: 'Quero contratar, quanto custa?' });
+
+  assert.equal(statusUpdates.length, 0, 'nao regride status ja avancado');
+  assert.equal(atividadeCalls.length, 1, 'ainda assim surfaceia a atividade');
 });

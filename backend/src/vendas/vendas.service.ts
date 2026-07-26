@@ -56,9 +56,11 @@ import {
   CreateMasterNoticeDto,
   CreateManualVendasLeadDto,
   ImportWebscrapingLeadsDto,
+  LigarRoboDto,
   ReportVendasLeadDto,
   UpdateSalesProfileDto,
   UpdateVendasLeadDto,
+  VENDAS_CLOSURE_REASONS,
 } from './dto/vendas.dto';
 import { buildVendasLeadIntelligence } from './vendas-lead-enrichment';
 import {
@@ -73,7 +75,11 @@ import {
   resolveContact,
   resolveObjetivo,
 } from './vendas-pre-voo';
-import { CADENCIA_SEEDS } from '../cadencia/cadencia-personas';
+import { CADENCIA_SEEDS, sanitizePassos, type CadenciaPersona } from '../cadencia/cadencia-personas';
+// S4 LEAD-CENTRICO (04-robozinho.md): freio compartilhado da cadência — instanciado
+// à mão (mesmo padrão de cadencia.service.ts/messaging.service.ts, NÃO é
+// @Injectable) porque não é registrado em nenhum módulo Nest.
+import { CommercialContactControlService } from './commercial-contact-control.service';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
@@ -345,6 +351,10 @@ export class VendasService {
   // ARQ11 S2 — cache do "a coluna leadTemperature já existe?" (migration pode não estar
   // aplicada no VPS). Enquanto ausente, o intake de anúncio grava origem sem explodir.
   private vendasLeadTemperatureColumnAvailable: boolean | null = null;
+  // S4 LEAD-CENTRICO: instanciado no corpo do construtor (não no initializer do
+  // campo) porque depende de `this.prisma`, que só existe depois que os
+  // parâmetros do construtor são atribuídos.
+  private readonly commercialContactControl: CommercialContactControlService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -361,7 +371,9 @@ export class VendasService {
     private readonly authService: AuthService,
     private readonly masterAlert: MasterAlertService,
     private readonly cockpitProjector: VendasLeadCockpitProjectorService,
-  ) {}
+  ) {
+    this.commercialContactControl = new CommercialContactControlService(this.prisma);
+  }
 
   async getAutomationBotConfigForUser(user: any) {
     return this.inboxService.getBotConfig(user);
@@ -810,6 +822,26 @@ export class VendasService {
         return 'Encerrado';
       default:
         return 'Novo lead';
+    }
+  }
+
+  // S4 LEAD-CENTRICO (04-robozinho.md, item 5): rótulo humano do motivo de
+  // encerramento estruturado — usado na timeline (leads antigos sem motivo caem
+  // no default neutro, nunca quebram a descrição).
+  private formatClosureReasonLabel(reason: string | null): string {
+    switch (reason) {
+      case 'sem_interesse':
+        return 'sem interesse';
+      case 'nao_atendeu':
+        return 'não atendeu';
+      case 'contato_invalido':
+        return 'contato inválido';
+      case 'convertido':
+        return 'convertido';
+      case 'outro':
+        return 'outro motivo';
+      default:
+        return 'motivo não informado';
     }
   }
 
@@ -1622,6 +1654,9 @@ export class VendasService {
       lastResult: row?.lastResult ? String(row.lastResult) : null,
       wasClosedBefore: signals.wasClosedBefore,
       closedAt: row?.closedAt instanceof Date ? row.closedAt.toISOString() : null,
+      // S4 LEAD-CENTRICO: motivo estruturado de encerramento (aditivo — null nos
+      // leads encerrados antes deste sprint).
+      closureReason: row?.closureReason ? String(row.closureReason) : null,
       createdByUserId: Number(row?.createdByUserId || 0) || null,
       assignedUserId: Number(row?.assignedUserId || 0) || null,
       assignedByUserId: Number(row?.assignedByUserId || 0) || null,
@@ -5855,6 +5890,23 @@ export class VendasService {
 
     const faltantesCount = prontidao.faltantes.length;
 
+    // S4 LEAD-CENTRICO (04-robozinho.md, item 2): estado ligado/desligado do robô
+    // pra este lead — mesma projeção canônica que o board já usa (Fase 3,
+    // AutomationEnrollment.activeCommercialSlot='commercial').
+    const activeEnrollment = typeof (this.prisma as any).automationEnrollment?.findFirst === 'function'
+      ? await (this.prisma as any).automationEnrollment
+          .findFirst({
+            where: {
+              companyId: context.companyId,
+              leadId: lead.id,
+              activeCommercialSlot: 'commercial',
+              status: { in: ['active', 'paused'] },
+            },
+            select: { id: true, definitionKind: true, definitionId: true, status: true, currentStep: true },
+          })
+          .catch(() => null)
+      : null;
+
     return {
       ok: true,
       leadId: String(lead.id),
@@ -5894,7 +5946,201 @@ export class VendasService {
         enabled: isPreVooEnrichEnabled(),
         podeBuscar: Boolean(context.access?.canManualEnrichRadar) && faltantesCount > 0,
       },
+      robo: {
+        ligado: Boolean(activeEnrollment),
+        enrollmentId: activeEnrollment ? String(activeEnrollment.id) : null,
+        cadenciaId: activeEnrollment && String(activeEnrollment.definitionKind) === 'cadence' ? String(activeEnrollment.definitionId) : null,
+        status: activeEnrollment ? String(activeEnrollment.status || 'active') : null,
+        currentStep: activeEnrollment ? Math.max(0, Math.trunc(Number(activeEnrollment.currentStep || 0))) : 0,
+      },
     };
+  }
+
+  // ================================================================
+  // S4 LEAD-CENTRICO (04-robozinho.md, item 1): "Ligar robô" — opt-in POR LEAD.
+  // Liga = inscreve o lead numa cadência (seed da persona OU cadenciaId explícito)
+  // via o MESMO fluxo que o CadenciaService usa (CommercialContactControlService.
+  // createCadenciaInscricao — idempotente, respeita conflito com outra automação
+  // ativa). NUNCA disparo direto: o runner segue atrás de
+  // HBX_AUTOMATION_RUNNER_ENABLED (default OFF) — ligar aqui só cria a inscrição.
+  // ================================================================
+  private async resolveRoboCadencia(
+    context: VendasUserContext,
+    dto: { personaKey?: string; cadenciaId?: string },
+  ): Promise<{ id: string; nome: string }> {
+    const explicitCadenciaId = this.normalizeText(dto?.cadenciaId);
+    if (explicitCadenciaId) {
+      const row = await (this.prisma as any).cadencia.findFirst({
+        where: { id: explicitCadenciaId, companyId: context.companyId },
+        select: { id: true, nome: true, ativa: true },
+      });
+      if (!row) throw new NotFoundException('Cadência não encontrada.');
+      if (!row.ativa) throw new BadRequestException('Cadência desativada — ative-a antes de ligar o robô.');
+      return { id: row.id, nome: row.nome };
+    }
+
+    const personaKey = String(dto?.personaKey || '').trim().toLowerCase() as CadenciaPersona;
+    const seed = CADENCIA_SEEDS.find((s) => s.key === personaKey);
+    if (!seed) throw new BadRequestException('Informe personaKey (conservador/moderado/agressivo) ou cadenciaId.');
+
+    // Garante a cadência-seed da persona pra esta empresa (idempotente — mesmo
+    // padrão de CadenciaService.ensureSeeds, só que resolvendo UMA persona).
+    const existing = await (this.prisma as any).cadencia.findFirst({
+      where: { companyId: context.companyId, persona: seed.key, isSeed: true },
+      select: { id: true, nome: true, ativa: true },
+    });
+    if (existing) {
+      if (!existing.ativa) {
+        await (this.prisma as any).cadencia.update({ where: { id: existing.id }, data: { ativa: true } }).catch(() => null);
+      }
+      return { id: existing.id, nome: existing.nome };
+    }
+    const created = await (this.prisma as any).cadencia.create({
+      data: {
+        companyId: context.companyId,
+        ownerId: context.userId,
+        nome: seed.nome,
+        persona: seed.key,
+        descricao: seed.descricao,
+        passosJson: JSON.stringify(sanitizePassos(seed.passos)),
+        ativa: true,
+        isSeed: true,
+      },
+    });
+    return { id: created.id, nome: created.nome };
+  }
+
+  async ligarRoboForUser(user: any, leadId: string, dto: { personaKey?: string; cadenciaId?: string; objetivo?: string }) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar o robô bloqueado pela política da equipe.');
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead não informado.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      select: { id: true, assignedUserId: true, status: true, name: true },
+    });
+    if (!lead) throw new NotFoundException('Lead não encontrado.');
+    const status = this.normalizeStatus(lead.status);
+    if (status === 'qualificado' || status === 'encerrado') {
+      throw new BadRequestException('Lead já avançado/encerrado — o robô não liga aqui (humano assumiu).');
+    }
+
+    const cadencia = await this.resolveRoboCadencia(context, dto);
+    const objetivo = this.normalizeText(dto?.objetivo);
+
+    const slot = await this.commercialContactControl.createCadenciaInscricao({
+      companyId: context.companyId,
+      leadId: lead.id,
+      data: {
+        cadenciaId: cadencia.id,
+        companyId: context.companyId,
+        leadId: lead.id,
+        responsavelId: lead.assignedUserId,
+        status: 'ativa',
+        currentStep: 0,
+        startedAt: new Date(),
+        nextStepAt: new Date(),
+      },
+    });
+
+    let ligou = slot.created;
+    if (!slot.created && slot.conflict) {
+      throw new ConflictException('Já existe outra automação comercial ativa para este lead (outra cadência ou campanha).');
+    }
+    if (!slot.created && slot.alreadyEnrolled) {
+      // Já existe uma linha pra (cadência, lead) — pode ser a MESMA que já está
+      // ativa (idempotente: no-op real) ou uma cancelada por um "desligar"
+      // anterior (religa). `createCadenciaInscricao` não distingue os dois porque
+      // sua checagem de duplicata é por par (cadência,lead), não por status.
+      const row = await (this.prisma as any).cadenciaInscricao.findFirst({
+        where: { companyId: context.companyId, leadId: lead.id, cadenciaId: cadencia.id },
+        select: { id: true, status: true },
+      });
+      if (row && row.status !== 'ativa') {
+        try {
+          await (this.prisma as any).cadenciaInscricao.updateMany({
+            where: { id: row.id, companyId: context.companyId },
+            data: { status: 'ativa', currentStep: 0, nextStepAt: new Date(), lastError: null, startedAt: new Date() },
+          });
+        } catch (error: any) {
+          throw new ConflictException(`Não foi possível religar o robô: ${String(error?.message || error)}`);
+        }
+        await this.commercialContactControl.finishAutomationEnrollment({
+          companyId: context.companyId,
+          legacySource: 'cadencia_inscricao',
+          legacyExecutionId: String(row.id),
+          status: 'active',
+          reason: 'lead_robo_religado_manual',
+        });
+        ligou = true;
+      } else {
+        ligou = false; // já estava ativa — idempotente, nada muda
+      }
+    }
+
+    if (ligou) {
+      await this.prisma.vendasLeadTimelineEvent
+        .create({
+          data: {
+            leadId: lead.id,
+            ...this.buildTimelineEvent({
+              eventType: 'robo_ligado',
+              title: 'Robô ligado',
+              description: `Robô ligado na cadência "${cadencia.nome}"${objetivo ? ` — objetivo: ${objetivo}` : ''}.`,
+              resultLabel: 'robo_ligado',
+              createdByUserId: context.userId,
+            }),
+          },
+        })
+        .catch(() => null);
+    }
+
+    return {
+      ok: true,
+      ligou,
+      jaLigado: !ligou,
+      cadenciaId: cadencia.id,
+      cadenciaNome: cadencia.nome,
+    };
+  }
+
+  async desligarRoboForUser(user: any, leadId: string) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar o robô bloqueado pela política da equipe.');
+    const normalizedLeadId = this.normalizeText(leadId);
+    if (!normalizedLeadId) throw new BadRequestException('Lead não informado.');
+
+    const lead = await this.prisma.vendasLead.findFirst({
+      where: this.buildLeadAccessWhere(context, { id: normalizedLeadId }),
+      select: { id: true },
+    });
+    if (!lead) throw new NotFoundException('Lead não encontrado.');
+
+    const result = await this.commercialContactControl.pauseCommercialAutomationForLead({
+      companyId: context.companyId,
+      leadId: lead.id,
+      reason: 'lead_robo_desligado_manual',
+    });
+
+    if (result.canceledCadencias > 0) {
+      await this.prisma.vendasLeadTimelineEvent
+        .create({
+          data: {
+            leadId: lead.id,
+            ...this.buildTimelineEvent({
+              eventType: 'robo_desligado',
+              title: 'Robô desligado',
+              description: 'Robô desligado manualmente.',
+              resultLabel: 'robo_desligado',
+              createdByUserId: context.userId,
+            }),
+          },
+        })
+        .catch(() => null);
+    }
+
+    return { ok: true, desligou: result.canceledCadencias > 0 };
   }
 
   async buildPresentationEmailDraftForUser(user: any, leadId: string) {
@@ -9413,6 +9659,21 @@ export class VendasService {
       this.assertCanMarkSaleStatus(context, this.normalizeSaleStatus(dto.saleStatus));
     }
 
+    // S4 LEAD-CENTRICO (04-robozinho.md, item 5): encerrar exige motivo estruturado.
+    // Só quando o PATCH de fato MUDA o status pra 'encerrado' (editar outro campo
+    // de um card já encerrado não reabre a pergunta). Reabrir (sai de 'encerrado')
+    // limpa o motivo antigo — se fechar de novo, precisa de motivo novo.
+    let closureReason: string | null = (existing as any).closureReason ?? null;
+    if (statusChanged && nextStatus === 'encerrado') {
+      const requestedReason = this.normalizeText((dto as any)?.closureReason);
+      if (!requestedReason || !(VENDAS_CLOSURE_REASONS as readonly string[]).includes(requestedReason)) {
+        throw new BadRequestException('Informe o motivo do encerramento.');
+      }
+      closureReason = requestedReason;
+    } else if (statusChanged && nextStatus !== 'encerrado') {
+      closureReason = null;
+    }
+
     if (statusChanged) {
       timelineEvents.push(
         this.buildTimelineEvent({
@@ -9499,14 +9760,16 @@ export class VendasService {
     }
 
     if (nextStatus === 'encerrado' && this.normalizeStatus(existing.status) !== 'encerrado') {
+      const closureReasonLabel = this.formatClosureReasonLabel(closureReason);
       timelineEvents.push(
         this.buildTimelineEvent({
           eventType: 'lead_closed',
           title: 'Lead encerrado',
           description: shortNote
-            ? `Encerramento registrado com observacao: "${shortNote}".`
-            : 'O lead saiu da agenda ativa e foi movido para encerrados.',
+            ? `Encerramento (${closureReasonLabel}) registrado com observacao: "${shortNote}".`
+            : `Encerramento (${closureReasonLabel}) — o lead saiu da agenda ativa e foi movido para encerrados.`,
           statusTo: nextStatus,
+          resultLabel: closureReason,
           createdByUserId: context.userId,
         }),
       );
@@ -9528,6 +9791,7 @@ export class VendasService {
       lastResult: nextLastResult,
       wasClosedBefore,
       closedAt: nextStatus === 'encerrado' ? existing.closedAt || new Date() : null,
+      closureReason,
       ...(productPatch?.data || {}),
     };
     const saleCommissionPatch = await this.buildSaleCommissionPatch(
@@ -9597,6 +9861,23 @@ export class VendasService {
     });
 
     await this.syncLeadToInboxAgenda(context.companyId, updated, existing);
+
+    // S4 LEAD-CENTRICO (04-robozinho.md, item 3 "paradas globais"): humano
+    // assumiu (qualificado) ou fechou (encerrado) -> pausa qualquer cadência
+    // ativa deste lead. Best-effort: nunca derruba a mudança de status que já
+    // foi persistida — o pior caso é uma cadência que continua ligada até o
+    // próximo passo dela mesma bater no `canCadenciaRun` (fail-closed lá).
+    if (statusChanged && (nextStatus === 'qualificado' || nextStatus === 'encerrado')) {
+      await this.commercialContactControl
+        .pauseCommercialAutomationForLead({
+          companyId: context.companyId,
+          leadId: existing.id,
+          reason: `lead_status_${nextStatus}`,
+        })
+        .catch((error: any) => {
+          this.logger.warn(`[vendas-robo] falha ao pausar automacao lead=${existing.id}: ${String(error?.message || error)}`);
+        });
+    }
 
     const previousSaleStatus = this.normalizeSaleStatus(existing.saleStatus);
     const updatedSaleStatus = this.normalizeSaleStatus(updated.saleStatus);
@@ -10594,6 +10875,22 @@ export class VendasService {
         });
       } catch (error: any) {
         this.logger.warn(`[vendas-delete] Falha ao devolver card ao Radar lead=${row.id}: ${error?.message || error}`);
+      }
+      // S4 LEAD-CENTRICO (04-robozinho.md, item 3 "paradas globais" — BURACO
+      // fechado aqui): o card sai do Vendas por excluir/negativar/opt-out/reportar
+      // — TODOS passam por este método único. `CadenciaInscricao.leadId` não tem FK
+      // pro VendasLead (é string solta), então o `deleteMany` abaixo NUNCA cascateava
+      // a cadência — ela ficava "ativa" apontando pra um lead que já não existe mais
+      // (o runner, quando ligado, só descobria isso lead a lead, sem motivo
+      // registrado). Pausar ANTES do delete garante motivo + evidência no ledger.
+      try {
+        await this.commercialContactControl.pauseCommercialAutomationForLead({
+          companyId: context.companyId,
+          leadId: row.id,
+          reason: `lead_disposed_${options.radarStatus || (options.report ? 'complaint' : 'discarded')}`,
+        });
+      } catch (error: any) {
+        this.logger.warn(`[vendas-robo] Falha ao pausar automacao antes de excluir lead=${row.id}: ${error?.message || error}`);
       }
     }
 

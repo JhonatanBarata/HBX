@@ -23,6 +23,14 @@ const SALE_STATUSES = ['none', 'activation_pending', 'trial_started', 'sale_conf
 const COMMISSION_STATUSES = ['none', 'pending', 'payable', 'paid', 'canceled'] as const;
 const MASTER_NOTICE_AUDIENCES = ['seller', 'customer'] as const;
 const MASTER_NOTICE_TONES = ['info', 'success', 'warning', 'urgent'] as const;
+// S4 LEAD-CENTRICO (04-robozinho.md): motivo estruturado obrigatório ao encerrar
+// (statusChanged -> 'encerrado'). Aditivo — alimenta S7 (marquinha/pool) e o
+// reembolso futuro (00-FRENTE.md, decisão nº1 do dono).
+export const VENDAS_CLOSURE_REASONS = ['sem_interesse', 'nao_atendeu', 'contato_invalido', 'convertido', 'outro'] as const;
+export type VendasClosureReason = (typeof VENDAS_CLOSURE_REASONS)[number];
+// S4 LEAD-CENTRICO: personas de cadência prontas (seeds) — 'custom' fica de fora
+// do robozinho por lead (custom precisa de passos próprios, fora de escopo aqui).
+const ROBO_PERSONA_KEYS = ['conservador', 'moderado', 'agressivo'] as const;
 
 function optionalEmail(value: unknown) {
   if (typeof value !== 'string') return value;
@@ -188,6 +196,32 @@ export class UpdateVendasLeadDto {
   @IsOptional()
   @IsIn(['manual', 'auto_email', 'auto_whatsapp', 'auto_both'])
   retornoMode?: 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
+
+  // S4 LEAD-CENTRICO: obrigatório no service quando o PATCH muda status -> 'encerrado'
+  // (validação de "obrigatório" fica no service, que sabe se status mudou de fato).
+  @IsOptional()
+  @IsIn(VENDAS_CLOSURE_REASONS)
+  closureReason?: VendasClosureReason;
+}
+
+// S4 LEAD-CENTRICO (04-robozinho.md): POST /vendas/lead/:id/robo — liga a cadência
+// POR LEAD (opt-in). personaKey resolve pra uma cadência seed da empresa (cria se
+// não existir ainda); cadenciaId aponta direto pra uma cadência já existente
+// (inclusive custom). Um dos dois é obrigatório (o service valida).
+export class LigarRoboDto {
+  @IsOptional()
+  @IsIn(ROBO_PERSONA_KEYS)
+  personaKey?: (typeof ROBO_PERSONA_KEYS)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  cadenciaId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  objetivo?: string;
 }
 
 export class CreateHbxSalesHandoffDto {

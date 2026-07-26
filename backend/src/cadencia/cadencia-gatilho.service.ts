@@ -5,6 +5,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import { EventRuleService, type EventRuleRow } from '../automation/event-rule.service';
+import { classifyRoboReplyHeat } from '../vendas/vendas-robo-heat';
 import type { CreateGatilhoDto, UpdateGatilhoDto } from './dto/cadencia.dto';
 
 // ================================================================
@@ -258,7 +259,112 @@ export class CadenciaGatilhoService implements OnModuleInit {
     const companyId = Number(evt?.companyId || 0);
     const phone = String(evt?.fromPhone || '').replace(/\D/g, '');
     if (!companyId || !phone) return;
+
+    // S4 LEAD-CENTRICO (04-robozinho.md, item 4 "Te chamou"): roda SEMPRE que um
+    // humano responde (não depende de a empresa ter configurado um CadenciaGatilho
+    // — é comportamento embutido do robozinho, não um gatilho opcional). Best-effort:
+    // nunca derruba o resto do hook (gatilhos configurados continuam abaixo).
+    const lead = await this.matchLeadByPhone(companyId, phone);
+    if (lead) {
+      await this.maybeHandleRoboHotReply(companyId, lead, evt).catch((e) =>
+        this.logger.warn(`[cadencia-gatilho] te-chamou falhou lead=${lead.id}: ${String(e?.message || e)}`),
+      );
+    }
+
     await this.eventRules.emit(companyId, 'lead_respondeu_whatsapp', evt as unknown as Record<string, unknown>);
+  }
+
+  // ================================================================
+  // "Te chamou" (S4 LEAD-CENTRICO, item 4): resposta inbound QUENTE de um lead
+  // que TINHA o robô ligado -> etapa 'retorno' + atividade com contexto (quem, o
+  // que pediu, o que o robô já fez, prazo sugerido). Reusa AtividadesService
+  // (hook WORM-12) — nada de sistema novo de notificação.
+  //
+  // "Robô ligado nesta resposta" = a inscrição de cadência do lead foi pausada
+  // por `interruptForInbound` (CommercialContactControlService, SEMPRE roda
+  // primeiro no InboundRouterService, ANTES deste hook) com
+  // lastError='inbound_received', HÁ POUCO TEMPO. Sem essa janela de recência,
+  // uma cadência cancelada há dias voltaria a "acender" o Te chamou a cada nova
+  // mensagem do lead — a recência garante que é ESTA resposta que desligou o robô.
+  // ================================================================
+  private async maybeHandleRoboHotReply(
+    companyId: number,
+    lead: { id: string; assignedUserId: number | null; status: string },
+    evt: CadenciaInboundEvent,
+  ): Promise<void> {
+    const text = String(evt?.text || '').trim();
+    if (!text) return;
+
+    const RECENT_WINDOW_MS = 5 * 60 * 1000;
+    const recentlyPaused = typeof (this.prisma as any).cadenciaInscricao?.findFirst === 'function'
+      ? await (this.prisma as any).cadenciaInscricao.findFirst({
+          where: {
+            companyId,
+            leadId: lead.id,
+            status: 'cancelada',
+            lastError: 'inbound_received',
+            updatedAt: { gte: new Date(Date.now() - RECENT_WINDOW_MS) },
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, cadenciaId: true, currentStep: true },
+        })
+      : null;
+    if (!recentlyPaused) return; // robô não estava ligado nesta resposta
+
+    const heat = classifyRoboReplyHeat(text);
+    if (!heat.quente) return;
+
+    // Não regride etapa já avançada por humano — só surfaceia o contexto.
+    const willMoveToRetorno = !['qualificado', 'encerrado'].includes(lead.status) && lead.status !== 'retorno';
+
+    const cadencia = recentlyPaused.cadenciaId
+      ? await (this.prisma as any).cadencia
+          .findUnique({ where: { id: recentlyPaused.cadenciaId }, select: { nome: true } })
+          .catch(() => null)
+      : null;
+    const toques = Math.max(0, Math.trunc(Number(recentlyPaused.currentStep || 0)));
+    const excerpt = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+    const now = new Date();
+    const prazo = new Date(now.getTime() + 2 * 60 * 60 * 1000); // sugestão: retornar em até 2h
+
+    // Idempotência: se este MESMO evento (mesma inscrição pausada) já foi tratado,
+    // o create abaixo bate no @@unique([leadId, idempotencyKey]) — P2002 = já feito,
+    // não duplica nem status nem atividade.
+    try {
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          eventType: 'robo_te_chamou',
+          title: 'Te chamou — robô identificou interesse',
+          description: `Respondeu: "${excerpt}". O robô (${cadencia?.nome || 'cadência'}) já tinha enviado ${toques} toque(s). ${heat.motivo} Sugestão: retornar até ${prazo.toLocaleString('pt-BR')}.`,
+          sourceType: 'automacao',
+          statusFrom: lead.status,
+          statusTo: willMoveToRetorno ? 'retorno' : lead.status,
+          resultLabel: 'te_chamou',
+          idempotencyKey: `robo-te-chamou:${recentlyPaused.id}`,
+        },
+      });
+    } catch (error: any) {
+      if (String(error?.code || '') === 'P2002') return; // já tratado
+      throw error;
+    }
+
+    if (willMoveToRetorno) {
+      await this.prisma.vendasLead.updateMany({
+        where: { id: lead.id, companyId },
+        data: { status: 'retorno', lastContactAt: now },
+      });
+    }
+
+    await this.atividades.createFromAutomation({
+      leadId: lead.id,
+      companyId,
+      titulo: `Te chamou: retornar contato${cadencia?.nome ? ` (${cadencia.nome})` : ''}`.slice(0, 160),
+      vencimento: now,
+      tipo: 'mensagem',
+      responsavelId: lead.assignedUserId,
+      origin: 'automacao',
+    });
   }
 
   // Handler registrado no EventRuleService para 'lead_respondeu_whatsapp'
