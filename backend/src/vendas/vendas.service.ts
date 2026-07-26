@@ -10,13 +10,8 @@ import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.ser
 import {
   COMMERCIAL_PLAN_KEYS,
   applyCommissionCap,
-  getCommercialPlanCapabilities,
   getCommercialPlanMonthlyPrice,
-  getCommercialPlanTier,
   normalizeCommercialPlanKey,
-  resolveCommercialPlanKeyForCapabilities,
-  type CommercialPlanCapabilities,
-  type CommercialPlanTier,
 } from '../commercial-plans/commercial-plan-catalog';
 import { CompanyPresentationEmailService } from '../mail/company-presentation-email.service';
 import { ConversationsService } from '../messaging/conversations.service';
@@ -191,11 +186,6 @@ type VendasWhatsappAvailabilityState = {
   checkedAt: string | null;
   phoneDigits: string | null;
   message: string | null;
-};
-
-type VendasPlanAccess = {
-  planTier: CommercialPlanTier;
-  capabilities: CommercialPlanCapabilities;
 };
 
 type VendasProductSnapshotPatch = {
@@ -1542,7 +1532,6 @@ export class VendasService {
     sharedProfile?: any,
     whatsappAvailability?: VendasWhatsappAvailabilityState | null,
     inboxPresence?: { conversationId?: string | number | null } | null,
-    planAccess?: VendasPlanAccess | null,
     accessContext?: VendasAccessContext | null,
     cockpitSnapshot?: any | null,
     automationEnrollment?: any | null,
@@ -1581,31 +1570,23 @@ export class VendasService {
           ? 'platform_engine'
           : null,
     });
-    const access = planAccess || this.buildPlanAccess(COMMERCIAL_PLAN_KEYS.PADRAO);
-    const manualEnrichmentUnlock = this.hasManualLeadEnrichmentUnlock(row);
-    const leadCapabilities = manualEnrichmentUnlock && !access.capabilities.canSeeLeadIntelligence
-      ? { ...access.capabilities, canSeeLeadIntelligence: true }
-      : access.capabilities;
     const leadIntelligence = this.decorateManualEnrichmentIntelligence(rawIntelligence, row);
-    // Empresa + dono + multi-contatos no TOPO do lead (o card lê daqui). Gated pela MESMA
-    // capability da inteligência — dado pessoal do dono NÃO vaza pra tier sem acesso.
-    // Telefone extra continua só exibido se confirmado no WhatsApp (phonesWhatsapp).
-    const companyData = leadCapabilities.canSeeLeadIntelligence
-      ? {
-          cnpj: (rawIntelligence as any).cnpj || null,
-          cnae: (rawIntelligence as any).cnae || null,
-          razaoSocial: (rawIntelligence as any).razaoSocial || null,
-          ownerName: (rawIntelligence as any).ownerName || null,
-          ownerNames: (rawIntelligence as any).ownerNames || [],
-          ownerPhone: (rawIntelligence as any).ownerPhone || null,
-          ownerInstagram: (rawIntelligence as any).ownerInstagram || null,
-          ownerFacebook: (rawIntelligence as any).ownerFacebook || null,
-          companySituation: (rawIntelligence as any).companySituation || null,
-          emails: (rawIntelligence as any).emails || [],
-          phones: (rawIntelligence as any).phones || [],
-          phonesWhatsapp: (rawIntelligence as any).phonesWhatsapp || {},
-        }
-      : {};
+    // Empresa + dono + multi-contatos no TOPO do lead (o card lê daqui). Telefone
+    // extra continua só exibido se confirmado no WhatsApp (phonesWhatsapp).
+    const companyData = {
+      cnpj: (rawIntelligence as any).cnpj || null,
+      cnae: (rawIntelligence as any).cnae || null,
+      razaoSocial: (rawIntelligence as any).razaoSocial || null,
+      ownerName: (rawIntelligence as any).ownerName || null,
+      ownerNames: (rawIntelligence as any).ownerNames || [],
+      ownerPhone: (rawIntelligence as any).ownerPhone || null,
+      ownerInstagram: (rawIntelligence as any).ownerInstagram || null,
+      ownerFacebook: (rawIntelligence as any).ownerFacebook || null,
+      companySituation: (rawIntelligence as any).companySituation || null,
+      emails: (rawIntelligence as any).emails || [],
+      phones: (rawIntelligence as any).phones || [],
+      phonesWhatsapp: (rawIntelligence as any).phonesWhatsapp || {},
+    };
     const canViewProductPrice = Boolean(accessContext?.canViewProductPrice);
     const productPriceCents = canViewProductPrice && row?.productPriceCentsSnapshot != null
       ? Math.max(0, Math.trunc(Number(row.productPriceCentsSnapshot) || 0))
@@ -1754,9 +1735,7 @@ export class VendasService {
       createdAt: row?.createdAt instanceof Date ? row.createdAt.toISOString() : null,
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt.toISOString() : null,
       whatsappAvailability: whatsappAvailability || null,
-      planTier: access.planTier,
-      capabilities: leadCapabilities,
-      leadIntelligence: this.applyLeadIntelligenceCapabilities(leadIntelligence, access, row),
+      leadIntelligence,
       conversation: canonicalConversation,
       engagement: canonicalEngagement,
       automation,
@@ -2245,23 +2224,11 @@ export class VendasService {
     }));
   }
 
-  private buildPlanAccess(planKey: unknown): VendasPlanAccess {
-    const normalized = normalizeCommercialPlanKey(planKey);
-    return {
-      planTier: getCommercialPlanTier(normalized),
-      capabilities: getCommercialPlanCapabilities(normalized),
-    };
-  }
-
-  private async resolvePlanAccessForCompany(companyId: number): Promise<VendasPlanAccess> {
-    const company = await this.prisma.company.findUnique({
-      where: { id: Number(companyId) },
-      select: { selectedPlanKey: true },
-    }).catch(() => null);
-    return this.buildPlanAccess(resolveCommercialPlanKeyForCapabilities(company || {}));
-  }
-
-  private hasManualLeadEnrichmentUnlock(row: any) {
+  // S9 LEAD-CENTRICO: renomeado do antigo helper de "destrava paywall" (capacidade
+  // sempre foi liberada desde bacb2725) — hoje é só detecção de proveniência: este
+  // lead passou pelo enriquecimento manual? decorateManualEnrichmentIntelligence usa
+  // isto pra carimbar enrichedAt/verifiedBy.
+  private wasManuallyEnriched(row: any) {
     const timeline = Array.isArray(row?.timelineEvents) ? row.timelineEvents : [];
     return timeline.some((event: any) => {
       const eventType = String(event?.eventType || '').trim();
@@ -2271,7 +2238,7 @@ export class VendasService {
   }
 
   private decorateManualEnrichmentIntelligence(intelligence: any, row?: any) {
-    if (!this.hasManualLeadEnrichmentUnlock(row)) return intelligence;
+    if (!this.wasManuallyEnriched(row)) return intelligence;
     const timeline = Array.isArray(row?.timelineEvents) ? row.timelineEvents : [];
     const event = timeline.find((item: any) =>
       String(item?.eventType || '').trim() === 'lead_enrichment_used'
@@ -2282,47 +2249,6 @@ export class VendasService {
       enrichmentStatus: intelligence?.enrichmentStatus || 'completed',
       enrichedAt: intelligence?.enrichedAt || (event?.createdAt instanceof Date ? event.createdAt.toISOString() : new Date().toISOString()),
       verifiedBy: intelligence?.verifiedBy || 'manual',
-    };
-  }
-
-  private applyLeadIntelligenceCapabilities(intelligence: any, access: VendasPlanAccess, row?: any, forceFull = false) {
-    if (forceFull || access.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(row)) {
-      return intelligence;
-    }
-    return {
-      emailStatus: intelligence?.emailStatus || null,
-      whatsappStatus: access.capabilities.canUseVerifiedWhatsapp ? intelligence?.whatsappStatus || null : 'unverified',
-      contactQuality: intelligence?.contactQuality === 'blocked' ? 'blocked' : 'review',
-      opportunityScore: null,
-      opportunityReason: null,
-      painType: null,
-      painPitch: null,
-      recommendedChannel: null,
-      emailSource: null,
-      confidence: null,
-      leadReasonTags: (Array.isArray(intelligence?.leadReasonTags) ? intelligence.leadReasonTags : [])
-        .filter((tag: string) => ['sem_site', 'cidade_alvo', 'segmento_alvo'].includes(String(tag))),
-      nextBestAction: null,
-      lastVerifiedAt: null,
-      verifiedBy: null,
-      visibilityTier: intelligence?.visibilityTier || null,
-      deliveryProduct: intelligence?.deliveryProduct || null,
-      debitEligible: typeof intelligence?.debitEligible === 'boolean' ? intelligence.debitEligible : null,
-      qualityReason: intelligence?.qualityReason || null,
-      messageTemplate: null,
-      messageTemplates: [],
-      templateLibrarySize: Number(intelligence?.templateLibrarySize || 0) || 0,
-      instagramUrl: null,
-      facebookUrl: null,
-      socialStatus: intelligence?.socialStatus || null,
-      socialConfidence: null,
-      primarySocial: intelligence?.primarySocial || null,
-      premiumTeaser: intelligence?.primarySocial || intelligence?.opportunityScore
-        ? {
-            label: 'Disponível no HBX Lead Plus',
-            cta: 'Ver card inteligente',
-          }
-        : null,
     };
   }
 
@@ -2435,43 +2361,10 @@ export class VendasService {
     };
   }
 
-  private applySalesProfileCapabilities(profile: EffectiveSalesProfile, access: VendasPlanAccess): EffectiveSalesProfile {
-    if (access.capabilities.canUseSalesProfileAdvanced) return profile;
-    return {
-      ...this.defaultSalesProfile(),
-      id: profile.id,
-      whatDoYouSell: profile.whatDoYouSell,
-      offerCategory: profile.offerCategory,
-      targetAudience: profile.targetAudience || [],
-      targetSegments: (profile.targetSegments || []).slice(0, 1),
-      avoidSegments: profile.avoidSegments || [],
-      hardRejectSegments: profile.hardRejectSegments || [],
-      preferredCities: (profile.preferredCities || []).slice(0, 1),
-      preferredStates: (profile.preferredStates || []).slice(0, 1),
-      preferredChannels: ['whatsapp'],
-      leadPreferences: {
-        preferSmallBusiness: true,
-        preferNoWebsite: false,
-        preferInstagram: false,
-        preferWhatsapp: true,
-        preferHighReviews: false,
-        preferLocalBusiness: true,
-      },
-      negativeRules: {
-        avoidDirectories: true,
-        avoidNoPhone: true,
-        avoidNoWhatsapp: false,
-      },
-      weeklyAutoUpdateEnabled: false,
-      source: profile.source,
-    };
-  }
-
-  private async getEffectiveSalesProfileForContext(context: { companyId: number; userId: number }, access?: VendasPlanAccess) {
-    const planAccess = access || await this.resolvePlanAccessForCompany(context.companyId);
+  private async getEffectiveSalesProfileForContext(context: { companyId: number; userId: number }) {
     const tableAvailable = await this.prisma.hasTable('SalesProfile').catch(() => false);
     if (!tableAvailable) {
-      return { profile: null, effectiveProfile: this.applySalesProfileCapabilities(this.defaultSalesProfile(), planAccess), source: 'default' as SalesProfileSource };
+      return { profile: null, effectiveProfile: this.defaultSalesProfile(), source: 'default' as SalesProfileSource };
     }
     const [userProfile, companyProfile] = await Promise.all([
       (this.prisma as any).salesProfile.findFirst({
@@ -2485,7 +2378,7 @@ export class VendasService {
     ]);
     const row = userProfile || companyProfile || null;
     const source: SalesProfileSource = userProfile ? 'user' : companyProfile ? 'company' : 'default';
-    const effectiveProfile = this.applySalesProfileCapabilities(this.rowToSalesProfile(row), planAccess);
+    const effectiveProfile = row ? this.rowToSalesProfile(row) : this.defaultSalesProfile();
     return {
       profile: row ? this.rowToSalesProfile(row) : null,
       effectiveProfile,
@@ -2495,9 +2388,8 @@ export class VendasService {
 
   async getSalesProfileForUser(user: any) {
     const context = await this.resolveVendasUserContext(user);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const result = await this.getEffectiveSalesProfileForContext(context, planAccess);
-    return { ok: true, ...result, capabilities: planAccess.capabilities };
+    const result = await this.getEffectiveSalesProfileForContext(context);
+    return { ok: true, ...result };
   }
 
   private buildSalesProfileDataFromDto(dto: UpdateSalesProfileDto, existing?: EffectiveSalesProfile | null) {
@@ -2548,11 +2440,10 @@ export class VendasService {
 
   async updateSalesProfileForUser(user: any, dto: UpdateSalesProfileDto) {
     const context = await this.resolveVendasUserContext(user);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     if (!(await this.prisma.hasTable('SalesProfile').catch(() => false))) {
       throw new BadRequestException('Tabela SalesProfile ainda nao foi migrada.');
     }
-    const current = await this.getEffectiveSalesProfileForContext(context, planAccess);
+    const current = await this.getEffectiveSalesProfileForContext(context);
     const data = this.buildSalesProfileDataFromDto(dto || {}, current.profile || current.effectiveProfile);
     const existing = await (this.prisma as any).salesProfile.findFirst({
       where: { companyId: context.companyId, userId: context.userId },
@@ -2561,8 +2452,8 @@ export class VendasService {
     const row = existing
       ? await (this.prisma as any).salesProfile.update({ where: { id: existing.id }, data })
       : await (this.prisma as any).salesProfile.create({ data: { companyId: context.companyId, userId: context.userId, ...data } });
-    const effective = await this.getEffectiveSalesProfileForContext(context, planAccess);
-    return { ok: true, profile: this.rowToSalesProfile(row), effectiveProfile: effective.effectiveProfile, source: 'user' as SalesProfileSource, capabilities: planAccess.capabilities };
+    const effective = await this.getEffectiveSalesProfileForContext(context);
+    return { ok: true, profile: this.rowToSalesProfile(row), effectiveProfile: effective.effectiveProfile, source: 'user' as SalesProfileSource };
   }
 
   private resolveReportPeriod(periodRaw: unknown) {
@@ -2711,7 +2602,6 @@ export class VendasService {
 
   async getConversionReportForUser(user: any, periodRaw?: string) {
     const context = await this.resolveVendasUserContext(user);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const period = this.resolveReportPeriod(periodRaw);
     const leads = await this.prisma.vendasLead.findMany({
       where: this.buildLeadAccessWhere(context, {
@@ -2796,8 +2686,6 @@ export class VendasService {
     const report = {
       ok: true,
       period,
-      capabilities: planAccess.capabilities,
-      isComplete: Boolean(planAccess.capabilities.canSeeConversionReport && planAccess.capabilities.canUseSalesProfileAdvanced),
       metrics: {
         cardsRecebidos: leads.length,
         cardsEntregues: leads.length,
@@ -2826,13 +2714,6 @@ export class VendasService {
         ? `Nesta semana, o HBX identificou que seus melhores resultados vieram de ${topSegments[0].label}, ${topCities[0]?.label || 'sua região'} e ${topChannels[0]?.label || 'WhatsApp'}.`
         : 'Meça alguns contatos para o HBX recomendar segmentos, cidades e canais com mais precisão.',
     };
-    if (!planAccess.capabilities.canUseSalesProfileAdvanced) {
-      return {
-        ...report,
-        rankings: { segments: topSegments.slice(0, 1), cities: topCities.slice(0, 1), channels: [], discardReasons: [] },
-        recommendation: 'Relatório inteligente disponível no HBX Lead Plus.',
-      };
-    }
     return report;
   }
 
@@ -5143,10 +5024,6 @@ export class VendasService {
 
   async exportConversionReportPdfForUser(user: any, periodRaw?: string) {
     const context = await this.resolveVendasUserContext(user);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    if (!planAccess.capabilities.canExportConversionPdf) {
-      throw new ForbiddenException('Exportação PDF disponível no HBX Lead Plus.');
-    }
     const [report, company] = await Promise.all([
       this.getConversionReportForUser(user, periodRaw),
       this.prisma.company.findUnique({ where: { id: context.companyId }, select: { name: true } }).catch(() => null),
@@ -5198,12 +5075,8 @@ export class VendasService {
 
   async suggestWeeklySalesProfileForUser(user: any) {
     const context = await this.resolveVendasUserContext(user);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    if (!planAccess.capabilities.canUseWeeklyProfileSuggestions) {
-      throw new ForbiddenException('Sugestão semanal disponível no HBX Lead Plus.');
-    }
     const [profilePayload, report] = await Promise.all([
-      this.getEffectiveSalesProfileForContext(context, planAccess),
+      this.getEffectiveSalesProfileForContext(context),
       this.getConversionReportForUser(user, '7d'),
     ]);
     const profile = profilePayload.effectiveProfile;
@@ -5328,7 +5201,6 @@ export class VendasService {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanManualEnrichRadar(context);
     const { companyId, userId } = context;
-    const planAccess = await this.resolvePlanAccessForCompany(companyId);
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead nao informado.');
 
@@ -5442,18 +5314,9 @@ export class VendasService {
     return {
       ok: true,
       leadId: String(lead.id),
-      planTier: planAccess.planTier,
-      capabilities: planAccess.capabilities.canSeeLeadIntelligence
-        ? planAccess.capabilities
-        : { ...planAccess.capabilities, canSeeLeadIntelligence: true },
       usage: usageResult?.usage || null,
       whatsappAvailability: availability,
-      leadIntelligence: this.applyLeadIntelligenceCapabilities(
-        enrichedIntelligence,
-        planAccess,
-        lead,
-        true,
-      ),
+      leadIntelligence: enrichedIntelligence,
     };
   }
 
@@ -5478,16 +5341,6 @@ export class VendasService {
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
 
-    // MESMO gate do board (buildLeadPayload): dado de empresa é gated por
-    // canSeeLeadIntelligence, com o mesmo destravamento do enriquecimento manual do card.
-    // Sem direito → locked (200), sem vazar nem o CNPJ.
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const canSeeCompanyData =
-      planAccess.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(lead);
-    if (!canSeeCompanyData) {
-      return { company: { found: false, locked: true } };
-    }
-
     // CNPJ server-side: mesma fonte do board (hidratação RadarLeadPool → intelligence);
     // fallback: CNPJ da ficha do cliente (NÚCLEO-CRM). Quando ambas falham, tenta reconciliar
     // com a base RFB local por telefone → nome+cidade → endereço, sempre fail-soft e sem rede.
@@ -5505,7 +5358,7 @@ export class VendasService {
       }
     }
     if (cnpjDigits.length !== 14) {
-      return { company: { found: false, locked: false, cnpj: null } };
+      return { company: { found: false, cnpj: null } };
     }
 
     // Fail-soft: leitura da base pública NUNCA derruba a rota — loga e devolve found:false.
@@ -5513,13 +5366,12 @@ export class VendasService {
       const row = fallbackMatch?.company
         || await this.prisma.cnpjPublicCompany.findUnique({ where: { cnpj: cnpjDigits } });
       if (!row) {
-        return { company: { found: false, locked: false, cnpj: cnpjDigits } };
+        return { company: { found: false, cnpj: cnpjDigits } };
       }
       const partners = await this.listCockpitPartners(cnpjDigits, row.rawJson);
       return {
         company: {
           found: true,
-          locked: false,
           cnpj: row.cnpj || cnpjDigits,
           // MEI/EI vem "<CNPJ básico> <NOME>" no dump — mesma limpeza do L4.
           razaoSocial: cleanRfbLegalName(row.razaoSocial, row.cnpj || cnpjDigits) || null,
@@ -5541,7 +5393,7 @@ export class VendasService {
       this.logger.warn(
         `[vendas-cockpit] Falha ao ler base RFB local lead=${lead.id} company=${context.companyId}: ${String(error?.message || error)}`,
       );
-      return { company: { found: false, locked: false, cnpj: cnpjDigits } };
+      return { company: { found: false, cnpj: cnpjDigits } };
     }
   }
 
@@ -5822,7 +5674,7 @@ export class VendasService {
   // com confianca de fonte, canais disponiveis, dados confirmados/duvidosos/
   // faltantes, veredicto e recomendacao de persona por HEURISTICA (sem IA/LLM
   // neste sprint — recomendacao.source:'heuristica'). Zero disparo, zero
-  // inscricao de cadencia. Mesma autz/gate do cockpit (canSeeLeadIntelligence).
+  // inscricao de cadencia.
   async getLeadPreVooForUser(user: any, leadId: string) {
     const context = await this.resolveVendasUserContext(user);
     const normalizedLeadId = this.normalizeText(leadId);
@@ -5839,13 +5691,6 @@ export class VendasService {
       },
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
-
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const canSeeCompanyData =
-      planAccess.capabilities.canSeeLeadIntelligence || this.hasManualLeadEnrichmentUnlock(lead);
-    if (!canSeeCompanyData) {
-      return { ok: true, leadId: String(lead.id), locked: true };
-    }
 
     // Mesma hidratacao/CNPJ do cockpit (radar pool -> intelligence -> fallback RFB local).
     await this.hydrateRowsWithRadarPoolEnrichment([lead]);
@@ -5951,7 +5796,6 @@ export class VendasService {
     return {
       ok: true,
       leadId: String(lead.id),
-      locked: false,
       lead: {
         name: (lead as any)?.name || null,
         city: (lead as any)?.city || null,
@@ -8105,7 +7949,7 @@ export class VendasService {
         crmDetailsRestricted: true,
       };
     }
-    const payload = row ? this.buildLeadPayload(row, sharedProfile, undefined, undefined, undefined, options.accessContext) : null;
+    const payload = row ? this.buildLeadPayload(row, sharedProfile, undefined, undefined, options.accessContext) : null;
     return {
       phoneDigits,
       existsInCrm: Boolean(payload),
@@ -8163,7 +8007,6 @@ export class VendasService {
     assignedAt?: Date | null;
     commissionPercentSnapshot?: number | null;
     productSnapshotData?: Record<string, any> | null;
-    planAccess?: VendasPlanAccess | null;
     vendasAccess?: VendasAccessContext | null;
     uniqueRetry?: boolean;
   }) {
@@ -8391,7 +8234,7 @@ export class VendasService {
         return {
           action: 'updated',
           reusedExisting: true,
-          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.planAccess, input.vendasAccess),
+          lead: this.buildLeadPayload(updated, undefined, undefined, undefined, input.vendasAccess),
         };
       }
     }
@@ -8523,7 +8366,7 @@ export class VendasService {
     return {
       action: 'created',
       reusedExisting: false,
-      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.planAccess, input.vendasAccess),
+      lead: this.buildLeadPayload(created, undefined, undefined, undefined, input.vendasAccess),
     };
   }
 
@@ -8754,7 +8597,6 @@ export class VendasService {
   async getBoardForUser(user: any, sellerIdRaw?: string | number | null) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanReadVendasCards(context);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const sellsHbxPlans = await this.resolveSellsHbxPlans(context.companyId);
     const usage = await this.commercialUsageLimits.getUsageSnapshot(context.companyId, context.userId);
     // Filtro de vendedor (admin/gerente apenas): a barra de Vendas ganha um seletor
@@ -8902,7 +8744,6 @@ export class VendasService {
         sharedProfile,
         whatsappAvailabilityByLeadId.get(String(row.id)) || null,
         leadInboxPresence.get(String(row.id)) || null,
-        planAccess,
         context.access,
         cockpitStates.get(String(row.id)) || null,
         activeEnrollmentByLeadId.get(String(row.id)) || null,
@@ -8947,8 +8788,6 @@ export class VendasService {
         scheduled: blocks.scheduled.length,
         closed: blocks.closed.length,
       },
-      planTier: planAccess.planTier,
-      capabilities: planAccess.capabilities,
       sellsHbxPlans,
       // LEI DO VENDEDOR (docs/Rules/PAGAMENTOS.md): valores R$ (soma por coluna do
       // kanban + valor no card) só aparecem para quem pode ver preço. Vendedor
@@ -9121,7 +8960,6 @@ export class VendasService {
   async createManualLeadForUser(user: any, dto: CreateManualVendasLeadDto) {
     const context = await this.resolveVendasUserContext(user);
     this.assertVendasPermission(context.access?.canCreateManualCards, 'Acesso para criar card manual bloqueado pela politica da equipe.');
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
     const owner = await this.resolveLeadOwnerForContext({
       ...context,
       canManageTeam: Boolean(context.access?.canViewCompanyCards && (context.access.isAdmin || context.access.isSystemMaster)),
@@ -9171,7 +9009,6 @@ export class VendasService {
       assignedAt: owner.assignedAt,
       commissionPercentSnapshot: owner.commissionPercentSnapshot,
       productSnapshotData: productPatch?.data || null,
-      planAccess,
       vendasAccess: context.access,
     });
 
@@ -9268,8 +9105,7 @@ export class VendasService {
   async importWebscrapingLeadsForUser(user: any, dto: ImportWebscrapingLeadsDto) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanImportRadarToVendas(context);
-    const planAccess = await this.resolvePlanAccessForCompany(context.companyId);
-    const salesProfilePayload = await this.getEffectiveSalesProfileForContext(context, planAccess);
+    const salesProfilePayload = await this.getEffectiveSalesProfileForContext(context);
     const salesProfile = salesProfilePayload.effectiveProfile;
     const incomingLeads = Array.isArray(dto?.leads) ? dto.leads : [];
     const debitOnImport = Boolean((dto as any)?.debitOnImport);
@@ -9537,7 +9373,6 @@ export class VendasService {
           assignedByUserId: owner.assignedByUserId,
           assignedAt: owner.assignedAt,
           commissionPercentSnapshot: owner.commissionPercentSnapshot,
-          planAccess,
           vendasAccess: context.access,
         });
       } catch (error: any) {
@@ -10264,7 +10099,7 @@ export class VendasService {
     await this.hydrateRowsWithRadarPoolEnrichment([updated]);
     return {
       ok: true,
-      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, context.access),
     };
   }
 
@@ -10489,7 +10324,7 @@ export class VendasService {
       message,
       leadId: String(updated.id),
       commissionPreview,
-      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, context.access),
       commercialUseDebit,
     };
   }
@@ -10921,7 +10756,7 @@ export class VendasService {
             errorMessage: signupResult.delivery.errorMessage || null,
           }
         : null,
-      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, context.access),
     };
   }
 
@@ -11430,7 +11265,7 @@ export class VendasService {
     await this.hydrateRowsWithRadarPoolEnrichment([updated]);
     return {
       ok: true,
-      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, undefined, context.access),
+      lead: this.buildLeadPayload(updated, undefined, undefined, undefined, context.access),
     };
   }
 

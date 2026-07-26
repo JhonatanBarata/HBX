@@ -26,21 +26,6 @@ export type ActiveCommercialPlanKey =
   | typeof COMMERCIAL_PLAN_KEYS.MELHOR;
 export type CommercialEntitlementKey =
   (typeof COMMERCIAL_ENTITLEMENT_KEYS)[keyof typeof COMMERCIAL_ENTITLEMENT_KEYS];
-export type CommercialPlanTier = 'list' | 'lead' | 'full';
-export type CommercialPlanCapabilities = {
-  canSeeLeadIntelligence: boolean;
-  canSeeOpportunityReason: boolean;
-  canSeeSocialLinks: boolean | 'teaser_only';
-  canSeeMessageTemplates: boolean;
-  canAutoEnrichLeads: boolean;
-  canUseAdvancedFilters: boolean;
-  canUseVerifiedWhatsapp: boolean | 'limited';
-  canUseFilteredQuota: boolean;
-  canUseSalesProfileAdvanced: boolean;
-  canSeeConversionReport: boolean;
-  canExportConversionPdf: boolean;
-  canUseWeeklyProfileSuggestions: boolean;
-};
 
 export const COMMERCIAL_PRICING = {
   liteMonthly: 49.00,
@@ -363,36 +348,6 @@ export function getCommercialPlanTitle(planKey: unknown) {
   if (normalized === COMMERCIAL_PLAN_KEYS.PRO) return 'HBX Pro';
   if (normalized === COMMERCIAL_PLAN_KEYS.MELHOR) return 'Implantação';
   return 'HBX Lead Plus';
-}
-
-// R3 (FASE 2 — REMOÇÃO, definitivo): tier deixou de decidir capacidade. Toda
-// empresa comercial (não-platform_infra) projeta 'full' — a distinção
-// list/lead/full nascida do catálogo de planos morreu como driver de acesso.
-// Assinatura mantida (planKey ainda aceito) só por compatibilidade dos call
-// sites; nenhum deles deve mais esperar 'list'/'lead' de volta. Camada que
-// decide "quem pode o quê" agora é RBAC (UserTeamPolicy), não plano.
-export function getCommercialPlanTier(_planKey: unknown): CommercialPlanTier {
-  return 'full';
-}
-
-// R3: capacidades booleanas nascem TODAS ligadas por default (não dependem
-// mais de planKey/tier). RBAC (camada 2, UserTeamPolicy) é quem corta agora,
-// não o plano comercial. Parâmetro mantido só por compatibilidade de chamada.
-export function getCommercialPlanCapabilities(_planKey: unknown): CommercialPlanCapabilities {
-  return {
-    canSeeLeadIntelligence: true,
-    canSeeOpportunityReason: true,
-    canSeeSocialLinks: true,
-    canSeeMessageTemplates: true,
-    canAutoEnrichLeads: true,
-    canUseAdvancedFilters: true,
-    canUseVerifiedWhatsapp: true,
-    canUseFilteredQuota: true,
-    canUseSalesProfileAdvanced: true,
-    canSeeConversionReport: true,
-    canExportConversionPdf: true,
-    canUseWeeklyProfileSuggestions: true,
-  };
 }
 
 // Ranking de preço dos planos self-service (bloco PR16062026026).

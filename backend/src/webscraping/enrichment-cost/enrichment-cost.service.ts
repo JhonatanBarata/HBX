@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import {
   COMMERCIAL_PLAN_KEYS,
-  getCommercialPlanTier,
   normalizeCommercialPlanKey,
   type ActiveCommercialPlanKey,
 } from '../../commercial-plans/commercial-plan-catalog';
@@ -198,9 +197,9 @@ export class EnrichmentCostService {
 
     // NOTA (FASE 2 — REMOÇÃO, R3): este check é governador de CUSTO (COGS real,
     // fora do crédito por D1 do PLANO.md), não capacidade de produto — por
-    // isso usa planKey diretamente e NÃO getCommercialPlanTier (que R3
-    // aposentou como driver de acesso: agora sempre 'full'). List continua
-    // sem fallback pago automático porque é o plano de orçamento zero.
+    // isso usa planKey diretamente (o tier de paywall foi removido no S9
+    // LEAD-CENTRICO). List continua sem fallback pago automático porque é o
+    // plano de orçamento zero.
     if (planKey === COMMERCIAL_PLAN_KEYS.LITE && triggeredBy === 'auto') {
       return this.block(input, 'plan_disallows_paid_auto', 'locked', 'HBX List nao usa fallback pago automatico.', {
         budget,
@@ -495,9 +494,9 @@ export class EnrichmentCostService {
   }
 
   // NOTA (FASE 2 — REMOÇÃO, R3): governador de CUSTO (COGS, fora do crédito
-  // por D1) — usa planKey diretamente, não getCommercialPlanTier (aposentado
-  // como driver de acesso por R3, sempre 'full' agora). Pro/Implantação
-  // mantêm a barra mais baixa (55) que List/Lead Plus (70), como sempre foi.
+  // por D1) — usa planKey diretamente (o tier de paywall foi removido no S9
+  // LEAD-CENTRICO). Pro/Implantação mantêm a barra mais baixa (55) que
+  // List/Lead Plus (70), como sempre foi.
   private checkQualityGate(provider: EnrichmentCostProvider, input: PaidFallbackContext, planKey: ActiveCommercialPlanKey) {
     if (!input.hasCriticalMissingData) {
       return {
@@ -582,7 +581,6 @@ export class EnrichmentCostService {
       provider: input.provider,
       sku: String(input.sku || '').trim() || 'unknown',
       planKey: context.planKey,
-      planTier: getCommercialPlanTier(context.planKey),
       triggeredBy: context.triggeredBy,
       budget: context.budget,
       budgetUsageRatio: context.budgetUsageRatio,

@@ -513,8 +513,6 @@ test('getBoardForUser exposes full lead intelligence regardless of selectedPlanK
   const result = await service.getBoardForUser({ companyId: 7, id: 99 });
   const lead = result.blocks.today[0];
 
-  assert.equal(result.planTier, 'full');
-  assert.equal(result.capabilities.canSeeLeadIntelligence, true);
   assert.equal(lead.leadIntelligence.opportunityReason, 'Instagram encontrado + sem site: oportunidade premium.');
   assert.equal(lead.leadIntelligence.instagramUrl, 'https://instagram.com/loja');
 });

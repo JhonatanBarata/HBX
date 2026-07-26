@@ -29,8 +29,6 @@ import {
   type ActiveCommercialPlanKey,
   type CommercialEntitlementKey,
   type CommercialPlanKey,
-  getCommercialPlanTier,
-  type CommercialPlanTier,
 } from './commercial-plan-catalog';
 // R4 (FASE 2 — REMOÇÃO): seat-billing.util não é mais consumido aqui — assento
 // grátis, computeCompanyCommercialAmount não soma mais custo por cabeça.
@@ -66,12 +64,6 @@ type CommercialCurrentState = {
     completedAt: string | null;
     message: string | null;
   };
-  // Tier de inteligência de lead: list | lead | full.
-  // Additive (25/06): exposto para o front gate o cadeado por tier sem
-  // precisar re-derivar do planKey no cliente.
-  tier: CommercialPlanTier;
-  canSeeLeadIntelligence: boolean;
-  canSeeCompanyData: boolean;
   // Modelo de cobrança da conta (decisão do dono 07/07, decisão C): true = conta de CRÉDITO
   // (cortesia/modelo grátis com HBX_CREDITS_ENABLED). O front troca o card de plano ("HBX Lead
   // Plus / Leads do mês x/2.200") por saldo de crédito. NEUTRO (não é valor financeiro em R$):
@@ -346,14 +338,6 @@ export class CommercialPlansService {
         : 'pending'
       : 'not_required';
 
-    // Tier de inteligência de lead — derivado do planKey real (não entitlements).
-    const resolvedTierPlanKey = platformInfra
-      ? COMMERCIAL_PLAN_KEYS.MELHOR
-      : planKey ?? COMMERCIAL_PLAN_KEYS.PADRAO;
-    const tier = getCommercialPlanTier(resolvedTierPlanKey);
-    const canSeeLeadIntelligence = tier !== 'list';
-    const canSeeCompanyData = tier === 'full';
-
     // Conta de CRÉDITO: accountType==='credit' com o módulo de crédito ON (MASTER-REFAB S6,
     // 10/07 noite — era cortesia/exempt-manual, virou o campo explícito). O limite dela é o
     // saldo de crédito, não a cota do plano — o front usa isto para trocar o card de plano por
@@ -393,9 +377,6 @@ export class CommercialPlansService {
             ? 'Implantação assistida pendente. A HBX configura mensagens, limites, horários e handoff humano antes de liberar automação completa.'
             : null,
       },
-      tier,
-      canSeeLeadIntelligence,
-      canSeeCompanyData,
       creditsAccount,
     };
   }

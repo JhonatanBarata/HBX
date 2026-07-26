@@ -1,4 +1,4 @@
-import type { ActiveCommercialPlanKey, CommercialPlanTier } from '../../commercial-plans/commercial-plan-catalog';
+import type { ActiveCommercialPlanKey } from '../../commercial-plans/commercial-plan-catalog';
 
 export type EnrichmentCostProvider = 'hbx' | 'google' | 'email_provider' | 'manual' | 'other';
 export type EnrichmentCostTrigger = 'auto' | 'manual' | 'admin' | 'retry' | 'import';
@@ -46,7 +46,6 @@ export type EnrichmentCostDecision = {
   provider: EnrichmentCostProvider;
   sku: string;
   planKey: ActiveCommercialPlanKey;
-  planTier: CommercialPlanTier;
   triggeredBy: EnrichmentCostTrigger;
   budget: EnrichmentBudgetConfig;
   budgetUsageRatio: number;
