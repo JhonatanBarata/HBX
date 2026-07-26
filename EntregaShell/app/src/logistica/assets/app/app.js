@@ -4638,17 +4638,8 @@
     const loadingSaved = !!state.routeModelosLoading;
     const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
     const starting = !!state.leituraStarting;
-    const today = weekDays.find(day => day.n === todayIso()) || weekDays[0];
-    const todayCount = state.dayCounts && state.dayCounts[today.n];
-    const todayEnabled = agendaDayEnabled(today.n);
-    const todayHint = !todayEnabled
-      ? `${today.nome} · dia inativo`
-      : todayCount === undefined
-        ? `${today.nome} · carregando…`
-        : `${today.nome} · ${todayCount} ${todayCount === 1 ? "parada" : "paradas"}`;
     const activeDays = workDays().length;
     return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions">
-      <button type="button" class="day-home-btn day-home-btn--primary" data-action="day-entry-today" ${todayEnabled ? "" : "disabled"}><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Hoje</strong><small>${H.escape(todayHint)}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Agenda</strong><small>${activeDays} ${activeDays === 1 ? "dia ativo" : "dias ativos"}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><span class="day-home-btn-copy"><strong>Rotas salvas</strong><small>${H.escape(savedHint)}</small></span><span class="day-home-btn-chev">›</span></button>
       <button type="button" class="day-home-btn day-home-btn--quiet" data-action="day-entry-leitura" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Registrar caminho</strong><small>Leitura de rota</small></span><span class="day-home-btn-chev">›</span></button>
@@ -6467,9 +6458,9 @@
     if (action === "review-managed-route") startDayReview();
     if (action === "confirm-managed-route") await beginManagedRoute();
     if (action === "begin-managed-route") await beginManagedRoute();
-    // Entrada simples: Hoje já abre a prévia do dia; Agenda deixa a seleção em
-    // branco para o operador escolher. Rotas salvas continua independente.
-    if (action === "day-entry-today") { openManagedAgenda([todayIso()]); return; }
+    // Entrada simples: Agenda deixa a seleção em branco para o operador
+    // escolher o dia (hoje aparece marcado "Hoje" na lista). Rotas salvas
+    // continua independente.
     if (action === "day-entry-pordia") { openManagedAgenda([]); return; }
     if (action === "day-entry-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
     // S1 21/07 — "Iniciar Leitura de Rota" (POST modo LEITURA). S3 21/07:
