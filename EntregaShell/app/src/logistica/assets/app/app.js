@@ -3854,7 +3854,9 @@
       : active
         ? { state: "stop", action: "stop-route", label: "Parar rota", caption: "Parar", glifo: "stop" }
         : planned
-          ? { state: "ready", action: "start-planned-route", label: "Continuar rota", caption: "Continuar", glifo: "play" }
+          // 26/07 (dono): rota pronta que nunca rodou INICIA — "Continuar" era mentira
+          // de semântica (só quem pausou continua; o caso paused acima segue "Continuar").
+          ? { state: "ready", action: "start-planned-route", label: "Iniciar rota", caption: "Iniciar", glifo: "play" }
           : { state: "plan", action: "plan-route", label: "Planejar rota", caption: "Montar rota", glifo: "route" };
     const clearDayVisible = !active && !paused && isAdmin() && openItems().length > 0;
     const routeSatellite = (cls, action, label, caption, glifo, motion) => `<span class="route-control-unit route-control-unit--satellite"><button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}"${motion ? " data-hbx-motion" : ""}>${icon(glifo, 21)}</button><small class="route-control-label">${H.escape(caption)}</small></span>`;
@@ -3868,10 +3870,11 @@
         : clearDayVisible
           ? routeSatellite("route-cancel-icon", "clear-day-request", "Limpar o dia", "Limpar", "trash")
           : "";
-    // Rota pronta: o lado direito mantém a entrada "Montar rota" acessível para
-    // acrescentar paradas usando a mesma tela existente, inclusive em execução.
+    // Rota pronta: o satélite da direita ADICIONA paradas na rota que já existe
+    // (mesma tela de montagem por baixo). 26/07 (dono, 4ª cobrança): o rótulo diz o
+    // que o botão FAZ — "Adicionar na rota", nunca "Montar Rota" com rota já montada.
     const rightIcon = planned
-      ? routeSatellite("route-nav-external", "plan-route", "Montar Rota", "Montar Rota", "route")
+      ? routeSatellite("route-nav-external", "plan-route", "Adicionar na rota", "Adicionar", "route")
       : "";
     return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${leftIcon}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
   }
