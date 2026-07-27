@@ -18,6 +18,7 @@ import {
   UpdateAgendaPlanoDto,
 } from './dto/logistica-agenda.dto';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
+import { stopLivreWhere } from './logistica-rota-viva.util';
 import {
   matchSequenciaImportada,
   parseParadasModeloJson,
@@ -1719,6 +1720,30 @@ export class LogisticaAgendaService {
       warnings.push(...result.avisos);
     }
 
+    // 27/07 — RESGATE DA OCORRÊNCIA PRESA (incidente "a sexta que não volta").
+    // Uma parada que ficou ABERTA numa rota de um dia anterior que ninguém
+    // encerrou continua carregando a chave daquela ocorrência. O `generateDay`
+    // acima acha a chave, pula ("já existe") e ainda empurra a `proximaData` —
+    // mas a entrega segue com o `scheduledAt` do dia velho, então NENHUMA
+    // montagem futura a enxerga e o dia daquele cliente some pra sempre.
+    // Aqui a ocorrência é buscada pela CHAVE (`agenda:<plano>:<data>`), fora do
+    // caminho do plano, justamente porque a `proximaData` já pode ter passado.
+    for (const sourceDate of sourceDates) {
+      const presas = await this.prisma.entrega.findMany({
+        where: {
+          companyId,
+          status: 'agendada',
+          agendaOcorrenciaKey: { endsWith: `:${sourceDate}` },
+          ...(driverId
+            ? { OR: [{ entregadorId: null }, { entregadorId: driverId }] }
+            : {}),
+        },
+        select: { id: true },
+        take: 300,
+      });
+      presas.forEach((row) => deliveryIds.add(row.id));
+    }
+
     if (deliveryIds.size) {
       await this.prisma.entrega.updateMany({
         where: {
@@ -1726,13 +1751,19 @@ export class LogisticaAgendaService {
           companyId,
           status: 'agendada',
           rotaOrdem: null,
-          logisticaRouteStop: null,
+          // A trava aqui NUNCA foi "tem parada congelada", e sim "é de uma rota
+          // que ainda está de pé" — roubar parada de rota em andamento é que não
+          // pode. Rota já encerrada (operacional ou comercialmente) ou de um dia
+          // que passou está morta: a parada dela volta a ser agendável.
+          ...stopLivreWhere(dateKey(operationalDate)),
           ...(driverId
             ? { OR: [{ entregadorId: null }, { entregadorId: driverId }] }
             : {}),
         },
         data: {
           scheduledAt: operationalDate,
+          rotaOrdem: null,
+          etaAt: null,
           ...(driverId ? { entregadorId: driverId } : {}),
           ...(actorId
             ? {

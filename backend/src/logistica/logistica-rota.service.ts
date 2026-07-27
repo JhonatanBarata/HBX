@@ -7,6 +7,7 @@ import {
 } from './logistica-route-billing.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import { stopDeRotaMorta } from './logistica-rota-viva.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
@@ -548,7 +549,14 @@ export class LogisticaRotaService {
           agendaOcorrenciaKey: true,
           rotaModeloId: true,
           comprovanteConfirmadoAt: true,
-          logisticaRouteStop: { select: { id: true } },
+          // 27/07 — a rota da parada congelada vem junto: o que barra o descarte
+          // é rota VIVA, não o congelamento em si (ver logistica-rota-viva.util).
+          logisticaRouteStop: {
+            select: {
+              id: true,
+              route: { select: { status: true, operationalEndedAt: true, routeDate: true } },
+            },
+          },
           _count: { select: { comprovantes: true } },
         },
       });
@@ -567,7 +575,10 @@ export class LogisticaRotaService {
         && row.status === 'agendada'
         && !row.startedAt
         && !row.comprovanteConfirmadoAt
-        && !row.logisticaRouteStop
+        // Parada congelada só protege a entrega enquanto a ROTA está viva —
+        // rota encerrada/terminal/de dia passado não segura mais nada (senão o
+        // descarte larga pendência e a ocorrência nunca volta pro cliente).
+        && stopDeRotaMorta(row.logisticaRouteStop as any, dayISO)
         && (row._count?.comprovantes ?? 0) === 0
         && (row.cobrancaStatus === 'pendente' || !row.cobrancaStatus)
       ));
@@ -1657,7 +1668,10 @@ interface DescartarMontagemRow {
   agendaOcorrenciaKey: string | null;
   rotaModeloId: string | null;
   comprovanteConfirmadoAt: Date | null;
-  logisticaRouteStop: { id: string } | null;
+  logisticaRouteStop: {
+    id: string;
+    route: { status: string | null; operationalEndedAt: Date | null; routeDate: string | null } | null;
+  } | null;
   _count?: { comprovantes: number };
 }
 
