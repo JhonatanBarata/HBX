@@ -308,6 +308,12 @@ test('preparar traça sem cobrar e começar é a única etapa que inicia a rota 
   const planejarCalls: any[] = [];
   const iniciarCalls: any[] = [];
   const prisma: any = {
+    // F0: prepare/start chamam encerrarDiasAnteriores — tx-mock inerte dedicado
+    // (não polui os contadores de entrega.* deste teste).
+    $transaction: async (cb: any) => cb({
+      logisticaRoute: { updateMany: async () => ({ count: 0 }) },
+      entrega: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    }),
     entrega: {
       updateMany: async () => ({ count: 1 }),
       findMany: async () => [{ id: 'delivery-1' }, { id: 'delivery-2' }],
@@ -399,6 +405,10 @@ test('preparar usa hoje como data operacional, aceita origem de quarta e não co
   let assignment: any = null;
   let openQuery: any = null;
   const prisma: any = {
+    $transaction: async (cb: any) => cb({
+      logisticaRoute: { updateMany: async () => ({ count: 0 }) },
+      entrega: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    }),
     entrega: {
       updateMany: async (args: any) => {
         assignment = args;
@@ -461,6 +471,10 @@ test('preparar usa hoje como data operacional, aceita origem de quarta e não co
 test('começar é a operação separada que inicia e congela a rota', async () => {
   let startCall: any[] | null = null;
   const prisma: any = {
+    $transaction: async (cb: any) => cb({
+      logisticaRoute: { updateMany: async () => ({ count: 0 }) },
+      entrega: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    }),
     entrega: {
       findMany: async (args: any) => {
         assert.equal(args.where.companyId, 7);
@@ -492,6 +506,10 @@ test('tentar novamente move somente a própria parada para o fim', async () => {
   let update: any = null;
   let recalculation: any[] | null = null;
   const prisma: any = {
+    $transaction: async (cb: any) => cb({
+      logisticaRoute: { updateMany: async () => ({ count: 0 }) },
+      entrega: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    }),
     entrega: {
       findFirst: async (args: any) => {
         lookup = args;
@@ -566,12 +584,25 @@ test('preparar com pendência: clone do dia novo herda a origem da entrega origi
       },
     },
   };
+  let txCalls = 0;
   const prisma: any = {
     entrega: {
       updateMany: async () => ({ count: 0 }),
       findMany: async () => [{ id: createdData?.id ?? 'sem-clone' }],
     },
-    $transaction: async (callback: any) => callback(tx),
+    // F0: a 1ª $transaction do prepare é o encerrarDiasAnteriores (fechamento
+    // de caixa) — recebe um tx inerte dedicado pra não engolir a `original`
+    // como "presa de dia passado". A 2ª em diante é o movePending (o alvo).
+    $transaction: async (callback: any) => {
+      txCalls += 1;
+      if (txCalls === 1) {
+        return callback({
+          logisticaRoute: { updateMany: async () => ({ count: 0 }) },
+          entrega: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+        });
+      }
+      return callback(tx);
+    },
   };
   const occurrences: any = {
     materialize: async () => ({

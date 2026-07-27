@@ -146,17 +146,19 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
           return { count };
         },
       },
-      logisticaAgendaEvento: {
-        create: async ({ data }: any) => {
-          eventos.push(data);
-          return { id: `ev-${eventos.length}` };
-        },
-      },
     };
   }
 
+  // Evento vai pro prisma RAIZ (pós-commit) — o tx NÃO tem logisticaAgendaEvento
+  // de propósito: se o descarte voltar a gravar pela tx, o teste quebra.
   const prisma: any = {
     $transaction: async (callback: (tx: any) => Promise<any>) => callback(buildTx()),
+    logisticaAgendaEvento: {
+      create: async ({ data }: any) => {
+        eventos.push(data);
+        return { id: `ev-${eventos.length}` };
+      },
+    },
   };
 
   return { service: new LogisticaRotaService(prisma, {} as any), store, routeStore, planoStore, eventos };

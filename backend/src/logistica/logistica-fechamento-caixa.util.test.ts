@@ -99,6 +99,12 @@ function buildHarness(routes: RouteRow[], entregas: EntregaRow[]) {
         return { count };
       },
     },
+  };
+
+  // Evento vai pro prisma RAIZ (pós-commit) — o tx NÃO tem logisticaAgendaEvento
+  // de propósito: se o fechamento voltar a gravar pela tx, o teste quebra.
+  const prisma: any = {
+    $transaction: async (cb: (tx: any) => Promise<any>) => cb(tx),
     logisticaAgendaEvento: {
       create: async ({ data }: any) => {
         eventos.push(data);
@@ -106,8 +112,6 @@ function buildHarness(routes: RouteRow[], entregas: EntregaRow[]) {
       },
     },
   };
-
-  const prisma: any = { $transaction: async (cb: (tx: any) => Promise<any>) => cb(tx) };
   return { prisma, routeStore, entregaStore, eventos };
 }
 
