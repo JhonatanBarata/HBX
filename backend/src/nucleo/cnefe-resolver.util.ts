@@ -125,6 +125,15 @@ export function normalizarViaNumeral(valor: string | null | undefined): string {
     .toLowerCase()
     .replace(/[.,-]/g, ' ')
     .split(/\s+/)
+    // 27/07 (caso Dona Maria, company 48) — token COLADO letra+dígito é separado:
+    // "M55" → "m 55", "M22A" → "m 22 a". O IBGE escreve "AVENIDA M CINQUENTA E
+    // CINCO"/"RUA M VINTE E DOIS A"; sem o split, cadastro "Av. M55, nº 2677"
+    // não casava nem com a PORTA EXATA na base (12 recusas medidas, 4 eram isto).
+    .flatMap((token) => {
+      const colado = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(token);
+      if (!colado) return [token];
+      return [colado[1], colado[2], colado[3]].filter(Boolean);
+    })
     .filter(Boolean);
   const saida: string[] = [];
   let i = 0;
@@ -173,7 +182,9 @@ export function viaTipoNumero(valor: string | null | undefined): { tipo: string;
   const tokens = normalizarViaNumeral(valor).split(' ').filter(Boolean);
   const tipoIdx = tokens.findIndex((t) => t in TIPOS_VIA_CANONICO);
   if (tipoIdx === -1) return null;
-  for (let i = tipoIdx + 1; i < Math.min(tokens.length, tipoIdx + 4); i++) {
+  // 27/07 — janela de 2 tokens (era 3): com 3, "Rua São João 123" pescava o número
+  // da CASA como número da via. "av m 55"/"rua m 22 a" cabem em 2; casa não.
+  for (let i = tipoIdx + 1; i < Math.min(tokens.length, tipoIdx + 3); i++) {
     if (/^\d{1,4}$/.test(tokens[i])) return { tipo: TIPOS_VIA_CANONICO[tokens[tipoIdx]], numero: Number(tokens[i]) };
   }
   return null;

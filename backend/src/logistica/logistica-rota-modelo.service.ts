@@ -99,7 +99,19 @@ export class LogisticaRotaModeloService {
       select: { id: true },
     });
     if (!existing) return false;
-    await this.prisma.logisticaRotaModelo.delete({ where: { id: existing.id } });
+    // A Entrega guarda de qual rota-modelo veio, e a FK é `Restrict`: com uma
+    // única entrega carimbada, o delete estoura erro de banco e o "segurar
+    // pressionado para excluir" morre na mão do dono. O carimbo é rastro de
+    // ORIGEM, não histórico financeiro — solta e apaga. (Vale pras SEMANAIS
+    // desde sempre, via generateDay; virou caminho quente em 27/07, quando o
+    // `gerar` passou a carimbar também.)
+    await this.prisma.$transaction([
+      this.prisma.entrega.updateMany({
+        where: { companyId, rotaModeloId: existing.id },
+        data: { rotaModeloId: null, rotaModeloVersao: null },
+      }),
+      this.prisma.logisticaRotaModelo.delete({ where: { id: existing.id } }),
+    ]);
     return true;
   }
 

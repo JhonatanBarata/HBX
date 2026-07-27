@@ -2714,7 +2714,9 @@
     state.clientProductFormOpen = true;
     state.clientProductEditingId = item.id;
     state.clientProductDays = days;
-    state.clientProductMode = days.length ? "weekly" : item.frequenciaDias ? "date" : "";
+    // 27/07 — produto não tem tipo: editar QUALQUER vínculo (até legado "a cada N
+    // dias") abre no modo único; salvar converte pros dias do cliente.
+    state.clientProductMode = "weekly";
     state.clientProductDraft = {
       productId: String(item.productId || ""), qtdPadrao: String(item.qtdPadrao || 1),
       proximaData: item.proximaData ? String(item.proximaData).slice(0, 10) : "",
@@ -4279,8 +4281,11 @@
   function newClientProductFields() {
     const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
     const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000));
-    const modeContent = mode === "weekly" ? `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(draft.proximaData || defaultDate)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(draft.scheduledAt || defaultDateTime)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
-    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${(mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
+    // 27/07 (ordem do dono, 3ª cobrança) — produto NÃO tem tipo nem dia: o form é só
+    // Produto + Quantidade + Preço, e TODO vínculo segue os dias do CLIENTE (chips da
+    // seção Cadastro). Avulsa vive no fluxo próprio "Entrega avulsa"; "Por data" morreu.
+    const modeContent = `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>`;
+    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="field"><label>Produto</label><select name="productId"><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}"></div>${configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
   }
   function clientEditorModal(isNew) {
     const client = isNew ? state.newClientDraft : (state.modalClient || {}); const fields = isNew ? state.newClientDraft : state.clientPaymentDraft;
@@ -4305,11 +4310,13 @@
     let products = newClientProductFields();
     if (!isNew) {
       const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000)); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
-      const modeContent = mode === "weekly" ? `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
+      // 27/07 (ordem do dono, 3ª cobrança) — produto NÃO tem tipo nem dia: todo vínculo
+      // segue os dias do CLIENTE. Avulsa = fluxo próprio; "Por data" morreu do form.
+      const modeContent = `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>`;
       const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
-      const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
+      const submitLabel = state.clientProductEditingId ? "Salvar alterações" : "Salvar produto";
       const formOpen = !!state.clientProductFormOpen;
-      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${((mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo")) || (state.clientProductEditingId && String(draft.precoAcordado || "").trim() !== "") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit" ${mode ? "" : "disabled"}>${submitLabel}</button></form>` : "";
+      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${configFlag("precoPorClienteAtivo") || (state.clientProductEditingId && String(draft.precoAcordado || "").trim() !== "") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit">${submitLabel}</button></form>` : "";
       products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}${editorForm}`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
@@ -4743,10 +4750,10 @@
       // dia ainda contando (undefined) também — sumir e voltar meio segundo depois
       // faria a linha inteira piscar.
       if (!added && (!enabled || count === null || count === 0)) return "";
-      // 27/07 (dono) — o dia que está na rota se anuncia pela COR (borda + anel),
-      // nunca por palavra escrita; o número do servidor já zerou aqui, então o
-      // chip do dia montado fica sem legenda em vez de mentir "0".
-      const sub = added ? "" : count === undefined ? "…" : `${count}`;
+      // 27/07 (dono, 2ª ordem) — dia na rota fica verde E MANTÉM o número: a
+      // contagem é ROSTER da agenda (quanta gente tem no dia), que não zera ao
+      // montar. Sumir com o número parecia a tela quebrando.
+      const sub = count === undefined ? "…" : count === null ? "" : `${count}`;
       return `<button type="button" class="montagem-dia${selectedChip || added ? " active" : ""}${added ? " is-added" : ""}${enabled ? "" : " is-inactive"}" data-day="${day.n}" aria-pressed="${selectedChip || added}" ${enabled ? "" : "disabled"}><strong>${day.label}</strong><small>${H.escape(sub)}</small></button>`;
     }).join("");
   }
@@ -4871,7 +4878,6 @@
     // (mesma moldura central da conferência); Voltar cai de novo aqui.
     if (state.montagemRapida) return montagemRapidaModal();
     if (state.montagemSalvar) return montagemSalvarModal();
-    if (rc && rc.step === "ficha" && rc.ficha) return conferenciaFichaStep(rc);
     const chipsHtml = montagemDiaChips();
     const chips = chipsHtml ? `<div class="montagem-dias">${chipsHtml}</div>` : "";
     const mapa = `<div id="route-plan-preview-map" class="montagem-map" aria-label="Mapa da rota em montagem"><span class="route-map-loading">Carregando mapa…</span></div>`;
@@ -5139,8 +5145,7 @@
     // Rota (mountMap troca de host sozinho); enquanto a montagem está aberta, o
     // mapa vive nela (#route-plan-preview-map — id que o transplante de overlay
     // do native.js já conhece) e a Rota por baixo fica sem mapa até fechar.
-    const montagemMapaAberta = state.modal === "manage-day" && state.dayOrderStep !== "saved" &&
-      !(state.rotaConferencia && state.rotaConferencia.host === "montagem" && state.rotaConferencia.step === "ficha");
+    const montagemMapaAberta = state.modal === "manage-day" && state.dayOrderStep !== "saved";
     const willShowRouteMap = state.screen === "route" && !montagemMapaAberta;
     if (!willShowRouteMap && !montagemMapaAberta) disposeRouteMap();
     // S3 21/07 — mesma regra pro mapa vivo da Leitura (host próprio, ver bloco
@@ -5534,41 +5539,12 @@
       nextDisabled: rc.loading || pendentes.length > 0,
     });
   }
-  function conferenciaFichaStep(rc) {
-    const ficha = rc.ficha;
-    if (!ficha) return conferenciaListaStep(rc);
-    const parada = ficha.parada;
-    const info = conferenciaSemaforoInfo(parada.semaforo);
-    const frase = conferenciaMotivosTexto(parada);
-    // Mesma moldura do menu "Montar Rota" (dayHomeModal: day-home-btn com
-    // glifo+título+dica+seta) — 4 ações do plano (S4.md); "ajustar no mapa"
-    // ficou de fora porque o app não tem componente de arrastar marcador
-    // ainda (investigado: só existe captura de GPS/geocode, não drag no mapa).
-    const acoes = `<div class="day-home-actions">
-      <button type="button" class="day-home-btn" data-action="conferencia-usar-gps"><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Usar meu GPS daqui</strong><small>Marca este endereço onde você está agora</small></span><span class="day-home-btn-chev">›</span></button>
-      <button type="button" class="day-home-btn" data-action="conferencia-corrigir-endereco"><span class="day-home-btn-glyph">${icon("map", 20)}</span><span class="day-home-btn-copy"><strong>Corrigir endereço</strong><small>Abre o cadastro do cliente</small></span><span class="day-home-btn-chev">›</span></button>
-      <button type="button" class="day-home-btn" data-action="conferencia-tirar-da-rota"><span class="day-home-btn-glyph">${icon("route", 20)}</span><span class="day-home-btn-copy"><strong>Tirar desta rota</strong><small>Sai só de hoje</small></span><span class="day-home-btn-chev">›</span></button>
-      <button type="button" class="day-home-btn day-home-btn--quiet" data-action="conferencia-deixar-pendencia"><span class="day-home-btn-glyph">${icon("close", 20)}</span><span class="day-home-btn-copy"><strong>Deixar como pendência</strong><small>Segue na rota, sem corrigir agora</small></span><span class="day-home-btn-chev">›</span></button>
-    </div>`;
-    const body = `${info ? `<span class="badge ${info.badgeClass}">${info.label}</span>` : ""}${frase ? `<p class="subtitle">${H.escape(frase)}</p>` : ""}${acoes}`;
-    return centerModal({
-      icon: "route",
-      // centerModal já escapa o título — escapar aqui de novo virava &#39; na
-      // tela pra cliente com apóstrofo no nome.
-      title: parada.nome || "Parada",
-      resumo: "Como resolver?",
-      body,
-      closeAction: "conferencia-fechar-ficha",
-      closeButtonAction: "conferencia-fechar-ficha",
-      backAction: "conferencia-fechar-ficha",
-      backLabel: "Voltar",
-      nextAction: "",
-    });
-  }
+  // 27/07 (dono) — a ficha intermediária "Como resolver?" foi REMOVIDA: o toque
+  // na parada abre direto o editor real do cliente (abrirFichaComEditor). Não
+  // recriar passo entre a lista e o cadastro.
   function rotaConferenciaModal() {
     const rc = state.rotaConferencia;
     if (!rc) return "";
-    if (rc.step === "ficha" && rc.ficha) return conferenciaFichaStep(rc);
     return conferenciaListaStep(rc);
   }
   // S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos: GET 100%
@@ -5675,12 +5651,11 @@
     if (!configFlag("rotaConferidaAtiva")) { if (state.modal === "manage-day") await closeOverlay("modal"); toast(toastMessage); return; }
     await abrirRotaConferencia();
   }
-  // Chamado pelo closeOverlay ao fechar o editor de cliente ABERTO pela ficha
-  // (ver conferencia-corrigir-endereco/conferencia-usar-gps e o guard
-  // `voltaParaConferencia` dentro de closeOverlay). Volta pra LISTA (nunca
-  // reabre a ficha antiga) e reconfere — salvou ou só cancelou, tanto faz: o
-  // cache OSRM de 10min torna a rechecada barata (Lei "zero lentidão
-  // artificial" já cobre o custo real).
+  // Chamado pelo closeOverlay ao fechar o editor de cliente aberto pelo toque
+  // na parada (conferencia-abrir-ficha → abrirFichaComEditor; guard
+  // `voltaParaConferencia` dentro de closeOverlay). Volta pra LISTA e
+  // reconfere — salvou ou só cancelou, tanto faz: o cache OSRM de 10min torna
+  // a rechecada barata.
   async function reabrirConferenciaAposEdicao() {
     const rc = state.rotaConferencia;
     if (!rc) return;
@@ -6608,7 +6583,6 @@
     if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientDaysTouched = true; state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
-    if (target.dataset.clientProductMode) { state.clientProductMode = target.dataset.clientProductMode; render(); return; }
     if (target.dataset.paymentForm) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.formaPagamento = target.dataset.paymentForm; if (draft.formaPagamento !== "na_hora") draft.metodoPadrao = ""; render(); return; }
     if (target.dataset.paymentMethod) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.metodoPadrao = target.dataset.paymentMethod; render(); return; }
     // 26/07 — o handler data-mode (PATCH /logistica/config com trackingAtivo +
@@ -6868,9 +6842,9 @@
     }
     if (action === "new-client-product") {
       resetClientProductEditor();
-      // R5 (27/07) — o dia é do CLIENTE (chips na seção Cadastro): produto novo
-      // só herda o MODO default (semanal quando o cliente tem dias marcados).
-      if (state.clientProductDays.length) state.clientProductMode = "weekly";
+      // 27/07 — form aberto = modo único (dias do CLIENTE). Sem dias marcados, o
+      // salvar avisa "Marque os dias de entrega no Cadastro".
+      state.clientProductMode = "weekly";
       state.clientProductFormOpen = true; render();
     }
     if (action === "close-client-product-form") { resetClientProductEditor(); state.clientProductFormOpen = false; render(); }
@@ -7053,37 +7027,12 @@
       const id = String(target.dataset.paradaId);
       const parada = (rc.data.paradas || []).find(p => String(p.id) === id);
       if (!parada) return;
+      // 27/07 (dono) — a ficha "Como resolver?" MORREU: tocar na parada abre
+      // DIRETO o cadastro real do cliente (o antigo "Corrigir endereço"). O
+      // toque de ciência continua no switch da própria linha; tirar da rota
+      // continua pelo caminho de sempre da tela Rota.
       rc.ficha = { paradaId: id, parada, item: allRouteItems().find(it => String(it.id) === id) || null };
-      rc.step = "ficha";
-      render();
-      return;
-    }
-    if (action === "conferencia-fechar-ficha") {
-      const rc = state.rotaConferencia;
-      if (rc) { rc.step = "lista"; rc.ficha = null; }
-      render();
-      return;
-    }
-    if (action === "conferencia-usar-gps") { await abrirFichaComEditor(true); return; }
-    if (action === "conferencia-corrigir-endereco") { await abrirFichaComEditor(false); return; }
-    if (action === "conferencia-tirar-da-rota") {
-      const rc = state.rotaConferencia; const ficha = rc && rc.ficha;
-      if (!ficha || !ficha.item) { toast("Entrega não encontrada nesta parada.", true); return; }
-      // Abre a MESMA confirmação (.app-confirm) que o long-press de tirar da
-      // rota já usa em outros lugares do app — o retorno pra lista + reconferir
-      // acontece só se o operador CONFIRMAR (ver accept-confirmation acima).
-      await removeStopForToday(ficha.item);
-      return;
-    }
-    if (action === "conferencia-deixar-pendencia") {
-      const rc = state.rotaConferencia; const ficha = rc && rc.ficha;
-      if (!rc || !ficha) return;
-      // Lei nº7 — "deixar como pendência" É o toque consciente: marca ciente
-      // sem chamar servidor (a parada segue vermelha na lista, só destrava o
-      // "Continuar mesmo assim").
-      rc.acknowledged.add(String(ficha.paradaId));
-      rc.step = "lista"; rc.ficha = null;
-      render();
+      await abrirFichaComEditor(false);
       return;
     }
     // S5 25/07 — "Recalcular" do popup de drift de origem (ver
@@ -7812,7 +7761,6 @@
     }
   }
   async function persistClientProduct(customerProfileId, values) {
-    const mode = state.clientProductMode;
     const productId = Number(values.productId || state.clientProductDraft.productId);
     const quantity = Number(values.qtdPadrao || state.clientProductDraft.qtdPadrao || 1);
     if (!customerProfileId) throw new Error("Cliente não encontrado para salvar o produto.");
@@ -7820,33 +7768,14 @@
     if (!Number.isFinite(quantity) || quantity < 1) throw new Error("Informe uma quantidade válida.");
     const precoAcordadoRaw = values.precoAcordado !== undefined ? values.precoAcordado : state.clientProductDraft.precoAcordado;
     const precoAcordado = precoAcordadoRaw !== undefined && precoAcordadoRaw !== null && String(precoAcordadoRaw).trim() !== "" ? Number(precoAcordadoRaw) : null;
-    if (mode === "weekly") {
-      if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
-      // 27/07 (dono) — o vínculo NÃO carrega dia: quem tem dia é o cliente
-      // (PATCH /logistica/clientes/:id/dias, salvo junto na ficha). O servidor
-      // copia os dias da conta pro vínculo novo.
-      const body = { qtdPadrao: quantity, frequenciaDias: null, proximaData: null, ativo: true, precoAcordado };
-      if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
-      else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
-      return;
-    }
-    if (mode === "date") {
-      const frequenciaDias = Number(values.frequenciaDias || state.clientProductDraft.frequenciaDias);
-      const proximaData = values.proximaData || state.clientProductDraft.proximaData;
-      if (!Number.isFinite(frequenciaDias) || frequenciaDias < 1 || !proximaData) throw new Error("Informe a primeira entrega e a frequência.");
-      const body = { qtdPadrao: quantity, frequenciaDias, proximaData, ativo: true, precoAcordado };
-      if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
-      else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
-      return;
-    }
-    if (mode === "oneoff") {
-      const scheduledAt = values.scheduledAt || state.clientProductDraft.scheduledAt;
-      const date = scheduledAt && new Date(scheduledAt);
-      if (!date || Number.isNaN(date.getTime())) throw new Error("Informe a data e a hora da entrega.");
-      await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId, quantidade: quantity, scheduledAt: date.toISOString() } });
-      return;
-    }
-    throw new Error("Escolha o tipo de entrega.");
+    if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
+    // 27/07 (ordem do dono, 3ª cobrança) — produto NÃO tem tipo nem dia: TODO vínculo
+    // segue os dias do CLIENTE (o servidor copia os dias da conta pro vínculo novo).
+    // Vínculo legado "a cada N dias" que for salvo aqui CONVERTE pros dias do cliente
+    // (frequenciaDias/proximaData zerados de propósito). Avulsa = fluxo próprio.
+    const body = { qtdPadrao: quantity, frequenciaDias: null, proximaData: null, ativo: true, precoAcordado };
+    if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
+    else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
   }
   app.addEventListener("submit", async event => {
     event.preventDefault(); const form = event.target; const button = form.querySelector("button[type=submit]"); button.disabled = true;
@@ -7869,23 +7798,17 @@
         if (!customerProfileId) throw new Error("Cliente criado sem identificador para vincular os dados.");
         const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento)));
         await H.api(`/logistica/clientes/${encodeURIComponent(customerProfileId)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } });
-        if (state.clientProductMode) {
-          const productId = Number(data.productId || state.clientProductDraft.productId); const quantity = Number(data.qtdPadrao || state.clientProductDraft.qtdPadrao || 1);
-          const precoAcordado = data.precoAcordado !== undefined ? Number(data.precoAcordado) : null;
-          if (!productId) throw new Error("Escolha o produto.");
-          if (state.clientProductMode === "weekly") {
-            if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
-            // 27/07 — dia é do CLIENTE: cria o vínculo (sem dia nenhum) e manda os
-            // dias pra conta, que é quem manda nos vínculos dela.
-            const vinculo = await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, ativo: true, precoAcordado } });
-            await salvarDiasDoCliente(customerProfileId, state.clientProductDays, vinculo && vinculo.id ? [vinculo.id] : []);
-          } else if (state.clientProductMode === "date") {
-            await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, frequenciaDias: Number(data.frequenciaDias), proximaData: data.proximaData, ativo: true, precoAcordado } });
-          } else if (state.clientProductMode === "oneoff") {
-            await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId, quantidade: quantity, scheduledAt: new Date(data.scheduledAt).toISOString() } });
-          }
+        // 27/07 (ordem do dono, 3ª cobrança) — produto no cadastro novo não tem tipo:
+        // escolheu produto = vínculo nos dias do CLIENTE; sem produto = só o cliente.
+        const productIdNovo = Number(data.productId || state.clientProductDraft.productId);
+        if (productIdNovo) {
+          const quantity = Number(data.qtdPadrao || state.clientProductDraft.qtdPadrao || 1);
+          const precoAcordado = data.precoAcordado !== undefined && String(data.precoAcordado).trim() !== "" ? Number(data.precoAcordado) : null;
+          if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
+          const vinculo = await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId: productIdNovo, qtdPadrao: quantity, ativo: true, precoAcordado } });
+          await salvarDiasDoCliente(customerProfileId, state.clientProductDays, vinculo && vinculo.id ? [vinculo.id] : []);
         }
-        await closeOverlay("modal"); await loadClients(true, true); toast(state.clientProductMode ? "Cliente e produto cadastrados." : "Cliente cadastrado.");
+        await closeOverlay("modal"); await loadClients(true, true); toast(productIdNovo ? "Cliente e produto cadastrados." : "Cliente cadastrado.");
       }
       if (form.id === "client-details-form") {
         const client = state.modalClient; const phoneDigits = onlyDigits(data.phone); const placeholderPhone = phoneDigits.length > 0 && /^0+$/.test(phoneDigits); const phone = (phoneDigits.length === 10 || phoneDigits.length === 11) && !placeholderPhone ? formatPhone(phoneDigits) : "";
@@ -7920,8 +7843,12 @@
         // criado logo abaixo herda do servidor os dias da conta (produto não tem
         // mais dia nenhum). Dias vazios não zeram nada por engano.
         const diasNovos = [...state.clientProductDays].sort((a, b) => a - b);
-        const diasOriginais = Array.isArray(state.clientDaysOriginal) ? state.clientDaysOriginal : diasNovos;
-        if (diasNovos.length && diasNovos.join(",") !== diasOriginais.join(",")) {
+        // 27/07 (caso Dona Maria) — manda SEMPRE que houver dia marcado, não só
+        // quando mudou: os chips pré-carregam do VÍNCULO antigo, e a pendência
+        // "Dia" do servidor só sai quando os dias viram PLANO. Com o guard de
+        // diff, salvar a ficha sem tocar nos chips deixava a pendência eterna.
+        // PATCH é idempotente; dias vazios seguem sem zerar nada por engano.
+        if (diasNovos.length) {
           await salvarDiasDoCliente(client.id, diasNovos);
           state.clientDaysOriginal = diasNovos;
         }
@@ -7939,7 +7866,7 @@
         await persistClientProduct(data.customerProfileId, data);
         await closeOverlay("modal");
         await loadClients(true, true);
-        toast(state.clientProductMode === "oneoff" ? "Entrega avulsa adicionada." : wasEditing ? "Alterações salvas." : "Recorrência salva.");
+        toast(wasEditing ? "Alterações salvas." : "Produto salvo.");
       }
       if (form.id === "new-product-form") { data.price = moneyInputReais(data.price); data.stock = Number(data.stock || 0); data.kind = "tenant_product"; data.status = "active"; data.usaLogistica = true; await H.api("/products", { method: "POST", body: data }); await closeOverlay("modal"); await refresh(true); toast("Produto cadastrado."); }
       if (form.id === "edit-product-form") {
@@ -8132,13 +8059,6 @@
             render();
             return true;
           }
-          const rcBack = state.rotaConferencia;
-          if (rcBack && rcBack.host === "montagem" && rcBack.step === "ficha") {
-            rcBack.step = "lista";
-            rcBack.ficha = null;
-            render();
-            return true;
-          }
         }
         if (state.modal === "leitura-parada") {
           // leituraGoBack é async: chamar direto no `if` testa a Promise (SEMPRE
@@ -8170,12 +8090,6 @@
         // é um PASSO dentro do mesmo modal (como manage-day/leitura-parada
         // acima); voltar sai da ficha pra lista, só fecha o modal inteiro
         // quando já está na lista (cai no fallback genérico abaixo).
-        if (state.modal === "rota-conferencia" && state.rotaConferencia && state.rotaConferencia.step === "ficha") {
-          state.rotaConferencia.step = "lista";
-          state.rotaConferencia.ficha = null;
-          render();
-          return true;
-        }
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
