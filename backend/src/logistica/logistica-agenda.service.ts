@@ -1734,6 +1734,11 @@ export class LogisticaAgendaService {
           companyId,
           status: 'agendada',
           agendaOcorrenciaKey: { endsWith: `:${sourceDate}` },
+          // MESMA trava do generateDay (CLIENTE_VIVO): cliente apagado NÃO
+          // volta pra rota. Sem isto o resgate ressuscitava gente excluída —
+          // medido em campo 27/07, a sexta montou 13 paradas sendo 9 de
+          // clientes `deleted` (é a armadilha dos "fantasmas de terça").
+          customerProfile: CLIENTE_VIVO,
           ...(driverId
             ? { OR: [{ entregadorId: null }, { entregadorId: driverId }] }
             : {}),
