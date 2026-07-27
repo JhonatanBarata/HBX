@@ -2554,7 +2554,10 @@
   function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "", precoAcordado: "" }; }
   function resetClientProductEditor() {
     state.clientProductEditingId = null;
-    state.clientProductDays = [];
+    // R5 (27/07) — clientProductDays NÃO zera aqui: o dia é do CLIENTE (chips
+    // na seção Cadastro da ficha), não do form de produto; fechar o form de
+    // produto não pode apagar os dias do cliente. Quem semeia/zera é o abrir
+    // da ficha (openClientEditor / ação new-client).
     state.clientProductMode = "";
     state.clientProductDraft = blankClientProductDraft();
   }
@@ -2582,6 +2585,12 @@
     try {
       const result = await H.api(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(client.id)}`);
       state.clientProducts = Array.isArray(result) ? result : (result && (result.items || result.data)) || [];
+      // R5 (27/07) — com os vínculos reais na mão, os dias do cliente ganham a
+      // versão autoritativa (união card+vínculos); não pisa no que o usuário
+      // já tocou nesta sessão. O original serve pro save saber se mudou.
+      const diasReais = clientKnownDays(state.modalClient);
+      state.clientDaysOriginal = diasReais;
+      if (!state.clientDaysTouched) state.clientProductDays = diasReais;
     } catch (error) { state.clientProducts = []; state.clientProductsError = humanApiError(error); }
     finally { state.clientProductsLoading = false; render(); }
   }
@@ -2594,6 +2603,11 @@
     state.clientCepStatus = "";
     clientCepRequestId += 1;
     resetClientProductEditor();
+    // R5 (27/07) — dia fixo NO CLIENTE: chips da ficha nascem com os dias que o
+    // cliente já tem (card); loadClientProducts refina com os vínculos reais.
+    state.clientProductDays = clientKnownDays(client);
+    state.clientDaysOriginal = null;
+    state.clientDaysTouched = false;
     state.clientProductFormOpen = false;
     showModal("client-product");
     void loadClientProducts();
@@ -4256,7 +4270,7 @@
   function newClientProductFields() {
     const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
     const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000));
-    const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${selected.includes(day.n)}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(draft.proximaData || defaultDate)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(draft.scheduledAt || defaultDateTime)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
+    const modeContent = mode === "weekly" ? `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(draft.proximaData || defaultDate)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div><p class="subtitle">Use 30 para entrega mensal aproximada.</p>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(draft.scheduledAt || defaultDateTime)}" required></div><p class="subtitle">Esta entrega não volta a aparecer sozinha.</p>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
     return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="recurrence-modes"><button type="button" class="recurrence-mode ${mode === "oneoff" ? "active" : ""}" data-client-product-mode="oneoff">Avulsa</button><button type="button" class="recurrence-mode ${mode === "weekly" ? "active" : ""}" data-client-product-mode="weekly">Semanal</button><button type="button" class="recurrence-mode ${mode === "date" ? "active" : ""}" data-client-product-mode="date">Por data</button></div><div class="field"><label>Produto</label><select name="productId" ${mode ? "required" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" ${mode ? "required" : ""}></div>${(mode === "weekly" || mode === "date") && configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
   }
   function clientEditorModal(isNew) {
@@ -4282,7 +4296,7 @@
     let products = newClientProductFields();
     if (!isNew) {
       const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000)); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
-      const modeContent = mode === "weekly" ? `<div class="field"><label>Dias da semana</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${selected.includes(day.n) ? "active" : ""}" data-client-day="${day.n}">${day.label}</button>`).join("")}</div></div>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
+      const modeContent = mode === "weekly" ? `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>` : mode === "date" ? `<div class="form-grid"><div class="field"><label>Primeira entrega</label><input name="proximaData" type="date" value="${H.escape(dateValue)}" required></div><div class="field"><label>Repetir a cada dias</label><input name="frequenciaDias" type="number" min="1" max="365" value="${H.escape(draft.frequenciaDias || "30")}" required></div></div>` : mode === "oneoff" ? `<div class="field"><label>Data e hora da entrega</label><input name="scheduledAt" type="datetime-local" value="${H.escape(dateTimeValue)}" required></div>` : `<div class="empty">Escolha como este produto entra na rota.</div>`;
       const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = mode === "oneoff" ? "Adicionar entrega avulsa" : state.clientProductEditingId ? "Salvar alterações" : mode ? "Salvar recorrência" : "Escolha o tipo acima";
       const formOpen = !!state.clientProductFormOpen;
@@ -4290,7 +4304,11 @@
       products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}${editorForm}`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
-    const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""} ${pending.includes("Dup") ? "client-address-duplicate" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
+    // R5 (27/07, combinado do dono) — o DIA DA SEMANA é fixo NO CLIENTE: os
+    // chips moram aqui na seção Cadastro; o form de produto ficou só com
+    // qtd/frequência (modo semanal SEGUE estes dias, ver newClientProductFields).
+    const diasEntregaField = `<div class="field client-dias-field ${!isNew && pending.includes("Dia") ? "client-field-pending" : ""}"><label>Dias de entrega${!isNew && pending.includes("Dia") ? " · pendente" : ""}</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${state.clientProductDays.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${state.clientProductDays.includes(day.n)}">${day.label}</button>`).join("")}</div></div>`;
+    const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""} ${pending.includes("Dup") ? "client-address-duplicate" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${diasEntregaField}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
     const productPart = `<section class="client-editor-part client-editor-products ${pending.includes("Dia") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>2</span><strong>Produto${pending.includes("Dia") ? " · dia pendente" : ""}</strong></div>${products}</section>`;
     // PR18072026 Módulo Financeiro — seção 3 inteira some quando o módulo está
     // desligado (nada de saldo/forma de pagamento pra quem não usa financeiro).
@@ -6485,7 +6503,7 @@
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
     if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } openClientEditor(clientById(target.dataset.client)); return; }
     if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
-    if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
+    if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientDaysTouched = true; state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
     if (target.dataset.clientProductMode) { state.clientProductMode = target.dataset.clientProductMode; render(); return; }
     if (target.dataset.paymentForm) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.formaPagamento = target.dataset.paymentForm; if (draft.formaPagamento !== "na_hora") draft.metodoPadrao = ""; render(); return; }
@@ -6717,7 +6735,7 @@
       // type "info": só um aviso (OK) — nenhum efeito colateral.
       return;
     }
-    if (action === "new-client") { state.newClientDraft = blankNewClientDraft(); state.newClientCepStatus = ""; resetClientProductEditor(); showModal("new-client"); }
+    if (action === "new-client") { state.newClientDraft = blankNewClientDraft(); state.newClientCepStatus = ""; resetClientProductEditor(); state.clientProductDays = []; state.clientDaysOriginal = []; state.clientDaysTouched = false; showModal("new-client"); }
     if (action === "new-client-gps") await useCurrentLocationForNewClient();
     if (action === "new-client-locate-address") await locateNewClientAddress();
     if (action === "locate-client-address") await locateClientAddress();
@@ -6756,10 +6774,9 @@
     }
     if (action === "new-client-product") {
       resetClientProductEditor();
-      // PONTE CADASTRO→AGENDA (26/07) — o dia é do CLIENTE, não do produto:
-      // produto novo já nasce nos dias que o cliente tem (chips continuam editáveis).
-      const diasDoCliente = clientKnownDays(state.modalClient);
-      if (diasDoCliente.length) { state.clientProductDays = diasDoCliente; state.clientProductMode = "weekly"; }
+      // R5 (27/07) — o dia é do CLIENTE (chips na seção Cadastro): produto novo
+      // só herda o MODO default (semanal quando o cliente tem dias marcados).
+      if (state.clientProductDays.length) state.clientProductMode = "weekly";
       state.clientProductFormOpen = true; render();
     }
     if (action === "close-client-product-form") { resetClientProductEditor(); state.clientProductFormOpen = false; render(); }
@@ -7694,7 +7711,7 @@
     const precoAcordadoRaw = values.precoAcordado !== undefined ? values.precoAcordado : state.clientProductDraft.precoAcordado;
     const precoAcordado = precoAcordadoRaw !== undefined && precoAcordadoRaw !== null && String(precoAcordadoRaw).trim() !== "" ? Number(precoAcordadoRaw) : null;
     if (mode === "weekly") {
-      if (!state.clientProductDays.length) throw new Error("Escolha ao menos um dia da semana.");
+      if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
       const body = { qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), frequenciaDias: null, proximaData: null, ativo: true, precoAcordado };
       if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
       else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
@@ -7744,7 +7761,7 @@
           const precoAcordado = data.precoAcordado !== undefined ? Number(data.precoAcordado) : null;
           if (!productId) throw new Error("Escolha o produto.");
           if (state.clientProductMode === "weekly") {
-            if (!state.clientProductDays.length) throw new Error("Escolha ao menos um dia da semana.");
+            if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
             await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), ativo: true, precoAcordado } });
           } else if (state.clientProductMode === "date") {
             await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, frequenciaDias: Number(data.frequenciaDias), proximaData: data.proximaData, ativo: true, precoAcordado } });
@@ -7784,6 +7801,18 @@
         const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); await H.api(`/logistica/clientes/${encodeURIComponent(client.id)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } });
         const savesProduct = !!state.clientProductMode;
         if (savesProduct) await persistClientProduct(client.id, formValues(app.querySelector("#client-product-form")));
+        // R5 (27/07, combinado do dono) — dia fixo NO CLIENTE: mudou os chips da
+        // ficha, TODOS os vínculos semanais ativos seguem os dias novos (a ponte
+        // cadastro→agenda espelha no plano). Dias vazios NUNCA zeram vínculo por
+        // engano — remover dia de verdade é mexer no próprio produto.
+        const diasNovos = [...state.clientProductDays].sort((a, b) => a - b);
+        const diasOriginais = Array.isArray(state.clientDaysOriginal) ? state.clientDaysOriginal : diasNovos;
+        if (diasNovos.length && diasNovos.join(",") !== diasOriginais.join(",")) {
+          const semanais = (state.clientProducts || []).filter(v => v && v.ativo !== false && String(v.diasSemana || "").trim() && (!savesProduct || String(v.id) !== String(state.clientProductEditingId || "")));
+          for (const v of semanais) {
+            await H.api(`/logistica/cliente-produtos/${encodeURIComponent(v.id)}`, { method: "PATCH", body: { diasSemana: diasNovos.join(",") } });
+          }
+        }
         await closeOverlay("modal"); await loadClients(true, true); render(); toast(savesProduct ? "Cliente e produto salvos." : "Cliente salvo.");
       }
       if (form.id === "client-product-form") {
