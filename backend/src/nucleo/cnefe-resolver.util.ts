@@ -447,6 +447,56 @@ export async function resolverCnefe(
 }
 
 /**
+ * VÁRIOS CEPs da MESMA rua numa consulta só (27/07) — é o que a cura SEM CEP precisa:
+ * o ViaCEP devolve um CEP por TRECHO da rua (medido: "Rua 9" em Rio Claro tem 37), e um
+ * laço de `resolverCnefe` por trecho, com o teto de 4s por consulta e disco frio pós-
+ * deploy, estourava o orçamento inteiro da cura — ninguém curava. Aqui é 1 ida ao banco.
+ *
+ * A dispersão do `escolherPinoPorta` passa a valer ENTRE trechos, e isso é PROPOSITAL:
+ * se o mesmo número existe em dois pedaços distantes da rua, é ambiguidade de verdade e
+ * a resposta certa é null (Lei nº1 — pino errado é pior que pino vazio). Devolve também
+ * QUAL cep venceu: é ele que vai pro cadastro, nunca um chute da lista.
+ */
+export async function resolverCnefeLote(
+  ceps: string[],
+  input: CnefeInput,
+  opts?: { queryTimeoutMs?: number },
+): Promise<{ pino: CnefePino; cep: string } | null> {
+  if (!cnefeHabilitado()) return null;
+  const alvos = [...new Set((Array.isArray(ceps) ? ceps : []).map(normalizarCep8).filter((c): c is string => !!c))].slice(0, 20);
+  const numero = extrairNumeroPorta({ numero: input.numero == null ? null : String(input.numero), endereco: input.endereco });
+  if (!alvos.length || !numero) return null;
+  if (!queryOverride && !cnefeDatabaseUrl()) return null;
+
+  try {
+    const uf = String(input.uf ?? '').trim().toUpperCase();
+    if (UFS_VALIDAS.has(uf)) {
+      const status = await statusDaUf(uf);
+      if (status !== 'carregada') {
+        if (status === null) await marcarUfPendente(uf);
+        return null;
+      }
+    }
+    // Placeholders GERADOS (nunca valor interpolado): os CEPs seguem como parâmetro.
+    const marcadores = alvos.map((_, i) => `$${i + 1}`).join(',');
+    const rows = (await cnefeQuery(
+      `SELECT cep, logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ` +
+        `WHERE cep IN (${marcadores}) AND numero = $${alvos.length + 1} AND lat IS NOT NULL AND lng IS NOT NULL LIMIT 400`,
+      [...alvos, numero],
+      opts?.queryTimeoutMs ?? CNEFE_QUERY_TIMEOUT_MS,
+    )) as Array<CnefeRow & { cep?: string | null }>;
+    const pino = escolherPinoPorta(rows, input);
+    if (!pino) return null;
+    // De qual trecho saiu o pino escolhido — é esse CEP que o cadastro merece.
+    const vencedora = rows.find((r) => r.lat === pino.lat && r.lng === pino.lng);
+    const cep = normalizarCep8(vencedora?.cep);
+    return cep ? { pino, cep } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Aquecimento pós-deploy (27/07, 2º incidente company 48): a PRIMEIRA consulta depois
  * do boot paga cache frio de disco no índice de 23M linhas e estourava o teto
  * interativo — a cura da conferência morria com "0 de N" na cara do usuário. Chamado

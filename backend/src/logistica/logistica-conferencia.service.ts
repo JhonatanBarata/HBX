@@ -13,7 +13,7 @@ import {
   type CepVeredito,
   type EnderecoCadastrado,
 } from './logistica-cep.util';
-import { aquecerCnefe, extrairNumeroPorta, resolverCnefe, type CnefePino } from '../nucleo/cnefe-resolver.util';
+import { aquecerCnefe, extrairNumeroPorta, resolverCnefe, resolverCnefeLote, type CnefePino } from '../nucleo/cnefe-resolver.util';
 import {
   haversineKm,
   planRouteByRoads,
@@ -366,7 +366,10 @@ export class LogisticaConferenciaService implements OnModuleInit {
 
     // Lote e teto POR CHAMADA — o app repete até zerar; nunca uma chamada eterna.
     const LOTE = 12;
-    const fim = Date.now() + 15000;
+    // 27/07 — a cura SEM CEP paga 1 ida ao ViaCEP + 1-2 ao CNEFE por cliente (contra 1
+    // do caminho com CEP). 20s por chamada, teto de consulta folgado: é ação explícita
+    // do operador, e o app repete até a fila zerar. Apertado demais = "0 curados".
+    const fim = Date.now() + 20000;
     let curados = 0;
     let processados = 0;
     const naoEncontrado: ClienteSanitizador[] = [];
@@ -376,7 +379,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
     for (const dono of donos) {
       if (processados >= LOTE || Date.now() >= fim) break;
       processados += 1;
-      const cura = await resolverCuraCnefe(dono.alvo);
+      const cura = await resolverCuraCnefe(dono.alvo, { queryTimeoutMs: 8000 });
       if (!cura) {
         recusa(dono, 'Endereço não achado na base');
         continue;
@@ -533,6 +536,7 @@ export interface AlvoCuraCnefe {
   cep: string | null;
   numero: number;
   endereco: string | null;
+  bairro: string | null;
   cidade: string | null;
   uf: string | null;
 }
@@ -561,7 +565,7 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
     ...(r.customerProfile ? [{ tipo: 'perfil' as const, cad: r.customerProfile }] : []),
   ];
   const monta = (tipo: 'local' | 'perfil', cad: NonNullable<typeof candidatos[number]['cad']>, cep: string | null, numero: number): AlvoCuraCnefe => ({
-    tipo, cep, numero, endereco: cad.endereco ?? null, cidade: cad.cidade ?? null, uf: cad.uf ?? null,
+    tipo, cep, numero, endereco: cad.endereco ?? null, bairro: cad.bairro ?? null, cidade: cad.cidade ?? null, uf: cad.uf ?? null,
   });
   // 1ª passada: quem TEM CEP (caminho direto e mais barato — zero rede externa).
   for (const { tipo, cad } of candidatos) {
@@ -608,12 +612,19 @@ export async function resolverCuraCnefe(
     const pino = await resolverCnefe({ ...base, cep: alvo.cep }, opts);
     return pino ? { pino, cepDescoberto: null } : null;
   }
-  const ruas = await descobrirCepsPorEndereco({ endereco: alvo.endereco, cidade: alvo.cidade, uf: alvo.uf });
+  const ruas = await descobrirCepsPorEndereco({
+    endereco: alvo.endereco, bairro: alvo.bairro, cidade: alvo.cidade, uf: alvo.uf,
+  });
   if (!ruas.length) return null;
-  for (const rua of ruas) {
-    const pino = await resolverCnefe({ ...base, cep: rua.cep }, opts);
-    if (pino) return { pino, cepDescoberto: rua.cep };
-  }
+  // 1 consulta cobrindo TODOS os trechos da rua (nunca um laço por CEP: com 37 trechos e
+  // 4s de teto por consulta, a cura morria no orçamento antes de curar alguém).
+  const emLote = await resolverCnefeLote(ruas.map((r) => r.cep), base, opts);
+  if (emLote) return { pino: emLote.pino, cepDescoberto: emLote.cep };
+  // Ambíguo entre trechos (ou número inexistente): 2ª e ÚLTIMA tentativa, só no trecho
+  // mais provável — o do bairro do cadastro, que `descobrirCepsPorEndereco` põe em 1º.
+  // É aqui que o fallback de RUA (vizinho de número) do CNEFE entra.
+  const preferido = await resolverCnefe({ ...base, cep: ruas[0].cep }, opts);
+  if (preferido) return { pino: preferido, cepDescoberto: ruas[0].cep };
   // Nenhum CEP achou a porta. Se a rua é ÚNICA (um CEP só, cidade e via provadas), o
   // CEP dela é FATO — vale gravar: o cadastro para de nascer capenga e a checagem
   // CEP × endereço passa a ter o que conferir. Rua com vários trechos, não: sem a

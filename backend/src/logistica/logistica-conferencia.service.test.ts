@@ -472,11 +472,14 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
       updateMany: async (args: any) => { gravadas.push({ tabela: 'customerProfile', where: args.where, data: args.data }); return { count: 1 }; },
     },
   };
+  const consultasCnefe: string[] = [];
   __setCnefeQueryForTests(async (sql: string, params: unknown[]) => {
+    consultasCnefe.push(sql);
     if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    // Só o CEP descoberto tem porta: prova que quem resolveu foi a busca pela rua.
-    if (sql.includes('cep = $1 AND numero = $2') && params[0] === '13990100') {
-      return [{ logradouro: 'RUA DAS FLORES', numero: Number(params[1]), lat: -22.415, lng: -47.561, nivel_geo: 1, municipio: 'Pinhal' }];
+    // Consulta em LOTE (todos os trechos da rua de uma vez): só o CEP descoberto tem
+    // porta — prova que quem resolveu foi a busca pela rua, numa ida só ao banco.
+    if (sql.includes('cep IN (') && params.includes('13990100')) {
+      return [{ cep: '13990100', logradouro: 'RUA DAS FLORES', numero: 350, lat: -22.415, lng: -47.561, nivel_geo: 1, municipio: 'Pinhal' }];
     }
     return [];
   });
@@ -517,6 +520,7 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
     assert.equal(pinoGravado!.where.id, 'cli-s1');
     assert.equal(pinoGravado!.where.lat, null, 'nunca sobrescreve pino existente');
 
+    assert.equal(consultasCnefe.filter((q) => q.includes('cnefe_endereco')).length, 1, 'UMA consulta cobre todos os trechos da rua (nunca um laço por CEP)');
     assert.equal(urlsChamadas.length, 1, 's2 nem consulta (fail-closed antes da rede)');
     assert.ok(urlsChamadas[0].includes('/SP/'), `busca por rua, não por CEP: ${urlsChamadas[0]}`);
   } finally {
