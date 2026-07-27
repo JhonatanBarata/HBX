@@ -307,6 +307,8 @@ test('logradouroDoCadastro: pega o trecho que É via, não o primeiro (endereço
   assert.equal(logradouroDoCadastro('Rua 8, 3604 - Alto'), 'Rua 8');
   // Sem nada com cara de via, devolve o que tem (e a busca simplesmente não acha).
   assert.equal(logradouroDoCadastro('Condomínio Jacarandá, Bloco 4'), 'Condomínio Jacarandá');
+  // Tipo colado também é via ("Jd. X, Avm19, nº 554" tem que achar a rua, não o bairro).
+  assert.equal(logradouroDoCadastro('Jd. Bela Vista, Avm19, nº 554'), 'Avm19');
   assert.equal(logradouroDoCadastro(null), '');
 });
 
@@ -318,6 +320,13 @@ test('termoBuscaVia: abreviação vira extenso e letra colada se separa (o ViaCE
   assert.equal(termoBuscaVia('Rua das Flores'), 'rua das flores');
   // Sem tipo de via reconhecido, passa como está (o filtro local decide depois).
   assert.equal(termoBuscaVia('Jd. Ipanema'), 'jd ipanema');
+  // Tipo GRUDADO no nome + número (cadastro digitado correndo) — casos reais da base.
+  assert.equal(termoBuscaVia('Avm19'), 'avenida m 19');
+  assert.equal(termoBuscaVia('Ruam20a'), 'rua m 20 a');
+  assert.equal(termoBuscaVia('Rua38'), 'rua 38');
+  // E o estrago que a regra NÃO pode causar: nome comum que começa com tipo de via.
+  assert.equal(termoBuscaVia('Rua Rui Barbosa'), 'rua rui barbosa');
+  assert.equal(termoBuscaVia('Alameda dos Anjos'), 'alameda dos anjos');
 });
 
 test('descobrirCepsPorEndereco: só CEP com cidade E via provadas; bairro do cadastro vai na FRENTE', async () => {

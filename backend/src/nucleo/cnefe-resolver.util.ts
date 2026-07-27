@@ -479,18 +479,40 @@ export async function resolverCnefeLote(
     }
     // Placeholders GERADOS (nunca valor interpolado): os CEPs seguem como parâmetro.
     const marcadores = alvos.map((_, i) => `$${i + 1}`).join(',');
-    const rows = (await cnefeQuery(
+    const timeoutMs = opts?.queryTimeoutMs ?? CNEFE_QUERY_TIMEOUT_MS;
+    /** De qual TRECHO saiu o pino escolhido — é esse CEP que o cadastro merece. */
+    const doTrecho = (rows: Array<CnefeRow & { cep?: string | null }>, pino: CnefePino) => {
+      const vencedora = rows.find((r) => r.lat === pino.lat && r.lng === pino.lng);
+      const cep = normalizarCep8(vencedora?.cep);
+      return cep ? { pino, cep } : null;
+    };
+
+    const porta = (await cnefeQuery(
       `SELECT cep, logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ` +
         `WHERE cep IN (${marcadores}) AND numero = $${alvos.length + 1} AND lat IS NOT NULL AND lng IS NOT NULL LIMIT 400`,
       [...alvos, numero],
-      opts?.queryTimeoutMs ?? CNEFE_QUERY_TIMEOUT_MS,
+      timeoutMs,
     )) as Array<CnefeRow & { cep?: string | null }>;
-    const pino = escolherPinoPorta(rows, input);
-    if (!pino) return null;
-    // De qual trecho saiu o pino escolhido — é esse CEP que o cadastro merece.
-    const vencedora = rows.find((r) => r.lat === pino.lat && r.lng === pino.lng);
-    const cep = normalizarCep8(vencedora?.cep);
-    return cep ? { pino, cep } : null;
+    const pinoPorta = escolherPinoPorta(porta, input);
+    if (pinoPorta) return doTrecho(porta, pinoPorta);
+
+    // FASE 2 — VIZINHO DE NÚMERO, também em TODOS os trechos de uma vez (27/07). É o caso
+    // mais comum da base real: a rua existe, a porta exata não está no Censo. O banco
+    // ordena por |numero - pedido| ATRAVESSANDO os trechos, e quem decide segue sendo
+    // `escolherPinoRua`: via provada, vizinho a ≤200 de numeração e os 5 mais próximos
+    // AGRUPADOS. Vizinho vindo de pedaços distantes da mesma rua reprova na dispersão e a
+    // resposta é null — é esta trava que substitui o CHUTE de trecho (o dono não paga
+    // pino errado pra ganhar estatística).
+    if (!String(input.endereco ?? '').trim()) return null;
+    const vizinhos = (await cnefeQuery(
+      `SELECT cep, logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ` +
+        `WHERE cep IN (${marcadores}) AND numero IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL ` +
+        `ORDER BY ABS(numero - $${alvos.length + 1}) ASC LIMIT 80`,
+      [...alvos, numero],
+      timeoutMs,
+    )) as Array<CnefeRow & { cep?: string | null }>;
+    const pinoRua = escolherPinoRua(vizinhos, numero, input);
+    return pinoRua ? doTrecho(vizinhos, pinoRua) : null;
   } catch {
     return null;
   }

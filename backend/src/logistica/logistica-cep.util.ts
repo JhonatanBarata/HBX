@@ -275,7 +275,26 @@ function semAcento(valor: string | null | undefined): string {
  *  de bairro num campo de texto livre. */
 function pareceVia(trecho: string): boolean {
   const primeiro = semAcento(trecho).replace(/[.]/g, '').split(/\s+/)[0] ?? '';
-  return primeiro in TIPO_VIA_EXTENSO;
+  if (primeiro in TIPO_VIA_EXTENSO) return true;
+  const letraDigito = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(primeiro);
+  return !!letraDigito && (letraDigito[1] in TIPO_VIA_EXTENSO || separarTipoColado(letraDigito[1]) !== null);
+}
+
+/**
+ * Tipo de via GRUDADO no nome, seguido de número: "Avm19" = Av. M-19, "Ruam20a" =
+ * Rua M-20A — o cadastro é digitado correndo, sem espaço. Só separa quando o token já
+ * vem colado a um NÚMERO (o chamador garante isso), que é o que confina a regra a este
+ * caso e impede o estrago óbvio: "Rua Rui Barbosa" não pode virar "rua r ui barbosa".
+ * Prefixo de 2+ letras, sobra de 1-2 letras.
+ */
+function separarTipoColado(token: string): string[] | null {
+  if (token in TIPO_VIA_EXTENSO) return null;
+  for (const tipo of ['travessa', 'avenida', 'alameda', 'estrada', 'rodovia', 'praca', 'trav', 'estr', 'rua', 'av', 'rod', 'est', 'pca', 'avn', 'avd', 'pc', 'tv', 'al']) {
+    if (!token.startsWith(tipo)) continue;
+    const resto = token.slice(tipo.length);
+    if (resto.length >= 1 && resto.length <= 2 && /^[a-z]+$/.test(resto)) return [tipo, resto];
+  }
+  return null;
 }
 
 /**
@@ -310,7 +329,11 @@ export function termoBuscaVia(via: string | null | undefined): string {
     // "54a" → "54 a" e "M22" → "m 22": o ViaCEP separa, o cadastro cola.
     .flatMap((token) => {
       const letraDigito = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(token);
-      if (letraDigito) return [letraDigito[1], letraDigito[2], letraDigito[3]].filter(Boolean);
+      if (letraDigito) {
+        // "Avm19" → av · m · 19 (tipo colado no nome); "Rua38" → rua · 38 (tipo inteiro).
+        const cabeca = separarTipoColado(letraDigito[1]) ?? [letraDigito[1]];
+        return [...cabeca, letraDigito[2], letraDigito[3]].filter(Boolean);
+      }
       const digitoLetra = /^(\d{1,4})([a-z]{1,2})$/.exec(token);
       if (digitoLetra) return [digitoLetra[1], digitoLetra[2]];
       return [token];
