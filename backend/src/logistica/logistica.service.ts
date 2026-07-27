@@ -22,6 +22,12 @@ import {
   type PreparedTrackedDeliveryCharge,
 } from './logistica-tracked-billing.service';
 import { resolverCoordenadaMultilocal, GPS_ACCURACY_LIMITE_METROS } from './logistica-geo-fonte.util';
+// F0 (27/07) — MOTOR CONFIÁVEL: o cursor da Agenda (`proximaData`) só avança
+// no DESFECHO (aqui), nunca na geração. Ver avancarPlanoNoDesfecho abaixo.
+import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
+import { nextOccurrenceDate } from './logistica-agenda.service';
+import { saoPauloDateKey } from './logistica-occurrence.service';
+import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -707,6 +713,8 @@ export class LogisticaService {
         localId: true,
         cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true, deliveredAt: true,
         comprovanteCodigoHash: true, comprovanteCodigoSalt: true,
+        // F0 (27/07) — precisa pra avançar o cursor da Agenda no desfecho.
+        agendaOcorrenciaKey: true, planoEntregaId: true,
       },
     });
     if (!entrega) return null;
@@ -826,6 +834,9 @@ export class LogisticaService {
         actorIdOrNull(actor),
       );
     }
+    // F0 (27/07) — avanço do cursor acontece NA tx; o evento de extrato só grava
+    // DEPOIS do commit (ver contrato em logistica-agenda-evento.util.ts).
+    let avancoAgenda: { origemKey: string; proximaKey: string | null } | null = null;
     try {
       await this.prisma.$transaction(async (tx) => {
         const validacao = this.operacao
@@ -850,6 +861,15 @@ export class LogisticaService {
             comprovanteConfirmadoAt: validacao.exigiuComprovante ? confirmadoAt : undefined,
           },
         });
+        // F0 (27/07) — CURSOR NO DESFECHO: entregou uma ocorrência da Agenda?
+        // O plano anda. Dentro da MESMA transação núcleo (ver avancarPlanoNoDesfecho);
+        // o evento do extrato fica pra depois do commit.
+        if (entrega.agendaOcorrenciaKey && entrega.planoEntregaId) {
+          avancoAgenda = await this.avancarPlanoNoDesfecho(tx, companyId, {
+            planoEntregaId: entrega.planoEntregaId,
+            agendaOcorrenciaKey: entrega.agendaOcorrenciaKey,
+          });
+        }
         if (validacao.ids.length > 0) {
           await (tx as any).entregaComprovante.updateMany({
             where: { id: { in: validacao.ids }, companyId, entregaId: entrega.id, status: 'pendente' },
@@ -1058,6 +1078,9 @@ export class LogisticaService {
       }
     }
 
+    // F0 (27/07) — extrato do avanço do cursor, pós-commit, prisma raiz.
+    await this.registrarAvancoAgendaPosCommit(companyId, entrega, avancoAgenda, actorIdOrNull(actor));
+
     // HISTÓRICO DO CLIENTE (22/07) — a linha que o entregador mostra na porta.
     // Best-effort por decisão: registro NUNCA pode derrubar operação de rua.
     await this.registrarHistorico(companyId, {
@@ -1148,6 +1171,80 @@ export class LogisticaService {
     } catch (e: any) {
       this.logger.warn(`[logistica] persistirDesfecho entrega=${entregaId} falhou: ${String(e?.message || e)}`);
     }
+  }
+
+  // ── F0 (27/07) — CURSOR NO DESFECHO ──────────────────────────────────────────
+  /**
+   * Regra-mãe do dono (27/07): "Registrou entrega? Beleza. Não registrou? Volta
+   * tudo pro seu lugar." O cursor `LogisticaPlanoEntrega.proximaData` só anda
+   * AQUI — no desfecho da ocorrência (chamado de dentro da transação núcleo de
+   * `confirmarEntrega` E de `cancelarEntrega`) — NUNCA na geração
+   * (`generateDay`, logistica-agenda.service.ts). Era o avanço-na-geração que
+   * causava "a sexta que não volta".
+   *
+   * Avança a partir da DATA DE ORIGEM da chave (`sourceDateFromOccurrenceKey`),
+   * NUNCA do dia em que o desfecho aconteceu — entrega de sexta adiantada e
+   * executada numa segunda avança o plano pra sexta SEGUINTE, não pra segunda
+   * seguinte (senão a cadência do cliente escorrega pro dia errado pra sempre).
+   *
+   * IDEMPOTENTE por construção: o `updateMany` só pega quando `proximaData`
+   * ainda não passou da origem (`<= dataOrigem` ou nula) — dois desfechos da
+   * MESMA ocorrência avançam o plano 1 vez só.
+   *
+   * TELEMETRIA FORA DA TRANSAÇÃO (endurecido 27/07): esta função NÃO grava o
+   * evento PLANO_AVANCADO — devolve as datas e o CHAMADOR grava DEPOIS do
+   * commit, com o prisma raiz. Erro de INSERT dentro da tx abortaria a
+   * transação núcleo no Postgres (mesmo com catch) e derrubaria a confirmação
+   * na porta do cliente por causa de uma linha de extrato — nunca.
+   */
+  private async avancarPlanoNoDesfecho(
+    tx: any,
+    companyId: number,
+    input: {
+      planoEntregaId: string;
+      agendaOcorrenciaKey: string;
+    },
+  ): Promise<{ origemKey: string; proximaKey: string | null } | null> {
+    const origem = sourceDateFromOccurrenceKey(input.agendaOcorrenciaKey);
+    if (!origem) return null;
+    const plano = await tx.logisticaPlanoEntrega.findFirst({
+      where: { id: input.planoEntregaId, companyId },
+      select: { diaSemana: true, frequencia: true, intervaloDias: true },
+    });
+    if (!plano) return null; // plano some (reparo de dados) — desfecho da entrega não pode travar por isso
+    const dataOrigem = saoPauloMidnight(origem);
+    const proxima = nextOccurrenceDate(plano, dataOrigem);
+    const avancado = await tx.logisticaPlanoEntrega.updateMany({
+      where: {
+        id: input.planoEntregaId,
+        companyId,
+        OR: [{ proximaData: null }, { proximaData: { lte: dataOrigem } }],
+      },
+      data: { proximaData: proxima },
+    });
+    if (avancado.count === 0) return null; // outro desfecho já venceu a corrida — idempotente
+    return { origemKey: origem, proximaKey: saoPauloDateKey(proxima) };
+  }
+
+  /** Grava o PLANO_AVANCADO pós-commit (prisma raiz — ver contrato no evento.util). */
+  private async registrarAvancoAgendaPosCommit(
+    companyId: number,
+    entrega: { id: string; customerProfileId: string; planoEntregaId: string | null },
+    avanco: { origemKey: string; proximaKey: string | null } | null,
+    actorUserId: number | null,
+  ): Promise<void> {
+    if (!avanco || !entrega.planoEntregaId) return;
+    await registrarEventoAgenda(this.prisma, {
+      companyId,
+      customerProfileId: entrega.customerProfileId,
+      entregaId: entrega.id,
+      planoEntregaId: entrega.planoEntregaId,
+      tipo: 'PLANO_AVANCADO',
+      deTexto: formatDDMM(avanco.origemKey),
+      paraTexto: avanco.proximaKey ? formatDDMM(avanco.proximaKey) : null,
+      origem: 'desfecho',
+      actorUserId,
+    });
   }
 
   // ── B1 — GPS de ouro jogado fora: realimenta o cadastro do cliente ──────────
@@ -1371,7 +1468,11 @@ export class LogisticaService {
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId, ...actorWhere },
-      select: { id: true, status: true, notes: true, customerProfileId: true },
+      select: {
+        id: true, status: true, notes: true, customerProfileId: true,
+        // F0 (27/07) — precisa pra avançar o cursor da Agenda no desfecho.
+        agendaOcorrenciaKey: true, planoEntregaId: true,
+      },
     });
     if (!entrega) return null;
     if (entrega.status === 'entregue') {
@@ -1380,10 +1481,24 @@ export class LogisticaService {
     const notes = motivo?.trim()
       ? `${entrega.notes ? entrega.notes + ' | ' : ''}Cancelada: ${motivo.trim()}`.slice(0, 500)
       : entrega.notes;
-    await this.prisma.entrega.update({
-      where: { id: entrega.id },
-      data: { status: 'cancelada', notes },
+    // F0 (27/07) — status + cursor no MESMO $transaction (era update() solto):
+    // cancelar É um desfecho (a ocorrência foi DECIDIDA, mesmo sem entregar), e
+    // a regra-mãe não permite "cancelou mas o cursor não andou" ficar meio-feito.
+    // Evento do extrato só DEPOIS do commit (contrato do evento.util).
+    const avancoAgenda = await this.prisma.$transaction(async (tx) => {
+      await tx.entrega.update({
+        where: { id: entrega.id },
+        data: { status: 'cancelada', notes },
+      });
+      if (entrega.agendaOcorrenciaKey && entrega.planoEntregaId) {
+        return this.avancarPlanoNoDesfecho(tx, companyId, {
+          planoEntregaId: entrega.planoEntregaId,
+          agendaOcorrenciaKey: entrega.agendaOcorrenciaKey,
+        });
+      }
+      return null;
     });
+    await this.registrarAvancoAgendaPosCommit(companyId, entrega, avancoAgenda, actorIdOrNull(actor));
     // HISTÓRICO (22/07) — "Sem atendimento" também é visita, e é a linha que evita
     // a discussão "vocês nunca vieram". Best-effort, nunca derruba o cancelamento.
     await this.registrarHistorico(companyId, {
@@ -2642,6 +2757,62 @@ export class LogisticaService {
   }
 
   /**
+   * F0 (27/07, pedido explícito do dono) — EXTRATO DE EVENTOS DA AGENDA: "dia e
+   * hora EXATOS de tudo". MESMO padrão de paginação/gate do `historicoCliente`
+   * logo acima (cursor, company-scoped, cliente de outra empresa → null → o
+   * controller vira 404). O nome do autor é resolvido num 2º lookup em lote —
+   * `LogisticaAgendaEvento` guarda só o id (sem relação com User) de propósito,
+   * mas a ficha do cliente quer o nome, não o número.
+   */
+  async agendaEventosCliente(
+    companyId: number,
+    clienteId: string,
+    opts: { limit?: number; cursor?: string | null } = {},
+  ): Promise<{ items: AgendaEventoItem[]; nextCursor: string | null } | null> {
+    if (!companyId || !clienteId) return null;
+    const cliente = await this.prisma.customerProfile.findFirst({
+      where: { id: String(clienteId).trim(), companyId },
+      select: { id: true },
+    });
+    if (!cliente) return null;
+
+    const take = clampLimit(opts.limit, 30, 100);
+    const cursor = String(opts.cursor || '').trim() || null;
+    const rows = await this.prisma.logisticaAgendaEvento.findMany({
+      where: { companyId, customerProfileId: cliente.id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    const temMais = rows.length > take;
+    const pagina = temMais ? rows.slice(0, take) : rows;
+
+    const autorIds = [...new Set(
+      pagina.map((r) => r.actorUserId).filter((autorId): autorId is number => autorId != null),
+    )];
+    const autores = autorIds.length
+      ? await this.prisma.user.findMany({
+        where: { id: { in: autorIds }, companyId },
+        select: { id: true, name: true },
+      })
+      : [];
+    const nomePorAutorId = new Map(autores.map((u) => [u.id, u.name || null]));
+
+    return {
+      items: pagina.map((r) => ({
+        id: r.id,
+        tipo: r.tipo,
+        deTexto: r.deTexto,
+        paraTexto: r.paraTexto,
+        origem: r.origem,
+        autor: r.actorUserId != null ? (nomePorAutorId.get(r.actorUserId) ?? null) : null,
+        createdAt: r.createdAt.toISOString(),
+      })),
+      nextCursor: temMais ? pagina[pagina.length - 1].id : null,
+    };
+  }
+
+  /**
    * Apaga UMA linha do histórico. Só a linha: Entrega e FinanceiroCharge ficam
    * intactas (é o motivo desta tabela existir separada). Company-scoped.
    */
@@ -3229,6 +3400,18 @@ export interface ClienteHistoricoItem {
   receiptMethod: string | null;
   motivo: string | null;
   entregaId: string | null;
+  createdAt: string;
+}
+
+// F0 (27/07) — EXTRATO DA AGENDA: uma linha da lista que a ficha do cliente vai
+// mostrar (dia/hora exatos de toda mudança). Ver LogisticaAgendaEvento no schema.
+export interface AgendaEventoItem {
+  id: string;
+  tipo: string; // DIA_ALTERADO | OCORRENCIA_GERADA | OCORRENCIA_ADIANTADA | PLANO_AVANCADO | OCORRENCIA_DEVOLVIDA | CANCELADA_FECHAMENTO
+  deTexto: string | null;
+  paraTexto: string | null;
+  origem: string; // montagem | desfecho | fechamento | descarte | manual | reparo
+  autor: string | null;
   createdAt: string;
 }
 

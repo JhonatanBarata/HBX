@@ -880,21 +880,6 @@ export class LogisticaAgendaService {
         },
       });
 
-      // F0 (27/07) — extrato: dia da semana trocado é a mudança que mais gera
-      // dúvida do cliente ("por que hoje não veio?"). Best-effort.
-      if (existing.diaSemana !== normalized.diaSemana) {
-        await registrarEventoAgenda(tx, {
-          companyId,
-          customerProfileId: normalized.customerProfileId,
-          planoEntregaId: existing.id,
-          tipo: 'DIA_ALTERADO',
-          deTexto: DAY_ABBR[existing.diaSemana - 1] ?? null,
-          paraTexto: DAY_ABBR[normalized.diaSemana - 1] ?? null,
-          origem: 'manual',
-          actorUserId: null,
-        });
-      }
-
       if (normalized.localId && normalized.accessProvided) {
         await tx.localEntrega.updateMany({
           where: {
@@ -1425,8 +1410,13 @@ export class LogisticaAgendaService {
     const replay = await this.findActionReplay(companyId, idempotencyKey, requestHash);
     if (replay) return { ...(replay.resultadoJson as any), replayed: true };
 
+    // F0 (27/07, endurecido) — eventos DIA_ALTERADO são COLETADOS dentro da tx
+    // Serializable e gravados só DEPOIS do commit (contrato do evento.util:
+    // INSERT falhando dentro dela abortaria a ação inteira no Postgres). Se a
+    // tx reverter, nada é gravado — o array morre junto com o caminho de erro.
+    const eventosDiaAlterado: Array<Parameters<typeof registrarEventoAgenda>[1]> = [];
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const acaoResultado = await this.prisma.$transaction(async (tx) => {
         const plans = await tx.logisticaPlanoEntrega.findMany({
           where: { companyId, diaSemana: day },
           include: planInclude(),
@@ -1489,8 +1479,8 @@ export class LogisticaAgendaService {
               },
             });
             // F0 (27/07) — extrato: mover o dia inteiro também é DIA_ALTERADO,
-            // um por plano afetado. Best-effort.
-            await registrarEventoAgenda(tx, {
+            // um por plano afetado. Coleta aqui, grava pós-commit (ver acima).
+            eventosDiaAlterado.push({
               companyId,
               customerProfileId: plan.customerProfileId,
               planoEntregaId: plan.id,
@@ -1573,6 +1563,11 @@ export class LogisticaAgendaService {
         });
         return result;
       }, { isolationLevel: 'Serializable' });
+      // Pós-commit: telemetria com o prisma raiz (nunca dentro da tx).
+      for (const evento of eventosDiaAlterado) {
+        await registrarEventoAgenda(this.prisma, evento);
+      }
+      return acaoResultado;
     } catch (error: any) {
       if (error?.code === 'P2002') {
         const replayAfterRace = await this.findActionReplay(companyId, idempotencyKey, requestHash);

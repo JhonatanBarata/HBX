@@ -528,7 +528,7 @@ export class LogisticaRotaService {
     const { start, end, dayISO } = resolveDayRange(input.date);
     const routeDate = canonicalRouteDate(input.date);
 
-    const resumo = await this.prisma.$transaction(async (tx: any) => {
+    const txResultado = await this.prisma.$transaction(async (tx: any) => {
       // Mesmo escopo "abertas do dia" do encerrarRota (range do dia + sem-data
       // abertas). Aqui preciso de mais campos por linha pra separar "o que a
       // montagem trouxe" de "o que já era da pessoa".
@@ -606,23 +606,24 @@ export class LogisticaRotaService {
           },
         });
         descartadas = canceladas.count;
-        // F0 (27/07) — extrato: cada cancelamento por descarte vira UMA linha.
-        // Best-effort (registrarEventoAgenda nunca lança) — telemetria não pode
-        // derrubar o descarte, que já aconteceu no updateMany acima.
-        for (const row of descartaveis) {
-          const origemChave = row.planoEntregaId ? sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey) : null;
-          await registrarEventoAgenda(tx, {
-            companyId,
-            customerProfileId: row.customerProfileId,
-            entregaId: row.id,
-            planoEntregaId: row.planoEntregaId,
-            tipo: 'OCORRENCIA_DEVOLVIDA',
-            paraTexto: origemChave ? formatDDMM(origemChave) : null,
-            origem: 'descarte',
-            actorUserId: null,
-          });
-        }
       }
+      // F0 (27/07, endurecido) — extrato: cada cancelamento por descarte vira UMA
+      // linha, mas a GRAVAÇÃO fica pra DEPOIS do commit (contrato do evento.util:
+      // INSERT falhando dentro da tx abortaria o descarte inteiro no Postgres).
+      // Aqui só se coleta o que gravar.
+      const eventosDescarte = descartaveis.map((row) => {
+        const origemChave = row.planoEntregaId ? sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey) : null;
+        return {
+          companyId,
+          customerProfileId: row.customerProfileId,
+          entregaId: row.id,
+          planoEntregaId: row.planoEntregaId,
+          tipo: 'OCORRENCIA_DEVOLVIDA' as const,
+          paraTexto: origemChave ? formatDDMM(origemChave) : null,
+          origem: 'descarte' as const,
+          actorUserId: null,
+        };
+      });
 
       // Devolve o plano pra DATA DE ORIGEM da ocorrência (a que está na chave),
       // nunca pro dia operacional — escrever uma data fora do `diaSemana` do
@@ -674,8 +675,14 @@ export class LogisticaRotaService {
         data: { operationalEndedAt: new Date() },
       });
 
-      return { descartadas, planosLiberados, pendentes };
+      return { descartadas, planosLiberados, pendentes, eventosDescarte };
     });
+
+    // Pós-commit: telemetria com o prisma raiz (nunca dentro da tx — ver acima).
+    const { eventosDescarte, ...resumo } = txResultado;
+    for (const evento of eventosDescarte) {
+      await registrarEventoAgenda(this.prisma, evento);
+    }
 
     this.logger.log(
       `[logistica] montagem descartada ${dayISO} company=${companyId}` +

@@ -445,6 +445,31 @@ export class LogisticaController {
   }
 
   /**
+   * F0 (27/07, pedido explícito do dono) — EXTRATO DE EVENTOS DA AGENDA: "dia e
+   * hora EXATOS de tudo" (dia trocado, ocorrência gerada/adiantada, cursor
+   * avançado, devolução, fechamento de dia passado). MESMO gate do `historico`
+   * logo acima (sessão + escopo de empresa, sem @Admin — quem dirige a rota
+   * também precisa entender por que um dia sumiu/mudou). Cliente de outra
+   * empresa → 404. A tela em si (frontend/APK) vem na integração — este é só o
+   * endpoint de leitura.
+   */
+  @Get('clientes/:id/agenda-eventos')
+  async agendaEventosCliente(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Query('limit') limit?: string,
+    @Query('cursor') cursor?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.agendaEventosCliente(companyId, id, {
+      limit: limit != null && String(limit).trim() !== '' ? Number(limit) : undefined,
+      cursor,
+    });
+    if (!res) throw new NotFoundException('Cliente não encontrado');
+    return res;
+  }
+
+  /**
    * Apaga UMA linha do histórico (gesto de segurar pressionado no app). Apaga só o
    * REGISTRO DA VISITA: a entrega e a cobrança continuam no financeiro — foi por
    * isso que o histórico nasceu em tabela própria. Linha inexistente → 404.

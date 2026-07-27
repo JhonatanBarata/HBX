@@ -41,9 +41,13 @@ export interface RegistrarEventoAgendaInput {
 const logger = new Logger('LogisticaAgendaEvento');
 
 /**
- * Aceita tanto o `PrismaService` injetado quanto o `tx` de dentro de uma
- * `$transaction` — as duas formas têm `logisticaAgendaEvento.create`, então a
- * mesma chamada funciona nos dois casos sem o caller precisar saber qual é.
+ * CONTRATO (endurecido 27/07, revisão F0): chame SEMPRE com a conexão RAIZ
+ * (`this.prisma`), NUNCA com o `tx` de dentro de uma `$transaction`. O catch
+ * daqui engole o erro no JS, mas no Postgres um erro DENTRO da transação marca
+ * a transação inteira como abortada — as queries seguintes do chamador falham
+ * ("current transaction is aborted") e a operação de rua (confirmar na porta,
+ * montar rota) cai por causa de telemetria. Padrão nos chamadores com tx:
+ * coletar os eventos dentro, gravar DEPOIS do commit, com o prisma raiz.
  */
 type PrismaLike = { logisticaAgendaEvento: { create: (args: any) => Promise<any> } };
 

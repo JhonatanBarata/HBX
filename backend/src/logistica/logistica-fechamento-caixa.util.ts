@@ -54,7 +54,10 @@ export async function encerrarDiasAnteriores(
   }
   const inicioDeHoje = saoPauloMidnight(hojeISO);
 
-  return prisma.$transaction(async (tx: any) => {
+  // Eventos do extrato SÓ depois do commit (contrato do evento.util): erro de
+  // INSERT dentro da tx abortaria o fechamento inteiro no Postgres, e o
+  // fechamento roda no caminho crítico de TODA montagem de rota.
+  const fechamento = await prisma.$transaction(async (tx: any) => {
     const rotasEncerradas = await tx.logisticaRoute.updateMany({
       where: {
         companyId,
@@ -99,20 +102,22 @@ export async function encerrarDiasAnteriores(
         },
       });
       entregasCanceladas = canceladas.count;
-
-      for (const row of presas as Array<{ id: string; customerProfileId: string; scheduledAt: Date | null }>) {
-        await registrarEventoAgenda(tx, {
-          companyId,
-          customerProfileId: row.customerProfileId,
-          entregaId: row.id,
-          tipo: 'CANCELADA_FECHAMENTO',
-          paraTexto: formatDDMM(saoPauloDateKey(row.scheduledAt)),
-          origem: 'fechamento',
-          actorUserId: null,
-        });
-      }
     }
 
-    return { rotasEncerradas: rotasEncerradas.count, entregasCanceladas };
+    return { rotasEncerradas: rotasEncerradas.count, entregasCanceladas, presas };
   });
+
+  for (const row of fechamento.presas as Array<{ id: string; customerProfileId: string; scheduledAt: Date | null }>) {
+    await registrarEventoAgenda(prisma, {
+      companyId,
+      customerProfileId: row.customerProfileId,
+      entregaId: row.id,
+      tipo: 'CANCELADA_FECHAMENTO',
+      paraTexto: formatDDMM(saoPauloDateKey(row.scheduledAt)),
+      origem: 'fechamento',
+      actorUserId: null,
+    });
+  }
+
+  return { rotasEncerradas: fechamento.rotasEncerradas, entregasCanceladas: fechamento.entregasCanceladas };
 }
