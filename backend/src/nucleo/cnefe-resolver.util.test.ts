@@ -6,6 +6,7 @@ import {
   escolherPinoPorta,
   escolherPinoRua,
   extrairNumeroPorta,
+  normalizarViaNumeral,
   resolverCnefe,
   type CnefeRow,
 } from './cnefe-resolver.util';
@@ -49,9 +50,19 @@ test('porta: (cep, numero) agrupado → pino do medoide, precisão porta', () =>
   assert.ok(Math.abs(pino!.lat + 22.4154) < 0.001);
 });
 
-test('porta: cadastro com logradouro e NENHUMA via compatível → null ("Rua 12" ≠ "Rua Doze")', () => {
+// 27/07 (incidente company 48) — MUDANÇA DE CONTRATO consciente: no CNEFE, "Rua 12"
+// CASA "RUA DOZE" — a identidade é provada pelo (CEP, número), e "RUA DOZE" é só a
+// grafia oficial IBGE da mesma rua daquele CEP. A lição Terra Hydra ("Rua Doze" do
+// Nominatim era OUTRA rua, achada por busca de NOME ambígua) continua valendo onde
+// ela nasceu: no freio do Nominatim (nucleo-geo.util, intocado).
+test('porta: "Rua 12" casa "RUA DOZE" no CNEFE (grafia oficial da MESMA rua do CEP)', () => {
   const rows = [row({ logradouro: 'Rua Doze' })];
-  assert.equal(escolherPinoPorta(rows, { cep: '13500000', numero: 752, endereco: 'Rua 12' }), null);
+  assert.ok(escolherPinoPorta(rows, { cep: '13500000', numero: 752, endereco: 'Rua 12' }));
+});
+
+test('porta: via realmente DIFERENTE segue vetada ("Rua 12" ≠ "Rua Treze"; "Av. Brasil" ≠ "Rua 12")', () => {
+  assert.equal(escolherPinoPorta([row({ logradouro: 'Rua Treze' })], { cep: '13500000', numero: 752, endereco: 'Rua 12' }), null);
+  assert.equal(escolherPinoPorta([row({ logradouro: 'Rua 12' })], { cep: '13500000', numero: 752, endereco: 'Av. Brasil' }), null);
 });
 
 test('porta: cidade de CEP ÚNICO — mesmo número em ruas espalhadas → null (dispersão)', () => {
@@ -68,6 +79,38 @@ test('porta: abreviação de via casa ("Av. 84" = "Avenida 84")', () => {
   const rows = [row({ logradouro: 'Avenida 84', numero: 90 })];
   const pino = escolherPinoPorta(rows, { cep: '13500000', numero: 90, endereco: 'Av. 84' });
   assert.ok(pino);
+});
+
+// ── numerais por extenso (27/07, incidente company 48 — casos REAIS de prod) ──────
+// O IBGE grava "RUA OITO"/"AVENIDA OITENTA E QUATRO"; o cadastro grava "Rua 8"/
+// "Av. 84". O veto de via reprovava Rio Claro INTEIRA (0 curas com 50 elegíveis).
+
+test('normalizarViaNumeral: extenso vira dígito, composto soma, hífen vira espaço', () => {
+  assert.equal(normalizarViaNumeral('RUA OITO'), 'rua 8');
+  assert.equal(normalizarViaNumeral('AVENIDA OITENTA E QUATRO'), 'avenida 84');
+  assert.equal(normalizarViaNumeral('AVENIDA SETENTA E OITO BV'), 'avenida 78 bv');
+  assert.equal(normalizarViaNumeral('AVENIDA M QUARENTA E SETE'), 'avenida m 47');
+  assert.equal(normalizarViaNumeral('Av. M-47'), 'av m 47');
+  assert.equal(normalizarViaNumeral('Rua Cento e Vinte e Dois'), 'rua 122');
+  // "e" fora de grupo numeral fica intacto; nome próprio não numeral idem.
+  assert.equal(normalizarViaNumeral('Rua Sete de Setembro'), 'rua 7 de setembro');
+});
+
+test('porta REAL de prod: "Rua 8, 3604" casa "RUA OITO" (cep 13504188) → pino de porta', () => {
+  const rows = [row({ logradouro: 'RUA OITO', numero: 3604, lat: -22.389907, lng: -47.573457 })];
+  const pino = escolherPinoPorta(rows, { cep: '13504188', numero: 3604, endereco: 'Rua 8, 3604 - Alto do Santana' });
+  assert.ok(pino, 'o incidente de 27/07: via por extenso não pode mais vetar');
+  assert.equal(pino!.precisao, 'porta');
+});
+
+test('porta REAL de prod: "Av. 84" casa "AVENIDA OITENTA E QUATRO"; "Av. 78" casa "...SETENTA E OITO BV"', () => {
+  assert.ok(escolherPinoPorta([row({ logradouro: 'AVENIDA OITENTA E QUATRO', numero: 398 })], { cep: '13504731', numero: 398, endereco: 'Jd. Santa Maria, Av. 84, nº 398' }));
+  assert.ok(escolherPinoPorta([row({ logradouro: 'AVENIDA SETENTA E OITO BV', numero: 70 })], { cep: '13504680', numero: 70, endereco: 'Jd. Boa Vista, Av. 78, nº 70' }));
+});
+
+test('a régua de palavra inteira SEGUE de pé: "Rua 8" ≠ "RUA OITENTA" e "Rua 1" ≠ "RUA DOZE"', () => {
+  assert.equal(escolherPinoPorta([row({ logradouro: 'RUA OITENTA' })], { cep: '13500000', numero: 752, endereco: 'Rua 8' }), null);
+  assert.equal(escolherPinoPorta([row({ logradouro: 'RUA DOZE' })], { cep: '13500000', numero: 752, endereco: 'Rua 1' }), null);
 });
 
 // ── escolherPinoRua ────────────────────────────────────────────────────────────────

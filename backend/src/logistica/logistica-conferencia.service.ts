@@ -264,9 +264,12 @@ export class LogisticaConferenciaService {
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, donos.length) }, () => trabalhador()));
-    if (curados) {
-      this.logger.log(`[logistica] conferência company=${companyId}: ${curados} pino(s) resolvido(s) pela base CNEFE.`);
-    }
+    // 27/07 (incidente company 48) — loga SEMPRE que houve candidato, mesmo com 0
+    // curados: "0 de 50" nos logs teria denunciado na hora o veto de via que
+    // engolia a cidade inteira de rua numerada. Silêncio nunca mais.
+    this.logger.log(
+      `[logistica] conferência company=${companyId}: cura CNEFE resolveu ${curados} de ${donos.length} candidato(s) sem pino.`,
+    );
   }
 
   /** Grava o pino curado no DONO do endereço — só quando ele AINDA não tem lat (nunca

@@ -36,8 +36,10 @@ export const CNEFE_DISPERSAO_PORTA_M = 250;
 export const CNEFE_DISPERSAO_RUA_M = 400;
 /** Diferença máxima de numeração pro vizinho ainda contar como "mesma altura da rua". */
 export const CNEFE_VIZINHO_DELTA_MAX = 200;
-/** Teto de tempo por consulta — a conferência nunca fica lenta por causa do CNEFE. */
-const CNEFE_QUERY_TIMEOUT_MS = 1500;
+/** Teto de tempo por consulta — a conferência nunca fica lenta por causa do CNEFE.
+ *  4s cobre o connect frio do client logo após deploy (medido 669ms em prod, mas o
+ *  1º acesso paga pool init); o orçamento TOTAL da cura na conferência segue 4s. */
+const CNEFE_QUERY_TIMEOUT_MS = 4000;
 /** Falhou banco/conexão → silêncio por este tempo (não martela conexão quebrada). */
 const CNEFE_FALHA_COOLDOWN_MS = 60 * 1000;
 /** Cache do status por UF (evita 1 SELECT em cnefe_uf a cada resolução). */
@@ -94,6 +96,105 @@ export function extrairNumeroPorta(cadastro: { numero?: string | null; endereco?
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+// ── numerais por extenso (27/07, incidente company 48 / Rio Claro) ──────────────
+// O IBGE grava a via POR EXTENSO ("RUA OITO", "AVENIDA OITENTA E QUATRO") e o
+// cadastro grava em dígito ("Rua 8", "Av. 84"). O veto de via herdado do freio
+// Nominatim reprovava a cidade INTEIRA de rua numerada — 0 curas numa base com 50
+// endereços perfeitos. Aqui a prova de identidade é o (CEP, número) — o CEP já
+// aponta o logradouro oficial — então a comparação converte numeral↔dígito nos
+// DOIS lados e aí sim aplica a MESMA régua de palavra inteira ("rua 8" ≠ "rua 80";
+// "rua 1" ≠ "rua 12" continuam valendo). O freio do Nominatim NÃO muda: lá a via
+// vem de busca por NOME (ambígua por natureza), aqui vem do CEP (unívoca).
+const NUMERAL_PT: Record<string, number> = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, sete: 7, oito: 8, nove: 9,
+  dez: 10, onze: 11, doze: 12, treze: 13, quatorze: 14, catorze: 14, quinze: 15,
+  dezesseis: 16, dezessete: 17, dezoito: 18, dezenove: 19,
+  vinte: 20, trinta: 30, quarenta: 40, cinquenta: 50, sessenta: 60, setenta: 70, oitenta: 80, noventa: 90,
+  cem: 100, cento: 100, duzentos: 200, duzentas: 200, trezentos: 300, trezentas: 300,
+  quatrocentos: 400, quatrocentas: 400, quinhentos: 500, quinhentas: 500, seiscentos: 600, seiscentas: 600,
+  setecentos: 700, setecentas: 700, oitocentos: 800, oitocentas: 800, novecentos: 900, novecentas: 900,
+  mil: 1000,
+};
+
+/** "avenida oitenta e quatro" → "avenida 84" · "rua oito" → "rua 8". Hífen vira
+ *  espaço ("M-47" ↔ "M QUARENTA E SETE"). Palavra não-numeral passa intacta. */
+export function normalizarViaNumeral(valor: string | null | undefined): string {
+  const tokens = String(valor ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.,-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  const saida: string[] = [];
+  let i = 0;
+  while (i < tokens.length) {
+    if (!(tokens[i] in NUMERAL_PT)) {
+      saida.push(tokens[i]);
+      i += 1;
+      continue;
+    }
+    // Grupo numeral: soma "mil/cento e vinte e dois"; o "e" só é consumido
+    // entre dois numerais (senão volta pra saída como palavra comum).
+    let total = 0;
+    while (i < tokens.length) {
+      const token = tokens[i];
+      if (token in NUMERAL_PT) {
+        const v = NUMERAL_PT[token];
+        total = v === 1000 && total > 0 ? total * 1000 : total + v;
+        i += 1;
+        continue;
+      }
+      if (token === 'e' && i + 1 < tokens.length && tokens[i + 1] in NUMERAL_PT) {
+        i += 1;
+        continue;
+      }
+      break;
+    }
+    saida.push(String(total));
+  }
+  return saida.join(' ');
+}
+
+const TIPOS_VIA_CANONICO: Record<string, string> = {
+  av: 'av', avn: 'av', avd: 'av', avenida: 'av',
+  r: 'rua', rua: 'rua',
+  tv: 'travessa', trav: 'travessa', travessa: 'travessa',
+  rod: 'rodovia', rodovia: 'rodovia',
+  est: 'estrada', estr: 'estrada', estrada: 'estrada',
+  al: 'alameda', alameda: 'alameda',
+  pc: 'praca', pca: 'praca', praca: 'praca',
+};
+
+/** TIPO + NÚMERO da via ("Av. 84" → av/84; "AVENIDA SETENTA E OITO BV" → av/78;
+ *  "Rua 8, 3604 - Alto" → rua/8, nunca o 3604 da casa): primeiro token só-dígitos
+ *  até 3 posições depois do tipo. null quando a via não é numerada. */
+export function viaTipoNumero(valor: string | null | undefined): { tipo: string; numero: number } | null {
+  const tokens = normalizarViaNumeral(valor).split(' ').filter(Boolean);
+  const tipoIdx = tokens.findIndex((t) => t in TIPOS_VIA_CANONICO);
+  if (tipoIdx === -1) return null;
+  for (let i = tipoIdx + 1; i < Math.min(tokens.length, tipoIdx + 4); i++) {
+    if (/^\d{1,4}$/.test(tokens[i])) return { tipo: TIPOS_VIA_CANONICO[tokens[tipoIdx]], numero: Number(tokens[i]) };
+  }
+  return null;
+}
+
+/**
+ * Comparação de via do RESOLVER CNEFE: numeral por extenso vira dígito nos dois
+ * lados e aí (a) a régua de palavra inteira de sempre (viasCompativeis) OU (b) via
+ * NUMERADA com o MESMO tipo e MESMO número ("Av. 78" ↔ "AVENIDA SETENTA E OITO BV"
+ * — o sufixo de bairro do IBGE quebrava a contenção; dentro de um CEP o par
+ * tipo+número é unívoco). "rua 8" ≠ "rua 80" e "travessa 8" ≠ "rua 8" seguem de pé.
+ */
+function viasCompativeisCnefe(pedida: string | null | undefined, candidata: string | null | undefined): boolean {
+  const a = normalizarViaNumeral(pedida);
+  const b = normalizarViaNumeral(candidata);
+  if (viasCompativeis(a, b)) return true;
+  const viaA = viaTipoNumero(a);
+  const viaB = viaTipoNumero(b);
+  return viaA !== null && viaB !== null && viaA.tipo === viaB.tipo && viaA.numero === viaB.numero;
+}
+
 function coordValida(row: CnefeRow): row is CnefeRow & { lat: number; lng: number } {
   return (
     typeof row.lat === 'number' && Number.isFinite(row.lat) &&
@@ -142,7 +243,7 @@ export function escolherPinoPorta(rows: CnefeRow[], input: CnefeInput): CnefePin
 
   const viaPedida = String(input.endereco ?? '').trim();
   if (viaPedida) {
-    candidatos = candidatos.filter((r) => viasCompativeis(viaPedida, r.logradouro));
+    candidatos = candidatos.filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro));
     if (!candidatos.length) return null;
   }
 
@@ -168,7 +269,7 @@ export function escolherPinoRua(rows: CnefeRow[], numeroPedido: number, input: C
   const candidatos = (Array.isArray(rows) ? rows : [])
     .filter(coordValida)
     .filter((r) => typeof r.numero === 'number' && Number.isFinite(r.numero))
-    .filter((r) => viasCompativeis(viaPedida, r.logradouro));
+    .filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro));
   if (!candidatos.length) return null;
 
   const vizinho = candidatos[0];
@@ -231,6 +332,9 @@ async function cnefeQuery(sql: string, params: unknown[]): Promise<any[]> {
     return (await Promise.race([clienteCnefe.$queryRawUnsafe(sql, ...params), timeout])) as any[];
   } catch (e) {
     indisponivelAte = Date.now() + CNEFE_FALHA_COOLDOWN_MS;
+    // 27/07 (incidente company 48) — falha de banco era 100% muda e a cura sumia sem
+    // rastro. UMA linha por entrada em cooldown: dá pra ver no `docker logs` na hora.
+    console.warn(`[cnefe] base indisponível (cooldown ${CNEFE_FALHA_COOLDOWN_MS / 1000}s): ${String((e as any)?.message || e)}`);
     throw e;
   }
 }
