@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService } from '../credits/credit-wallet.service';
+import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
+import { CreditActionConfigService } from '../credits/credit-action-config.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import {
   canonicalRouteDate,
@@ -66,6 +68,7 @@ export class LogisticaCustoPreviewService {
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
     private readonly config: LogisticaConfigService,
+    private readonly actionConfig: CreditActionConfigService,
   ) {}
 
   async previewCusto(
@@ -127,7 +130,14 @@ export class LogisticaCustoPreviewService {
         })
       : 0;
 
-    const creditosAIniciar = Math.max(0, blocosTotais - blocosJaDebitados);
+    // 💰 27/07 — a MESMA fonte do débito real (resolveEffective, banco a cada
+    // chamada): blocos pendentes × custo do catálogo. mode 'free' = preview 0,
+    // igual ao prepareRoute que pula a cobrança inteira. Sem isso a tela
+    // prometia "1 crédito/bloco" cravado enquanto o dono muda o preço no /master.
+    const blocosPendentes = Math.max(0, blocosTotais - blocosJaDebitados);
+    const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
+    const custoBloco = definition && definition.mode === 'debit' ? definition.cost : 0;
+    const creditosAIniciar = Math.round(blocosPendentes * custoBloco * 1000) / 1000;
     const saldoCobre = saldoAtual >= creditosAIniciar;
     return { blocosTotais, blocosJaDebitados, creditosAIniciar, saldoAtual, saldoCobre };
   }

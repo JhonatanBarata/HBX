@@ -9,10 +9,8 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { CreditWalletService } from '../credits/credit-wallet.service';
-import {
-  CREDIT_ACTION_KEYS,
-  getCreditActionDefinition,
-} from '../credits/credit-action-catalog';
+import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
+import { CreditActionConfigService } from '../credits/credit-action-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
@@ -43,7 +41,6 @@ export type PreparedTrackedDeliveryCharge = {
   paidCreditsConsumed: number;
 };
 
-const TRACKED_DELIVERY_COST = 2;
 const CLAIM_LEASE_MS = 90_000;
 const RECONCILE_INTERVAL_MS = 5 * 60_000;
 const RECONCILE_BOOT_DELAY_MS = 45_000;
@@ -65,6 +62,7 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
+    protected readonly actionConfig: CreditActionConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -99,12 +97,12 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
     actorUserId: number | null,
     now = new Date(),
   ): Promise<PreparedTrackedDeliveryCharge | null> {
-    const definition = getCreditActionDefinition(CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY);
-    if (
-      !definition ||
-      definition.mode !== 'debit' ||
-      definition.cost !== TRACKED_DELIVERY_COST
-    ) {
+    // 💰 27/07 — preço do CATÁLOGO (resolveEffective lê o banco a cada
+    // cobrança). mode 'free' = a entrega conclui sem claim e sem débito; a
+    // exigência de rastreamento (GPS/sessão) continua valendo — free muda o
+    // dinheiro, nunca o contrato de rastreio do modo.
+    const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY);
+    if (!definition || (definition.mode === 'debit' && !(definition.cost > 0))) {
       throw new Error('Contrato de crédito da Rota Rastreada inválido.');
     }
 
@@ -121,6 +119,8 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
     const session = stop.route.trackingSession;
     await this.assertTrackingEligible({ companyId, route: stop.route, session, completedAt: now });
 
+    if (definition.mode !== 'debit') return null;
+
     let claim = await this.ensureClaim({
       companyId,
       routeId: stop.route.id,
@@ -136,7 +136,7 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
     const processingToken = claim.processingToken!;
 
     try {
-      const debit = await this.wallet.debit(companyId, TRACKED_DELIVERY_COST, {
+      const debit = await this.wallet.debit(companyId, definition.cost, {
         actionKey: CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
         usageKey,
         userId: actorUserId,
@@ -148,7 +148,7 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
           billingAttempt: claim.billingAttempt,
         },
       });
-      if (debit.debited !== TRACKED_DELIVERY_COST || debit.partial) {
+      if (debit.debited !== definition.cost || debit.partial) {
         if (debit.debited > 0) {
           await this.wallet.refund(companyId, {
             usageKey,

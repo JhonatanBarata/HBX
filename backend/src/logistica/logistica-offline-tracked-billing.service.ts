@@ -1,7 +1,8 @@
 import { ConflictException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { CreditWalletService } from '../credits/credit-wallet.service';
-import { CREDIT_ACTION_KEYS, getCreditActionDefinition } from '../credits/credit-action-catalog';
+import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
+import { CreditActionConfigService } from '../credits/credit-action-config.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import {
@@ -10,7 +11,6 @@ import {
   trackedUsageKey,
 } from './logistica-tracked-billing.service';
 
-const TRACKED_DELIVERY_COST = 2;
 const OFFLINE_RESERVATION_GRACE_MS = 72 * 60 * 60 * 1000;
 
 /**
@@ -23,8 +23,9 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
   constructor(
     private readonly offlinePrisma: PrismaService,
     private readonly offlineWallet: CreditWalletService,
+    offlineActionConfig: CreditActionConfigService,
   ) {
-    super(offlinePrisma, offlineWallet);
+    super(offlinePrisma, offlineWallet, offlineActionConfig);
   }
 
   async reserveRouteDeliveries(input: {
@@ -35,8 +36,11 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
     actorUserId: number | null;
     routeExpiresAt: Date;
   }): Promise<{ reserved: number; alreadyReserved: number; releaseAt: Date }> {
-    const definition = getCreditActionDefinition(CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY);
-    if (!definition || definition.mode !== 'debit' || definition.cost !== TRACKED_DELIVERY_COST) {
+    // 💰 27/07 — preço do CATÁLOGO (mesma fonte do débito online). mode 'free'
+    // pula as reservas mas NÃO pula o vínculo do aparelho à sessão (abaixo):
+    // free muda o dinheiro, nunca o contrato de rastreio/vínculo da cápsula.
+    const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY);
+    if (!definition || (definition.mode === 'debit' && !(definition.cost > 0))) {
       throw new Error('Contrato de crédito da Rota Rastreada inválido.');
     }
     const route = await (this.offlinePrisma as any).logisticaRoute.findFirst({
@@ -79,6 +83,9 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
     }
 
     const releaseAt = new Date(input.routeExpiresAt.getTime() + OFFLINE_RESERVATION_GRACE_MS);
+    if (definition.mode !== 'debit') {
+      return { reserved: 0, alreadyReserved: 0, releaseAt };
+    }
     const newlyReserved: Array<{ claimId: string; usageKey: string }> = [];
     let alreadyReserved = 0;
     try {
@@ -90,6 +97,7 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
           deliveryId: String(stop.deliveryId),
           actorUserId: input.actorUserId,
           releaseAt,
+          cost: definition.cost,
         });
         if (outcome.newlyReserved) newlyReserved.push({ claimId: outcome.claimId, usageKey: outcome.usageKey });
         else alreadyReserved += 1;
@@ -173,6 +181,8 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
     deliveryId: string;
     actorUserId: number | null;
     releaseAt: Date;
+    /** Custo efetivo por entrega, já resolvido do catálogo pelo chamador. */
+    cost: number;
   }): Promise<{ claimId: string; usageKey: string; newlyReserved: boolean }> {
     const delegate = (this.offlinePrisma as any).logisticaTrackedCreditClaim;
     let claim = await delegate.findUnique({
@@ -255,7 +265,7 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
     });
     if (acquired.count !== 1) throw new ConflictException('Outro processo está reservando os créditos da rota.');
 
-    const debit = await this.offlineWallet.debit(input.companyId, TRACKED_DELIVERY_COST, {
+    const debit = await this.offlineWallet.debit(input.companyId, input.cost, {
       actionKey: CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
       usageKey,
       userId: input.actorUserId,
@@ -268,7 +278,7 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
         billingAttempt,
       },
     });
-    if (debit.debited !== TRACKED_DELIVERY_COST || debit.partial) {
+    if (debit.debited !== input.cost || debit.partial) {
       if (debit.debited > 0) {
         await this.offlineWallet.refund(input.companyId, {
           usageKey,

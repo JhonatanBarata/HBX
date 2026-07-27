@@ -10,10 +10,8 @@ import {
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService } from '../credits/credit-wallet.service';
-import {
-  CREDIT_ACTION_KEYS,
-  getCreditActionDefinition,
-} from '../credits/credit-action-catalog';
+import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
+import { CreditActionConfigService } from '../credits/credit-action-config.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 
@@ -83,6 +81,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
     private readonly config: LogisticaConfigService,
+    private readonly actionConfig: CreditActionConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -169,21 +168,31 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     const newlyDebitedUsageKeys: string[] = [];
     const shouldChargeEssential = route.mode === 'ESSENTIAL' && (input.chargeEssential === true || route.status === 'ACTIVE');
     if (shouldChargeEssential) {
-      // Blocos cobram só entregas NÃO-migradas: stop com billingExempt veio de
-      // rota anterior já cobrada — entra de graça (decisão do dono 18/07).
-      const requiredBlocks = essentialBlocksForDeliveries(billableDeliveries);
-      try {
-        for (let blockIndex = 1; blockIndex <= requiredBlocks; blockIndex++) {
-          const charged = await this.chargeEssentialBlock({
-            route,
-            blockIndex,
-            actorUserId: input.actorUserId ?? null,
-          });
-          if (charged.newlyDebited) newlyDebitedUsageKeys.push(charged.usageKey);
+      // 💰 27/07 — o preço vem do CATÁLOGO (resolveEffective lê o banco a cada
+      // cobrança): o dono edita o custo no /master e a rota obedece na hora.
+      // mode 'free' pula a cobrança inteira sem lançar (nenhum claim nasce).
+      const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
+      if (!definition || (definition.mode === 'debit' && !(definition.cost > 0))) {
+        throw new Error('Contrato de crédito da Rota Essencial inválido.');
+      }
+      if (definition.mode === 'debit') {
+        // Blocos cobram só entregas NÃO-migradas: stop com billingExempt veio de
+        // rota anterior já cobrada — entra de graça (decisão do dono 18/07).
+        const requiredBlocks = essentialBlocksForDeliveries(billableDeliveries);
+        try {
+          for (let blockIndex = 1; blockIndex <= requiredBlocks; blockIndex++) {
+            const charged = await this.chargeEssentialBlock({
+              route,
+              blockIndex,
+              actorUserId: input.actorUserId ?? null,
+              cost: definition.cost,
+            });
+            if (charged.newlyDebited) newlyDebitedUsageKeys.push(charged.usageKey);
+          }
+        } catch (error) {
+          await this.refundUsageKeys(companyId, newlyDebitedUsageKeys, input.actorUserId ?? null, 'billing_batch_failed');
+          throw error;
         }
-      } catch (error) {
-        await this.refundUsageKeys(companyId, newlyDebitedUsageKeys, input.actorUserId ?? null, 'billing_batch_failed');
-        throw error;
       }
     }
 
@@ -211,6 +220,15 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       })) as RouteRow | null;
       if (existing && existing.status !== 'COMPLETED') return existing;
       if (!createIfMissing) return existing;
+
+      // 27/07 — ESSENCIAL não ganha linha nova depois de COMPLETED: os claims
+      // do dia são chaveados por empresa+motorista+data+bloco e pertencem à
+      // rota concluída — uma rota nova migraria stops e morreria em "Claim
+      // vinculado a outra rota" DEPOIS da mutação. Devolve a linha terminal:
+      // prepareRoute projeta read-only (PLAN) ou lança "já foi concluída"
+      // (START). A nova saída com outro routeId segue existindo pro TRACKED
+      // (sessão/trilha novas; claims por entrega).
+      if (existing && existing.mode === 'ESSENTIAL') return existing;
 
       // COMPLETED continua terminal. Uma nova saída no mesmo dia recebe outro
       // routeId e, portanto, outra sessão/trilha. O modo permanece congelado no
@@ -378,12 +396,9 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     route: RouteRow;
     blockIndex: number;
     actorUserId: number | null;
+    /** Custo efetivo do bloco, já resolvido do catálogo pelo prepareRoute. */
+    cost: number;
   }): Promise<{ usageKey: string; newlyDebited: boolean }> {
-    const definition = getCreditActionDefinition(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
-    if (!definition || definition.mode !== 'debit' || definition.cost !== 1) {
-      throw new Error('Contrato de crédito da Rota Essencial inválido.');
-    }
-
     let claim = await this.ensureClaim(input.route, input.blockIndex);
     claim = await this.reconcileClaim(claim);
     if (claim.status === 'DEBITED' && claim.debitUsageKey) {
@@ -398,7 +413,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     const acquired = acquisition.claim;
     const usageKey = acquired.debitUsageKey!;
     try {
-      const result = await this.wallet.debit(acquired.companyId, 1, {
+      const result = await this.wallet.debit(acquired.companyId, input.cost, {
         actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
         usageKey,
         userId: input.actorUserId,
@@ -411,7 +426,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
         },
       });
 
-      if (result.debited !== 1 || result.partial) {
+      if (result.debited !== input.cost || result.partial) {
         if (result.debited > 0) {
           await this.wallet.refund(acquired.companyId, {
             usageKey,
