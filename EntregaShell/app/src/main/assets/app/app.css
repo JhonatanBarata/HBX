@@ -676,6 +676,15 @@ h3 { font-size: .95rem; }
 .client-product-list .row-card.selected { border-color: var(--brand-strong); background: var(--brand-soft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 30%, transparent); }
 .client-product-list .row-card.selected > span { color: var(--brand-strong); font-weight: 850; }
 :root[data-theme="dark"] .client-product-list .row-card.selected { color: var(--on-brand-soft); }
+/* 27/07 (ordem do dono) — produto salvo do cliente é SÓ produto + quantidade,
+   com a MESMA seta ↑↓ da Chegada pra corrigir a quantidade na própria linha.
+   Reusa .chegada-stepper/.chegada-seta/.chegada-qtd (nada de controle novo). */
+.client-product-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; }
+.client-product-row .chegada-seta { min-width: 40px; min-height: 30px; padding: 0 8px; }
+.client-product-qtd { font-size: 1.5rem; min-width: 26px; }
+.client-product-nome { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--ink); font-size: .9rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.client-product-preco { flex: 0 0 auto; color: var(--brand-strong); font-size: .78rem; font-weight: 800; }
+.client-product-editar { flex: 0 0 auto; color: var(--muted); font-size: .66rem; font-weight: 800; }
 .recurrence-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 3px 0 14px; }
 .recurrence-mode { min-height: 40px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--surface-2); font-size: .7rem; font-weight: 760; }
 .recurrence-mode.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: var(--on-brand-soft); background: var(--brand-soft); }
