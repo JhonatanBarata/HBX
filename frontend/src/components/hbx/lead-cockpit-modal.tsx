@@ -160,10 +160,11 @@ type NextSlot = {
   motivoConflito: string | null;
 } | null;
 
+// Nomes das etapas — ordem do dono 27/07, ao pé da letra.
 const COCKPIT_STAGES: Array<{ key: CockpitStage; label: string }> = [
   { key: "novo", label: "Planejar" },
-  { key: "contato", label: "Robô trabalhando" },
-  { key: "retorno", label: "Te chamou" },
+  { key: "contato", label: "Automação" },
+  { key: "retorno", label: "Retorno" },
   { key: "qualificado", label: "Negociação" },
   { key: "encerrado", label: "Fechado" },
 ];
@@ -1386,39 +1387,37 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                   disabled={stageBusy}
                   onClick={() => void changeStage(item.key)}
                 >
-                  <i className="lc2-funnel__dot">{index < stageIndex ? "✓" : index + 1}</i>
-                  <span>
-                    {item.label}
-                    <small>{item.key === stage ? "agora" : index < stageIndex ? "feito" : "—"}</small>
-                  </span>
+                  <i className="lc2-funnel__dot">{index + 1}</i>
+                  <span>{item.label}</span>
                 </button>
               ))}
             </nav>
 
             <div className="lc2-tele">
-              <div className="lc2-tele__cell" title={approachReason}>
+              {/* 27/07, ordem do dono: "resumir MUITA ESCRITA". Cada célula diz
+                  UM número; o porquê vive no title, não ocupando linha. */}
+              <div className="lc2-tele__cell" title={`${approachReason} Canal sugerido: ${recommendedChannel}. Dor: ${pain}.`}>
                 <Lc2Gauge value={opportunityScore} label="Score de oportunidade" />
                 <div>
                   <span className="lc2-tele__key">Score</span>
-                  <div className="lc2-tele__sub">{recommendedChannel} · dor: {pain}</div>
+                  <div className="lc2-tele__sub">{pain}</div>
                 </div>
               </div>
 
-              <div className="lc2-tele__cell">
+              <div className="lc2-tele__cell" title={preVoo?.prontidao?.veredictoLabel || "Prontidão do lead"}>
                 <div>
                   <span className="lc2-tele__key">Prontidão</span>
                   <div className="lc2-tele__num">{readinessScore}<small>%</small></div>
-                  <div className="lc2-tele__sub">
-                    {preVooLoading ? "conferindo…" : preVoo?.prontidao?.veredito === "pronto" ? "pronto pra abordar" : "faltam dados"}
-                  </div>
+                  {preVoo?.prontidao?.veredito !== "pronto" && !preVooLoading && (
+                    <div className="lc2-tele__sub">faltam dados</div>
+                  )}
                 </div>
               </div>
 
-              <div className="lc2-tele__cell is-optional">
+              <div className="lc2-tele__cell is-optional" title={lastInteractionAt ? fmtDateTime(lastInteractionAt) : "Sem interação registrada"}>
                 <div>
-                  <span className="lc2-tele__key">Última interação</span>
-                  <div className="lc2-tele__num" style={{ fontSize: "1rem" }}>{relativeTimeLabel(lastInteractionAt) || "—"}</div>
-                  <div className="lc2-tele__sub">{lead.timesSeen != null && lead.timesSeen > 1 ? `visto ${lead.timesSeen}× no radar` : "primeiro contato pendente"}</div>
+                  <span className="lc2-tele__key">Último contato</span>
+                  <div className="lc2-tele__num lc2-tele__num--word">{relativeTimeLabel(lastInteractionAt) || "nenhum"}</div>
                 </div>
               </div>
 
