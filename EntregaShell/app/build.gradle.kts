@@ -36,7 +36,12 @@ plugins {
 // g15 instalei à mão os builds 57/58/59/60. Sem subir o piso, o próximo publish
 // carimbaria um número que JÁ está no aparelho e ele nunca veria a atualização
 // (mesmo caso de 8→15, 15→18 e 18→38 acima).
-val hbxLogisticaVersionCodeFloor = 60
+// 60 → 68 em 27/07: testando o chip de dia virando interruptor (tocar de novo
+// TIRA o dia) instalei à mão o build 68 no moto g15, que já rodava o 67 vindo do
+// publish. Sem subir o piso o próximo publish carimbaria 68 — MESMO número já no
+// aparelho — e ele nunca veria a atualização (mesmo caso de 8→15, 15→18, 18→38
+// e 38→60 acima).
+val hbxLogisticaVersionCodeFloor = 68
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

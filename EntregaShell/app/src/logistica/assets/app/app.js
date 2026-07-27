@@ -2541,17 +2541,44 @@
     void loadDayCounts();
     if (routePlanned()) void abrirRotaConferencia();
   }
-  function toggleManagedRouteDay(day) {
+  async function toggleManagedRouteDay(day) {
     if (!Number.isInteger(day) || day < 1 || day > 7) return;
     if (!agendaDayEnabled(day)) return;
     if (state.dayStarting) return;
     // R1/R4 (27/07) — com rota já montada, o chip vira o gesto de ADICIONAR (padrão
-    // Circuit): dia já na rota avisa e fica; dia novo soma e REGENERA a rota inteira
-    // (gerar-dia é idempotente e o claim por dia garante que dia pago não recobra —
-    // o que estourar o bloco aparece na linha de créditos como o "+X" a debitar).
+    // Circuit): dia novo soma e REGENERA a rota inteira (gerar-dia é idempotente e o
+    // claim por dia garante que dia pago não recobra — o que estourar o bloco aparece
+    // na linha de créditos como o "+X" a debitar).
     if (routePlanned()) {
       const adicionados = diasAdicionados();
-      if (adicionados.includes(day)) { toast("Este dia já está na rota. Cancele a rota para remover."); return; }
+      // 27/07 (dono) — o chip é INTERRUPTOR: tocar num dia MARCADO desmarca. Antes
+      // só avisava "cancele a rota para remover" — o dono tinha que cancelar tudo e
+      // remontar na mão. Agora o app faz esse mesmo caminho sozinho: desfaz a
+      // montagem (descartar-montagem DEVOLVE a ocorrência, não consome o dia do
+      // cliente) e remonta só com os dias que sobraram. Sem dia nenhum, fica
+      // desfeita. Nada disso debita — quem debita é "Confirmar/Aceitar rota".
+      if (adicionados.includes(day)) {
+        const restantes = adicionados.filter(value => value !== day);
+        state.dayStarting = true; render();
+        showLoading(restantes.length ? "Refazendo a rota…" : "Tirando o dia…");
+        try {
+          // A conferência na tela é da rota que está morrendo: sai ANTES (mesmo
+          // cuidado do popup "Cancelar?"), senão sobraria uma lista de paradas de
+          // uma rota que não existe mais. `cancelada` evita que o guard de abandono
+          // do closeOverlay dispare um segundo desfazer em cima deste.
+          if (state.rotaConferencia) state.rotaConferencia.cancelada = true;
+          state.rotaConferencia = null;
+          await performEncerrarRota("Dia retirado da montagem.", { descartar: true, semToast: restantes.length > 0 });
+        } finally { hideLoading(); state.dayStarting = false; }
+        // performEncerrarRota engole o próprio erro (já falou na tela) e só limpa os
+        // dias adicionados quando o backend confirmou: se ainda tem dia carimbado,
+        // nada foi desfeito e a seleção não pode mentir.
+        if (diasAdicionados().length) { render(); return; }
+        state.daySelection = restantes;
+        render();
+        if (restantes.length) void beginManagedRoute();
+        return;
+      }
       state.daySelection = [...new Set([...adicionados, day])].sort((a, b) => a - b);
       void beginManagedRoute();
       return;
@@ -5218,7 +5245,7 @@
       button.addEventListener("click", event => {
         event.preventDefault();
         event.stopImmediatePropagation();
-        toggleManagedRouteDay(Number(button.dataset.day));
+        void toggleManagedRouteDay(Number(button.dataset.day));
       });
     });
     const modal = app.querySelector(".modal");
@@ -6412,7 +6439,9 @@
       // pra não empilhar som em cima do route_stop). Senão, resumo do encerrar.
       if (opts.saveRoute && snapshot) await saveTodayRoute(snapshot);
       // Resumo de entregues/pendentes é do encerrar de verdade — aqui seria zero.
-      else if (opts.descartar) toast(opts.mensagemToast || "Rota desfeita.");
+      // opts.semToast: tirar UM dia dos vários desfaz e remonta na sequência — o
+      // toast do remontar é quem fala, senão saem dois avisos empilhados.
+      else if (opts.descartar) { if (!opts.semToast) toast(opts.mensagemToast || "Rota desfeita."); }
       else toast(opts.mensagemToast || `Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
     } catch (error) {
       toast(humanApiError(error), true);
@@ -6732,7 +6761,7 @@
     if (target.dataset.screen) { navigateTo(target.dataset.screen); return; }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
     if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } openClientEditor(clientById(target.dataset.client)); return; }
-    if (target.dataset.day) { toggleManagedRouteDay(Number(target.dataset.day)); return; }
+    if (target.dataset.day) { void toggleManagedRouteDay(Number(target.dataset.day)); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientDaysTouched = true; state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
     if (target.dataset.paymentForm) { const draft = target.dataset.paymentTarget === "client" ? state.clientPaymentDraft : state.newClientDraft; draft.formaPagamento = target.dataset.paymentForm; if (draft.formaPagamento !== "na_hora") draft.metodoPadrao = ""; render(); return; }
