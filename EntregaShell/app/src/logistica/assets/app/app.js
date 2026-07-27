@@ -2511,6 +2511,17 @@
     if (item.frequenciaDias) return `A cada ${item.frequenciaDias} dia(s)`;
     return "Sem recorrência";
   }
+  // PONTE CADASTRO→AGENDA (26/07) — os dias que o CLIENTE já tem: união do card
+  // (diasEntrega, que com a Agenda V2 vem dos PLANOS) com os vínculos semanais
+  // ativos já carregados na ficha. É o default do produto novo — o dia se
+  // pergunta 1x por cliente, não de novo a cada produto.
+  function clientKnownDays(client) {
+    const fromCard = Array.isArray(client && client.diasEntrega) ? client.diasEntrega : [];
+    const fromProducts = (state.clientProducts || [])
+      .filter(item => item && item.ativo !== false)
+      .flatMap(item => String(item.diasSemana || "").split(",").map(Number));
+    return Array.from(new Set([...fromCard, ...fromProducts].map(Number).filter(day => day >= 1 && day <= 7))).sort((a, b) => a - b);
+  }
   async function loadClientProducts() {
     const client = state.modalClient;
     if (!client || !client.id) return;
@@ -6456,7 +6467,14 @@
       } catch (error) { toast(humanApiError(error), true); }
       return;
     }
-    if (action === "new-client-product") { resetClientProductEditor(); state.clientProductFormOpen = true; render(); }
+    if (action === "new-client-product") {
+      resetClientProductEditor();
+      // PONTE CADASTRO→AGENDA (26/07) — o dia é do CLIENTE, não do produto:
+      // produto novo já nasce nos dias que o cliente tem (chips continuam editáveis).
+      const diasDoCliente = clientKnownDays(state.modalClient);
+      if (diasDoCliente.length) { state.clientProductDays = diasDoCliente; state.clientProductMode = "weekly"; }
+      state.clientProductFormOpen = true; render();
+    }
     if (action === "close-client-product-form") { resetClientProductEditor(); state.clientProductFormOpen = false; render(); }
     if (action === "call-client" && state.modalClient) H.call(state.clientDetail && state.clientDetail.whatsapp || state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp);
     if (action === "whatsapp-client" && state.modalClient) { const client = state.modalClient; H.whatsapp(state.clientDetail && state.clientDetail.whatsapp || client.whatsapp || client.phone || client.phoneNormalized, `Olá, ${client.nome || client.name || "tudo bem"}?`); }
