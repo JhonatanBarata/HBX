@@ -160,7 +160,11 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
     debit: async (companyId: number, amount: number, opts: any) => {
       debitCalls.push({ companyId, amount, ...opts });
       const previous = ledger.filter((r) => r.kind === 'debit' && r.usageKey === opts.usageKey);
-      if (previous.length) return { debited: 1, requested: 1, partial: false, balanceAfter: available };
+      // Replay idempotente devolve o que JÁ foi debitado (como o wallet real).
+      if (previous.length) {
+        const debited = previous.reduce((sum, r) => sum + r.amount, 0);
+        return { debited, requested: amount, partial: debited < amount, balanceAfter: available };
+      }
       if (available < amount) return { debited: 0, requested: amount, partial: true, balanceAfter: available };
       available -= amount;
       ledger.push({ companyId, kind: 'debit', amount, usageKey: opts.usageKey });
@@ -176,11 +180,18 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
     },
   };
   const config: any = { resolveRouteMode: async () => mode };
-  const billing = new LogisticaRouteBillingService(prisma, wallet, config);
-  const preview = new LogisticaCustoPreviewService(prisma, wallet, config);
+  // 💰 27/07 — billing e preview leem o MESMO catálogo (resolveEffective); o
+  // stub nasce no contrato base (debit/1) pra bateria antiga valer byte a byte.
+  const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 1 };
+  const actionConfig: any = {
+    resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
+  };
+  const billing = new LogisticaRouteBillingService(prisma, wallet, config, actionConfig);
+  const preview = new LogisticaCustoPreviewService(prisma, wallet, config, actionConfig);
 
   return {
     billing, preview, routes, stops, claims, ledger, debitCalls,
+    setEssentialAction: (m: 'debit' | 'free', cost: number) => { essentialAction.mode = m; essentialAction.cost = cost; },
     setAvailable: (n: number) => { available = n; },
     seedEntrega: (id: string, overrides: Partial<{ companyId: number; entregadorId: number; status: string }> = {}) => {
       entregas.set(id, { id, companyId: 7, entregadorId: 9, status: 'agendada', scheduledAt: null, ...overrides });
@@ -211,6 +222,28 @@ test('preview == débito real: 6 entregas viram 2 blocos e o START debita exatam
 
   await h.billing.prepareRoute({ ...BASE, deliveryIds: ids, chargeEssential: true });
   assert.equal(h.debitCalls.length, preview.creditosAIniciar, 'preview previu exatamente o que foi debitado');
+});
+
+test('preview segue o catálogo: custo 2/bloco dobra o "Iniciar Debitará"; free zera antes de qualquer débito', async () => {
+  const caro = makeHarness();
+  const ids = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];
+  ids.forEach((id) => caro.seedEntrega(id));
+  caro.setEssentialAction('debit', 2);
+  const preview = await caro.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ids }, 9);
+  assert.equal(preview.blocosTotais, 2);
+  assert.equal(preview.creditosAIniciar, 4, '2 blocos × custo 2 do catálogo');
+  await caro.billing.prepareRoute({ ...BASE, deliveryIds: ids, chargeEssential: true });
+  assert.equal(caro.debitCalls.length, 2);
+  assert.ok(caro.debitCalls.every((c: any) => c.amount === 2), 'o débito real usa o MESMO custo que o preview prometeu');
+
+  const gratis = makeHarness();
+  ['d1', 'd2', 'd3'].forEach((id) => gratis.seedEntrega(id));
+  gratis.setEssentialAction('free', 0);
+  const zero = await gratis.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1', 'd2', 'd3'] }, 9);
+  assert.equal(zero.blocosTotais, 1, 'o bloco existe — só não custa nada');
+  assert.equal(zero.creditosAIniciar, 0, 'modo free = iniciar não vai debitar');
+  await gratis.billing.prepareRoute({ ...BASE, deliveryIds: ['d1', 'd2', 'd3'], chargeEssential: true });
+  assert.equal(gratis.debitCalls.length, 0, 'e o START de fato não debitou');
 });
 
 test('re-iniciar não pede crédito de novo: claims já DEBITED zeram o preview', async () => {

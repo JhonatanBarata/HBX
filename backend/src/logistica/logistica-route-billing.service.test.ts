@@ -188,7 +188,12 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
     debit: async (companyId: number, amount: number, opts: any) => {
       debitCalls.push({ companyId, amount, ...opts });
       const previous = ledger.filter((r) => r.kind === 'debit' && r.usageKey === opts.usageKey);
-      if (previous.length) return { debited: 1, requested: 1, partial: false, balanceAfter: available };
+      // Replay idempotente devolve o que JÁ foi debitado (como o wallet real),
+      // não "1" cravado — com custo de catálogo ≠ 1 o cravado viraria falso parcial.
+      if (previous.length) {
+        const debited = previous.reduce((sum, r) => sum + r.amount, 0);
+        return { debited, requested: amount, partial: debited < amount, balanceAfter: available };
+      }
       if (available < amount) return { debited: 0, requested: amount, partial: true, balanceAfter: available };
       available -= amount;
       ledger.push({ companyId, kind: 'debit', amount, usageKey: opts.usageKey });
@@ -221,9 +226,16 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   prisma.$executeRawUnsafe = async () => 0;
   prisma.$transaction = async (callback: any) => callback(prisma);
   const config: any = { resolveRouteMode: async () => mode };
-  const service = new LogisticaRouteBillingService(prisma, wallet, config);
+  // 💰 27/07 — o serviço lê o preço do catálogo (resolveEffective); o stub
+  // nasce no contrato base (debit/1) pra bateria antiga valer byte a byte.
+  const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 1 };
+  const actionConfig: any = {
+    resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
+  };
+  const service = new LogisticaRouteBillingService(prisma, wallet, config, actionConfig);
   return {
     service, routes, stops, claims, ledger, debitCalls, refundCalls,
+    setEssentialAction: (m: 'debit' | 'free', cost: number) => { essentialAction.mode = m; essentialAction.cost = cost; },
     setAvailable: (n: number) => { available = n; },
     failNextRefunds: (count = 1) => { refundFailuresRemaining = count; },
     failNextLedgerReads: (count = 1) => { ledgerReadFailuresRemaining = count; },
@@ -335,6 +347,30 @@ test('COMPLETED é terminal: START não anexa, não cobra e não reabre o modo c
     h.service.beginInitialization(7, h.routes[0].id, h.routes[0].billingRevision),
     /já foi concluída/i,
   );
+});
+
+test('preço do catálogo manda: custo 2 debita 2 por bloco; modo free pula cobrança e claim', async () => {
+  const caro = makeHarness('ESSENTIAL');
+  caro.setEssentialAction('debit', 2);
+  await caro.service.prepareRoute({
+    companyId: 7, entregadorId: 9, routeDate: '2026-07-13',
+    deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'],
+    chargeEssential: true,
+  });
+  assert.equal(caro.debitCalls.length, 2, '6 entregas = 2 blocos');
+  assert.ok(caro.debitCalls.every((c: any) => c.amount === 2), 'cada bloco debitou o custo do catálogo (2), não o cravado');
+
+  const gratis = makeHarness('ESSENTIAL');
+  gratis.setEssentialAction('free', 0);
+  const prepared = await gratis.service.prepareRoute({
+    companyId: 7, entregadorId: 9, routeDate: '2026-07-13',
+    deliveryIds: ['d1', 'd2', 'd3'],
+    chargeEssential: true,
+  });
+  assert.ok(prepared, 'free monta a rota normal');
+  assert.equal(gratis.debitCalls.length, 0, 'free pula a cobrança inteira');
+  assert.equal(gratis.claims.length, 0, 'nenhum claim nasce no modo free');
+  assert.equal(gratis.stops.length, 3, 'o snapshot da rota continua nascendo');
 });
 
 test('falha de saldo em lote novo estorna os débitos feitos na mesma tentativa', async () => {

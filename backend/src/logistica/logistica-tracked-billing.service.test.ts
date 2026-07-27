@@ -132,9 +132,34 @@ function setup(options?: { mode?: 'ESSENTIAL' | 'TRACKED'; validPosition?: boole
       return { refunded: debited, balanceAfter: balance, alreadyProcessed: false };
     },
   };
-  const service = new LogisticaTrackedBillingService(prisma, wallet);
-  return { service, prisma, route, session, claims, ledger, debitCalls, refundCalls, now, balance: () => balance };
+  // 💰 27/07 — o serviço passou a ler o preço do catálogo (resolveEffective);
+  // o stub nasce no preço atual do dono (debit/2) pra bateria antiga valer igual.
+  const trackedAction = { mode: 'debit' as 'debit' | 'free', cost: 2 };
+  const actionConfig: any = {
+    resolveEffective: async () => ({ key: 'logistica_tracked_delivery', label: 'Rota Rastreada', mode: trackedAction.mode, cost: trackedAction.cost }),
+  };
+  const service = new LogisticaTrackedBillingService(prisma, wallet, actionConfig);
+  return {
+    service, prisma, route, session, claims, ledger, debitCalls, refundCalls, now, balance: () => balance,
+    setTrackedAction: (mode: 'debit' | 'free', cost: number) => { trackedAction.mode = mode; trackedAction.cost = cost; },
+  };
 }
+
+test('preço do catálogo manda na rastreada: custo 3 debita 3; modo free conclui sem claim nem débito', async () => {
+  const caro = setup();
+  caro.setTrackedAction('debit', 3);
+  const charge = await caro.service.prepareDeliveryCompletion(7, 'delivery-1', 9, caro.now);
+  assert.ok(charge);
+  assert.equal(caro.debitCalls.length, 1);
+  assert.equal(caro.debitCalls[0].amount, 3, 'o débito segue o custo do catálogo, não número cravado');
+
+  const gratis = setup();
+  gratis.setTrackedAction('free', 0);
+  const nada = await gratis.service.prepareDeliveryCompletion(7, 'delivery-1', 9, gratis.now);
+  assert.equal(nada, null, 'free = entrega conclui sem cobrança');
+  assert.equal(gratis.debitCalls.length, 0);
+  assert.equal(gratis.claims.length, 0, 'nenhum claim nasce no modo free');
+});
 
 test('Rota Rastreada debita 2 uma vez e conclui claim na mesma transação', async () => {
   const h = setup();
