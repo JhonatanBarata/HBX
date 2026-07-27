@@ -52,6 +52,7 @@ import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
   ConferirRotaDto,
+  SanitizarRotaDto,
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
@@ -731,6 +732,17 @@ export class LogisticaController {
       deliveryIds: dto?.deliveryIds,
       ordemManual: dto?.ordemManual,
     }, entregadorId);
+  }
+
+  /** SANITIZADOR (27/07) — correção em massa do pop-up do Gerenciador. `executar`
+   *  ausente = só placar; `executar:true` cura um LOTE (o app repete até `restantes`
+   *  zerar). Só escreve PINO de cadastro (geoFonte 'cnefe'); rota/crédito intocados. */
+  @Post('rota/sanitizar')
+  async sanitizarRota(@Req() req: any, @Body() dto: SanitizarRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    return this.conferencia.sanitizar(companyId, { date: dto?.date, executar: dto?.executar === true }, entregadorId);
   }
 
   /**

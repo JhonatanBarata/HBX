@@ -33,6 +33,9 @@
     // o selo não desaparecer ao reabrir o app.
     routeEngine: null,
     routeDegradedReason: null,
+    // 27/07 (ordem do dono) — pop-up "Correção em massa" do Gerenciador
+    // (sanitizador CNEFE em lote). null = fechado.
+    sanitizador: null,
     // S4 25/07 (PR25072026-ROTA-CONFERIDA) — estado da tela de conferência
     // (flag rotaConferidaAtiva). null = tela fechada; `abrirRotaConferencia()`
     // monta o objeto inteiro de novo a cada abertura (nunca reaproveita entre
@@ -4878,6 +4881,7 @@
     // (mesma moldura central da conferência); Voltar cai de novo aqui.
     if (state.montagemRapida) return montagemRapidaModal();
     if (state.montagemSalvar) return montagemSalvarModal();
+    if (state.sanitizador) return sanitizadorModal();
     const chipsHtml = montagemDiaChips();
     const chips = chipsHtml ? `<div class="montagem-dias">${chipsHtml}</div>` : "";
     const mapa = `<div id="route-plan-preview-map" class="montagem-map" aria-label="Mapa da rota em montagem"><span class="route-map-loading">Carregando mapa…</span></div>`;
@@ -5490,6 +5494,92 @@
     const kind = custo.saldoCobre === false ? "danger" : "ok";
     return `<div class="hbx-aviso hbx-aviso--${kind} conferencia-creditos"><span>Créditos atual: ${H.escape(String(saldo))}</span><span>Aceitar Debitará: ${H.escape(String(debita))}</span></div>`;
   }
+  // ── SANITIZADOR (27/07, ordem do dono) — pop-up "Correção em massa" ─────────
+  // Placar por família + "Ativar sanitizador": o servidor cura em LOTES
+  // (POST /logistica/rota/sanitizar) e o app repete a chamada até a fila zerar,
+  // com barra de progresso determinística. Ao terminar, reconfere sozinho.
+  function fecharSanitizador() {
+    if (state.sanitizador) state.sanitizador.abortar = true;
+    state.sanitizador = null;
+  }
+  async function abrirSanitizador() {
+    const rc = state.rotaConferencia;
+    if (!rc || !rc.data || state.sanitizador) return;
+    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, semDados: [], curados: 0, naoEncontrado: [], restantes: 0, carregando: true, erro: null, abortar: false };
+    render();
+    try {
+      const s = state.sanitizador;
+      const placar = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { ...(s.date ? { date: s.date } : {}) } });
+      if (!state.sanitizador) return;
+      Object.assign(state.sanitizador, {
+        alvos: Number(placar.alvos) || 0,
+        restantes: Number(placar.restantes) || 0,
+        semDados: Array.isArray(placar.semDados) ? placar.semDados : [],
+        carregando: false,
+      });
+    } catch (error) {
+      if (!state.sanitizador) return;
+      state.sanitizador.carregando = false;
+      state.sanitizador.erro = humanApiError(error);
+    }
+    render();
+  }
+  async function executarSanitizador() {
+    const s = state.sanitizador;
+    if (!s || s.fase === "rodando" || s.carregando) return;
+    s.fase = "rodando";
+    s.erro = null;
+    render();
+    try {
+      for (;;) {
+        if (!state.sanitizador || state.sanitizador.abortar) return;
+        const res = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { executar: true, ...(s.date ? { date: s.date } : {}) } });
+        if (!state.sanitizador || state.sanitizador.abortar) return;
+        s.curados += Number(res.curados) || 0;
+        s.restantes = Number(res.restantes) || 0;
+        (Array.isArray(res.naoEncontrado) ? res.naoEncontrado : []).forEach(nome => { if (!s.naoEncontrado.includes(nome)) s.naoEncontrado.push(nome); });
+        if (Array.isArray(res.semDados)) s.semDados = res.semDados;
+        render();
+        if (s.restantes <= 0 || (Number(res.processados) || 0) === 0) break;
+      }
+      s.fase = "fim";
+      render();
+      // Reconfere JÁ: fechar o pop-up devolve a lista pintada com a verdade nova.
+      await recarregarConferencia();
+    } catch (error) {
+      if (!state.sanitizador) return;
+      s.fase = "placar";
+      s.erro = humanApiError(error);
+    }
+    render();
+  }
+  function sanitizadorModal() {
+    const s = state.sanitizador;
+    const feitos = Math.max(0, s.alvos - s.restantes);
+    const pct = s.alvos > 0 ? Math.round((feitos / s.alvos) * 100) : 0;
+    const fila = [];
+    if (s.naoEncontrado.length) fila.push(`<div class="hbx-aviso hbx-aviso--warn">Não achei pelo CEP — toque no cliente na lista para completar: ${H.escape(s.naoEncontrado.join(", "))}</div>`);
+    if (s.semDados.length) fila.push(`<div class="hbx-aviso hbx-aviso--danger">Sem CEP e número no cadastro: ${H.escape(s.semDados.join(", "))}</div>`);
+    let corpo;
+    if (s.carregando) corpo = loading();
+    else if (s.fase === "rodando") corpo = `<p class="day-home-sub">Corrigindo pela base oficial… ${feitos} de ${s.alvos}</p><div class="app-update-progress"><i style="width:${pct}%"></i></div>${fila.join("")}`;
+    else if (s.fase === "fim") corpo = `<div class="hbx-aviso hbx-aviso--ok">${s.curados} endereço(s) corrigido(s) sozinho(s).</div>${fila.join("")}`;
+    else corpo = `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}<p class="day-home-sub">${s.alvos} endereço(s) com CEP e número: o sanitizador corrige sozinho pela base oficial.</p>${fila.join("")}`;
+    return centerModal({
+      icon: "map",
+      title: "Correção em massa",
+      resumo: s.fase === "fim" ? "Pronto" : "Sanitizador de endereços",
+      body: corpo,
+      closeAction: "sanitizador-fechar",
+      closeButtonAction: "sanitizador-fechar",
+      backAction: "sanitizador-fechar",
+      backLabel: s.fase === "fim" ? "Concluir" : "Fechar",
+      backGlyph: "×",
+      nextAction: s.fase === "placar" && !s.carregando && s.alvos > 0 ? "sanitizador-executar" : "",
+      nextLabel: "Ativar sanitizador",
+      nextDisabled: s.fase !== "placar" || s.carregando || s.alvos <= 0,
+    });
+  }
   function conferenciaListaStep(rc) {
     const data = rc.data;
     // Estados sem lista: aqui não há rota conferida pra cancelar nem pra
@@ -5503,7 +5593,11 @@
     if (!data) return centerModal({ icon: "route", title: "Conferência de rota", body: empty("Nada para conferir", ""), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", backGlyph: "×", nextAction: "" });
     const pendentes = conferenciaVermelhasPendentes(rc);
     const rows = (data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("");
-    const body = `${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+    // 27/07 (ordem do dono) — havendo vermelho, o caminho é a correção EM MASSA:
+    // o pop-up mostra o placar por família e o botão que roda o sanitizador.
+    const vermelhas = Number(data.vermelhas) || 0;
+    const sanitizarBtn = vermelhas > 0 ? `<button type="button" class="btn btn-secondary btn-block conferencia-sanitizar" data-action="sanitizador-abrir" ${rc.loading ? "disabled" : ""}>Corrigir em massa (${vermelhas})</button>` : "";
+    const body = `${custoPreviewBanner(rc)}${sanitizarBtn}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
     const resumo = conferenciaResumoLinhas(data).map(linha => `<span class="conferencia-resumo-linha">${H.escape(linha)}</span>`).join("");
     return centerModal({
       icon: "route",
@@ -5545,6 +5639,7 @@
   function rotaConferenciaModal() {
     const rc = state.rotaConferencia;
     if (!rc) return "";
+    if (state.sanitizador) return sanitizadorModal();
     return conferenciaListaStep(rc);
   }
   // S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos: GET 100%
@@ -6430,7 +6525,7 @@
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
-      if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
+      if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; fecharSanitizador(); }
       // Passos que vivem DENTRO da montagem morrem com ela (senão o próximo
       // "Montar rota" abriria direto no nome da rota da vez passada).
       if (limpaConferenciaMontagem || abandonaConferencia) { state.montagemSalvar = null; state.montagemRapida = null; }
@@ -7035,6 +7130,9 @@
       await abrirFichaComEditor(false);
       return;
     }
+    if (action === "sanitizador-abrir") { await abrirSanitizador(); return; }
+    if (action === "sanitizador-executar") { await executarSanitizador(); return; }
+    if (action === "sanitizador-fechar") { fecharSanitizador(); render(); return; }
     // S5 25/07 — "Recalcular" do popup de drift de origem (ver
     // avisarDriftOrigemAprovada): a ordem aprovada não faz mais sentido
     // geográfico daqui, descarta e replaneja do zero com o GPS atual; flag ON
@@ -7832,7 +7930,10 @@
         const addressBody = { nome: String(data.name || "").trim(), endereco, numero: String(d.numero || "").trim(), bairro: String(d.bairro || "").trim(), cidade: String(d.cidade || "").trim(), uf: String(d.uf || "").trim().toUpperCase(), cep: formatCep(d.cep || ""), observacoes, ...(hasCoordinates ? { lat, lng, ...(geoFonteEditavel ? { geoFonte: d.geoFonte, ...(Number.isFinite(gpsAccuracyNum) ? { gpsAccuracy: gpsAccuracyNum } : {}) } : {}) } : {}) };
         await H.api(`/nucleo/contas/${encodeURIComponent(client.id)}`, { method: "PATCH", body: addressBody });
         try {
-          const localBody = { ...addressBody, endereco }; delete localBody.observacoes;
+          // 27/07 (toast na tela do dono): `nome` é campo da CONTA — o DTO de locais
+          // não o aceita (local tem `apelido`) e o PATCH inteiro caía em 400
+          // "property nome should not exist" pra TODO cliente com local principal.
+          const localBody = { ...addressBody, endereco }; delete localBody.observacoes; delete localBody.nome;
           if (d.localId) await H.api(`/nucleo/locais/${encodeURIComponent(d.localId)}`, { method: "PATCH", body: localBody });
           else if (endereco || addressBody.cep) await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/locais`, { method: "POST", body: { ...localBody, isPrincipal: true } });
         } catch (localError) { toast("O endereço do mapa não atualizou: " + humanApiError(localError), true); }
@@ -8027,6 +8128,9 @@
         // tela): voltar SEMPRE dispensa (mesmo botão "Dispensar"), nunca sai
         // da tela por baixo dele numa tacada só.
         if (state.leituraPausaPendente) { leituraPausaResolver(false); state.leituraPausaPendente = null; render(); return true; }
+        // 27/07 — pop-up do sanitizador é overlay por cima da conferência: Voltar
+        // fecha SÓ ele (rodando, o loop vê `abortar` e para sozinho). Lei 10.
+        if (state.sanitizador) { fecharSanitizador(); render(); return true; }
         // 22/07 — Lei 10: tela nova entra aqui. Histórico volta pra ficha do
         // cliente (de onde foi aberto); dentro da chegada, o picker de produto e o
         // campo de preço fecham ANTES da folha inteira.

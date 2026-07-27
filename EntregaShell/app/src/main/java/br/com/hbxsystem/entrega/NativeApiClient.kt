@@ -315,6 +315,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // sair do aparelho, e a rota fica de pé como se nada tivesse sido
             // cancelado — foi o que aconteceu no 1º teste em campo.
             listOf("logistica", "rota", "descartar-montagem"),
+            // SANITIZADOR (27/07) — correção em massa do Gerenciador (pop-up).
+            listOf("logistica", "rota", "sanitizar"),
             listOf("logistica", "rota-modelos"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "entregas"),

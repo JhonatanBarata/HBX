@@ -445,6 +445,19 @@ export class ConferirRotaDto {
   ordemManual?: string[];
 }
 
+// SANITIZADOR (27/07) — correção em massa do pop-up do Gerenciador.
+// `executar` ausente/false = só o placar (classifica, não escreve nada).
+export class SanitizarRotaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  date?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  executar?: boolean;
+}
+
 // ── PR17072026 Onda 1 — encerrar rota (transacional, tudo-ou-nada) ───────────
 // Substitui o loop `cancelar` por parada: abertas (agendada/em_rota) voltam
 // para PENDÊNCIA (nunca cancelamento); entregues/canceladas ficam intocadas.

@@ -310,6 +310,88 @@ export class LogisticaConferenciaService implements OnModuleInit {
     }
   }
 
+  /**
+   * SANITIZADOR (27/07, ordem do dono) — a correção em massa do pop-up do Gerenciador.
+   * Mesmo motor da cura inline, mas em LOTE explícito: aqui o orçamento é generoso
+   * (é ação do operador, não o caminho quente da geração) e o app REPETE a chamada
+   * até `restantes` zerar — dono curado sai do filtro sem-pino sozinho na chamada
+   * seguinte, então não precisa de cursor. `executar:false` só CLASSIFICA (placar).
+   * Escreve SÓ pino de cadastro (gravarPinoCnefe) — rota/crédito intocados.
+   */
+  async sanitizar(
+    companyId: number,
+    input: { date?: string; executar?: boolean },
+    entregadorId?: number,
+  ): Promise<{
+    alvos: number;
+    semDados: string[];
+    curados: number;
+    naoEncontrado: string[];
+    processados: number;
+    restantes: number;
+  }> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const { start, end } = resolveDayRange(input.date);
+    const rows = await this.fetchParadasEstendidas(companyId, start, end, entregadorId);
+
+    const nomeDe = (r: ParadaConferenciaRow): string =>
+      r.local?.apelido ?? r.customerProfile?.name ?? 'Cliente';
+    const semDados: string[] = [];
+    const porDono = new Map<string, { alvo: AlvoCuraCnefe; row: ParadaConferenciaRow }>();
+    for (const r of rows) {
+      const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
+      if (coord.lat != null && coord.lng != null) continue; // tem pino — fora do sanitizador
+      const alvo = alvoCuraCnefe(r);
+      if (!alvo) {
+        semDados.push(nomeDe(r));
+        continue;
+      }
+      const chave = alvo.tipo === 'local' ? `l:${r.localId}` : `p:${r.customerProfileId}`;
+      if (!porDono.has(chave)) porDono.set(chave, { alvo, row: r });
+    }
+    const donos = [...porDono.values()];
+    const semDadosUnicos = [...new Set(semDados)];
+
+    if (input.executar !== true) {
+      return { alvos: donos.length, semDados: semDadosUnicos, curados: 0, naoEncontrado: [], processados: 0, restantes: donos.length };
+    }
+
+    // Lote e teto POR CHAMADA — o app repete até zerar; nunca uma chamada eterna.
+    const LOTE = 12;
+    const fim = Date.now() + 15000;
+    let curados = 0;
+    let processados = 0;
+    const naoEncontrado: string[] = [];
+    for (const dono of donos) {
+      if (processados >= LOTE || Date.now() >= fim) break;
+      processados += 1;
+      const pino = await resolverCnefe({
+        cep: dono.alvo.cep,
+        numero: dono.alvo.numero,
+        endereco: dono.alvo.endereco,
+        uf: dono.alvo.uf,
+      });
+      if (!pino) {
+        naoEncontrado.push(nomeDe(dono.row));
+        continue;
+      }
+      const gravou = await this.gravarPinoCnefe(companyId, dono.alvo, dono.row, pino);
+      if (gravou) curados += 1;
+      else naoEncontrado.push(nomeDe(dono.row));
+    }
+    this.logger.log(
+      `[logistica] sanitizador company=${companyId}: ${curados} curado(s) de ${processados} processado(s), ${donos.length - processados} na fila.`,
+    );
+    return {
+      alvos: donos.length,
+      semDados: semDadosUnicos,
+      curados,
+      naoEncontrado,
+      processados,
+      restantes: donos.length - processados,
+    };
+  }
+
   // ── infra ────────────────────────────────────────────────────────────────────
   /**
    * Select PRÓPRIO — decisão registrada no relatório da S3: `fetchParadasAbertas` de
