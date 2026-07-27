@@ -274,6 +274,9 @@
   let dayPreviewRequestId = 0;
   let navMotionTimer = null;
   let nextStopTimer = null;
+  // R6 (27/07) — auto-cura do motor de rotas (retry com backoff, ver syncAutoCuraMotor).
+  let motorCuraTimer = null;
+  let motorCuraTentativas = 0;
   let routeMap = null;
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
@@ -702,6 +705,12 @@
     // o fitBounds genérico "todas as paradas" (mesma regra que já valia só
     // pra Leitura).
     const reading = interactive && host.id === "route-live-map" && !!routeLiveMode();
+    // R6 (27/07, ordem do dono) — o mapa centra levando em conta a LOCALIZAÇÃO
+    // do motorista: a posição conhecida entra nos bounds junto com as paradas
+    // (fora dos modos vivos, que já têm câmera própria de follow).
+    if (!reading && lastKnownPosition && validCoordinates(lastKnownPosition.lat, lastKnownPosition.lng)) {
+      bounds.extend([lastKnownPosition.lng, lastKnownPosition.lat]);
+    }
     if (!reading && !bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
     if (interactive && host.id === "route-live-map") updateRouteReadingMap(host, map);
   }
@@ -1891,6 +1900,14 @@
   // persistido — nunca confia cegamente no `next` otimista (mesmo padrão de
   // H.offline.setPreferences). Chamador é responsável por render() depois.
   function persistSoundPrefs(next) { state.soundPrefs = H.soundPrefs.set(next) || next; }
+  // R6 (27/07) — saúde do MOTOR de cálculo de rota, na palavra do dono: "em cima
+  // um Motor alegando falha; se avermelhou eu já sei o que tá pegando". Vermelho
+  // = a última rota saiu em linha reta por FALHA DE REDE (nunca por escolha de
+  // ordem manual, nem por dado sem pino — ver routeEngineBanner de 25/07, que
+  // esta regra herda). O cliente NUNCA lê o nome técnico do serviço de rotas.
+  function motorDegradadoPorRede() {
+    return state.routeEngine === "haversine" && !!state.routeDegradedReason && state.routeDegradedReason !== "coords_invalidas";
+  }
   function syncHeaderChips() {
     const toolbar = document.querySelector(".topbar .toolbar");
     if (!toolbar) return;
@@ -1904,6 +1921,8 @@
     const upd = state.updateInfo && state.updateInfo.outdated;
     box.innerHTML =
       (upd ? `<button class="hbx-chip hbx-chip-update" data-action="app-update" aria-label="Atualizar aplicativo">${icon("download", 13)}<span>Atualizar</span></button>` : "") +
+      // R6 — chip "Motor" (verde/vermelho) no lugar da faixa técnica que morreu.
+      `<button class="hbx-chip ${motorDegradadoPorRede() ? "is-off" : "is-ok"}" data-action="chip-motor" aria-label="Motor de rotas">${icon("gear", 15)}</button>` +
       // S5 — chip "Som" ENTRA à esquerda do GPS (S5-PREFERENCIA.md, "Porta 1").
       `<button class="hbx-chip ${soundChipClass()}" data-action="chip-som" aria-label="Sons">${icon(soundMasterOn() ? "volume" : "volumeOff", 15)}</button>` +
       `<button class="hbx-chip ${gpsChipClass()}" data-action="chip-gps" aria-label="Sinal de GPS">${icon("gps", 15)}</button>` +
@@ -3846,7 +3865,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`${!leituraAtiva ? routeEngineBanner() : ""}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -4816,7 +4835,7 @@
         ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(rc.error)}</div><button class="btn btn-secondary btn-block" type="button" data-action="conferencia-tentar-de-novo">Tentar de novo</button>`
         : !rc.data
           ? loading()
-          : `${routeEngineBanner()}${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+          : `${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
       footer = `<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data || pendentes.length > 0 ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
     } else {
       subtitle = "Toque nos dias para adicionar";
@@ -5131,6 +5150,8 @@
       engine: state.routeEngine,
       degradedReason: state.routeDegradedReason,
     });
+    // R6 (27/07) — todo resultado novo re-arma (ou desarma) a auto-cura.
+    syncAutoCuraMotor();
   }
   function routeEngineIdentity(route) {
     if (!route || !Array.isArray(route.items)) return null;
@@ -5149,6 +5170,7 @@
     state.routeEngine = null;
     state.routeDegradedReason = null;
     H.cache.remove("logistica-route-engine");
+    syncAutoCuraMotor();
   }
   function restoreRouteEngineState(route) {
     const cached = H.cache.get("logistica-route-engine", null);
@@ -5170,6 +5192,8 @@
       routeId: identity.routeId || cached.routeId || null,
       signature: identity.signature,
     });
+    // R6 (27/07) — rota restaurada degradada re-arma a auto-cura no boot.
+    syncAutoCuraMotor();
   }
   // Selo discreto (osrm) ou faixa de alerta (haversine por FALHA). Rota pronta
   // sem motor identificável também recebe a faixa: é o caso legado de uma rota
@@ -5182,18 +5206,45 @@
   // nos conectores da lista (routeLegConnector, abaixo) e no semáforo da S3 —
   // aqui fica CALADO só pra esse motivo; timeout/rate_limit/upstream (falha de
   // rede de verdade) continuam acendendo a faixa normalmente.
-  // 26/07 — o selo "Calculada pelas ruas" (caso osrm, tudo certo) SAIU: é
-  // detalhe de motor e o motorista não tem o que fazer com ele. Sobra só o que
-  // é problema REAL — a faixa de rota degradada, que muda o que ele vê na rua.
-  function routeEngineBanner() {
-    if (state.routeEngine === "osrm") return "";
-    if (state.routeEngine === "haversine" && state.routeDegradedReason && state.routeDegradedReason !== "coords_invalidas") {
-      return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
+  // R6 (27/07, ordem do dono) — a FAIXA "Distâncias aproximadas em linha reta —
+  // rede de rotas indisponível" MORREU: quem sinaliza é o chip Motor no topo
+  // (verde/vermelho, ver motorDegradadoPorRede) e quem RESOLVE é a auto-cura
+  // abaixo — rota que nasceu em linha reta por falha de rede re-planeja sozinha
+  // pelas ruas quando o motor volta (retry com backoff, teto de tentativas).
+  // Palavra do dono: "eu quero um app que funcione; em cima um Motor alegando
+  // falha, assim se avermelhou eu já sei o que tá pegando".
+  function syncAutoCuraMotor() {
+    if (!motorDegradadoPorRede()) {
+      motorCuraTentativas = 0;
+      if (motorCuraTimer) { clearTimeout(motorCuraTimer); motorCuraTimer = null; }
+      return;
     }
-    if (!state.routeEngine && routePlanned()) {
-      return `<div class="hbx-aviso hbx-aviso--warn">Distâncias aproximadas em linha reta — rede de rotas indisponível</div>`;
-    }
-    return "";
+    if (motorCuraTimer || motorCuraTentativas >= 5) return;
+    // 30s, 1min, 2min, 4min, 8min — disjuntor: nunca loop livre em cima de rede caída.
+    const delayMs = 30000 * Math.pow(2, motorCuraTentativas);
+    motorCuraTimer = setTimeout(() => { motorCuraTimer = null; void tentarCuraMotor(); }, delayMs);
+  }
+  async function tentarCuraMotor() {
+    motorCuraTentativas += 1;
+    if (!motorDegradadoPorRede()) { syncAutoCuraMotor(); return; }
+    const rc = montagemConferencia();
+    try {
+      if (rc && !rc.loading && !rc.confirmada && !rc.cancelada) {
+        // Conferência aberta: a reconferida já replaneja em dry-run — se o motor
+        // voltou, a lista/km/ETA saem pelas ruas e o chip volta ao verde.
+        await recarregarConferencia();
+      } else if (routePlanned() && !routeActive() && !state.routePaused && !(activeRouteOrdemManual() || []).length) {
+        // Rota planejada AUTOMÁTICA (sem ordem aceita pelo humano — essa nunca é
+        // reordenada por conta própria): replaneja quieto com a mesma seleção.
+        const selection = activeRouteSelectionIds();
+        const body = { date: operationalDate(), ...(selection ? { deliveryIds: [...selection] } : {}) };
+        const result = await H.api("/logistica/rota/planejar", { method: "POST", body });
+        applyRouteEngineState(result);
+        await refresh(true);
+        if (!motorDegradadoPorRede()) toast("Rede de rotas voltou — rota recalculada pelas ruas.");
+      }
+    } catch (_) { /* rede ainda fora — o backoff cuida da próxima tentativa */ }
+    finally { syncAutoCuraMotor(); }
   }
 
   // ==========================================================================
@@ -5323,7 +5374,7 @@
     if (!data) return centerModal({ icon: "route", title: "Conferência de rota", body: empty("Nada para conferir", ""), closeAction: "close-modal", closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar", backGlyph: "×", nextAction: "" });
     const pendentes = conferenciaVermelhasPendentes(rc);
     const rows = (data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("");
-    const body = `${routeEngineBanner()}${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+    const body = `${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
     const resumo = conferenciaResumoLinhas(data).map(linha => `<span class="conferencia-resumo-linha">${H.escape(linha)}</span>`).join("");
     return centerModal({
       icon: "route",
@@ -6909,6 +6960,8 @@
     }
     // F3.4 — toques nos chips do header.
     if (action === "chip-rede") { toast(netOnline() ? "Conexão de rede OK." : "Sem conexão. As alterações ficam salvas e sincronizam ao voltar o sinal.", !netOnline()); return; }
+    // R6 (27/07) — chip Motor: frase de motorista, zero jargão técnico.
+    if (action === "chip-motor") { toast(motorDegradadoPorRede() ? "Sem rede de rotas agora — distâncias em linha reta. Eu tento recalcular sozinho." : "Motor de rotas funcionando — cálculo pelas ruas.", motorDegradadoPorRede()); return; }
     if (action === "chip-gps") {
       if (gpsChipClass() === "is-ok") { toast("GPS ativo."); return; }
       if (H.requestLocationPermission) { H.requestLocationPermission(); toast("Confirme a permissão de localização."); }
