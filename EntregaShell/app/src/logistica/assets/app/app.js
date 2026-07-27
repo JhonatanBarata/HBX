@@ -1241,16 +1241,32 @@
       // casas seria visualmente falsa e não pode ser apresentada como rota.
     }
   }
-  async function mountMap(hostId, points, interactive) {
+  // R2 (27/07) — toque no mapa da MONTAGEM vira parada (rota rápida). Handler
+  // guardado no HOST (não na closure) pra sobreviver ao transplante entre
+  // renders sem pendurar um listener novo por render (bind único por instância).
+  function wireMapTap(host, map, opts) {
+    host.__hbxMapTap = (opts && opts.onTap) || null;
+    if (host.__hbxMapTapBound) return;
+    host.__hbxMapTapBound = true;
+    map.on("click", event => {
+      const handler = host.__hbxMapTap;
+      if (handler && event && event.lngLat) handler({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+    });
+  }
+  async function mountMap(hostId, points, interactive, opts) {
     const host = document.getElementById(hostId);
     if (!host) return;
     try {
-      if (!interactive) points = await roadOptimizedPoints(points);
+      // R1 (27/07) — keepOrder: a montagem manda pontos JÁ na ordem da rota
+      // conferida/prévia; re-otimizar aqui desenharia no mapa uma ordem que
+      // NÃO é a da lista ao lado (mapa mentiroso).
+      if (!interactive && !(opts && opts.keepOrder)) points = await roadOptimizedPoints(points);
       // PR18072026 L4-D — se este host já carrega a MESMA instância viva
       // (pendurada em host.__hbxMap por uma montagem anterior e preservada
       // pelo transplante do native.js entre renders), atualiza markers/rota/
       // fitBounds no lugar; o objeto map em si nunca é recriado à toa.
       if (host.__hbxMap && routeMap === host.__hbxMap && routeMapHost === host) {
+        wireMapTap(host, host.__hbxMap, opts);
         ensureRouteMapResizeGuard(host, host.__hbxMap);
         const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
         const theme = currentMapTheme();
@@ -1295,6 +1311,7 @@
       disposeRouteMap(); routeMapHost = host;
       const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.2 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
       routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme() };
+      wireMapTap(host, map, opts);
       ensureRouteMapResizeGuard(host, map);
       if (!points.length) void pendingPosition.then(position => {
         if (position && routeMap === map && routeMapHost === host && !routeLivePoint(routeLiveMode())) map.easeTo({ center: [position.lng, position.lat], zoom: routeLiveMode() ? 16.2 : 14, duration: 500 });
@@ -2450,6 +2467,19 @@
       })();
     });
   }
+  // R1 (27/07, padrão Circuit) — quais dias compõem a rota MONTADA agora. É o que
+  // mata o "0 mentiroso" (item 9 do dono: gerar segunda zerava a contagem e o chip
+  // parecia vazio): chip de dia já montado mostra "Adicionado ✓", nunca a contagem.
+  // Persistido em cache local (sobrevive reabrir o app com a rota ainda de pé).
+  function diasAdicionados() {
+    if (!Array.isArray(state.dayAdicionados)) state.dayAdicionados = H.cache.get("logistica-dias-rota", []) || [];
+    return state.dayAdicionados;
+  }
+  function setDiasAdicionados(days) {
+    state.dayAdicionados = [...new Set((days || []).map(Number).filter(day => day >= 1 && day <= 7))].sort((a, b) => a - b);
+    H.cache.set("logistica-dias-rota", state.dayAdicionados);
+  }
+  function clearDiasAdicionados() { state.dayAdicionados = []; H.cache.remove("logistica-dias-rota"); }
   function openDayManager(mode) {
     // Sessão LEITURA (GPS) já ativa: volta para a própria tela Rota, onde os
     // controles de gravação ocupam o lugar do Play.
@@ -2460,37 +2490,36 @@
     // botão "Próximo" permanece desabilitado até o aplicativo reiniciar.
     state.dayStarting = false;
     state.montagemAbandonada = false;
-    // A seleção precisa ser inteiramente explícita. Pré-selecionar hoje fazia
-    // uma escolha posterior (ex.: quinta) somar a quarta sem o operador pedir.
-    // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
-    state.daySelection = [];
+    // R1 (27/07, fusão Circuit): morreu o menu "Montar Rota" e a Agenda separada —
+    // abre DIRETO na tela única (chips de dia + mapa + lista + Aceitar). Com rota
+    // já montada, a tela abre mostrando a PRÓPRIA rota (conferência da rota atual)
+    // e os dias dela carimbados "Adicionado ✓"; chip novo ADICIONA na rota.
+    // A seleção continua explícita: sem rota, nenhum dia nasce marcado.
+    state.daySelection = routePlanned() ? [...diasAdicionados()] : [];
     state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.openingOverlay = "modal"; state.modal = "manage-day";
-    // PR20072026 (feedback dono) — a abertura agora cai num MENU centralizado
-    // ("Montar Rota" → Por dia / Salvos), não mais direto no seletor de dias.
-    state.dayOrderStep = "home"; state.dayOrderMode = "manual"; state.dayManualOrder = []; state.dayManualSave = false; state.dayAgendaOrderOriginal = [];
-    // S1 21/07 — contagem por dia (S1.2) zera a cada abertura do menu.
+    state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; state.dayAgendaOrderOriginal = [];
+    // S1 21/07 — contagem por dia (S1.2) zera a cada abertura.
     state.dayCounts = {}; state.dayCountsLoaded = false;
     render();
     void loadRouteModelos();
     void loadDayCounts();
-  }
-  function openManagedAgenda(days) {
-    state.daySelection = [...new Set((days || []).map(Number).filter(day => day >= 1 && day <= 7))].sort((a, b) => a - b);
-    state.dayPreview = [];
-    state.dayPreviewEnteringIds = [];
-    state.dayPreviewLeavingIds = [];
-    state.daySourceDates = {};
-    state.dayPreviewError = null;
-    state.dayAgendaOrderOriginal = [];
-    state.dayOrderStep = null;
-    state.dayPreviewLoading = state.daySelection.length > 0;
-    render();
-    void loadDayCounts();
-    if (state.daySelection.length) void refreshDayPreview();
+    if (routePlanned()) void abrirRotaConferencia();
   }
   function toggleManagedRouteDay(day) {
     if (!Number.isInteger(day) || day < 1 || day > 7) return;
     if (!agendaDayEnabled(day)) return;
+    if (state.dayStarting) return;
+    // R1/R4 (27/07) — com rota já montada, o chip vira o gesto de ADICIONAR (padrão
+    // Circuit): dia já na rota avisa e fica; dia novo soma e REGENERA a rota inteira
+    // (gerar-dia é idempotente e o claim por dia garante que dia pago não recobra —
+    // o que estourar o bloco aparece na linha de créditos como o "+X" a debitar).
+    if (routePlanned()) {
+      const adicionados = diasAdicionados();
+      if (adicionados.includes(day)) { toast("Este dia já está na rota. Cancele a rota para remover."); return; }
+      state.daySelection = [...new Set([...adicionados, day])].sort((a, b) => a - b);
+      void beginManagedRoute();
+      return;
+    }
     state.daySelection = state.daySelection.includes(day)
       ? state.daySelection.filter(value => value !== day)
       : [...state.daySelection, day].sort((a, b) => a - b);
@@ -3983,7 +4012,7 @@
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${serverRouteActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="day-entry-leitura" ${state.leituraStarting ? "disabled" : ""}><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Registrar caminho</strong></div><span>›</span></button><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
   }
 
   // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá
@@ -4270,43 +4299,10 @@
       });
     }
     if (state.modal === "manage-day") {
-      // PR20072026 (feedback dono) — menu de entrada centralizado.
-      if (state.dayOrderStep === "home") return dayHomeModal();
-      // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e
-      // a geração: os dois modos caem direto no beginManagedRoute (a conferência
-      // da rota é a única tela de revisão).
+      // R1 (27/07) — tela ÚNICA de montagem (padrão Circuit); "Rotas salvas" é o
+      // único passo separado que restou (vira lista, Voltar cai de novo aqui).
       if (state.dayOrderStep === "saved") return dayOrderSavedModal();
-      const allowed = workDays(); const selected = state.daySelection; const preview = state.dayPreview || [];
-      const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
-      const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => {
-        const key = dayPreviewKey(client);
-        const missingLocation = !dayPreviewCoordinates(client);
-        return `<div class="row-card rp2-client-card${missingLocation ? " day-preview-location-invalid" : ""}${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="avatar">${H.escape(initials(client.nome))}</div><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span>${routeConstraintChips(client)}</div>${missingLocation ? `<b class="day-preview-location-warning">GPS</b>` : ""}</div>`;
-      }).join("")}</div>` : "";
-      const previewStatus = state.dayPreviewError ? `<div class="empty"><strong>Não foi possível carregar</strong>${H.escape(state.dayPreviewError)}</div>` : selected.length === 0 ? `<div class="empty">Escolha ao menos um dia.</div>` : previewList || (state.dayPreviewLoading ? `<div class="empty">Carregando clientes…</div>` : `<div class="empty">Nenhum cliente nos dias escolhidos.</div>`);
-      // Se a lista já está visível, ela é uma prévia válida mesmo que uma
-      // atualização visual ainda esteja encerrando em segundo plano.
-      const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
-      const summaryHtml = selected.length ? `<div class="rp2-summary"><b>${preview.length}</b><span>${preview.length === 1 ? "parada" : "paradas"} em ${selected.length} ${selected.length === 1 ? "dia" : "dias"}</span></div>` : "";
-      // S1 21/07 — "Por dia" virou lista VERTICAL (S1.2), uma linha por dia
-      // com a quantidade de clientes (state.dayCounts, ver loadDayCounts);
-      // multi-seleção mantida (mesmo toggle de sempre via data-day).
-      const hasAgendaDays = !!(state.agenda && Array.isArray(state.agenda.dias) && state.agenda.dias.length);
-      const dayRows = weekDays.filter(day => hasAgendaDays || allowed.includes(day.n)).map(day => {
-        const enabled = hasAgendaDays ? agendaDayEnabled(day.n) : allowed.includes(day.n);
-        const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
-        // undefined = ainda buscando (skeleton); null = falhou (fica em branco,
-        // sem número, sem quebrar a linha); número = mostra normal.
-        const countHtml = !enabled
-          ? `<span class="rp2-day-count rp2-day-count--inactive">Inativo</span>`
-          : count === undefined
-            ? `<span class="rp2-day-count loading rp2-day-count-skel"></span>`
-            : count === null
-              ? `<span class="rp2-day-count"></span>`
-              : `<span class="rp2-day-count">${count} ${count === 1 ? "parada" : "paradas"}</span>`;
-        return `<button type="button" class="row-card rp2-day-row ${selected.includes(day.n) ? "active" : ""}${enabled ? "" : " is-inactive"}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}" ${enabled ? "" : "disabled"}><span class="card-main rp2-day-name"><strong>${day.nome}</strong>${day.n === todayIso() ? `<small>Hoje</small>` : ""}</span>${countHtml}</button>`;
-      }).join("");
-      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Agenda</h2><p class="subtitle">Escolha um ou mais dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-days">${dayRows}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="montar-rota-agora" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Montar rota ›</button></div></section></div>`;
+      return montagemUnicaSheet();
     }
     // 26/07 — o modal "Modo das próximas rotas" (Essencial × Rastreada) SAIU do
     // celular por ordem do dono. Simples é o modo de todo mundo; a Rastreada
@@ -4659,17 +4655,193 @@
   }
   // Menu de entrada centralizado. Enquanto as rotas salvas carregam, o botão
   // Salvos mostra "Carregando…".
-  function dayHomeModal() {
-    const modelos = state.routeModelos || [];
-    const loadingSaved = !!state.routeModelosLoading;
-    const savedHint = loadingSaved ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
-    const starting = !!state.leituraStarting;
-    const activeDays = workDays().length;
-    return `<div class="modal-wrap day-home-wrap" data-action="close-modal"><section class="modal day-home" role="dialog" aria-modal="true" aria-labelledby="day-home-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-home-title">Montar Rota</h2><div class="day-home-actions">
-      <button type="button" class="day-home-btn" data-action="day-entry-pordia"><span class="day-home-btn-glyph">${icon("calendar", 20)}</span><span class="day-home-btn-copy"><strong>Agenda</strong><small>${activeDays} ${activeDays === 1 ? "dia ativo" : "dias ativos"}</small></span><span class="day-home-btn-chev">›</span></button>
-      <button type="button" class="day-home-btn" data-action="day-entry-saved" ${loadingSaved ? "disabled" : ""}><span class="day-home-btn-glyph day-home-btn-glyph--saved">☆</span><span class="day-home-btn-copy"><strong>Rotas salvas</strong><small>${H.escape(savedHint)}</small></span><span class="day-home-btn-chev">›</span></button>
-      <button type="button" class="day-home-btn day-home-btn--quiet" data-action="day-entry-leitura" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Registrar caminho</strong><small>Leitura de rota</small></span><span class="day-home-btn-chev">›</span></button>
-    </div></section></div>`;
+  // ==========================================================================
+  // R1 (27/07, ordem do dono) — MONTAR ROTA numa tela só (padrão Circuit).
+  // Morreram: o menu "Montar Rota" (Agenda/Rotas salvas/Registrar caminho) e a
+  // Agenda como tela separada. Aqui: chips dos dias no topo ("Adicionado ✓" pra
+  // dia que JÁ compõe a rota — fim do "0" mentiroso), mapa da rota, lista
+  // (prévia antes de montar; conferência com ▲▼/avisos depois), linha de
+  // créditos e "Aceitar rota" (é o Aceitar que debita — o Play depois não cobra
+  // de novo). "Rotas salvas" virou LINHA desta tela; "Registrar caminho" saiu
+  // do fluxo (mora nos Ajustes — é outro trabalho, não montagem de rota).
+  // ==========================================================================
+  function montagemConferencia() {
+    const rc = state.rotaConferencia;
+    return rc && rc.host === "montagem" ? rc : null;
+  }
+  function montagemDiaChips() {
+    const allowed = workDays();
+    const hasAgendaDays = !!(state.agenda && Array.isArray(state.agenda.dias) && state.agenda.dias.length);
+    const adicionados = routePlanned() ? diasAdicionados() : [];
+    return weekDays.filter(day => hasAgendaDays || allowed.includes(day.n)).map(day => {
+      const enabled = hasAgendaDays ? agendaDayEnabled(day.n) : allowed.includes(day.n);
+      const added = adicionados.includes(day.n);
+      const selectedChip = state.daySelection.includes(day.n);
+      const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
+      // "Adicionado ✓" vence QUALQUER contagem: depois de montar, o número do
+      // dia zera no servidor (as entregas materializaram) — mostrar "0" mente.
+      const sub = added ? "Adicionado ✓" : !enabled ? "Inativo" : count === undefined ? "…" : count === null ? "" : `${count}`;
+      return `<button type="button" class="montagem-dia${selectedChip || added ? " active" : ""}${added ? " is-added" : ""}${enabled ? "" : " is-inactive"}" data-day="${day.n}" aria-pressed="${selectedChip || added}" ${enabled ? "" : "disabled"}><strong>${day.label}</strong><small>${H.escape(sub)}</small></button>`;
+    }).join("");
+  }
+  function montagemMapPoints() {
+    const rc = montagemConferencia();
+    if (rc && rc.data && Array.isArray(rc.data.paradas)) {
+      return rc.data.paradas.map((p, index) => validCoordinates(p.lat, p.lng) ? { item: p, lat: Number(p.lat), lng: Number(p.lng), number: index + 1 } : null).filter(Boolean);
+    }
+    return (state.dayPreview || []).map((client, index) => { const c = dayPreviewCoordinates(client); return c ? { item: c.item, lat: c.lat, lng: c.lng, number: index + 1 } : null; }).filter(Boolean);
+  }
+  // R2 (27/07) — "+" ROTA RÁPIDA: CEP+número (resolver CNEFE do backend, GET
+  // /logistica/geo/cep) ou toque no mapa viram uma parada avulsa NA rota que
+  // está sendo montada. CEP+número NÃO manda pino: o servidor resolve pela base
+  // CNEFE no cadastro e grava a fonte certa ('cnefe'); toque no mapa manda o
+  // ponto tocado (o backend carimba 'gps_impreciso' — a 1ª entrega corrige).
+  function montagemRapidaModal() {
+    const r = state.montagemRapida;
+    const res = r.resolvido;
+    const temEndereco = !!(res && (res.endereco || res.cidade));
+    const resumo = temEndereco
+      ? `${[res.endereco, onlyDigits(r.numero)].filter(Boolean).join(", ")}${res.bairro ? ` - ${res.bairro}` : ""}${res.cidade ? ` · ${[res.cidade, res.uf].filter(Boolean).join("/")}` : ""}`
+      : "";
+    const localizado = !!(res && (validCoordinates(res.lat, res.lng) || r.origem === "mapa"));
+    const statusLinha = r.erro
+      ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(r.erro)}</div>`
+      : r.buscando
+        ? `<p class="subtitle">Procurando o endereço…</p>`
+        : res
+          ? localizado
+            ? `<div class="hbx-aviso hbx-aviso--ok">Endereço localizado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
+            : `<div class="hbx-aviso hbx-aviso--warn">Endereço anotado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
+          : "";
+    const pronto = !!res;
+    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}<div class="field"><label>Nome (opcional)</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div></form>${statusLinha}`;
+    return centerModal({
+      icon: "plus",
+      title: "Rota rápida",
+      resumo: r.origem === "mapa" ? "Parada pelo toque no mapa" : "CEP e número viram uma parada",
+      body,
+      closeAction: "montagem-rapida-fechar",
+      closeButtonAction: "montagem-rapida-fechar",
+      backAction: "montagem-rapida-fechar",
+      backLabel: "Voltar",
+      nextAction: pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar",
+      nextLabel: r.salvando ? "Adicionando…" : pronto ? "Adicionar na rota" : r.buscando ? "Procurando…" : "Buscar endereço",
+      nextDisabled: r.buscando || r.salvando,
+    });
+  }
+  async function montagemRapidaBuscar() {
+    const r = state.montagemRapida;
+    if (!r || r.buscando) return;
+    const cepDigits = onlyDigits(r.cep);
+    const numeroDigits = onlyDigits(r.numero);
+    if (cepDigits.length !== 8) { r.erro = "Informe o CEP completo."; r.resolvido = null; render(); return; }
+    if (!numeroDigits) { r.erro = "Informe o número."; r.resolvido = null; render(); return; }
+    r.buscando = true; r.erro = ""; render();
+    try {
+      const res = await H.api(`/logistica/geo/cep?cep=${encodeURIComponent(cepDigits)}&numero=${encodeURIComponent(numeroDigits)}`);
+      if (res && (res.fonte === "cnefe" || res.fonte === "geocode" || res.endereco || res.cidade)) r.resolvido = res;
+      else { r.resolvido = null; r.erro = "Não encontrei este endereço. Confira o CEP e o número."; }
+    } catch (error) { r.resolvido = null; r.erro = humanApiError(error); }
+    finally { r.buscando = false; render(); }
+  }
+  async function montagemRapidaConfirmar() {
+    const r = state.montagemRapida;
+    if (!r || r.salvando || !r.resolvido) return;
+    const res = r.resolvido;
+    r.salvando = true; render();
+    showLoading("Adicionando parada…");
+    try {
+      const numero = onlyDigits(r.numero) || String(res.numero || "");
+      const nome = String(r.nome || "").trim() || [res.endereco, numero].filter(Boolean).join(", ") || "Parada rápida";
+      const body = {
+        nome, tipo: "pf", isCliente: true, isLead: false,
+        endereco: res.endereco, numero, bairro: res.bairro, cidade: res.cidade, uf: res.uf,
+        cep: onlyDigits(r.cep) || res.cep,
+        // Só o TOQUE NO MAPA manda pino (o ponto tocado É a intenção do usuário);
+        // CEP+número deixa o servidor resolver pela base CNEFE (fonte certa).
+        ...(r.origem === "mapa" && validCoordinates(r.lat, r.lng) ? { lat: Number(r.lat), lng: Number(r.lng) } : {}),
+      };
+      Object.keys(body).forEach(k => { if (body[k] === undefined || body[k] === null || body[k] === "") delete body[k]; });
+      const created = await H.api("/nucleo/contas", { method: "POST", body });
+      const customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
+      if (!customerProfileId) throw new Error("Cliente criado sem identificador.");
+      const delivery = await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, quantidade: 1, scheduledAt: operationalScheduledAt() } });
+      state.montagemRapida = null;
+      await refresh(true);
+      const rc = montagemConferencia();
+      if (rc) {
+        const novoId = delivery && delivery.id ? String(delivery.id) : null;
+        const selection = activeRouteSelectionIds();
+        // Seleção ativa sem o id novo deixaria a parada fora da conferência: com
+        // o id, soma; sem ele, cai pro dia inteiro (que inclui a recém-criada).
+        if (selection) { if (novoId) setRouteSelection([...selection, novoId]); else clearRouteSelection(); }
+        await recarregarConferencia();
+      }
+      toast("Parada adicionada na rota.");
+    } catch (error) { toast(humanApiError(error), true); }
+    finally { hideLoading(); if (state.montagemRapida) state.montagemRapida.salvando = false; render(); }
+  }
+  async function montagemMapTap(point) {
+    if (!montagemConferencia() || state.montagemRapida || state.dayStarting) return;
+    if (!point || !validCoordinates(point.lat, point.lng)) return;
+    state.montagemRapida = { origem: "mapa", cep: "", numero: "", nome: "", lat: point.lat, lng: point.lng, resolvido: { fonte: "mapa", endereco: "", bairro: "", cidade: "", uf: "", cep: "", numero: "", lat: point.lat, lng: point.lng }, buscando: true, salvando: false, erro: "" };
+    render();
+    try {
+      // Sugestão EDITÁVEL de endereço (geo/reverse, mesmo contrato da Leitura);
+      // falhar em silêncio é ok — o pino tocado já basta pra parada existir.
+      const rev = await H.api(`/logistica/geo/reverse?lat=${encodeURIComponent(point.lat)}&lng=${encodeURIComponent(point.lng)}`);
+      const r = state.montagemRapida;
+      if (r && r.origem === "mapa" && rev) {
+        r.resolvido = { fonte: "mapa", endereco: rev.endereco || "", bairro: rev.bairro || "", cidade: rev.cidade || "", uf: rev.uf || "", cep: rev.cep || "", numero: rev.numero || "", lat: point.lat, lng: point.lng };
+        if (rev.cep) r.cep = rev.cep;
+        if (rev.numero) r.numero = rev.numero;
+      }
+    } catch (_) {}
+    finally { const r = state.montagemRapida; if (r) r.buscando = false; render(); }
+  }
+  function montagemUnicaSheet() {
+    const rc = montagemConferencia();
+    // Ficha "Como resolver?" e a Rota rápida são PASSOS por cima da tela única
+    // (mesma moldura central da conferência); Voltar cai de novo aqui.
+    if (state.montagemRapida) return montagemRapidaModal();
+    if (rc && rc.step === "ficha" && rc.ficha) return conferenciaFichaStep(rc);
+    const chips = `<div class="montagem-dias">${montagemDiaChips()}</div>`;
+    const mapa = `<div id="route-plan-preview-map" class="montagem-map" aria-label="Mapa da rota em montagem"><span class="route-map-loading">Carregando mapa…</span></div>`;
+    let corpo = ""; let footer = ""; let subtitle = "";
+    if (rc) {
+      subtitle = rc.data ? conferenciaResumoLinhas(rc.data).join(" ") : rc.loading ? "Conferindo…" : "";
+      const pendentes = conferenciaVermelhasPendentes(rc);
+      const rows = rc.data ? (rc.data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("") : "";
+      corpo = rc.error && !rc.data
+        ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(rc.error)}</div><button class="btn btn-secondary btn-block" type="button" data-action="conferencia-tentar-de-novo">Tentar de novo</button>`
+        : !rc.data
+          ? loading()
+          : `${routeEngineBanner()}${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+      footer = `<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data || pendentes.length > 0 ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
+    } else {
+      subtitle = "Toque nos dias para adicionar";
+      const preview = state.dayPreview || [];
+      const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
+      const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => {
+        const key = dayPreviewKey(client);
+        const missingLocation = !dayPreviewCoordinates(client);
+        return `<div class="row-card rp2-client-card${missingLocation ? " day-preview-location-invalid" : ""}${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="avatar">${H.escape(initials(client.nome))}</div><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span>${routeConstraintChips(client)}</div>${missingLocation ? `<b class="day-preview-location-warning">GPS</b>` : ""}</div>`;
+      }).join("")}</div>` : "";
+      const previewStatus = state.dayPreviewError ? `<div class="empty"><strong>Não foi possível carregar</strong>${H.escape(state.dayPreviewError)}</div>` : state.daySelection.length === 0 ? `<div class="empty">Toque num dia lá em cima para começar.</div>` : previewList || (state.dayPreviewLoading ? `<div class="empty">Carregando clientes…</div>` : `<div class="empty">Nenhum cliente nos dias escolhidos.</div>`);
+      // Se a lista já está visível, ela é uma prévia válida mesmo que uma
+      // atualização visual ainda esteja encerrando em segundo plano.
+      const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
+      const summaryHtml = state.daySelection.length ? `<div class="rp2-summary"><b>${preview.length}</b><span>${preview.length === 1 ? "parada" : "paradas"} em ${state.daySelection.length} ${state.daySelection.length === 1 ? "dia" : "dias"}</span></div>` : "";
+      const modelos = state.routeModelos || [];
+      const savedHint = state.routeModelosLoading ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
+      const salvasRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-saved" ${state.routeModelosLoading ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>Rotas salvas</strong><span>${H.escape(savedHint)}</span></span><span class="rp2-mode-chev">›</span></button>`;
+      corpo = `${salvasRow}${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}`;
+      footer = `<div class="rp2-footer"><button class="btn btn-primary btn-block rp2-cta" data-action="montar-rota-agora" ${state.daySelection.length && previewReady && !state.dayStarting ? "" : "disabled"}>Montar rota ›</button></div>`;
+    }
+    // R2 — o "+" da rota rápida só faz sentido com rota montada (a parada nasce
+    // avulsa DENTRO da rota em conferência).
+    const plus = rc ? `<button type="button" class="close montagem-plus" data-action="montagem-rapida" aria-label="Adicionar parada rápida">+</button>` : "";
+    return `<div class="sheet-wrap route-plan-wrap montagem-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2>${subtitle ? `<p class="subtitle">${H.escape(subtitle)}</p>` : ""}</div>${plus}<button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
   }
   // 26/07 (dono, fusão final): o passo "Sequência" (Automática × Minha ordem) e a
   // tela de ordem manual PRÉ-geração MORRERAM — "Montar rota" gera direto e a única
@@ -4820,8 +4992,14 @@
     // reexibi-lo; se vai (mesma tela), mountRouteMap reaproveita a instância
     // (applyRouteMarkers/applyRouteLine) em vez de destruir e recriar o
     // maplibre a cada render (piscada + peso, item 10).
-    const willShowRouteMap = state.screen === "route";
-    if (!willShowRouteMap) disposeRouteMap();
+    // R1 (27/07) — o mapa da MONTAGEM (tela única) divide o singleton do mapa da
+    // Rota (mountMap troca de host sozinho); enquanto a montagem está aberta, o
+    // mapa vive nela (#route-plan-preview-map — id que o transplante de overlay
+    // do native.js já conhece) e a Rota por baixo fica sem mapa até fechar.
+    const montagemMapaAberta = state.modal === "manage-day" && state.dayOrderStep !== "saved" &&
+      !(state.rotaConferencia && state.rotaConferencia.host === "montagem" && state.rotaConferencia.step === "ficha");
+    const willShowRouteMap = state.screen === "route" && !montagemMapaAberta;
+    if (!willShowRouteMap && !montagemMapaAberta) disposeRouteMap();
     // S3 21/07 — mesma regra pro mapa vivo da Leitura (host próprio, ver bloco
     // mountLeituraLiveMap acima): só descarta quando este render NÃO vai
     // reexibir a tela.
@@ -4860,7 +5038,8 @@
     restoreFocusedControl(focusedControl);
     syncKeyboardViewport();
     setupClientsAutoLoad();
-    if (willShowRouteMap) void mountRouteMap();
+    if (montagemMapaAberta) void mountMap("route-plan-preview-map", montagemMapPoints(), false, { keepOrder: true, onTap: montagemMapTap });
+    else if (willShowRouteMap) void mountRouteMap();
     if (willShowLeituraLiveMap) void mountLeituraLiveMap();
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
@@ -5124,12 +5303,12 @@
     // condicional antiga ("Iniciar não vai debitar créditos agora") era leitura
     // do sistema, não do bolso dele: o que o operador quer saber é quanto tem e
     // quanto sai. Zero também é resposta — mostra 0, não some. O verbo é
-    // "Confirmar" porque é o CONFIRMAR desta tela que cobra (o Play da tela
-    // Rota, depois, não debita de novo).
+    // "Aceitar" (R1 27/07, palavra do roteiro do dono) porque é o ACEITAR desta
+    // tela que cobra (o Play da tela Rota, depois, não debita de novo).
     const debita = Math.max(0, Number(custo.creditosAIniciar) || 0);
     const saldo = Number(custo.saldoAtual) || 0;
     const kind = custo.saldoCobre === false ? "danger" : "ok";
-    return `<div class="hbx-aviso hbx-aviso--${kind} conferencia-creditos"><span>Créditos atual: ${H.escape(String(saldo))}</span><span>Confirmar Debitará: ${H.escape(String(debita))}</span></div>`;
+    return `<div class="hbx-aviso hbx-aviso--${kind} conferencia-creditos"><span>Créditos atual: ${H.escape(String(saldo))}</span><span>Aceitar Debitará: ${H.escape(String(debita))}</span></div>`;
   }
   function conferenciaListaStep(rc) {
     const data = rc.data;
@@ -5174,7 +5353,9 @@
       // créditos acima). Ele NÃO é o Play: confirmar devolve a tela Rota com a
       // rota montada, e o Play de lá é que inicia.
       nextAction: "conferencia-continuar",
-      nextLabel: rc.loading ? "Atualizando…" : "Confirmar rota",
+      // R1 (27/07) — a palavra do roteiro do dono é ACEITAR (é o aceitar que
+      // debita; o Play depois não cobra de novo). Mesmo rótulo da tela única.
+      nextLabel: rc.loading ? "Atualizando…" : "Aceitar rota",
       nextDisabled: rc.loading || pendentes.length > 0,
     });
   }
@@ -5291,8 +5472,13 @@
     // começa null aqui só pra documentar o formato do objeto. `custo` (S6) é
     // o preview de créditos (null = ainda não chegou ou indisponível, ver
     // recarregarCustoPreview — degrada mudo, nunca trava a tela).
-    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null, ordemManual: null, confirmada: false, cancelada: false };
-    showModal("rota-conferencia");
+    // R1 (27/07) — `host`: com a tela única de montagem aberta (manage-day), a
+    // conferência RENDERIZA DENTRO dela (chips + mapa + lista + Aceitar), não
+    // num cartão separado; o cartão central segue existindo pra qualquer caminho
+    // que chegue aqui sem a montagem aberta.
+    const host = state.modal === "manage-day" ? "montagem" : "standalone";
+    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null, ordemManual: null, confirmada: false, cancelada: false, host };
+    if (host === "montagem") render(); else showModal("rota-conferencia");
     await recarregarConferencia();
   }
   // 26/07 — o desfazer do abandono: MESMO caminho seguro do "Cancelar?"
@@ -5309,7 +5495,9 @@
     // Operador fechou a Agenda com a geração em voo: a rota que acabou de
     // aterrissar já nasceu abandonada — desfaz em vez de abrir a conferência.
     if (state.montagemAbandonada) { state.montagemAbandonada = false; await desfazerRotaMontada(); return; }
-    if (!configFlag("rotaConferidaAtiva")) { toast(toastMessage); return; }
+    // Flag OFF = contrato antigo (toast seco, sem conferência): a montagem fecha
+    // aqui mesmo — sem rc, o closeOverlay não desfaz nada (rota planejada fica).
+    if (!configFlag("rotaConferidaAtiva")) { if (state.modal === "manage-day") await closeOverlay("modal"); toast(toastMessage); return; }
     await abrirRotaConferencia();
   }
   // Chamado pelo closeOverlay ao fechar o editor de cliente ABERTO pela ficha
@@ -5325,7 +5513,9 @@
     rc.ficha = null;
     rc.focusParadaId = rc.retornoParadaId;
     rc.retornoParadaId = null;
-    state.modal = "rota-conferencia";
+    // R1 (27/07) — volta pro MESMO hospedeiro de onde a ficha saiu (tela única
+    // de montagem ou o cartão central antigo).
+    state.modal = rc.host === "montagem" ? "manage-day" : "rota-conferencia";
     await recarregarConferencia();
   }
   // "Corrigir endereço" e "Usar meu GPS daqui" abrem o MESMO editor real
@@ -5719,13 +5909,17 @@
           setRouteOrdemManual(ordemManual);
         } else clearRouteOrdemManual();
         await saveManualRouteModeloIfNeeded();
-        await closeOverlay("modal");
         if (state.dayMode === "plan") {
+          // R1 (27/07) — a montagem NÃO fecha mais: a conferência renderiza na
+          // MESMA tela (chips + mapa + lista + Aceitar). Os dias que acabaram de
+          // montar viram "Adicionado ✓" nos chips.
           await refresh(true);
+          setDiasAdicionados(state.daySelection);
           // S4 25/07 (PR25072026-ROTA-CONFERIDA) — mesmo ponto único de startRoute.
           await afterRoutaPlanejada("Rota planejada.");
           return;
         }
+        await closeOverlay("modal");
         // dayMode "start" (sem botão hoje, mantido por completude): mesma troca
         // acima — ordem manual pula admin-route/start e vai direto no iniciar.
         // S5 25/07 — generaliza pro mesmo mecanismo de startRoute/
@@ -5757,7 +5951,10 @@
       if (manualOrder && manualOrder.length) setRouteOrdemManual(manualOrder); else clearRouteOrdemManual();
       await saveManualRouteModeloIfNeeded();
       setRouteSelection(deliveryIds);
-      await closeOverlay("modal");
+      // R1 (27/07) — mesmo contrato do ramo admin acima: planejar fica NA tela
+      // única (a conferência renderiza nela); só o iniciar de verdade fecha.
+      if (state.dayMode === "plan") setDiasAdicionados(state.daySelection);
+      else await closeOverlay("modal");
       await startRoute(state.dayMode === "plan", false, deliveryIds);
     } catch (error) { if (!creditsLockFromRouteError(error)) { render(); toast(humanApiError(error), true); } }
     finally { hideLoading(); state.dayStarting = false; }
@@ -5865,6 +6062,8 @@
       clearRouteSelection();
       clearRouteOrdemManual();
       clearRouteEngineState();
+      // R1 (27/07) — sem rota, nenhum dia é "Adicionado ✓" nos chips da montagem.
+      clearDiasAdicionados();
       H.stopRoute();
       // S2 21/07 — "encerrar rota limpa" a trilha (spec S2 #4): não sobrevive
       // de um dia pro outro (sobrevive só a pausa/retomada DO MESMO dia, ver
@@ -5949,6 +6148,8 @@
       clearRouteSelection();
       clearRouteOrdemManual();
       clearRouteEngineState();
+      // R1 (27/07) — sem rota, nenhum dia é "Adicionado ✓" nos chips da montagem.
+      clearDiasAdicionados();
       H.stopRoute();
       // S2 21/07 — mesma lógica de performEncerrarRota: "Limpar o dia" também
       // encerra a execução de hoje, então a trilha da navegação não deve
@@ -6044,11 +6245,17 @@
     // não mudou; rotaConferencia.retornoParadaId só existe enquanto esse editor
     // está aberto vindo da ficha, ver abrirFichaComEditor).
     const voltaParaConferencia = kind === "modal" && state.modal === "client-product" && state.rotaConferencia && state.rotaConferencia.retornoParadaId;
-    // 26/07 (dono, regra ABSOLUTA, 3ª cobrança): só o "Confirmar rota" consolida.
+    // 26/07 (dono, regra ABSOLUTA, 3ª cobrança): só o "Aceitar rota" consolida.
     // Sair da conferência por QUALQUER outro caminho (×, voltar, toque no fundo)
     // desfaz a rota sozinho. `confirmada`/`cancelada` marcam as duas saídas
-    // legítimas (confirmar; popup Cancelar? que já encerra por conta própria).
-    const abandonaConferencia = kind === "modal" && state.modal === "rota-conferencia" && state.rotaConferencia && !state.rotaConferencia.confirmada && !state.rotaConferencia.cancelada && routePlanned();
+    // legítimas (aceitar; popup Cancelar? que já encerra por conta própria).
+    // R1 (27/07) — vale igual quando a conferência mora DENTRO da tela única de
+    // montagem (host 'montagem', modal manage-day).
+    const abandonaConferencia = kind === "modal" && state.rotaConferencia && !state.rotaConferencia.confirmada && !state.rotaConferencia.cancelada && routePlanned() &&
+      (state.modal === "rota-conferencia" || (state.modal === "manage-day" && state.rotaConferencia.host === "montagem"));
+    // Fechar a montagem some com a conferência hospedada nela (confirmada ou
+    // abandonada, tanto faz — o estado não pode sobreviver pro próximo abrir).
+    const limpaConferenciaMontagem = kind === "modal" && state.modal === "manage-day" && state.rotaConferencia && state.rotaConferencia.host === "montagem";
     // Fechar a Agenda com a geração EM VOO: rede não se cancela — marca o
     // abandono e afterRoutaPlanejada desfaz assim que a chamada aterrissar.
     if (kind === "modal" && state.modal === "manage-day" && state.dayStarting) state.montagemAbandonada = true;
@@ -6057,6 +6264,7 @@
     return new Promise(resolve => setTimeout(() => {
       if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
       if (abandonaConferencia) { state.rotaConferencia = null; void desfazerRotaMontada(); }
+      else if (limpaConferenciaMontagem) state.rotaConferencia = null;
       // 22/07 — fechar a folha zera TUDO da chegada editável (picker, preço aberto,
       // modo edição). Sem isso, a próxima parada abriria com o estado da anterior.
       if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
@@ -6390,7 +6598,8 @@
       // conferência (botão da esquerda). Depois de cancelar não existe mais
       // rota pra conferir: o cartão sai junto, senão ficaria aberto mostrando a
       // conferência de uma rota que não existe mais.
-      if ((confirmation.type === "cancel-route" || confirmation.type === "limpar-dia") && state.modal === "rota-conferencia") {
+      if ((confirmation.type === "cancel-route" || confirmation.type === "limpar-dia") &&
+        (state.modal === "rota-conferencia" || (state.modal === "manage-day" && state.rotaConferencia && state.rotaConferencia.host === "montagem"))) {
         // Marca ANTES do close: o guard de abandono do closeOverlay não pode
         // disparar um segundo encerrar em cima do que este popup já executa.
         if (state.rotaConferencia) state.rotaConferencia.cancelada = true;
@@ -6494,7 +6703,9 @@
     if (action === "start-planned-route") await startPlannedRoute();
     // 26/07 (dono): "CANCELAR? Tem certeza? Sim, Não. PRONTO." — sem quest, sem
     // terceiro botão. O Limpar o dia continua no satélite próprio da tela Rota.
-    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar?", message: "Tem certeza?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
+    // R3 (27/07) — o que o dono pediu VISÍVEL: cancelar não queima os créditos do
+    // dia (claim por dia — montar de novo não cobra de novo). Sem frase técnica.
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar?", message: "Tem certeza? Os créditos de hoje continuam valendo — montar de novo não cobra de novo.", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
     // 22/07 — popup enxuto: texto de 1 linha e o "salvar rota" virou botão DESTE
     // mesmo popup (extraAction, sem segundo popup). "Salvar" só aparece quando há
     // ≥2 paradas com cliente pra formar uma rota.
@@ -6515,10 +6726,8 @@
     // reusa performLimparDia via accept-confirmation — zero duplicação de API.
     if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Limpar hoje?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
     if (action === "begin-managed-route") await beginManagedRoute();
-    // Entrada simples: Agenda deixa a seleção em branco para o operador
-    // escolher o dia (hoje aparece marcado "Hoje" na lista). Rotas salvas
-    // continua independente.
-    if (action === "day-entry-pordia") { openManagedAgenda([]); return; }
+    // R1 (27/07) — o menu "Montar Rota" morreu; "Rotas salvas" é linha da tela
+    // única e abre o único passo separado que restou.
     if (action === "day-entry-saved") { state.dayOrderStep = "saved"; state.dayOrderMode = "saved"; render(); void loadRouteModelos(); return; }
     // S1 21/07 — "Iniciar Leitura de Rota" (POST modo LEITURA). S3 21/07:
     // não fecha mais pra faixa da tela Rota — liga a gravação nativa
@@ -6548,8 +6757,8 @@
     // 26/07 (dono, fusão final) — "Montar rota" gera DIRETO com a sequência
     // automática; quem quer outra ordem mexe nas setas DENTRO da Conferência.
     if (action === "montar-rota-agora") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; await beginManagedRoute(); return; }
-    // Voltar: dias e Rotas salvas voltam pro menu de entrada.
-    if (action === "back-route-order") { state.dayOrderStep = "home"; render(); return; }
+    // R1 (27/07) — Voltar das Rotas salvas cai de novo na tela única.
+    if (action === "back-route-order") { state.dayOrderStep = null; render(); return; }
     if (action === "apply-route-modelo") {
       // O clique que fecha o toque-longo de excluir NÃO pode sair rodando a rota.
       if (ignoredRouteModeloClickId !== null) { ignoredRouteModeloClickId = null; return; }
@@ -6569,9 +6778,13 @@
         if (!deliveryIds.length) { toast(avisos[0] || "Nenhuma entrega para esta rota.", true); return; }
         setRouteSelection(deliveryIds);
         setRouteOrdemManual(deliveryIds);
+        // R1 (27/07) — rota salva também fica NA tela única: volta pro passo
+        // principal e a conferência renderiza ali (chips sem dia carimbado —
+        // rota de modelo não é rota "por dia").
         state.dayOrderStep = null;
         state.dayOrderMode = "saved";
-        await closeOverlay("modal");
+        clearDiasAdicionados();
+        render();
         // planeja com a lista+ordem exatas (generateToday=false: NÃO gera recorrência
         // do dia; as entregas já foram materializadas pelo /gerar acima).
         await startRoute(true, false, deliveryIds);
@@ -6584,6 +6797,11 @@
     // (lista + mini-ficha). Ver bloco "ROTA-CONFERIDA — S4" perto de
     // routeEngineBanner pras funções chamadas aqui.
     if (action === "conferencia-tentar-de-novo") { await recarregarConferencia(); return; }
+    // R2 (27/07) — "+" rota rápida (CEP+número via CNEFE, ou toque no mapa).
+    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; render(); return; }
+    if (action === "montagem-rapida-fechar") { state.montagemRapida = null; render(); return; }
+    if (action === "montagem-rapida-buscar") { await montagemRapidaBuscar(); return; }
+    if (action === "montagem-rapida-confirmar") { await montagemRapidaConfirmar(); return; }
     if (action === "conferencia-continuar") {
       const rc = state.rotaConferencia;
       if (!rc || rc.loading || conferenciaVermelhasPendentes(rc).length > 0) return;
@@ -7295,6 +7513,8 @@
       return;
     }
     if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { if (event.target.name === "clientPhone") event.target.value = formatPhoneInput(event.target.value); state.oneoffDraft[event.target.name] = event.target.value; return; }
+    // R2 (27/07) — rascunho da Rota rápida sobrevive a re-render (mesma lei L4-F).
+    if (event.target.form && event.target.form.id === "montagem-rapida-form" && event.target.name && state.montagemRapida) { state.montagemRapida[event.target.name] = event.target.value; return; }
     // PR20072026 W2 — Leitura de Rota.
     if (event.target.form && event.target.form.id === "leitura-novo-form" && event.target.name) {
       const name = event.target.name;
@@ -7658,10 +7878,24 @@
           return true;
         }
         if (state.modal === "manage-day") {
-          // Espelha data-action="back-route-order" (fusão 26/07): dias e Rotas
-          // salvas voltam pro menu de entrada. Só o menu ("home") fecha o modal.
-          if (state.dayOrderStep !== "home") {
-            state.dayOrderStep = "home";
+          // R1 (27/07) — Lei 10 na tela única: Rota rápida e Rotas salvas
+          // voltam pra tela principal; ficha "Como resolver?" volta pra lista;
+          // na tela principal, o voltar fecha o modal (cai no closeOverlay
+          // genérico, que desfaz a rota não aceita — "só o Aceitar consolida").
+          if (state.montagemRapida) {
+            state.montagemRapida = null;
+            render();
+            return true;
+          }
+          if (state.dayOrderStep === "saved") {
+            state.dayOrderStep = null;
+            render();
+            return true;
+          }
+          const rcBack = state.rotaConferencia;
+          if (rcBack && rcBack.host === "montagem" && rcBack.step === "ficha") {
+            rcBack.step = "lista";
+            rcBack.ficha = null;
             render();
             return true;
           }
