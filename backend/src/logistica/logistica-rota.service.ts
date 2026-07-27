@@ -546,17 +546,24 @@ export class LogisticaRotaService {
           cobrancaStatus: true,
           planoEntregaId: true,
           agendaOcorrenciaKey: true,
+          rotaModeloId: true,
           comprovanteConfirmadoAt: true,
           logisticaRouteStop: { select: { id: true } },
           _count: { select: { comprovantes: true } },
         },
       });
 
-      // "Intocada" = nasceu da Agenda nesta montagem e NADA aconteceu com ela.
+      // "Intocada" = a MONTAGEM trouxe pro dia e NADA aconteceu com ela. Duas
+      // portas trazem parada: a Agenda (`agendaOcorrenciaKey`, e aí a ocorrência
+      // volta) e a rota salva (`rotaModeloId`, que não tem ocorrência pra
+      // devolver — só sai do dia). Sem a 2ª porta, cancelar uma rota montada a
+      // partir de "Rotas salvas" largava as paradas penduradas no dia: medido em
+      // campo, descartadas=0 e 52 pendências.
       // Qualquer sinal de vida (saiu pra rua, tem foto/assinatura, virou parada
-      // de rota comercial, cobrança já lançada) tira a entrega do descarte.
+      // de rota comercial, cobrança já lançada) tira a entrega do descarte, e o
+      // que é da pessoa (avulsa do "+", Registrar caminho) nunca entra.
       const descartaveis = abertas.filter((row) => (
-        !!row.agendaOcorrenciaKey
+        (!!row.agendaOcorrenciaKey || !!row.rotaModeloId)
         && row.status === 'agendada'
         && !row.startedAt
         && !row.comprovanteConfirmadoAt
@@ -1648,6 +1655,7 @@ interface DescartarMontagemRow {
   cobrancaStatus: string | null;
   planoEntregaId: string | null;
   agendaOcorrenciaKey: string | null;
+  rotaModeloId: string | null;
   comprovanteConfirmadoAt: Date | null;
   logisticaRouteStop: { id: string } | null;
   _count?: { comprovantes: number };

@@ -319,6 +319,10 @@ export class LogisticaRotaModeloService {
             productId: itens[0]?.productId ?? null,
             quantidade,
             valor,
+            // Carimbo de origem: foi ESTA rota salva que trouxe a parada pro dia.
+            // É o que deixa o "Cancelar rota" desfazer o que a montagem criou
+            // (ver descartarMontagem) em vez de largar pendência no dia.
+            rotaModeloId: modelo.id,
             itens: { deleteMany: {}, create: itens },
           },
         });
@@ -342,6 +346,8 @@ export class LogisticaRotaModeloService {
           origem: 'avulsa',
           scheduledAt: dia,
           cobrancaStatus: 'pendente',
+          // Mesmo carimbo da reabertura acima: a parada veio DESTA rota salva.
+          rotaModeloId: modelo.id,
           ...(itens.length ? { itens: { create: itens } } : {}),
         },
         select: { id: true },
