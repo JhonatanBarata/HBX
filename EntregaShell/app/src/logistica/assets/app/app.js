@@ -2473,7 +2473,15 @@
     if (agenda && Array.isArray(agenda.dias)) {
       agenda.dias.forEach(row => {
         const day = Number(row && row.diaSemana);
-        if (day >= 1 && day <= 7) state.dayCounts[day] = Math.max(0, Number(row.totalParadas ?? row.totalPlanos ?? row.totalClientes ?? 0));
+        // 27/07 (dono) — o número do chip é QUANTA GENTE o dia tem
+        // (`totalClientesDia`), não quantas visitas caem na próxima data daquele
+        // dia (`totalParadas`): esse último zera sozinho quando o dia já foi
+        // gerado ou quando a cadência é quinzenal — e terça com 7 clientes
+        // aparecia como 0. Servidor antigo (sem o campo) cai no de antes.
+        // `totalPlanos` (as VISITAS cadastradas naquele dia) já vem do servidor de
+        // hoje e é o que salva a tela sem esperar deploy; `totalClientesDia` é o
+        // mesmo número já contado por CLIENTE, quando o servidor tiver.
+        if (day >= 1 && day <= 7) state.dayCounts[day] = Math.max(0, Number(row.totalClientesDia ?? row.totalPlanos ?? row.totalParadas ?? row.totalClientes ?? 0));
       });
       render();
       return;
@@ -4059,12 +4067,16 @@
   // (quem liga é o administrador pelo PC, em /logistica/config). O cálculo
   // `trackedAvailable` (cfg.trackingDisponivel) morreu junto — não sobrou leitor.
   // `routeTracked()` FICA: o hero acima ainda diz em que modo a rota está rodando.
+  // 27/07 (ordem do dono) — Ajustes enxuto. SAÍRAM: a seção "Módulos" inteira
+  // (a chave Logística), "Minhas rotas" (virou "Rotas salvas", dentro do
+  // Gerenciador de Rota), "Registrar caminho" (mudou pro Gerenciador de Rota) e
+  // Tema/Sons/Sincronizar — os três já são botão do topo em TODA tela (a lua, o
+  // chip de som e o ↻ da barra), então a linha aqui era o mesmo botão duas vezes.
   function settingsScreen() {
-    const cfg = state.config || {}; const modules = H.modules.get();
+    const cfg = state.config || {};
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${serverRouteActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
-      <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="day-entry-leitura" ${state.leituraStarting ? "disabled" : ""}><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Registrar caminho</strong></div><span>›</span></button><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
   }
 
   // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá
@@ -4375,7 +4387,6 @@
       const moves = Array.isArray(s.trackedDeliveries) ? s.trackedDeliveries : [];
       return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Consumo e bônus</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="kpis"><div class="kpi"><span>Saldo</span><strong>${Number(s.balanceCredits || 0)}</strong></div><div class="kpi"><span>Bônus</span><strong>${Number(totals.bonusCredits || 0)}</strong></div><div class="kpi"><span>Entregas</span><strong>${Number(totals.trackedDeliveries || 0)}</strong></div></div><div class="kpis"><div class="kpi"><span>Hoje</span><strong>${Number(usage.hoje || 0)}</strong></div><div class="kpi"><span>Semana</span><strong>${Number(usage.semana || 0)}</strong></div><div class="kpi"><span>Mês</span><strong>${Number(usage.mes || 0)}</strong></div></div><div class="list">${moves.length ? moves.slice(0, 30).map(e => `<div class="row-card"><div class="card-main"><strong>Entrega rastreada</strong><span>${H.date(e.completedAt)}</span></div><strong>${Number(e.paidCredits || e.credits || 0)}</strong></div>`).join("") : empty("Sem entregas rastreadas", "")}</div></section></div>`;
     }
-    if (state.modal === "route-modelos") return routeModelosModal();
     if (state.modal === "route-modelo-editor") return routeModeloEditorModal();
     if (state.modal === "rota-conferencia") return rotaConferenciaModal();
     if (state.modal === "recarga") return recargaModal();
@@ -4525,14 +4536,9 @@
     { group: "Sistema", key: "update_complete", label: "Atualização concluída" },
     { group: "Sistema", key: "pairing_success", label: "Pareamento concluído" },
   ];
-  // Linha "Sons" em Ajustes › Aplicativo (Porta 2 do S5-PREFERENCIA.md), junto
-  // de Tema/Sincronizar/Sair — mesmo padrão de rótulo à esquerda + estado
-  // atual à direita que a linha "Tema" já usa.
-  function sonsSettingsRow() {
-    const off = (soundPrefsLocal().off || []).length;
-    const estado = !soundMasterOn() ? "Mudo" : off ? "Parcial" : "Ativo";
-    return `<button class="settings-row" data-action="open-sons"><div class="avatar">${icon(soundMasterOn() ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Sons</strong></div><span>${estado}</span><span>›</span></button>`;
-  }
+  // 27/07 (dono) — a linha "Sons" de Ajustes MORREU: a Central de Sons continua
+  // inteira, agora com uma porta só — o chip de som do topo (data-action
+  // "chip-som", em toda tela). Duas portas pro mesmo lugar era repetição.
   // Cada item é um DIV (não button) com data-action próprio — precisa de DOIS
   // alvos de toque independentes na mesma linha (o toggle do item inteiro E o
   // ▶ da prévia), e <button> dentro de <button> é HTML inválido. O clique
@@ -4570,13 +4576,10 @@
   function avancadoModal() {
     return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gear", 18)}</div><div><h2>Avançado</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="avisoWhatsEnabled" role="switch" aria-checked="${configFlag("avisoWhatsEnabled")}"><div class="avatar">${icon("wa", 18)}</div><div class="settings-copy"><strong>Mensagens automáticas</strong></div><span class="module-switch ${configFlag("avisoWhatsEnabled") ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="cobrancaAutomatica" role="switch" aria-checked="${configFlag("cobrancaAutomatica")}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Cobrança automática</strong></div><span class="module-switch ${configFlag("cobrancaAutomatica") ? "active" : ""}" aria-hidden="true"><i></i></span></button></section></section></div>`;
   }
-  // PR18072026 Onda 3 — "Minhas rotas" (Ajustes › Administração): lista dos
-  // modelos salvos com renomear (prompt simples) e excluir (2 toques).
-  function routeModelosModal() {
-    const modelos = state.routeModelos || [];
-    const rows = modelos.map(modelo => `<div class="row-card" data-route-modelo-hold="${H.escape(modelo.id)}"><div class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${modelo.diaSemana ? H.escape((weekDays.find(day => day.n === Number(modelo.diaSemana)) || {}).label || "") : "Sem dia fixo"} · ${(modelo.paradas || []).length} parada(s)</span></div><div class="actions route-modelo-row-actions"><button type="button" class="btn btn-secondary" data-action="edit-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Editar</button><button type="button" class="btn btn-secondary" data-action="rename-route-modelo" data-modelo-id="${H.escape(modelo.id)}">Renomear</button></div></div>`).join("");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minhas rotas</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Salve uma rota ao montar no modo \"Minha ordem\".")}</div></section></div>`;
-  }
+  // 27/07 (dono) — "Minhas rotas" (Ajustes › Administração) MORREU: era a mesma
+  // lista de "Rotas salvas", que hoje mora no Gerenciador de Rota. Foi junto o
+  // "Renomear" que só existia nela (e chamava window.prompt, dialog nativo que o
+  // app não usa em lugar nenhum); o editor da rota salva segue pelo lápis da lista.
   // ——— Editor da rota salva (21/07, pedido do dono): reordenar, remover, somar
   // cliente e mexer nos itens de cada parada. Tudo em rascunho no estado; só o
   // "Salvar" manda o PATCH — sair fora disso não escreve nada.
@@ -4734,9 +4737,16 @@
       const added = adicionados.includes(day.n);
       const selectedChip = state.daySelection.includes(day.n);
       const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
-      // "Adicionado ✓" vence QUALQUER contagem: depois de montar, o número do
-      // dia zera no servidor (as entregas materializaram) — mostrar "0" mente.
-      const sub = added ? "Adicionado ✓" : !enabled ? "Inativo" : count === undefined ? "…" : count === null ? "" : `${count}`;
+      // 27/07 (dono) — dia SEM cliente não vira chip. A régua da linha é "onde tem
+      // gente pra entregar": dia inativo e dia zerado só ocupavam espaço. Dia que
+      // JÁ está na rota fica sempre (o servidor zera a contagem depois de montar) e
+      // dia ainda contando (undefined) também — sumir e voltar meio segundo depois
+      // faria a linha inteira piscar.
+      if (!added && (!enabled || count === null || count === 0)) return "";
+      // 27/07 (dono) — o dia que está na rota se anuncia pela COR (borda + anel),
+      // nunca por palavra escrita; o número do servidor já zerou aqui, então o
+      // chip do dia montado fica sem legenda em vez de mentir "0".
+      const sub = added ? "" : count === undefined ? "…" : `${count}`;
       return `<button type="button" class="montagem-dia${selectedChip || added ? " active" : ""}${added ? " is-added" : ""}${enabled ? "" : " is-inactive"}" data-day="${day.n}" aria-pressed="${selectedChip || added}" ${enabled ? "" : "disabled"}><strong>${day.label}</strong><small>${H.escape(sub)}</small></button>`;
     }).join("");
   }
@@ -4860,12 +4870,13 @@
     // Ficha "Como resolver?" e a Rota rápida são PASSOS por cima da tela única
     // (mesma moldura central da conferência); Voltar cai de novo aqui.
     if (state.montagemRapida) return montagemRapidaModal();
+    if (state.montagemSalvar) return montagemSalvarModal();
     if (rc && rc.step === "ficha" && rc.ficha) return conferenciaFichaStep(rc);
-    const chips = `<div class="montagem-dias">${montagemDiaChips()}</div>`;
+    const chipsHtml = montagemDiaChips();
+    const chips = chipsHtml ? `<div class="montagem-dias">${chipsHtml}</div>` : "";
     const mapa = `<div id="route-plan-preview-map" class="montagem-map" aria-label="Mapa da rota em montagem"><span class="route-map-loading">Carregando mapa…</span></div>`;
-    let corpo = ""; let footer = ""; let subtitle = "";
+    let corpo = ""; let footer = "";
     if (rc) {
-      subtitle = rc.data ? conferenciaResumoLinhas(rc.data).join(" ") : rc.loading ? "Conferindo…" : "";
       const pendentes = conferenciaVermelhasPendentes(rc);
       const rows = rc.data ? (rc.data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("") : "";
       corpo = rc.error && !rc.data
@@ -4873,23 +4884,94 @@
         : !rc.data
           ? loading()
           : `${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
-      footer = `<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data || pendentes.length > 0 ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
+      // 27/07 (dono) — mexeu na sequência com as setas ▲▼, aparece "Salvar rota":
+      // a ordem que ele alinhou na mão vira rota-modelo (Rotas salvas) COM O NOME
+      // QUE ELE ESCOLHER. Só aparece depois da 1ª troca (rc.ordemManual só existe
+      // por toque humano em conferencia-mover) e é independente do Aceitar —
+      // salvar não debita, não aceita, não fecha a montagem.
+      const ordemEditada = !!(rc.ordemManual && rc.ordemManual.length);
+      const salvarLinha = ordemEditada
+        ? `<div class="montagem-salvar-linha"><button class="btn btn-secondary btn-block" type="button" data-action="montagem-salvar-rota" ${rc.loading || !rc.data ? "disabled" : ""}>Salvar rota</button></div>`
+        : "";
+      footer = `${salvarLinha}<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data || pendentes.length > 0 ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
     } else {
       // 27/07 (dono, 2ª cobrança): NÃO existe tela de prévia — tocar no dia JÁ
       // monta (toggleManagedRouteDay chama beginManagedRoute na hora) e esta
-      // mesma tela vira a rota montada. Antes de montar: só "Rotas salvas" e a
-      // dica de tocar no dia.
-      subtitle = "Toque num dia para montar";
+      // mesma tela vira a rota montada. Antes de montar: "Rotas salvas",
+      // "Registrar caminho" e a dica de tocar no dia.
       const modelos = state.routeModelos || [];
       const savedHint = state.routeModelosLoading ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
       const salvasRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-saved" ${state.routeModelosLoading ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>Rotas salvas</strong><span>${H.escape(savedHint)}</span></span><span class="rp2-mode-chev">›</span></button>`;
-      corpo = `${salvasRow}${state.dayStarting ? loading() : empty("Toque num dia lá em cima", "O dia inteiro entra na rota na hora.")}`;
+      // 27/07 (dono) — "Registrar caminho" mora AQUI, junto de "Rotas salvas":
+      // as duas portas de rota ficam na mesma tela (saiu dos Ajustes).
+      const leituraRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-leitura" ${state.leituraStarting ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--app rp2-saved-icon">${icon("gps", 16)}</span><span class="card-main"><strong>Registrar caminho</strong></span><span class="rp2-mode-chev">›</span></button>`;
+      const semDia = !chipsHtml;
+      corpo = `${salvasRow}${leituraRow}${state.dayStarting
+        ? loading()
+        : semDia
+          ? empty("Nenhum dia com cliente", "Marque os dias de entrega no cadastro do cliente.")
+          : empty("Toque num dia lá em cima", "O dia inteiro entra na rota na hora.")}`;
       footer = "";
     }
     // R2 — o "+" da rota rápida só faz sentido com rota montada (a parada nasce
     // avulsa DENTRO da rota em conferência).
     const plus = rc ? `<button type="button" class="close montagem-plus" data-action="montagem-rapida" aria-label="Adicionar parada rápida">+</button>` : "";
-    return `<div class="sheet-wrap route-plan-wrap montagem-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Montar rota</h2>${subtitle ? `<p class="subtitle">${H.escape(subtitle)}</p>` : ""}</div>${plus}<button class="close" data-action="close-modal">${icon("close", 18)}</button></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
+    // 27/07 (dono) — cabeçalho só com o NOME da tela, centralizado: o ícone, o
+    // "Montar rota" e o resumo de paradas/km/previsão saíram. Os dois botões
+    // (rota rápida e fechar) flutuam à direita sem tirar o título do meio.
+    return `<div class="sheet-wrap route-plan-wrap montagem-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head montagem-head"><h2>Gerenciador de Rota</h2><div class="montagem-head-acoes">${plus}<button class="close" data-action="close-modal">${icon("close", 18)}</button></div></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
+  }
+  // 27/07 (dono) — "Salvar rota" da montagem: mesma moldura/idioma do passo
+  // "Nome da rota" da Leitura (padronizar é IGUALAR), com uma diferença pedida
+  // no chat: aqui NÃO se sugere nome nenhum — quem escolhe é a pessoa.
+  function montagemSalvarModal() {
+    const s = state.montagemSalvar;
+    const body = `<form id="montagem-salvar-form"><div class="field"><label>Nome da rota</label><input name="nome" maxlength="80" value="${H.escape(s.nome)}"></div><button class="btn btn-primary btn-block rp2-cta" type="submit" ${s.salvando ? "disabled" : ""}>${s.salvando ? "Salvando…" : "Salvar"}</button></form>`;
+    return centerModal({
+      icon: "route",
+      title: "Nome da rota",
+      resumo: "Dê um nome pra encontrar depois",
+      body,
+      closeAction: "montagem-salvar-fechar",
+      closeButtonAction: "montagem-salvar-fechar",
+      backAction: "montagem-salvar-fechar",
+      backLabel: "Voltar",
+      nextAction: "",
+    });
+  }
+  // Paradas da rota conferida, NA ORDEM DA TELA, no contrato de rota-modelo
+  // ({customerProfileId, localId?}). O id da parada é o da ENTREGA: a conta/porta
+  // vem do payload da conferência quando o servidor manda, senão do item da rota
+  // que já está carregado (app velho contra servidor novo e vice-versa).
+  function montagemParadasParaSalvar(rc) {
+    const itens = allRouteItems();
+    return (rc && rc.data && rc.data.paradas || []).map(parada => {
+      const item = itens.find(it => String(it.id) === String(parada.id));
+      const customerProfileId = String(parada.customerProfileId || (item && (item.customerProfileId || item.cliente && item.cliente.id)) || "");
+      const localId = String(parada.localId || (item && item.localId) || "");
+      if (!customerProfileId) return null;
+      return { customerProfileId, ...(localId ? { localId } : {}) };
+    }).filter(Boolean);
+  }
+  async function montagemSalvarConfirmar() {
+    const s = state.montagemSalvar;
+    const rc = montagemConferencia();
+    if (!s || s.salvando) return;
+    const nome = String(s.nome || "").trim();
+    if (!nome) { toast("Escreva um nome para a rota.", true); return; }
+    const paradas = montagemParadasParaSalvar(rc);
+    if (!paradas.length) { toast("Esta rota não tem parada para salvar.", true); return; }
+    // Guard de reentrância (lei do som duplo, 25/07): marca + render ANTES do
+    // primeiro await, solta no finally.
+    s.salvando = true; render();
+    showLoading("Salvando rota…");
+    try {
+      await H.api("/logistica/rota-modelos", { method: "POST", body: { nome, paradas } });
+      await loadRouteModelos(true);
+      state.montagemSalvar = null;
+      toast("Rota salva. Ela está em Rotas salvas.");
+    } catch (error) { toast(humanApiError(error), true); }
+    finally { hideLoading(); if (state.montagemSalvar) state.montagemSalvar.salvando = false; render(); }
   }
   // 26/07 (dono, fusão final): o passo "Sequência" (Automática × Minha ordem) e a
   // tela de ordem manual PRÉ-geração MORRERAM — "Montar rota" gera direto e a única
@@ -6345,6 +6427,9 @@
     render();
     return new Promise(resolve => setTimeout(() => {
       if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
+      // Passos que vivem DENTRO da montagem morrem com ela (senão o próximo
+      // "Montar rota" abriria direto no nome da rota da vez passada).
+      if (limpaConferenciaMontagem || abandonaConferencia) { state.montagemSalvar = null; state.montagemRapida = null; }
       if (abandonaConferencia) { state.rotaConferencia = null; void desfazerRotaMontada(); }
       else if (limpaConferenciaMontagem) state.rotaConferencia = null;
       // 22/07 — fechar a folha zera TUDO da chegada editável (picker, preço aberto,
@@ -6513,16 +6598,6 @@
       H.cache.set("nav-mudo", state.navMudo);
       if (state.navMudo) H.speakStop();
       render();
-      return;
-    }
-    if (action === "module-toggle") {
-      const current = H.modules.get(); const module = target.dataset.module;
-      if (!Object.prototype.hasOwnProperty.call(current, module)) return;
-      const next = { ...current, [module]: !current[module] };
-      if (!H.modules.set(next)) { toast("Mantenha pelo menos um módulo ativo.", true); return; }
-      target.setAttribute("aria-checked", String(next[module]));
-      target.querySelector(".module-switch")?.classList.toggle("active", next[module]);
-      setTimeout(render, 220);
       return;
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
@@ -6882,6 +6957,10 @@
     if (action === "montagem-rapida-fechar") { state.montagemRapida = null; render(); return; }
     if (action === "montagem-rapida-buscar") { await montagemRapidaBuscar(); return; }
     if (action === "montagem-rapida-confirmar") { await montagemRapidaConfirmar(); return; }
+    // 27/07 (dono) — salvar a sequência alinhada na mão como rota salva.
+    if (action === "montagem-salvar-rota") { state.montagemSalvar = { nome: "", salvando: false }; render(); return; }
+    if (action === "montagem-salvar-fechar") { if (state.montagemSalvar && state.montagemSalvar.salvando) return; state.montagemSalvar = null; render(); return; }
+    if (action === "montagem-salvar-confirmar") { await montagemSalvarConfirmar(); return; }
     if (action === "conferencia-continuar") {
       const rc = state.rotaConferencia;
       if (!rc || rc.loading || conferenciaVermelhasPendentes(rc).length > 0) return;
@@ -7037,8 +7116,6 @@
     // pra emendar o download sozinho em vez de deixar o dono num botão morto.
     if (action === "update-permitir") { state.updateAwaitingPermission = true; if (typeof HBXAndroid !== "undefined" && HBXAndroid.openInstallPermission) HBXAndroid.openInstallPermission(); return; }
     if (action === "update-instalar") { startAppUpdate(); return; }
-    // PR18072026 Onda 3 — "Minhas rotas" (Ajustes).
-    if (action === "route-modelos") { if (!isAdmin()) return; showModal("route-modelos"); void loadRouteModelos(); return; }
     // ——— Editor da rota salva. Só mexe no rascunho; PATCH só no "Salvar".
     if (action === "edit-route-modelo") { if (!isAdmin()) return; await abrirRouteModeloEditor(target.dataset.modeloId); return; }
     if (action === "rme-fechar") { state.routeModeloEditor = null; await closeOverlay("modal"); return; }
@@ -7086,20 +7163,6 @@
       render(); return;
     }
     if (action === "rme-salvar") { await salvarRouteModeloEditor(); return; }
-    if (action === "rename-route-modelo") {
-      const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
-      if (!modelo) return;
-      const novo = window.prompt("Nome da rota", modelo.nome || "");
-      if (novo === null) return;
-      const nome = novo.trim();
-      if (!nome) return;
-      try {
-        await H.api(`/logistica/rota-modelos/${encodeURIComponent(modelo.id)}`, { method: "PATCH", body: { nome } });
-        await loadRouteModelos(true);
-        toast("Rota renomeada.");
-      } catch (error) { toast(humanApiError(error), true); }
-      return;
-    }
     if (action === "delete-route-modelo") {
       const modelo = (state.routeModelos || []).find(m => String(m.id) === target.dataset.modeloId);
       if (!modelo) return;
@@ -7601,6 +7664,8 @@
     if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { if (event.target.name === "clientPhone") event.target.value = formatPhoneInput(event.target.value); state.oneoffDraft[event.target.name] = event.target.value; return; }
     // R2 (27/07) — rascunho da Rota rápida sobrevive a re-render (mesma lei L4-F).
     if (event.target.form && event.target.form.id === "montagem-rapida-form" && event.target.name && state.montagemRapida) { state.montagemRapida[event.target.name] = event.target.value; return; }
+    // Rascunho do nome da rota salva (mesma lei L4-F: re-render não apaga o digitado).
+    if (event.target.form && event.target.form.id === "montagem-salvar-form" && event.target.name === "nome" && state.montagemSalvar) { state.montagemSalvar.nome = event.target.value; return; }
     // PR20072026 W2 — Leitura de Rota.
     if (event.target.form && event.target.form.id === "leitura-novo-form" && event.target.name) {
       const name = event.target.name;
@@ -7689,6 +7754,31 @@
     Object.keys(values).forEach(key => { if (!String(values[key]).trim()) delete values[key]; });
     return values;
   }
+  // 🔴 27/07 (ordem do dono) — dia da semana é do CLIENTE, e este é o ÚNICO
+  // caminho de escrita: uma chamada por cliente, o servidor aplica em todos os
+  // vínculos e espelha na Agenda. Não existe mais dia dentro de produto.
+  async function salvarDiasDoCliente(customerProfileId, dias, vinculoIdsExtras) {
+    if (!customerProfileId) return;
+    const lista = [...new Set((dias || []).map(Number).filter(d => d >= 1 && d <= 7))].sort((a, b) => a - b);
+    try {
+      await H.api(`/logistica/clientes/${encodeURIComponent(customerProfileId)}/dias`, { method: "PATCH", body: { dias: lista } });
+      return;
+    } catch (error) {
+      // PONTE DE TRANSIÇÃO (27/07): o celular atualiza antes do servidor. Enquanto
+      // o endpoint novo não está no ar (404/405), grava pelo caminho antigo pra
+      // ninguém ficar sem salvar o dia do cliente. APAGAR ESTE CATCH depois do
+      // publish que leva o endpoint — ele é o único resquício de dia em vínculo.
+      const status = Number(error && (error.status || error.statusCode));
+      if (status !== 404 && status !== 405) throw error;
+      const ids = [...new Set([
+        ...(state.clientProducts || []).filter(v => v && v.ativo !== false).map(v => String(v.id)),
+        ...(vinculoIdsExtras || []).map(String),
+      ])].filter(Boolean);
+      for (const id of ids) {
+        await H.api(`/logistica/cliente-produtos/${encodeURIComponent(id)}`, { method: "PATCH", body: { diasSemana: lista.join(",") } });
+      }
+    }
+  }
   async function persistClientProduct(customerProfileId, values) {
     const mode = state.clientProductMode;
     const productId = Number(values.productId || state.clientProductDraft.productId);
@@ -7700,7 +7790,10 @@
     const precoAcordado = precoAcordadoRaw !== undefined && precoAcordadoRaw !== null && String(precoAcordadoRaw).trim() !== "" ? Number(precoAcordadoRaw) : null;
     if (mode === "weekly") {
       if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
-      const body = { qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), frequenciaDias: null, proximaData: null, ativo: true, precoAcordado };
+      // 27/07 (dono) — o vínculo NÃO carrega dia: quem tem dia é o cliente
+      // (PATCH /logistica/clientes/:id/dias, salvo junto na ficha). O servidor
+      // copia os dias da conta pro vínculo novo.
+      const body = { qtdPadrao: quantity, frequenciaDias: null, proximaData: null, ativo: true, precoAcordado };
       if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
       else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
       return;
@@ -7709,7 +7802,7 @@
       const frequenciaDias = Number(values.frequenciaDias || state.clientProductDraft.frequenciaDias);
       const proximaData = values.proximaData || state.clientProductDraft.proximaData;
       if (!Number.isFinite(frequenciaDias) || frequenciaDias < 1 || !proximaData) throw new Error("Informe a primeira entrega e a frequência.");
-      const body = { qtdPadrao: quantity, frequenciaDias, proximaData, diasSemana: null, ativo: true, precoAcordado };
+      const body = { qtdPadrao: quantity, frequenciaDias, proximaData, ativo: true, precoAcordado };
       if (state.clientProductEditingId) await H.api(`/logistica/cliente-produtos/${encodeURIComponent(state.clientProductEditingId)}`, { method: "PATCH", body });
       else await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, ...body } });
       return;
@@ -7750,7 +7843,10 @@
           if (!productId) throw new Error("Escolha o produto.");
           if (state.clientProductMode === "weekly") {
             if (!state.clientProductDays.length) throw new Error("Marque os dias de entrega do cliente (seção Cadastro).");
-            await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, diasSemana: state.clientProductDays.join(","), ativo: true, precoAcordado } });
+            // 27/07 — dia é do CLIENTE: cria o vínculo (sem dia nenhum) e manda os
+            // dias pra conta, que é quem manda nos vínculos dela.
+            const vinculo = await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, ativo: true, precoAcordado } });
+            await salvarDiasDoCliente(customerProfileId, state.clientProductDays, vinculo && vinculo.id ? [vinculo.id] : []);
           } else if (state.clientProductMode === "date") {
             await H.api("/logistica/cliente-produtos", { method: "POST", body: { customerProfileId, productId, qtdPadrao: quantity, frequenciaDias: Number(data.frequenciaDias), proximaData: data.proximaData, ativo: true, precoAcordado } });
           } else if (state.clientProductMode === "oneoff") {
@@ -7788,18 +7884,21 @@
         if (phone) await saveClientPhone(client, phone);
         const limite = Number(data.limite); const dia = Math.max(1, Math.min(31, Number(data.diaFechamento))); await H.api(`/logistica/clientes/${encodeURIComponent(client.id)}/financeiro`, { method: "PATCH", body: { formaPagamento: d.formaPagamento, metodoPadrao: d.formaPagamento === "na_hora" ? d.metodoPadrao : "", limiteFiado: data.limite !== undefined && Number.isFinite(limite) && limite >= 0 ? limite : null, ...(d.formaPagamento === "mensal" && Number.isFinite(dia) ? { diaFechamento: dia } : {}) } });
         const savesProduct = !!state.clientProductMode;
-        if (savesProduct) await persistClientProduct(client.id, formValues(app.querySelector("#client-product-form")));
-        // R5 (27/07, combinado do dono) — dia fixo NO CLIENTE: mudou os chips da
-        // ficha, TODOS os vínculos semanais ativos seguem os dias novos (a ponte
-        // cadastro→agenda espelha no plano). Dias vazios NUNCA zeram vínculo por
-        // engano — remover dia de verdade é mexer no próprio produto.
+        // 🔴 27/07 (ordem do dono) — o DIA é do cliente e vai PRIMEIRO: o vínculo
+        // criado logo abaixo herda do servidor os dias da conta (produto não tem
+        // mais dia nenhum). Dias vazios não zeram nada por engano.
         const diasNovos = [...state.clientProductDays].sort((a, b) => a - b);
         const diasOriginais = Array.isArray(state.clientDaysOriginal) ? state.clientDaysOriginal : diasNovos;
         if (diasNovos.length && diasNovos.join(",") !== diasOriginais.join(",")) {
-          const semanais = (state.clientProducts || []).filter(v => v && v.ativo !== false && String(v.diasSemana || "").trim() && (!savesProduct || String(v.id) !== String(state.clientProductEditingId || "")));
-          for (const v of semanais) {
-            await H.api(`/logistica/cliente-produtos/${encodeURIComponent(v.id)}`, { method: "PATCH", body: { diasSemana: diasNovos.join(",") } });
-          }
+          await salvarDiasDoCliente(client.id, diasNovos);
+          state.clientDaysOriginal = diasNovos;
+        }
+        if (savesProduct) {
+          await persistClientProduct(client.id, formValues(app.querySelector("#client-product-form")));
+          // Vínculo criado agora nasce nos dias da conta pelo servidor; a 2ª
+          // chamada só existe pro caminho de transição (servidor antigo), e é
+          // idempotente — some junto com o catch de transição.
+          if (diasNovos.length) await salvarDiasDoCliente(client.id, diasNovos);
         }
         await closeOverlay("modal"); await loadClients(true, true); render(); toast(savesProduct ? "Cliente e produto salvos." : "Cliente salvo.");
       }
@@ -7840,6 +7939,11 @@
         // Cliente novo usa a mesma transição atômica do existente: o estado de
         // GPS já nasce carregando antes de a tela de endereço aparecer.
         await advanceLeituraNovoDraft();
+      }
+      if (form.id === "montagem-salvar-form" && state.montagemSalvar) {
+        state.montagemSalvar.nome = String(data.nome || "");
+        await montagemSalvarConfirmar();
+        return;
       }
       if (form.id === "leitura-nome-form" && state.leitura) {
         const nome = String(data.nome || "").trim() || rotaDefaultName();
@@ -7983,6 +8087,12 @@
           if (state.montagemRapida) {
             state.montagemRapida = null;
             render();
+            return true;
+          }
+          // Lei 10 — o passo "Nome da rota" volta pra rota em conferência (e não
+          // sai do meio de um POST em voo).
+          if (state.montagemSalvar) {
+            if (!state.montagemSalvar.salvando) { state.montagemSalvar = null; render(); }
             return true;
           }
           if (state.dayOrderStep === "saved") {

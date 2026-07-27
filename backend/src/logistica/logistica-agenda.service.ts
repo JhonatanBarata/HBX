@@ -155,6 +155,14 @@ export class LogisticaAgendaService {
         // gerado/limpo continuavam contando. `totalPlanos` guarda o número cru.
         const dataReferencia = nextDateForWeekday(day, hoje);
         const ocorrem = dayPlans.filter((plan) => planOccursOn(plan, dataReferencia));
+        // FIX 27/07 (dono: "tem certeza que terça não tinha pessoas?") — `totalParadas`
+        // responde "quantas visitas caem NA PRÓXIMA data deste dia", e isso ZERA sozinho
+        // assim que o dia é gerado (a `proximaData` do plano pula pra semana seguinte) ou
+        // quando a cadência é quinzenal/de N em N. Na tela isso lia como "terça não tem
+        // ninguém" — mentira: os clientes de terça continuam lá (medido em prod 27/07,
+        // empresa 48: terça 7 planos ativos, sexta 13, ambos com chip 0). `totalClientesDia`
+        // é a LISTA DE GENTE do dia, sem filtro de ciclo — é ela que diz se o dia existe.
+        const ativosDoDia = dayPlans.filter((plan) => plan.ativo !== false);
         return {
           diaSemana: day,
           nome,
@@ -163,6 +171,7 @@ export class LogisticaAgendaService {
           totalPlanos: dayPlans.length,
           totalParadas: ocorrem.length,
           totalClientes: new Set(ocorrem.map((plan) => plan.customerProfileId)).size,
+          totalClientesDia: new Set(ativosDoDia.map((plan) => plan.customerProfileId)).size,
           avisos: dayPlans.length && !route
             ? [{ codigo: 'SEM_ROTA', mensagem: 'Defina a sequência deste dia.' }]
             : [],
@@ -589,6 +598,9 @@ export class LogisticaAgendaService {
           totalPlanos: dayGroups.length,
           totalParadas: dayGroups.length,
           totalClientes: new Set(dayGroups.map((group) => group.customerProfileId)).size,
+          // Paridade com a V2 (ver FIX 27/07 em getSummary): a lista de gente do dia.
+          // No legado o grupo não tem filtro de ciclo, então é o mesmo conjunto.
+          totalClientesDia: new Set(dayGroups.map((group) => group.customerProfileId)).size,
           avisos: [],
         };
       }),

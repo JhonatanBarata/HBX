@@ -475,9 +475,9 @@ export interface CriarClienteProdutoPayload {
   qtdPadrao?: number;
   precoAcordado?: number;
   frequenciaDias?: number;
-  // Recorrência por dia da semana (convenção ISO do backend: 1=seg … 7=dom),
-  // ex.: "1,3,5" = seg/qua/sex. Modo alternativo a frequenciaDias.
-  diasSemana?: string;
+  // 🔴 27/07 (ordem do dono): NÃO existe dia da semana em produto. O dia é do
+  // CLIENTE (a visita) e se grava em `salvarDiasCliente` — o servidor copia os
+  // dias da conta pro vínculo novo.
   // MULTILOCAL 10/07 — em qual LocalEntrega do cliente este vínculo entrega.
   localId?: string;
 }
@@ -486,6 +486,18 @@ export function criarClienteProduto(p: CriarClienteProdutoPayload): Promise<Clie
   return apiFetch<ClienteProduto>(`/logistica/cliente-produtos`, {
     method: "POST",
     body: JSON.stringify(p),
+  });
+}
+
+/**
+ * 🔴 DIAS DE ENTREGA DO CLIENTE (27/07) — o ÚNICO caminho de escrita de dia da
+ * semana. Vale pra visita inteira: todos os produtos do cliente passam a valer
+ * nesses dias. `dias: []` = cliente sem dia fixo.
+ */
+export function salvarDiasCliente(id: string, dias: number[]): Promise<{ success: boolean; dias: number[] }> {
+  return apiFetch<{ success: boolean; dias: number[] }>(`/logistica/clientes/${encodeURIComponent(id)}/dias`, {
+    method: "PATCH",
+    body: JSON.stringify({ dias: [...new Set(dias.map(Number).filter((d) => d >= 1 && d <= 7))].sort((a, b) => a - b) }),
   });
 }
 

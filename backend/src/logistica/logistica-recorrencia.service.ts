@@ -148,7 +148,10 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     });
     if (!product) throw new NotFoundException('Produto não encontrado');
 
-    const diasSemana = normalizeDiasSemana(input.diasSemana);
+    // 🔴 27/07 (dono, SEM LEGADO): o dia NÃO vem do produto. Vínculo novo NASCE
+    // nos dias do CLIENTE (a visita) — quem muda dia é
+    // `PATCH /logistica/clientes/:id/dias`, e ele reescreve todos os vínculos.
+    const diasSemana = await this.diasDoCliente(companyId, conta.id);
     const frequenciaDias =
       input.frequenciaDias != null && Number.isFinite(Number(input.frequenciaDias))
         ? Math.max(1, Math.trunc(Number(input.frequenciaDias)))
@@ -186,6 +189,65 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       select: cpSelect,
     });
     return serializeClienteProduto(created, true);
+  }
+
+  /**
+   * DIA É DO CLIENTE (27/07) — os dias de entrega da CONTA: união ISO dos dias
+   * dos vínculos ativos. É a fonte que um vínculo novo herda.
+   */
+  async diasDoCliente(companyId: number, customerProfileId: string): Promise<string | null> {
+    const rows = await this.prisma.clienteProduto.findMany({
+      where: { companyId, customerProfileId, ativo: true },
+      select: { diasSemana: true },
+    });
+    const dias = new Set<number>();
+    for (const row of rows) {
+      for (const dia of parseDiasSemana(row.diasSemana)) dias.add(dia);
+    }
+    return dias.size ? [...dias].sort((a, b) => a - b).join(',') : null;
+  }
+
+  /**
+   * 🔴 O ÚNICO caminho de escrita de dia da semana no sistema (27/07, ordem do
+   * dono). Define os dias da VISITA do cliente: todos os vínculos ativos dele
+   * passam a valer nesses dias, de uma vez — nunca mais produto A na terça e
+   * produto B na quinta. Lista vazia = cliente sem dia fixo (os vínculos ficam,
+   * só param de cair na agenda semanal).
+   *
+   * Devolve os ids dos vínculos tocados: o controller espelha cada um no plano
+   * (ponte cadastro→agenda), que é o que o gerar-dia lê de verdade.
+   */
+  async definirDiasDoCliente(
+    companyId: number,
+    customerProfileId: string,
+    dias: number[],
+  ): Promise<{ vinculoIds: string[]; diasSemana: string | null }> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const conta = await this.prisma.customerProfile.findFirst({
+      where: { id: String(customerProfileId || '').trim(), companyId },
+      select: { id: true },
+    });
+    if (!conta) throw new NotFoundException('Cliente não encontrado');
+    const diasSemana = normalizeDiasSemana(
+      [...new Set((dias || []).map((d) => Math.trunc(Number(d))))].sort((a, b) => a - b).join(','),
+    );
+    const vinculos = await this.prisma.clienteProduto.findMany({
+      where: { companyId, customerProfileId: conta.id, ativo: true },
+      select: { id: true, diasSemana: true, proximaData: true },
+    });
+    for (const vinculo of vinculos) {
+      if ((vinculo.diasSemana ?? null) === diasSemana) continue;
+      await this.prisma.clienteProduto.update({
+        where: { id: vinculo.id },
+        data: {
+          diasSemana,
+          // Ganhou dia fixo e não tinha data de partida: começa a valer hoje
+          // (mesma regra do create). Perdeu o dia: a data fica como estava.
+          ...(diasSemana && !vinculo.proximaData ? { proximaData: startOfDay(new Date()) } : {}),
+        },
+      });
+    }
+    return { vinculoIds: vinculos.map((v) => v.id), diasSemana };
   }
 
   /**
@@ -231,7 +293,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         input.frequenciaDias != null && Number.isFinite(Number(input.frequenciaDias))
           ? Math.max(1, Math.trunc(Number(input.frequenciaDias)))
           : null;
-    if (input.diasSemana !== undefined) data.diasSemana = normalizeDiasSemana(input.diasSemana);
+    // (dia da semana NÃO se edita por aqui — ver `definirDiasDoCliente`)
     if (input.proximaData !== undefined) data.proximaData = parseDateOrNull(input.proximaData);
     if (input.ativo !== undefined) data.ativo = !!input.ativo;
 
@@ -910,7 +972,7 @@ export interface CreateClienteProdutoInput {
   qtdPadrao?: number;
   precoAcordado?: number;
   frequenciaDias?: number;
-  diasSemana?: string;
+  // (sem diasSemana: dia é do CLIENTE — definirDiasDoCliente, 27/07)
   proximaData?: string;
   ativo?: boolean;
   localId?: string;
@@ -920,7 +982,7 @@ export interface UpdateClienteProdutoInput {
   qtdPadrao?: number;
   precoAcordado?: number;
   frequenciaDias?: number;
-  diasSemana?: string;
+  // (sem diasSemana: dia é do CLIENTE — definirDiasDoCliente, 27/07)
   proximaData?: string;
   ativo?: boolean;
   localId?: string;

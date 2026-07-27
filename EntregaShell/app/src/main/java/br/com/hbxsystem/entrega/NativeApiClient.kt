@@ -329,6 +329,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             && segments.take(3) == listOf("logistica", "agenda", "dias")
             && segments[4] == "ordem" -> true
         method == "PATCH" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "financeiro" -> true
+        // DIA É DO CLIENTE (27/07) — PATCH /logistica/clientes/:id/dias é o único
+        // caminho de escrita de dia da semana (produto não tem mais dia).
+        method == "PATCH" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "dias" -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "produtos") -> true

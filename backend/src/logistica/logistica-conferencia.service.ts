@@ -183,9 +183,14 @@ export class LogisticaConferenciaService {
       // conferidaPorId sempre tem a chave (1:1 com plan.paradas, ver map acima) —
       // o "!" documenta essa garantia estrutural, não um risco de runtime.
       const c = conferidaPorId.get(p.id)!;
+      const extra = extras.get(p.id);
       return {
         id: p.id,
         nome: p.nome,
+        // Conta/porta da parada (ver ConferirRotaParada): o "Salvar rota" do APK
+        // grava rota-modelo por customerProfileId/localId.
+        customerProfileId: extra?.customerProfileId ?? null,
+        localId: extra?.localId ?? null,
         rotaOrdem: p.rotaOrdem,
         lat: p.lat,
         lng: p.lng,
@@ -586,6 +591,14 @@ export interface ConferirRotaInput {
 export interface ConferirRotaParada {
   id: string;
   nome: string | null;
+  /**
+   * Conta/porta desta parada. 27/07 — o APK salva a sequência conferida como rota
+   * salva ("Salvar rota" na montagem) e o contrato de rota-modelo é por
+   * customerProfileId/localId, não por id de entrega. Sem estes dois o app teria
+   * que adivinhar a porta de cliente multilocal.
+   */
+  customerProfileId: string | null;
+  localId: string | null;
   rotaOrdem: number;
   lat: number | null;
   lng: number | null;

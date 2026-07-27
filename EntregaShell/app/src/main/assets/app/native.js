@@ -170,7 +170,18 @@
     // quando chegar a vez dele nesta mesma checagem. Por isso aqui é `===`,
     // não `contains()`; o `contains()` some daqui e só volta nos dois pontos
     // que REALMENTE destroem o nó (os dois `replaceWith` abaixo).
-    if (vivo === document.activeElement) return hbxCarimboVencido(vivo);
+    // 27/07 (dono: "Painel de créditos do dia — funciona mas não visualmente"):
+    // a guarda de foco valia pra QUALQUER nó focado, e no WebView o Android dá
+    // foco ao <button> assim que o dedo toca nele. Resultado: a linha de Ajustes
+    // que acabou de ser tocada era exatamente o único ramo que a tela se recusava
+    // a redesenhar — o interruptor ficava congelado no estado anterior até sair da
+    // tela e voltar (a chave ligava de verdade, só não mostrava). Quem precisa de
+    // proteção é campo que guarda DIGITAÇÃO/CURSOR (input/textarea/select e
+    // contenteditable): sincronizar atributo/miolo num botão não tira cursor de
+    // ninguém. Os dois `replaceWith` abaixo — que DESTROEM o nó e aí sim levariam
+    // o foco junto — seguem com a guarda `contains(activeElement)` deles.
+    const focoDeDigitacao = HBX_CONTROLES_FORM.has(vivo.tagName) || vivo.isContentEditable;
+    if (vivo === document.activeElement && focoDeDigitacao) return hbxCarimboVencido(vivo);
 
     const html = novo.outerHTML;
     // Comparo com o que EU MESMO gerei da última vez (__hbxGen), nunca com

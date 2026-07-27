@@ -74,6 +74,7 @@ import {
   listEntregasCliente,
   mergeClientes,
   recorrenciaLabel,
+  salvarDiasCliente,
   getCliente,
   listClienteProdutos,
   listClientes,
@@ -644,6 +645,25 @@ export function ClienteEditor({
   // TASK 6a — dias de trabalho (Ajustes) pro filtro do multiselect de dias da
   // semana em ProdutosDoCliente; lido sempre (cria OU edita).
   const [diasTrabalho, setDiasTrabalho] = useState<string | null>(null);
+  // 🔴 DIAS DE ENTREGA DO CLIENTE (27/07) — a visita. Enquanto o operador não
+  // toca nos chips, espelha o que a conta já tem (união dos vínculos ativos, que
+  // é o mesmo conjunto que a Agenda mostra); tocou, manda no salvar.
+  const [diasCliente, setDiasCliente] = useState<number[]>([]);
+  const [diasTocados, setDiasTocados] = useState(false);
+  const diasDaConta = useMemo(() => {
+    const set = new Set<number>();
+    for (const p of produtos ?? []) {
+      if (p.ativo === false) continue;
+      for (const d of String(p.diasSemana ?? "").split(",")) {
+        const n = Math.trunc(Number(d.trim()));
+        if (n >= 1 && n <= 7) set.add(n);
+      }
+    }
+    return [...set].sort((a, b) => a - b);
+  }, [produtos]);
+  useEffect(() => {
+    if (!diasTocados) setDiasCliente(diasDaConta);
+  }, [diasDaConta, diasTocados]);
 
   // Carrega a ficha (edição) + catálogo de produtos.
   useEffect(() => {
@@ -1035,8 +1055,7 @@ export function ClienteEditor({
                 customerProfileId: contaId!,
                 productId: p.productId,
                 qtdPadrao: p.qtdPadrao,
-                ...(p.diasSemana ? { diasSemana: p.diasSemana } : {}),
-                ...(!p.diasSemana && p.frequenciaDias ? { frequenciaDias: p.frequenciaDias } : {}),
+                ...(p.frequenciaDias ? { frequenciaDias: p.frequenciaDias } : {}),
                 ...(p.precoAcordado != null ? { precoAcordado: p.precoAcordado } : {}),
               }),
             ),
@@ -1044,6 +1063,15 @@ export function ClienteEditor({
           const falhas = resultados.filter((r) => r.status === "rejected").length;
           if (falhas > 0) {
             showCascaToast(`Cliente criado; ${falhas} de ${produtos.length} produto${produtos.length === 1 ? "" : "s"} não entrou`);
+          }
+        }
+        // 🔴 27/07 — o DIA é do cliente: vai depois dos vínculos existirem, numa
+        // chamada só, e o servidor aplica em todos eles.
+        if (diasCliente.length > 0) {
+          try {
+            await salvarDiasCliente(contaId!, diasCliente);
+          } catch {
+            showCascaToast("Cliente criado; os dias de entrega não foram salvos");
           }
         }
       } else if (id) {
@@ -1088,6 +1116,12 @@ export function ClienteEditor({
         }
       }
 
+      // 🔴 27/07 — dias de entrega do CLIENTE (edição): só quando o operador
+      // mexeu nos chips. Uma chamada, o servidor aplica em todos os produtos.
+      if (editando && contaId && diasTocados && diasCliente.join(",") !== diasDaConta.join(",")) {
+        await salvarDiasCliente(contaId, diasCliente);
+      }
+
       // Forma de pagamento (endpoint ADMIN separado). Sempre grava — é o contrato.
       if (contaId) {
         await salvarFinanceiro(contaId, financeiro);
@@ -1102,7 +1136,7 @@ export function ClienteEditor({
   }, [
     podeSalvar, editando, id, nome, whatsapp, whatsappOriginal, contatoPrincipalId, localPrincipalId,
     comporEndereco, numero, bairro, cep, cidade, uf, coord, coordFonte, forma, metodo, diaFechamento, contabilizar,
-    limiteFiado, avisarCobranca, produtos, onSair, onCriado,
+    limiteFiado, avisarCobranca, produtos, diasCliente, diasTocados, diasDaConta, onSair, onCriado,
   ]);
 
   if (carregando) {
@@ -1382,6 +1416,31 @@ export function ClienteEditor({
           </>
         ) : null}
 
+        {/* 🔴 DIAS DE ENTREGA — 27/07 (ordem do dono): o dia é do CLIENTE (a
+            visita), num lugar SÓ. Produto não tem mais dia nenhum. */}
+        <div className="ent-field-label ent-section">Dias de entrega</div>
+        <div className="ent-chips ent-chips--fit">
+          {diasPermitidos(diasTrabalho).map((d) => {
+            const on = diasCliente.includes(d.n);
+            return (
+              <button
+                type="button"
+                key={d.n}
+                className={`ent-chip${on ? " is-on" : ""}`}
+                aria-pressed={on}
+                onClick={() => {
+                  setDiasTocados(true);
+                  setDiasCliente((prev) =>
+                    prev.includes(d.n) ? prev.filter((x) => x !== d.n) : [...prev, d.n].sort((a, b) => a - b),
+                  );
+                }}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* PRODUTOS DO CLIENTE — TASK 5a: também no cadastro (lista pendente
             local até o cliente existir de verdade). */}
         <div ref={produtosSecRef} className="ent-field-label ent-section">Produtos</div>
@@ -1469,16 +1528,13 @@ function ProdutosDoCliente({
   const [addOpen, setAddOpen] = useState(false);
   const [productId, setProductId] = useState<string>("");
   const [qtd, setQtd] = useState("1");
-  const [modo, setModo] = useState<"dias" | "semana">("dias"); // recorrência: a cada N dias OU dias da semana
-  const [freq, setFreq] = useState(""); // dias; vazio = avulso
-  const [diasSemana, setDiasSemana] = useState<number[]>([]); // ISO 1=seg … 7=dom
+  const [freq, setFreq] = useState(""); // dias; vazio = segue os dias do cliente
   const [preco, setPreco] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   // TASK 6a — só os dias configurados em Ajustes entram no multiselect
   // (vazio/null = sem restrição configurada, mostra os 7 de sempre).
-  const diasPermitidosLista = useMemo(() => diasPermitidos(diasTrabalho), [diasTrabalho]);
 
   // MULTILOCAL 10/07 — "entregar em [local]": só aparece com 2+ locais ativos
   // (1 local só = sem ambiguidade, zero UI extra — Lei do "zero textão").
@@ -1500,11 +1556,9 @@ function ProdutosDoCliente({
     setSalvando(true);
     setErro(null);
     try {
-      // Manda SÓ o modo escolhido: "semana" → diasSemana (ISO ordenado); senão,
-      // frequenciaDias. Nunca os dois.
-      const diasSemanaCsv =
-        modo === "semana" && diasSemana.length > 0 ? [...diasSemana].sort((a, b) => a - b).join(",") : null;
-      const frequenciaNum = modo === "dias" && freq.trim() ? Math.max(1, Number(freq)) : null;
+      // Dia da semana NÃO viaja no vínculo (é do cliente); aqui só a cadência
+      // por intervalo, quando o operador escolher uma.
+      const frequenciaNum = freq.trim() ? Math.max(1, Number(freq)) : null;
       const precoNum = preco.trim() ? Math.max(0, Number(preco.replace(",", "."))) : null;
       const qtdNum = Math.max(1, Number(qtd) || 1);
       // MULTILOCAL 10/07 — só manda localId em modo edição (create/pendente não
@@ -1522,7 +1576,7 @@ function ProdutosDoCliente({
           qtdPadrao: qtdNum,
           precoAcordado: precoNum,
           frequenciaDias: frequenciaNum,
-          diasSemana: diasSemanaCsv,
+          diasSemana: null,
           proximaData: null,
           ativo: true,
           localId: null,
@@ -1533,8 +1587,7 @@ function ProdutosDoCliente({
           customerProfileId: clienteId,
           productId: pid,
           qtdPadrao: qtdNum,
-          ...(diasSemanaCsv ? { diasSemana: diasSemanaCsv } : {}),
-          ...(!diasSemanaCsv && frequenciaNum ? { frequenciaDias: frequenciaNum } : {}),
+          ...(frequenciaNum ? { frequenciaDias: frequenciaNum } : {}),
           ...(precoNum != null ? { precoAcordado: precoNum } : {}),
         };
         try {
@@ -1555,9 +1608,7 @@ function ProdutosDoCliente({
       setAddOpen(false);
       setProductId("");
       setQtd("1");
-      setModo("dias");
       setFreq("");
-      setDiasSemana([]);
       setPreco("");
       setLocalId("");
     } catch (e) {
@@ -1565,7 +1616,7 @@ function ProdutosDoCliente({
     } finally {
       setSalvando(false);
     }
-  }, [clienteId, productId, qtd, modo, freq, diasSemana, preco, produtos, catalogo, localId, localPrincipalId, onMudou]);
+  }, [clienteId, productId, qtd, freq, preco, produtos, catalogo, localId, localPrincipalId, onMudou]);
 
   const alternar = useCallback(
     async (p: ClienteProduto) => {
@@ -1695,52 +1746,14 @@ function ProdutosDoCliente({
             </label>
           ) : null}
 
-          {/* RECORRÊNCIA — 2 modos: a cada N dias OU dias fixos da semana. */}
+          {/* 🔴 27/07 (ordem do dono) — produto NÃO tem dia da semana. O dia é do
+              CLIENTE (bloco "Dias de entrega" no cadastro, acima); aqui só a
+              cadência de quem entrega por intervalo. */}
           <div className="ent-field-label ent-section">Quando entregar</div>
-          <div className="ent-chips">
-            <button
-              type="button"
-              className={`ent-chip${modo === "dias" ? " is-on" : ""}`}
-              onClick={() => setModo("dias")}
-            >
-              A cada N dias
-            </button>
-            <button
-              type="button"
-              className={`ent-chip${modo === "semana" ? " is-on" : ""}`}
-              onClick={() => setModo("semana")}
-            >
-              Dias da semana
-            </button>
-          </div>
-
-          {modo === "dias" ? (
-            <label className="ent-field">
-              <span className="ent-field-label">A cada (dias)</span>
-              <input className="ent-input" type="number" inputMode="numeric" min={1} value={freq} onChange={(e) => setFreq(e.target.value)} placeholder="Avulso" />
-            </label>
-          ) : (
-            <div className="ent-chips ent-chips--fit">
-              {diasPermitidosLista.map((d) => {
-                const on = diasSemana.includes(d.n);
-                return (
-                  <button
-                    type="button"
-                    key={d.n}
-                    className={`ent-chip${on ? " is-on" : ""}`}
-                    aria-pressed={on}
-                    onClick={() =>
-                      setDiasSemana((prev) =>
-                        prev.includes(d.n) ? prev.filter((x) => x !== d.n) : [...prev, d.n],
-                      )
-                    }
-                  >
-                    {d.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <label className="ent-field">
+            <span className="ent-field-label">A cada (dias)</span>
+            <input className="ent-input" type="number" inputMode="numeric" min={1} value={freq} onChange={(e) => setFreq(e.target.value)} placeholder="Vazio = usa os dias do cliente" />
+          </label>
 
           <label className="ent-field">
             <span className="ent-field-label">Preço combinado</span>

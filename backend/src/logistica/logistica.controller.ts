@@ -66,6 +66,7 @@ import {
   PlanejarRotaDto,
   SetAvisarClienteDto,
   UpdateClienteProdutoDto,
+  UpdateDiasClienteDto,
   UpdateFinanceiroClienteDto,
   UpdateLogisticaConfigDto,
   UpdateLogisticaRouteModeDto,
@@ -548,6 +549,44 @@ export class LogisticaController {
     });
     if (!res) throw new NotFoundException('Cliente não encontrado');
     return res;
+  }
+
+  /**
+   * 🔴 DIAS DE ENTREGA DO CLIENTE (27/07, ordem do dono) — o ÚNICO lugar do
+   * sistema que escreve dia da semana. Vale pra VISITA: todos os vínculos ativos
+   * do cliente passam a valer nesses dias de uma vez (nunca mais produto A na
+   * terça e produto B na quinta), e cada um é espelhado no plano da Agenda — que
+   * é o que o gerar-dia lê. `dias: []` = sem dia fixo.
+   */
+  @Patch('clientes/:id/dias')
+  async updateDiasCliente(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateDiasClienteDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    // Snapshots ANTES da mutação: o espelho precisa do dia/local antigos de cada
+    // vínculo pra MOVER a visita (em vez de duplicar) — mesmo contrato do PATCH
+    // de vínculo logo abaixo.
+    const anteriores = this.agenda
+      ? await Promise.all(
+          (await this.recorrencia.listByCliente(companyId, id, req.user))
+            .filter((v: any) => v && v.ativo !== false)
+            .map((v: any) => this.recorrencia.vinculoEspelhoSnapshot(companyId, v.id)),
+        )
+      : [];
+    const res = await this.recorrencia.definirDiasDoCliente(companyId, id, dto?.dias ?? []);
+    const avisos: string[] = [];
+    if (this.agenda) {
+      for (const vinculoId of res.vinculoIds) {
+        const anterior = anteriores.find((s: any) => s && String(s.id) === String(vinculoId)) ?? null;
+        const espelho = await this.agenda.espelharVinculoCadastro(companyId, vinculoId, anterior);
+        avisos.push(...espelho.avisos);
+      }
+    }
+    return {
+      success: true,
+      dias: res.diasSemana ? res.diasSemana.split(',').map((d) => Number(d)) : [],
+      vinculos: res.vinculoIds.length,
+      ...(avisos.length ? { agendaAvisos: [...new Set(avisos)] } : {}),
+    };
   }
 
   // ── LOGÍSTICA-MOBILE M2 — produtos do cliente (recorrência) ────────────────

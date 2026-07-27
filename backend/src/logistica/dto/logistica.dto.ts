@@ -235,9 +235,15 @@ export class TipoComprovanteDto {
 }
 
 // ── LOGÍSTICA-MOBILE M2 — vínculo produto×cliente (recorrência) ──────────────
-// "O cliente X leva N do produto Y a cada Z dias (ou nos dias W), pelo preço P."
-// frequenciaDias E diasSemana são mutuamente exclusivos na prática (o serviço
-// prioriza diasSemana); ambos opcionais → vínculo só-manual (sem recorrência).
+// "O cliente X leva N do produto Y a cada Z dias, pelo preço P."
+//
+// 🔴 27/07 (ordem do dono, SEM LEGADO): **dia da semana NÃO existe em produto.**
+// O dia é do CLIENTE (a visita) e se define em UM lugar só —
+// `PATCH /logistica/clientes/:id/dias`. Nenhum endpoint de vínculo aceita
+// `diasSemana`: no create o servidor COPIA os dias do cliente, no update o campo
+// nem é lido. Motivo real (medido em prod 27/07): com o dia preso ao produto,
+// dois produtos do mesmo cliente podiam cair em dias diferentes, a contagem do
+// dia virava contagem de produto e "terça com 7 clientes" aparecia como vazia.
 export class CreateClienteProdutoDto {
   @IsString()
   @MaxLength(60)
@@ -262,12 +268,6 @@ export class CreateClienteProdutoDto {
   @Min(1)
   @Max(365)
   frequenciaDias?: number;
-
-  // "1,3,5" = seg/qua/sex (1=seg … 7=dom). Validação de conteúdo no serviço.
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  diasSemana?: string;
 
   // ISO date; se omitido, o serviço calcula a próxima data pela frequência.
   @IsOptional()
@@ -307,10 +307,7 @@ export class UpdateClienteProdutoDto {
   @Max(365)
   frequenciaDias?: number;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  diasSemana?: string;
+  // (sem `diasSemana`: dia é do CLIENTE — ver o cabeçalho do Create acima)
 
   @IsOptional()
   @IsString()
@@ -686,6 +683,18 @@ export class FecharMesDto {
   @IsString()
   @MaxLength(7)
   mesRef?: string; // "YYYY-MM"
+}
+
+// ── DIAS DE ENTREGA DO CLIENTE (27/07, ordem do dono) ────────────────────────
+// O ÚNICO lugar do sistema que define dia da semana. `dias` = ISO 1(seg)…7(dom);
+// lista vazia = cliente sem dia fixo (some da agenda semanal, os vínculos ficam).
+export class UpdateDiasClienteDto {
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
+  dias!: number[];
 }
 
 // ── LOGÍSTICA-MOBILE M6 — editar a forma de pagamento do cliente (na ficha) ───

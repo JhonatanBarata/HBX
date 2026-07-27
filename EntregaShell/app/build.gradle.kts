@@ -32,7 +32,11 @@ plugins {
 // à mão um build 37 no moto g15. Sem subir o piso, o próximo publish carimbaria
 // 37 — MESMO número já no aparelho — e o celular nunca veria a atualização
 // (repetição exata dos casos 8→15 e 15→18 acima).
-val hbxLogisticaVersionCodeFloor = 38
+// 38 → 60 em 27/07: testando o Gerenciador de Rota e a contagem de dias no moto
+// g15 instalei à mão os builds 57/58/59/60. Sem subir o piso, o próximo publish
+// carimbaria um número que JÁ está no aparelho e ele nunca veria a atualização
+// (mesmo caso de 8→15, 15→18 e 18→38 acima).
+val hbxLogisticaVersionCodeFloor = 60
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

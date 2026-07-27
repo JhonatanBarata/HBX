@@ -427,14 +427,20 @@ h3 { font-size: .95rem; }
 .rp2-mode-card--highlight { margin-bottom: 10px; border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); background: color-mix(in srgb, var(--warning) 10%, var(--surface)); }
 
 /* R1 27/07 — MONTAR ROTA numa tela só (padrão Circuit): chips dos dias no topo
-   ("Adicionado ✓" pra dia que já compõe a rota — fim do "0" mentiroso), mapa
-   fixo, miolo rolando (prévia ou conferência) e rodapé com "Aceitar rota".
+   (só dia COM cliente; o dia já na rota se marca pela cor, sem palavra escrita),
+   mapa fixo, miolo rolando (prévia ou conferência) e rodapé com "Aceitar rota".
    Cores 100% por token (Lei 2). */
-.montagem-dias { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex: 0 0 auto; padding: 2px 2px 10px; scrollbar-width: none; }
+/* Dias CENTRALIZADOS (dono, 27/07). `safe center` é o par obrigatório do
+   overflow-x: com o `center` puro, quando os chips passam da largura da tela o
+   primeiro fica preso fora do alcance do dedo. Navegador que não conhece o
+   `safe` descarta só a 2ª linha e fica com o center simples. */
+.montagem-dias { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex: 0 0 auto; padding: 2px 2px 10px; scrollbar-width: none; justify-content: center; justify-content: safe center; }
 .montagem-dias::-webkit-scrollbar { display: none; }
 .montagem-dia { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 62px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); color: inherit; }
 .montagem-dia strong { font-size: .78rem; font-weight: 850; letter-spacing: .02em; }
-.montagem-dia small { font-size: .58rem; font-weight: 750; color: var(--muted); white-space: nowrap; }
+/* min-height segura a altura do chip do dia montado, que fica SEM legenda —
+   sem ela esse chip encolhe e a linha inteira sai desalinhada. */
+.montagem-dia small { min-height: .86em; font-size: .58rem; font-weight: 750; color: var(--muted); white-space: nowrap; }
 .montagem-dia.active { border-color: var(--brand-strong); background: var(--brand-soft); }
 .montagem-dia.active strong, .montagem-dia.active small { color: var(--brand-strong); }
 .montagem-dia.is-added { box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 30%, transparent); }
@@ -444,6 +450,15 @@ h3 { font-size: .95rem; }
 .montagem-footer { flex-direction: row; }
 .montagem-footer .btn { flex: 1 1 auto; }
 .montagem-salvas-row { width: 100%; margin: 0 0 12px; }
+/* 27/07 (dono) — cabeçalho da montagem: só o nome da tela, centralizado de
+   verdade (título ocupa a largura toda; os botões flutuam por cima, à direita).
+   O padding lateral do h2 é simétrico pra centralizar sem contar os botões. */
+.montagem-head { position: relative; display: block; min-height: 38px; margin-bottom: 12px; }
+.montagem-head h2 { padding: 4px 92px 0; text-align: center; }
+.montagem-head-acoes { position: absolute; top: 0; right: 0; display: flex; align-items: center; }
+/* "Salvar rota" (só quando a sequência foi mexida na mão): linha própria acima
+   do rodapé, pra não disputar espaço com Cancelar/Aceitar. */
+.montagem-salvar-linha { flex: 0 0 auto; padding-top: 12px; }
 /* R2 — "+" da rota rápida no cabeçalho da montagem: mesma pegada do .close,
    cor de marca pra dizer "isto ADICIONA" (Lei 2b: limão = seleção/identidade). */
 .montagem-plus { margin-right: 8px; color: var(--brand-strong); background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); font-size: 1.15rem; font-weight: 850; line-height: 1; }
@@ -1225,8 +1240,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .distance-warning-card { padding: 16px; }
 .distance-warning-value { font-size: 1.7rem; color: var(--danger); }
 .distance-warning-sub { margin: 7px 0 0; }
-/* Linha de ação (Editar/Renomear) em "Minhas rotas". */
-.route-modelo-row-actions { margin: 0; gap: 6px; }
 /* Chips vivos GPS/Rede/Atualizar injetados via DOM no topbar (syncHeaderChips). */
 #hbx-header-chips { display: flex; align-items: center; gap: 6px; }
 
