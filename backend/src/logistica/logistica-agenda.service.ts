@@ -922,6 +922,22 @@ export class LogisticaAgendaService {
       await this.syncRouteMirror(tx, companyId, targetRoute.id, true);
     });
 
+    // F0 (27/07) — extrato: dia da semana trocado é a mudança que mais gera
+    // dúvida do cliente ("por que hoje não veio?"). PÓS-commit, prisma raiz
+    // (contrato do evento.util — INSERT dentro da tx pode abortá-la inteira).
+    if (existing.diaSemana !== normalized.diaSemana) {
+      await registrarEventoAgenda(this.prisma, {
+        companyId,
+        customerProfileId: normalized.customerProfileId,
+        planoEntregaId: existing.id,
+        tipo: 'DIA_ALTERADO',
+        deTexto: DAY_ABBR[existing.diaSemana - 1] ?? null,
+        paraTexto: DAY_ABBR[normalized.diaSemana - 1] ?? null,
+        origem: 'manual',
+        actorUserId: null,
+      });
+    }
+
     return this.getPlanOrThrow(companyId, existing.id);
   }
 
