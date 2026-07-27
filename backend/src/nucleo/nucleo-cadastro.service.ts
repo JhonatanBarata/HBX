@@ -686,6 +686,9 @@ export class NucleoCadastroService {
    * página inteira sem N+1 (escala single-driver — centenas de clientes):
    *   pendencias[]  = o que falta no cadastro (ordem fixa endereco→numero→gps→dia→whatsapp);
    *   diasEntrega[] = união ISO (1=seg…7=dom) dos diasSemana dos vínculos ATIVOS;
+   *                   PONTE CADASTRO→AGENDA (26/07): com agendaV2Ativa a fonte
+   *                   vira o PLANO ativo (LogisticaPlanoEntrega.diaSemana) —
+   *                   é o que o generateDay materializa de verdade;
    *   duplicataDe   = par duplicado COMPANY-WIDE (não por página): nome normalizado
    *                   idêntico OU endereco+numero normalizados idênticos, só entre
    *                   clientes ativos — sem fuzzy, os DOIS lados apontam um pro outro;
@@ -710,7 +713,7 @@ export class NucleoCadastroService {
     if (!companyId || !rows.length) return result;
     const pageIds = rows.map((r) => r.id);
 
-    const [vinculos, entregasAgg, config, dupUniverse, locaisAtivos] = await Promise.all([
+    const [vinculos, entregasAgg, config, dupUniverse, locaisAtivos, planosAgenda] = await Promise.all([
       this.prisma.clienteProduto.findMany({
         where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
         select: { customerProfileId: true, diasSemana: true, frequenciaDias: true },
@@ -722,7 +725,7 @@ export class NucleoCadastroService {
       }),
       this.prisma.logisticaConfig.findFirst({
         where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
+        select: { moduloFinanceiroAtivo: true, agendaV2Ativa: true },
       }),
       // Duplicidade é COMPANY-WIDE: o universo é TODO cliente ativo do tenant, não
       // só a página (senão o par que caiu em outra página passaria batido).
@@ -737,6 +740,13 @@ export class NucleoCadastroService {
         where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
         orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
         select: { customerProfileId: true, endereco: true, numero: true, lat: true, lng: true },
+      }),
+      // PONTE CADASTRO→AGENDA (26/07) — com a Agenda V2 ativa, o dia do cliente
+      // é o do PLANO (LogisticaPlanoEntrega), não mais o do vínculo de produto.
+      // A query roda sempre (barata, indexada); só é USADA quando agendaV2Ativa.
+      this.prisma.logisticaPlanoEntrega.findMany({
+        where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
+        select: { customerProfileId: true, diaSemana: true },
       }),
     ]);
 
@@ -772,6 +782,26 @@ export class NucleoCadastroService {
       const dias = parseDiasSemana(v.diasSemana);
       for (const d of dias) entry.dias.add(d);
       if (dias.length > 0 || (Number(v.frequenciaDias) || 0) > 0) entry.temDia = true;
+    }
+
+    // PONTE CADASTRO→AGENDA (26/07) — com a V2 ativa a fonte do "Dia" é o PLANO:
+    // é ele que o generateDay materializa. Cliente com dia só no vínculo (dado
+    // gravado depois do flip de 25/07, antes da ponte) acende pendência "dia"
+    // HONESTA — ele realmente não entra na rota até o vínculo ser re-salvo ou o
+    // plano criado na Agenda. Mesma lei do pino: dado que mente é pior que vazio.
+    const agendaV2Ativa = Boolean((config as any)?.agendaV2Ativa);
+    if (agendaV2Ativa) {
+      vincByCliente.clear();
+      for (const p of planosAgenda) {
+        let entry = vincByCliente.get(p.customerProfileId);
+        if (!entry) {
+          entry = { dias: new Set<number>(), temDia: false };
+          vincByCliente.set(p.customerProfileId, entry);
+        }
+        const dia = Math.trunc(Number(p.diaSemana));
+        if (dia >= 1 && dia <= 7) entry.dias.add(dia);
+        entry.temDia = true;
+      }
     }
 
     const entregasCountMap = new Map<string, number>();

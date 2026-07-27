@@ -48,6 +48,9 @@ type MockOpts = {
   // undefined → default espelha o endereço de cada pageRow (paridade com o backfill);
   // [] → nenhum local ativo (as 3 pendências acendem).
   principalLocais?: any[];
+  // PONTE CADASTRO→AGENDA (26/07) — planos ativos (LogisticaPlanoEntrega); só
+  // são a fonte de "dia"/diasEntrega quando config.agendaV2Ativa=true.
+  planosAgenda?: any[];
 };
 
 function buildPrismaMock(opts: MockOpts) {
@@ -102,6 +105,7 @@ function buildPrismaMock(opts: MockOpts) {
           : opts.entregasAgg ?? [],
     },
     logisticaConfig: { findFirst: async () => opts.config ?? null },
+    logisticaPlanoEntrega: { findMany: async () => opts.planosAgenda ?? [] },
     financeiroCharge: { groupBy: async () => opts.chargesPendentes ?? [] },
     deletionRecord: {
       create: async (args: any) => {
@@ -269,6 +273,55 @@ test('W5 listClientes: frequenciaDias > 0 também limpa "dia" (sem diasSemana)',
   const res = await service.listClientes(7, {});
   assert.ok(!res.items[0].pendencias.includes('dia'));
   assert.deepEqual(res.items[0].diasEntrega, []);
+});
+
+// ── PONTE CADASTRO→AGENDA (26/07) — com agendaV2Ativa o "dia" vem do PLANO ─────
+test('AGENDA V2: dia só no vínculo NÃO limpa a pendência — plano é a fonte (honestidade)', async () => {
+  const row = baseRow();
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    config: { agendaV2Ativa: true },
+    // Dado gravado depois do flip de 25/07, antes da ponte: dia no vínculo,
+    // NENHUM plano — o generateDay não enxerga este cliente, então o card
+    // precisa acender "dia" em vez de fingir que está tudo certo.
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '3', frequenciaDias: null }],
+    planosAgenda: [],
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.ok(res.items[0].pendencias.includes('dia'));
+  assert.deepEqual(res.items[0].diasEntrega, []);
+});
+
+test('AGENDA V2: plano ativo limpa "dia" e diasEntrega une os dias dos planos', async () => {
+  const row = baseRow();
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    config: { agendaV2Ativa: true },
+    vinculos: [],
+    planosAgenda: [
+      { customerProfileId: 'c1', diaSemana: 6 },
+      { customerProfileId: 'c1', diaSemana: 2 },
+    ],
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.ok(!res.items[0].pendencias.includes('dia'));
+  assert.deepEqual(res.items[0].diasEntrega, [2, 6]);
+});
+
+test('AGENDA V2 desligada: comportamento legado intacto (vínculo manda no dia)', async () => {
+  const row = baseRow();
+  const { prisma } = buildPrismaMock({
+    pageRows: [row],
+    universe: [row],
+    config: { agendaV2Ativa: false },
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '3', frequenciaDias: null }],
+    planosAgenda: [{ customerProfileId: 'c1', diaSemana: 6 }],
+  });
+  const res = await new NucleoCadastroService(prisma).listClientes(7, {});
+  assert.ok(!res.items[0].pendencias.includes('dia'));
+  assert.deepEqual(res.items[0].diasEntrega, [3]);
 });
 
 test('W5 listClientes: duplicata por NOME normalizado marca os dois lados', async () => {

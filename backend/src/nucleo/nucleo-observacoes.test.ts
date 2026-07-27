@@ -52,6 +52,8 @@ function buildPrismaMock() {
     clienteProduto: { findMany: async () => [] },
     entrega: { groupBy: async () => [] },
     logisticaConfig: { findFirst: async () => null },
+    // PONTE CADASTRO→AGENDA (26/07) — o card consulta os planos da Agenda V2.
+    logisticaPlanoEntrega: { findMany: async () => [] },
     financeiroCharge: { groupBy: async () => [] },
   };
   return { prisma, store };
