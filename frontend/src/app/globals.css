@@ -116,3 +116,7 @@
    Detalhes rolável sem alterar os handlers existentes. */
 @import "./hbx-theme/vendas-live.css";
 @import "./hbx-theme/vendas-details2.css";
+
+/* CENTRAL DO LEAD — reforma 27/07: hero + funil + telemetria + dossiê +
+   guias + pilha de decisão. Depois do details2 pra vencer na cascata. */
+@import "./hbx-theme/lead-central.css";

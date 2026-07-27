@@ -69,6 +69,28 @@ const COMPOSER_MODES: Array<{ key: LeadCockpitComposerMode; label: string; icon:
   { key: "atividade", label: "Atividade", icon: ICONS.clock },
 ];
 
+// CENTRAL DO LEAD (27/07): a história ganhou GUIAS — conversa de verdade
+// separada da burocracia. "Conversa" = só mensagens; "Linha do tempo" = tudo,
+// com os registros de sistema agrupados num colapsado; e-mails e notas têm
+// guia própria pra achar rápido.
+type HistoryView = "conversa" | "tempo" | "emails" | "notas";
+
+const HISTORY_VIEWS: Array<{ key: HistoryView; label: string }> = [
+  { key: "conversa", label: "Conversa" },
+  { key: "tempo", label: "Linha do tempo" },
+  { key: "emails", label: "E-mails" },
+  { key: "notas", label: "Notas" },
+];
+
+// Que tipo de evento é "conversa humana" vs "registro do sistema".
+function eventSubkind(event: LeadCockpitTimelineEvent): "email" | "robot" | "note" | "activity" | "system" {
+  if (event.eventType?.includes("email")) return "email";
+  if (event.eventType?.includes("robo")) return "robot";
+  if (event.eventType === "note") return "note";
+  if (event.eventType?.includes("atividade")) return "activity";
+  return "system";
+}
+
 const ACTIVITY_LABELS: Record<string, string> = {
   ligacao: "Ligação",
   reuniao: "Reunião",
@@ -218,6 +240,9 @@ export function LeadCockpitHistory({
 }) {
   const [mode, setMode] = useState<LeadCockpitComposerMode>("whatsapp");
   const modePill = useGlassPill<HTMLButtonElement>(mode, COMPOSER_MODES.length);
+  const [view, setView] = useState<HistoryView>("conversa");
+  const viewPill = useGlassPill<HTMLButtonElement>(view, HISTORY_VIEWS.length);
+  const [openSysGroups, setOpenSysGroups] = useState<Set<string>>(() => new Set());
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [localEvents, setLocalEvents] = useState<LocalTimelineEvent[]>([]);
@@ -355,12 +380,26 @@ export function LeadCockpitHistory({
     });
   }, [activities, localEvents, messages, timeline]);
 
+  const viewItems = useMemo(() => {
+    if (view === "conversa") return feedItems.filter((item) => item.kind === "whatsapp");
+    if (view === "emails") return feedItems.filter((item) => item.kind === "event" && eventSubkind(item.event) === "email");
+    if (view === "notas") return feedItems.filter((item) => item.kind === "event" && eventSubkind(item.event) === "note");
+    return feedItems;
+  }, [feedItems, view]);
+
+  const viewCounts = useMemo(() => ({
+    conversa: feedItems.filter((item) => item.kind === "whatsapp").length,
+    tempo: feedItems.length,
+    emails: feedItems.filter((item) => item.kind === "event" && eventSubkind(item.event) === "email").length,
+    notas: feedItems.filter((item) => item.kind === "event" && eventSubkind(item.event) === "note").length,
+  }), [feedItems]);
+
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
       if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frameId);
-  }, [feedItems.length]);
+  }, [viewItems.length, view]);
 
   async function loadOlderMessages() {
     if (!nextBefore || olderBusy) return;
@@ -617,35 +656,105 @@ export function LeadCockpitHistory({
     );
   }
 
+  // Linha do tempo: registros de sistema CONSECUTIVOS viram um grupo colapsado
+  // ("N registros do sistema") — 1 sozinho não vale grupo, aparece normal.
+  function renderTempoItems(items: FeedItem[]) {
+    const nodes: React.ReactNode[] = [];
+    let group: FeedItem[] = [];
+    const flush = () => {
+      if (group.length === 0) return;
+      if (group.length === 1) {
+        nodes.push(renderFeedItem(group[0]));
+      } else {
+        const groupKey = group[0].id;
+        const open = openSysGroups.has(groupKey);
+        const grouped = [...group];
+        nodes.push(
+          <div key={`sys-${groupKey}`} className={`lc2-sys${open ? " is-open" : ""}`}>
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => setOpenSysGroups((current) => {
+                const next = new Set(current);
+                if (next.has(groupKey)) next.delete(groupKey);
+                else next.add(groupKey);
+                return next;
+              })}
+            >
+              <span className="lc2-sys__line" />
+              {grouped.length} registros do sistema
+              <span className="lc2-sys__line" />
+            </button>
+            <ul className="lc2-sys__list">
+              {grouped.map((item) => item.kind === "event" ? (
+                <li key={item.id}>
+                  <span>{visibleCopy(item.event.title) || "Atualização"}</span>
+                  <small>{formatDateTime(item.at)}</small>
+                </li>
+              ) : null)}
+            </ul>
+          </div>,
+        );
+      }
+      group = [];
+    };
+    items.forEach((item) => {
+      if (item.kind === "event" && eventSubkind(item.event) === "system") group.push(item);
+      else {
+        flush();
+        nodes.push(renderFeedItem(item));
+      }
+    });
+    flush();
+    return nodes;
+  }
+
+  const emptyCopy: Record<HistoryView, { title: string; hint: string }> = {
+    conversa: { title: "Nenhuma mensagem ainda.", hint: "A conversa de WhatsApp com este lead aparece aqui." },
+    tempo: { title: "A história deste lead começa aqui.", hint: "Registre uma observação, atividade ou primeiro contato abaixo." },
+    emails: { title: "Nenhum e-mail ainda.", hint: "Prévias e envios de e-mail aparecem aqui." },
+    notas: { title: "Nenhuma nota ainda.", hint: "Use \"Observação\" abaixo pra registrar contexto." },
+  };
+
   return (
     <section className="lead-history">
-      <header className="lead-history__head">
-        <span>
-          <strong>História do lead</strong>
-          <small>WhatsApp, e-mails, observações, etapas, robô e atividades.</small>
-        </span>
-        <span className="tag">{feedItems.length} eventos recentes</span>
-      </header>
+      <nav className="glass-pill-track lc2-tabs" role="tablist" aria-label="Visões da história">
+        <GlassPill {...viewPill} />
+        {HISTORY_VIEWS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            role="tab"
+            ref={viewPill.itemRef(item.key)}
+            aria-selected={view === item.key}
+            className={`glass-pill-item lc2-tab${view === item.key ? " is-active" : ""}`}
+            onClick={() => setView(item.key)}
+          >
+            {item.label}
+            <span className="lc2-tab__n">{viewCounts[item.key]}</span>
+          </button>
+        ))}
+      </nav>
 
       <div className="lead-history__feed" ref={feedRef}>
-        {hasMore && (
+        {hasMore && (view === "conversa" || view === "tempo") && (
           <button type="button" className="lead-history__more" onClick={loadOlderMessages} disabled={olderBusy}>
             {olderBusy ? "Carregando…" : "Carregar mensagens anteriores"}
           </button>
         )}
-        {historyLoading && feedItems.length === 0 ? (
+        {historyLoading && viewItems.length === 0 ? (
           <div className="lead-history__empty">Carregando história…</div>
-        ) : historyError && feedItems.length === 0 ? (
+        ) : historyError && viewItems.length === 0 ? (
           <div className="lead-history__empty">
             <span>{historyError}</span>
             <button type="button" className="btn-ghost btn-xs" onClick={() => void loadMessages()}>Tentar novamente</button>
           </div>
-        ) : feedItems.length === 0 ? (
+        ) : viewItems.length === 0 ? (
           <div className="lead-history__empty">
-            <strong>A história deste lead começa aqui.</strong>
-            <span>Registre uma observação, atividade ou primeiro contato abaixo.</span>
+            <strong>{emptyCopy[view].title}</strong>
+            <span>{emptyCopy[view].hint}</span>
           </div>
-        ) : feedItems.map(renderFeedItem)}
+        ) : view === "tempo" ? renderTempoItems(viewItems) : viewItems.map(renderFeedItem)}
       </div>
 
       <footer className="lead-history__composer">

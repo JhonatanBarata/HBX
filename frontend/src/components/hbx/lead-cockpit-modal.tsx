@@ -36,7 +36,6 @@ import { onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { RadarAiLeadStatus } from "@/lib/radar-ai-status";
 
-type CockpitDrawer = "cadastro" | "financeiro" | null;
 type CockpitStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 
 type PreVooCanal = {
@@ -177,6 +176,38 @@ const CLOSURE_REASONS = [
   { key: "outro", label: "Outro motivo" },
 ] as const;
 
+// Conflito de slot pode chegar como CÓDIGO cru do backend (ex.: "fora_da_janela")
+// — código interno NUNCA aparece na tela (reforma 27/07).
+const CONFLICT_LABELS: Record<string, string> = {
+  fora_da_janela: "Fora do horário de disparo",
+  slot_ocupado: "Horário ocupado",
+  sem_config: "Sem configuração de disparo",
+};
+
+function conflictLabel(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed.includes(" ") ? trimmed : CONFLICT_LABELS[trimmed] || humanize(trimmed);
+}
+
+// Delta absoluto entre timestamps (não é data civil — imune a fuso).
+function relativeTimeLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return fmtDateTime(value);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "agora mesmo";
+  if (minutes < 60) return `${minutes} min atrás`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h atrás`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "ontem";
+  if (days < 30) return `${days} dias atrás`;
+  return fmtDate(value);
+}
+
 const INCLUSION_REASON_LABELS: Record<string, string> = {
   cnae_compativel: "CNAE compatível com o segmento",
   nome_combina_segmento: "Nome combina com o segmento pedido",
@@ -260,30 +291,25 @@ function displayPersonaDescription(value: string): string {
   return value;
 }
 
-function InfoRow({ label, children, mono = false }: {
+// Linha chave-valor do dossiê (Central do Lead, 27/07).
+function Lc2Kv({ label, mono = false, empty = false, children }: {
   label: string;
-  children: React.ReactNode;
   mono?: boolean;
+  empty?: boolean;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="lead-cockpit__kv-row">
-      <span className="lead-cockpit__kv-key">{label}</span>
-      <span className={`lead-cockpit__kv-value${mono ? " hbx-mono" : ""}`}>{children}</span>
+    <div className="lc2-kv">
+      <small>{label}</small>
+      <span className={`${mono ? "is-mono" : ""}${empty ? " is-empty" : ""}`.trim() || undefined}>{children}</span>
     </div>
   );
 }
 
-function CopyRow({ label, value, mono = true, badge }: {
-  label: string;
-  value?: string | null;
-  mono?: boolean;
-  badge?: React.ReactNode;
-}) {
+// Botão de copiar compacto com feedback no próprio ícone.
+function Lc2Copy({ value, label, framed = false }: { value: string; label: string; framed?: boolean }) {
   const [copied, setCopied] = useState(false);
-  const display = value || "—";
-
   function copy() {
-    if (!value) return;
     navigator.clipboard?.writeText(value).then(
       () => {
         setCopied(true);
@@ -292,43 +318,47 @@ function CopyRow({ label, value, mono = true, badge }: {
       () => undefined,
     );
   }
-
   return (
-    <div className="lead-cockpit__kv-row">
-      <span className="lead-cockpit__kv-key">{label}</span>
-      <span className={`lead-cockpit__copy-value${mono ? " hbx-mono" : ""}`}>
-        <span>{display}</span>
-        {badge}
-        {value && (
-          <button type="button" className="lead-cockpit__copy-button" onClick={copy} aria-label={`Copiar ${label}`}>
-            <I d={copied ? ICONS.check : ICONS.doc} size={10} />
-          </button>
-        )}
-      </span>
-    </div>
+    <button
+      type="button"
+      className={`lc2-copy${framed ? " lc2-copy--framed" : ""}`}
+      onClick={copy}
+      aria-label={`Copiar ${label}`}
+      title={`Copiar ${label}`}
+    >
+      {framed
+        ? (copied ? "copiado" : "copiar")
+        : <I d={copied ? ICONS.check : ICONS.doc} size={10} />}
+    </button>
   );
 }
 
-function CardTitle({ icon, title, action }: {
-  icon: string[];
-  title: string;
-  action?: React.ReactNode;
-}) {
+// Anel de score da telemetria — traço anima do zero até o valor na abertura.
+function Lc2Gauge({ value, label }: { value: number; label: string }) {
+  const safe = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  const circumference = 2 * Math.PI * 21;
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => setDrawn(true));
+    return () => window.cancelAnimationFrame(frameId);
+  }, []);
   return (
-    <header className="lead-cockpit__compact-card-head">
-      <span><I d={icon} size={14} /> {title}</span>
-      {action}
-    </header>
-  );
-}
-
-function Score({ value, label }: { value: number; label: string }) {
-  const safeValue = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
-  return (
-    <div className="lead-cockpit__score">
-      <span><strong>{safeValue}%</strong><small>{label}</small></span>
-      <progress max={100} value={safeValue} aria-label={`${label}: ${safeValue}%`} />
-    </div>
+    <svg className="lc2-gauge" width="48" height="48" viewBox="0 0 52 52" role="img" aria-label={`${label}: ${safe} de 100`}>
+      <circle className="lc2-gauge__track" cx="26" cy="26" r="21" fill="none" strokeWidth="5" />
+      <circle
+        className="lc2-gauge__val"
+        cx="26"
+        cy="26"
+        r="21"
+        fill="none"
+        strokeWidth="5"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        strokeDashoffset={drawn ? circumference * (1 - safe / 100) : circumference}
+        transform="rotate(-90 26 26)"
+      />
+      <text x="26" y="31" textAnchor="middle" fontSize="13">{safe}</text>
+    </svg>
   );
 }
 
@@ -432,7 +462,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     };
   }, [open, flip, originEl, setListZoom]);
 
-  const [drawer, setDrawer] = useState<CockpitDrawer>(null);
   const [stage, setStage] = useState<CockpitStage>(() => normalizeCockpitStage(lead.status));
   const [stageBusy, setStageBusy] = useState(false);
   const [stageMsg, setStageMsg] = useState<string | null>(null);
@@ -461,8 +490,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [radarReasonsLoading, setRadarReasonsLoading] = useState(Boolean(lead.radarLeadId));
   const [nextSlot, setNextSlot] = useState<NextSlot>(null);
   const [nextSlotLoading, setNextSlotLoading] = useState(true);
-  const [cnpjCopied, setCnpjCopied] = useState(false);
-  const [templateCopied, setTemplateCopied] = useState(false);
   const [customerProfileId, setCustomerProfileId] = useState<string | null>(lead.customerProfileId || null);
   const [extrato, setExtrato] = useState<Extrato>(null);
   const [extratoError, setExtratoError] = useState(false);
@@ -477,6 +504,15 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [fecharOpen, setFecharOpen] = useState(false);
 
   const personaPill = useGlassPill<HTMLButtonElement>(selectedPersonaKey || "", preVoo?.personas?.length || 0);
+  const funnelPill = useGlassPill<HTMLButtonElement>(stage, COCKPIT_STAGES.length);
+
+  // Config de disparo INLINE (S4 da reforma 27/07): o bloqueio "config_ausente"
+  // se resolve DENTRO da ficha — nunca mais mandar o dono pra outra tela.
+  const [configStart, setConfigStart] = useState("08:00");
+  const [configEnd, setConfigEnd] = useState("18:00");
+  const [configLimit, setConfigLimit] = useState("40");
+  const [configBusy, setConfigBusy] = useState(false);
+  const [configMsg, setConfigMsg] = useState<string | null>(null);
 
   const channelTargets: Partial<Record<Canal, string>> = {
     whatsapp: lead.phone || undefined,
@@ -519,12 +555,11 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
       else if (closureReasonOpen) setClosureReasonOpen(false);
       else if (reagendarOpen) setReagendarOpen(false);
       else if (semInteresseOpen) setSemInteresseOpen(false);
-      else if (drawer) setDrawer(null);
       else requestClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [agendaOpen, closureReasonOpen, drawer, requestClose, open, reagendarOpen, semInteresseOpen]);
+  }, [agendaOpen, closureReasonOpen, requestClose, open, reagendarOpen, semInteresseOpen]);
 
   useEffect(() => {
     if (!open) return;
@@ -630,6 +665,28 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
       setPreVooEnrichMsg(error instanceof Error ? error.message : "Não foi possível buscar mais dados agora.");
     } finally {
       setPreVooEnrichBusy(false);
+    }
+  }
+
+  async function salvarConfigDisparo() {
+    if (configBusy) return;
+    setConfigBusy(true);
+    setConfigMsg(null);
+    try {
+      await apiFetch("/vendas/agenda-disparo/config", {
+        method: "PATCH",
+        body: JSON.stringify({
+          workingHoursStart: configStart,
+          workingHoursEnd: configEnd,
+          dailyLimitPerSender: Math.max(1, Math.min(200, Number(configLimit) || 40)),
+        }),
+      });
+      setConfigMsg("✓ Configuração salva pra empresa toda.");
+      await loadPreVoo();
+    } catch (error) {
+      setConfigMsg(error instanceof Error ? error.message : "Não foi possível salvar a configuração.");
+    } finally {
+      setConfigBusy(false);
     }
   }
 
@@ -769,32 +826,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     await onConversationChanged?.();
   }
 
-  function copyCnpj() {
-    const cnpj = (company?.found && company.cnpj) || lead.cnpj || null;
-    if (!cnpj) return;
-    navigator.clipboard?.writeText(cnpj).then(
-      () => {
-        setCnpjCopied(true);
-        window.setTimeout(() => setCnpjCopied(false), 1_500);
-      },
-      () => undefined,
-    );
-  }
-
-  function copyTemplate() {
-    const intelligence = lead.leadIntelligence;
-    const template = typeof intelligence?.messageTemplate === "string"
-      ? intelligence.messageTemplate
-      : String((intelligence?.messageTemplate as { text?: string } | null | undefined)?.text || "");
-    if (!template) return;
-    navigator.clipboard?.writeText(template).then(
-      () => {
-        setTemplateCopied(true);
-        window.setTimeout(() => setTemplateCopied(false), 1_500);
-      },
-      () => undefined,
-    );
-  }
 
   function searchSimilar() {
     try {
@@ -911,422 +942,347 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     : 0;
   const timeline = [...addedNotes, ...(lead.timeline || [])]
     .filter((event, index, all) => all.findIndex((candidate) => candidate.id === event.id) === index);
+  const lastInteractionAt = timeline.reduce<string | null>((latest, event) => {
+    const at = event.createdAt || null;
+    if (!at) return latest;
+    return !latest || new Date(at).getTime() > new Date(latest).getTime() ? at : latest;
+  }, null);
+  const situacaoLabel = (company?.found && company.situacao) || lead.companySituation || null;
+  const situacaoAtiva = situacaoLabel ? String(situacaoLabel).toLowerCase().includes("ativa") : null;
+  const stageIndex = COCKPIT_STAGES.findIndex((item) => item.key === stage);
+  const cnpjDisplay = cnpj ? (formatBrCnpj(cnpj) || cnpj) : null;
 
-  function renderCompanyRows() {
-    if (companyLoading) return <div className="lead-cockpit__empty-state">Carregando Receita Federal…</div>;
+  function renderMetro(persona: PreVooPersona, currentStep: number) {
+    return (
+      <div className="lc2-metro">
+        {persona.passos.map((passo, index) => (
+          <div
+            key={`${passo.canal}-${passo.dia}-${index}`}
+            className={`lc2-metro__step${index < currentStep ? " is-done" : index === currentStep ? " is-next" : ""}`}
+          >
+            <span className="lc2-metro__node">{index < currentStep ? "✓" : index + 1}</span>
+            <span className="lc2-metro__body">
+              <b>{passo.titulo || humanize(passo.canal)}</b>
+              <small>{passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</small>
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderDossier() {
     const source = company?.found ? company : null;
     const age = yearsSince(source?.openedAt);
+    const ownerPhone = lead.ownerPhone || (keyPersonName !== "—" ? lead.phone : null);
+    const extraPartners = (company?.partners || []).slice(1);
     return (
       <>
-        <CopyRow label="Razão social" value={source?.razaoSocial || lead.razaoSocial} mono={false} />
-        <CopyRow label="CNPJ" value={formatBrCnpj(source?.cnpj || lead.cnpj)} />
-        <InfoRow label="Nome fantasia">{source?.nomeFantasia || "—"}</InfoRow>
-        <InfoRow label="Situação">
-          {(source?.situacao || lead.companySituation)
-            ? <span className={`tag${String(source?.situacao || lead.companySituation).toLowerCase().includes("ativa") ? " teal" : " warn"}`}>{humanize(source?.situacao || lead.companySituation)}</span>
-            : "—"}
-        </InfoRow>
-        <InfoRow label="CNAE">{source?.cnae ? `${formatBrCnae(source.cnae)}${source.cnaeDescription ? ` — ${source.cnaeDescription}` : ""}` : (formatBrCnae(lead.cnae) || "—")}</InfoRow>
-        <InfoRow label="Natureza">{source?.naturezaJuridica || "—"}</InfoRow>
-        <InfoRow label="Porte">{source?.porte || "—"}</InfoRow>
-        <InfoRow label="Capital social">{source?.capitalSocial != null ? fmtMoney(source.capitalSocial) : "—"}</InfoRow>
-        <InfoRow label="Abertura">{source?.openedAt ? `${fmtDate(source.openedAt)}${age != null ? ` · ${age} ano${age === 1 ? "" : "s"}` : ""}` : "—"}</InfoRow>
-        <InfoRow label="Simples Nacional">{source?.simples == null ? "—" : source.simples ? "Sim" : "Não"}</InfoRow>
-        <InfoRow label="MEI">{source?.mei == null ? "—" : source.mei ? "Sim" : "Não"}</InfoRow>
-        <InfoRow label="Unidade">{source?.matrizFilial ? humanize(source.matrizFilial) : "—"}</InfoRow>
+        <section className="lc2-card">
+          <div className="lc2-cnpjcard">
+            {situacaoLabel && (
+              <span className={`lc2-badge ${situacaoAtiva ? "is-ok" : "is-warn"} lc2-cnpjcard__rfb`}>
+                {situacaoAtiva ? "RFB · ativa" : humanize(situacaoLabel)}
+              </span>
+            )}
+            <span className="lc2-cnpjcard__k">CNPJ</span>
+            <span className="lc2-cnpjcard__num">
+              {cnpjDisplay || "—"}
+              {cnpjDisplay && <Lc2Copy value={cnpjDisplay} label="CNPJ" framed />}
+            </span>
+            <div className="lc2-cnpjcard__row"><span>Razão social</span><b>{source?.razaoSocial || lead.razaoSocial || "—"}</b></div>
+            <div className="lc2-cnpjcard__row">
+              <span>Abertura</span>
+              <b>{source?.openedAt ? `${fmtDate(source.openedAt)}${age != null ? ` · ${age} ano${age === 1 ? "" : "s"}` : ""}` : "—"}</b>
+            </div>
+            <div className="lc2-cnpjcard__row">
+              <span>Porte</span>
+              <b>{[source?.porte, source?.simples ? "Simples Nacional" : null, source?.mei ? "MEI" : null].filter(Boolean).join(" · ") || "—"}</b>
+            </div>
+          </div>
+          <div className="lc2-card__body">
+            {companyLoading ? <span className="muted-note">Carregando Receita Federal…</span> : (
+              <>
+                <Lc2Kv label="Fantasia" empty={!source?.nomeFantasia}>{source?.nomeFantasia || "—"}</Lc2Kv>
+                <Lc2Kv label="CNAE">
+                  {source?.cnae
+                    ? `${formatBrCnae(source.cnae)}${source.cnaeDescription ? ` — ${source.cnaeDescription}` : ""}`
+                    : (formatBrCnae(lead.cnae) || "—")}
+                </Lc2Kv>
+                <Lc2Kv label="Natureza" empty={!source?.naturezaJuridica}>{source?.naturezaJuridica || "—"}</Lc2Kv>
+                <Lc2Kv label="Capital social" mono>{source?.capitalSocial != null ? fmtMoney(source.capitalSocial) : "—"}</Lc2Kv>
+                <Lc2Kv label="Unidade" empty={!source?.matrizFilial}>{source?.matrizFilial ? humanize(source.matrizFilial) : "—"}</Lc2Kv>
+              </>
+            )}
+          </div>
+        </section>
+
+        <section className="lc2-card">
+          <span className="lc2-card__head">
+            Dono da empresa
+            {company?.partners?.length ? (
+              <span className="lc2-card__st lc2-badge is-ok">{company.partners.length} sócio{company.partners.length === 1 ? "" : "s"}</span>
+            ) : null}
+          </span>
+          <div className="lc2-card__body">
+            <div className="lc2-person">
+              <Av name={keyPersonName !== "—" ? keyPersonName : lead.name || "—"} size={38} />
+              <span>
+                <b>{keyPersonName !== "—" ? keyPersonName : "Responsável não identificado"}</b>
+                <small>{keyPersonRoleLabel}</small>
+              </span>
+            </div>
+            <Lc2Kv label="Telefone" mono empty={!ownerPhone}>
+              {ownerPhone ? (
+                <>
+                  {formatPhoneDisplay(ownerPhone)}
+                  {whatsappMap[onlyDigits(ownerPhone)] === true && <span className="lc2-badge is-ok">Whats ✓</span>}
+                  {" "}
+                  <Lc2Copy value={formatPhoneDisplay(ownerPhone)} label="telefone do dono" />
+                </>
+              ) : "—"}
+            </Lc2Kv>
+            <Lc2Kv label="Instagram" empty={!lead.ownerInstagram}>{lead.ownerInstagram || "não localizado"}</Lc2Kv>
+            <Lc2Kv label="Facebook" empty={!lead.ownerFacebook}>{lead.ownerFacebook || "não localizado"}</Lc2Kv>
+            {extraPartners.map((partner, index) => (
+              <Lc2Kv key={`${partner.name || "partner"}-${index}`} label={index === 0 ? "Outros sócios" : ""}>
+                {partner.name || "—"}{partner.qualification ? ` · ${humanize(partner.qualification)}` : ""}
+              </Lc2Kv>
+            ))}
+          </div>
+        </section>
+
+        <section className="lc2-card">
+          <span className="lc2-card__head">Contatos da empresa</span>
+          <div className="lc2-card__body">
+            {phones.length ? phones.map((phone, index) => (
+              <Lc2Kv key={phone} label={index === 0 ? "Telefone" : `Telefone ${index + 1}`} mono>
+                {formatPhoneDisplay(phone)}
+                {whatsappMap[onlyDigits(phone)] === true && <span className="lc2-badge is-ok">Whats ✓</span>}
+                {" "}
+                <Lc2Copy value={formatPhoneDisplay(phone)} label="telefone" />
+              </Lc2Kv>
+            )) : <Lc2Kv label="Telefone" empty>—</Lc2Kv>}
+            {emails.length ? emails.map((item, index) => (
+              <Lc2Kv key={item} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`}>
+                {item} <Lc2Copy value={item} label="e-mail" />
+              </Lc2Kv>
+            )) : <Lc2Kv label="E-mail" empty>—</Lc2Kv>}
+            <Lc2Kv label="Site" empty={!lead.website}>
+              {lead.website || <span className="lc2-badge is-warn">sem site — argumento de venda</span>}
+            </Lc2Kv>
+            <Lc2Kv label="Endereço" empty={!lead.address}>{lead.address || "—"}</Lc2Kv>
+          </div>
+        </section>
+
+        <details className="lc2-card" open>
+          <summary><span className="lc2-card__head">Por que entrou no radar</span></summary>
+          <div className="lc2-card__body">
+            {radarReasonsLoading ? (
+              <span className="muted-note">Carregando motivos…</span>
+            ) : radarReasons.length ? (
+              <ul className="lc2-why">
+                {radarReasons.map((reason) => (
+                  <li key={reason}>{INCLUSION_REASON_LABELS[reason] || humanize(reason)}</li>
+                ))}
+              </ul>
+            ) : (
+              <span className="muted-note">Motivo de inclusão não informado.</span>
+            )}
+            {lead.timesSeen != null && lead.timesSeen > 1 && <Lc2Kv label="Visto no radar">{lead.timesSeen} vezes</Lc2Kv>}
+            <Lc2Kv label="Cadastro">{registrationQuality}% completo</Lc2Kv>
+            {preVoo?.prontidao?.faltantes?.length ? (
+              <Lc2Kv label="Falta">
+                {preVoo.prontidao.faltantes.map((text) => text.split(" — ")[0].replace(/\.$/, "")).join(", ")}
+              </Lc2Kv>
+            ) : null}
+            {preVoo?.enrichment?.enabled && preVoo.enrichment.podeBuscar && (
+              <button type="button" className="btn-ghost btn-xs" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
+                <I d={ICONS.search} size={12} /> {preVooEnrichBusy ? "Buscando…" : "Buscar mais dados"}
+              </button>
+            )}
+            {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
+          </div>
+        </details>
       </>
     );
   }
 
-  function renderIntelligenceRail() {
-    return (
-      <aside className="lead-cockpit__rail lead-cockpit__rail--intelligence" aria-label="Inteligência do lead">
-        <section className="lead-cockpit__compact-card">
-          <CardTitle
-            icon={ICONS.users}
-            title="Empresa e contato"
-            action={<span className="tag">{preVoo?.empresa?.found ? "Receita Federal" : "Dados do lead"}</span>}
-          />
-          <div className="lead-cockpit__person">
-            <Av name={keyPersonName !== "—" ? keyPersonName : lead.name || "—"} size={30} />
-            <span>
-              <strong>{keyPersonName !== "—" ? keyPersonName : "Responsável não identificado"}</strong>
-              <small>{keyPersonRoleLabel}</small>
-            </span>
-          </div>
-          <InfoRow label="Empresa">{preVoo?.empresa?.nomeFantasia || preVoo?.empresa?.razaoSocial || lead.name || "—"}</InfoRow>
-          <InfoRow label="Segmento">{lead.segment || "—"}</InfoRow>
-          <InfoRow label="Cidade/UF">{cityState}</InfoRow>
-          <InfoRow label="WhatsApp">
-            {preVoo?.canais?.whatsapp.status === "confirmado"
-              ? <span className="tag teal">Confirmado</span>
-              : preVoo?.canais?.whatsapp.status === "duvidoso"
-                ? <span className="tag warn">Não confirmado</span>
-                : <span className="tag">Sem WhatsApp</span>}
-          </InfoRow>
-          <InfoRow label="E-mail">
-            {preVoo?.canais?.email.status === "confirmado"
-              ? <span className="tag teal">Confirmado</span>
-              : preVoo?.canais?.email.status === "duvidoso"
-                ? <span className="tag warn">Provável</span>
-                : <span className="tag">Sem e-mail</span>}
-          </InfoRow>
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle
-            icon={ICONS.check}
-            title="Prontidão"
-            action={preVoo?.prontidao
-              ? <span className={`tag${preVoo.prontidao.veredito === "pronto" ? " teal" : " warn"}`}>{preVoo.prontidao.veredito === "pronto" ? "Pronto" : "Faltam dados"}</span>
-              : undefined}
-          />
-          {preVooLoading ? (
-            <div className="lead-cockpit__empty-state">Carregando entendimento do lead…</div>
-          ) : !preVoo?.prontidao || preVoo.locked ? (
-            <div className="lead-cockpit__empty-state">
-              <strong>Entendimento indisponível</strong>
-              <span>A inteligência deste lead ainda não está disponível.</span>
-            </div>
-          ) : (
-            <>
-              <Score value={readinessScore} label="prontidão" />
-              <p className="lead-cockpit__card-copy">{preVoo.prontidao.veredictoLabel}</p>
-              <div className="lead-cockpit__chips">
-                {preVoo.prontidao.faltantes.map((text, index) => (
-                  <span key={`missing-${index}`} className="tag red" title={text}>{text.split(" — ")[0].replace(/\.$/, "")}</span>
-                ))}
-                {preVoo.prontidao.duvidosos.map((text, index) => (
-                  <span key={`uncertain-${index}`} className="tag warn" title={text}>{text.split(" — ")[0].replace(/\.$/, "")}</span>
-                ))}
-                {!preVoo.prontidao.faltantes.length && !preVoo.prontidao.duvidosos.length && <span className="tag teal">Tudo confirmado</span>}
-              </div>
-              {preVoo.enrichment?.enabled && preVoo.enrichment.podeBuscar && (
-                <button type="button" className="btn-ghost btn-xs lead-cockpit__card-action" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
-                  <I d={ICONS.search} size={12} /> {preVooEnrichBusy ? "Buscando…" : "Buscar dados"}
-                </button>
-              )}
-              {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
-            </>
-          )}
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.scrape} title="Por que entrou no Radar" />
-          {radarReasonsLoading ? (
-            <div className="lead-cockpit__empty-state">Carregando motivos…</div>
-          ) : radarReasons.length ? (
-            <ul className="lead-cockpit__reason-list">
-              {radarReasons.map((reason) => (
-                <li key={reason}><I d={ICONS.check} size={11} /> {INCLUSION_REASON_LABELS[reason] || humanize(reason)}</li>
-              ))}
-            </ul>
-          ) : (
-            <div className="lead-cockpit__empty-state">Motivo de inclusão não informado.</div>
-          )}
-        </section>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__intelligence-card">
-          <CardTitle icon={ICONS.bolt} title="Inteligência" action={<span className="tag">{opportunityScore}/100</span>} />
-          <strong>Boa oportunidade de abordagem</strong>
-          <p className="lead-cockpit__card-copy">{approachReason}</p>
-          <div className="lead-cockpit__signals">
-            <span><small>Canal</small><strong>{recommendedChannel}</strong></span>
-            <span><small>Dor</small><strong>{pain}</strong></span>
-          </div>
-          {templateText && (
-            <button type="button" className="lead-cockpit__template-copy" onClick={copyTemplate}>
-              <span>{templateText}</span>
-              <b><I d={templateCopied ? ICONS.check : ICONS.doc} size={10} /> {templateCopied ? "Copiado" : "Copiar mensagem"}</b>
-            </button>
-          )}
-        </section>
-      </aside>
-    );
-  }
-
-  function renderOperationsRail() {
+  function renderRoboCard() {
+    const robo = preVoo?.robo;
+    const bloqueio = preVoo?.roboBloqueado;
     const personas = preVoo?.personas || [];
     return (
-      <aside className="lead-cockpit__rail lead-cockpit__rail--operations" aria-label="Operação do lead">
-        <section className="lead-cockpit__compact-card">
-          <CardTitle
-            icon={ICONS.clock}
-            title="Próxima ação"
-            action={<button type="button" className="lead-cockpit__micro-button" onClick={() => setAgendaOpen(true)}>Agenda</button>}
-          />
-          <input
-            className="field-dark"
-            maxLength={140}
-            value={nextActionDraft}
-            placeholder="Defina o próximo passo"
-            onChange={(event) => setNextActionDraft(event.target.value)}
-            aria-label="Próxima ação do lead"
-          />
-          <div className="lead-cockpit__next-action-meta">
-            <span><small>Prazo atual</small><strong>{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</strong></span>
-            <span>
-              <small>Próximo horário livre</small>
-              <strong>{nextSlotLoading ? "Consultando…" : nextSlot?.slot ? fmtDateTime(nextSlot.slot) : "Não informado"}</strong>
-            </span>
-          </div>
-          {nextSlot?.conflito && nextSlot.motivoConflito && <span className="muted-note">{nextSlot.motivoConflito}</span>}
-          <div className="lead-cockpit__row-acts">
-            <button type="button" className="btn-ghost btn-xs" onClick={() => setReagendarOpen(true)}>
-              <I d={ICONS.clock} size={11} /> Reagendar
-            </button>
-            <button type="button" className="btn-teal btn-xs" onClick={saveNextAction} disabled={nextActionBusy}>
-              {nextActionBusy ? "Salvando…" : "Salvar próxima ação"}
-            </button>
-          </div>
-          {acaoMsg && <span className={`ctx-msg ${acaoMsg.startsWith("✓") ? "ok" : "err"}`}>{acaoMsg}</span>}
-        </section>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__cadence-card">
-          <CardTitle
-            icon={ICONS.bolt}
-            title="Plano ativo"
-            action={<span className={`tag${preVoo?.robo?.ligado ? " teal" : ""}`}>{preVoo?.robo?.ligado ? "Robô ativo" : "Aguardando decisão"}</span>}
-          />
+      <section className="lc2-card">
+        <span className="lc2-card__head">
+          <span className={`lc2-pulse${robo?.ligado ? "" : bloqueio ? " is-warn" : " is-off"}`} />
+          Robô de cadência
+          <span className={`lc2-card__st lc2-badge ${robo?.ligado ? "is-ok" : bloqueio ? "is-warn" : "is-ok"}`}>
+            {robo?.ligado ? "rodando" : bloqueio ? "parado" : "pronto"}
+          </span>
+        </span>
+        <div className="lc2-card__body">
           {preVooLoading ? (
-            <div className="lead-cockpit__empty-state">Carregando plano…</div>
+            <span className="muted-note">Carregando plano…</span>
           ) : !preVoo || preVoo.locked ? (
-            <div className="lead-cockpit__empty-state">Plano indisponível.</div>
-          ) : (
+            <span className="muted-note">Plano indisponível pra este lead.</span>
+          ) : robo?.ligado ? (
             <>
-              <nav className="glass-pill-track lead-cockpit__persona-pick" aria-label="Escolha de persona da cadência">
-                <GlassPill {...personaPill} />
-                {personas.map((persona) => (
-                  <button
-                    key={persona.key}
-                    type="button"
-                    ref={personaPill.itemRef(persona.key)}
-                    className={`glass-pill-item lead-cockpit__persona-chip${selectedPersonaKey === persona.key ? " is-active" : ""}`}
-                    aria-pressed={selectedPersonaKey === persona.key}
-                    onClick={() => setSelectedPersonaKey(persona.key)}
-                  >
-                    {persona.nome.split(" (")[0]}{persona.recomendado ? <small> ★ sugerida</small> : null}
-                  </button>
-                ))}
-              </nav>
-              {selectedPersona && (
-                <>
-                  <p className="lead-cockpit__card-copy">{displayPersonaDescription(selectedPersona.descricao)}</p>
-                  <div className="lead-cockpit__cadence-steps">
-                    {selectedPersona.passos.map((passo, index) => (
-                      <span key={`${passo.canal}-${passo.dia}-${index}`}>
-                        <i>{index + 1}</i>
-                        <b>{passo.titulo || humanize(passo.canal)}</b>
-                        <small>{passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</small>
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </section>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__robot-card">
-          <CardTitle icon={ICONS.bolt} title="Robô e vendedor" />
-          {preVoo?.robo?.ligado ? (
-            <>
-              <div className="lead-cockpit__robot-state is-active">
-                <span><I d={ICONS.bolt} size={14} /></span>
-                <p><strong>Robô ativo · passo {preVoo.robo.currentStep + 1}</strong><small>Acompanhe a história e assuma quando houver resposta.</small></p>
+              <div className="lc2-live">
+                <span className="lc2-pulse" />
+                <span>
+                  <b>
+                    {selectedPersona ? `Plano ${selectedPersona.nome.split(" (")[0]}` : "Robô ativo"}
+                    {" · passo "}{robo.currentStep + 1}{selectedPersona ? ` de ${selectedPersona.passos.length}` : ""}
+                  </b>
+                  <small>Para sozinho na hora que o lead responder.</small>
+                </span>
               </div>
-              <div className="lead-cockpit__row-acts">
+              {selectedPersona && renderMetro(selectedPersona, robo.currentStep)}
+              <div style={{ display: "flex", gap: 8 }}>
                 <button type="button" className="btn-ghost btn-xs" onClick={desligarRobo} disabled={roboBusy}>
-                  {roboBusy ? "Desligando…" : "Desligar robô"}
+                  {roboBusy ? "Desligando…" : "Desligar"}
                 </button>
                 <button type="button" className="btn-teal btn-xs" onClick={() => void changeStage("qualificado")} disabled={stageBusy}>
                   Assumir atendimento
                 </button>
               </div>
             </>
+          ) : bloqueio?.codigo === "config_ausente" ? (
+            <div className="lc2-block">
+              <b>Falta 1 passo pra ligar</b>
+              <p>Horário e teto de disparo da empresa ainda não foram definidos. Resolve aqui mesmo:</p>
+              <div className="lc2-form-row">
+                <label>Início<input className="field-dark" type="time" value={configStart} onChange={(event) => setConfigStart(event.target.value)} /></label>
+                <label>Fim<input className="field-dark" type="time" value={configEnd} onChange={(event) => setConfigEnd(event.target.value)} /></label>
+                <label>Teto/dia<input className="field-dark" type="number" min={1} max={200} value={configLimit} onChange={(event) => setConfigLimit(event.target.value)} /></label>
+              </div>
+              <button type="button" className="btn-teal btn-xs lc2-block__cta" onClick={salvarConfigDisparo} disabled={configBusy}>
+                {configBusy ? "Salvando…" : "Salvar e liberar o robô"}
+              </button>
+              {configMsg && <span className={`ctx-msg ${configMsg.startsWith("✓") ? "ok" : "err"}`}>{configMsg}</span>}
+            </div>
+          ) : bloqueio ? (
+            <div className="lc2-block">
+              <b>{bloqueio.motivo}</b>
+              <p>{bloqueio.acao}</p>
+              {bloqueio.codigo === "whatsapp_desconectado" && (
+                <button type="button" className="btn-teal btn-xs" onClick={() => setWaConnectOpen(true)}>
+                  <WhatsAppMark size={12} /> Conectar WhatsApp
+                </button>
+              )}
+            </div>
           ) : (
             <>
-              <p className="lead-cockpit__responsibility">
-                Ao ligar, o robô executa a cadência escolhida; revise o plano, pois a responsabilidade pelos contatos enviados continua sendo da sua empresa.
-              </p>
-              {preVoo?.roboBloqueado && (
-                <div className="lead-cockpit__robot-block">
-                  <strong>{preVoo.roboBloqueado.motivo}</strong>
-                  <span>{preVoo.roboBloqueado.acao}</span>
-                </div>
-              )}
-              <div className="lead-cockpit__row-acts">
-                {preVoo?.roboBloqueado?.codigo === "whatsapp_desconectado" && (
-                  <button type="button" className="btn-ghost btn-xs" onClick={() => setWaConnectOpen(true)}>
-                    <WhatsAppMark size={12} /> Conectar WhatsApp
+              <p className="muted-note">Escolha o ritmo — o plano roda sozinho e para na hora que o lead responder.</p>
+              <nav className="glass-pill-track lc2-personas" aria-label="Escolha de persona da cadência">
+                <GlassPill {...personaPill} />
+                {personas.map((persona) => (
+                  <button
+                    key={persona.key}
+                    type="button"
+                    ref={personaPill.itemRef(persona.key)}
+                    className={`glass-pill-item lc2-persona${selectedPersonaKey === persona.key ? " is-active" : ""}`}
+                    aria-pressed={selectedPersonaKey === persona.key}
+                    onClick={() => setSelectedPersonaKey(persona.key)}
+                  >
+                    {persona.nome.split(" (")[0]}
+                    <small>{persona.recomendado ? "★ sugerida" : " "}</small>
                   </button>
-                )}
-                <button
-                  type="button"
-                  className="btn-teal btn-xs"
-                  onClick={ligarRobo}
-                  disabled={roboBusy || !selectedPersonaKey || Boolean(preVoo?.roboBloqueado)}
-                  title={preVoo?.roboBloqueado ? `${preVoo.roboBloqueado.motivo} ${preVoo.roboBloqueado.acao}` : undefined}
-                >
-                  {roboBusy ? "Ligando…" : "Ligar robô"}
-                </button>
-              </div>
+                ))}
+              </nav>
+              {selectedPersona && (
+                <>
+                  <p className="muted-note">{displayPersonaDescription(selectedPersona.descricao)}</p>
+                  {renderMetro(selectedPersona, -1)}
+                </>
+              )}
+              {!nextSlotLoading && nextSlot?.slot && (
+                <Lc2Kv label="Próximo horário livre">
+                  {fmtDateTime(nextSlot.slot)}
+                  {nextSlot.conflito && nextSlot.motivoConflito ? ` · ${conflictLabel(nextSlot.motivoConflito)}` : ""}
+                </Lc2Kv>
+              )}
+              <button type="button" className="btn-teal lc2-robo__on" onClick={ligarRobo} disabled={roboBusy || !selectedPersonaKey}>
+                {roboBusy ? "Ligando…" : "Ligar robô"}
+              </button>
+              <p className="muted-note">Os envios saem no nome da sua empresa — revise o plano acima.</p>
             </>
           )}
           {roboMsg && <span className={`ctx-msg ${roboMsg.startsWith("✓") ? "ok" : "err"}`}>{roboMsg}</span>}
           {stageMsg && <span className={`ctx-msg ${stageMsg.startsWith("✓") ? "ok" : "err"}`}>{stageMsg}</span>}
-        </section>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__lead-actions">
-          <CardTitle icon={ICONS.check} title="Ações do vendedor" />
-          <div className="lead-cockpit__action-grid">
-            <button type="button" className="btn-teal btn-xs" onClick={() => setFecharOpen(true)}>
-              <I d={ICONS.money} size={11} /> Fechar venda
-            </button>
-            <button type="button" className="btn-ghost btn-xs" onClick={() => setSemInteresseOpen(true)}>Sem interesse</button>
-            <button type="button" className="btn-ghost btn-xs" onClick={() => setDrawer("cadastro")}>Ver cadastro</button>
-            {canViewValues && <button type="button" className="btn-ghost btn-xs" onClick={() => setDrawer("financeiro")}>Ver financeiro</button>}
-          </div>
-        </section>
-      </aside>
+        </div>
+      </section>
     );
   }
 
-  function renderCadastro() {
+  function renderNegocioCard() {
     return (
-      <div className="lead-cockpit__drawer-grid">
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.phone} title="Contatos" />
-          {phones.length ? phones.map((phone, index) => (
-            <CopyRow
-              key={phone}
-              label={index === 0 ? "Telefone" : `Telefone ${index + 1}`}
-              value={formatPhoneDisplay(phone)}
-              badge={whatsappMap[onlyDigits(phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
-            />
-          )) : <InfoRow label="Telefone">—</InfoRow>}
-          {emails.length ? emails.map((item, index) => (
-            <CopyRow key={item} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`} value={item} mono={false} />
-          )) : <InfoRow label="E-mail">—</InfoRow>}
-          <InfoRow label="Cidade/UF">{cityState}</InfoRow>
-          <InfoRow label="Site">{lead.website || "Não encontrado"}</InfoRow>
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.users} title="Pessoa-chave" />
-          <div className="lead-cockpit__person">
-            <Av name={keyPersonName} size={30} />
-            <span><strong>{keyPersonName}</strong><small>{keyPersonRoleLabel}</small></span>
+      <section className="lc2-card">
+        <span className="lc2-card__head">
+          Negócio
+          <span className={`lc2-card__st lc2-badge ${lead.saleStatus === "sale_confirmed" ? "is-ok" : "is-warn"}`}>
+            {lead.saleStatusLabel || "Sem venda"}
+          </span>
+        </span>
+        <div className="lc2-card__body">
+          <div className="lc2-money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0"}<small>/mês</small></div>
+          <div className="lc2-mgrid">
+            <div className="lc2-mcell"><small>Produto</small><b>{lead.product?.name || "Não definido"}</b></div>
+            <div className="lc2-mcell"><small>Implantação</small><b>{lead.setupValue != null ? fmtMoney(lead.setupValue) : "—"}</b></div>
+            <div className="lc2-mcell">
+              <small>Comissão</small>
+              <b>{lead.commissionAmount != null ? `${fmtMoney(lead.commissionAmount)}${lead.commissionRecurring ? " /mês" : ""}` : "—"}</b>
+            </div>
+            <div className="lc2-mcell"><small>Responsável</small><b>{lead.owner?.name || "—"}</b></div>
           </div>
-          <InfoRow label="Telefone">{lead.ownerPhone ? formatPhoneDisplay(lead.ownerPhone) : lead.phone ? formatPhoneDisplay(lead.phone) : "—"}</InfoRow>
-          <InfoRow label="Instagram">{lead.ownerInstagram || "Não localizado"}</InfoRow>
-          <InfoRow label="Facebook">{lead.ownerFacebook || "Não localizado"}</InfoRow>
-        </section>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__drawer-company">
-          <CardTitle icon={ICONS.empresas} title="Empresa" action={<span className="tag">Receita Federal</span>} />
-          <div className="lead-cockpit__company-kv">{renderCompanyRows()}</div>
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.users} title="Quadro societário" action={<span className="tag">{company?.partners?.length || 0} pessoa(s)</span>} />
-          <div className="lead-cockpit__partner-list">
-            {company?.partners?.length ? company.partners.map((partner, index) => (
-              <div className="lead-cockpit__person" key={`${partner.name || "partner"}-${index}`}>
-                <Av name={partner.name || "—"} size={28} />
-                <span><strong>{partner.name || "—"}</strong><small>{partner.qualification ? humanize(partner.qualification) : "Sócio"}</small></span>
-              </div>
-            )) : <span className="muted-note">Sem quadro societário disponível.</span>}
-          </div>
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.check} title="Qualidade do cadastro" action={<span className="tag">{registrationQuality}% completo</span>} />
-          <Score value={registrationQuality} label="cadastro" />
-          <p className="lead-cockpit__card-copy">Contato, Receita e pessoa-chave organizados para o trabalho comercial.</p>
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.scrape} title="Origem" action={<span className="tag">Radar</span>} />
-          <div className="lead-cockpit__chips">
-            {lead.phone && <span className="tag teal">Telefone presente</span>}
-            {lead.email && <span className="tag teal">E-mail presente</span>}
-            {!lead.website && <span className="tag">Sem site</span>}
-            {lead.timesSeen != null && lead.timesSeen > 1 && <span className="tag">Visto {lead.timesSeen}×</span>}
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     );
   }
 
-  function renderFinanceiro() {
+  function renderFinanceiroCard() {
     return (
-      <div className="lead-cockpit__drawer-grid lead-cockpit__drawer-grid--finance">
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.money} title="Resumo comercial" action={<span className={`tag${lead.saleStatus === "sale_confirmed" ? " teal" : " warn"}`}>{lead.saleStatusLabel || "Sem venda"}</span>} />
-          <strong className="lead-cockpit__money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0"}</strong>
-          <div className="lead-cockpit__metrics">
-            <span><small>Produto</small><strong>{lead.product?.name || "Não definido"}</strong></span>
-            <span><small>Etapa</small><strong>{lead.statusLabel || "Prospecção"}</strong></span>
-            <span><small>Comissão</small><strong>{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</strong></span>
-            <span><small>Recorrência</small><strong>{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</strong></span>
-          </div>
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.doc} title="Proposta" />
-          <InfoRow label="Produto sugerido">{lead.product?.name || "HBX Atendimento + Vendas"}</InfoRow>
-          <InfoRow label="Implantação">{lead.setupValue != null ? fmtMoney(lead.setupValue) : "Não definida"}</InfoRow>
-          <InfoRow label="Mensalidade">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "Não definida"}</InfoRow>
-          <InfoRow label="Responsável">{lead.owner?.name || "—"}</InfoRow>
-        </section>
-
-        <section className="lead-cockpit__compact-card lead-cockpit__drawer-statement">
-          <CardTitle icon={ICONS.relat} title="Extrato do cliente" action={<span className="tag">{extrato?.charges.length || 0} títulos</span>} />
+      <section className="lc2-card">
+        <span className="lc2-card__head">
+          Financeiro do cliente
+          {extrato && (
+            <span className={`lc2-card__st lc2-badge ${extrato.saldoAberto > 0 ? "is-warn" : "is-ok"}`}>
+              {extrato.saldoAberto > 0 ? `${fmtMoney(extrato.saldoAberto)} em aberto` : "em dia"}
+            </span>
+          )}
+        </span>
+        <div className="lc2-card__body">
           {financeMessage && <span className={`ctx-msg ${financeMessage.startsWith("✓") ? "ok" : "err"}`}>{financeMessage}</span>}
           {!customerProfileId ? (
-            <div className="lead-cockpit__finance-empty">
-              <strong>Ainda não há movimentação financeira</strong>
-              <small>O extrato nasce quando a venda é confirmada e o primeiro título é gerado.</small>
+            <>
+              <span className="muted-note">O extrato nasce quando a venda é confirmada e o primeiro título é gerado.</span>
               {(lead.saleValue ?? 0) > 0 && (
                 <button type="button" className="btn-teal btn-xs" onClick={createCharge} disabled={financeBusy != null}>
                   {financeBusy === "create" ? "Gerando…" : "Gerar cobrança"}
                 </button>
               )}
-            </div>
+            </>
           ) : extratoError ? (
-            <div className="lead-cockpit__empty-state">Não foi possível carregar o extrato.</div>
+            <span className="muted-note">Não foi possível carregar o extrato.</span>
           ) : extrato == null ? (
-            <div className="lead-cockpit__empty-state">Carregando extrato…</div>
+            <span className="muted-note">Carregando extrato…</span>
           ) : extrato.charges.length === 0 ? (
-            <div className="lead-cockpit__finance-empty"><strong>Nenhum título ainda</strong><small>O cliente já existe no financeiro, mas não possui cobranças.</small></div>
-          ) : (
-            <div className="lead-cockpit__charges">
-              <div className="lead-cockpit__balance"><span>Saldo em aberto</span><strong>{fmtMoney(extrato.saldoAberto)}</strong></div>
-              {extrato.charges.slice(0, 8).map((charge) => (
-                <div className="lead-cockpit__charge-row" key={charge.id}>
-                  <span><strong>{charge.description || "Título"}</strong><small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small></span>
-                  <span className={chargeTagClass(charge.status)}>{chargeStatusLabel(charge.status)}</span>
-                  <strong className="hbx-mono">{fmtMoney(charge.amount)}</strong>
-                  {String(charge.status || "").toLowerCase() === "pending" && (
-                    <button type="button" className="lead-cockpit__micro-button" onClick={() => markPaid(charge.id)} disabled={financeBusy != null}>
-                      {financeBusy === charge.id ? "Baixando…" : "Marcar pago"}
-                    </button>
-                  )}
-                </div>
-              ))}
+            <span className="muted-note">O cliente existe no financeiro, mas ainda não tem cobranças.</span>
+          ) : extrato.charges.slice(0, 8).map((charge) => (
+            <div className="lc2-charge" key={charge.id}>
+              <span>{charge.description || "Título"}<small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small></span>
+              <span className={chargeTagClass(charge.status)}>{chargeStatusLabel(charge.status)}</span>
+              <b>{fmtMoney(charge.amount)}</b>
+              {String(charge.status || "").toLowerCase() === "pending" && (
+                <button type="button" className="btn-ghost btn-xs" onClick={() => markPaid(charge.id)} disabled={financeBusy != null}>
+                  {financeBusy === charge.id ? "Baixando…" : "Marcar pago"}
+                </button>
+              )}
             </div>
-          )}
-        </section>
-
-        <section className="lead-cockpit__compact-card">
-          <CardTitle icon={ICONS.money} title="Comissão" action={<span className="tag">{lead.commissionStatusLabel || "Pendente"}</span>} />
-          <InfoRow label="Valor">{lead.commissionAmount != null ? fmtMoney(lead.commissionAmount) : "—"}</InfoRow>
-          <InfoRow label="Vencimento">{lead.commissionDueAt ? fmtDate(lead.commissionDueAt) : "—"}</InfoRow>
-          <InfoRow label="Recorrente">{lead.commissionRecurring == null ? "—" : lead.commissionRecurring ? "Sim" : "Não"}</InfoRow>
-          <InfoRow label="Implantação">{lead.setupCommissionAmount != null ? fmtMoney(lead.setupCommissionAmount) : "—"}</InfoRow>
-        </section>
-      </div>
+          ))}
+        </div>
+      </section>
     );
   }
 
@@ -1335,113 +1291,204 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   return (
     <>
       <div className={"hbx-veil lead-cockpit__veil" + (closing ? " is-closing" : "")} onClick={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
-        <section ref={shellRef} className="hbx-modal lead-cockpit lead-cockpit--workbench" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
-          <header className="lead-cockpit__approved-head">
-            <div className="lead-cockpit__approved-identity">
-              <Av name={lead.name || "—"} size={44} />
-              <div className="lead-cockpit__approved-id">
-                <span className="lead-cockpit__approved-title-row">
-                  <h2>{lead.name || "—"}</h2>
-                  <span className="lead-cockpit__approved-badges"><RadarAiBadge status={aiStatus} /></span>
-                </span>
+        <section ref={shellRef} className="hbx-modal lead-cockpit lead-cockpit--workbench lead-cockpit--central" role="dialog" aria-modal="true" aria-label={`Central do lead ${lead.name || ""}`}>
+          {/* CENTRAL DO LEAD (27/07) — hero de identidade + funil + telemetria.
+              Substitui o antigo header + barra de etapa + faixa do copiloto: a
+              "próxima ação" aparecia em TRÊS lugares e o dono não sabia mais
+              qual mandava. Agora é UMA célula (AGORA) e ela manda. */}
+          <header className="lc2-hero">
+            <div className="lc2-hero__row">
+              <Av name={lead.name || "—"} size={46} />
+              <div className="lc2-hero__id">
+                <h2>{lead.name || "—"}</h2>
                 <p title={[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ")}>
-                  {[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ") || "—"}
+                  {lead.razaoSocial ? <b>{lead.razaoSocial}</b> : null}
+                  {[lead.segment, cityState].filter(Boolean).map((part) => ` · ${part}`).join("")}
                 </p>
+              </div>
+
+              <RadarAiBadge status={aiStatus} />
+              {situacaoLabel && (
+                <span className={`lc2-badge ${situacaoAtiva ? "is-ok" : "is-warn"}`}>
+                  {situacaoAtiva ? "RFB ativa" : humanize(situacaoLabel)}
+                </span>
+              )}
+              {!lead.website && <span className="lc2-badge is-warn">Sem site</span>}
+
+              {availableChannels.length > 0 && (
+                <span className="lc2-hero__channels" aria-label="Canais do lead">
+                  {availableChannels.map((canal) => {
+                    if (canal === "whatsapp" || canal === "email") {
+                      return (
+                        <button
+                          key={canal}
+                          type="button"
+                          title={CANAL_LABEL[canal]}
+                          aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                          onClick={() => focusWorkspace(canal)}
+                        >
+                          <CanalIcon canal={canal} size="md" />
+                        </button>
+                      );
+                    }
+                    const href = channelTargets[canal]!;
+                    const external = canal === "instagram" || canal === "facebook" || canal === "site";
+                    return (
+                      <a
+                        key={canal}
+                        href={href}
+                        title={CANAL_LABEL[canal]}
+                        aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                        target={external ? "_blank" : undefined}
+                        rel={external ? "noopener noreferrer" : undefined}
+                      >
+                        <CanalIcon canal={canal} size="md" />
+                      </a>
+                    );
+                  })}
+                </span>
+              )}
+
+              {cnpjDisplay && (
+                <span className="lc2-hero__cnpj">
+                  <small>CNPJ</small>
+                  {cnpjDisplay}
+                  <Lc2Copy value={cnpjDisplay} label="CNPJ" framed />
+                </span>
+              )}
+
+              <div className="lc2-hero__acts">
+                {conciergeVisible && (
+                  <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}>
+                    <I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span>
+                  </button>
+                )}
+                {canViewValues && (
+                  <button type="button" className="btn-teal btn-xs" onClick={() => setFecharOpen(true)}>
+                    <I d={ICONS.money} size={12} /> <span>Fechar venda</span>
+                  </button>
+                )}
+                <button type="button" className="lead-cockpit__approved-close" onClick={requestClose} aria-label="Fechar">×</button>
               </div>
             </div>
 
-            {availableChannels.length > 0 && (
-              <span className="lead-cockpit__approved-channels" aria-label="Canais do lead">
-                {availableChannels.map((canal) => {
-                  if (canal === "whatsapp" || canal === "email") {
-                    return (
-                      <button
-                        key={canal}
-                        type="button"
-                        title={CANAL_LABEL[canal]}
-                        aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                        onClick={() => focusWorkspace(canal)}
-                      >
-                        <CanalIcon canal={canal} size="xl" />
-                      </button>
-                    );
-                  }
-                  const href = channelTargets[canal]!;
-                  const external = canal === "instagram" || canal === "facebook" || canal === "site";
-                  return (
-                    <a
-                      key={canal}
-                      href={href}
-                      title={CANAL_LABEL[canal]}
-                      aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                      target={external ? "_blank" : undefined}
-                      rel={external ? "noopener noreferrer" : undefined}
-                    >
-                      <CanalIcon canal={canal} size="xl" />
-                    </a>
-                  );
-                })}
-              </span>
-            )}
+            {/* Funil: a etapa é DADO do lead e agora mostra o caminho inteiro
+                (feito/atual/futuro) em vez de esconder num select. */}
+            <nav className="glass-pill-track lc2-funnel" aria-label="Etapa do lead">
+              <GlassPill {...funnelPill} />
+              {COCKPIT_STAGES.map((item, index) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  ref={funnelPill.itemRef(item.key)}
+                  className={`glass-pill-item lc2-funnel__seg${index < stageIndex ? " is-done" : ""}${item.key === stage ? " is-current" : ""}`}
+                  aria-pressed={item.key === stage}
+                  disabled={stageBusy}
+                  onClick={() => void changeStage(item.key)}
+                >
+                  <i className="lc2-funnel__dot">{index < stageIndex ? "✓" : index + 1}</i>
+                  <span>
+                    {item.label}
+                    <small>{item.key === stage ? "agora" : index < stageIndex ? "feito" : "—"}</small>
+                  </span>
+                </button>
+              ))}
+            </nav>
 
-            <div className="lead-cockpit__approved-actions">
-              {cnpj && (
-                <button type="button" className="btn-ghost btn-xs" onClick={copyCnpj}>
-                  <I d={cnpjCopied ? ICONS.check : ICONS.doc} size={12} /> <span>{cnpjCopied ? "Copiado" : "Copiar CNPJ"}</span>
+            <div className="lc2-tele">
+              <div className="lc2-tele__cell" title={approachReason}>
+                <Lc2Gauge value={opportunityScore} label="Score de oportunidade" />
+                <div>
+                  <span className="lc2-tele__key">Score</span>
+                  <div className="lc2-tele__sub">{recommendedChannel} · dor: {pain}</div>
+                </div>
+              </div>
+
+              <div className="lc2-tele__cell">
+                <div>
+                  <span className="lc2-tele__key">Prontidão</span>
+                  <div className="lc2-tele__num">{readinessScore}<small>%</small></div>
+                  <div className="lc2-tele__sub">
+                    {preVooLoading ? "conferindo…" : preVoo?.prontidao?.veredito === "pronto" ? "pronto pra abordar" : "faltam dados"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="lc2-tele__cell is-optional">
+                <div>
+                  <span className="lc2-tele__key">Última interação</span>
+                  <div className="lc2-tele__num" style={{ fontSize: "1rem" }}>{relativeTimeLabel(lastInteractionAt) || "—"}</div>
+                  <div className="lc2-tele__sub">{lead.timesSeen != null && lead.timesSeen > 1 ? `visto ${lead.timesSeen}× no radar` : "primeiro contato pendente"}</div>
+                </div>
+              </div>
+
+              {/* A ÚNICA próxima ação da ficha. */}
+              <div className="lc2-now">
+                <span className="lc2-pulse" />
+                <div className="lc2-now__body">
+                  <span className="lc2-now__key">Agora</span>
+                  <div className="lc2-now__what">
+                    {lead.nextAction || "Primeiro contato"}
+                    {" · "}
+                    <span className="lc2-now__when">{lead.returnAt ? fmtDateTime(lead.returnAt) : "hoje"}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-teal btn-xs"
+                  onClick={() => focusWorkspace(recommendedChannel.toLowerCase().includes("mail") ? "email" : "whatsapp")}
+                >
+                  Fazer agora
                 </button>
-              )}
-              {conciergeVisible && (
-                <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}>
-                  <I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span>
-                </button>
-              )}
-              <button type="button" className="lead-cockpit__approved-close" onClick={requestClose} aria-label="Fechar">×</button>
+                <button type="button" className="btn-ghost btn-xs" onClick={() => setReagendarOpen(true)}>Reagendar</button>
+              </div>
             </div>
           </header>
 
-          <div className="lead-cockpit__statusbar">
-            {/* 26/07 — a fileira Planejar/Robô/Te chamou/Negociação/Fechado saiu
-                daqui: era a MESMA guia da tela de trás, e dentro da ficha ela
-                lia como navegação ("por que estou vendo o funil de novo?").
-                Aqui a etapa é um DADO do lead, então virou um campo: mostra em
-                que etapa ele está e deixa mudar. Mesmo endpoint (changeStage). */}
-            <label className="lead-cockpit__stage-field">
-              <small>Etapa</small>
-              <select
-                value={stage}
-                disabled={stageBusy}
-                aria-label="Etapa do lead"
-                onChange={(event) => void changeStage(event.target.value as CockpitStage)}
-              >
-                {COCKPIT_STAGES.map((item) => (
-                  <option key={item.key} value={item.key}>{item.label}</option>
-                ))}
-              </select>
-            </label>
-            <div className="lead-cockpit__header-next">
-              <span><small>Próxima ação</small><strong>{lead.nextAction || "Primeiro contato"}</strong></span>
-              <span><small>Quando</small><strong>{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</strong></span>
-            </div>
-          </div>
+          <div className="lc2-body">
+            <aside className="lc2-col lc2-col--dossier" aria-label="Dossiê do lead">
+              {renderDossier()}
+            </aside>
 
-          <div className="lead-cockpit__workspace">
-            {renderIntelligenceRail()}
-
-            <main className="lead-cockpit__history-column">
-              <section className="lead-cockpit__smart-strip">
-                <span className="lead-cockpit__smart-strip-icon"><I d={ICONS.bolt} size={15} /></span>
-                <span>
-                  <strong>{smartTitle}</strong>
-                  <small>{smartReason}</small>
-                </span>
-                {copilotoEnabled ? (
-                  <CopilotoPanel
-                    leadId={lead.id}
-                    ficha={copilotoFicha}
-                    onDraft={(text) => focusWorkspace("whatsapp", text)}
-                    onSaveNote={saveCopilotoNote}
-                  />
-                ) : <span className="muted-note">Copiloto indisponível</span>}
+            <main className="lc2-col lc2-col--talk">
+              <section className="lc2-copilot">
+                <span className="lc2-copilot__spark"><I d={ICONS.bolt} size={15} /></span>
+                <div className="lc2-copilot__main">
+                  <b>{smartTitle}</b>
+                  <p>{smartReason}</p>
+                  {/* O modelo pronto do Radar deixa de ser "copiar pro
+                      clipboard" e cai direto no composer, já no canal certo. */}
+                  {templateText && (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      title={templateText}
+                      onClick={() => focusWorkspace(
+                        recommendedChannel.toLowerCase().includes("mail") ? "email" : "whatsapp",
+                        templateText,
+                      )}
+                    >
+                      <I d={ICONS.doc} size={12} /> Usar modelo de mensagem
+                    </button>
+                  )}
+                  {copilotoEnabled ? (
+                    <CopilotoPanel
+                      leadId={lead.id}
+                      ficha={copilotoFicha}
+                      onDraft={(text) => focusWorkspace("whatsapp", text)}
+                      onSaveNote={saveCopilotoNote}
+                    />
+                  ) : (
+                    // Nunca mais "Copiloto indisponível" mudo: diz o que é e
+                    // leva pro lugar de ligar (ordem do dono 27/07).
+                    <div className="lc2-copilot__off">
+                      <span>A redação assistida está desligada para esta empresa.</span>
+                      <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/automacao?secao=atendente")}>
+                        Ativar copiloto
+                      </button>
+                    </div>
+                  )}
+                </div>
               </section>
 
               <LeadCockpitHistory
@@ -1461,25 +1508,19 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               />
             </main>
 
-            {renderOperationsRail()}
-          </div>
-
-          {drawer && (
-            <div className="hbx-veil lead-cockpit__contained-veil to-right" onClick={(event) => { if (event.target === event.currentTarget) setDrawer(null); }}>
-              <aside className="hbx-drawer lead-cockpit__drawer" aria-label={drawer === "cadastro" ? "Cadastro do lead" : "Financeiro do lead"}>
-                <header className="lead-cockpit__drawer-head">
-                  <span>
-                    <strong>{drawer === "cadastro" ? "Cadastro do lead" : "Financeiro do lead"}</strong>
-                    <small>{lead.name}</small>
-                  </span>
-                  <button type="button" onClick={() => setDrawer(null)} aria-label="Fechar gaveta">×</button>
-                </header>
-                <div className="lead-cockpit__drawer-body">
-                  {drawer === "cadastro" ? renderCadastro() : renderFinanceiro()}
+            {/* Pilha de decisão. LEI DO VENDEDOR: dinheiro só com canViewValues. */}
+            <aside className="lc2-col lc2-col--decide" aria-label="Robô e negócio">
+              {renderRoboCard()}
+              {canViewValues && renderNegocioCard()}
+              {canViewValues && renderFinanceiroCard()}
+              <section className="lc2-card">
+                <div className="lc2-card__foot lc2-card__foot--solo">
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => setAgendaOpen(true)}>Agenda do lead</button>
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => setSemInteresseOpen(true)}>Sem interesse…</button>
                 </div>
-              </aside>
-            </div>
-          )}
+              </section>
+            </aside>
+          </div>
 
           {agendaOpen && (
             <div className="hbx-veil lead-cockpit__contained-veil to-right" onClick={(event) => { if (event.target === event.currentTarget) setAgendaOpen(false); }}>
@@ -1511,13 +1552,46 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
 
           {reagendarOpen && (
             <div className="hbx-veil lead-cockpit__contained-veil" onClick={(event) => { if (event.target === event.currentTarget) setReagendarOpen(false); }}>
-              <div className="hbx-pop lead-cockpit__decision-pop" role="dialog" aria-modal="true" aria-label="Reagendar contato">
-                <strong>Reagendar contato · {lead.name}</strong>
-                <input className="field-dark" type="date" value={reagendarData} onChange={(event) => setReagendarData(event.target.value)} />
+              {/* Editar a próxima ação vive AQUI, não num card à parte: a ficha
+                  mostra a ação em um lugar só (a célula AGORA) e edita em um
+                  lugar só (este popup). */}
+              <div className="hbx-pop lead-cockpit__decision-pop" role="dialog" aria-modal="true" aria-label="Próxima ação do lead">
+                <strong>Próxima ação · {lead.name}</strong>
+                <input
+                  className="field-dark"
+                  maxLength={140}
+                  value={nextActionDraft}
+                  placeholder="O que fazer com este lead"
+                  aria-label="Próxima ação do lead"
+                  onChange={(event) => setNextActionDraft(event.target.value)}
+                />
+                <input
+                  className="field-dark"
+                  type="date"
+                  value={reagendarData}
+                  aria-label="Quando retomar"
+                  onChange={(event) => setReagendarData(event.target.value)}
+                />
+                {!nextSlotLoading && nextSlot?.slot && (
+                  <span className="muted-note">
+                    Próximo horário livre: {fmtDateTime(nextSlot.slot)}
+                    {nextSlot.conflito && nextSlot.motivoConflito ? ` · ${conflictLabel(nextSlot.motivoConflito)}` : ""}
+                  </span>
+                )}
+                {acaoMsg && <span className={`ctx-msg ${acaoMsg.startsWith("✓") ? "ok" : "err"}`}>{acaoMsg}</span>}
                 <div className="lead-cockpit__decision-actions">
                   <button type="button" className="btn-ghost" onClick={() => setReagendarOpen(false)}>Cancelar</button>
-                  <button type="button" className="btn-teal" disabled={!reagendarData || acaoBusy} onClick={reagendarContato}>
-                    {acaoBusy ? "Salvando…" : "Confirmar"}
+                  <button
+                    type="button"
+                    className="btn-teal"
+                    disabled={acaoBusy || nextActionBusy || (!reagendarData && nextActionDraft.trim() === (lead.nextAction || "").trim())}
+                    onClick={async () => {
+                      if (nextActionDraft.trim() !== (lead.nextAction || "").trim()) await saveNextAction();
+                      if (reagendarData) await reagendarContato();
+                      else setReagendarOpen(false);
+                    }}
+                  >
+                    {acaoBusy || nextActionBusy ? "Salvando…" : "Salvar"}
                   </button>
                 </div>
               </div>
