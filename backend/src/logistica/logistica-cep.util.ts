@@ -242,6 +242,26 @@ export interface CepDaRua {
   bairro: string;
   localidade: string;
   uf: string;
+  /** O bairro deste trecho é o bairro do cadastro? É o desempate que decide QUAL pedaço
+   *  de uma rua comprida é o do cliente. */
+  bairroBate: boolean;
+}
+
+/** Palavras de TIPO de bairro — não identificam nada sozinhas ("Jardim", "Vila"...).
+ *  O cadastro escreve "Jd. Santa Cruz" e o ViaCEP "Jardim Santa Cruz": comparar o texto
+ *  inteiro nunca casa; comparar o NÚCLEO ("santa cruz") casa sempre. */
+const TIPO_BAIRRO = new Set([
+  'jardim', 'jd', 'vila', 'vl', 'parque', 'pq', 'conjunto', 'conj', 'habitacional',
+  'residencial', 'res', 'chacara', 'chacaras', 'distrito', 'nucleo', 'bairro', 'setor',
+  'cidade', 'centro', 'do', 'da', 'de', 'dos', 'das', 'e',
+]);
+
+/** O núcleo do bairro, sem as palavras de tipo: "Jd. Santa Cruz" → ["santa","cruz"]. */
+function nucleoBairro(valor: string | null | undefined): string[] {
+  return normalizar(valor)
+    .replace(/[.,/\\-]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1 && !TIPO_BAIRRO.has(t));
 }
 
 const cacheBusca = new Map<string, { valor: ViaCepPayload[]; expiraEm: number }>();
@@ -367,20 +387,21 @@ export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Pr
       bairro: String(item.bairro ?? '').trim(),
       localidade: String(item.localidade ?? '').trim(),
       uf: String(item.uf ?? '').trim().toUpperCase(),
+      bairroBate: false,
     });
   }
-  // BAIRRO NA FRENTE (precisão, não capricho): rua comprida tem um CEP por trecho — "Rua
-  // 9" devolve 37. Quem tenta primeiro é o trecho do bairro do cadastro; sem isso o pino
-  // sai no pedaço errado da MESMA rua, que é o erro mais difícil de o entregador
-  // perceber. Bairro vem da coluna OU do texto do endereço (no legado ele mora lá).
-  const bairroCadastro = normalizar(
-    String(cadastro.bairro ?? '').trim() || String(cadastro.endereco ?? ''),
-  );
-  const combina = (c: CepDaRua): number => {
-    const b = normalizar(c.bairro);
-    return b && bairroCadastro.includes(b) ? 0 : 1;
-  };
-  return saida.sort((a, b) => combina(a) - combina(b)).slice(0, VIACEP_BUSCA_MAX);
+  // BAIRRO NA FRENTE (precisão, não capricho): rua comprida tem um CEP por TRECHO — "Rua
+  // 15" em Rio Claro devolve 16. Quem tenta primeiro é o trecho do bairro do cadastro;
+  // sem isso o pino sai no pedaço errado da MESMA rua, que é o erro mais difícil de o
+  // entregador perceber. O bairro vem da coluna OU do texto do endereço (no legado ele
+  // mora lá) e a comparação é por NÚCLEO — medido: comparando texto inteiro, "Jd. Santa
+  // Cruz" nunca casava com "Jardim Santa Cruz" e o desempate simplesmente não existia.
+  const textoCadastro = ` ${normalizar(`${cadastro.bairro ?? ''} ${cadastro.endereco ?? ''}`)} `;
+  for (const c of saida) {
+    const nucleo = nucleoBairro(c.bairro);
+    c.bairroBate = nucleo.length > 0 && nucleo.every((t) => textoCadastro.includes(` ${t} `));
+  }
+  return saida.sort((a, b) => Number(b.bairroBate) - Number(a.bairroBate)).slice(0, VIACEP_BUSCA_MAX);
 }
 
 /**

@@ -11,7 +11,9 @@ import type { LogisticaActor } from './logistica-operacao.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaService } from './logistica.service';
-import { LogisticaAgendaService } from './logistica-agenda.service';
+import { DAY_ABBR, LogisticaAgendaService } from './logistica-agenda.service';
+import { encerrarDiasAnteriores } from './logistica-fechamento-caixa.util';
+import { formatDDMM } from './logistica-agenda-evento.util';
 
 const OPEN_STATUS = ['agendada', 'em_rota'] as const;
 
@@ -171,6 +173,11 @@ export class LogisticaAdminRouteService {
 
   async prepare(companyId: number, input: PrepareAdminRouteInput, actor: LogisticaActor) {
     const userId = actorId(actor);
+    // F0 (27/07) — FECHAMENTO DE CAIXA lazy: antes de montar, fecha sozinho
+    // rota/entrega de dia que já passou e ninguém encerrou. HOJE real (nunca o
+    // operationalDate pedido) — preparar a rota de amanhã com antecedência não
+    // pode fechar a rota de HOJE, que ainda está rodando.
+    await encerrarDiasAnteriores(this.prisma, companyId, canonicalRouteDate());
     const operationalDate = canonicalRouteDate(input?.operationalDate);
     const pendingIds = normalizeIds(input?.pendingDeliveryIds);
     const sourceDates = Array.isArray(input?.sourceDates) ? input.sourceDates : [operationalDate];
@@ -219,7 +226,7 @@ export class LogisticaAdminRouteService {
     });
     const deliveryIds = openRows.map((row) => row.id);
     if (deliveryIds.length === 0) {
-      throw new BadRequestException('Nenhuma parada foi encontrada para a rota de hoje.');
+      await this.diagnosticoRotaVazia(companyId, operationalDate, start);
     }
 
     const plan = await this.rota.planejarRota(
@@ -245,8 +252,59 @@ export class LogisticaAdminRouteService {
     };
   }
 
+  /**
+   * F0 (27/07) — "O ERRO DO PREPARE QUE FALA A VERDADE". Antes, `deliveryIds`
+   * vazio SEMPRE devolvia "Nenhuma parada foi encontrada para a rota de hoje" —
+   * mentira quando as paradas existiam mas estavam presas numa rota de ONTEM
+   * que ninguém encerrou (era exatamente o sintoma do incidente "a sexta que
+   * não volta"). Diagnostica em ORDEM e lança a mensagem específica da causa
+   * mais provável primeiro; SEMPRE lança (retorno `never`).
+   *
+   * 1) Presa numa rota de dia passado que não foi encerrada — com
+   *    `encerrarDiasAnteriores` já rodando no início de `prepare`/`start`, este
+   *    caso devia virar raro; o diagnóstico fica como REDE DE SEGURANÇA (ex.:
+   *    empresa que ainda não passou por um `prepare` desde o deploy deste fix).
+   * 2) Nenhum plano ativo pro dia da semana sendo preparado (só faz sentido na
+   *    Agenda V2 — a mensagem cita `diaSemana`; empresa em modo legado cai
+   *    direto no fallback 3, que já era a mensagem original).
+   * 3) Planos existem mas nada foi gerado/nada ficou em aberto — mensagem
+   *    original, sem mudança de comportamento pra quem já via ela.
+   */
+  private async diagnosticoRotaVazia(companyId: number, operationalDate: string, start: Date): Promise<never> {
+    const presa = await this.prisma.entrega.findFirst({
+      where: {
+        companyId,
+        status: 'agendada',
+        agendaOcorrenciaKey: { not: null },
+        scheduledAt: { lt: start },
+      },
+      orderBy: { scheduledAt: 'asc' },
+      select: { scheduledAt: true },
+    });
+    const dataPresa = presa?.scheduledAt ? formatDDMM(saoPauloDateKey(presa.scheduledAt)) : null;
+    if (dataPresa) {
+      throw new BadRequestException(
+        `As paradas estão presas na rota de ${dataPresa} que não foi encerrada. Feche o dia anterior e monte de novo.`,
+      );
+    }
+
+    if (this.agenda && await this.agenda.isAgendaV2Active(companyId)) {
+      const dia = isoWeekdayForDate(operationalDate);
+      const temPlano = await this.prisma.logisticaPlanoEntrega.count({
+        where: { companyId, diaSemana: dia, ativo: true },
+      });
+      if (temPlano === 0) {
+        throw new BadRequestException(`Nenhum cliente tem ${DAY_ABBR[dia - 1]} como dia de entrega.`);
+      }
+    }
+
+    throw new BadRequestException('Nenhuma parada foi encontrada para a rota de hoje.');
+  }
+
   async start(companyId: number, input: PrepareAdminRouteInput, actor: LogisticaActor) {
     const userId = actorId(actor);
+    // F0 (27/07) — mesmo fechamento de caixa lazy do prepare (ver comentário lá).
+    await encerrarDiasAnteriores(this.prisma, companyId, canonicalRouteDate());
     const operationalDate = canonicalRouteDate(input?.operationalDate);
     const { start, end } = dateRange(operationalDate);
     const rows = await this.prisma.entrega.findMany({

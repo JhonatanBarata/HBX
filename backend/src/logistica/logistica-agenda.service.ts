@@ -42,8 +42,18 @@ import {
 // FUSO (26/07) — a Agenda passou a usar os MESMOS helpers de dia civil de São Paulo
 // que o resto do módulo já usava; ver o bloco "FUSO" no fim deste arquivo.
 import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
+// F0 (27/07) — motor confiável: cursor só avança no desfecho (ver generateDay),
+// guarda anti-dupla-aberta, extrato de eventos e fechamento de caixa lazy.
+import { sourceDateFromOccurrenceKey } from './logistica-agenda-cursor.util';
+import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
+import { encerrarDiasAnteriores } from './logistica-fechamento-caixa.util';
 
 const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'] as const;
+// F0 (27/07) — abreviação curta do dia pro extrato (LogisticaAgendaEvento.de/paraTexto)
+// e pra mensagem de erro do prepare (logistica-admin-route.service.ts). Exportada de
+// propósito: mesmo array em dois lugares seria o tipo de duplicação que já causou
+// incidente de fuso neste módulo.
+export const DAY_ABBR = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB', 'DOM'] as const;
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const PRESERVED_ROUTE_STATUS = ['em_rota'] as const;
 const FINISHED_DELIVERY_STATUS = ['entregue', 'cancelada'] as const;
@@ -870,6 +880,21 @@ export class LogisticaAgendaService {
         },
       });
 
+      // F0 (27/07) — extrato: dia da semana trocado é a mudança que mais gera
+      // dúvida do cliente ("por que hoje não veio?"). Best-effort.
+      if (existing.diaSemana !== normalized.diaSemana) {
+        await registrarEventoAgenda(tx, {
+          companyId,
+          customerProfileId: normalized.customerProfileId,
+          planoEntregaId: existing.id,
+          tipo: 'DIA_ALTERADO',
+          deTexto: DAY_ABBR[existing.diaSemana - 1] ?? null,
+          paraTexto: DAY_ABBR[normalized.diaSemana - 1] ?? null,
+          origem: 'manual',
+          actorUserId: null,
+        });
+      }
+
       if (normalized.localId && normalized.accessProvided) {
         await tx.localEntrega.updateMany({
           where: {
@@ -1447,6 +1472,18 @@ export class LogisticaAgendaService {
                 revisao: { increment: 1 },
               },
             });
+            // F0 (27/07) — extrato: mover o dia inteiro também é DIA_ALTERADO,
+            // um por plano afetado. Best-effort.
+            await registrarEventoAgenda(tx, {
+              companyId,
+              customerProfileId: plan.customerProfileId,
+              planoEntregaId: plan.id,
+              tipo: 'DIA_ALTERADO',
+              deTexto: DAY_ABBR[day - 1] ?? null,
+              paraTexto: DAY_ABBR[destination - 1] ?? null,
+              origem: 'manual',
+              actorUserId: actorId,
+            });
             const normalized = normalizedFromPlan(plan, destination);
             await this.createRouteStop(tx, companyId, targetRoute.id, targetOrder, plan.id, normalized);
             targetOrder += 1;
@@ -1550,7 +1587,15 @@ export class LogisticaAgendaService {
     const warnings: string[] = [];
     let created = 0;
     let skipped = 0;
-    let advanced = 0;
+    // F0 (27/07) — CURSOR NO DESFECHO: a geração NUNCA MAIS avança `proximaData`
+    // (era a causa-raiz da "sexta que não volta" — montagem abortada/pulada
+    // comia uma semana do plano em silêncio, sem ninguém ter confirmado nada).
+    // O avanço agora só acontece no DESFECHO da ocorrência — confirmarEntrega/
+    // cancelarEntrega em logistica.service.ts, ver avancarPlanoNoDesfecho — a
+    // partir da DATA DE ORIGEM da chave, nunca do dia em que a geração rodou.
+    // `advanced`/`avancados` continuam no retorno por compatibilidade de
+    // contrato (quem lê o campo não quebra), mas SEMPRE 0 vindos daqui.
+    const advanced = 0;
 
     for (const plan of due) {
       const occurrenceKey = `agenda:${plan.id}:${dateKey(date)}`;
@@ -1569,16 +1614,37 @@ export class LogisticaAgendaService {
         } else {
           deliveryIds.push(existing.id);
         }
-        const next = nextOccurrenceDate(plan, date);
-        await this.prisma.logisticaPlanoEntrega.updateMany({
-          where: {
-            id: plan.id,
-            companyId,
-            OR: [{ proximaData: null }, { proximaData: { lte: date } }],
-          },
-          data: { proximaData: next },
-        });
         continue;
+      }
+
+      // GUARD ANTI-DUPLA-ABERTA (F0, 27/07) — sem o avanço-na-geração, nada mais
+      // impediria duas ocorrências abertas do MESMO plano ao mesmo tempo: se a
+      // de uma data anterior ainda está 'agendada' (ninguém confirmou/cancelou/
+      // descartou), a de hoje NÃO nasce — o cliente fica pendurado 1x, nunca 2x.
+      // Resolve sozinho no desfecho da pendurada (que aí sim avança o cursor e
+      // libera a geração da próxima). `agendaOcorrenciaKey` diferente da chave
+      // de hoje é garantido pelo `continue` acima (se fosse igual, `existing`
+      // já teria achado e saído por ali).
+      const pendurada = await this.prisma.entrega.findFirst({
+        where: {
+          companyId,
+          planoEntregaId: plan.id,
+          status: 'agendada',
+          agendaOcorrenciaKey: { not: null },
+        },
+        select: { id: true, agendaOcorrenciaKey: true },
+        orderBy: { scheduledAt: 'asc' },
+      });
+      if (pendurada) {
+        const origemPendurada = sourceDateFromOccurrenceKey(pendurada.agendaOcorrenciaKey);
+        if (origemPendurada && origemPendurada < dateKey(date)) {
+          skipped += 1;
+          deliveryIds.push(pendurada.id);
+          warnings.push(
+            `${plan.customerProfile.name || 'Cliente'} tem entrega pendente de ${formatDDMM(origemPendurada)} — resolva antes de gerar a próxima.`,
+          );
+          continue;
+        }
       }
 
       let contactId: string | null = null;
@@ -1646,6 +1712,18 @@ export class LogisticaAgendaService {
         });
         deliveryIds.push(delivery.id);
         created += 1;
+        // F0 (27/07) — extrato: nasceu uma ocorrência nova. Best-effort (nunca
+        // derruba a geração que já aconteceu no create acima).
+        await registrarEventoAgenda(this.prisma as any, {
+          companyId,
+          customerProfileId: plan.customerProfileId,
+          entregaId: delivery.id,
+          planoEntregaId: plan.id,
+          tipo: 'OCORRENCIA_GERADA',
+          paraTexto: formatDDMM(dateKey(date)),
+          origem: 'montagem',
+          actorUserId: null,
+        });
       } catch (error: any) {
         if (error?.code !== 'P2002') throw error;
         const concurrent = await this.prisma.entrega.findFirst({
@@ -1657,17 +1735,6 @@ export class LogisticaAgendaService {
           deliveryIds.push(concurrent.id);
         }
       }
-
-      const next = nextOccurrenceDate(plan, date);
-      const progressed = await this.prisma.logisticaPlanoEntrega.updateMany({
-        where: {
-          id: plan.id,
-          companyId,
-          OR: [{ proximaData: null }, { proximaData: { lte: date } }],
-        },
-        data: { proximaData: next },
-      });
-      advanced += progressed.count;
     }
 
     return {
@@ -1696,6 +1763,12 @@ export class LogisticaAgendaService {
   ) {
     this.assertCompany(companyId);
     await this.assertAgendaV2(companyId);
+    // F0 (27/07) — FECHAMENTO DE CAIXA lazy: antes de montar qualquer coisa,
+    // fecha sozinho rota/entrega de dia que já passou e ninguém encerrou. Roda
+    // com o HOJE real (não o `operationalDate` pedido — preparar a rota de
+    // AMANHÃ com antecedência não pode fechar a rota de HOJE, que ainda está
+    // rodando). Ver logistica-fechamento-caixa.util.ts.
+    await encerrarDiasAnteriores(this.prisma, companyId, dateKey(new Date()));
     const operationalDate = parseOperationalDate(input.operationalDate);
     const sourceDates = [...new Set(
       (Array.isArray(input.sourceDates) && input.sourceDates.length
@@ -1706,6 +1779,19 @@ export class LogisticaAgendaService {
     const driverId = normalizeOptionalUserId(input.driverUserId);
     const actorId = normalizeOptionalUserId(input.actorUserId);
     const deliveryIds = new Set<string>();
+    // F0 (27/07) — extrato: ids materializados de uma data de ORIGEM diferente
+    // da operacional, agrupados por origem, só pra render OCORRENCIA_ADIANTADA
+    // depois do updateMany (best-effort — não participa de nenhuma decisão).
+    const deliveryIdsPorOrigemDiferente = new Map<string, Set<string>>();
+    const addAdiantada = (sourceDate: string, id: string) => {
+      if (sourceDate === dateKey(operationalDate)) return;
+      let bucket = deliveryIdsPorOrigemDiferente.get(sourceDate);
+      if (!bucket) {
+        bucket = new Set<string>();
+        deliveryIdsPorOrigemDiferente.set(sourceDate, bucket);
+      }
+      bucket.add(id);
+    };
     let created = 0;
     let skipped = 0;
     let advanced = 0;
@@ -1713,7 +1799,10 @@ export class LogisticaAgendaService {
 
     for (const sourceDate of sourceDates) {
       const result = await this.generateDay(companyId, sourceDate);
-      result.deliveryIds.forEach((id) => deliveryIds.add(id));
+      result.deliveryIds.forEach((id) => {
+        deliveryIds.add(id);
+        addAdiantada(sourceDate, id);
+      });
       created += result.criadas;
       skipped += result.puladas;
       advanced += result.avancados;
@@ -1746,7 +1835,10 @@ export class LogisticaAgendaService {
         select: { id: true },
         take: 300,
       });
-      presas.forEach((row) => deliveryIds.add(row.id));
+      presas.forEach((row) => {
+        deliveryIds.add(row.id);
+        addAdiantada(sourceDate, row.id);
+      });
     }
 
     if (deliveryIds.size) {
@@ -1778,6 +1870,38 @@ export class LogisticaAgendaService {
             : {}),
         },
       });
+    }
+
+    // F0 (27/07) — extrato: quem veio de uma data de ORIGEM diferente da
+    // operacional foi ADIANTADA (puxada pra hoje). Best-effort, em lote (1
+    // findMany pros metadados + 1 insert por linha) — nunca decide nada, só
+    // registra depois que o updateMany acima já aconteceu.
+    if (deliveryIdsPorOrigemDiferente.size) {
+      const idsParaEvento = [...deliveryIdsPorOrigemDiferente.values()].flatMap((bucket) => [...bucket]);
+      const linhas = await this.prisma.entrega.findMany({
+        where: { id: { in: idsParaEvento }, companyId },
+        select: { id: true, customerProfileId: true, planoEntregaId: true },
+      }).catch(() => [] as Array<{ id: string; customerProfileId: string; planoEntregaId: string | null }>);
+      const porId = new Map(linhas.map((row) => [row.id, row]));
+      const paraTexto = formatDDMM(dateKey(operationalDate));
+      for (const [sourceDate, ids] of deliveryIdsPorOrigemDiferente) {
+        const deTexto = formatDDMM(sourceDate);
+        for (const id of ids) {
+          const row = porId.get(id);
+          if (!row) continue;
+          await registrarEventoAgenda(this.prisma as any, {
+            companyId,
+            customerProfileId: row.customerProfileId,
+            entregaId: id,
+            planoEntregaId: row.planoEntregaId,
+            tipo: 'OCORRENCIA_ADIANTADA',
+            deTexto,
+            paraTexto,
+            origem: 'montagem',
+            actorUserId: actorId,
+          });
+        }
+      }
     }
 
     return {
@@ -2822,7 +2946,15 @@ function nextDateForWeekday(day: number, from: Date): Date {
   return addDays(base, delta);
 }
 
-function nextOccurrenceDate(plan: any, current: Date): Date {
+/**
+ * F0 (27/07) — EXPORTADA de propósito: com o cursor só avançando no desfecho,
+ * `confirmarEntrega`/`cancelarEntrega` (logistica.service.ts) precisam da
+ * MESMA conta de "próxima ocorrência" que a geração sempre usou — reimplementar
+ * a aritmética de cadência em outro arquivo é o tipo de duplicação que já
+ * causou incidente de fuso neste módulo (ver o bloco "FUSO" acima). Continua
+ * usando SOMENTE addDays/isoWeekday (dia civil de São Paulo).
+ */
+export function nextOccurrenceDate(plan: any, current: Date): Date {
   const interval = plan.frequencia === 'QUINZENAL'
     ? 14
     : plan.frequencia === 'INTERVALO'

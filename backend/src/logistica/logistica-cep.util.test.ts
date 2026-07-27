@@ -339,7 +339,30 @@ test('descobrirCepsPorEndereco: só CEP com cidade E via provadas; bairro do cad
     limparCacheBuscaCep();
     const achados = await descobrirCepsPorEndereco({ endereco: 'Rua 9,, 2545 - São Miguel', cidade: 'Rio Claro', uf: 'SP' });
     assert.deepEqual(achados.map((c) => c.cep), ['13505111', '13505506'], 'São Miguel primeiro; outra cidade e "Rua 90" fora');
+    assert.equal(achados[0].bairroBate, true);
+    assert.equal(achados[1].bairroBate, false);
     assert.ok(urls[0].includes(encodeURIComponent('rua 9')), `busca pelo termo normalizado: ${urls[0]}`);
+  } finally {
+    globalThis.fetch = original;
+    limparCacheBuscaCep();
+  }
+});
+
+test('descobrirCepsPorEndereco: bairro casa pelo NÚCLEO ("Jd. Santa Cruz" = "Jardim Santa Cruz")', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    json: async () => [
+      { cep: '13500-001', logradouro: 'Rua 15', bairro: 'Jardim Guanabara', localidade: 'Rio Claro', uf: 'SP' },
+      { cep: '13500-002', logradouro: 'Rua 15', bairro: 'Jardim Santa Cruz', localidade: 'Rio Claro', uf: 'SP' },
+    ],
+  })) as any;
+  try {
+    limparCacheBuscaCep();
+    const achados = await descobrirCepsPorEndereco({ endereco: 'Rua 15, 2030 - Jd. Santa Cruz', cidade: 'Rio Claro', uf: 'SP' });
+    assert.equal(achados[0].cep, '13500002', 'o trecho do bairro do cadastro vem primeiro');
+    assert.equal(achados[0].bairroBate, true);
+    assert.equal(achados[1].bairroBate, false, '"Guanabara" não está no cadastro');
   } finally {
     globalThis.fetch = original;
     limparCacheBuscaCep();

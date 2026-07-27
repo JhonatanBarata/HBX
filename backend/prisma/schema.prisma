@@ -291,6 +291,8 @@ model Company {
   contatos               Contato[]
   entregas               Entrega[]
   clienteHistoricos      ClienteHistorico[]
+  // F0 (27/07) — extrato de eventos da agenda (dia/hora exatos de toda mudança).
+  logisticaAgendaEventos LogisticaAgendaEvento[]
   entregaComprovantes    EntregaComprovante[]
   clienteProdutos        ClienteProduto[]
   logisticaRoutes        LogisticaRoute[]
@@ -1140,6 +1142,8 @@ model CustomerProfile {
   entregas             Entrega[]
   // 22/07 — log de visita do APK (entregue/pago/sem atendimento). Ver ClienteHistorico.
   historicos           ClienteHistorico[]
+  // F0 (27/07) — extrato de eventos da agenda. Ver LogisticaAgendaEvento.
+  agendaEventos        LogisticaAgendaEvento[]
   clienteProdutos      ClienteProduto[]
   logisticaPlanosEntrega LogisticaPlanoEntrega[]
   logisticaRotaModeloParadas LogisticaRotaModeloParada[]
@@ -1516,6 +1520,40 @@ model LogisticaPlanoEntregaItem {
   @@index([planoEntregaId, productId])
   @@index([companyId, planoEntregaId])
   @@index([companyId, productId])
+}
+
+// F0 (27/07, pedido explícito do dono) — EXTRATO DE EVENTOS DA AGENDA: "dia e
+// hora EXATOS de tudo". Append-only, nunca editado: cada linha é a fotografia
+// de UMA mudança (dia da semana, geração, adiantamento, avanço do cursor,
+// devolução, fechamento de dia passado). Nasceu do incidente "a sexta que não
+// volta" — sem isto, ninguém consegue provar pro dono/cliente O QUE aconteceu
+// com uma ocorrência e QUANDO.
+//
+// `planoEntregaId`/`entregaId` são SEM FK dura DE PROPÓSITO: o plano ou a
+// entrega de origem podem sumir (reparo de dados, futuro hard-delete) e o
+// evento tem que sobreviver — é histórico, não um espelho vivo. `companyId`/
+// `customerProfileId` SIM têm relação (Cascade): sem empresa ou cliente dono,
+// a linha não faz sentido nenhum, então cai junto.
+model LogisticaAgendaEvento {
+  id                String   @id @default(cuid())
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  planoEntregaId    String?
+  entregaId         String?
+  // DIA_ALTERADO | OCORRENCIA_GERADA | OCORRENCIA_ADIANTADA | PLANO_AVANCADO |
+  // OCORRENCIA_DEVOLVIDA | CANCELADA_FECHAMENTO
+  tipo              String   @db.VarChar(40)
+  deTexto           String?  @db.VarChar(120)
+  paraTexto         String?  @db.VarChar(120)
+  // montagem | desfecho | fechamento | descarte | manual | reparo
+  origem            String   @db.VarChar(30)
+  actorUserId       Int?
+  createdAt         DateTime @default(now())
+
+  @@index([companyId, customerProfileId, createdAt])
+  @@index([companyId, createdAt])
 }
 
 // Ordem relacional da rota. ParadasJson permanece como espelho de

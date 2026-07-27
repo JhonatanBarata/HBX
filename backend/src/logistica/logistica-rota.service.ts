@@ -9,6 +9,8 @@ import { LogisticaTrackingService } from './logistica-tracking.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import { stopDeRotaMorta } from './logistica-rota-viva.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
+import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
+import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
 type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
@@ -545,6 +547,8 @@ export class LogisticaRotaService {
           status: true,
           startedAt: true,
           cobrancaStatus: true,
+          // F0 (27/07) — dono do evento no extrato (LogisticaAgendaEvento).
+          customerProfileId: true,
           planoEntregaId: true,
           agendaOcorrenciaKey: true,
           rotaModeloId: true,
@@ -602,6 +606,22 @@ export class LogisticaRotaService {
           },
         });
         descartadas = canceladas.count;
+        // F0 (27/07) — extrato: cada cancelamento por descarte vira UMA linha.
+        // Best-effort (registrarEventoAgenda nunca lança) — telemetria não pode
+        // derrubar o descarte, que já aconteceu no updateMany acima.
+        for (const row of descartaveis) {
+          const origemChave = row.planoEntregaId ? sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey) : null;
+          await registrarEventoAgenda(tx, {
+            companyId,
+            customerProfileId: row.customerProfileId,
+            entregaId: row.id,
+            planoEntregaId: row.planoEntregaId,
+            tipo: 'OCORRENCIA_DEVOLVIDA',
+            paraTexto: origemChave ? formatDDMM(origemChave) : null,
+            origem: 'descarte',
+            actorUserId: null,
+          });
+        }
       }
 
       // Devolve o plano pra DATA DE ORIGEM da ocorrência (a que está na chave),
@@ -1548,24 +1568,11 @@ export function resolveDayRange(dateInput?: string): { start: Date; end: Date; d
   return { start, end, dayISO: toDayISO(start) };
 }
 
-/**
- * `agenda:<planoId>:<YYYY-MM-DD>` → "YYYY-MM-DD" (a data de ORIGEM da ocorrência,
- * já em dia civil de São Paulo — é assim que `generateDay` monta a chave).
- * Qualquer outro formato devolve null: sem data confiável, não se mexe no plano.
- */
-export function sourceDateFromOccurrenceKey(key: string | null | undefined): string | null {
-  const m = /^agenda:.+:(\d{4}-\d{2}-\d{2})$/.exec(String(key ?? '').trim());
-  return m ? m[1] : null;
-}
-
-/**
- * Meia-noite do dia civil de SÃO PAULO — o MESMO carimbo que a Agenda grava em
- * `proximaData` (`logistica-agenda.service.ts`). Usar a meia-noite do fuso do
- * processo (UTC no container) faz a Agenda ler o dia ANTERIOR.
- */
-export function saoPauloMidnight(dayISO: string): Date {
-  return new Date(`${dayISO}T00:00:00-03:00`);
-}
+// F0 (27/07) — sourceDateFromOccurrenceKey/saoPauloMidnight se mudaram para
+// logistica-agenda-cursor.util.ts (logistica.service.ts também precisa das
+// duas pro avanço do cursor no desfecho — ver avancarPlanoNoDesfecho). Reexporta
+// aqui para não quebrar quem já importa deste módulo (ex.: testes existentes).
+export { sourceDateFromOccurrenceKey, saoPauloMidnight };
 
 function toDayISO(d: Date): string {
   const y = d.getFullYear();
@@ -1664,6 +1671,7 @@ interface DescartarMontagemRow {
   status: string;
   startedAt: Date | null;
   cobrancaStatus: string | null;
+  customerProfileId: string;
   planoEntregaId: string | null;
   agendaOcorrenciaKey: string | null;
   rotaModeloId: string | null;

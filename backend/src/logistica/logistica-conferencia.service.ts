@@ -620,11 +620,16 @@ export async function resolverCuraCnefe(
   // 4s de teto por consulta, a cura morria no orçamento antes de curar alguém).
   const emLote = await resolverCnefeLote(ruas.map((r) => r.cep), base, opts);
   if (emLote) return { pino: emLote.pino, cepDescoberto: emLote.cep };
-  // Ambíguo entre trechos (ou número inexistente): 2ª e ÚLTIMA tentativa, só no trecho
-  // mais provável — o do bairro do cadastro, que `descobrirCepsPorEndereco` põe em 1º.
-  // É aqui que o fallback de RUA (vizinho de número) do CNEFE entra.
-  const preferido = await resolverCnefe({ ...base, cep: ruas[0].cep }, opts);
-  if (preferido) return { pino: preferido, cepDescoberto: ruas[0].cep };
+  // Ambíguo entre trechos (o mesmo número existe em pedaços distantes da rua) ou número
+  // inexistente: tenta trecho a trecho, mas SÓ os que batem o bairro do cadastro — é
+  // aqui que entra o fallback de RUA (vizinho de número) do CNEFE, que precisa de um CEP
+  // sozinho. Sem nenhum bairro batendo, uma única tentativa no primeiro: chutar trecho de
+  // rua comprida é exatamente como se erra o pino sem ninguém perceber.
+  const tentativas = ruas.filter((r) => r.bairroBate).slice(0, 3);
+  for (const rua of tentativas.length ? tentativas : ruas.slice(0, 1)) {
+    const pino = await resolverCnefe({ ...base, cep: rua.cep }, opts);
+    if (pino) return { pino, cepDescoberto: rua.cep };
+  }
   // Nenhum CEP achou a porta. Se a rua é ÚNICA (um CEP só, cidade e via provadas), o
   // CEP dela é FATO — vale gravar: o cadastro para de nascer capenga e a checagem
   // CEP × endereço passa a ter o que conferir. Rua com vários trechos, não: sem a
