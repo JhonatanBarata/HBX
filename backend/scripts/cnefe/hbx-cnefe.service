@@ -1,0 +1,15 @@
+# R9 (27/07) — carga noturna das UFs pendentes do CNEFE (disparada pelo hbx-cnefe.timer).
+# Instalar (na VPS, como root):
+#   cp /root/HBX/backend/scripts/cnefe/hbx-cnefe.{service,timer} /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now hbx-cnefe.timer
+[Unit]
+Description=HBX CNEFE — carrega UFs pendentes (cnefe_uf) na janela noturna
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash /root/HBX/backend/scripts/cnefe/rodar-pendentes.sh
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=6h

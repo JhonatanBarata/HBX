@@ -1,8 +1,9 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LogisticaConferenciaService } from './logistica-conferencia.service';
+import { alvoCuraCnefe, LogisticaConferenciaService } from './logistica-conferencia.service';
 import { limparCacheCep } from './logistica-cep.util';
+import { __setCnefeQueryForTests } from '../nucleo/cnefe-resolver.util';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { haversineKm, type Coord } from './logistica-rota.service';
 
@@ -319,4 +320,126 @@ test('CEP × endereço: usa o endereço da MESMA fonte do pino e o divergente vi
     globalThis.fetch = originalFetch;
     limparCacheCep();
   }
+});
+
+/**
+ * R9 (27/07, frente APK-rota) — CURA DO PINO via base CNEFE: parada sem coordenada em
+ * NENHUMA fonte mas com CEP+número resolve sozinha ("Não sei onde fica este endereço"
+ * só sobra quando nem o CEP resolve). É a ÚNICA escrita permitida do conferir, e é de
+ * CADASTRO (LocalEntrega/CustomerProfile) — os espiões-guarda da Lei nº3 (Entrega/
+ * billing) continuam armados neste mesmo teste e NÃO podem disparar.
+ */
+test('cura CNEFE: sem_pino com CEP+número vira pino gravado (fonte cnefe) e a parada sai do vermelho', async () => {
+  const ROWS_CURA = [
+    {
+      // Elegível via PERFIL: sem coordenada em fonte nenhuma, CEP+número presentes.
+      id: 'h1',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-h1',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Rita', lat: null, lng: null, geoFonte: null,
+        cep: '13990000', endereco: 'Rua das Flores', numero: '10', bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+    },
+    {
+      // Elegível via LOCAL (endereço mora no local pós-multilocal): grava NO LOCAL.
+      id: 'h2',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-h2',
+      localId: 'loc-h2',
+      local: {
+        apelido: 'Casa', lat: null, lng: null, geoFonte: null,
+        cep: '13990000', endereco: 'Rua das Flores', numero: '22', bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+      customerProfile: { name: 'Beto', lat: null, lng: null, geoFonte: null, cep: null, endereco: null, numero: null, bairro: null, cidade: null, uf: null },
+    },
+    {
+      // NÃO elegível: sem número em lugar nenhum — continua sem_pino (honesto).
+      id: 'h3',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-h3',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Sem Numero', lat: null, lng: null, geoFonte: null,
+        cep: '13990000', endereco: 'Rua das Flores', numero: null, bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+    },
+  ];
+  const gravadas: Array<{ tabela: string; where: any; data: any }> = [];
+  const prisma = {
+    ...buildPrismaMock(),
+    entrega: { ...buildPrismaMock().entrega, findMany: async () => ROWS_CURA, groupBy: async () => [] },
+    $queryRaw: async () => [],
+    localEntrega: {
+      updateMany: async (args: any) => { gravadas.push({ tabela: 'localEntrega', where: args.where, data: args.data }); return { count: 1 }; },
+    },
+    customerProfile: {
+      updateMany: async (args: any) => { gravadas.push({ tabela: 'customerProfile', where: args.where, data: args.data }); return { count: 1 }; },
+    },
+  };
+  __setCnefeQueryForTests(async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    if (sql.includes('cep = $1 AND numero = $2')) {
+      const numero = Number(params[1]);
+      return [{ logradouro: 'Rua das Flores', numero, lat: -22.41 - numero / 100000, lng: -47.56, nivel_geo: 1, municipio: 'Pinhal' }];
+    }
+    return [];
+  });
+  const originalFetch = globalThis.fetch;
+  // ViaCEP dublê coerente (CEP bate) — zero rede real.
+  globalThis.fetch = (async () => ({ ok: true, json: async () => ({ cep: '13990000', logradouro: 'Rua das Flores', localidade: 'Pinhal', uf: 'SP' }) })) as any;
+  try {
+    limparCacheCep();
+    const service = new LogisticaConferenciaService(prisma as any, configMock, buildFakeOsrm() as any);
+    const resultado = await service.conferir(41, { date: '2026-07-27' });
+
+    const h1 = resultado.paradas.find((p) => p.id === 'h1')!;
+    assert.ok(!h1.motivos.includes('sem_pino'), 'h1 resolveu pela base CNEFE nesta MESMA conferência');
+    assert.ok(typeof h1.lat === 'number' && Number.isFinite(h1.lat));
+
+    const h2 = resultado.paradas.find((p) => p.id === 'h2')!;
+    assert.ok(!h2.motivos.includes('sem_pino'));
+
+    const h3 = resultado.paradas.find((p) => p.id === 'h3')!;
+    assert.ok(h3.motivos.includes('sem_pino'), 'sem número não cura — pendência honesta fica');
+
+    const noLocal = gravadas.find((g) => g.tabela === 'localEntrega');
+    assert.ok(noLocal, 'endereço que mora no LOCAL grava no local');
+    assert.equal(noLocal!.where.id, 'loc-h2');
+    assert.equal(noLocal!.where.lat, null, 'só grava quem AINDA não tem pino (nunca sobrescreve)');
+    assert.equal(noLocal!.data.geoFonte, 'cnefe');
+
+    const noPerfil = gravadas.find((g) => g.tabela === 'customerProfile');
+    assert.ok(noPerfil, 'endereço que mora no PERFIL grava no perfil');
+    assert.equal(noPerfil!.where.id, 'cli-h1');
+    assert.equal(noPerfil!.data.geoFonte, 'cnefe');
+    assert.equal(gravadas.length, 2, 'h3 não gera escrita nenhuma');
+  } finally {
+    globalThis.fetch = originalFetch;
+    limparCacheCep();
+    __setCnefeQueryForTests(null);
+  }
+});
+
+test('alvoCuraCnefe (puro): elegibilidade e dono do endereço', () => {
+  const semNada = alvoCuraCnefe({
+    id: 'x', status: 'agendada', rotaOrdem: null, customerProfileId: 'c', localId: null, local: null,
+    customerProfile: { name: 'X', lat: -22.4, lng: -47.5, geoFonte: 'gps_entrega' },
+  } as any);
+  assert.equal(semNada, null, 'quem já tem pino não é alvo');
+
+  const legado = alvoCuraCnefe({
+    id: 'x', status: 'agendada', rotaOrdem: null, customerProfileId: 'c', localId: null, local: null,
+    customerProfile: { name: 'X', lat: null, lng: null, geoFonte: null, cep: '13.990-000', endereco: 'Rua das Flores, 77', numero: null, cidade: 'Pinhal', uf: 'SP' },
+  } as any);
+  assert.ok(legado, 'número dentro do texto legado ("Rua X, 77") vale');
+  assert.equal(legado!.numero, 77);
+  assert.equal(legado!.tipo, 'perfil');
+  assert.equal(legado!.cep, '13990000');
 });

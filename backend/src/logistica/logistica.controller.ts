@@ -903,6 +903,17 @@ export class LogisticaController {
     return this.geo.reverse(lat, lng);
   }
 
+  /**
+   * R2/R9 (27/07, frente APK-rota) — CEP + número → pino. Base CNEFE local primeiro
+   * (porta/rua do Censo, sem rede externa), Nominatim com freio de reserva; 'nenhum'
+   * ainda devolve o endereço do ViaCEP pro app pré-preencher. 200 sempre; CEP/número
+   * inválidos → 400 (erro de input do chamador).
+   */
+  @Get('geo/cep')
+  geoCep(@Query('cep') cep: string, @Query('numero') numero: string, @Query('uf') uf?: string) {
+    return this.geo.cepNumero(cep, numero, uf);
+  }
+
   // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ───
   // O app do entregador só fala com endpoints `logistica/*`; PATCH/POST aqui
   // evitam sair do prefixo permitido. ADMIN-only (mesmo padrão de

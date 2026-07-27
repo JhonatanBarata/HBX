@@ -7,9 +7,11 @@ import { fonteEscolhidaMultilocal, resolverCoordenadaMultilocal } from './logist
 import {
   conferirCepsEmLote,
   enderecoSemNumero,
+  normalizarCep,
   type CepVeredito,
   type EnderecoCadastrado,
 } from './logistica-cep.util';
+import { extrairNumeroPorta, resolverCnefe, type CnefePino } from '../nucleo/cnefe-resolver.util';
 import {
   haversineKm,
   planRouteByRoads,
@@ -73,6 +75,15 @@ export class LogisticaConferenciaService {
     const ordemManual = normalizeOrdemManual(input.ordemManual);
 
     const rows = await this.fetchParadasEstendidas(companyId, start, end, entregadorId, deliveryIds);
+
+    // R9 (27/07) — CURA DO PINO ANTES DA RÉGUA: parada sem coordenada em NENHUMA fonte
+    // mas com CEP+número no cadastro resolve pela base CNEFE local e GRAVA o pino
+    // (geoFonte 'cnefe') no dono do endereço. "Não sei onde fica este endereço" só
+    // sobra quando nem o CEP resolve. Esta é a ÚNICA escrita deste serviço, e é de
+    // CADASTRO (pino), nunca de rota/crédito — a Lei nº3 (conferir não debita nem
+    // grava rota) segue intacta. Best-effort com orçamento: estourou, o resto segue
+    // sem pino nesta rodada (a próxima conferência continua de onde parou).
+    await this.resolverSemPinoViaCnefe(companyId, rows);
 
     // Resolve a fonte MULTILOCAL (mesma regra do planejador, `resolverCoordenadaMultilocal`)
     // e guarda geoFonte/ids de junção à parte — `planRouteByRoads` só conhece `Stop`
@@ -211,6 +222,80 @@ export class LogisticaConferenciaService {
     };
   }
 
+  /**
+   * R9 (27/07) — resolve os `sem_pino` elegíveis pela base CNEFE, agrupando por DONO
+   * do endereço (LocalEntrega ou perfil): 1 consulta por dono mesmo com N entregas
+   * do mesmo cliente no dia. Concorrência e orçamento limitados (a conferência nunca
+   * fica lenta por causa disto — mesmo espírito do lote de CEP em logistica-cep.util).
+   */
+  private async resolverSemPinoViaCnefe(companyId: number, rows: ParadaConferenciaRow[]): Promise<void> {
+    const porDono = new Map<string, { alvo: AlvoCuraCnefe; linhas: ParadaConferenciaRow[] }>();
+    for (const r of rows) {
+      const alvo = alvoCuraCnefe(r);
+      if (!alvo) continue;
+      const chave = alvo.tipo === 'local' ? `l:${r.localId}` : `p:${r.customerProfileId}`;
+      const entrada = porDono.get(chave);
+      if (entrada) entrada.linhas.push(r);
+      else porDono.set(chave, { alvo, linhas: [r] });
+    }
+    if (!porDono.size) return;
+
+    const donos = [...porDono.values()].slice(0, CNEFE_CURA_TETO);
+    const fim = Date.now() + CNEFE_CURA_ORCAMENTO_MS;
+    let proximo = 0;
+    let curados = 0;
+    const trabalhador = async (): Promise<void> => {
+      for (;;) {
+        const i = proximo;
+        proximo += 1;
+        if (i >= donos.length || Date.now() >= fim) return;
+        const dono = donos[i];
+        const pino = await resolverCnefe({
+          cep: dono.alvo.cep,
+          numero: dono.alvo.numero,
+          endereco: dono.alvo.endereco,
+          uf: dono.alvo.uf,
+        });
+        if (!pino) continue;
+        const gravou = await this.gravarPinoCnefe(companyId, dono.alvo, dono.linhas[0], pino);
+        if (!gravou) continue;
+        curados += 1;
+        for (const linha of dono.linhas) aplicarPinoCnefeNaLinha(linha, dono.alvo.tipo, pino);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, donos.length) }, () => trabalhador()));
+    if (curados) {
+      this.logger.log(`[logistica] conferência company=${companyId}: ${curados} pino(s) resolvido(s) pela base CNEFE.`);
+    }
+  }
+
+  /** Grava o pino curado no DONO do endereço — só quando ele AINDA não tem lat (nunca
+   *  sobrescreve pino existente; corrida com outra escrita = quem chegou primeiro fica). */
+  private async gravarPinoCnefe(
+    companyId: number,
+    alvo: AlvoCuraCnefe,
+    row: ParadaConferenciaRow,
+    pino: CnefePino,
+  ): Promise<boolean> {
+    try {
+      if (alvo.tipo === 'local' && row.localId) {
+        const res = await this.prisma.localEntrega.updateMany({
+          where: { id: row.localId, companyId, lat: null },
+          data: { lat: pino.lat, lng: pino.lng, geoFonte: 'cnefe' },
+        });
+        return res.count > 0;
+      }
+      const res = await this.prisma.customerProfile.updateMany({
+        where: { id: row.customerProfileId, companyId, lat: null },
+        data: { lat: pino.lat, lng: pino.lng, geoFonte: 'cnefe' },
+      });
+      return res.count > 0;
+    } catch (e) {
+      this.logger.warn(`[logistica] cura CNEFE não gravou (segue sem pino): ${String((e as any)?.message || e)}`);
+      return false;
+    }
+  }
+
   // ── infra ────────────────────────────────────────────────────────────────────
   /**
    * Select PRÓPRIO — decisão registrada no relatório da S3: `fetchParadasAbertas` de
@@ -323,6 +408,51 @@ export class LogisticaConferenciaService {
     }
     return mapa;
   }
+}
+
+// ── R9: cura de pino via CNEFE (helpers puros, testáveis isolados) ─────────────
+
+/** Orçamento total da cura numa conferência — estourou, o resto fica pra próxima. */
+const CNEFE_CURA_ORCAMENTO_MS = 4000;
+/** Teto de donos consultados por conferência (defesa contra base gigante toda sem pino). */
+const CNEFE_CURA_TETO = 150;
+
+export interface AlvoCuraCnefe {
+  tipo: 'local' | 'perfil';
+  cep: string;
+  numero: number;
+  endereco: string | null;
+  uf: string | null;
+}
+
+/**
+ * A parada é elegível pra cura CNEFE? Só quando NENHUMA fonte tem coordenada válida
+ * (é o `sem_pino` de logo adiante) E o dono do endereço tem CEP + número de porta.
+ * Dono = LOCAL quando ele existe com endereço útil (a porta é do local — pós-multilocal
+ * o endereço mora lá), senão o PERFIL. Nunca mistura campos das duas fontes (mesma lei
+ * de logistica-geo-fonte.util.ts).
+ */
+export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
+  const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
+  if (coord.lat != null && coord.lng != null) return null;
+  const localTemEndereco = Boolean(r.local && r.localId && temEnderecoUtil(r.local));
+  const tipo: 'local' | 'perfil' = localTemEndereco ? 'local' : 'perfil';
+  const cad = localTemEndereco ? r.local : r.customerProfile;
+  if (!cad) return null;
+  const cep = normalizarCep(cad.cep);
+  const numero = extrairNumeroPorta(cad);
+  if (!cep || !numero) return null;
+  return { tipo, cep, numero, endereco: cad.endereco ?? null, uf: cad.uf ?? null };
+}
+
+/** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
+ *  esta mesma conferência já roda com o pino novo, sem re-consultar o banco. */
+function aplicarPinoCnefeNaLinha(r: ParadaConferenciaRow, tipo: 'local' | 'perfil', pino: CnefePino): void {
+  const alvoObj = tipo === 'local' ? r.local : r.customerProfile;
+  if (!alvoObj) return;
+  (alvoObj as { lat: number | null }).lat = pino.lat;
+  (alvoObj as { lng: number | null }).lng = pino.lng;
+  (alvoObj as { geoFonte: string | null }).geoFonte = 'cnefe';
 }
 
 /** Chave de junção (cliente, local) — local null vira string vazia (mesmo cliente sem

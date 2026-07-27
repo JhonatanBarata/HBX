@@ -34,6 +34,8 @@
 // env é '1' ou 'true'. DEFAULT OFF de propósito — testes ficam HERMÉTICOS (sem chamada
 // flaky/lenta, sem martelar o Nominatim) e ops tem freio sem deploy.
 
+import { resolverCnefe } from './cnefe-resolver.util';
+
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_TIMEOUT_MS = 2500;
 // Nominatim exige UA identificável com contato — sem isso, respostas ficam instáveis/
@@ -55,7 +57,8 @@ export interface ServerGeoAddressInput {
 export interface ServerGeoResult {
   lat: number;
   lng: number;
-  geoFonte: 'geocode';
+  /** 'cnefe' = base IBGE local (porta/rua provada); 'geocode' = Nominatim com freio. */
+  geoFonte: 'geocode' | 'cnefe';
 }
 
 /** `address` do payload jsonv2 do Nominatim (só os campos que a validação usa). */
@@ -242,8 +245,16 @@ async function geocodeViaNominatim(input: ServerGeoAddressInput): Promise<{ lat:
  * lat/lng. Retorna `null` quando o geocode não PROVA o endereço (freio 25/07) — o
  * cadastro segue sem pino, o card acende pendência "GPS" e a primeira entrega grava a
  * porta real. Esta função só ADICIONA uma chance, nunca remove nem inventa.
+ *
+ * R9 (27/07) — a base CNEFE local tenta PRIMEIRO: (cep, numero) → porta do Censo,
+ * sem rede externa e imune à loteria de via do Nominatim (fail-closed próprio, ver
+ * cnefe-resolver.util.ts). Sem CEP/número, UF sem carga ou dúvida → Nominatim como
+ * sempre. O CNEFE não depende do kill-switch HBX_GEO_SERVER_ENABLED (que é da REDE
+ * externa); ele tem o próprio gate HBX_CNEFE_ENABLED.
  */
 export async function resolveServerGeo(input: ServerGeoAddressInput): Promise<ServerGeoResult | null> {
+  const porCnefe = await resolverCnefe({ cep: input.cep, numero: input.numero, endereco: input.endereco, uf: input.uf });
+  if (porCnefe) return { lat: porCnefe.lat, lng: porCnefe.lng, geoFonte: 'cnefe' };
   const preciso = await geocodeViaNominatim(input);
   return preciso ? { ...preciso, geoFonte: 'geocode' } : null;
 }

@@ -76,8 +76,11 @@ class NativeApiClientPathPolicyTest {
     @Test
     fun reverseGeocodeDaLeituraPassaPelaPolitica() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo/reverse"))
+        // R2 (27/07) — rota rápida: CEP+número → pino (CNEFE).
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo/cep"))
         // Só leitura: o app nunca escreve em /logistica/geo.
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/geo/reverse"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/geo/cep"))
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo"))
         assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/geo/reverse"))
     }

@@ -1,4 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { resolverCnefe } from '../nucleo/cnefe-resolver.util';
+import { resolveServerGeo } from '../nucleo/nucleo-geo.util';
+import { consultarCepPublico } from './logistica-cep.util';
 
 /**
  * PR20072026-ROTA-SALVA F3.2 — geocode REVERSO (GPS → endereço), server-side,
@@ -44,6 +47,20 @@ export interface ReverseGeoResult {
 
 const VAZIO: ReverseGeoResult = { endereco: '', numero: '', bairro: '', cidade: '', uf: '', cep: '', fonte: 'nenhum' };
 
+/** R2 (27/07) — resposta do CEP+número → pino (rota rápida do APK). */
+export interface CepNumeroResult {
+  fonte: 'cnefe' | 'geocode' | 'nenhum';
+  precisao?: 'porta' | 'rua';
+  lat: number | null;
+  lng: number | null;
+  endereco: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  cep: string;
+  numero: string;
+}
+
 interface CacheEntry {
   result: ReverseGeoResult;
   expiresAt: number;
@@ -84,6 +101,62 @@ export class LogisticaGeoService {
     const result = await this.geocodeViaNominatim(lat, lng);
     this.cache.set(key, { result, expiresAt: now + CACHE_TTL_MS });
     return { ...result };
+  }
+
+  /**
+   * R2/R9 (27/07, rota rápida) — CEP + número → pino. Ordem: base CNEFE local
+   * (porta/rua provada, sem rede externa) → Nominatim com freio (nucleo-geo.util) →
+   * 'nenhum' (mas ainda devolve o ENDEREÇO do ViaCEP quando houver, pro app
+   * pré-preencher o cadastro). 200 SEMPRE, salvo input inválido (400 — erro do
+   * chamador, não falha de rede).
+   */
+  async cepNumero(cepRaw: unknown, numeroRaw: unknown, ufRaw?: unknown): Promise<CepNumeroResult> {
+    const cep = String(cepRaw ?? '').replace(/\D+/g, '');
+    if (cep.length !== 8) throw new BadRequestException('Informe o CEP completo (8 dígitos).');
+    const numeroDigits = String(numeroRaw ?? '').replace(/\D+/g, '');
+    const numero = Number(numeroDigits);
+    if (!numeroDigits || numeroDigits.length > 6 || !Number.isInteger(numero) || numero <= 0) {
+      throw new BadRequestException('Informe o número do endereço.');
+    }
+    const ufParam = String(ufRaw ?? '').trim().toUpperCase();
+
+    const viaCep = await consultarCepPublico(cep);
+    const uf = /^[A-Z]{2}$/.test(ufParam) ? ufParam : viaCep?.uf ?? '';
+    const base = {
+      endereco: viaCep?.logradouro ?? '',
+      bairro: viaCep?.bairro ?? '',
+      cidade: viaCep?.localidade ?? '',
+      uf,
+      cep,
+      numero: String(numero),
+    };
+
+    const cnefe = await resolverCnefe({ cep, numero, endereco: viaCep?.logradouro || null, uf });
+    if (cnefe) {
+      return {
+        fonte: 'cnefe',
+        precisao: cnefe.precisao,
+        lat: cnefe.lat,
+        lng: cnefe.lng,
+        ...base,
+        endereco: base.endereco || (cnefe.logradouro ?? ''),
+        cidade: base.cidade || (cnefe.municipio ?? ''),
+      };
+    }
+
+    // resolveServerGeo tenta CNEFE de novo por dentro (barato: cache de UF + índice),
+    // e cai no Nominatim com o MESMO freio do cadastro — nunca pino de loteria.
+    const geo = await resolveServerGeo({
+      endereco: viaCep?.logradouro ?? null,
+      numero: String(numero),
+      bairro: viaCep?.bairro ?? null,
+      cidade: viaCep?.localidade ?? null,
+      uf: uf || null,
+      cep,
+    });
+    if (geo) return { fonte: 'geocode', lat: geo.lat, lng: geo.lng, ...base };
+
+    return { fonte: 'nenhum', lat: null, lng: null, ...base };
   }
 
   /** Nominatim /reverse — best-effort, NUNCA lança (qualquer falha vira 'nenhum'). */

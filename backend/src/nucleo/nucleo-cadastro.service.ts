@@ -1384,7 +1384,7 @@ export class NucleoCadastroService {
       cep?: string | null;
     },
     existing: GeoRecord | null,
-  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' } | null> {
+  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' | 'cnefe' } | null> {
     if (existing && (hasNumericCoord(existing.lat, existing.lng) || existing.geoFonte === 'gps_cadastro')) {
       return null; // já tem pino (qualquer fonte) OU é pino humano protegido — nunca mexe
     }
@@ -2149,10 +2149,13 @@ function parseDiasSemana(csv: string | null | undefined): number[] {
 // cru do cliente); usado só pra copiar fielmente o perfil→local em seedOrSyncLocalPrincipal
 // (ver abaixo). Decisões vindas de INPUT do cliente passam por `decidirGeoFonteCadastro`,
 // não por esta função.
+// R9 (27/07) — 'cnefe' entra na mesma classe de 'cidade': valor que SÓ o próprio
+// serviço grava (resolveServerGeo via base CNEFE), nunca aceito cru do cliente (os
+// DTOs continuam sem ele de propósito); passa por aqui só na cópia fiel perfil→local.
 function normalizeGeoFonteInput(
   v: string | null | undefined,
-): 'geocode' | 'gps_cadastro' | 'cidade' | 'gps_impreciso' | null {
-  return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' || v === 'gps_impreciso' ? v : null;
+): 'geocode' | 'gps_cadastro' | 'cidade' | 'gps_impreciso' | 'cnefe' | null {
+  return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' || v === 'gps_impreciso' || v === 'cnefe' ? v : null;
 }
 
 // MULTILOCAL (11/07) — "a conta tem endereço?" pro seed do LOCAL PRINCIPAL: qualquer

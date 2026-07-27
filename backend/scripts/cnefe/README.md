@@ -23,6 +23,22 @@ disco é o limite — conferir `df -h` antes de enfileirar UF nova.
 - Overrides por env: `CNEFE_DIR`, `CNEFE_PGUSER`, `CNEFE_CONTAINER`.
 - É este script que o agendador de UF chama (1 UF por vez, janela noturna).
 
+## Agendador noturno (R9, 27/07)
+
+Quem consome a base é `backend/src/nucleo/cnefe-resolver.util.ts` (cadastro via
+`resolveServerGeo` + cura de `sem_pino` na conferência + `GET /logistica/geo/cep`).
+Cliente de UF sem carga → o resolver INSERE a UF como `pendente` em `cnefe_uf` e o
+timer noturno carrega:
+
+- `rodar-pendentes.sh` — varre `cnefe_uf.status='pendente'` (senão a `erro` mais
+  antiga) e chama `carregar-uf.sh` 1 UF por vez; lock + piso de 15 GB de disco.
+- `hbx-cnefe.service` + `hbx-cnefe.timer` — systemd, 20:10 America/Sao_Paulo
+  ("depois das 20:00", pedido do dono). Instalar:
+  `cp hbx-cnefe.{service,timer} /etc/systemd/system/ && systemctl daemon-reload &&
+  systemctl enable --now hbx-cnefe.timer`.
+- Backend: `CNEFE_DATABASE_URL` opcional (default = DATABASE_URL com path `/cnefe`);
+  kill-switch `HBX_CNEFE_ENABLED=0` (default LIGADO).
+
 ## Tabelas
 
 `cnefe_endereco(uf, cep, logradouro, logradouro_norm, numero, complemento, localidade,

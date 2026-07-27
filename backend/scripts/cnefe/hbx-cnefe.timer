@@ -1,0 +1,11 @@
+# R9 (27/07) — janela noturna do CNEFE: "depois das 20:00 America/Sao_Paulo" (pedido
+# do dono). 20:10 local pra nunca colidir com rotina das 20h em ponto de ninguém.
+[Unit]
+Description=HBX CNEFE — timer noturno das UFs pendentes
+
+[Timer]
+OnCalendar=*-*-* 20:10:00 America/Sao_Paulo
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -174,6 +174,27 @@ async function consultarViaCep(cep: string): Promise<ViaCepPayload | null> {
   }
 }
 
+/** R2 (27/07, rota rápida) — consulta AVULSA de um CEP (mesmo cache/timeout/never-throw
+ *  do lote da conferência). null = CEP inexistente ou ViaCEP fora do ar. */
+export interface CepConsultado {
+  logradouro: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+}
+export async function consultarCepPublico(cepRaw: string | null | undefined): Promise<CepConsultado | null> {
+  const cep = normalizarCep(cepRaw);
+  if (!cep) return null;
+  const payload = await consultarViaCep(cep);
+  if (!payload) return null;
+  return {
+    logradouro: String(payload.logradouro ?? '').trim(),
+    bairro: String(payload.bairro ?? '').trim(),
+    localidade: String(payload.localidade ?? '').trim(),
+    uf: String(payload.uf ?? '').trim().toUpperCase(),
+  };
+}
+
 /**
  * O CEP consultado descreve o MESMO lugar do endereço cadastrado?
  *
