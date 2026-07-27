@@ -61,6 +61,9 @@
     dayPreviewError: null,
     dayMode: "start",
     dayStarting: false,
+    // 26/07 — abandono do fluxo de montagem (regra "só o Confirmar consolida").
+    montagemAbandonada: false,
+    desfazendoRota: false,
     // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e a
     // prévia/geração: null (dia-chips) → "choose" (3 cards) → "manual" (▲▼) ou
     // "saved" (lista de rota-modelos). dayOrderMode é o modo EFETIVO desta
@@ -269,10 +272,6 @@
   // nunca lixeira). Tem confirmação porque a linha já está persistida no servidor.
   let historicoHold = null;
   let dayPreviewRequestId = 0;
-  // PR18072026 L4-E — cache só de RENDER (não é estado de negócio) pra detectar,
-  // no próprio dayOrderManualModal, se exatamente 2 posições trocaram desde o
-  // último desenho (assinatura de um único ▲/▼) e dar um flash na linha movida.
-  let dayManualOrderSnapshot = null;
   let navMotionTimer = null;
   let nextStopTimer = null;
   let routeMap = null;
@@ -2457,6 +2456,7 @@
     // de processamento não pode sobreviver à abertura seguinte, senão o
     // botão "Próximo" permanece desabilitado até o aplicativo reiniciar.
     state.dayStarting = false;
+    state.montagemAbandonada = false;
     // A seleção precisa ser inteiramente explícita. Pré-selecionar hoje fazia
     // uma escolha posterior (ex.: quinta) somar a quarta sem o operador pedir.
     // Vários dias continuam possíveis, mas todos devem ser tocados pelo usuário.
@@ -4261,8 +4261,6 @@
       // PR18072026 Onda 3 — passo de "modo de ordem" entre a escolha de dias e
       // a geração: os dois modos caem direto no beginManagedRoute (a conferência
       // da rota é a única tela de revisão).
-      if (state.dayOrderStep === "choose") return dayOrderChooseModal();
-      if (state.dayOrderStep === "manual") return dayOrderManualModal();
       if (state.dayOrderStep === "saved") return dayOrderSavedModal();
       const allowed = workDays(); const selected = state.daySelection; const preview = state.dayPreview || [];
       const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
@@ -4294,7 +4292,7 @@
               : `<span class="rp2-day-count">${count} ${count === 1 ? "parada" : "paradas"}</span>`;
         return `<button type="button" class="row-card rp2-day-row ${selected.includes(day.n) ? "active" : ""}${enabled ? "" : " is-inactive"}" data-day="${day.n}" aria-pressed="${selected.includes(day.n)}" ${enabled ? "" : "disabled"}><span class="card-main rp2-day-name"><strong>${day.nome}</strong>${day.n === todayIso() ? `<small>Hoje</small>` : ""}</span>${countHtml}</button>`;
       }).join("");
-      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Agenda</h2><p class="subtitle">Escolha um ou mais dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-days">${dayRows}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="choose-route-order" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Definir sequência ›</button></div></section></div>`;
+      return `<div class="sheet-wrap route-plan-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("calendar", 18)}</div><div><h2>Agenda</h2><p class="subtitle">Escolha um ou mais dias</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list rp2-days">${dayRows}</div>${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}</div><div class="rp2-footer"><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" data-action="montar-rota-agora" ${selected.length && previewReady && !state.dayStarting ? "" : "disabled"}>Montar rota ›</button></div></section></div>`;
     }
     // 26/07 — o modal "Modo das próximas rotas" (Essencial × Rastreada) SAIU do
     // celular por ordem do dono. Simples é o modo de todo mundo; a Rastreada
@@ -4659,47 +4657,9 @@
       <button type="button" class="day-home-btn day-home-btn--quiet" data-action="day-entry-leitura" ${starting ? "disabled" : ""}><span class="day-home-btn-glyph">${icon("gps", 20)}</span><span class="day-home-btn-copy"><strong>Registrar caminho</strong><small>Leitura de rota</small></span><span class="day-home-btn-chev">›</span></button>
     </div></section></div>`;
   }
-  // PR20072026 (feedback dono) — o antigo "Como montar?" virou um pop-up enxuto
-  // de 1 clique com só 2 modos (Automática / Minha ordem). "Rota salva" saiu
-  // daqui: agora é a porta "Salvos" do menu de entrada.
-  function dayOrderChooseModal() {
-    const stopsCount = (state.dayPreview || []).length;
-    const modes = [
-      { action: "order-mode-manual", variant: "manual", glyph: "↕", title: "Minha ordem", desc: "Você define a sequência" },
-      { action: "order-mode-app", variant: "app", glyph: "✨", title: "Automática", desc: "Sugestão por distância", optional: true },
-    ];
-    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-choose" role="dialog" aria-modal="true" aria-labelledby="day-choose-title"><div class="day-home-icon">${icon("route", 24)}</div><h2 id="day-choose-title">Sequência</h2><p class="day-home-sub">${stopsCount} ${stopsCount === 1 ? "parada" : "paradas"}</p><div class="list rp2-mode-list">${modes.map(m => `<button type="button" class="row-card rp2-mode-card${m.optional ? " rp2-mode-card--optional" : ""}" data-action="${m.action}"><span class="rp2-mode-icon rp2-mode-icon--${m.variant}">${m.glyph}</span><span class="card-main"><strong>${m.title}${m.optional ? ` <small>Opcional</small>` : ""}</strong><span>${m.desc}</span></span><span class="rp2-mode-chev">›</span></button>`).join("")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
-  }
-  // "Minha ordem": lista da prévia com ▲▼ grandes (mecanismo obrigatório de
-  // reordenação) + checkbox opcional de salvar como rota do dia escolhido.
-  function dayOrderManualModal() {
-    const preview = state.dayPreview || [];
-    const order = state.dayManualOrder || [];
-    // Flash só quando exatamente 2 posições diferem do último render (assinatura
-    // de um swap único de ▲/▼); reentrar no passo do zero muda várias posições
-    // de uma vez, então não dispara flash nenhum (heurística puramente visual).
-    let movedKeys = new Set();
-    if (dayManualOrderSnapshot && dayManualOrderSnapshot.length === order.length) {
-      const diffKeys = order.filter((key, index) => dayManualOrderSnapshot[index] !== key);
-      if (diffKeys.length === 2) movedKeys = new Set(diffKeys);
-    }
-    dayManualOrderSnapshot = order.slice();
-    const rows = order.map((key, index) => {
-      const client = preview.find(c => dayPreviewKey(c) === key);
-      if (!client) return "";
-      const nome = client.nome || "Cliente";
-      return `<div class="row-card rp2-order-row${movedKeys.has(key) ? " rp2-order-flash" : ""}"><label class="rp2-order-position"><span>Pos.</span><input type="number" min="1" max="${order.length}" inputmode="numeric" value="${index + 1}" data-manual-position-key="${H.escape(key)}" aria-label="Posição de ${H.escape(nome)}"></label><div class="card-main"><strong>${H.escape(nome)}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span>${routeConstraintChips(client)}</div><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="manual-order-up" data-order-key="${H.escape(key)}" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="manual-order-down" data-order-key="${H.escape(key)}" aria-label="Mover para baixo" ${index === order.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
-    }).join("");
-    const singleDay = state.daySelection.length === 1;
-    const day = singleDay ? weekDays.find(item => item.n === state.daySelection[0]) : null;
-    const persistsAgenda = agendaOrderCanPersist();
-    const persistInfo = persistsAgenda
-      ? `<div class="rp2-persist-note">${icon("calendar", 17)}<span><strong>Agenda de ${H.escape(day && day.nome || "")}</strong><small>A sequência será salva</small></span></div>`
-      : singleDay && order.length && !agendaSupportsWeeklyOrder()
-        ? `<button type="button" class="settings-row" data-action="toggle-manual-save" role="switch" aria-checked="${state.dayManualSave}"><div class="settings-copy"><strong>Salvar como rota de ${H.escape(day && day.label || "")}</strong></div><span class="module-switch ${state.dayManualSave ? "active" : ""}" aria-hidden="true"><i></i></span></button>`
-        : "";
-    return `<div class="sheet-wrap route-plan-wrap"><section class="sheet route-plan-sheet rp2-sheet"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Minha ordem</h2><p class="subtitle">Digite a posição ou use as setas</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="rp2-body"><div class="list day-order-list">${rows || empty("Sem paradas", "Escolha ao menos um dia com clientes.")}</div></div><div class="rp2-footer">${persistInfo}<button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="confirm-manual-order" ${order.length && !state.dayStarting ? "" : "disabled"}>${persistsAgenda ? "Salvar e gerar" : "Gerar agora"}</button></div></section></div>`;
-  }
+  // 26/07 (dono, fusão final): o passo "Sequência" (Automática × Minha ordem) e a
+  // tela de ordem manual PRÉ-geração MORRERAM — "Montar rota" gera direto e a única
+  // tela de revisão é a Conferência de rota, onde a sequência é editável (setas).
   // "Rota salva": lista de rota-modelos; escolher pré-ordena a prévia (clientes
   // fora do modelo vão pro fim) e segue direto pro "Gerar agora".
   function dayOrderSavedModal() {
@@ -5124,7 +5084,11 @@
       ? `<span class="module-switch conferencia-ack${acknowledged ? " active" : ""}" data-action="conferencia-reconhecer" data-parada-id="${H.escape(id)}" role="switch" aria-checked="${acknowledged}" aria-label="Estou ciente desta pendência"><i></i></span>`
       : "";
     const selo = info ? `<span class="badge ${info.badgeClass}">${info.label}</span>` : "";
-    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main card-main-btn" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button>${selo}${ack}</div>`;
+    // 26/07 (fusão) — a sequência edita AQUI: ▲▼ por linha, mesma mecânica da
+    // antiga tela "Minha ordem" (que morreu), agora na única tela de revisão.
+    const total = (rc.data && rc.data.paradas || []).length;
+    const setas = `<span class="conferencia-reorder"><button type="button" class="conferencia-reorder-btn" data-action="conferencia-mover" data-dir="up" data-parada-id="${H.escape(id)}" aria-label="Mover para cima" ${index === 0 || rc.loading ? "disabled" : ""}>▲</button><button type="button" class="conferencia-reorder-btn" data-action="conferencia-mover" data-dir="down" data-parada-id="${H.escape(id)}" aria-label="Mover para baixo" ${index === total - 1 || rc.loading ? "disabled" : ""}>▼</button></span>`;
+    return `${conector}<div class="row-card rp2-order-row conferencia-parada"><div class="order">${index + 1}</div><button type="button" class="card-main card-main-btn" data-action="conferencia-abrir-ficha" data-parada-id="${H.escape(id)}"><strong>${H.escape(parada.nome || "Cliente")}</strong>${frase ? `<span>${H.escape(frase)}</span>` : ""}</button>${setas}${selo}${ack}</div>`;
   }
   // S6 (25/07, PR25072026-ROTA-CONFERIDA) — linha do preview de créditos, POR
   // PAPEL (mesmo espírito do creditsLockOverlay/S7 APP-SOUNDS: o FATO é o
@@ -5273,7 +5237,9 @@
       if (position) { body.origemLat = position.lat; body.origemLng = position.lng; rc.origem = { lat: position.lat, lng: position.lng }; }
       const selection = activeRouteSelectionIds();
       if (selection) body.deliveryIds = [...selection];
-      const manualOrder = activeRouteOrdemManual();
+      // 26/07 — a sequência é editável DENTRO da conferência: a ordem tocada
+      // nas setas (rc.ordemManual) vence a ordem manual persistida.
+      const manualOrder = (rc.ordemManual && rc.ordemManual.length) ? rc.ordemManual : activeRouteOrdemManual();
       if (manualOrder && manualOrder.length) body.ordemManual = manualOrder;
       const antes = new Map((rc.data && rc.data.paradas || []).map((p, i) => [String(p.id), i + 1]));
       // Preview roda em PARALELO (Lei nº2 "zero lentidão artificial") e nunca
@@ -5311,13 +5277,24 @@
     // começa null aqui só pra documentar o formato do objeto. `custo` (S6) é
     // o preview de créditos (null = ainda não chegou ou indisponível, ver
     // recarregarCustoPreview — degrada mudo, nunca trava a tela).
-    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null };
+    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null, ordemManual: null, confirmada: false, cancelada: false };
     showModal("rota-conferencia");
     await recarregarConferencia();
+  }
+  // 26/07 — o desfazer do abandono: MESMO caminho seguro do "Cancelar?"
+  // (rota/encerrar devolve as abertas pra pendência; NUNCA limpar-dia).
+  async function desfazerRotaMontada() {
+    if (state.desfazendoRota) return;
+    state.desfazendoRota = true;
+    try { await performEncerrarRota("Rota desfeita antes da confirmação.", { mensagemToast: "Rota desfeita." }); }
+    finally { state.desfazendoRota = false; }
   }
   // Ponto único chamado depois de TODO caminho que só PLANEJA (nunca inicia) —
   // ver startRoute(planOnly) e o ramo dayMode==="plan" de beginManagedRoute.
   async function afterRoutaPlanejada(toastMessage) {
+    // Operador fechou a Agenda com a geração em voo: a rota que acabou de
+    // aterrissar já nasceu abandonada — desfaz em vez de abrir a conferência.
+    if (state.montagemAbandonada) { state.montagemAbandonada = false; await desfazerRotaMontada(); return; }
     if (!configFlag("rotaConferidaAtiva")) { toast(toastMessage); return; }
     await abrirRotaConferencia();
   }
@@ -5903,7 +5880,7 @@
       // Quando vai salvar a ordem, saveTodayRoute dá o toast final (silencioso,
       // pra não empilhar som em cima do route_stop). Senão, resumo do encerrar.
       if (opts.saveRoute && snapshot) await saveTodayRoute(snapshot);
-      else toast(`Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
+      else toast(opts.mensagemToast || `Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
     } catch (error) {
       toast(humanApiError(error), true);
     }
@@ -6053,10 +6030,19 @@
     // não mudou; rotaConferencia.retornoParadaId só existe enquanto esse editor
     // está aberto vindo da ficha, ver abrirFichaComEditor).
     const voltaParaConferencia = kind === "modal" && state.modal === "client-product" && state.rotaConferencia && state.rotaConferencia.retornoParadaId;
+    // 26/07 (dono, regra ABSOLUTA, 3ª cobrança): só o "Confirmar rota" consolida.
+    // Sair da conferência por QUALQUER outro caminho (×, voltar, toque no fundo)
+    // desfaz a rota sozinho. `confirmada`/`cancelada` marcam as duas saídas
+    // legítimas (confirmar; popup Cancelar? que já encerra por conta própria).
+    const abandonaConferencia = kind === "modal" && state.modal === "rota-conferencia" && state.rotaConferencia && !state.rotaConferencia.confirmada && !state.rotaConferencia.cancelada && routePlanned();
+    // Fechar a Agenda com a geração EM VOO: rede não se cancela — marca o
+    // abandono e afterRoutaPlanejada desfaz assim que a chamada aterrissar.
+    if (kind === "modal" && state.modal === "manage-day" && state.dayStarting) state.montagemAbandonada = true;
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
       if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
+      if (abandonaConferencia) { state.rotaConferencia = null; void desfazerRotaMontada(); }
       // 22/07 — fechar a folha zera TUDO da chegada editável (picker, preço aberto,
       // modo edição). Sem isso, a próxima parada abriria com o estado da anterior.
       if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
@@ -6391,6 +6377,9 @@
       // rota pra conferir: o cartão sai junto, senão ficaria aberto mostrando a
       // conferência de uma rota que não existe mais.
       if ((confirmation.type === "cancel-route" || confirmation.type === "limpar-dia") && state.modal === "rota-conferencia") {
+        // Marca ANTES do close: o guard de abandono do closeOverlay não pode
+        // disparar um segundo encerrar em cima do que este popup já executa.
+        if (state.rotaConferencia) state.rotaConferencia.cancelada = true;
         await closeOverlay("modal");
         state.rotaConferencia = null;
       }
@@ -6482,7 +6471,9 @@
     if (action === "start-route") openDayManager("start");
     if (action === "plan-route") openDayManager("plan");
     if (action === "start-planned-route") await startPlannedRoute();
-    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar planejamento?", message: "Remove a ordem de hoje. Entregas, Agenda e financeiro continuam.", confirmLabel: "Cancelar planejamento", danger: true, icon: "route", extraAction: "confirm-limpar-dia", extraLabel: "Limpar hoje e cancelar as abertas" }; render(); }
+    // 26/07 (dono): "CANCELAR? Tem certeza? Sim, Não. PRONTO." — sem quest, sem
+    // terceiro botão. O Limpar o dia continua no satélite próprio da tela Rota.
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar?", message: "Tem certeza?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
     // 22/07 — popup enxuto: texto de 1 linha e o "salvar rota" virou botão DESTE
     // mesmo popup (extraAction, sem segundo popup). "Salvar" só aparece quando há
     // ≥2 paradas com cliente pra formar uma rota.
@@ -6533,27 +6524,11 @@
       await openLeituraAtiva();
       return;
     }
-    // PR18072026 Onda 3 — passo "modo de ordem" (Ordem do app / Minha ordem).
-    if (action === "choose-route-order") { state.dayOrderStep = "choose"; render(); return; }
-    // Voltar hierárquico: choose→dias, dias→menu, manual→choose, saved→menu.
-    if (action === "back-route-order") { state.dayOrderStep = state.dayOrderStep === "choose" ? null : state.dayOrderStep === "manual" ? "choose" : "home"; render(); return; }
-    // A sequência automática vai DIRETO montar a rota (igual "Minha ordem" via
-    // confirm-manual-order). A revisão é a Conferência da rota, que abre sozinha
-    // no fim do planejamento (afterRoutaPlanejada) — não existe mais uma prévia
-    // separada com contagem regressiva dizendo a mesma coisa duas vezes.
-    if (action === "order-mode-app") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; await beginManagedRoute(); return; }
-    if (action === "order-mode-manual") { state.dayOrderStep = "manual"; state.dayOrderMode = "manual"; state.dayManualOrder = (state.dayPreview || []).map(dayPreviewKey); state.dayManualSave = false; render(); return; }
-    if (action === "manual-order-up" || action === "manual-order-down") {
-      const key = target.dataset.orderKey; const list = state.dayManualOrder; const index = list.indexOf(key);
-      if (index === -1) return;
-      const swapWith = action === "manual-order-up" ? index - 1 : index + 1;
-      if (swapWith < 0 || swapWith >= list.length) return;
-      [list[index], list[swapWith]] = [list[swapWith], list[index]];
-      render();
-      return;
-    }
-    if (action === "toggle-manual-save") { state.dayManualSave = !state.dayManualSave; render(); return; }
-    if (action === "confirm-manual-order") { state.dayOrderStep = null; await beginManagedRoute(); return; }
+    // 26/07 (dono, fusão final) — "Montar rota" gera DIRETO com a sequência
+    // automática; quem quer outra ordem mexe nas setas DENTRO da Conferência.
+    if (action === "montar-rota-agora") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; await beginManagedRoute(); return; }
+    // Voltar: dias e Rotas salvas voltam pro menu de entrada.
+    if (action === "back-route-order") { state.dayOrderStep = "home"; render(); return; }
     if (action === "apply-route-modelo") {
       // O clique que fecha o toque-longo de excluir NÃO pode sair rodando a rota.
       if (ignoredRouteModeloClickId !== null) { ignoredRouteModeloClickId = null; return; }
@@ -6590,7 +6565,17 @@
     if (action === "conferencia-tentar-de-novo") { await recarregarConferencia(); return; }
     if (action === "conferencia-continuar") {
       const rc = state.rotaConferencia;
-      if (!rc || conferenciaVermelhasPendentes(rc).length > 0) return;
+      if (!rc || rc.loading || conferenciaVermelhasPendentes(rc).length > 0) return;
+      // 26/07 (fusão) — ordem mexida nas setas vira a rota REAL antes de fechar:
+      // um replanejar só, com a ordem final (o conferir já rodava em dry-run).
+      if (rc.ordemManual && rc.ordemManual.length) {
+        try {
+          const body = { date: operationalDate(), deliveryIds: rc.ordemManual, ordemManual: rc.ordemManual };
+          if (rc.origem) { body.origemLat = rc.origem.lat; body.origemLng = rc.origem.lng; }
+          applyRouteEngineState(await H.api("/logistica/rota/planejar", { method: "POST", body }));
+        } catch (error) { toast(humanApiError(error), true); return; }
+      }
+      rc.confirmada = true;
       // S5 25/07 — "Aprovar rota": concluir a conferência (Lei 7 "vermelho
       // nunca bloqueia") CONGELA a ordem revisada via o mesmo mecanismo de
       // "Minha ordem"/"Rota salva" (setRouteOrdemManual); a origem usada no
@@ -6607,6 +6592,19 @@
       // SEMPRE ela (mesmo idioma de openNextStop, ~L6100) caso um caminho
       // futuro planeje a rota de outra tela.
       if (state.screen !== "route") navigateTo("route");
+      if (rc.ordemManual && rc.ordemManual.length) await refresh(true);
+      return;
+    }
+    if (action === "conferencia-mover") {
+      const rc = state.rotaConferencia;
+      if (!rc || !rc.data || rc.loading) return;
+      const ids = (rc.data.paradas || []).map(p => String(p.id));
+      const i = ids.indexOf(String(target.dataset.paradaId));
+      const j = target.dataset.dir === "up" ? i - 1 : i + 1;
+      if (i === -1 || j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      rc.ordemManual = ids;
+      await recarregarConferencia();
       return;
     }
     if (action === "conferencia-reconhecer") {
@@ -7337,21 +7335,6 @@
     clientsSearchTimer = setTimeout(() => loadClients(true), 300);
   });
   app.addEventListener("change", event => {
-    if (event.target.dataset.manualPositionKey !== undefined) {
-      const key = event.target.dataset.manualPositionKey;
-      const list = state.dayManualOrder || [];
-      const from = list.indexOf(key);
-      const requested = Math.trunc(Number(event.target.value));
-      if (from === -1 || !Number.isFinite(requested)) { render(); return; }
-      const to = Math.max(0, Math.min(list.length - 1, requested - 1));
-      if (to !== from) {
-        const [moved] = list.splice(from, 1);
-        list.splice(to, 0, moved);
-        H.vibrate(8);
-      }
-      render();
-      return;
-    }
     if (event.target.dataset.rmePositionIndex !== undefined) {
       const editor = state.routeModeloEditor;
       const from = Number(event.target.dataset.rmePositionIndex);
@@ -7654,10 +7637,10 @@
           return true;
         }
         if (state.modal === "manage-day") {
-          // Espelha data-action="back-route-order" (PR20072026): manual→choose,
-          // choose→dias, dias/saved→menu de entrada. Só o menu ("home") fecha o modal.
+          // Espelha data-action="back-route-order" (fusão 26/07): dias e Rotas
+          // salvas voltam pro menu de entrada. Só o menu ("home") fecha o modal.
           if (state.dayOrderStep !== "home") {
-            state.dayOrderStep = state.dayOrderStep === "manual" ? "choose" : state.dayOrderStep === "choose" ? null : "home";
+            state.dayOrderStep = "home";
             render();
             return true;
           }

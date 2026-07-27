@@ -1074,6 +1074,13 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .conferencia-resumo-linha { display: block; }
 .conferencia-resumo-linha + .conferencia-resumo-linha { margin-top: 2px; }
 .conferencia-creditos { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 18px; font-weight: 800; }
+/* 26/07 (fusão) — setas de sequência DENTRO da conferência: coluna vertical
+   compacta (34px), no lugar da antiga tela "Minha ordem". Botão nativo precisa
+   do reset explícito (mesma lição do card-main-btn: sem ele entra borda/fundo
+   do UA e a largura mínima estoura o modal de 360px). */
+.conferencia-reorder { display: grid; gap: 4px; flex: 0 0 auto; }
+.conferencia-reorder-btn { display: grid; place-items: center; width: 34px; min-height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 8px; color: var(--brand-strong); background: var(--surface-2); font: inherit; font-size: .7rem; line-height: 1; }
+.conferencia-reorder-btn:disabled { color: var(--muted); opacity: .45; }
 .lrt-endereco-card, .lrt-endereco-compare { border-radius: 16px; box-shadow: 0 6px 18px color-mix(in srgb, var(--ink) 5%, transparent); }
 .lrt-endereco-compare p { padding: 10px 11px; border-radius: 11px; background: var(--surface-2); line-height: 1.45; }
 .lrt-endereco-compare p[style*="--warning"] { border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); }
