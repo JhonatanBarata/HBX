@@ -215,8 +215,26 @@ export async function consultarCepPublico(cepRaw: string | null | undefined): Pr
  * devolve lista vazia e o cadastro segue como estava.
  */
 /** Teto de CEPs devolvidos por rua — rua longa tem CEP por trecho; cada um é 1 tentativa
- *  no CNEFE, e é o CNEFE (fail-closed) que decide qual casa com o número da casa. */
-const VIACEP_BUSCA_MAX = 8;
+ *  no CNEFE, e é o CNEFE (fail-closed) que decide qual casa com o número da casa.
+ *  16 porque avenida de cidade média passa de 30 trechos (medido: "Avenida 3" em Rio
+ *  Claro devolve 14 CEPs compatíveis, "Rua 9" devolve 37). */
+const VIACEP_BUSCA_MAX = 16;
+
+/**
+ * Tipos de via POR EXTENSO. O ViaCEP guarda "Avenida 54 A" e casa por trecho de texto:
+ * buscar "Av. 54a" devolve ZERO — e o PONTO da abreviação chega a derrubar a rota da
+ * API, que responde HTML no lugar de JSON. Medido em produção 27/07 nos cadastros reais
+ * de Rio Claro: com abreviação, 0 de 5 clientes resolviam; por extenso, 13 seguidos.
+ */
+const TIPO_VIA_EXTENSO: Record<string, string> = {
+  av: 'avenida', avn: 'avenida', avd: 'avenida', avenida: 'avenida',
+  r: 'rua', rua: 'rua',
+  tv: 'travessa', trav: 'travessa', travessa: 'travessa',
+  rod: 'rodovia', rodovia: 'rodovia',
+  est: 'estrada', estr: 'estrada', estrada: 'estrada',
+  al: 'alameda', alameda: 'alameda',
+  pc: 'praca', pca: 'praca', praca: 'praca',
+};
 
 export interface CepDaRua {
   cep: string;
@@ -228,16 +246,57 @@ export interface CepDaRua {
 
 const cacheBusca = new Map<string, { valor: ViaCepPayload[]; expiraEm: number }>();
 
+/** Sem acento, minúsculo — só pra COMPARAR/BUSCAR, nunca pra gravar. */
+function semAcento(valor: string | null | undefined): string {
+  return normalizar(valor);
+}
+
+/** O trecho começa com tipo de via ("Rua ...", "Av. ...")? É o que separa logradouro
+ *  de bairro num campo de texto livre. */
+function pareceVia(trecho: string): boolean {
+  const primeiro = semAcento(trecho).replace(/[.]/g, '').split(/\s+/)[0] ?? '';
+  return primeiro in TIPO_VIA_EXTENSO;
+}
+
 /**
- * Só o LOGRADOURO, sem número nem bairro: "Rua M 22A, 1500 - Centro" → "Rua M 22A".
- * Corta no primeiro separador de CAMPO (vírgula, " - ", " nº ") — nunca num dígito
- * solto, senão "Rua 8" viraria "Rua" e a busca traria a cidade inteira.
+ * Só o LOGRADOURO, de um campo de texto livre. Pega o trecho que COMEÇA COM TIPO DE VIA,
+ * não o primeiro — na base real metade dos endereços começa pelo BAIRRO ("Jd. Ipanema,
+ * Rua M22, nº 601" tinha que dar "Rua M22", e dava "Jd. Ipanema", que não é rua nenhuma
+ * e nunca ia achar CEP). Sem nenhum trecho com cara de via, devolve o primeiro (honesto:
+ * é o que o cadastro tem) e a busca simplesmente não acha.
  */
 export function logradouroDoCadastro(endereco: string | null | undefined): string {
   const bruto = String(endereco ?? '').trim();
   if (!bruto) return '';
-  const [primeiro] = bruto.split(/\s*,\s*|\s+-\s+|\s+n[ºo°]\s*|\s+n[uú]mero\s+/i);
-  return String(primeiro ?? '').replace(/\s+/g, ' ').trim();
+  const trechos = bruto
+    .split(/\s*[,;]\s*|\s+[-—–]\s+|\s+n[ºo°]\s*|\s+n[uú]mero\s+/i)
+    .map((t) => String(t ?? '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  return trechos.find(pareceVia) ?? trechos[0] ?? '';
+}
+
+/**
+ * O termo que o ViaCEP entende, a partir da via do cadastro: pontuação vira espaço
+ * (ponto derruba a rota da API), tipo abreviado vira EXTENSO e letra colada em número
+ * se separa — "Av. 54a" → "avenida 54 a", "Rua M22" → "rua m 22", que é exatamente como
+ * a base guarda ("Avenida 54 A", "Rua M 22"). A precisão fina não é feita aqui: quem
+ * decide se a rua devolvida é a MESMA é `viasCompativeisCnefe`, régua de palavra inteira.
+ */
+export function termoBuscaVia(via: string | null | undefined): string {
+  const tokens = semAcento(via)
+    .replace(/[.,/\\-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    // "54a" → "54 a" e "M22" → "m 22": o ViaCEP separa, o cadastro cola.
+    .flatMap((token) => {
+      const letraDigito = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(token);
+      if (letraDigito) return [letraDigito[1], letraDigito[2], letraDigito[3]].filter(Boolean);
+      const digitoLetra = /^(\d{1,4})([a-z]{1,2})$/.exec(token);
+      if (digitoLetra) return [digitoLetra[1], digitoLetra[2]];
+      return [token];
+    });
+  if (tokens.length && tokens[0] in TIPO_VIA_EXTENSO) tokens[0] = TIPO_VIA_EXTENSO[tokens[0]];
+  return tokens.join(' ').trim();
 }
 
 /** ViaCEP busca por rua (`/ws/UF/cidade/logradouro/json/`). Best-effort: NUNCA lança.
@@ -285,11 +344,12 @@ export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Pr
   const uf = String(cadastro.uf ?? '').trim().toUpperCase();
   const cidade = String(cadastro.cidade ?? '').trim();
   const via = logradouroDoCadastro(cadastro.endereco);
+  const termo = termoBuscaVia(via);
   // Mínimos do próprio ViaCEP: UF de 2 letras, cidade e logradouro com 3+ caracteres.
-  if (!/^[A-Z]{2}$/.test(uf) || cidade.length < 3 || via.length < 3) return [];
+  if (!/^[A-Z]{2}$/.test(uf) || cidade.length < 3 || termo.length < 3) return [];
 
   const cidadeNorm = normalizar(cidade);
-  const lista = await buscarViaCepPorRua(uf, cidade, via, `${uf}|${cidadeNorm}|${normalizar(via)}`);
+  const lista = await buscarViaCepPorRua(uf, cidade, termo, `${uf}|${cidadeNorm}|${termo}`);
 
   const vistos = new Set<string>();
   const saida: CepDaRua[] = [];
@@ -308,9 +368,19 @@ export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Pr
       localidade: String(item.localidade ?? '').trim(),
       uf: String(item.uf ?? '').trim().toUpperCase(),
     });
-    if (saida.length >= VIACEP_BUSCA_MAX) break;
   }
-  return saida;
+  // BAIRRO NA FRENTE (precisão, não capricho): rua comprida tem um CEP por trecho — "Rua
+  // 9" devolve 37. Quem tenta primeiro é o trecho do bairro do cadastro; sem isso o pino
+  // sai no pedaço errado da MESMA rua, que é o erro mais difícil de o entregador
+  // perceber. Bairro vem da coluna OU do texto do endereço (no legado ele mora lá).
+  const bairroCadastro = normalizar(
+    String(cadastro.bairro ?? '').trim() || String(cadastro.endereco ?? ''),
+  );
+  const combina = (c: CepDaRua): number => {
+    const b = normalizar(c.bairro);
+    return b && bairroCadastro.includes(b) ? 0 : 1;
+  };
+  return saida.sort((a, b) => combina(a) - combina(b)).slice(0, VIACEP_BUSCA_MAX);
 }
 
 /**

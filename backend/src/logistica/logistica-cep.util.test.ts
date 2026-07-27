@@ -5,8 +5,12 @@ import {
   compararCepComEndereco,
   conferirCepsEmLote,
   enderecoSemNumero,
+  descobrirCepsPorEndereco,
+  limparCacheBuscaCep,
   limparCacheCep,
+  logradouroDoCadastro,
   normalizarCep,
+  termoBuscaVia,
 } from './logistica-cep.util';
 
 /**
@@ -287,4 +291,73 @@ test('lote vazio → lista vazia, sem consulta', async () => {
       assert.equal(chamadas.length, 0);
     },
   );
+});
+
+// ── BUSCA REVERSA: endereço → CEP (27/07) ─────────────────────────────────────────
+// Os dois furos abaixo foram MEDIDOS contra a base real (company 48, Rio Claro): com
+// eles, 0 de 5 clientes com endereço perfeito e sem CEP resolviam.
+
+test('logradouroDoCadastro: pega o trecho que É via, não o primeiro (endereço legado começa pelo BAIRRO)', () => {
+  assert.equal(logradouroDoCadastro('Jd. Ipanema, Rua M22, nº 601'), 'Rua M22');
+  assert.equal(logradouroDoCadastro('Jd. Alto do Bosque, Av. 1, s/n'), 'Av. 1');
+  assert.equal(logradouroDoCadastro('Av. 54a, 76 - Jd. América'), 'Av. 54a');
+  assert.equal(logradouroDoCadastro('Rua 9,, 2545 - São Miguel'), 'Rua 9');
+  assert.equal(logradouroDoCadastro('Rua das Flores'), 'Rua das Flores');
+  // "Rua 8" NUNCA pode virar "Rua": o dígito é o NOME da via, não o número da casa.
+  assert.equal(logradouroDoCadastro('Rua 8, 3604 - Alto'), 'Rua 8');
+  // Sem nada com cara de via, devolve o que tem (e a busca simplesmente não acha).
+  assert.equal(logradouroDoCadastro('Condomínio Jacarandá, Bloco 4'), 'Condomínio Jacarandá');
+  assert.equal(logradouroDoCadastro(null), '');
+});
+
+test('termoBuscaVia: abreviação vira extenso e letra colada se separa (o ViaCEP não entende "Av. 54a")', () => {
+  assert.equal(termoBuscaVia('Av. 54a'), 'avenida 54 a');
+  assert.equal(termoBuscaVia('Rua M22'), 'rua m 22');
+  assert.equal(termoBuscaVia('Rua 4-a'), 'rua 4 a');
+  assert.equal(termoBuscaVia('Av. 3'), 'avenida 3');
+  assert.equal(termoBuscaVia('Rua das Flores'), 'rua das flores');
+  // Sem tipo de via reconhecido, passa como está (o filtro local decide depois).
+  assert.equal(termoBuscaVia('Jd. Ipanema'), 'jd ipanema');
+});
+
+test('descobrirCepsPorEndereco: só CEP com cidade E via provadas; bairro do cadastro vai na FRENTE', async () => {
+  const original = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = (async (url: any) => {
+    urls.push(String(url));
+    return {
+      ok: true,
+      json: async () => [
+        { cep: '13505-506', logradouro: 'Rua 9', bairro: 'Cidade Nova', localidade: 'Rio Claro', uf: 'SP' },
+        { cep: '13400-000', logradouro: 'Rua 9', bairro: 'Centro', localidade: 'Piracicaba', uf: 'SP' },
+        { cep: '13505-900', logradouro: 'Rua 90', bairro: 'Outro', localidade: 'Rio Claro', uf: 'SP' },
+        { cep: '13505-111', logradouro: 'Rua 9', bairro: 'São Miguel', localidade: 'Rio Claro', uf: 'SP' },
+      ],
+    };
+  }) as any;
+  try {
+    limparCacheBuscaCep();
+    const achados = await descobrirCepsPorEndereco({ endereco: 'Rua 9,, 2545 - São Miguel', cidade: 'Rio Claro', uf: 'SP' });
+    assert.deepEqual(achados.map((c) => c.cep), ['13505111', '13505506'], 'São Miguel primeiro; outra cidade e "Rua 90" fora');
+    assert.ok(urls[0].includes(encodeURIComponent('rua 9')), `busca pelo termo normalizado: ${urls[0]}`);
+  } finally {
+    globalThis.fetch = original;
+    limparCacheBuscaCep();
+  }
+});
+
+test('descobrirCepsPorEndereco: sem cidade/UF não toca a rede (fail-closed antes do fetch)', async () => {
+  const original = globalThis.fetch;
+  let chamou = 0;
+  globalThis.fetch = (async () => { chamou += 1; return { ok: true, json: async () => [] }; }) as any;
+  try {
+    limparCacheBuscaCep();
+    assert.deepEqual(await descobrirCepsPorEndereco({ endereco: 'Rua 9', cidade: null, uf: 'SP' }), []);
+    assert.deepEqual(await descobrirCepsPorEndereco({ endereco: 'Rua 9', cidade: 'Rio Claro', uf: null }), []);
+    assert.deepEqual(await descobrirCepsPorEndereco({ endereco: null, cidade: 'Rio Claro', uf: 'SP' }), []);
+    assert.equal(chamou, 0);
+  } finally {
+    globalThis.fetch = original;
+    limparCacheBuscaCep();
+  }
 });
