@@ -130,9 +130,13 @@ export function normalizarViaNumeral(valor: string | null | undefined): string {
     // CINCO"/"RUA M VINTE E DOIS A"; sem o split, cadastro "Av. M55, nº 2677"
     // não casava nem com a PORTA EXATA na base (12 recusas medidas, 4 eram isto).
     .flatMap((token) => {
-      const colado = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(token);
-      if (!colado) return [token];
-      return [colado[1], colado[2], colado[3]].filter(Boolean);
+      const letraDigito = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(token);
+      if (letraDigito) return [letraDigito[1], letraDigito[2], letraDigito[3]].filter(Boolean);
+      // "22a" → "22 a" (ViaCEP escreve "Rua M 22A"; cadastro "M22A"; IBGE "M VINTE E
+      // DOIS A" — os três têm que cair na MESMA forma "m 22 a").
+      const digitoLetra = /^(\d{1,4})([a-z]{1,2})$/.exec(token);
+      if (digitoLetra) return [digitoLetra[1], digitoLetra[2]];
+      return [token];
     })
     .filter(Boolean);
   const saida: string[] = [];
@@ -197,7 +201,7 @@ export function viaTipoNumero(valor: string | null | undefined): { tipo: string;
  * — o sufixo de bairro do IBGE quebrava a contenção; dentro de um CEP o par
  * tipo+número é unívoco). "rua 8" ≠ "rua 80" e "travessa 8" ≠ "rua 8" seguem de pé.
  */
-function viasCompativeisCnefe(pedida: string | null | undefined, candidata: string | null | undefined): boolean {
+export function viasCompativeisCnefe(pedida: string | null | undefined, candidata: string | null | undefined): boolean {
   const a = normalizarViaNumeral(pedida);
   const b = normalizarViaNumeral(candidata);
   if (viasCompativeis(a, b)) return true;

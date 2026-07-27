@@ -26,7 +26,11 @@
  * artificial").
  */
 
-import { normalizeVia, viasCompativeis } from '../nucleo/nucleo-geo.util';
+import { normalizeVia } from '../nucleo/nucleo-geo.util';
+// 27/07 (caso Dona Maria) — a MESMA régua de via do resolver CNEFE, que entende
+// numeral por extenso e token colado ("M22A" ↔ "Rua M 22A" ↔ "M VINTE E DOIS A").
+// Régua velha aqui e nova lá = "CEP e endereço não batem" mentindo na conferência.
+import { viasCompativeisCnefe } from '../nucleo/cnefe-resolver.util';
 
 const VIACEP_URL = 'https://viacep.com.br/ws';
 const VIACEP_TIMEOUT_MS = 2500;
@@ -220,7 +224,7 @@ export function compararCepComEndereco(payload: ViaCepPayload | null, cadastro: 
 
   const viaCep = normalizeVia(payload.logradouro);
   const viaCadastro = normalizeVia(cadastro.endereco);
-  if (viaCep && viaCadastro && !viasCompativeis(viaCadastro, payload.logradouro)) return 'nao_bate';
+  if (viaCep && viaCadastro && !viasCompativeisCnefe(cadastro.endereco, payload.logradouro)) return 'nao_bate';
 
   // Chegou aqui sem nada divergir: só é 'bate' se ALGO foi realmente comparado.
   const comparouAlgo = Boolean((ufCep && ufCadastro) || (cidadeCep && cidadeCadastro) || (viaCep && viaCadastro));
