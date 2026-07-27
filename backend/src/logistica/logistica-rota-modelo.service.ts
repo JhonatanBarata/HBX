@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { parseDateOrNull } from './logistica-recorrencia.service';
+import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 
 /**
@@ -154,10 +154,17 @@ export class LogisticaRotaModeloService {
 
       const cliente = await this.prisma.customerProfile.findFirst({
         where: { id: customerProfileId, companyId },
-        select: { id: true, name: true },
+        select: { id: true, name: true, status: true, isCliente: true },
       });
       if (!cliente) {
         avisos.push(`Cliente (${customerProfileId}) não encontrado nesta empresa — parada ignorada.`);
+        continue;
+      }
+      // 27/07 — cliente que saiu do cadastro não volta pela porta da rota salva
+      // (mesma régua CLIENTE_VIVO da Agenda). O aviso diz o NOME: foi assim que
+      // o dono descobriu a "Elaine" que a rota mostrava e o cadastro não tinha.
+      if (cliente.status !== 'active' || !cliente.isCliente) {
+        avisos.push(`${cliente.name || 'Um cliente'} não está mais no cadastro — parada ignorada.`);
         continue;
       }
 
@@ -175,8 +182,22 @@ export class LogisticaRotaModeloService {
       }
 
       // Idempotência IGUAL ao gerarDia: já existe Entrega (cliente, local, dia)?
+      //
+      // FIX 27/07 — o `findFirst` não tinha ORDEM e o dia acumula entrega
+      // cancelada de cada montagem abandonada (medido: 560 canceladas para 156
+      // clientes num dia só). Ele podia devolver uma CANCELADA com a aberta do
+      // mesmo cliente do lado — e a parada morria em "foi retirado de hoje".
+      // A ABERTA ganha sempre; sem aberta, a fechada mais recente decide o aviso
+      // (entregue x retirado). Ordenar por `status` não resolveria: em ordem
+      // alfabética 'cancelada' vem ANTES de 'em_rota'.
+      const escopoDia = { companyId, customerProfileId, localId, scheduledAt: { gte: dia, lte: dayEnd } };
       const existente = await this.prisma.entrega.findFirst({
-        where: { companyId, customerProfileId, localId, scheduledAt: { gte: dia, lte: dayEnd } },
+        where: { ...escopoDia, status: { in: ['agendada', 'em_rota'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, entregadorId: true, status: true },
+      }) ?? await this.prisma.entrega.findFirst({
+        where: escopoDia,
+        orderBy: { createdAt: 'desc' },
         select: { id: true, entregadorId: true, status: true },
       });
       // FIX 21/07 — 'entregue' e 'cancelada' NÃO entram na rota (ver
@@ -187,11 +208,18 @@ export class LogisticaRotaModeloService {
         avisos.push(`${cliente.name || 'Um cliente'} já foi entregue hoje — parada ignorada.`);
         continue;
       }
-      if (existente && existente.status === 'cancelada') {
-        avisos.push(`${cliente.name || 'Um cliente'} foi retirado de hoje — parada ignorada.`);
-        continue;
+      // FIX 27/07 — cancelada volta a REABRIR (era o contrato do fix de 21/07,
+      // perdido no checkpoint de 25/07). Depois de "Limpar dia" ou de uma
+      // montagem descartada, o dia fica cheio de cancelada do mesmo cliente: com
+      // "parada ignorada" a rota salva montava VAZIA e o dono só via um aviso com
+      // nome de cliente. Quem escolhe a rota salva está pedindo a rota — reabrir a
+      // MESMA linha não duplica entrega nem cobra 2×. A aberta ainda ganha dela
+      // (a busca acima procura aberta primeiro).
+      const reabrirId = existente && existente.status === 'cancelada' ? existente.id : null;
+      if (reabrirId && existente!.entregadorId != null && existente!.entregadorId !== userId) {
+        throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
       }
-      if (existente) {
+      if (existente && !reabrirId) {
         if (existente.entregadorId != null && existente.entregadorId !== userId) {
           throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
         }
@@ -216,11 +244,51 @@ export class LogisticaRotaModeloService {
         continue;
       }
 
-      if (!Array.isArray(parada.itens) || !parada.itens.length) {
-        avisos.push(`${cliente.name || 'Um cliente'} está numa rota antiga sem itens — revise a parada.`);
+      // 🔴 FIX 27/07 — A ROTA SALVA QUE NÃO GERAVA NADA (dono: "não consigo
+      // acionar a rota salva, dá erro"; rota "Quarta", empresa 48).
+      //
+      // O "Salvar rota" novo (o que nasce na montagem, depois de mexer na
+      // sequência com ▲▼) grava a parada no contrato mínimo do rota-modelo:
+      // { customerProfileId, localId } — SEM `itens`, porque quem manda no que o
+      // cliente recebe é a Agenda, não uma fotografia da rota. Só que aqui os
+      // `itens` da parada eram a ÚNICA fonte pra materializar: sem eles, toda
+      // parada caía em "rota antiga sem itens" e a rota inteira voltava vazia.
+      // Como o app mostra o 1º aviso como erro, o dono via o nome de um cliente
+      // que nem existe mais no cadastro e nenhuma rota.
+      //
+      // Agora o snapshot é o ATALHO, não a exigência: sem ele, os itens vêm do
+      // plano ATIVO daquele cliente/local na Agenda (a mesma fonte do gerar-dia).
+      // Só depois de as duas portas falharem é que a parada vira aviso.
+      // CASCATA DE 3 FONTES, nesta ordem:
+      //  1) snapshot da parada (rota salva pelo editor/Leitura — o mais fiel);
+      //  2) plano ATIVO da Agenda V2 (a fonte da visita hoje, mesma do gerar-dia);
+      //  3) vínculo ClienteProduto ativo (empresa ainda em modo LEGADO).
+      // Só depois das três é que a parada vira aviso.
+      let itens: EntregaItemCreate[] = Array.isArray(parada.itens) && parada.itens.length
+        ? await resolveSnapshotItens(this.prisma, companyId, parada.itens)
+        : [];
+      if (!itens.length) {
+        const plano = await this.prisma.logisticaPlanoEntrega.findFirst({
+          where: {
+            companyId,
+            customerProfileId,
+            ativo: true,
+            ...(localId ? { localId } : {}),
+          },
+          orderBy: { createdAt: 'asc' },
+          select: { itens: { select: { productId: true, qtd: true, valorUnit: true } } },
+        });
+        itens = (plano?.itens ?? []).map((item) => ({
+          productId: item.productId,
+          qtdPrevista: Math.max(1, Math.trunc(Number(item.qtd) || 1)),
+          valorUnit: Number(item.valorUnit || 0),
+        }));
+      }
+      if (!itens.length) itens = await this.resolveLegacyItens(companyId, customerProfileId);
+      if (!itens.length) {
+        avisos.push(`${cliente.name || 'Um cliente'} está sem itens na Agenda — revise o cadastro.`);
         continue;
       }
-      const itens = await resolveSnapshotItens(this.prisma, companyId, parada.itens);
       const quantidade = itens.reduce((soma, it) => soma + it.qtdPrevista, 0);
       const valor = itens.reduce((soma, it) => soma + it.valorUnit * it.qtdPrevista, 0);
 
@@ -233,6 +301,29 @@ export class LogisticaRotaModeloService {
         this.logger.warn(
           `[logistica] rota-modelo gerar resolvePrincipalContato cliente=${customerProfileId} falhou: ${String(e?.message || e)}`,
         );
+      }
+
+      // Reabrir = a MESMA linha volta pra 'agendada' com os itens de agora e sem
+      // rastro da rota antiga (mesmo contrato do gerarDia ao reabrir cancelada).
+      if (reabrirId) {
+        await this.prisma.entrega.update({
+          where: { id: reabrirId },
+          data: {
+            status: 'agendada',
+            rotaOrdem: null,
+            etaAt: null,
+            startedAt: null,
+            entregadorId: userId,
+            atribuidoPorUserId: userId,
+            atribuidoAt,
+            productId: itens[0]?.productId ?? null,
+            quantidade,
+            valor,
+            itens: { deleteMany: {}, create: itens },
+          },
+        });
+        deliveryIds.push(reabrirId);
+        continue;
       }
 
       const criada = await this.prisma.entrega.create({
@@ -264,6 +355,29 @@ export class LogisticaRotaModeloService {
     return { deliveryIds, avisos };
   }
 
+  /**
+   * 3º degrau da cascata de itens: os vínculos ativos do cliente (o que ele
+   * recebe "de sempre"). Vale pra empresa ainda em modo LEGADO, onde não existe
+   * plano da Agenda. Voltou em 27/07 — tinha sido removida quando o snapshot da
+   * parada virou exigência, e foi justamente essa exigência que deixou a rota
+   * salva pela montagem (sem snapshot) sem NADA pra materializar.
+   */
+  private async resolveLegacyItens(companyId: number, customerProfileId: string): Promise<EntregaItemCreate[]> {
+    const vinculos = await this.prisma.clienteProduto.findMany({
+      where: { companyId, customerProfileId, ativo: true },
+      select: {
+        productId: true,
+        qtdPadrao: true,
+        precoAcordado: true,
+        product: { select: { price: true, priceCents: true } },
+      },
+    });
+    return vinculos.map((v: any) => ({
+      productId: v.productId,
+      qtdPrevista: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+      valorUnit: resolveValorUnit(v),
+    }));
+  }
 }
 
 async function resolveSnapshotItens(

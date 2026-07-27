@@ -483,6 +483,172 @@ export class LogisticaRotaService {
     return { ok: true, resumo };
   }
 
+  // ── DESCARTAR MONTAGEM (27/07) ───────────────────────────────────────────────
+  /**
+   * 🔴 O TOQUE NO DIA NÃO PODE CONSUMIR O DIA (incidente 27/07, company 48).
+   *
+   * Desde que montar virou "1 toque no chip do dia" (sem tela de prévia), o toque
+   * MATERIALIZA a ocorrência no servidor: `generateDay` cria a Entrega com
+   * `agendaOcorrenciaKey = agenda:<plano>:<data de origem>` e empurra a
+   * `proximaData` do plano pra semana seguinte. Sair sem aceitar chamava
+   * `encerrarRota`, que só devolve as abertas pra pendência (zera rotaOrdem/etaAt)
+   * — o avanço do plano FICAVA DE PÉ.
+   *
+   * Medido em produção: numa segunda (27/07) o dono tocou no chip TERÇA, olhou e
+   * fechou. As 7 visitas de terça (28/07) nasceram dentro da segunda e os 7 planos
+   * pularam pra 04/08 — a terça de AMANHÃ ficou vazia por causa de um toque que
+   * ninguém confirmou, sem debitar 1 crédito (a cobrança só nasce no "Aceitar").
+   *
+   * Este método é o desfazer de quem NÃO ACEITOU. Diferente do "Limpar dia" (que
+   * descarta o dia inteiro, ordem do dono 18/07 — e por isso continua PROIBIDO no
+   * caminho de abandono, regra 26/07), aqui o corte é cirúrgico:
+   *
+   *  - Entrega ABERTA que a Agenda materializou (`agendaOcorrenciaKey` presente),
+   *    ainda INTOCADA (status 'agendada', sem `startedAt`, sem comprovante, sem
+   *    cobrança lançada e fora de rota comercial) → 'cancelada', chave solta e
+   *    `proximaData` do plano de volta pra data de origem da chave. O dia volta
+   *    a existir pra quem é dele.
+   *  - Entrega aberta SEM chave (avulsa, manual, "Registrar caminho") ou já
+   *    começada → só perde a ordem, EXATAMENTE como no `encerrarRota`. Trabalho
+   *    de gente não some porque alguém fechou uma montagem.
+   *  - 'entregue'/'cancelada', comprovante, FinanceiroCharge: INTOCADOS.
+   *
+   * IDEMPOTENTE: 2ª chamada não acha mais nada aberto com chave → zeros, sem erro.
+   * O `proximaData: { gt: alvoData }` do restore garante o mesmo na Agenda.
+   */
+  async descartarMontagem(
+    companyId: number,
+    input: EncerrarRotaInput = {},
+    entregadorId?: number,
+  ): Promise<DescartarMontagemResult> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const { start, end, dayISO } = resolveDayRange(input.date);
+    const routeDate = canonicalRouteDate(input.date);
+
+    const resumo = await this.prisma.$transaction(async (tx: any) => {
+      // Mesmo escopo "abertas do dia" do encerrarRota (range do dia + sem-data
+      // abertas). Aqui preciso de mais campos por linha pra separar "o que a
+      // montagem trouxe" de "o que já era da pessoa".
+      const abertas: DescartarMontagemRow[] = await tx.entrega.findMany({
+        where: {
+          companyId,
+          ...(entregadorId ? { entregadorId } : {}),
+          status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+          OR: [
+            { scheduledAt: { gte: start, lte: end } },
+            { scheduledAt: null },
+          ],
+        },
+        select: {
+          id: true,
+          status: true,
+          startedAt: true,
+          cobrancaStatus: true,
+          planoEntregaId: true,
+          agendaOcorrenciaKey: true,
+          comprovanteConfirmadoAt: true,
+          logisticaRouteStop: { select: { id: true } },
+          _count: { select: { comprovantes: true } },
+        },
+      });
+
+      // "Intocada" = nasceu da Agenda nesta montagem e NADA aconteceu com ela.
+      // Qualquer sinal de vida (saiu pra rua, tem foto/assinatura, virou parada
+      // de rota comercial, cobrança já lançada) tira a entrega do descarte.
+      const descartaveis = abertas.filter((row) => (
+        !!row.agendaOcorrenciaKey
+        && row.status === 'agendada'
+        && !row.startedAt
+        && !row.comprovanteConfirmadoAt
+        && !row.logisticaRouteStop
+        && (row._count?.comprovantes ?? 0) === 0
+        && (row.cobrancaStatus === 'pendente' || !row.cobrancaStatus)
+      ));
+      const idsDescarte = descartaveis.map((row) => row.id);
+
+      let descartadas = 0;
+      if (idsDescarte.length) {
+        const canceladas = await tx.entrega.updateMany({
+          // Re-checa status DENTRO da transação (mesma defesa do limparDia):
+          // nunca sobrescreve uma entrega que virou 'entregue' no meio.
+          where: { companyId, id: { in: idsDescarte }, status: 'agendada' },
+          data: {
+            status: 'cancelada',
+            rotaOrdem: null,
+            etaAt: null,
+            startedAt: null,
+            // A chave é ÚNICA por empresa: presa na entrega cancelada, o
+            // `generateDay` acha "já existe" e pula o cliente PARA SEMPRE
+            // (mesma armadilha resolvida no limparDia em 25/07).
+            agendaOcorrenciaKey: null,
+          },
+        });
+        descartadas = canceladas.count;
+      }
+
+      // Devolve o plano pra DATA DE ORIGEM da ocorrência (a que está na chave),
+      // nunca pro dia operacional — escrever uma data fora do `diaSemana` do
+      // plano mata aquele dia pra sempre (fix 26/07, "a sexta que morreu").
+      const planosPorOrigem = new Map<string, Set<string>>();
+      for (const row of descartaveis) {
+        if (!row.planoEntregaId) continue;
+        const origem = sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey);
+        if (!origem) continue;
+        const grupo = planosPorOrigem.get(origem);
+        if (grupo) grupo.add(row.planoEntregaId);
+        else planosPorOrigem.set(origem, new Set([row.planoEntregaId]));
+      }
+      let planosLiberados = 0;
+      for (const [origem, ids] of planosPorOrigem) {
+        const alvoData = saoPauloMidnight(origem);
+        const liberados = await tx.logisticaPlanoEntrega.updateMany({
+          where: { companyId, id: { in: [...ids] }, proximaData: { gt: alvoData } },
+          data: { proximaData: alvoData },
+        });
+        planosLiberados += liberados.count;
+      }
+
+      // O que SOBROU aberto perde só a ordem — contrato do encerrarRota.
+      const descarteSet = new Set(idsDescarte);
+      const idsPendencia = abertas.filter((row) => !descarteSet.has(row.id)).map((row) => row.id);
+      let pendentes = 0;
+      if (idsPendencia.length) {
+        const revertidas = await tx.entrega.updateMany({
+          where: {
+            companyId,
+            id: { in: idsPendencia },
+            status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+          },
+          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null },
+        });
+        pendentes = revertidas.count;
+      }
+
+      // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
+      // encerrarRota): NÃO altera `status` de cobrança, NÃO estorna nada.
+      await tx.logisticaRoute.updateMany({
+        where: {
+          companyId,
+          routeDate,
+          ...(entregadorId ? { entregadorId } : {}),
+          status: { in: ['ACTIVE', 'INITIALIZING'] },
+        },
+        data: { operationalEndedAt: new Date() },
+      });
+
+      return { descartadas, planosLiberados, pendentes };
+    });
+
+    this.logger.log(
+      `[logistica] montagem descartada ${dayISO} company=${companyId}` +
+        (entregadorId ? ` entregador=${entregadorId}` : '') +
+        `: descartadas=${resumo.descartadas} planosLiberados=${resumo.planosLiberados} pendentes=${resumo.pendentes}` +
+        (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
+    );
+
+    return { ok: true, resumo };
+  }
+
   // ── LIMPAR DIA (PR18072026 Onda 1) ───────────────────────────────────────────
   /**
    * "Limpar dia" — decisão do dono (18/07): CANCELA as entregas ABERTAS
@@ -1464,6 +1630,34 @@ export interface EncerrarRotaResumo {
 export interface EncerrarRotaResult {
   ok: true;
   resumo: EncerrarRotaResumo;
+}
+
+// ── DESCARTAR MONTAGEM (27/07) ────────────────────────────────────────────────
+/** Shape mínimo lido por linha aberta ao desfazer uma montagem não aceita. */
+interface DescartarMontagemRow {
+  id: string;
+  status: string;
+  startedAt: Date | null;
+  cobrancaStatus: string | null;
+  planoEntregaId: string | null;
+  agendaOcorrenciaKey: string | null;
+  comprovanteConfirmadoAt: Date | null;
+  logisticaRouteStop: { id: string } | null;
+  _count?: { comprovantes: number };
+}
+
+export interface DescartarMontagemResumo {
+  /** Entregas que a montagem materializou e ninguém tocou — canceladas aqui. */
+  descartadas: number;
+  /** Planos cuja `proximaData` voltou pra data de origem da ocorrência. */
+  planosLiberados: number;
+  /** Abertas que ficaram (avulsa/manual/já iniciada): só perderam a ordem. */
+  pendentes: number;
+}
+
+export interface DescartarMontagemResult {
+  ok: true;
+  resumo: DescartarMontagemResumo;
 }
 
 // ── LIMPAR DIA (PR18072026 Onda 1) ────────────────────────────────────────────

@@ -790,6 +790,27 @@ export class LogisticaController {
   }
 
   /**
+   * 🔴 27/07 — DESFAZER A MONTAGEM DE QUEM NÃO ACEITOU. Fechar o Gerenciador de
+   * Rota sem "Aceitar" chamava `rota/encerrar`, que devolve as abertas pra
+   * pendência mas DEIXA DE PÉ o avanço que a materialização fez na Agenda: o
+   * toque num chip de dia empurra a `proximaData` do plano pra semana seguinte.
+   * Medido em prod: um toque exploratório em TERÇA numa segunda esvaziou a terça
+   * seguinte (7 visitas pularam pra semana que vem) sem debitar 1 crédito.
+   *
+   * Aqui a ocorrência VOLTA (entrega materializada e intocada é cancelada, chave
+   * solta, `proximaData` de volta na data de origem) e o que era da pessoa —
+   * avulsa, manual, já iniciada — só perde a ordem, igual ao encerrar. Mesmo
+   * guard/escopo do `rota/encerrar`, NÃO admin-only.
+   */
+  @Post('rota/descartar-montagem')
+  async descartarMontagem(@Req() req: any, @Body() dto: EncerrarRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const actorWhere = await this.operacao.whereForActor(req.user);
+    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    return this.rota.descartarMontagem(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+  }
+
+  /**
    * PR18072026 Onda 1 — "Limpar dia": CANCELA (não pausa) as entregas ABERTAS
    * do dia, transacional/tudo-ou-nada. Decisão do dono (18/07): diferente de
    * encerrar (que devolve pra pendência), limpar dia é pra descartar o dia

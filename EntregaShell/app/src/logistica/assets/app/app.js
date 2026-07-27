@@ -4950,7 +4950,20 @@
       const customerProfileId = String(parada.customerProfileId || (item && (item.customerProfileId || item.cliente && item.cliente.id)) || "");
       const localId = String(parada.localId || (item && item.localId) || "");
       if (!customerProfileId) return null;
-      return { customerProfileId, ...(localId ? { localId } : {}) };
+      // 27/07 — a rota salva aqui nascia SEM itens e o /gerar não tinha do que
+      // materializar: toda parada virava "rota antiga sem itens" e acionar a
+      // rota salva devolvia erro com rota vazia (dono, rota "Quarta"). O
+      // servidor agora cai no plano da Agenda quando falta, mas mandar a
+      // fotografia do que ESTA rota levava é mais fiel — e é o mesmo contrato
+      // que o editor de rota-modelo já usa (padronizar é IGUALAR).
+      const produtos = (item && Array.isArray(item.itens) ? item.itens : [])
+        .map(it => ({
+          productId: Number(it.produto && it.produto.id || it.produtoId || 0),
+          qtd: Math.max(1, Number(it.qtdPrevista ?? it.qtd ?? 1)),
+          valorUnit: Number(it.valorUnit || 0),
+        }))
+        .filter(it => Number.isInteger(it.productId) && it.productId > 0);
+      return { customerProfileId, ...(localId ? { localId } : {}), ...(produtos.length ? { itens: produtos } : {}) };
     }).filter(Boolean);
   }
   async function montagemSalvarConfirmar() {
@@ -5648,7 +5661,7 @@
   async function desfazerRotaMontada() {
     if (state.desfazendoRota) return;
     state.desfazendoRota = true;
-    try { await performEncerrarRota("Rota desfeita antes da confirmação.", { mensagemToast: "Rota desfeita." }); }
+    try { await performEncerrarRota("Rota desfeita antes da confirmação.", { descartar: true, mensagemToast: "Rota desfeita. Os dias voltaram pra agenda." }); }
     finally { state.desfazendoRota = false; }
   }
   // Ponto único chamado depois de TODO caminho que só PLANEJA (nunca inicia) —
@@ -6214,10 +6227,24 @@
     // salva a ordem de hoje na MESMA ação (fim do segundo popup). Snapshot
     // ANTES da chamada porque depois do encerrar os itens voltam pra "agendada"
     // e perdem a ordem real (entregues por conclusão + abertas por rotaOrdem).
+    // 27/07 — options.descartar: a saída de quem NÃO ACEITOU (fechar a montagem,
+    // "Cancelar rota"). Vai no endpoint que DESFAZ a ocorrência — sem ele o
+    // toque num chip de dia consumia o dia do cliente (a `proximaData` pulava a
+    // semana) mesmo sem confirmar nada. Encerrar de verdade (fim da rota na rua)
+    // continua no /encerrar: lá a visita ACONTECEU, a ocorrência não volta.
     const opts = options || {};
     const snapshot = opts.saveRoute ? items() : null;
     try {
-      const response = await H.api("/logistica/rota/encerrar", { method: "POST", body: { date: operationalDate(), motivo: motivo || "Rota encerrada." } });
+      const body = { date: operationalDate(), motivo: motivo || "Rota encerrada." };
+      // Ponte de transição: app novo pode chegar antes do servidor. 404/405 =
+      // servidor sem o endpoint → cai no encerrar de sempre (comportamento
+      // anterior, sem devolver a ocorrência) em vez de estourar erro na cara.
+      const response = opts.descartar
+        ? await H.api("/logistica/rota/descartar-montagem", { method: "POST", body })
+          .catch(error => (error && (error.status === 404 || error.status === 405)
+            ? H.api("/logistica/rota/encerrar", { method: "POST", body })
+            : Promise.reject(error)))
+        : await H.api("/logistica/rota/encerrar", { method: "POST", body });
       const resumo = (response && response.resumo) || {};
       clearInterval(nextStopTimer);
       state.nextStop = null;
@@ -6257,6 +6284,10 @@
       // Quando vai salvar a ordem, saveTodayRoute dá o toast final (silencioso,
       // pra não empilhar som em cima do route_stop). Senão, resumo do encerrar.
       if (opts.saveRoute && snapshot) await saveTodayRoute(snapshot);
+      // O descarte fala a língua dele: "o dia voltou pra quem é dele" é o que
+      // importa pra quem só olhou e fechou (o resumo de entregues/pendentes é
+      // do encerrar de verdade e aqui seria sempre zero).
+      else if (opts.descartar) toast(opts.mensagemToast || "Rota desfeita. Os dias voltaram pra agenda.");
       else toast(opts.mensagemToast || `Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
     } catch (error) {
       toast(humanApiError(error), true);
@@ -6763,7 +6794,9 @@
         await closeOverlay("modal");
         state.rotaConferencia = null;
       }
-      if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", {});
+      // "Cancelar rota" é a MESMA saída de quem não aceitou (só que pelo botão,
+      // não pelo ×): descarta a montagem e devolve os dias — ver descartar.
+      if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", { descartar: true });
       if (confirmation.type === "finish-route") await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true });
       if (confirmation.type === "limpar-dia") await performLimparDia();
       if (confirmation.type === "sem-atendimento") await performOfflineNotDelivered(items().find(item => item.id === confirmation.itemId));

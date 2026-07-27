@@ -214,6 +214,7 @@ function buildGerarPrisma(
     produtos?: any[];
     entregas?: any[];
     contatos?: any[];
+    planos?: any[];
   } = {},
 ) {
   const modelos = new Map<string, any>((seed.modelos ?? []).map((r) => [r.id, { ...r }]));
@@ -237,7 +238,25 @@ function buildGerarPrisma(
         const row = Array.from(customerProfiles.values()).find(
           (r) => r.id === where.id && r.companyId === where.companyId,
         );
-        return row ? { id: row.id, name: row.name } : null;
+        // 27/07 — o gerar passou a exigir CLIENTE VIVO. Seeds antigos não dizem
+        // status/isCliente: o default aqui é "vivo", que era o mundo que eles
+        // descreviam. Quem quer testar o fantasma semeia status:'deleted'.
+        return row
+          ? { id: row.id, name: row.name, status: row.status ?? 'active', isCliente: row.isCliente ?? true }
+          : null;
+      },
+    },
+    // AGENDA-SEMANAL — 2º degrau da cascata de itens do gerar (o 1º é o snapshot
+    // da parada, o 3º é o vínculo legado). Sem seed = empresa sem plano.
+    logisticaPlanoEntrega: {
+      findFirst: async ({ where }: any) => {
+        const row = (seed.planos ?? []).find((r: any) => (
+          r.companyId === where.companyId
+          && r.customerProfileId === where.customerProfileId
+          && (where.localId === undefined || (r.localId ?? null) === where.localId)
+          && r.ativo === where.ativo
+        ));
+        return row ? { itens: row.itens ?? [] } : null;
       },
     },
     localEntrega: {
@@ -275,6 +294,9 @@ function buildGerarPrisma(
           if (r.companyId !== where.companyId) return false;
           if (r.customerProfileId !== where.customerProfileId) return false;
           if (r.localId !== where.localId) return false;
+          // 27/07 — o gerar procura a ABERTA primeiro (o dia acumula cancelada
+          // de montagem abandonada) e só depois qualquer uma.
+          if (where.status?.in && !where.status.in.includes(r.status ?? 'agendada')) return false;
           const t = new Date(r.scheduledAt).getTime();
           return t >= where.scheduledAt.gte.getTime() && t <= where.scheduledAt.lte.getTime();
         });
@@ -412,7 +434,9 @@ test('gerar: entrega JÁ ENTREGUE do dia → aviso e parada ignorada (não vira 
   assert.match(res.avisos[0], /já foi entregue hoje/);
 });
 
-test('gerar: cliente SEM vínculo ativo → Entrega SEM itens (valor 0)', async () => {
+// CONTRATO MUDOU (27/07): parada sem NENHUMA fonte de item não vira mais uma
+// entrega vazia (parada de R$0, sem produto, que só suja a rota) — vira aviso.
+test('gerar: sem snapshot, sem plano e sem vínculo → aviso, NÃO cria entrega vazia', async () => {
   const { prisma, entregas } = buildGerarPrisma({
     modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
@@ -420,11 +444,74 @@ test('gerar: cliente SEM vínculo ativo → Entrega SEM itens (valor 0)', async 
   const svc = new LogisticaRotaModeloService(prisma);
   const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
 
-  assert.equal(res.deliveryIds.length, 1);
+  assert.deepEqual(res.deliveryIds, []);
+  assert.equal(entregas.size, 0);
+  assert.match(res.avisos[0], /sem itens na Agenda/);
+});
+
+// 🔴 O ERRO QUE O DONO VIU (27/07, rota "Quarta"): o "Salvar rota" da montagem
+// grava a parada SÓ com cliente+local (quem manda no que ele recebe é a Agenda).
+// O gerar exigia snapshot e devolvia rota vazia com um aviso por parada.
+test('gerar: parada SEM snapshot cai no PLANO da Agenda e materializa', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    produtos: [{ id: 9, price: 11, priceCents: null }],
+    planos: [{
+      companyId: COMPANY,
+      customerProfileId: 'c1',
+      localId: null,
+      ativo: true,
+      itens: [{ productId: 9, qtd: 3, valorUnit: 11 }],
+    }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.equal(res.deliveryIds.length, 1, 'a rota salva pela montagem GERA');
+  assert.deepEqual(res.avisos, []);
   const entrega = entregas.get(res.deliveryIds[0])!;
-  assert.equal(entrega.quantidade, 0);
-  assert.equal(entrega.valor, 0);
-  assert.equal(entrega.itens, undefined, 'sem vínculo ativo não manda itens.create');
+  assert.equal(entrega.quantidade, 3);
+  assert.equal(entrega.valor, 33);
+  assert.equal(entrega.itens.create[0].productId, 9);
+});
+
+// 🔴 "Quem é Elaine?" (27/07): 23 perfis nasceram deleted na importação e os
+// planos deles ficaram ativos — a rota mostrava nome que o cadastro não tem.
+test('gerar: cliente fora do cadastro (deleted) → aviso COM O NOME, parada ignorada', async () => {
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Elaine', status: 'deleted', isCliente: false }],
+    produtos: [{ id: 1, price: 7, priceCents: null }],
+    clienteProdutos: [
+      { id: 'cp1', companyId: COMPANY, customerProfileId: 'c1', productId: 1, qtdPadrao: 2, precoAcordado: null, ativo: true, diasSemana: null, proximaData: null },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.deepEqual(res.deliveryIds, []);
+  assert.equal(entregas.size, 0);
+  assert.match(res.avisos[0], /Elaine não está mais no cadastro/);
+});
+
+// O dia acumula cancelada de cada montagem abandonada (560 para 156 clientes num
+// dia só, medido em prod). A ABERTA tem que ganhar — senão a parada morre em
+// "foi retirado de hoje" com a entrega viva do lado.
+test('gerar: com cancelada E aberta no mesmo dia → usa a ABERTA', async () => {
+  const { prisma } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    entregas: [
+      { id: 'e-cancelada', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 8, 0, 0, 0), status: 'cancelada', entregadorId: USER },
+      { id: 'e-aberta', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9, 0, 0, 0), status: 'agendada', entregadorId: USER },
+    ],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.deepEqual(res.deliveryIds, ['e-aberta']);
+  assert.deepEqual(res.avisos, []);
 });
 
 test('gerar: cliente já agendado HOJE (mesmo local) → REUSA o id, não duplica', async () => {
@@ -452,6 +539,10 @@ test('gerar: rodar 2× no MESMO dia é idempotente', async () => {
   const { prisma, entregas } = buildGerarPrisma({
     modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
+    produtos: [{ id: 1, price: 7, priceCents: null }],
+    clienteProdutos: [
+      { id: 'cp1', companyId: COMPANY, customerProfileId: 'c1', productId: 1, qtdPadrao: 1, precoAcordado: null, ativo: true, diasSemana: null, proximaData: null },
+    ],
   });
   const svc = new LogisticaRotaModeloService(prisma);
   const primeira = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
@@ -503,6 +594,11 @@ test('gerar: cliente de OUTRA empresa / excluído → pula com aviso; preserva O
     customerProfiles: [
       { id: 'c1', companyId: COMPANY, name: 'A' },
       { id: 'c2', companyId: COMPANY, name: 'B' },
+    ],
+    produtos: [{ id: 1, price: 7, priceCents: null }],
+    clienteProdutos: [
+      { id: 'cp1', companyId: COMPANY, customerProfileId: 'c1', productId: 1, qtdPadrao: 1, precoAcordado: null, ativo: true, diasSemana: null, proximaData: null },
+      { id: 'cp2', companyId: COMPANY, customerProfileId: 'c2', productId: 1, qtdPadrao: 1, precoAcordado: null, ativo: true, diasSemana: null, proximaData: null },
     ],
   });
   const svc = new LogisticaRotaModeloService(prisma);

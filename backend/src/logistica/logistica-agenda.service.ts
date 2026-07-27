@@ -107,7 +107,8 @@ export class LogisticaAgendaService {
 
     const [plans, routes] = await Promise.all([
       this.prisma.logisticaPlanoEntrega.findMany({
-        where: { companyId },
+        // Cliente morto não conta no chip do dia (ver CLIENTE_VIVO).
+        where: { companyId, customerProfile: CLIENTE_VIVO },
         select: {
           id: true,
           customerProfileId: true,
@@ -190,7 +191,8 @@ export class LogisticaAgendaService {
 
     const [plans, route] = await Promise.all([
       this.prisma.logisticaPlanoEntrega.findMany({
-        where: { companyId, diaSemana: day },
+        // Cliente morto não aparece na tela do dia (ver CLIENTE_VIVO).
+        where: { companyId, diaSemana: day, customerProfile: CLIENTE_VIVO },
         include: planInclude(),
         orderBy: [{ ativo: 'desc' }, { createdAt: 'asc' }],
       }),
@@ -465,7 +467,10 @@ export class LogisticaAgendaService {
     // Só planos ATIVOS entram na conferência — plano pausado não precisa
     // estar na rota salva, então não é divergência ele "faltar" lá.
     const plans = await this.prisma.logisticaPlanoEntrega.findMany({
-      where: { companyId, diaSemana: day, ativo: true },
+      // Cliente morto não é divergência de sequência — ele nem devia estar aqui
+      // (ver CLIENTE_VIVO); sem isto a conferência pediria pra "encaixar na rota"
+      // um nome que não existe no cadastro.
+      where: { companyId, diaSemana: day, ativo: true, customerProfile: CLIENTE_VIVO },
       select: { id: true, customerProfileId: true, localId: true, customerProfile: { select: { name: true, endereco: true, numero: true } } },
     });
     const planosAtuais: SequenciaMatchPlano[] = plans.map((plan) => ({
@@ -1529,7 +1534,9 @@ export class LogisticaAgendaService {
     const date = parseOperationalDate(dateInput);
     const day = isoWeekday(date);
     const plans = await this.prisma.logisticaPlanoEntrega.findMany({
-      where: { companyId, diaSemana: day, ativo: true },
+      // A trava que importa: cliente morto NÃO vira Entrega (ver CLIENTE_VIVO).
+      // Era por aqui que os 7 fantasmas de terça entravam na rota do dono.
+      where: { companyId, diaSemana: day, ativo: true, customerProfile: CLIENTE_VIVO },
       include: planInclude(),
       orderBy: { createdAt: 'asc' },
     });
@@ -1998,6 +2005,28 @@ export class LogisticaAgendaService {
     }
   }
 }
+
+/**
+ * 🔴 CLIENTE MORTO NÃO TEM VISITA (27/07, incidente "quem é Elaine?").
+ *
+ * A importação de lista deixou 23 perfis nascidos `status='deleted'/isCliente=false`
+ * (os duvidosos: "Francine / Edila (?)", "Dona — nome incompleto") — eles NÃO
+ * aparecem em Clientes. Só que o `LogisticaPlanoEntrega` deles ficou `ativo=true`,
+ * e a Agenda filtrava plano só por `ativo` — nunca pelo estado de quem recebe.
+ * Resultado medido em prod (companies 48 E 41, o mesmo lixo espelhado): 19 planos
+ * fantasmas, a TERÇA da empresa 48 com 0 clientes reais e 7 fantasmas, e o chip
+ * anunciando "Terça 7". O dono via na rota um nome que não existe no cadastro.
+ *
+ * Esta é a régua única de "cliente vivo" para TODA leitura de agenda que vira
+ * tela, contagem ou entrega. Aplicada nas consultas de resumo (chip), dia,
+ * conferência de sequência e — a que materializa de verdade — `generateDay`.
+ * NÃO entra nas ações em massa do dia (mover/pausar) nem na ponte do cadastro:
+ * lá o alvo é um plano já escolhido, e esconder linha faria a ação mentir.
+ *
+ * Reativar o cliente devolve a visita sozinho (o plano continua lá, intacto) —
+ * decisão de quem manda no cadastro, nunca do gerador de rota.
+ */
+const CLIENTE_VIVO = { status: 'active', isCliente: true } as const;
 
 function planInclude() {
   return {
