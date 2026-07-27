@@ -25,7 +25,19 @@ import {
   SequenciaMatchPlano,
 } from './logistica-agenda-sequencia.util';
 import { AgendaAlertaJanela, calcularEtas } from './logistica-agenda-eta.util';
-import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
+import {
+  aplicarItemNoPlano,
+  cadenciaDoVinculo,
+  escolherPlanoDoDia,
+  EspelhoVinculoSnapshot,
+  planejarEspelho,
+  removerItemDoPlano,
+} from './logistica-agenda-espelho.util';
+import {
+  carregarVinculoEspelhoSnapshot,
+  parseDateOrNull,
+  resolveValorUnit,
+} from './logistica-recorrencia.service';
 // FUSO (26/07) — a Agenda passou a usar os MESMOS helpers de dia civil de São Paulo
 // que o resto do módulo já usava; ver o bloco "FUSO" no fim deste arquivo.
 import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
@@ -868,6 +880,128 @@ export class LogisticaAgendaService {
     });
 
     return this.getPlanOrThrow(companyId, existing.id);
+  }
+
+  /**
+   * PONTE CADASTRO→AGENDA (26/07) — o combinado do negócio é dia por CLIENTE/
+   * visita; com a V2 ativa, o cadastro que grava dia no vínculo (APK/site,
+   * POST/PATCH/DELETE /logistica/cliente-produtos) ficava invisível pro
+   * generateDay. Este método espelha a mudança do vínculo nos planos:
+   *  - dia que ENTROU → item entra no plano do (cliente, local, dia); sem plano
+   *    compatível → cria (createPlan, com parada no fim da rota do dia).
+   *  - dia que SAIU → item sai do plano; visita que esvaziou → pausa (ativo=false),
+   *    nunca delete.
+   *  - dia MANTIDO → qtd/valor do item são atualizados se divergirem.
+   * Fail-closed: ambiguidade (2+ planos ou 2+ itens do mesmo produto) não chuta —
+   * vira aviso no retorno. NUNCA lança: erro vira aviso (o vínculo já foi salvo;
+   * quebrar a resposta do cadastro deixaria o APK em erro com dado gravado).
+   */
+  async espelharVinculoCadastro(
+    companyId: number,
+    vinculoId: string | null,
+    anterior: EspelhoVinculoSnapshot | null,
+  ): Promise<{ avisos: string[] }> {
+    const avisos: string[] = [];
+    try {
+      this.assertCompany(companyId);
+      if (!(await this.isAgendaV2Active(companyId))) return { avisos };
+      const atual = vinculoId
+        ? await carregarVinculoEspelhoSnapshot(this.prisma, companyId, vinculoId)
+        : null;
+      if (!atual && !anterior) return { avisos };
+
+      const plano = planejarEspelho(anterior, atual);
+      const diaNome = (dia: number) => DAY_NAMES[dia - 1] ?? String(dia);
+
+      const candidatosDoDia = async (snap: EspelhoVinculoSnapshot, dia: number) => {
+        const rows = await this.prisma.logisticaPlanoEntrega.findMany({
+          where: {
+            companyId,
+            customerProfileId: snap.customerProfileId,
+            localId: snap.localId ?? null,
+            diaSemana: dia,
+          },
+          select: {
+            id: true,
+            ativo: true,
+            frequencia: true,
+            intervaloDias: true,
+            proximaData: true,
+            itens: { select: { productId: true, qtd: true, valorUnit: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+        return rows.map((row) => ({
+          id: row.id,
+          ativo: row.ativo,
+          frequencia: row.frequencia,
+          intervaloDias: row.intervaloDias ?? null,
+          proximaData: row.proximaData ?? null,
+          itens: row.itens.map((item) => ({
+            productId: item.productId,
+            qtd: item.qtd,
+            valorUnit: Number(item.valorUnit || 0),
+          })),
+        }));
+      };
+
+      // Dias de onde o item SAI (local/cadência do vínculo ANTERIOR).
+      for (const dia of plano.remover) {
+        if (!anterior) break;
+        try {
+          const escolha = escolherPlanoDoDia(await candidatosDoDia(anterior, dia), cadenciaDoVinculo(anterior));
+          if (escolha.aviso) { avisos.push(`${diaNome(dia)}: ${escolha.aviso}`); continue; }
+          if (!escolha.plano) continue; // nada a remover — dia nunca espelhado
+          const remocao = removerItemDoPlano(escolha.plano.itens, anterior.productId);
+          if (remocao.aviso) { avisos.push(`${diaNome(dia)}: ${remocao.aviso}`); continue; }
+          if (remocao.esvaziou) {
+            if (escolha.plano.ativo) await this.updatePlan(companyId, escolha.plano.id, { ativo: false });
+          } else if (remocao.itens) {
+            await this.updatePlan(companyId, escolha.plano.id, { itens: remocao.itens });
+          }
+        } catch (error: any) {
+          avisos.push(`${diaNome(dia)}: espelho da Agenda falhou (${String(error?.message || error)}).`);
+        }
+      }
+
+      // Dias em que o item ENTRA ou PERMANECE (local/cadência do vínculo ATUAL).
+      if (atual) {
+        const item = { productId: atual.productId, qtd: atual.qtdPadrao, valorUnit: atual.valorUnit };
+        const cadencia = cadenciaDoVinculo(atual);
+        for (const dia of [...plano.adicionar, ...plano.manter]) {
+          try {
+            const escolha = escolherPlanoDoDia(await candidatosDoDia(atual, dia), cadencia);
+            if (escolha.aviso) { avisos.push(`${diaNome(dia)}: ${escolha.aviso}`); continue; }
+            if (escolha.criar) {
+              await this.createPlan(companyId, {
+                customerProfileId: atual.customerProfileId,
+                localId: atual.localId,
+                diaSemana: dia,
+                frequencia: cadencia.frequencia,
+                intervaloDias: cadencia.intervaloDias,
+                proximaData: cadencia.proximaData ? dateKey(cadencia.proximaData) : null,
+                itens: [item],
+              } as any);
+              continue;
+            }
+            if (!escolha.plano) continue;
+            const mescla = aplicarItemNoPlano(escolha.plano.itens, item);
+            if (mescla.aviso) { avisos.push(`${diaNome(dia)}: ${mescla.aviso}`); continue; }
+            if (mescla.itens) {
+              await this.updatePlan(companyId, escolha.plano.id, { itens: mescla.itens, ativo: true });
+            } else if (!escolha.plano.ativo) {
+              await this.updatePlan(companyId, escolha.plano.id, { ativo: true });
+            }
+          } catch (error: any) {
+            avisos.push(`${diaNome(dia)}: espelho da Agenda falhou (${String(error?.message || error)}).`);
+          }
+        }
+      }
+      return { avisos };
+    } catch (error: any) {
+      avisos.push(`Espelho da Agenda falhou (${String(error?.message || error)}).`);
+      return { avisos };
+    }
   }
 
   async reorderDay(companyId: number, dayInput: unknown, input: ReordenarAgendaDiaDto) {

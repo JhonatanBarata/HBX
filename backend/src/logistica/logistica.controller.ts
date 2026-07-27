@@ -566,12 +566,24 @@ export class LogisticaController {
     return this.recorrencia.listByCliente(companyId, customerProfileId, req.user);
   }
 
-  /** Cria um vínculo produto×cliente (qtd padrão, preço acordado, frequência). */
+  /**
+   * Cria um vínculo produto×cliente (qtd padrão, preço acordado, frequência).
+   * PONTE CADASTRO→AGENDA (26/07): com a Agenda V2 ativa o dia é do CLIENTE/
+   * visita (LogisticaPlanoEntrega) — o vínculo com dia é espelhado nos planos,
+   * senão o cliente novo nunca entra no generateDay. `agendaAvisos` (aditivo)
+   * só aparece quando algo não pôde ser espelhado (fail-closed, nunca chuta).
+   */
   @Post('cliente-produtos')
-  createClienteProduto(@Req() req: any, @Body() dto: CreateClienteProdutoDto) {
+  async createClienteProduto(@Req() req: any, @Body() dto: CreateClienteProdutoDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     this.ensureBillingOwner(req.user);
-    return this.recorrencia.create(companyId, dto);
+    const res = await this.recorrencia.create(companyId, dto);
+    // Guard `this.agenda` = mesmo padrão do gerar-dia (testes legados instanciam
+    // o controller sem os providers novos).
+    const espelho = this.agenda
+      ? await this.agenda.espelharVinculoCadastro(companyId, res.id, null)
+      : { avisos: [] as string[] };
+    return espelho.avisos.length ? { ...res, agendaAvisos: espelho.avisos } : res;
   }
 
   /** Edita um vínculo (qtd/preço/frequência/ativo). Company-scoped. */
@@ -579,9 +591,14 @@ export class LogisticaController {
   async updateClienteProduto(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateClienteProdutoDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     this.ensureBillingOwner(req.user);
+    // Snapshot ANTES da mutação — o espelho da Agenda precisa do dia/local antigos.
+    const anterior = this.agenda ? await this.recorrencia.vinculoEspelhoSnapshot(companyId, id) : null;
     const res = await this.recorrencia.update(companyId, id, dto);
     if (!res) throw new NotFoundException('Vínculo não encontrado');
-    return res;
+    const espelho = this.agenda
+      ? await this.agenda.espelharVinculoCadastro(companyId, res.id, anterior)
+      : { avisos: [] as string[] };
+    return espelho.avisos.length ? { ...res, agendaAvisos: espelho.avisos } : res;
   }
 
   /**
@@ -593,9 +610,15 @@ export class LogisticaController {
   async deleteClienteProduto(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     this.ensureBillingOwner(req.user);
+    // PONTE CADASTRO→AGENDA (26/07) — snapshot antes do hard delete: o item sai
+    // dos planos dos dias que o vínculo cobria (visita esvaziada = pausada).
+    const anterior = this.agenda ? await this.recorrencia.vinculoEspelhoSnapshot(companyId, id) : null;
     const ok = await this.recorrencia.remove(companyId, id);
     if (!ok) throw new NotFoundException('Vínculo não encontrado');
-    return { success: true };
+    const espelho = this.agenda
+      ? await this.agenda.espelharVinculoCadastro(companyId, null, anterior)
+      : { avisos: [] as string[] };
+    return espelho.avisos.length ? { success: true, agendaAvisos: espelho.avisos } : { success: true };
   }
 
   /**

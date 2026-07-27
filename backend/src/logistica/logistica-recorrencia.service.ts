@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ActorKindUserLike, isBillingOwnerActor } from '../access/actor-kind';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import { EspelhoVinculoSnapshot } from './logistica-agenda-espelho.util';
 
 // "Cron" caseiro (o repo não usa @nestjs/schedule): varre 1×/dia + 1 passada
 // atrasada no boot. INERTE por default — só toca empresas que ligaram
@@ -245,6 +246,15 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
   /** Liga/desliga o vínculo (atalho do toggle da UI). */
   async toggleAtivo(companyId: number, id: string, ativo: boolean): Promise<ClienteProdutoDTO | null> {
     return this.update(companyId, id, { ativo });
+  }
+
+  /**
+   * PONTE CADASTRO→AGENDA (26/07) — snapshot cru do vínculo ANTES de uma
+   * mutação, pro controller espelhar a diferença nos planos da Agenda V2
+   * (LogisticaAgendaService.espelharVinculoCadastro). Null = não existe.
+   */
+  async vinculoEspelhoSnapshot(companyId: number, id: string): Promise<EspelhoVinculoSnapshot | null> {
+    return carregarVinculoEspelhoSnapshot(this.prisma, companyId, id);
   }
 
   /**
@@ -802,6 +812,49 @@ export function parseDateOrNull(value: string | null | undefined): Date | null {
   }
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+// ── PONTE CADASTRO→AGENDA (26/07) ───────────────────────────────────────────────
+// Snapshot cru do vínculo pro espelho em LogisticaPlanoEntrega (o dia é do
+// CLIENTE/visita, não do produto — ver logistica-agenda-espelho.util.ts).
+// Função de MÓDULO (recebe o prisma) de propósito: o agenda.service já importa
+// funções daqui; injetar serviços um no outro criaria ciclo de DI.
+export async function carregarVinculoEspelhoSnapshot(
+  prisma: { clienteProduto: { findFirst: (args: any) => Promise<any> } },
+  companyId: number,
+  id: string,
+): Promise<EspelhoVinculoSnapshot | null> {
+  if (!companyId || !id) return null;
+  const row = await prisma.clienteProduto.findFirst({
+    where: { id: String(id).trim(), companyId },
+    select: {
+      id: true,
+      customerProfileId: true,
+      localId: true,
+      productId: true,
+      qtdPadrao: true,
+      ativo: true,
+      diasSemana: true,
+      frequenciaDias: true,
+      proximaData: true,
+      precoAcordado: true,
+      product: { select: { price: true, priceCents: true } },
+      customerProfile: { select: { precoPadrao: true } },
+    },
+  });
+  if (!row) return null;
+  return {
+    id: row.id,
+    customerProfileId: row.customerProfileId,
+    localId: row.localId ?? null,
+    productId: row.productId,
+    qtdPadrao: Math.max(1, Math.trunc(Number(row.qtdPadrao) || 1)),
+    ativo: row.ativo !== false,
+    diasSemana: row.diasSemana ?? null,
+    frequenciaDias: row.frequenciaDias ?? null,
+    proximaData: row.proximaData ?? null,
+    valorUnit: resolveValorUnit(row),
+  };
 }
 
 // ── serialização / tipos ────────────────────────────────────────────────────────
