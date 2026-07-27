@@ -277,6 +277,8 @@
   // R6 (27/07) — auto-cura do motor de rotas (retry com backoff, ver syncAutoCuraMotor).
   let motorCuraTimer = null;
   let motorCuraTentativas = 0;
+  // R8 (27/07) — última carga do painel de créditos do dia (throttle 5 min).
+  let creditosDiaCarregadoEm = 0;
   let routeMap = null;
   let routeMapHost = null;
   let routeMapLibraryPromise = null;
@@ -3844,6 +3846,26 @@
     });
   }
 
+  // R8 (27/07) — painel de créditos CONSUMIDOS no dia, no topo da tela Rota.
+  // LEI DO VENDEDOR: só Admin vê valores — entregador comum não tem painel.
+  // Ajustes ganha a opção de REMOVER o painel (nasce desativada = painel
+  // visível). Toque no painel abre o extrato completo ("Consumo e bônus").
+  function creditosPanelOculto() { return H.cache.get("logistica-creditos-panel-oculto", false) === true; }
+  async function loadCreditosDia(force) {
+    if (!isAdmin() || creditosPanelOculto()) return;
+    if (!force && Date.now() - creditosDiaCarregadoEm < 300000) return;
+    try {
+      const s = await H.api("/logistica/creditos/extrato");
+      state.creditosDia = { hoje: Number((s && s.usage && s.usage.hoje) || 0), saldo: Number((s && s.balanceCredits) || 0) };
+      creditosDiaCarregadoEm = Date.now();
+      render();
+    } catch (_) { /* painel é informativo — sem rede, fica com o último valor */ }
+  }
+  function creditosDiaPanel() {
+    if (!isAdmin() || creditosPanelOculto() || !state.creditosDia) return "";
+    const hoje = Number(state.creditosDia.hoje || 0);
+    return `<button type="button" class="creditos-dia" data-action="statement" aria-label="Consumo de créditos de hoje">${icon("wallet", 14)}<span>Hoje: <b>${hoje}</b> crédito${hoje === 1 ? "" : "s"}</span><span class="creditos-dia-saldo">Saldo: <b>${Number(state.creditosDia.saldo || 0)}</b></span></button>`;
+  }
   function routeScreen() {
     if (state.loading) return shell(loading());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
@@ -3865,7 +3887,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
@@ -4030,7 +4052,7 @@
     const cfg = state.config || {}; const modules = H.modules.get();
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${serverRouteActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
       <div class="section-title"><strong>Módulos</strong></div><section class="card flat"><button class="settings-row" data-action="module-toggle" data-module="logistica" role="switch" aria-checked="${modules.logistica}"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Logística</strong></div><span class="module-switch ${modules.logistica ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="route-modelos"><div class="avatar">${icon("route", 18)}</div><div class="settings-copy"><strong>Minhas rotas</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="day-entry-leitura" ${state.leituraStarting ? "disabled" : ""}><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Registrar caminho</strong></div><span>›</span></button><button class="settings-row" data-action="theme" data-hbx-motion><div class="avatar">${icon("moon", 18)}</div><div class="settings-copy"><strong>Tema</strong></div><span>›</span></button>${sonsSettingsRow()}<button class="settings-row" data-action="refresh" data-hbx-motion><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar</strong></div><span>›</span></button><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
   }
 
@@ -5606,6 +5628,8 @@
 
   async function refresh(silent, boot) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
+    // R8 (27/07) — painel de créditos do dia (fire-and-forget, throttle interno).
+    void loadCreditosDia(false);
     const routePath = isAdmin() ? "/logistica/admin-route/route" : "/logistica/rota";
     const productsPath = isAdmin() ? "/products" : "/logistica/produtos";
     const requests = [H.api(`${routePath}?date=${encodeURIComponent(operationalDate())}`), H.api(productsPath), H.api("/logistica/config")];
@@ -6883,6 +6907,8 @@
       // futuro planeje a rota de outra tela.
       if (state.screen !== "route") navigateTo("route");
       if (rc.ordemManual && rc.ordemManual.length) await refresh(true);
+      // R8 (27/07) — o Aceitar é quem debita: o painel do dia atualiza na hora.
+      void loadCreditosDia(true);
       return;
     }
     if (action === "conferencia-mover") {
@@ -7086,6 +7112,8 @@
     if (action === "call-stop" || action === "wa-stop" || action === "confirm-stop") { event.preventDefault(); event.stopPropagation(); const next = openItems()[0]; if (!next) return; if (action === "call-stop") H.call(next.cliente.phone); if (action === "wa-stop") H.whatsapp(next.cliente.phone, `Olá, ${next.cliente.nome || "tudo bem"}? Sua entrega está a caminho.`); if (action === "confirm-stop") confirmDelivery(next); }
     if (action === "confirm" && state.selected) confirmDelivery(state.selected);
     if (action === "statement") { try { state.statement = await H.api("/logistica/creditos/extrato"); showModal("statement"); } catch (error) { toast(humanApiError(error), true); } }
+    // R8 (27/07) — liga/desliga o painel de créditos do dia (nasce LIGADO).
+    if (action === "toggle-creditos-panel") { H.cache.set("logistica-creditos-panel-oculto", !creditosPanelOculto()); if (!creditosPanelOculto()) void loadCreditosDia(true); render(); return; }
     if (action === "open-recarga") { openRecarga(); return; }
     // S7 — "Atualizar" do motorista não tem extrato pra chamar (403 pra ele):
     // dispara um refresh(true) normal, que já busca /logistica/config de novo e
