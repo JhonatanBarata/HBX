@@ -1294,6 +1294,26 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               )}
               {!lead.website && <span className="lc2-badge is-warn">Sem site</span>}
 
+              {/* 27/07, ordem do dono: o funil ENTRA na linha do cabeçalho,
+                  em vez de gastar uma faixa inteira só pra ele. */}
+              <nav className="glass-pill-track lc2-funnel" aria-label="Etapa do lead">
+                <GlassPill {...funnelPill} />
+                {COCKPIT_STAGES.map((item, index) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    ref={funnelPill.itemRef(item.key)}
+                    className={`glass-pill-item lc2-funnel__seg${index < stageIndex ? " is-done" : ""}${item.key === stage ? " is-current" : ""}`}
+                    aria-pressed={item.key === stage}
+                    disabled={stageBusy}
+                    onClick={() => void changeStage(item.key)}
+                  >
+                    <i className="lc2-funnel__dot">{index + 1}</i>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+
               {availableChannels.length > 0 && (
                 <span className="lc2-hero__channels" aria-label="Canais do lead">
                   {availableChannels.map((canal) => {
@@ -1351,25 +1371,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               </div>
             </div>
 
-            {/* Funil: a etapa é DADO do lead e agora mostra o caminho inteiro
-                (feito/atual/futuro) em vez de esconder num select. */}
-            <nav className="glass-pill-track lc2-funnel" aria-label="Etapa do lead">
-              <GlassPill {...funnelPill} />
-              {COCKPIT_STAGES.map((item, index) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  ref={funnelPill.itemRef(item.key)}
-                  className={`glass-pill-item lc2-funnel__seg${index < stageIndex ? " is-done" : ""}${item.key === stage ? " is-current" : ""}`}
-                  aria-pressed={item.key === stage}
-                  disabled={stageBusy}
-                  onClick={() => void changeStage(item.key)}
-                >
-                  <i className="lc2-funnel__dot">{index + 1}</i>
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </nav>
 
             <div className="lc2-tele">
               {/* 27/07, ordem do dono: "resumir MUITA ESCRITA". Cada célula diz
