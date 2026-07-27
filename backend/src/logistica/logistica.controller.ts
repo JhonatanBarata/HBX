@@ -7,8 +7,10 @@ import {
   Logger,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -22,6 +24,7 @@ import { memoryStorage } from 'multer';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MasterGuard } from '../auth/guards/master.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
@@ -66,6 +69,7 @@ import {
   LimparDiaDto,
   PlanejarRotaDto,
   SetAvisarClienteDto,
+  SetLogisticaNivelDto,
   UpdateClienteProdutoDto,
   UpdateDiasClienteDto,
   UpdateFinanceiroClienteDto,
@@ -1103,6 +1107,31 @@ export class LogisticaController {
   updateRouteMode(@Req() req: any, @Body() dto: UpdateLogisticaRouteModeDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.config.updateRouteMode(companyId, dto, req.user);
+  }
+
+  /**
+   * PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full), endereço PRÓPRIO
+   * fora do PATCH genérico (mesmo motivo do modo-rota acima: fechar a porta
+   * por CONTRATO). `companyId` vem do PARÂMETRO da URL (não do JWT) — o Master
+   * não é escopado a uma empresa, ele escolhe QUAL empresa na ficha. Guard de
+   * classe (JwtAuthGuard + ModuleAccessGuard) some pro Master
+   * (isSystemMaster bypassa); MasterGuard aqui barra qualquer não-master.
+   */
+  @Get('master/company/:companyId/nivel')
+  @UseGuards(MasterGuard)
+  getNivel(@Param('companyId', ParseIntPipe) companyId: number) {
+    return this.config.getNivel(companyId);
+  }
+
+  /** PUT do nível: aplica o preset da matriz do plano num gesto só. Ver SetLogisticaNivelDto. */
+  @Put('master/company/:companyId/nivel')
+  @UseGuards(MasterGuard)
+  setNivel(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: SetLogisticaNivelDto,
+  ) {
+    return this.config.setNivel(companyId, dto.nivel, req.user);
   }
 
   // ── S6 PORTAL-PEDIDO — link público de pedido (token opaco) ─────────────────

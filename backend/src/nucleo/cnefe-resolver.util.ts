@@ -460,7 +460,7 @@ export async function resolverCnefe(
 export async function resolverCnefeLote(
   ceps: string[],
   input: CnefeInput,
-  opts?: { queryTimeoutMs?: number },
+  opts?: { queryTimeoutMs?: number; exigirPorta?: boolean },
 ): Promise<{ pino: CnefePino; cep: string } | null> {
   if (!cnefeHabilitado()) return null;
   const alvos = [...new Set((Array.isArray(ceps) ? ceps : []).map(normalizarCep8).filter((c): c is string => !!c))].slice(0, 20);
@@ -503,6 +503,11 @@ export async function resolverCnefeLote(
     // AGRUPADOS. Vizinho vindo de pedaços distantes da mesma rua reprova na dispersão e a
     // resposta é null — é esta trava que substitui o CHUTE de trecho (o dono não paga
     // pino errado pra ganhar estatística).
+    // 27/07 (ordem do dono, depois da auditoria dele) — quem DESCOBRE o CEP pelo
+    // endereço não pode usar vizinho: sem a porta exata no Censo, uma faixa de CEP
+    // errada passa por certa ("nº 1486" ganhando CEP que só atende 1601-2999 ímpar).
+    // Vizinho segue valendo só pra quem JÁ tem o CEP no cadastro (o CEP é a prova).
+    if (opts?.exigirPorta) return null;
     if (!String(input.endereco ?? '').trim()) return null;
     const vizinhos = (await cnefeQuery(
       `SELECT cep, logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ` +

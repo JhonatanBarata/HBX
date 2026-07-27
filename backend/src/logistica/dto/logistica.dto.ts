@@ -676,6 +676,17 @@ export class UpdateLogisticaRouteModeDto {
   modoRotaPadrao?: 'ESSENTIAL' | 'TRACKED';
 }
 
+// ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full) ────────────────────
+// PUT /logistica/master/company/:companyId/nivel. Endereço PRÓPRIO, só Master
+// (MasterGuard no controller — mesmo motivo do modo-rota acima: fechar a porta
+// por CONTRATO). Aplicar grava logisticaNivel E o preset de toggles da matriz
+// do plano (LogisticaConfigService.setNivel) num gesto só — a UI segue livre
+// pra ajustar toggle a toggle depois (preset é atalho, não algema).
+export class SetLogisticaNivelDto {
+  @IsIn(['BASIC', 'ADVANCED', 'FULL'])
+  nivel!: string;
+}
+
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).
 export class SetAvisarClienteDto {
   @IsBoolean()

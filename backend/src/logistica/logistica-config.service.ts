@@ -194,6 +194,18 @@ export class LogisticaConfigService {
     if (changesCommercialConfig && !isBillingOwnerActor(actor)) {
       throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
     }
+    // PR27072026 F1 — teto do nível do plano: lido preguiçoso (só se algum dos
+    // campos gateados abaixo estiver no PATCH) e cacheado nesta chamada — no
+    // máximo 1 SELECT extra mesmo quando os dois campos vêm juntos. Master
+    // bypassa (isSystemMaster) em cada gate; só o tenant fica preso ao teto.
+    let nivelCache: LogisticaNivel | null = null;
+    const nivelDoTenant = async (): Promise<LogisticaNivel> => {
+      if (!nivelCache) {
+        const atual = await this.ensureRow(companyId);
+        nivelCache = storedNivel((atual as any).logisticaNivel);
+      }
+      return nivelCache;
+    };
     if (input.avisoWhatsEnabled !== undefined) data.avisoWhatsEnabled = !!input.avisoWhatsEnabled;
     if (input.templateAviso !== undefined) {
       const t = String(input.templateAviso ?? '').trim();
@@ -204,7 +216,14 @@ export class LogisticaConfigService {
     if (input.velocidadeMediaKmH !== undefined) data.velocidadeMediaKmH = clampInt(input.velocidadeMediaKmH, 1, 200, 25);
     if (input.tempoParadaMin !== undefined) data.tempoParadaMin = clampInt(input.tempoParadaMin, 0, 240, 5);
     if (input.cobrancaNaEntrega !== undefined) data.cobrancaNaEntrega = !!input.cobrancaNaEntrega;
-    if (input.moduloFinanceiroAtivo !== undefined) data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
+    if (input.moduloFinanceiroAtivo !== undefined) {
+      // PR27072026 F1 — GATE de uso: financeiro real é Advanced+ na matriz do
+      // plano. O tenant NUNCA liga por cima do teto do nível (Master pode tudo).
+      if (input.moduloFinanceiroAtivo && !actor?.isSystemMaster && (await nivelDoTenant()) === 'BASIC') {
+        throw new ForbiddenException('Financeiro completo é do plano Advanced.');
+      }
+      data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
+    }
     // PR18072026 W-A — toggles operacionais (não exigem billing owner, mesmo
     // padrão do cobrancaSimples): formas de pagamento aceitas + preço por
     // cliente + cobrança automática (painel Avançado).
@@ -248,7 +267,14 @@ export class LogisticaConfigService {
     // S2 COBRANÇA-WHATS (11/07) — toggle POR TENANT (aviso de cobrança + lembrete
     // de vencimento no zap). Gravar é livre; EFEITO só existe com a flag global
     // HBX_COBRANCA_WHATS_ENABLED ligada (o serviço de aviso checa as duas).
-    if (input.cobrancaWhatsAtiva !== undefined) data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
+    if (input.cobrancaWhatsAtiva !== undefined) {
+      // PR27072026 F1 — mesmo teto acima: cobrança automática por WhatsApp
+      // ("Cobrança automática educada" na matriz) também é Advanced+.
+      if (input.cobrancaWhatsAtiva && !actor?.isSystemMaster && (await nivelDoTenant()) === 'BASIC') {
+        throw new ForbiddenException('Cobrança automática por WhatsApp é do plano Advanced.');
+      }
+      data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
+    }
     // S3 RESUMO-DIÁRIO (11/07) — toggle POR TENANT + hora local (0-23) do resumo
     // do dono no zap. Gravar é livre; EFEITO só com HBX_RESUMO_DIARIO_ENABLED
     // global ligada (o scheduler checa as duas). A marca resumoDiarioUltimoEnvio
@@ -312,6 +338,15 @@ export class LogisticaConfigService {
       if (mode !== 'ESSENTIAL' && mode !== 'TRACKED') {
         throw new BadRequestException('Modo de rota inválido.');
       }
+      // PR27072026 F1 — GATE de uso: Rastreado é exclusivo do plano Full (a
+      // matriz do plano). O tenant NUNCA liga TRACKED por cima do teto do
+      // nível por este caminho (Master pode tudo — isSystemMaster bypassa).
+      if (mode === 'TRACKED' && !actor?.isSystemMaster) {
+        const atual = await this.ensureRow(companyId);
+        if (storedNivel((atual as any).logisticaNivel) !== 'FULL') {
+          throw new ForbiddenException('Rastreamento é do plano Full.');
+        }
+      }
       data.modoRotaPadrao = mode;
     }
     if (!Object.keys(data).length) throw new BadRequestException('Nada para alterar.');
@@ -327,6 +362,37 @@ export class LogisticaConfigService {
     // nos dois modos.
     if (data.trackingAtivo === false) data.modoRotaPadrao = 'ESSENTIAL';
 
+    const cfg = await this.prisma.logisticaConfig.upsert({
+      where: { companyId },
+      update: data,
+      create: { companyId, ...data },
+    });
+    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
+    return serializeConfig(cfg, actor, creditosEsgotados);
+  }
+
+  // ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full), SÓ O MASTER ───────
+  /** Nível gravado (grandfathering resolvido: ausente/sujo → ADVANCED). */
+  async getNivel(companyId: number): Promise<{ nivel: LogisticaNivel }> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cfg = await this.ensureRow(companyId);
+    return { nivel: storedNivel((cfg as any).logisticaNivel) };
+  }
+
+  /**
+   * Aplica o nível: grava `logisticaNivel` E o preset de toggles da matriz do
+   * plano (nivelPresetPatch) NUM SÓ upsert — "escolher já seta" (F1 item 1).
+   * Guard de acesso (MasterGuard) fica no controller; aqui só valida o valor.
+   * Preset é ATALHO, não algema: depois de aplicado, o Master segue ajustando
+   * toggle a toggle pelo updateConfig/updateRouteMode normais.
+   */
+  async setNivel(companyId: number, nivel: string, actor?: ActorKindUserLike): Promise<LogisticaConfigDTO> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const alvo = String(nivel || '').trim().toUpperCase();
+    if (alvo !== 'BASIC' && alvo !== 'ADVANCED' && alvo !== 'FULL') {
+      throw new BadRequestException('Nível inválido — use BASIC, ADVANCED ou FULL.');
+    }
+    const data: Record<string, unknown> = { logisticaNivel: alvo, ...nivelPresetPatch(alvo as LogisticaNivel) };
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
       update: data,
@@ -545,6 +611,10 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // VendasCardComplaint + migration logistica_flags_ligadas, ligada geral).
     // Operacional (todo ator, inclusive motorista) — o APK decide o fluxo.
     rotaConferidaAtiva: !!c.rotaConferidaAtiva,
+    // PR27072026 F1 — nível do plano (Basic/Advanced/Full). OPERACIONAL (todo
+    // ator lê, inclusive motorista/vendedor): o front usa pra acinzentar os
+    // recursos que o nível não cobre ("ver-mas-não-usar" — decisão do dono).
+    logisticaNivel: storedNivel(c.logisticaNivel),
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,
@@ -581,14 +651,73 @@ function storedRouteMode(value: unknown): LogisticaRouteMode {
   return String(value || '').trim().toUpperCase() === 'TRACKED' ? 'TRACKED' : 'ESSENTIAL';
 }
 
+// ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full) ─────────────────────
+export type LogisticaNivel = 'BASIC' | 'ADVANCED' | 'FULL';
+
 /**
- * 3 gates, todos obrigatórios, e qualquer buraco cai em ESSENTIAL (Logística
+ * Nível cru do banco → tipo válido. GRANDFATHERING: ausente/sujo cai em
+ * ADVANCED, NUNCA em BASIC — um valor corrompido/linha antiga (pré-migration)
+ * jamais pode derrubar recurso de quem já usa financeiro real (mesma regra do
+ * default da coluna no schema).
+ */
+function storedNivel(value: unknown): LogisticaNivel {
+  const v = String(value || '').trim().toUpperCase();
+  if (v === 'BASIC' || v === 'FULL') return v;
+  return 'ADVANCED';
+}
+
+/**
+ * A matriz do plano (docs/PLANEJAMENTOS/PR27072026-ROTA-3-NIVEIS.md) em
+ * código: escolher um nível seta o conjunto de toggles que vende aquele plano,
+ * NUM SÓ gesto. Preset é ATALHO, não algema (decisão do dono 27/07) — depois
+ * de aplicado, o Master segue ajustando toggle a toggle pelo PATCH normal de
+ * config; isto aqui só roda na hora de TROCAR o nível.
+ *  - BASIC: financeiro real e cobrança automática OFF (registro de recebimento
+ *    na entrega continua — não passa por moduloFinanceiroAtivo); tracking OFF.
+ *  - ADVANCED: liga o financeiro real (o carro-chefe — "o app cobra por
+ *    você"); tracking segue exclusivo do Full.
+ *  - FULL: tudo ligado, incluindo o modo TRACKED por padrão de rota (F1 item 4).
+ */
+function nivelPresetPatch(nivel: LogisticaNivel): Record<string, unknown> {
+  if (nivel === 'BASIC') {
+    return {
+      moduloFinanceiroAtivo: false,
+      cobrancaWhatsAtiva: false,
+      cobrancaAutomatica: false,
+      trackingAtivo: false,
+      modoRotaPadrao: 'ESSENTIAL',
+    };
+  }
+  if (nivel === 'FULL') {
+    return {
+      moduloFinanceiroAtivo: true,
+      cobrancaWhatsAtiva: true,
+      cobrancaAutomatica: true,
+      trackingAtivo: true,
+      modoRotaPadrao: 'TRACKED',
+    };
+  }
+  return {
+    moduloFinanceiroAtivo: true,
+    trackingAtivo: false,
+    modoRotaPadrao: 'ESSENTIAL',
+  };
+}
+
+/**
+ * 4 gates, todos obrigatórios, e qualquer buraco cai em ESSENTIAL (Logística
  * Simples): flag global `HBX_LOGISTICA_TRACKING_ENABLED` + toggle do tenant
- * `trackingAtivo` + preferência salva `modoRotaPadrao='TRACKED'`. Empresa sem
- * linha de config, com linha nova ou com valor sujo no banco → ESSENTIAL.
+ * `trackingAtivo` + nível do plano `logisticaNivel==='FULL'` (PR27072026 F1) +
+ * preferência salva `modoRotaPadrao='TRACKED'`. Empresa sem linha de config,
+ * com linha nova ou com valor sujo no banco → ESSENTIAL. O gate de nível aqui
+ * é o cinto-e-suspensório: a escrita já é barrada em updateConfig/
+ * updateRouteMode (nível != FULL nunca grava TRACKED por aquele caminho) e o
+ * preset acima já zera trackingAtivo fora do Full — isto cobre o buraco de um
+ * valor histórico/sujo no banco sem nunca lançar erro no "iniciar rota".
  */
 function effectiveRouteMode(c: any): LogisticaRouteMode {
   if (!isLogisticaTrackingEnabled() || !c?.trackingAtivo) return 'ESSENTIAL';
+  if (storedNivel(c?.logisticaNivel) !== 'FULL') return 'ESSENTIAL';
   return storedRouteMode(c?.modoRotaPadrao);
 }
 
@@ -692,4 +821,6 @@ export interface LogisticaConfigDTO {
   // ROTA-CONFERIDA — tela de conferência no APK. Coluna real desde 26/07
   // (migration logistica_flags_ligadas), ligada pra todas as empresas.
   rotaConferidaAtiva: boolean;
+  // PR27072026 F1 — nível do plano (Basic/Advanced/Full); ver serializeConfig.
+  logisticaNivel: LogisticaNivel;
 }

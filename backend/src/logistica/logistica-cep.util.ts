@@ -256,12 +256,35 @@ const TIPO_BAIRRO = new Set([
   'cidade', 'centro', 'do', 'da', 'de', 'dos', 'das', 'e',
 ]);
 
-/** O núcleo do bairro, sem as palavras de tipo: "Jd. Santa Cruz" → ["santa","cruz"]. */
+/** Numeral ROMANO do bairro vira dígito: o Correio escreve "Jardim São Caetano II" e o
+ *  cadastro "Jd. São Caetano 2" — sem isto o bairro nunca casa (caso Eudis, 27/07). */
+const ROMANO: Record<string, string> = {
+  i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9', x: '10',
+};
+
+/** O núcleo do bairro, sem as palavras de tipo: "Jd. Santa Cruz" → ["santa","cruz"];
+ *  "Jardim São Caetano II" → ["sao","caetano","2"]. */
 function nucleoBairro(valor: string | null | undefined): string[] {
   return normalizar(valor)
     .replace(/[.,/\\-]/g, ' ')
     .split(/\s+/)
-    .filter((t) => t.length > 1 && !TIPO_BAIRRO.has(t));
+    .map((t) => ROMANO[t] ?? t)
+    .filter((t) => (t.length > 1 || /^\d$/.test(t)) && !TIPO_BAIRRO.has(t));
+}
+
+/**
+ * O cadastro DIZ um bairro? (coluna própria, ou um trecho do texto que não é a via nem
+ * um número solto). É o que decide se o bairro pode ser EXIGIDO: quem informou bairro
+ * tem direito a que ele mande; quem não informou só tem a rua.
+ */
+export function temBairroNoCadastro(cadastro: EnderecoCadastrado): boolean {
+  if (String(cadastro.bairro ?? '').trim()) return true;
+  const via = logradouroDoCadastro(cadastro.endereco);
+  return String(cadastro.endereco ?? '')
+    .split(/\s*[,;]\s*|\s+[-—–]\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .some((trecho) => trecho !== via && /[a-zà-ú]{3}/i.test(trecho));
 }
 
 const cacheBusca = new Map<string, { valor: ViaCepPayload[]; expiraEm: number }>();
@@ -419,7 +442,14 @@ export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Pr
   // entregador perceber. O bairro vem da coluna OU do texto do endereço (no legado ele
   // mora lá) e a comparação é por NÚCLEO — medido: comparando texto inteiro, "Jd. Santa
   // Cruz" nunca casava com "Jardim Santa Cruz" e o desempate simplesmente não existia.
-  const textoCadastro = ` ${normalizar(`${cadastro.bairro ?? ''} ${cadastro.endereco ?? ''}`)} `;
+  // Os DOIS lados passam pela mesma régua (romano → dígito, pontuação → espaço): o
+  // Correio escreve "São Caetano II" e o cadastro "São Caetano 2" — comparar cru nunca
+  // casa, e foi assim que o Eudis ganhou o CEP do Centro (auditoria do dono, 27/07).
+  const textoCadastro = ` ${normalizar(`${cadastro.bairro ?? ''} ${cadastro.endereco ?? ''}`)
+    .replace(/[.,/\\-]/g, ' ')
+    .split(/\s+/)
+    .map((t) => ROMANO[t] ?? t)
+    .join(' ')} `;
   for (const c of saida) {
     const nucleo = nucleoBairro(c.bairro);
     c.bairroBate = nucleo.length > 0 && nucleo.every((t) => textoCadastro.includes(` ${t} `));

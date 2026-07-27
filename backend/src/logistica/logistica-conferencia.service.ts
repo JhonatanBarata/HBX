@@ -10,6 +10,7 @@ import {
   enderecoSemNumero,
   logradouroDoCadastro,
   normalizarCep,
+  temBairroNoCadastro,
   type CepVeredito,
   type EnderecoCadastrado,
 } from './logistica-cep.util';
@@ -612,29 +613,28 @@ export async function resolverCuraCnefe(
     const pino = await resolverCnefe({ ...base, cep: alvo.cep }, opts);
     return pino ? { pino, cepDescoberto: null } : null;
   }
+  // ── ESCOPO (27/07, ordem do dono, depois da pesquisa dele) ────────────────────
+  // "Não existe entrega sem o endereço certo. Eu queria um sistema que limpasse
+  // errinhos bobos, não que ACHASSE endereço — nem IA adivinha onde o cliente mora."
+  // A auditoria dele provou o estrago da versão anterior: "Avenida 3" virava o CEP da
+  // Avenida 3 do Centro quando o cliente mora na Avenida 3 SCT do São Caetano II; nº
+  // 1486 recebia CEP de faixa que só atende 1601-2999 ímpar. Então, sem CEP no cadastro,
+  // a cura só aceita PROVA, nas três travas abaixo — e "não sei" é resposta legítima:
+  //   1. cadastro COMPLETO (rua + número + bairro). Incompleto não vira endereço válido.
+  //   2. BAIRRO PREDOMINANTE: o trecho tem que bater o bairro do cadastro. A rua é
+  //      AJUDANTE — é o bairro que distingue "Avenida 3" de "Avenida 3 SCT"/"3 PA".
+  //   3. PORTA EXATA no Censo. Nada de vizinho de número: é aí que se inventa endereço,
+  //      e é o que faz uma faixa de CEP errada passar por certa.
+  if (!temBairroNoCadastro({ endereco: alvo.endereco, bairro: alvo.bairro })) return null;
   const ruas = await descobrirCepsPorEndereco({
     endereco: alvo.endereco, bairro: alvo.bairro, cidade: alvo.cidade, uf: alvo.uf,
   });
-  if (!ruas.length) return null;
-  // 1 consulta cobrindo TODOS os trechos da rua (nunca um laço por CEP: com 37 trechos e
+  const comBairro = ruas.filter((r) => r.bairroBate);
+  if (!comBairro.length) return null;
+  // 1 consulta cobrindo os trechos do bairro (nunca um laço por CEP: com 37 trechos e
   // 4s de teto por consulta, a cura morria no orçamento antes de curar alguém).
-  const emLote = await resolverCnefeLote(ruas.map((r) => r.cep), base, opts);
-  if (emLote) return { pino: emLote.pino, cepDescoberto: emLote.cep };
-  // Ambíguo entre trechos (o mesmo número existe em pedaços distantes da rua) ou número
-  // inexistente: tenta trecho a trecho, mas SÓ os que batem o bairro do cadastro — é
-  // aqui que entra o fallback de RUA (vizinho de número) do CNEFE, que precisa de um CEP
-  // sozinho. Sem nenhum bairro batendo, uma única tentativa no primeiro: chutar trecho de
-  // rua comprida é exatamente como se erra o pino sem ninguém perceber.
-  const tentativas = ruas.filter((r) => r.bairroBate).slice(0, 3);
-  for (const rua of tentativas.length ? tentativas : ruas.slice(0, 1)) {
-    const pino = await resolverCnefe({ ...base, cep: rua.cep }, opts);
-    if (pino) return { pino, cepDescoberto: rua.cep };
-  }
-  // Nenhum CEP achou a porta. Se a rua é ÚNICA (um CEP só, cidade e via provadas), o
-  // CEP dela é FATO — vale gravar: o cadastro para de nascer capenga e a checagem
-  // CEP × endereço passa a ter o que conferir. Rua com vários trechos, não: sem a
-  // porta não dá pra saber qual trecho é o dela, e CEP errado é pior que vazio.
-  return ruas.length === 1 ? { pino: null, cepDescoberto: ruas[0].cep } : null;
+  const emLote = await resolverCnefeLote(comBairro.map((r) => r.cep), base, { ...opts, exigirPorta: true });
+  return emLote ? { pino: emLote.pino, cepDescoberto: emLote.cep } : null;
 }
 
 /**

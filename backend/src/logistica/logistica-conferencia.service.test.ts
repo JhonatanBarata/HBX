@@ -433,7 +433,7 @@ test('cura CNEFE: sem_pino com CEP+número vira pino gravado (fonte cnefe) e a p
  * sempre; agora o CEP se descobre pela rua (ViaCEP busca reversa), o CNEFE prova a porta
  * e o CEP descoberto AINDA é gravado no cadastro — o furo some, não volta na próxima rota.
  */
-test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA o CEP no cadastro', async () => {
+test('cura sem CEP: só com bairro CONFIRMADO e porta exata — o resto fica pendente (ordem do dono 27/07)', async () => {
   const ROWS_SEM_CEP = [
     {
       id: 's1',
@@ -444,12 +444,11 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
       local: null,
       customerProfile: {
         name: 'Dona Sem Cep', lat: null, lng: null, geoFonte: null,
-        cep: null, endereco: 'Rua das Flores', numero: '350', bairro: null, cidade: 'Pinhal', uf: 'SP',
+        cep: null, endereco: 'Rua das Flores, 350 - Jd. Aurora II', numero: '350', bairro: null, cidade: 'Pinhal', uf: 'SP',
       },
     },
     {
-      // Rua de OUTRA cidade na resposta do ViaCEP não pode virar CEP deste cadastro:
-      // sem cidade no cadastro não há busca nenhuma (fail-closed).
+      // Sem cidade no cadastro não há busca nenhuma (fail-closed antes da rede).
       id: 's2',
       status: 'agendada',
       rotaOrdem: null,
@@ -458,7 +457,35 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
       local: null,
       customerProfile: {
         name: 'Sem Cidade', lat: null, lng: null, geoFonte: null,
-        cep: null, endereco: 'Rua das Flores', numero: '12', bairro: null, cidade: null, uf: 'SP',
+        cep: null, endereco: 'Rua das Flores, 12 - Centro', numero: '12', bairro: null, cidade: null, uf: 'SP',
+      },
+    },
+    {
+      // CASO EUDIS (auditoria do dono, 27/07): a rua existe e o número existe, mas em
+      // OUTRO bairro. Antes isto virava CEP do Centro num cliente do São Caetano II.
+      // Bairro é predominante: não bateu, não cura — nem CEP, nem pino.
+      id: 's3',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-s3',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Eudis', lat: null, lng: null, geoFonte: null,
+        cep: null, endereco: 'Rua das Flores, 350 - Jd. Sao Caetano II', numero: '350', bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+    },
+    {
+      // Cadastro SEM bairro: incompleto não vira endereço validado (ordem do dono).
+      id: 's4',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-s4',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Sem Bairro', lat: null, lng: null, geoFonte: null,
+        cep: null, endereco: 'Rua das Flores', numero: '350', bairro: null, cidade: 'Pinhal', uf: 'SP',
       },
     },
   ];
@@ -492,8 +519,9 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
       ok: true,
       json: async () => [
         // Cidade DIFERENTE — tem que ser descartada mesmo vindo do ViaCEP.
-        { cep: '13400-000', logradouro: 'Rua das Flores', localidade: 'Piracicaba', uf: 'SP' },
-        { cep: '13990-100', logradouro: 'Rua das Flores', localidade: 'Pinhal', uf: 'SP' },
+        { cep: '13400-000', logradouro: 'Rua das Flores', bairro: 'Jardim Aurora II', localidade: 'Piracicaba', uf: 'SP' },
+        { cep: '13990-100', logradouro: 'Rua das Flores', bairro: 'Jardim Aurora II', localidade: 'Pinhal', uf: 'SP' },
+        { cep: '13990-777', logradouro: 'Rua das Flores', bairro: 'Zona Central', localidade: 'Pinhal', uf: 'SP' },
       ],
     };
   }) as any;
@@ -504,11 +532,17 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
     const resultado = await service.conferir(41, { date: '2026-07-27' });
 
     const s1 = resultado.paradas.find((p) => p.id === 's1')!;
-    assert.ok(!s1.motivos.includes('sem_pino'), 'endereço perfeito sem CEP CURA — era o bug');
+    assert.ok(!s1.motivos.includes('sem_pino'), 'bairro do cadastro bate o do CEP + porta exata → CURA');
     assert.equal(s1.lat, -22.415);
 
     const s2 = resultado.paradas.find((p) => p.id === 's2')!;
     assert.ok(s2.motivos.includes('sem_pino'), 'sem cidade não há busca de rua — pendência honesta fica');
+
+    const s3 = resultado.paradas.find((p) => p.id === 's3')!;
+    assert.ok(s3.motivos.includes('sem_pino'), 'CASO EUDIS: bairro não bate → NÃO inventa CEP de outro bairro');
+
+    const s4 = resultado.paradas.find((p) => p.id === 's4')!;
+    assert.ok(s4.motivos.includes('sem_pino'), 'cadastro sem bairro é incompleto — não vira endereço validado');
 
     const cepGravado = gravadas.find((g) => g.data.cep);
     assert.ok(cepGravado, 'o CEP descoberto entra no cadastro (o furo some de vez)');
@@ -520,8 +554,9 @@ test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA 
     assert.equal(pinoGravado!.where.id, 'cli-s1');
     assert.equal(pinoGravado!.where.lat, null, 'nunca sobrescreve pino existente');
 
-    assert.equal(consultasCnefe.filter((q) => q.includes('cnefe_endereco')).length, 1, 'UMA consulta cobre todos os trechos da rua (nunca um laço por CEP)');
-    assert.equal(urlsChamadas.length, 1, 's2 nem consulta (fail-closed antes da rede)');
+    assert.equal(consultasCnefe.filter((q) => q.includes('cnefe_endereco')).length, 1, 'UMA consulta cobre os trechos do bairro (nunca um laço por CEP)');
+    assert.ok(!consultasCnefe.some((q) => q.includes('ORDER BY ABS(numero')), 'sem CEP no cadastro NUNCA usa vizinho de número — é aí que se inventa endereço');
+    assert.equal(urlsChamadas.length, 2, 's2 nem consulta; s1/s3/s4 compartilham a busca por rua (cache)');
     assert.ok(urlsChamadas[0].includes('/SP/'), `busca por rua, não por CEP: ${urlsChamadas[0]}`);
   } finally {
     globalThis.fetch = originalFetch;
