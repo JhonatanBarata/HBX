@@ -420,13 +420,16 @@
   function orderedItems() { return items().map((item, index) => ({ item, index, order: storedRouteOrder(item) })).sort((a, b) => a.order === null && b.order === null ? a.index - b.index : a.order === null ? 1 : b.order === null ? -1 : a.order - b.order).map(row => row.item); }
   function openItems() { return orderedItems().filter(item => item.status === "agendada" || item.status === "em_rota"); }
   // Uma rota continua pronta quando já existem paradas ordenadas, mesmo que
-  // uma entrega nova ainda esteja sem ordem. Também continua pronta após um
-  // encerramento operacional com paradas abertas: o backend permite iniciar a
-  // segunda leva no mesmo dia e replaneja essas paradas. Nesses dois casos,
-  // "Montar rota" fica como ação lateral para adicionar e replanejar.
+  // uma entrega nova ainda esteja sem ordem. R10 26/07 — o atalho "ENCERRADA
+  // com abertas também é pronta" (2ª leva, 17/07) MORREU: o encerrar zera a
+  // ordem de TODAS as abertas no backend, então "cancelei o planejamento" e
+  // "encerrei no meio da rua" chegam aqui IGUAIS — e o atalho pintava
+  // "Iniciar" pra uma rota que não existe mais (dono: "após cancelar ele não
+  // limpa"). Sair de novo no mesmo dia continua: montar de novo (1 toque) e o
+  // claim por dia dos créditos garante que não recobra.
   function routePlanned() {
     const open = openItems();
-    return open.length > 0 && (open.some(item => storedRouteOrder(item) !== null) || state.route.routeStatus === "ENCERRADA");
+    return open.length > 0 && open.some(item => storedRouteOrder(item) !== null);
   }
   function deliveredItems() { return items().filter(item => item.status === "entregue"); }
   function isAdmin() { return !!state.config && Object.prototype.hasOwnProperty.call(state.config, "modoRotaPadrao"); }
