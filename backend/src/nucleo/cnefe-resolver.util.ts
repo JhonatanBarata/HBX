@@ -331,7 +331,7 @@ function comTimeout<T>(promessa: Promise<T>, ms: number, rotulo: string): Promis
 const CNEFE_CONNECT_TIMEOUT_MS = 15000;
 let conexaoCnefe: Promise<void> | null = null;
 
-async function cnefeQuery(sql: string, params: unknown[]): Promise<any[]> {
+async function cnefeQuery(sql: string, params: unknown[], timeoutMs = CNEFE_QUERY_TIMEOUT_MS): Promise<any[]> {
   if (queryOverride) return queryOverride(sql, params);
   if (Date.now() < indisponivelAte) throw new Error('cnefe em cooldown');
   const url = cnefeDatabaseUrl();
@@ -342,13 +342,20 @@ async function cnefeQuery(sql: string, params: unknown[]): Promise<any[]> {
   try {
     if (!conexaoCnefe) conexaoCnefe = clienteCnefe.$connect();
     await comTimeout(conexaoCnefe, CNEFE_CONNECT_TIMEOUT_MS, 'cnefe connect timeout');
-    return (await comTimeout(clienteCnefe.$queryRawUnsafe(sql, ...params), CNEFE_QUERY_TIMEOUT_MS, 'cnefe timeout')) as any[];
+    return (await comTimeout(clienteCnefe.$queryRawUnsafe(sql, ...params), timeoutMs, 'cnefe timeout')) as any[];
   } catch (e) {
-    indisponivelAte = Date.now() + CNEFE_FALHA_COOLDOWN_MS;
-    conexaoCnefe = null; // connect quebrado não pode ficar cacheado como "em voo"
-    // 27/07 (incidente company 48) — falha de banco era 100% muda e a cura sumia sem
-    // rastro. UMA linha por entrada em cooldown: dá pra ver no `docker logs` na hora.
-    console.warn(`[cnefe] base indisponível (cooldown ${CNEFE_FALHA_COOLDOWN_MS / 1000}s): ${String((e as any)?.message || e)}`);
+    const msg = String((e as any)?.message || e);
+    // 27/07 (2º incidente company 48, 14:30) — timeout de UMA consulta (cache frio de
+    // disco pós-deploy no índice de 23M linhas) NÃO é banco quebrado: a mesma consulta
+    // sai quente logo depois. Cooldown de 60s só pra falha de conexão/banco; envenenar
+    // o resolver inteiro por 1 consulta lenta matou a cura na cara do dono ("0 de 1").
+    if (msg !== 'cnefe timeout') {
+      indisponivelAte = Date.now() + CNEFE_FALHA_COOLDOWN_MS;
+      conexaoCnefe = null; // connect quebrado não pode ficar cacheado como "em voo"
+      console.warn(`[cnefe] base indisponível (cooldown ${CNEFE_FALHA_COOLDOWN_MS / 1000}s): ${msg}`);
+    } else {
+      console.warn(`[cnefe] consulta estourou ${timeoutMs}ms (sem cooldown — próxima sai quente): ${msg}`);
+    }
     throw e;
   }
 }
@@ -378,12 +385,16 @@ async function marcarUfPendente(uf: string): Promise<void> {
  * qualquer dúvida/falha/UF-sem-carga devolve null e o chamador segue o caminho de
  * sempre (Nominatim/pendência).
  */
-export async function resolverCnefe(input: CnefeInput): Promise<CnefePino | null> {
+export async function resolverCnefe(
+  input: CnefeInput,
+  opts?: { queryTimeoutMs?: number },
+): Promise<CnefePino | null> {
   if (!cnefeHabilitado()) return null;
   const cep = normalizarCep8(input.cep);
   const numero = extrairNumeroPorta({ numero: input.numero == null ? null : String(input.numero), endereco: input.endereco });
   if (!cep || !numero) return null;
   if (!queryOverride && !cnefeDatabaseUrl()) return null;
+  const timeoutMs = opts?.queryTimeoutMs ?? CNEFE_QUERY_TIMEOUT_MS;
 
   try {
     const uf = String(input.uf ?? '').trim().toUpperCase();
@@ -399,6 +410,7 @@ export async function resolverCnefe(input: CnefeInput): Promise<CnefePino | null
       'SELECT logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ' +
         'WHERE cep = $1 AND numero = $2 AND lat IS NOT NULL AND lng IS NOT NULL LIMIT 200',
       [cep, numero],
+      timeoutMs,
     )) as CnefeRow[];
     const pinoPorta = escolherPinoPorta(porta, input);
     if (pinoPorta) return pinoPorta;
@@ -410,10 +422,33 @@ export async function resolverCnefe(input: CnefeInput): Promise<CnefePino | null
         'WHERE cep = $1 AND numero IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL ' +
         'ORDER BY ABS(numero - $2) ASC LIMIT 40',
       [cep, numero],
+      timeoutMs,
     )) as CnefeRow[];
     return escolherPinoRua(rua, numero, input);
   } catch {
     // banco fora/cooldown/URL inválida — silêncio (o Nominatim continua cobrindo).
     return null;
+  }
+}
+
+/**
+ * Aquecimento pós-deploy (27/07, 2º incidente company 48): a PRIMEIRA consulta depois
+ * do boot paga cache frio de disco no índice de 23M linhas e estourava o teto
+ * interativo — a cura da conferência morria com "0 de N" na cara do usuário. Chamado
+ * no boot do módulo da conferência (fire-and-forget): conecta e toca cnefe_uf + o
+ * índice (cep, numero) com teto folgado. Falha aqui é silêncio — é só aquecimento.
+ */
+export async function aquecerCnefe(): Promise<void> {
+  if (!cnefeHabilitado()) return;
+  if (!queryOverride && !cnefeDatabaseUrl()) return;
+  try {
+    await cnefeQuery('SELECT status FROM cnefe_uf LIMIT 1', [], 30000);
+    await cnefeQuery(
+      'SELECT 1 FROM cnefe_endereco WHERE cep = $1 AND numero = $2 LIMIT 1',
+      ['01001000', 1],
+      30000,
+    );
+  } catch {
+    // best-effort: sem base/banco fora, o caminho normal segue cobrindo.
   }
 }

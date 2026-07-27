@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaConfigService } from './logistica-config.service';
@@ -11,7 +11,7 @@ import {
   type CepVeredito,
   type EnderecoCadastrado,
 } from './logistica-cep.util';
-import { extrairNumeroPorta, resolverCnefe, type CnefePino } from '../nucleo/cnefe-resolver.util';
+import { aquecerCnefe, extrairNumeroPorta, resolverCnefe, type CnefePino } from '../nucleo/cnefe-resolver.util';
 import {
   haversineKm,
   planRouteByRoads,
@@ -54,8 +54,14 @@ const STATUS_ABERTO = ['agendada', 'em_rota'] as const;
  * o motor automático escolheria hoje.
  */
 @Injectable()
-export class LogisticaConferenciaService {
+export class LogisticaConferenciaService implements OnModuleInit {
   private readonly logger = new Logger(LogisticaConferenciaService.name);
+
+  /** 27/07 (2º incidente company 48) — aquece a base CNEFE no boot: a 1ª consulta
+   *  pós-deploy pagava disco frio, estourava o teto e a cura morria "0 de N". */
+  onModuleInit(): void {
+    void aquecerCnefe();
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -260,7 +266,7 @@ export class LogisticaConferenciaService {
           numero: dono.alvo.numero,
           endereco: dono.alvo.endereco,
           uf: dono.alvo.uf,
-        });
+        }, { queryTimeoutMs: 10000 });
         if (!pino) continue;
         const gravou = await this.gravarPinoCnefe(companyId, dono.alvo, dono.linhas[0], pino);
         if (!gravou) continue;
@@ -420,8 +426,12 @@ export class LogisticaConferenciaService {
 
 // ── R9: cura de pino via CNEFE (helpers puros, testáveis isolados) ─────────────
 
-/** Orçamento total da cura numa conferência — estourou, o resto fica pra próxima. */
-const CNEFE_CURA_ORCAMENTO_MS = 4000;
+/** Orçamento total da cura numa conferência — estourou, o resto fica pra próxima.
+ *  27/07 (2º incidente company 48): 4s morria na 1ª consulta fria pós-deploy e o dono
+ *  via "0 de 1" na tela. Gerar rota PODE pagar alguns segundos pra sanear a base
+ *  (palavra do dono, 27/07: "na hora de gerar a rota, rodar essa sanitização era
+ *  aceitável") — o que não pode é ficar sem pino por pressa. */
+const CNEFE_CURA_ORCAMENTO_MS = 12000;
 /** Teto de donos consultados por conferência (defesa contra base gigante toda sem pino). */
 const CNEFE_CURA_TETO = 150;
 
