@@ -255,6 +255,10 @@
   let ignoredClientClickId = null;
   let clientProductHold = null;
   let ignoredClientProductClickId = null;
+  // Dias que a ficha já conheceu, por cliente (ver lembrarDiasDoCliente).
+  const clientDiasMemo = new Map(Object.entries(H.cache.get("logistica-client-dias", {}) || {}));
+  // Um timer por vínculo: a seta ↑↓ pinta na hora e só grava depois da pausa.
+  const clientProductQtyTimers = new Map();
   let routeStopHold = null;
   let rmeParadaHold = null;
   let rmeItemHold = null;
@@ -2584,7 +2588,28 @@
     const fromProducts = (state.clientProducts || [])
       .filter(item => item && item.ativo !== false)
       .flatMap(item => String(item.diasSemana || "").split(",").map(Number));
+    // Os chips seguem SÓ o dado real (card + vínculos) — nunca a memória do
+    // card, senão um dia tirado no PC voltaria sozinho na ficha.
     return Array.from(new Set([...fromCard, ...fromProducts].map(Number).filter(day => day >= 1 && day <= 7))).sort((a, b) => a - b);
+  }
+  // 27/07 (dono) — o CARD do cliente mostrava MENOS dia que a ficha: o servidor
+  // manda no card só os dias do PLANO, e o cliente que recebe SEG e TER aparecia
+  // como "Entrega SEG". Aqui o app guarda, por cliente, os dias que a ficha já
+  // conheceu (união card+vínculos, e o que foi salvo nos chips) — o card mostra a
+  // UNIÃO disso com o servidor, então card e chips falam a mesma língua.
+  function lembrarDiasDoCliente(clientId, dias) {
+    const id = String(clientId || "");
+    if (!id) return;
+    const lista = [...new Set((dias || []).map(Number).filter(day => day >= 1 && day <= 7))].sort((a, b) => a - b);
+    const atual = clientDiasMemo.get(id) || [];
+    if (atual.length === lista.length && atual.every((day, index) => day === lista[index])) return;
+    if (lista.length) clientDiasMemo.set(id, lista); else clientDiasMemo.delete(id);
+    H.cache.set("logistica-client-dias", Object.fromEntries(clientDiasMemo));
+  }
+  function clientCardDays(client) {
+    const doServidor = Array.isArray(client && client.diasEntrega) ? client.diasEntrega : [];
+    const lembrados = clientDiasMemo.get(String((client && client.id) || "")) || [];
+    return [...new Set([...doServidor, ...lembrados].map(Number).filter(day => day >= 1 && day <= 7))].sort((a, b) => a - b);
   }
   async function loadClientProducts() {
     const client = state.modalClient;
@@ -2597,6 +2622,7 @@
       // versão autoritativa (união card+vínculos); não pisa no que o usuário
       // já tocou nesta sessão. O original serve pro save saber se mudou.
       const diasReais = clientKnownDays(state.modalClient);
+      lembrarDiasDoCliente(state.modalClient && state.modalClient.id, diasReais);
       state.clientDaysOriginal = diasReais;
       if (!state.clientDaysTouched) state.clientProductDays = diasReais;
     } catch (error) { state.clientProducts = []; state.clientProductsError = humanApiError(error); }
@@ -2713,10 +2739,10 @@
     else await H.api(`/nucleo/clientes/${encodeURIComponent(client.id)}/telefones`, { method: "POST", body: { nome: client.nome || client.name || phone, whatsapp: phone, phone, isPrincipal: true } });
   }
   function editClientProduct(item) {
-    const days = String(item.diasSemana || "").split(",").map(Number).filter(day => day >= 1 && day <= 7);
     state.clientProductFormOpen = true;
     state.clientProductEditingId = item.id;
-    state.clientProductDays = days;
+    // 27/07 — produto NÃO tem dia: abrir um produto não pode reescrever os dias
+    // do CLIENTE (antes, editar um vínculo de TER apagava o SEG dos chips).
     // 27/07 — produto não tem tipo: editar QUALQUER vínculo (até legado "a cada N
     // dias") abre no modo único; salvar converte pros dias do cliente.
     state.clientProductMode = "weekly";
@@ -4316,7 +4342,17 @@
       // 27/07 (ordem do dono, 3ª cobrança) — produto NÃO tem tipo nem dia: todo vínculo
       // segue os dias do CLIENTE. Avulsa = fluxo próprio; "Por data" morreu do form.
       const modeContent = `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>`;
-      const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => `<button type="button" class="row-card ${state.clientProductEditingId === item.id ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="card-main"><strong>${H.escape(item.produto && item.produto.nome || "Produto")}</strong><span>${Number(item.qtdPadrao || 1)} por entrega · ${H.escape(recurrenceLabel(item))}${item.precoAcordado != null ? ` · ${H.money(item.precoAcordado)}` : ""}</span></div><span>${state.clientProductEditingId === item.id ? "Selecionado" : "Editar"}</span></button>`).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
+      // 27/07 (ordem do dono) — o produto salvo é SÓ produto + quantidade: dia
+      // saiu daqui (o dia é do CLIENTE, chips do Cadastro) e a quantidade se
+      // corrige na própria linha com a seta ↑↓, igual à Chegada. A linha virou
+      // <div> porque agora tem botão dentro (button aninhado é inválido); o
+      // toque no resto da linha continua abrindo o editor e o toque longo
+      // continua excluindo.
+      const linked = state.clientProductsLoading ? `<div class="empty">Carregando produtos já salvos…</div>` : state.clientProductsError ? `<div class="empty">${H.escape(state.clientProductsError)}</div>` : state.clientProducts.length ? `<div class="list client-product-list">${state.clientProducts.map(item => {
+        const selecionado = state.clientProductEditingId === item.id;
+        const qtd = Math.max(1, Number(item.qtdPadrao || 1));
+        return `<div class="row-card client-product-row ${selecionado ? "selected" : ""}" data-client-product-id="${H.escape(item.id)}"><div class="chegada-stepper"><button type="button" class="chegada-seta" data-action="client-product-qty" data-client-product="${H.escape(item.id)}" data-delta="1" aria-label="Aumentar quantidade">${icon("chevronUp", 22)}</button><button type="button" class="chegada-seta" data-action="client-product-qty" data-client-product="${H.escape(item.id)}" data-delta="-1" aria-label="Diminuir quantidade">${icon("chevronDown", 22)}</button></div><b class="chegada-qtd client-product-qtd">${qtd}</b><span class="client-product-nome">${H.escape(item.produto && item.produto.nome || "Produto")}</span>${item.precoAcordado != null ? `<span class="client-product-preco">${H.money(item.precoAcordado)}</span>` : ""}<span class="client-product-editar">${selecionado ? "Selecionado" : "Editar"}</span></div>`;
+      }).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = state.clientProductEditingId ? "Salvar alterações" : "Salvar produto";
       const formOpen = !!state.clientProductFormOpen;
       const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${configFlag("precoPorClienteAtivo") || (state.clientProductEditingId && String(draft.precoAcordado || "").trim() !== "") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit">${submitLabel}</button></form>` : "";
@@ -4889,11 +4925,15 @@
     if (rc) {
       const pendentes = conferenciaVermelhasPendentes(rc);
       const rows = rc.data ? (rc.data.paradas || []).map((parada, index) => conferenciaParadaRow(parada, index, rc)).join("") : "";
+      // 27/07 (ordem do dono) — havendo vermelho, o caminho é a correção EM MASSA
+      // (mesmo botão da moldura standalone da conferência).
+      const vermelhasMontagem = rc.data ? Number(rc.data.vermelhas) || 0 : 0;
+      const sanitizarBtnMontagem = vermelhasMontagem > 0 ? `<button type="button" class="btn btn-secondary btn-block conferencia-sanitizar" data-action="sanitizador-abrir" ${rc.loading ? "disabled" : ""}>Corrigir em massa (${vermelhasMontagem})</button>` : "";
       corpo = rc.error && !rc.data
         ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(rc.error)}</div><button class="btn btn-secondary btn-block" type="button" data-action="conferencia-tentar-de-novo">Tentar de novo</button>`
         : !rc.data
           ? loading()
-          : `${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
+          : `${custoPreviewBanner(rc)}${sanitizarBtnMontagem}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
       // 27/07 (dono) — mexeu na sequência com as setas ▲▼, aparece "Salvar rota":
       // a ordem que ele alinhou na mão vira rota-modelo (Rotas salvas) COM O NOME
       // QUE ELE ESCOLHER. Só aparece depois da 1ª troca (rc.ordemManual só existe
@@ -5016,7 +5056,7 @@
     return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">☆</div><h2 id="day-saved-title">Rotas salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Registre um caminho para salvar a primeira.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   function clientScheduleLine(client) {
-    const days = (client.diasEntrega || []).map(Number).filter(Boolean);
+    const days = clientCardDays(client);
     const delivery = days.length ? `Entrega ${weekDays.filter(day => days.includes(day.n)).map(day => day.label).join("/")}` : "";
     const payment = client.formaPagamento === "mensal" && client.diaFechamento ? `Pagamento dia ${client.diaFechamento}` : "";
     return [delivery, payment].filter(Boolean).join(" · ");
@@ -5505,18 +5545,13 @@
   async function abrirSanitizador() {
     const rc = state.rotaConferencia;
     if (!rc || !rc.data || state.sanitizador) return;
-    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, semDados: [], curados: 0, naoEncontrado: [], restantes: 0, carregando: true, erro: null, abortar: false };
+    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, curaveis: [], semDados: [], curados: 0, naoEncontrado: [], restantes: 0, carregando: true, erro: null, abortar: false };
     render();
     try {
       const s = state.sanitizador;
       const placar = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { ...(s.date ? { date: s.date } : {}) } });
       if (!state.sanitizador) return;
-      Object.assign(state.sanitizador, {
-        alvos: Number(placar.alvos) || 0,
-        restantes: Number(placar.restantes) || 0,
-        semDados: Array.isArray(placar.semDados) ? placar.semDados : [],
-        carregando: false,
-      });
+      aplicarPlacarSanitizador(placar);
     } catch (error) {
       if (!state.sanitizador) return;
       state.sanitizador.carregando = false;
@@ -5524,9 +5559,18 @@
     }
     render();
   }
+  function aplicarPlacarSanitizador(placar) {
+    const s = state.sanitizador;
+    if (!s) return;
+    s.alvos = Number(placar.alvos) || 0;
+    s.restantes = s.alvos;
+    s.curaveis = Array.isArray(placar.curaveis) ? placar.curaveis.filter(c => c && c.id) : [];
+    s.semDados = Array.isArray(placar.semDados) ? placar.semDados.filter(c => c && c.id) : [];
+    s.carregando = false;
+  }
   async function executarSanitizador() {
     const s = state.sanitizador;
-    if (!s || s.fase === "rodando" || s.carregando) return;
+    if (!s || s.fase === "rodando" || s.carregando || !s.curaveis.length) return;
     s.fase = "rodando";
     s.erro = null;
     render();
@@ -5537,11 +5581,14 @@
         if (!state.sanitizador || state.sanitizador.abortar) return;
         s.curados += Number(res.curados) || 0;
         s.restantes = Number(res.restantes) || 0;
-        (Array.isArray(res.naoEncontrado) ? res.naoEncontrado : []).forEach(nome => { if (!s.naoEncontrado.includes(nome)) s.naoEncontrado.push(nome); });
-        if (Array.isArray(res.semDados)) s.semDados = res.semDados;
+        (Array.isArray(res.naoEncontrado) ? res.naoEncontrado : []).forEach(c => { if (c && c.id && !s.naoEncontrado.some(x => x.id === c.id)) s.naoEncontrado.push(c); });
         render();
         if (s.restantes <= 0 || (Number(res.processados) || 0) === 0) break;
       }
+      // Lista final honesta: curado SAI da lista (placar novo), recusado fica.
+      const placar = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { ...(s.date ? { date: s.date } : {}) } });
+      if (!state.sanitizador || state.sanitizador.abortar) return;
+      aplicarPlacarSanitizador(placar);
       s.fase = "fim";
       render();
       // Reconfere JÁ: fechar o pop-up devolve a lista pintada com a verdade nova.
@@ -5553,31 +5600,35 @@
     }
     render();
   }
+  // Linha Cliente → problema (Lei 8: dado, não frase). Toque abre a ficha real.
+  function sanitizadorClienteRow(c, problema) {
+    const nome = c.nome || "Cliente";
+    return `<div class="row-card rp2-order-row"><button type="button" class="card-main card-main-btn" data-action="sanitizador-cliente" data-client-id="${H.escape(c.id)}" data-client-nome="${H.escape(nome)}"><strong>${H.escape(nome)}</strong><span>${problema}</span></button></div>`;
+  }
   function sanitizadorModal() {
     const s = state.sanitizador;
     const feitos = Math.max(0, s.alvos - s.restantes);
     const pct = s.alvos > 0 ? Math.round((feitos / s.alvos) * 100) : 0;
-    const fila = [];
-    if (s.naoEncontrado.length) fila.push(`<div class="hbx-aviso hbx-aviso--warn">Não achei pelo CEP — toque no cliente na lista para completar: ${H.escape(s.naoEncontrado.join(", "))}</div>`);
-    if (s.semDados.length) fila.push(`<div class="hbx-aviso hbx-aviso--danger">Sem CEP e número no cadastro: ${H.escape(s.semDados.join(", "))}</div>`);
-    let corpo;
-    if (s.carregando) corpo = loading();
-    else if (s.fase === "rodando") corpo = `<p class="day-home-sub">Corrigindo pela base oficial… ${feitos} de ${s.alvos}</p><div class="app-update-progress"><i style="width:${pct}%"></i></div>${fila.join("")}`;
-    else if (s.fase === "fim") corpo = `<div class="hbx-aviso hbx-aviso--ok">${s.curados} endereço(s) corrigido(s) sozinho(s).</div>${fila.join("")}`;
-    else corpo = `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}<p class="day-home-sub">${s.alvos} endereço(s) com CEP e número: o sanitizador corrige sozinho pela base oficial.</p>${fila.join("")}`;
+    const jaListado = new Set(s.naoEncontrado.map(c => c.id));
+    const linhas = [
+      ...s.curaveis.filter(c => !jaListado.has(c.id)).map(c => sanitizadorClienteRow(c, "Sem localização")),
+      ...s.naoEncontrado.map(c => sanitizadorClienteRow(c, "CEP não achou a rua")),
+      ...s.semDados.map(c => sanitizadorClienteRow(c, "Sem CEP e número")),
+    ].join("");
+    const corpo = s.carregando ? loading() : `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}${s.fase === "rodando" ? `<div class="app-update-progress"><i style="width:${pct}%"></i></div>` : ""}${s.fase === "fim" && s.curados > 0 ? `<div class="hbx-aviso hbx-aviso--ok">${s.curados} corrigido(s)</div>` : ""}<div class="list conferencia-lista">${linhas || empty("Tudo certo", "")}</div>`;
     return centerModal({
       icon: "map",
-      title: "Correção em massa",
-      resumo: s.fase === "fim" ? "Pronto" : "Sanitizador de endereços",
+      title: "Sanitizador",
+      resumo: s.fase === "rodando" ? `${feitos} de ${s.alvos}` : "",
       body: corpo,
       closeAction: "sanitizador-fechar",
       closeButtonAction: "sanitizador-fechar",
       backAction: "sanitizador-fechar",
       backLabel: s.fase === "fim" ? "Concluir" : "Fechar",
       backGlyph: "×",
-      nextAction: s.fase === "placar" && !s.carregando && s.alvos > 0 ? "sanitizador-executar" : "",
-      nextLabel: "Ativar sanitizador",
-      nextDisabled: s.fase !== "placar" || s.carregando || s.alvos <= 0,
+      nextAction: s.fase === "placar" && !s.carregando && s.curaveis.length ? "sanitizador-executar" : "",
+      nextLabel: `Sanitizar (${s.curaveis.length})`,
+      nextDisabled: s.fase !== "placar" || s.carregando || !s.curaveis.length,
     });
   }
   function conferenciaListaStep(rc) {
@@ -5707,6 +5758,12 @@
       // da rota não carrega mais o "ciente" pendurado pra sempre.
       const vermelhasAtuais = new Set((result.paradas || []).filter(p => p.semaforo === "vermelho").map(p => String(p.id)));
       rc.acknowledged = new Set([...rc.acknowledged].filter(id => vermelhasAtuais.has(id)));
+      // 27/07 (dono): conferência chegou com problema → o sanitizador JÁ ABRE
+      // sozinho (1x por conferência; fechar não reabre até a próxima montagem).
+      if (!rc.sanitizadorOferecido && (Number(result.vermelhas) || 0) > 0 && !state.sanitizador) {
+        rc.sanitizadorOferecido = true;
+        void abrirSanitizador();
+      }
     } catch (error) {
       rc.error = humanApiError(error);
     } finally {
@@ -6943,6 +7000,30 @@
       state.clientProductFormOpen = true; render();
     }
     if (action === "close-client-product-form") { resetClientProductEditor(); state.clientProductFormOpen = false; render(); }
+    // Seta ↑↓ da quantidade no produto já salvo: pinta na hora e grava depois de
+    // meio segundo parado (toque repetido não vira uma chamada por toque).
+    if (action === "client-product-qty") {
+      const vinculoId = target.dataset.clientProduct;
+      const item = (state.clientProducts || []).find(product => String(product.id) === String(vinculoId));
+      if (!item) return;
+      const atual = Math.max(1, Number(item.qtdPadrao || 1));
+      const nova = Math.max(1, atual + Number(target.dataset.delta || 0));
+      if (nova === atual) return;
+      item.qtdPadrao = nova;
+      if (state.clientProductEditingId === item.id) state.clientProductDraft.qtdPadrao = String(nova);
+      render();
+      clearTimeout(clientProductQtyTimers.get(String(vinculoId)));
+      clientProductQtyTimers.set(String(vinculoId), setTimeout(async () => {
+        clientProductQtyTimers.delete(String(vinculoId));
+        try {
+          await H.api(`/logistica/cliente-produtos/${encodeURIComponent(vinculoId)}`, { method: "PATCH", body: { qtdPadrao: nova } });
+        } catch (error) {
+          toast(humanApiError(error), true);
+          await loadClientProducts();
+        }
+      }, 500));
+      return;
+    }
     if (action === "call-client" && state.modalClient) H.call(state.clientDetail && state.clientDetail.whatsapp || state.modalClient.phone || state.modalClient.phoneNormalized || state.modalClient.whatsapp);
     if (action === "whatsapp-client" && state.modalClient) { const client = state.modalClient; H.whatsapp(state.clientDetail && state.clientDetail.whatsapp || client.whatsapp || client.phone || client.phoneNormalized, `Olá, ${client.nome || client.name || "tudo bem"}?`); }
     // PR20072026 (feedback dono) — completar DDD do número salvo sem DDD.
@@ -7133,6 +7214,18 @@
     if (action === "sanitizador-abrir") { await abrirSanitizador(); return; }
     if (action === "sanitizador-executar") { await executarSanitizador(); return; }
     if (action === "sanitizador-fechar") { fecharSanitizador(); render(); return; }
+    if (action === "sanitizador-cliente") {
+      const rc = state.rotaConferencia;
+      const clientId = String(target.dataset.clientId || "");
+      if (!clientId) return;
+      const nome = String(target.dataset.clientNome || "Cliente");
+      // Mesmo retorno da parada: fechar o editor volta pra conferência.
+      const parada = rc && rc.data && (rc.data.paradas || []).find(p => String(p.customerProfileId) === clientId);
+      if (rc && parada) rc.retornoParadaId = String(parada.id);
+      fecharSanitizador();
+      openClientEditor({ id: clientId, nome, name: nome });
+      return;
+    }
     // S5 25/07 — "Recalcular" do popup de drift de origem (ver
     // avisarDriftOrigemAprovada): a ordem aprovada não faz mais sentido
     // geográfico daqui, descarta e replaneja do zero com o GPS atual; flag ON
@@ -7506,7 +7599,9 @@
       clientHold = hold;
     }
     const productCard = event.target.closest("[data-client-product-id]");
-    if (productCard && event.touches.length === 1) {
+    // Seta ↑↓ da quantidade não arma o toque-longo de excluir (o botão vive
+    // DENTRO da linha desde 27/07).
+    if (productCard && event.touches.length === 1 && !event.target.closest("button")) {
       const touch = event.touches[0]; const hold = { id: productCard.dataset.clientProductId, el: productCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
       // Mesmo padrão do clientHold: arma is-hold-arming na hora do touchstart
       // (vermelho progressivo); só aos 950ms vira is-holding + vibra. Ao soltar
@@ -7841,6 +7936,9 @@
     const lista = [...new Set((dias || []).map(Number).filter(d => d >= 1 && d <= 7))].sort((a, b) => a - b);
     try {
       await H.api(`/logistica/clientes/${encodeURIComponent(customerProfileId)}/dias`, { method: "PATCH", body: { dias: lista } });
+      // O card lê os dias do PLANO; o que acabou de ser salvo fica lembrado aqui
+      // pro card mostrar TODOS os dias do cliente já na volta pra lista.
+      lembrarDiasDoCliente(customerProfileId, lista);
       return;
     } catch (error) {
       // PONTE DE TRANSIÇÃO (27/07): o celular atualiza antes do servidor. Enquanto
@@ -7856,6 +7954,7 @@
       for (const id of ids) {
         await H.api(`/logistica/cliente-produtos/${encodeURIComponent(id)}`, { method: "PATCH", body: { diasSemana: lista.join(",") } });
       }
+      lembrarDiasDoCliente(customerProfileId, lista);
     }
   }
   async function persistClientProduct(customerProfileId, values) {

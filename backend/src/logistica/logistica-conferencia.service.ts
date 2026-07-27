@@ -324,9 +324,10 @@ export class LogisticaConferenciaService implements OnModuleInit {
     entregadorId?: number,
   ): Promise<{
     alvos: number;
-    semDados: string[];
+    curaveis: Array<{ id: string; nome: string }>;
+    semDados: Array<{ id: string; nome: string }>;
     curados: number;
-    naoEncontrado: string[];
+    naoEncontrado: Array<{ id: string; nome: string }>;
     processados: number;
     restantes: number;
   }> {
@@ -336,24 +337,27 @@ export class LogisticaConferenciaService implements OnModuleInit {
 
     const nomeDe = (r: ParadaConferenciaRow): string =>
       r.local?.apelido ?? r.customerProfile?.name ?? 'Cliente';
-    const semDados: string[] = [];
+    // O app lista Cliente → problema e o toque abre a FICHA: cada item vai com o
+    // customerProfileId, nunca só o nome.
+    const semDadosMap = new Map<string, string>();
     const porDono = new Map<string, { alvo: AlvoCuraCnefe; row: ParadaConferenciaRow }>();
     for (const r of rows) {
       const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
       if (coord.lat != null && coord.lng != null) continue; // tem pino — fora do sanitizador
       const alvo = alvoCuraCnefe(r);
       if (!alvo) {
-        semDados.push(nomeDe(r));
+        semDadosMap.set(r.customerProfileId, nomeDe(r));
         continue;
       }
       const chave = alvo.tipo === 'local' ? `l:${r.localId}` : `p:${r.customerProfileId}`;
       if (!porDono.has(chave)) porDono.set(chave, { alvo, row: r });
     }
     const donos = [...porDono.values()];
-    const semDadosUnicos = [...new Set(semDados)];
+    const semDados = [...semDadosMap].map(([id, nome]) => ({ id, nome }));
+    const curaveis = donos.map((d) => ({ id: d.row.customerProfileId, nome: nomeDe(d.row) }));
 
     if (input.executar !== true) {
-      return { alvos: donos.length, semDados: semDadosUnicos, curados: 0, naoEncontrado: [], processados: 0, restantes: donos.length };
+      return { alvos: donos.length, curaveis, semDados, curados: 0, naoEncontrado: [], processados: 0, restantes: donos.length };
     }
 
     // Lote e teto POR CHAMADA — o app repete até zerar; nunca uma chamada eterna.
@@ -361,7 +365,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
     const fim = Date.now() + 15000;
     let curados = 0;
     let processados = 0;
-    const naoEncontrado: string[] = [];
+    const naoEncontrado: Array<{ id: string; nome: string }> = [];
     for (const dono of donos) {
       if (processados >= LOTE || Date.now() >= fim) break;
       processados += 1;
@@ -372,19 +376,20 @@ export class LogisticaConferenciaService implements OnModuleInit {
         uf: dono.alvo.uf,
       });
       if (!pino) {
-        naoEncontrado.push(nomeDe(dono.row));
+        naoEncontrado.push({ id: dono.row.customerProfileId, nome: nomeDe(dono.row) });
         continue;
       }
       const gravou = await this.gravarPinoCnefe(companyId, dono.alvo, dono.row, pino);
       if (gravou) curados += 1;
-      else naoEncontrado.push(nomeDe(dono.row));
+      else naoEncontrado.push({ id: dono.row.customerProfileId, nome: nomeDe(dono.row) });
     }
     this.logger.log(
       `[logistica] sanitizador company=${companyId}: ${curados} curado(s) de ${processados} processado(s), ${donos.length - processados} na fila.`,
     );
     return {
       alvos: donos.length,
-      semDados: semDadosUnicos,
+      curaveis,
+      semDados,
       curados,
       naoEncontrado,
       processados,
