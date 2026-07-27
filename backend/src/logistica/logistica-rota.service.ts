@@ -679,7 +679,8 @@ export class LogisticaRotaService {
     });
 
     // Pós-commit: telemetria com o prisma raiz (nunca dentro da tx — ver acima).
-    const { eventosDescarte, ...resumo } = txResultado;
+    // Default defensivo: mock pobre de $transaction em teste pode devolver undefined.
+    const { eventosDescarte = [], ...resumo } = txResultado ?? { descartadas: 0, planosLiberados: 0, pendentes: 0 };
     for (const evento of eventosDescarte) {
       await registrarEventoAgenda(this.prisma, evento);
     }

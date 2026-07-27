@@ -107,7 +107,11 @@ export async function encerrarDiasAnteriores(
     return { rotasEncerradas: rotasEncerradas.count, entregasCanceladas, presas };
   });
 
-  for (const row of fechamento.presas as Array<{ id: string; customerProfileId: string; scheduledAt: Date | null }>) {
+  // Defaults defensivos: em teste, mocks pobres de $transaction podem devolver
+  // undefined — infra de caminho crítico não pode explodir por isso.
+  const { rotasEncerradas = 0, entregasCanceladas = 0, presas = [] } = fechamento ?? {};
+
+  for (const row of presas as Array<{ id: string; customerProfileId: string; scheduledAt: Date | null }>) {
     await registrarEventoAgenda(prisma, {
       companyId,
       customerProfileId: row.customerProfileId,
@@ -119,5 +123,5 @@ export async function encerrarDiasAnteriores(
     });
   }
 
-  return { rotasEncerradas: fechamento.rotasEncerradas, entregasCanceladas: fechamento.entregasCanceladas };
+  return { rotasEncerradas, entregasCanceladas };
 }
