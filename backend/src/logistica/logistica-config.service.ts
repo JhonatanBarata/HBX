@@ -338,15 +338,6 @@ export class LogisticaConfigService {
       if (mode !== 'ESSENTIAL' && mode !== 'TRACKED') {
         throw new BadRequestException('Modo de rota inválido.');
       }
-      // PR27072026 F1 — GATE de uso: Rastreado é exclusivo do plano Full (a
-      // matriz do plano). O tenant NUNCA liga TRACKED por cima do teto do
-      // nível por este caminho (Master pode tudo — isSystemMaster bypassa).
-      if (mode === 'TRACKED' && !actor?.isSystemMaster) {
-        const atual = await this.ensureRow(companyId);
-        if (storedNivel((atual as any).logisticaNivel) !== 'FULL') {
-          throw new ForbiddenException('Rastreamento é do plano Full.');
-        }
-      }
       data.modoRotaPadrao = mode;
     }
     if (!Object.keys(data).length) throw new BadRequestException('Nada para alterar.');
@@ -361,6 +352,20 @@ export class LogisticaConfigService {
     // guarda o modo congelado na própria LogisticaRoute e continua sendo lida
     // nos dois modos.
     if (data.trackingAtivo === false) data.modoRotaPadrao = 'ESSENTIAL';
+
+    // PR27072026 F1 — GATE de uso, no valor FINAL (depois da desarma acima):
+    // Rastreado é exclusivo do plano Full. Checar aqui (não no `mode` bruto do
+    // input) importa pro PATCH "contraditório" (trackingAtivo:false +
+    // modoRotaPadrao:'TRACKED' no mesmo corpo) continuar resolvendo em
+    // ESSENTIAL sem erro — a desarma já neutralizou o pedido, não sobrou
+    // TRACKED pra recusar. O tenant NUNCA liga TRACKED por cima do teto do
+    // nível por este caminho (Master pode tudo — isSystemMaster bypassa).
+    if (data.modoRotaPadrao === 'TRACKED' && !actor?.isSystemMaster) {
+      const atual = await this.ensureRow(companyId);
+      if (storedNivel((atual as any).logisticaNivel) !== 'FULL') {
+        throw new ForbiddenException('Rastreamento é do plano Full.');
+      }
+    }
 
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },

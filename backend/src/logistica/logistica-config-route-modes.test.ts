@@ -100,7 +100,10 @@ test('HBX_LOGISTICA_TRACKING_ENABLED nasce OFF e aceita somente valores booleano
 });
 
 test('resolveRouteMode exige flag global, toggle do tenant e preferência TRACKED', async () => {
-  const tracked = setup(row({ trackingAtivo: true, modoRotaPadrao: 'TRACKED' })).service;
+  // PR27072026 F1 — TRACKED também exige nível FULL agora; logisticaNivel:
+  // 'FULL' aqui isola o teste no que ele testa de verdade (flag + toggle +
+  // preferência), sem o 4º gate (nível) interferir no resultado esperado.
+  const tracked = setup(row({ trackingAtivo: true, modoRotaPadrao: 'TRACKED', logisticaNivel: 'FULL' })).service;
   await withTrackingFlag(undefined, async () => assert.equal(await tracked.resolveRouteMode(7), 'ESSENTIAL'));
   await withTrackingFlag('true', async () => assert.equal(await tracked.resolveRouteMode(7), 'TRACKED'));
 
@@ -156,7 +159,9 @@ test('GET não-billing preserva operação e omite chaves administrativas/financ
 });
 
 test('PATCH comercial é company-scoped e preserva a preferência mesmo com flag OFF', async () => {
-  const { service, upsertCalls } = setup(row({ trackingAtivo: false, modoRotaPadrao: 'ESSENTIAL' }));
+  // PR27072026 F1 — logisticaNivel: 'FULL' isola este teste no que ele testa
+  // (a preferência sobrevive com a flag global OFF), sem o gate de nível barrar.
+  const { service, upsertCalls } = setup(row({ trackingAtivo: false, modoRotaPadrao: 'ESSENTIAL', logisticaNivel: 'FULL' }));
   await withTrackingFlag(undefined, async () => {
     const config = await service.updateRouteMode(7, { trackingAtivo: true, modoRotaPadrao: 'TRACKED' }, OWNER);
     assert.deepEqual(upsertCalls[0].where, { companyId: 7 });

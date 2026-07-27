@@ -78,7 +78,12 @@ export async function encerrarDiasAnteriores(
         comprovantes: { none: {} },
         AND: [
           { OR: [{ agendaOcorrenciaKey: { not: null } }, { rotaModeloId: { not: null } }] },
-          { OR: [{ cobrancaStatus: 'pendente' }, { cobrancaStatus: null }] },
+          // 27/07 — `cobrancaStatus` é `String @default("pendente")`, NÃO é nullable:
+          // o ramo `null` fazia o Prisma recusar a query inteira ("Argument
+          // `cobrancaStatus` is missing") e derrubava o fechamento — que roda no começo
+          // de TODO prepare/start. Efeito na cara do dono: montar rota parava de
+          // funcionar (400 INVALID_INPUT). Linha legada não existe: o default cobre.
+          { cobrancaStatus: 'pendente' },
           stopLivreWhere(hojeISO),
         ],
       },
