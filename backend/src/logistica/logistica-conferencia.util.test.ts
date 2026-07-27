@@ -161,11 +161,27 @@ test(`perna_outlier: acima do piso E acima de ${FATOR_PERNA_OUTLIER}× a mediana
     base({ id: 'p1', ...P1, legDistanceM: 500 }),
     base({ id: 'p2', ...P2, legDistanceM: 500 }),
     base({ id: 'p3', ...P3, legDistanceM: 500 }),
-    base({ id: 'longe', ...P4, legDistanceM: 2500 }), // > piso (2000) e > 3×mediana (1500)
+    // 27/07 (recalibração company 48): > piso (2500) e > 5×mediana (2500).
+    base({ id: 'longe', ...P4, legDistanceM: 2600 }),
   ];
   const [longe] = conferirParadas(paradas, { engine: 'osrm' }).filter((r) => r.id === 'longe');
   assert.equal(longe.semaforo, 'vermelho');
   assert.ok(longe.motivos.includes('perna_outlier'));
+});
+
+// 27/07 (incidente company 48, caso "Vânia") — a PRIMEIRA parada carrega a perna da
+// ORIGEM (casa do motorista → começo da rota): 5,5 km de casa não é anomalia de pino.
+test('perna_outlier: a PRIMEIRA parada nunca pinta (perna da origem não é anomalia)', () => {
+  const paradas = [
+    base({ id: 'primeira', ...P1, legDistanceM: 9000 }),
+    base({ id: 'p2', ...P2, legDistanceM: 400 }),
+    base({ id: 'p3', ...P3, legDistanceM: 500 }),
+    base({ id: 'p4', ...P4, legDistanceM: 600 }),
+    base({ id: 'longe', ...P4, legDistanceM: 9000 }),
+  ];
+  const resultado = conferirParadas(paradas, { engine: 'osrm' });
+  assert.ok(!resultado.find((p) => p.id === 'primeira')!.motivos.includes('perna_outlier'), 'perna da origem é deslocamento, não anomalia');
+  assert.ok(resultado.find((p) => p.id === 'longe')!.motivos.includes('perna_outlier'), 'perna anômala NO MEIO da rota continua acusando');
 });
 
 // ── INFORMATIVOS (26/07): apurados, guardados em motivos[], mas NÃO pintam ───────

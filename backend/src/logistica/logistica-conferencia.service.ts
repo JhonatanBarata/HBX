@@ -438,14 +438,23 @@ export interface AlvoCuraCnefe {
 export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
   if (coord.lat != null && coord.lng != null) return null;
-  const localTemEndereco = Boolean(r.local && r.localId && temEnderecoUtil(r.local));
-  const tipo: 'local' | 'perfil' = localTemEndereco ? 'local' : 'perfil';
-  const cad = localTemEndereco ? r.local : r.customerProfile;
-  if (!cad) return null;
-  const cep = normalizarCep(cad.cep);
-  const numero = extrairNumeroPorta(cad);
-  if (!cep || !numero) return null;
-  return { tipo, cep, numero, endereco: cad.endereco ?? null, uf: cad.uf ?? null };
+  // 27/07 (incidente company 48) — o alvo é QUEM TEM CEP+número: local primeiro
+  // (a porta é dele), senão o PERFIL. Antes, local com endereço mas SEM CEP
+  // travava a cura mesmo com o perfil completinho do lado (28 sem_pino no dia e
+  // só 2 candidatos). Fonte segue INTEIRA: cep/número/endereço/UF sempre do
+  // mesmo dono, e o pino é gravado nesse mesmo dono — zero Frankenstein.
+  const candidatos: Array<{ tipo: 'local' | 'perfil'; cad: ParadaConferenciaRow['local'] | ParadaConferenciaRow['customerProfile'] }> = [
+    ...(r.local && r.localId ? [{ tipo: 'local' as const, cad: r.local }] : []),
+    ...(r.customerProfile ? [{ tipo: 'perfil' as const, cad: r.customerProfile }] : []),
+  ];
+  for (const { tipo, cad } of candidatos) {
+    if (!cad) continue;
+    const cep = normalizarCep(cad.cep);
+    const numero = extrairNumeroPorta(cad);
+    if (!cep || !numero) continue;
+    return { tipo, cep, numero, endereco: cad.endereco ?? null, uf: cad.uf ?? null };
+  }
+  return null;
 }
 
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —

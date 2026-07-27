@@ -316,6 +316,21 @@ export function __setCnefeQueryForTests(fn: CnefeQueryFn | null): void {
   indisponivelAte = 0;
 }
 
+function comTimeout<T>(promessa: Promise<T>, ms: number, rotulo: string): Promise<T> {
+  const timeout = new Promise<never>((_, reject) => {
+    const t = setTimeout(() => reject(new Error(rotulo)), ms);
+    (t as any).unref?.();
+  });
+  return Promise.race([promessa, timeout]);
+}
+
+// 27/07 (incidente company 48) — o CONNECT frio do client (engine + pool, logo após
+// deploy/1º uso) estourava o teto de consulta e derrubava a cura inteira no cooldown.
+// Agora o connect é explícito, pago UMA vez com teto próprio folgado; a consulta em si
+// segue com o teto curto de sempre. O connect em voo é compartilhado (sem corrida).
+const CNEFE_CONNECT_TIMEOUT_MS = 15000;
+let conexaoCnefe: Promise<void> | null = null;
+
 async function cnefeQuery(sql: string, params: unknown[]): Promise<any[]> {
   if (queryOverride) return queryOverride(sql, params);
   if (Date.now() < indisponivelAte) throw new Error('cnefe em cooldown');
@@ -324,14 +339,13 @@ async function cnefeQuery(sql: string, params: unknown[]): Promise<any[]> {
   if (!clienteCnefe) {
     clienteCnefe = new PrismaClient({ datasources: { db: { url } } });
   }
-  const timeout = new Promise<never>((_, reject) => {
-    const t = setTimeout(() => reject(new Error('cnefe timeout')), CNEFE_QUERY_TIMEOUT_MS);
-    (t as any).unref?.();
-  });
   try {
-    return (await Promise.race([clienteCnefe.$queryRawUnsafe(sql, ...params), timeout])) as any[];
+    if (!conexaoCnefe) conexaoCnefe = clienteCnefe.$connect();
+    await comTimeout(conexaoCnefe, CNEFE_CONNECT_TIMEOUT_MS, 'cnefe connect timeout');
+    return (await comTimeout(clienteCnefe.$queryRawUnsafe(sql, ...params), CNEFE_QUERY_TIMEOUT_MS, 'cnefe timeout')) as any[];
   } catch (e) {
     indisponivelAte = Date.now() + CNEFE_FALHA_COOLDOWN_MS;
+    conexaoCnefe = null; // connect quebrado não pode ficar cacheado como "em voo"
     // 27/07 (incidente company 48) — falha de banco era 100% muda e a cura sumia sem
     // rastro. UMA linha por entrada em cooldown: dá pra ver no `docker logs` na hora.
     console.warn(`[cnefe] base indisponível (cooldown ${CNEFE_FALHA_COOLDOWN_MS / 1000}s): ${String((e as any)?.message || e)}`);

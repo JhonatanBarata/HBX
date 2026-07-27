@@ -38,14 +38,19 @@ import { haversineKm, type Coord, type RouteEngine } from './logistica-rota.serv
 export const TETO_CASULO_KM = 15;
 
 /** A perna (trecho) até a parada vira outlier quando excede este múltiplo da mediana
- *  das pernas do dia — ver PISO_PERNA_OUTLIER_M para o piso absoluto. */
-export const FATOR_PERNA_OUTLIER = 3;
+ *  das pernas do dia — ver PISO_PERNA_OUTLIER_M para o piso absoluto.
+ *  27/07 (incidente company 48): 3× pintava MEIA rota real — numa rota de 58 km/54
+ *  paradas, pernas legítimas de 2,4–2,8 km (borda de cidade, zona rural) estouravam
+ *  o limiar e "Muito longe das outras paradas" virou ruído em massa. 5× a mediana
+ *  só acusa perna realmente anômala. */
+export const FATOR_PERNA_OUTLIER = 5;
 
 /** Piso absoluto (metros) do limiar de perna_outlier: numa rota CURTA (mediana de
- *  pernas pequena, ex. bairro compacto), 3× a mediana pode virar poucas centenas de
- *  metros — sem este piso, qualquer perna levemente maior soaria alarme falso numa
- *  rota que é só... curta. O limiar real é sempre max(3×mediana, este piso). */
-export const PISO_PERNA_OUTLIER_M = 2000;
+ *  pernas pequena, ex. bairro compacto), o múltiplo da mediana pode virar poucas
+ *  centenas de metros — sem este piso, qualquer perna levemente maior soaria alarme
+ *  falso numa rota que é só... curta. O limiar real é sempre max(fator×mediana, piso).
+ *  27/07: 2000→2500 pela mesma calibração do fator acima. */
+export const PISO_PERNA_OUTLIER_M = 2500;
 
 /** Casas decimais da "célula" de pino compartilhado (~11m de lado no equador, a 4
  *  casas). Assinatura do incidente 25/07 (empresa 41): endereços colapsados no MESMO
@@ -275,6 +280,10 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
   const pernasMediveis = paradas.map((p) => p.legDistanceM).filter((v): v is number => typeof v === 'number');
   const medianaPernaM = mediana(pernasMediveis);
   const limiarPernaM = Math.max(FATOR_PERNA_OUTLIER * medianaPernaM, PISO_PERNA_OUTLIER_M);
+  // 27/07 (incidente company 48, caso "Vânia") — a PRIMEIRA parada nunca é
+  // perna_outlier: a perna dela é o deslocamento da ORIGEM (casa do motorista)
+  // até o começo da rota — 5,5 km de casa não é anomalia de pino de ninguém.
+  const primeiraComPerna = paradas.find((p) => typeof p.legDistanceM === 'number');
 
   return paradas.map((p) => {
     const motivos: MotivoConferencia[] = [];
@@ -298,7 +307,7 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
       if (centroCasulo && haversineKm({ lat: p.lat as number, lng: p.lng as number }, centroCasulo) > TETO_CASULO_KM) {
         motivos.push('fora_do_casulo');
       }
-      if (typeof p.legDistanceM === 'number' && p.legDistanceM > limiarPernaM) {
+      if (typeof p.legDistanceM === 'number' && p.legDistanceM > limiarPernaM && p !== primeiraComPerna) {
         motivos.push('perna_outlier');
       }
       if (typeof p.distanciaGpsOuroM === 'number' && p.distanciaGpsOuroM > DIVERGE_GPS_OURO_METROS) {
