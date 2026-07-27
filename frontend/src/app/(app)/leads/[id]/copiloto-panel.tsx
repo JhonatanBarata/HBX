@@ -231,10 +231,6 @@ export function CopilotoPanel({
             </button>
           </div>
 
-          <p className="hint copiloto__hint">
-            O rascunho vai pro campo de digitação — o Copiloto nunca envia sozinho.
-          </p>
-
           {error && <div className="dn-convo__err copiloto__err">{error}</div>}
 
           {resumo && (

@@ -220,7 +220,9 @@
 .lc2-funnel__seg.is-current .lc2-funnel__dot {
   background: var(--lc2-acc-contrast);
   border-color: transparent;
-  color: var(--lc2-acc);
+  /* a marca crua sobre a tinta-de-contraste media 3,2:1 no claro; a tinta de
+     chip (marca puxada pro texto) passa de 4,5 nos dois modos */
+  color: var(--lc2-acc-ink);
   box-shadow: none;
 }
 .lc2-funnel__seg:hover { color: var(--text-strong); border-color: var(--border-strong); }
@@ -229,7 +231,9 @@
 /* telemetria */
 .lc2-tele {
   display: grid;
-  grid-template-columns: repeat(3, minmax(104px, 0.72fr)) minmax(250px, 1.7fr);
+  /* 27/07, ordem do dono: as QUATRO do mesmo tamanho. Os botões do "Indicado"
+     descem pra segunda linha da própria célula pra ela não precisar ser maior. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin-top: 10px;
   /* 27/07, ordem do dono: 30% mais estreita — as células viviam com metade do
@@ -278,14 +282,17 @@
 .lc2-now {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   min-width: 0;
   padding: 9px 14px;
   border-radius: var(--lc2-radius);
   border: 1px solid var(--lc2-acc-edge);
   background: var(--lc2-acc-soft);
 }
-.lc2-now__body { min-width: 0; flex: 1; }
+/* texto ocupa a primeira linha inteira; os dois botões dividem a segunda */
+.lc2-now__body { min-width: 0; flex: 1 1 calc(100% - 22px); }
+.lc2-now > button { flex: 1 1 0; min-width: 0; }
 .lc2-now__key {
   display: block;
   font-size: var(--text-xs);
@@ -558,9 +565,9 @@ details.lc2-card:not([open]) > summary .lc2-card__head { border-bottom: none; }
    sublinhado saiu junto — quem marca a seleção é a pílula (lei 05/07). */
 .lc2-tab.is-active { color: var(--lc2-acc-contrast); }
 .lc2-tab.is-active .lc2-tab__n {
-  color: var(--lc2-acc-contrast);
-  background: color-mix(in srgb, var(--lc2-acc-contrast) 16%, transparent);
-  border-color: color-mix(in srgb, var(--lc2-acc-contrast) 26%, transparent);
+  color: var(--lc2-acc-ink);
+  background: var(--lc2-acc-contrast);
+  border-color: transparent;
 }
 /* O composer usa a mesma trilha de pílula e sofria do mesmo mal (tinta da
    marca sobre a marca) — corrigido só dentro desta tela. */

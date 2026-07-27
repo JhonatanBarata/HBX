@@ -282,16 +282,6 @@ function sourceModuleLabel(source?: string | null): string {
   return humanize(key);
 }
 
-function displayPersonaDescription(value: string): string {
-  if (value === "Ritmo equilibrado ao longo de ~9 dias, sem sobrecarregar o WhatsApp.") {
-    return "Ritmo equilibrado por cerca de 9 dias, sem sobrecarregar o WhatsApp.";
-  }
-  if (value === "Mais TOQUES (e-mail/atividade) e presença firme — o WhatsApp segue espaçado (teto de chip fixo).") {
-    return "Mais contatos por e-mail e atividades, com WhatsApp espaçado dentro do limite do chip.";
-  }
-  return value;
-}
-
 // Linha chave-valor do dossiê (Central do Lead, 27/07).
 function Lc2Kv({ label, mono = false, empty = false, children }: {
   label: string;
@@ -912,15 +902,9 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const recommendedChannel = intelligence?.recommendedChannel
     ? humanize(intelligence.recommendedChannel)
     : lead.email ? "E-mail" : "WhatsApp";
-  const pain = intelligence?.painType ? humanize(intelligence.painType) : lead.website ? "Atendimento" : "Sem site";
-  const smartTitle = recommendedChannel.toLowerCase().includes("mail")
-    ? "Próxima melhor ação: e-mail curto, WhatsApp no retorno"
-    : `Próxima melhor ação: iniciar por ${recommendedChannel}`;
-  const smartReason = intelligence?.painPitch
-    || intelligence?.opportunityReason
-    || "Use o contato confirmado e uma mensagem curta para abrir a conversa sem parecer invasivo.";
-  const approachReason = intelligence?.opportunityReason
-    || "Contato confirmado e sinais comerciais suficientes para uma abordagem consultiva e objetiva.";
+  // Texto gerado NÃO ocupa linha na tela (ordem do dono 27/07). Só sobra como
+  // dica de passar o mouse no Score — e só quando o backend mandou algo.
+  const approachReason = intelligence?.opportunityReason || undefined;
   const copilotoFicha: CopilotoFicha = {
     nome: lead.name,
     razaoSocial: (company?.found && company.razaoSocial) || lead.razaoSocial || null,
@@ -1136,7 +1120,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
                     {selectedPersona ? `Plano ${selectedPersona.nome.split(" (")[0]}` : "Robô ativo"}
                     {" · passo "}{robo.currentStep + 1}{selectedPersona ? ` de ${selectedPersona.passos.length}` : ""}
                   </b>
-                  <small>Para sozinho na hora que o lead responder.</small>
                 </span>
               </div>
               {selectedPersona && renderMetro(selectedPersona, robo.currentStep)}
@@ -1151,8 +1134,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
             </>
           ) : bloqueio?.codigo === "config_ausente" ? (
             <div className="lc2-block">
-              <b>Falta 1 passo pra ligar</b>
-              <p>Horário e teto de disparo da empresa ainda não foram definidos. Resolve aqui mesmo:</p>
+              <b>Falta configurar horário e teto</b>
               <div className="lc2-form-row">
                 <label>Início<input className="field-dark" type="time" value={configStart} onChange={(event) => setConfigStart(event.target.value)} /></label>
                 <label>Fim<input className="field-dark" type="time" value={configEnd} onChange={(event) => setConfigEnd(event.target.value)} /></label>
@@ -1175,7 +1157,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
             </div>
           ) : (
             <>
-              <p className="muted-note">Escolha o ritmo — o plano roda sozinho e para na hora que o lead responder.</p>
               <nav className="glass-pill-track lc2-personas" aria-label="Escolha de persona da cadência">
                 <GlassPill {...personaPill} />
                 {personas.map((persona) => (
@@ -1194,7 +1175,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               </nav>
               {selectedPersona && (
                 <>
-                  <p className="muted-note">{displayPersonaDescription(selectedPersona.descricao)}</p>
                   {renderMetro(selectedPersona, -1)}
                 </>
               )}
@@ -1207,7 +1187,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               <button type="button" className="btn-teal lc2-robo__on" onClick={ligarRobo} disabled={roboBusy || !selectedPersonaKey}>
                 {roboBusy ? "Ligando…" : "Ligar robô"}
               </button>
-              <p className="muted-note">Os envios saem no nome da sua empresa — revise o plano acima.</p>
             </>
           )}
           {roboMsg && <span className={`ctx-msg ${roboMsg.startsWith("✓") ? "ok" : "err"}`}>{roboMsg}</span>}
@@ -1257,7 +1236,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           {financeMessage && <span className={`ctx-msg ${financeMessage.startsWith("✓") ? "ok" : "err"}`}>{financeMessage}</span>}
           {!customerProfileId ? (
             <>
-              <span className="muted-note">O extrato nasce quando a venda é confirmada e o primeiro título é gerado.</span>
               {(lead.saleValue ?? 0) > 0 && (
                 <button type="button" className="btn-teal btn-xs" onClick={createCharge} disabled={financeBusy != null}>
                   {financeBusy === "create" ? "Gerando…" : "Gerar cobrança"}
@@ -1269,7 +1247,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
           ) : extrato == null ? (
             <span className="muted-note">Carregando extrato…</span>
           ) : extrato.charges.length === 0 ? (
-            <span className="muted-note">O cliente existe no financeiro, mas ainda não tem cobranças.</span>
+            <span className="muted-note">Sem cobranças.</span>
           ) : extrato.charges.slice(0, 8).map((charge) => (
             <div className="lc2-charge" key={charge.id}>
               <span>{charge.description || "Título"}<small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small></span>
@@ -1396,28 +1374,26 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
             <div className="lc2-tele">
               {/* 27/07, ordem do dono: "resumir MUITA ESCRITA". Cada célula diz
                   UM número; o porquê vive no title, não ocupando linha. */}
-              <div className="lc2-tele__cell" title={`${approachReason} Canal sugerido: ${recommendedChannel}. Dor: ${pain}.`}>
-                <Lc2Gauge value={opportunityScore} label="Score de oportunidade" />
-                <div>
-                  <span className="lc2-tele__key">Score</span>
-                  <div className="lc2-tele__sub">{pain}</div>
-                </div>
+              {/* Rótulo e valor DITADOS pelo dono (27/07). Uma linha por célula:
+                  nada de frase de apoio embaixo do número. */}
+              <div className="lc2-tele__cell" title={approachReason}>
+                <Lc2Gauge value={opportunityScore} label="Score" />
+                <span className="lc2-tele__key">Score</span>
               </div>
 
-              <div className="lc2-tele__cell" title={preVoo?.prontidao?.veredictoLabel || "Prontidão do lead"}>
+              <div className="lc2-tele__cell">
                 <div>
                   <span className="lc2-tele__key">Prontidão</span>
                   <div className="lc2-tele__num">{readinessScore}<small>%</small></div>
-                  {preVoo?.prontidao?.veredito !== "pronto" && !preVooLoading && (
-                    <div className="lc2-tele__sub">faltam dados</div>
-                  )}
                 </div>
               </div>
 
-              <div className="lc2-tele__cell is-optional" title={lastInteractionAt ? fmtDateTime(lastInteractionAt) : "Sem interação registrada"}>
+              <div className="lc2-tele__cell is-optional" title={lastInteractionAt ? fmtDateTime(lastInteractionAt) : undefined}>
                 <div>
                   <span className="lc2-tele__key">Último contato</span>
-                  <div className="lc2-tele__num lc2-tele__num--word">{relativeTimeLabel(lastInteractionAt) || "nenhum"}</div>
+                  <div className="lc2-tele__num lc2-tele__num--word">
+                    {relativeTimeLabel(lastInteractionAt) || "Sem registro"}
+                  </div>
                 </div>
               </div>
 
@@ -1425,12 +1401,8 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               <div className="lc2-now">
                 <span className="lc2-pulse" />
                 <div className="lc2-now__body">
-                  <span className="lc2-now__key">Agora</span>
-                  <div className="lc2-now__what">
-                    {lead.nextAction || "Primeiro contato"}
-                    {" · "}
-                    <span className="lc2-now__when">{lead.returnAt ? fmtDateTime(lead.returnAt) : "hoje"}</span>
-                  </div>
+                  <span className="lc2-now__key">Indicado</span>
+                  <div className="lc2-now__what">{lead.nextAction || "Primeiro contato"}</div>
                 </div>
                 <button
                   type="button"
@@ -1451,10 +1423,7 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
 
             <main className="lc2-col lc2-col--talk">
               <section className="lc2-copilot">
-                <span className="lc2-copilot__spark"><I d={ICONS.bolt} size={15} /></span>
                 <div className="lc2-copilot__main">
-                  <b>{smartTitle}</b>
-                  <p>{smartReason}</p>
                   {/* O modelo pronto do Radar deixa de ser "copiar pro
                       clipboard" e cai direto no composer, já no canal certo. */}
                   {templateText && (

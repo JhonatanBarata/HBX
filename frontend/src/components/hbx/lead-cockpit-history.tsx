@@ -710,10 +710,10 @@ export function LeadCockpitHistory({
   }
 
   const emptyCopy: Record<HistoryView, { title: string; hint: string }> = {
-    conversa: { title: "Nenhuma mensagem ainda.", hint: "A conversa de WhatsApp com este lead aparece aqui." },
-    tempo: { title: "A história deste lead começa aqui.", hint: "Registre uma observação, atividade ou primeiro contato abaixo." },
-    emails: { title: "Nenhum e-mail ainda.", hint: "Prévias e envios de e-mail aparecem aqui." },
-    notas: { title: "Nenhuma nota ainda.", hint: "Use \"Observação\" abaixo pra registrar contexto." },
+    conversa: { title: "Nenhuma mensagem ainda.", hint: "" },
+    tempo: { title: "Sem registros.", hint: "" },
+    emails: { title: "Nenhum e-mail.", hint: "" },
+    notas: { title: "Nenhuma nota.", hint: "" },
   };
 
   return (
@@ -752,7 +752,7 @@ export function LeadCockpitHistory({
         ) : viewItems.length === 0 ? (
           <div className="lead-history__empty">
             <strong>{emptyCopy[view].title}</strong>
-            <span>{emptyCopy[view].hint}</span>
+            {emptyCopy[view].hint ? <span>{emptyCopy[view].hint}</span> : null}
           </div>
         ) : view === "tempo" ? renderTempoItems(viewItems) : viewItems.map(renderFeedItem)}
       </div>
