@@ -12,6 +12,7 @@
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
 //   PUT  /modules/master/company/:id/account-type        → toggle Crédito|Empresarial (S6)
+//   GET/PUT /logistica/master/company/:id/nivel           → nível Basic|Advanced|Full + preset de toggles (PR27072026 F1)
 //   POST /modules/master/company/:id/enterprise-contract → chavinha: tipo+módulos full+valor+teto num gesto (S8)
 //   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (TETO/masterEnabled — W1 PR10072026)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
@@ -175,6 +176,19 @@ const WALLET_GRANT_TYPE_LABEL: Record<string, string> = {
 
 const WALLET_GRANT_VAZIO = { amount: "", grantType: "courtesy_internal" as "paid" | "courtesy_internal" | "promo", reason: "" };
 
+// PR27072026 F1 (ROTA 3 NÍVEIS) — a matriz do plano (docs/PLANEJAMENTOS/
+// PR27072026-ROTA-3-NIVEIS.md, seção "Os 3 níveis"), rótulo curto + 1 linha de
+// venda por nível — texto do próprio plano, zero invenção. Aplicar chama o PUT
+// que seta o preset de toggles no backend; isto aqui é só a vitrine do seletor.
+type LogisticaNivel = "BASIC" | "ADVANCED" | "FULL";
+const NIVEL_ORDEM: LogisticaNivel[] = ["BASIC", "ADVANCED", "FULL"];
+const NIVEL_LABEL: Record<LogisticaNivel, string> = { BASIC: "Basic", ADVANCED: "Advanced", FULL: "Full" };
+const NIVEL_DESCRICAO: Record<LogisticaNivel, string> = {
+  BASIC: "Caderneta eletrônica que te coloca na localização.",
+  ADVANCED: "O app cobra por você.",
+  FULL: "iFood da sua distribuidora.",
+};
+
 // Espelha as validações do backend (website.service.ts updateCompanyConfigByMaster
 // — NÃO editar o backend, só refletir aqui pra não deixar o Master submeter algo
 // que o backend vai recusar de qualquer forma):
@@ -242,6 +256,13 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   // tipo de conta (MASTER-REFAB S6, 10/07 noite) — toggle Crédito|Empresarial
   const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const [accountTypeMsg, setAccountTypeMsg] = useState<string | null>(null);
+
+  // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano de logística (Basic/Advanced/
+  // Full). null = ainda não carregou (não decide grandfathering no front — quem
+  // resolve ausência/sujeira é o backend, aqui só espelha o que ele mandou).
+  const [nivel, setNivel] = useState<LogisticaNivel | null>(null);
+  const [nivelBusy, setNivelBusy] = useState(false);
+  const [nivelMsg, setNivelMsg] = useState<string | null>(null);
 
   // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto (tipo + módulos full +
   // valor fixo + teto num só POST). Só aparece quando a empresa ainda é conta Crédito.
@@ -319,6 +340,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setDetail(null);
     setDetailError(null);
     setAccountTypeMsg(null);
+    setNivel(null);
+    setNivelMsg(null);
     setEntContractMsg(null);
     setEntContractArm(false);
     setEntContractForm({ monthlyValue: "", dailyDeliveryCap: "" });
@@ -349,6 +372,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     apiFetch<{ refund?: DeletionRefundPreview }>(`/companies/master/${id}/deletion-refund-preview`)
       .then(res => setDelRefund(res?.refund || null))
       .catch(() => setDelRefund(null));
+    // PR27072026 F1 — nível do plano (endereço próprio, fora do /detail). Erro
+    // de leitura cai em ADVANCED na tela (mesmo grandfathering do backend) —
+    // nunca mostra Basic por causa de uma falha de rede.
+    apiFetch<{ nivel?: string }>(`/logistica/master/company/${id}/nivel`)
+      .then(res => setNivel(res?.nivel === "BASIC" || res?.nivel === "FULL" ? res.nivel : "ADVANCED"))
+      .catch(() => setNivel("ADVANCED"));
     // Website: GET .../launch?target=public NÃO gera token (mesmo gotcha do
     // portal do cliente) — seguro pra usar só como leitura de config no load.
     apiFetch<WebsiteConfigPortal>(`/website/master/company/${id}/launch?target=public`)
@@ -506,6 +535,30 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       setAccountTypeMsg(err instanceof Error ? err.message : "Falha ao salvar o tipo de conta.");
     } finally {
       setAccountTypeBusy(false);
+    }
+  }
+
+  // PR27072026 F1 (ROTA 3 NÍVEIS) — aplica o nível: o backend grava
+  // logisticaNivel E o preset de toggles da matriz do plano NUM SÓ PUT. Preset
+  // é ATALHO, não algema (decisão do dono 27/07) — os toggles individuais
+  // (Financeiro, Cobrança por WhatsApp, Modo das rotas) seguem editáveis nas
+  // telas de sempre depois de aplicar.
+  async function salvarNivel(alvo: LogisticaNivel) {
+    if (nivelBusy || selId == null || alvo === nivel) return;
+    setNivelBusy(true);
+    setNivelMsg(null);
+    try {
+      await apiFetch(`/logistica/master/company/${selId}/nivel`, {
+        method: "PUT",
+        body: JSON.stringify({ nivel: alvo }),
+      });
+      setNivel(alvo);
+      setNivelMsg(`✓ Nível aplicado: ${NIVEL_LABEL[alvo]}.`);
+      await recarregarTudo();
+    } catch (err) {
+      setNivelMsg(err instanceof Error ? err.message : "Falha ao aplicar o nível.");
+    } finally {
+      setNivelBusy(false);
     }
   }
 
@@ -1338,6 +1391,29 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           <option value="enterprise">Empresarial</option>
                         </select>
                         {accountTypeBusy && <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Salvando…</span>}
+                      </div>
+                    </div>
+
+                    {/* PR27072026 F1 (ROTA 3 NÍVEIS) — seletor Basic/Advanced/Full. Aplicar
+                        seta o preset de toggles da matriz do plano num PUT só (atalho, não
+                        algema): o Financeiro, a Cobrança por WhatsApp e o Modo das rotas
+                        seguem editáveis um a um nas telas de sempre depois. className
+                        ="ctx-section"/"hint"/"ctx-msg"/"plano-nivel-*" (kit.css) — zero
+                        style visual inline novo (5 Leis). */}
+                    <div className="ctx-section">
+                      <strong style={{ fontSize: "0.76rem" }}>Nível do plano de logística</strong>
+                      <span className="hint">Escolher já aplica o preset de toggles do plano; nada trava a edição individual depois.</span>
+                      {nivelMsg && <div className={`ctx-msg ${nivelMsg.startsWith("✓") ? "ok" : "err"}`}>{nivelMsg}</div>}
+                      <div className="plano-nivel-grid">
+                        {NIVEL_ORDEM.map(n => (
+                          <button key={n} type="button"
+                            className={`plano-nivel-card${nivel === n ? " is-selected" : ""}`}
+                            disabled={nivelBusy || nivel == null}
+                            onClick={() => salvarNivel(n)}>
+                            <span className="t">{NIVEL_LABEL[n]}</span>
+                            <span className="d">{NIVEL_DESCRICAO[n]}</span>
+                          </button>
+                        ))}
                       </div>
                     </div>
 

@@ -121,6 +121,11 @@ export interface LogisticaConfig {
   resumoDiarioAtivo?: boolean;
   resumoDiarioHora?: number;
   resumoDiarioDisponivel?: boolean;
+  // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano de logística. Operacional
+  // (todo ator lê): a UI acinzenta o que o nível não cobre (ver-mas-não-usar),
+  // nunca esconde. Ausente (config antiga) trata como "ADVANCED" no consumo —
+  // mesmo grandfathering do backend (nada foi perdido, só ainda não chegou).
+  logisticaNivel?: "BASIC" | "ADVANCED" | "FULL";
 }
 
 export function getConfig(): Promise<LogisticaConfig> {

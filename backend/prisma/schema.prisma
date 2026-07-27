@@ -2085,6 +2085,18 @@ model LogisticaConfig {
   // Painel Avançado (novo) — cobrança automática. Opt-in: nasce FALSE (feature
   // ainda não construída no fluxo de cobrança em si, só a coluna/toggle nascem aqui).
   cobrancaAutomatica    Boolean  @default(false)
+  // PR27072026 F1 (27/07) — ROTA 3 NÍVEIS: nível comercial do plano de logística
+  // (Basic/Advanced/Full — a "escada" vendável, ver docs/PLANEJAMENTOS/
+  // PR27072026-ROTA-3-NIVEIS.md). Aplicar o nível pelo endpoint master seta os
+  // toggles do preset (moduloFinanceiroAtivo/cobrancaWhatsAtiva/cobrancaAutomatica/
+  // trackingAtivo+modoRotaPadrao) NO MESMO gesto — mas o preset é ATALHO, não
+  // algema: o Master segue editando toggle a toggle depois (decisão do dono
+  // 27/07). DEFAULT 'ADVANCED' = GRANDFATHERING: toda linha JÁ GRAVADA (empresa
+  // existente) nasce Advanced sem UPDATE nenhum — ninguém perde recurso em uso
+  // (ex.: financeiro real da cia 41) quando os níveis ligarem. Empresa nova só
+  // nasce BASIC por um caminho de criação explícito que passe o valor; sem
+  // isso, cai em Advanced também, até o Master mexer.
+  logisticaNivel        String   @default("ADVANCED") @db.VarChar(10) // BASIC | ADVANCED | FULL
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

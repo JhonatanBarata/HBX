@@ -308,6 +308,14 @@ export function EntregaAjustes() {
   // padrão do toggle "Gerar entregas do dia sozinho" logo abaixo).
   const diasTrabalhoSet = useMemo(() => parseDiasTrabalho(cfg?.diasTrabalho), [cfg?.diasTrabalho]);
 
+  // PR27072026 F1 (ROTA 3 NÍVEIS) — ausente (config antiga) = ADVANCED, mesmo
+  // grandfathering do backend (serializeConfig). Basic vê Financeiro/Cobrança
+  // por WhatsApp ACINZENTADOS com o selo do plano — nunca escondidos
+  // (ver-mas-não-usar é o vendedor silencioso, decisão do dono 27/07). O
+  // backend recusa a escrita de qualquer forma (updateConfig); isto aqui só
+  // evita o admin apertar um toggle que vai voltar com erro.
+  const nivelBasic = (cfg?.logisticaNivel ?? "ADVANCED") === "BASIC";
+
   const toggleDiaTrabalho = useCallback(
     (n: number) => {
       const atual = parseDiasTrabalho(cfg?.diasTrabalho);
@@ -586,16 +594,21 @@ export function EntregaAjustes() {
                 pela empresa. patch() já é o helper único da tela; o backend
                 PATCH /logistica/config já aceita moduloFinanceiroAtivo. */}
             {admin ? (
-              <button
-                type="button"
-                className="ent-toggle"
-                onClick={() => void patch({ moduloFinanceiroAtivo: !cfg.moduloFinanceiroAtivo })}
-                aria-pressed={cfg.moduloFinanceiroAtivo}
-                disabled={salvando}
-              >
-                <span className="ent-toggle-label">Financeiro do cliente</span>
-                <span className={`ent-switch${cfg.moduloFinanceiroAtivo ? " is-on" : ""}`} aria-hidden="true" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="ent-toggle"
+                  onClick={() => void patch({ moduloFinanceiroAtivo: !cfg.moduloFinanceiroAtivo })}
+                  aria-pressed={cfg.moduloFinanceiroAtivo}
+                  disabled={salvando || nivelBasic}
+                  title={nivelBasic ? "Disponível no plano Advanced" : undefined}
+                >
+                  <span className="ent-toggle-label">Financeiro do cliente</span>
+                  <span className={`ent-switch${cfg.moduloFinanceiroAtivo ? " is-on" : ""}`} aria-hidden="true" />
+                </button>
+                {/* PR27072026 F1 — selo central (kit.css .plano-selo), ver-mas-não-usar. */}
+                {nivelBasic ? <span className="plano-selo">Disponível no Advanced</span> : null}
+              </>
             ) : null}
 
             {/* ── F1 — PIX NA ENTREGA (BR Code direto, taxa zero) ─────────── */}
@@ -652,11 +665,14 @@ export function EntregaAjustes() {
                   className="ent-toggle"
                   onClick={() => void patch({ cobrancaWhatsAtiva: !cfg.cobrancaWhatsAtiva })}
                   aria-pressed={!!cfg.cobrancaWhatsAtiva}
-                  disabled={salvando}
+                  disabled={salvando || nivelBasic}
+                  title={nivelBasic ? "Disponível no plano Advanced" : undefined}
                 >
                   <span className="ent-toggle-label">Avisar cobrança e vencimento</span>
                   <span className={`ent-switch${cfg.cobrancaWhatsAtiva ? " is-on" : ""}`} aria-hidden="true" />
                 </button>
+                {/* PR27072026 F1 — selo central (kit.css .plano-selo), ver-mas-não-usar. */}
+                {nivelBasic ? <span className="plano-selo">Disponível no Advanced</span> : null}
                 {cfg.cobrancaWhatsAtiva && !cfg.pixChave ? (
                   <div className="ent-hint">Preencha a chave Pix acima para o aviso levar o copia e cola</div>
                 ) : null}

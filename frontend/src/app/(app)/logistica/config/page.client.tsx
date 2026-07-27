@@ -43,6 +43,9 @@ type Config = {
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;
+  // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano; ausente (config antiga) =
+  // ADVANCED no consumo abaixo (mesmo grandfathering do backend).
+  logisticaNivel?: "BASIC" | "ADVANCED" | "FULL";
 };
 
 type ConfigActor = NonNullable<ReturnType<typeof useCurrentUser>> & {
@@ -200,6 +203,12 @@ export function LogisticaConfigClient() {
 
   const preview = useMemo(() => renderPreview(template), [template]);
 
+  // PR27072026 F1 (ROTA 3 NÍVEIS) — Rastreado é exclusivo do plano Full;
+  // ausente (config antiga) = ADVANCED, mesmo grandfathering do backend. O
+  // backend recusa a escrita de qualquer forma (updateRouteMode); isto aqui
+  // só evita o admin escolher um modo que vai voltar com erro.
+  const nivelFull = (cfg?.logisticaNivel ?? "ADVANCED") === "FULL";
+
   if (!admin) {
     return (
       <div className="work" style={{ flex: 1 }}>
@@ -274,25 +283,29 @@ export function LogisticaConfigClient() {
                     role="radio"
                     aria-checked={cfg.modoRotaPadrao === "TRACKED"}
                     className={`log-cfg__mode${cfg.modoRotaPadrao === "TRACKED" ? " is-selected" : ""}`}
-                    disabled={saving || !cfg.trackingDisponivel || !cfg.trackingAtivo}
+                    disabled={saving || !cfg.trackingDisponivel || !cfg.trackingAtivo || !nivelFull}
                     aria-describedby="tracking-availability"
                     onClick={() => patchModoRota({ modoRotaPadrao: "TRACKED" })}
                   >
                     <span className="log-cfg__mode-title">Rota Rastreada</span>
                     <span className="log-cfg__mode-copy">2 créditos por entrega concluída durante uma sessão válida de rastreamento.</span>
+                    {/* PR27072026 F1 — selo central (kit.css .plano-selo), ver-mas-não-usar. */}
+                    {!nivelFull && <span className="plano-selo">Disponível no Full</span>}
                   </button>
                 </div>
 
                 <p
                   id="tracking-availability"
-                  className={`log-cfg__availability${cfg.trackingDisponivel ? " is-available" : ""}`}
+                  className={`log-cfg__availability${cfg.trackingDisponivel && nivelFull ? " is-available" : ""}`}
                   role="status"
                 >
-                  {cfg.trackingDisponivel
-                    ? (cfg.trackingAtivo
-                      ? "Rastreamento disponível para novas rotas."
-                      : "Ligue o rastreamento para liberar a Rota Rastreada.")
-                    : "Rastreamento indisponível globalmente. A preferência pode ficar salva para uma ativação futura."}
+                  {!cfg.trackingDisponivel
+                    ? "Rastreamento indisponível globalmente. A preferência pode ficar salva para uma ativação futura."
+                    : !nivelFull
+                      ? "Rastreamento é do plano Full."
+                      : (cfg.trackingAtivo
+                        ? "Rastreamento disponível para novas rotas."
+                        : "Ligue o rastreamento para liberar a Rota Rastreada.")}
                 </p>
                 <p className="log-cfg__warning">
                   O modo é congelado ao iniciar a rota e não pode ser alterado durante a sessão.
