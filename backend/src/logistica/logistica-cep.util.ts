@@ -199,6 +199,120 @@ export async function consultarCepPublico(cepRaw: string | null | undefined): Pr
   };
 }
 
+// ── BUSCA REVERSA: endereço → CEP (27/07, ordem do dono) ──────────────────────────
+/**
+ * "Ela não tem CEP, mas o endereço está PERFEITO" — o buraco que fazia a sanitização
+ * não ser funcional: a cura do pino (CNEFE) entra por (cep, número), então cadastro
+ * completo SEM CEP caía em "Sem CEP e número" e nunca saía de vermelho, por mais certo
+ * que estivesse. Com UF + cidade + logradouro o ViaCEP devolve o(s) CEP(s) daquela rua
+ * e a cura segue o caminho normal — o CEP descoberto ainda é GRAVADO no cadastro, que
+ * é o que "sanitizar" quer dizer: o furo some, não volta na próxima rota.
+ *
+ * Fail-CLOSED (ao contrário do resto deste arquivo): aqui o resultado vira ESCRITA de
+ * cadastro e pino, não um aviso na tela — vale a mesma lei do freio do geocode (Lei nº1,
+ * pino errado é pior que pino vazio). Só volta rua cuja CIDADE bate e cuja VIA bate pela
+ * mesma régua do CNEFE; qualquer dúvida (rede fora, cidade divergente, rua ambígua)
+ * devolve lista vazia e o cadastro segue como estava.
+ */
+/** Teto de CEPs devolvidos por rua — rua longa tem CEP por trecho; cada um é 1 tentativa
+ *  no CNEFE, e é o CNEFE (fail-closed) que decide qual casa com o número da casa. */
+const VIACEP_BUSCA_MAX = 8;
+
+export interface CepDaRua {
+  cep: string;
+  logradouro: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+}
+
+const cacheBusca = new Map<string, { valor: ViaCepPayload[]; expiraEm: number }>();
+
+/**
+ * Só o LOGRADOURO, sem número nem bairro: "Rua M 22A, 1500 - Centro" → "Rua M 22A".
+ * Corta no primeiro separador de CAMPO (vírgula, " - ", " nº ") — nunca num dígito
+ * solto, senão "Rua 8" viraria "Rua" e a busca traria a cidade inteira.
+ */
+export function logradouroDoCadastro(endereco: string | null | undefined): string {
+  const bruto = String(endereco ?? '').trim();
+  if (!bruto) return '';
+  const [primeiro] = bruto.split(/\s*,\s*|\s+-\s+|\s+n[ºo°]\s*|\s+n[uú]mero\s+/i);
+  return String(primeiro ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/** ViaCEP busca por rua (`/ws/UF/cidade/logradouro/json/`). Best-effort: NUNCA lança.
+ *  Resposta legítima (inclusive lista vazia) entra no cache; falha de rede não. */
+async function buscarViaCepPorRua(uf: string, cidade: string, via: string, chave: string): Promise<ViaCepPayload[]> {
+  const cache = cacheBusca.get(chave);
+  if (cache) {
+    if (cache.expiraEm >= Date.now()) return cache.valor;
+    cacheBusca.delete(chave);
+  }
+  try {
+    const url = `${VIACEP_URL}/${uf}/${encodeURIComponent(cidade)}/${encodeURIComponent(via)}/json/`;
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(VIACEP_TIMEOUT_MS),
+    });
+    if (!res.ok) return [];
+    const payload = await res.json();
+    // Resposta de ERRO do ViaCEP (busca com mais de 50 resultados, campo curto) vem
+    // como objeto, não array — trata como "não sei", sem cachear achado nenhum.
+    const lista = Array.isArray(payload) ? (payload as ViaCepPayload[]) : [];
+    if (cacheBusca.size >= CACHE_MAX) {
+      const primeira = cacheBusca.keys().next();
+      if (!primeira.done) cacheBusca.delete(primeira.value);
+    }
+    cacheBusca.set(chave, { valor: lista, expiraEm: Date.now() + CACHE_TTL_MS });
+    return lista;
+  } catch {
+    return [];
+  }
+}
+
+/** Zera os dois caches (consulta por CEP e busca por rua) entre casos de teste. */
+export function limparCacheBuscaCep(): void {
+  cacheBusca.clear();
+}
+
+/**
+ * CEP(s) da rua do cadastro. Vazio = não deu pra provar (e aí nada é gravado).
+ * Ordenado como o ViaCEP devolveu; quem escolhe o certo é o CNEFE, casando o NÚMERO
+ * da casa — este util só entrega os candidatos com cidade e via provadas.
+ */
+export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Promise<CepDaRua[]> {
+  if (!cepCheckHabilitado()) return [];
+  const uf = String(cadastro.uf ?? '').trim().toUpperCase();
+  const cidade = String(cadastro.cidade ?? '').trim();
+  const via = logradouroDoCadastro(cadastro.endereco);
+  // Mínimos do próprio ViaCEP: UF de 2 letras, cidade e logradouro com 3+ caracteres.
+  if (!/^[A-Z]{2}$/.test(uf) || cidade.length < 3 || via.length < 3) return [];
+
+  const cidadeNorm = normalizar(cidade);
+  const lista = await buscarViaCepPorRua(uf, cidade, via, `${uf}|${cidadeNorm}|${normalizar(via)}`);
+
+  const vistos = new Set<string>();
+  const saida: CepDaRua[] = [];
+  for (const item of lista) {
+    const cep = normalizarCep(item.cep);
+    if (!cep || vistos.has(cep)) continue;
+    // Cidade tem que bater (o ViaCEP casa nome de cidade por aproximação) e a via tem
+    // que ser a MESMA rua — mesma régua do CNEFE, que entende "Rua 8" = "RUA OITO".
+    if (normalizar(item.localidade) !== cidadeNorm) continue;
+    if (!viasCompativeisCnefe(via, item.logradouro)) continue;
+    vistos.add(cep);
+    saida.push({
+      cep,
+      logradouro: String(item.logradouro ?? '').trim(),
+      bairro: String(item.bairro ?? '').trim(),
+      localidade: String(item.localidade ?? '').trim(),
+      uf: String(item.uf ?? '').trim().toUpperCase(),
+    });
+    if (saida.length >= VIACEP_BUSCA_MAX) break;
+  }
+  return saida;
+}
+
 /**
  * O CEP consultado descreve o MESMO lugar do endereço cadastrado?
  *

@@ -4335,13 +4335,12 @@
     return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não atendeu</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
   }
   function newClientProductFields() {
-    const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft;
-    const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000));
-    // 27/07 (ordem do dono, 3ª cobrança) — produto NÃO tem tipo nem dia: o form é só
-    // Produto + Quantidade + Preço, e TODO vínculo segue os dias do CLIENTE (chips da
-    // seção Cadastro). Avulsa vive no fluxo próprio "Entrega avulsa"; "Por data" morreu.
-    const modeContent = `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>`;
-    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="field"><label>Produto</label><select name="productId"><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}"></div>${configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}`;
+    const draft = state.clientProductDraft;
+    // 27/07 (ordem do dono, cobrança final) — produto NÃO tem tipo, NÃO tem dia e não
+    // FALA de dia: o form é Produto + Quantidade + Preço, ponto. Dia é do CLIENTE
+    // (chips da seção Cadastro) e o vínculo segue eles sozinho. Avulsa vive no fluxo
+    // próprio "Entrega avulsa"; "Por data" morreu.
+    return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="field"><label>Produto</label><select name="productId"><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}"></div>${configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}`;
   }
   function clientEditorModal(isNew) {
     const client = isNew ? state.newClientDraft : (state.modalClient || {}); const fields = isNew ? state.newClientDraft : state.clientPaymentDraft;
@@ -4365,10 +4364,10 @@
     const actions = `<div class="client-primary-actions ${phoneReady ? "has-contact" : ""}"><button class="btn btn-primary btn-block" type="submit">Salvar cliente</button>${phoneReady ? `<button type="button" class="btn btn-secondary" data-action="call-client">${icon("phone", 16)} Ligar</button><button type="button" class="btn btn-secondary" data-action="whatsapp-client">${icon("wa", 16)} WhatsApp</button>` : ""}${phoneIncomplete ? `<button type="button" class="btn btn-secondary" data-action="complete-ddd">${icon("phone", 16)} Completar DDD</button>` : ""}</div>`;
     let products = newClientProductFields();
     if (!isNew) {
-      const selected = state.clientProductDays; const mode = state.clientProductMode; const draft = state.clientProductDraft; const defaultDate = operationalDate(); const defaultDateTime = localDateTimeInputValue(new Date(Date.now() + 3600000)); const dateValue = draft.proximaData || defaultDate; const dateTimeValue = draft.scheduledAt || defaultDateTime;
-      // 27/07 (ordem do dono, 3ª cobrança) — produto NÃO tem tipo nem dia: todo vínculo
-      // segue os dias do CLIENTE. Avulsa = fluxo próprio; "Por data" morreu do form.
-      const modeContent = `<p class="subtitle">${selected.length ? `Entrega nos dias do cliente: ${weekDays.filter(day => selected.includes(day.n)).map(day => day.label).join("/")}.` : "Marque os dias de entrega no Cadastro, acima."}</p>`;
+      const draft = state.clientProductDraft;
+      // 27/07 (ordem do dono, cobrança final) — produto NÃO tem tipo, NÃO tem dia e não
+      // FALA de dia: todo vínculo segue os dias do CLIENTE (chips do Cadastro).
+      // Avulsa = fluxo próprio; "Por data" morreu do form.
       // 27/07 (ordem do dono) — o produto salvo é SÓ produto + quantidade: dia
       // saiu daqui (o dia é do CLIENTE, chips do Cadastro) e a quantidade se
       // corrige na própria linha com a seta ↑↓, igual à Chegada. A linha virou
@@ -4382,7 +4381,7 @@
       }).join("")}</div>` : `<p class="subtitle">Nenhum produto recorrente salvo ainda.</p>`;
       const submitLabel = state.clientProductEditingId ? "Salvar alterações" : "Salvar produto";
       const formOpen = !!state.clientProductFormOpen;
-      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${configFlag("precoPorClienteAtivo") || (state.clientProductEditingId && String(draft.precoAcordado || "").trim() !== "") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}${modeContent}<button class="btn btn-primary btn-block" type="submit">${submitLabel}</button></form>` : "";
+      const editorForm = formOpen ? `<div class="section-title"><strong>${state.clientProductEditingId ? "Editar produto" : "Novo produto / entrega"}</strong><button class="link-btn" type="button" data-action="close-client-product-form">Fechar</button></div><form id="client-product-form"><input type="hidden" name="customerProfileId" value="${H.escape(client.id || "")}"><div class="field"><label>Produto</label><select name="productId" required ${state.clientProductEditingId ? "disabled" : ""}><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade por entrega</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}" required></div>${configFlag("precoPorClienteAtivo") || (state.clientProductEditingId && String(draft.precoAcordado || "").trim() !== "") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}<button class="btn btn-primary btn-block" type="submit">${submitLabel}</button></form>` : "";
       products = `<div class="section-title"><strong>Produtos já salvos</strong><button class="link-btn" type="button" data-action="new-client-product">+ Novo</button></div>${linked}${editorForm}`;
     }
     const formId = isNew ? "new-client-form" : "client-details-form"; const status = isNew ? state.newClientCepStatus : state.clientCepStatus;
@@ -4391,10 +4390,14 @@
     // qtd/frequência (modo semanal SEGUE estes dias, ver newClientProductFields).
     const diasEntregaField = `<div class="field client-dias-field ${!isNew && pending.includes("Dia") ? "client-field-pending" : ""}"><label>Dias de entrega${!isNew && pending.includes("Dia") ? " · pendente" : ""}</label><div class="day-chips">${weekDays.map(day => `<button type="button" class="day-chip ${state.clientProductDays.includes(day.n) ? "active" : ""}" data-client-day="${day.n}" aria-pressed="${state.clientProductDays.includes(day.n)}">${day.label}</button>`).join("")}</div></div>`;
     const registration = `<section class="client-editor-part client-editor-registration ${pending.includes("End") ? "client-part-pending" : ""} ${pending.includes("Dup") ? "client-address-duplicate" : ""}"><div class="client-editor-part-head"><span>1</span><strong>Cadastro${pending.includes("End") ? " · endereço pendente" : ""}</strong></div>${identity}${diasEntregaField}${clientAddressFields(fields, status, isNew ? "new" : "edit")}</section>`;
-    const productPart = `<section class="client-editor-part client-editor-products ${pending.includes("Dia") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>2</span><strong>Produto${pending.includes("Dia") ? " · dia pendente" : ""}</strong></div>${products}</section>`;
+    // 27/07 (ordem do dono) — a seção Produto NÃO fala de dia, nem pinta por dia: o dia
+    // é do CLIENTE e a pendência dele mora no campo "Dias de entrega" da seção 1, ao
+    // lado dos chips que a resolvem. Cobrar dia dentro de Produto é mandar o dono
+    // procurar o botão na seção errada.
+    const productPart = `<section class="client-editor-part client-editor-products"><div class="client-editor-part-head"><span>2</span><strong>Produto</strong></div>${products}</section>`;
     // PR18072026 Módulo Financeiro — seção 3 inteira some quando o módulo está
     // desligado (nada de saldo/forma de pagamento pra quem não usa financeiro).
-    const finance = configFlag("moduloFinanceiroAtivo") ? `<section class="client-editor-part client-editor-finance ${pending.includes("Pag") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>3</span><strong>Financeiro${pending.includes("Pag") ? " · pagamento pendente" : ""}</strong></div><div class="client-financial-fields"></div></section>` : "";
+    const finance = configFlag("moduloFinanceiroAtivo") ? `<section class="client-editor-part client-editor-finance ${pending.includes("Pag") ? "client-part-pending" : ""}"><div class="client-editor-part-head"><span>3</span><strong>Financeiro${pending.includes("Pag") ? " · falta o dia de fechamento" : ""}</strong></div><div class="client-financial-fields"></div></section>` : "";
     const customerForm = `<form id="${formId}">${registration}${isNew ? productPart : ""}${finance}${actions}</form>`;
     return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pendingHasBlocking(pending) ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
   }
@@ -5158,7 +5161,13 @@
     if (!anyPhone || !phoneComplete(anyPhone)) missing.push("Tel");
     if (pending.some(item => ["endereco", "numero", "gps"].includes(item))) missing.push("End");
     if (pending.includes("dia") || !(client.diasEntrega || []).length) missing.push("Dia");
-    if (configFlag("moduloFinanceiroAtivo") && (!client.formaPagamento || (client.formaPagamento === "mensal" && !client.diaFechamento))) missing.push("Pag");
+    // 27/07 (ordem do dono) — "pagamento pendente" NÃO existe em cliente que nem
+    // recebeu ainda: isso é dívida, e dívida não se inventa no cadastro. Forma de
+    // pagamento vazia também não é pendência — o form já mostra "Na hora" marcado
+    // (paymentFields: `draft.formaPagamento || "na_hora"`), então acender alerta era
+    // cobrar um campo que não tem o que preencher. Sobra o ÚNICO caso com buraco de
+    // verdade: mensal sem o dia de fechamento (sem ele não há o que fechar).
+    if (configFlag("moduloFinanceiroAtivo") && client.formaPagamento === "mensal" && !client.diaFechamento) missing.push("Pag");
     // PR18072026 item 8 — confiar SÓ no backend (marca duplicataDe por nome OU
     // endereço+número). A checagem extra no app gerava falso-positivo grosseiro.
     if (client.duplicataDe) missing.push("Dup");
@@ -5628,9 +5637,12 @@
     render();
   }
   // Linha Cliente → problema (Lei 8: dado, não frase). Toque abre a ficha real.
-  function sanitizadorClienteRow(c, problema) {
+  // 27/07 — quem escreve o problema é o SERVIDOR (ele sabe qual campo faltou); o app
+  // não carimba mais um rótulo fixo por lista. Sem CEP com endereço perfeito NÃO é
+  // problema nenhum: o servidor descobre o CEP pela rua e cura sozinho.
+  function sanitizadorClienteRow(c, fallback) {
     const nome = c.nome || "Cliente";
-    return `<div class="row-card rp2-order-row"><button type="button" class="card-main card-main-btn" data-action="sanitizador-cliente" data-client-id="${H.escape(c.id)}" data-client-nome="${H.escape(nome)}"><strong>${H.escape(nome)}</strong><span>${problema}</span></button></div>`;
+    return `<div class="row-card rp2-order-row"><button type="button" class="card-main card-main-btn" data-action="sanitizador-cliente" data-client-id="${H.escape(c.id)}" data-client-nome="${H.escape(nome)}"><strong>${H.escape(nome)}</strong><span>${H.escape(c.problema || fallback)}</span></button></div>`;
   }
   function sanitizadorModal() {
     const s = state.sanitizador;
@@ -5639,8 +5651,8 @@
     const jaListado = new Set(s.naoEncontrado.map(c => c.id));
     const linhas = [
       ...s.curaveis.filter(c => !jaListado.has(c.id)).map(c => sanitizadorClienteRow(c, "Sem localização")),
-      ...s.naoEncontrado.map(c => sanitizadorClienteRow(c, "CEP não achou a rua")),
-      ...s.semDados.map(c => sanitizadorClienteRow(c, "Sem CEP e número")),
+      ...s.naoEncontrado.map(c => sanitizadorClienteRow(c, "Endereço não achado na base")),
+      ...s.semDados.map(c => sanitizadorClienteRow(c, "Falta endereço")),
     ].join("");
     const corpo = s.carregando ? loading() : `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}${s.fase === "rodando" ? `<div class="app-update-progress"><i style="width:${pct}%"></i></div>` : ""}${s.fase === "fim" && s.curados > 0 ? `<div class="hbx-aviso hbx-aviso--ok">${s.curados} corrigido(s)</div>` : ""}<div class="list conferencia-lista">${linhas || empty("Tudo certo", "")}</div>`;
     return centerModal({

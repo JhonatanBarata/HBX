@@ -2,7 +2,7 @@ import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { alvoCuraCnefe, LogisticaConferenciaService } from './logistica-conferencia.service';
-import { limparCacheCep } from './logistica-cep.util';
+import { limparCacheBuscaCep, limparCacheCep } from './logistica-cep.util';
 import { __setCnefeQueryForTests } from '../nucleo/cnefe-resolver.util';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { haversineKm, type Coord } from './logistica-rota.service';
@@ -423,6 +423,106 @@ test('cura CNEFE: sem_pino com CEP+número vira pino gravado (fonte cnefe) e a p
   } finally {
     globalThis.fetch = originalFetch;
     limparCacheCep();
+    __setCnefeQueryForTests(null);
+  }
+});
+
+/**
+ * 27/07 (ordem do dono, "sanitização funcional") — O CASO QUE ABRIU A MUDANÇA: cliente
+ * SEM CEP com endereço perfeito. Antes caía em "Sem CEP e número" e ficava vermelho pra
+ * sempre; agora o CEP se descobre pela rua (ViaCEP busca reversa), o CNEFE prova a porta
+ * e o CEP descoberto AINDA é gravado no cadastro — o furo some, não volta na próxima rota.
+ */
+test('cura sem CEP: endereço perfeito acha o CEP pela rua, cura o pino e GRAVA o CEP no cadastro', async () => {
+  const ROWS_SEM_CEP = [
+    {
+      id: 's1',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-s1',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Dona Sem Cep', lat: null, lng: null, geoFonte: null,
+        cep: null, endereco: 'Rua das Flores', numero: '350', bairro: null, cidade: 'Pinhal', uf: 'SP',
+      },
+    },
+    {
+      // Rua de OUTRA cidade na resposta do ViaCEP não pode virar CEP deste cadastro:
+      // sem cidade no cadastro não há busca nenhuma (fail-closed).
+      id: 's2',
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: 'cli-s2',
+      localId: null,
+      local: null,
+      customerProfile: {
+        name: 'Sem Cidade', lat: null, lng: null, geoFonte: null,
+        cep: null, endereco: 'Rua das Flores', numero: '12', bairro: null, cidade: null, uf: 'SP',
+      },
+    },
+  ];
+  const gravadas: Array<{ tabela: string; where: any; data: any }> = [];
+  const prisma = {
+    ...buildPrismaMock(),
+    entrega: { ...buildPrismaMock().entrega, findMany: async () => ROWS_SEM_CEP, groupBy: async () => [] },
+    $queryRaw: async () => [],
+    localEntrega: { updateMany: async () => ({ count: 0 }) },
+    customerProfile: {
+      updateMany: async (args: any) => { gravadas.push({ tabela: 'customerProfile', where: args.where, data: args.data }); return { count: 1 }; },
+    },
+  };
+  __setCnefeQueryForTests(async (sql: string, params: unknown[]) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    // Só o CEP descoberto tem porta: prova que quem resolveu foi a busca pela rua.
+    if (sql.includes('cep = $1 AND numero = $2') && params[0] === '13990100') {
+      return [{ logradouro: 'RUA DAS FLORES', numero: Number(params[1]), lat: -22.415, lng: -47.561, nivel_geo: 1, municipio: 'Pinhal' }];
+    }
+    return [];
+  });
+  const urlsChamadas: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: any) => {
+    urlsChamadas.push(String(url));
+    // Busca por rua: /ws/UF/cidade/logradouro/json/ → lista de ruas.
+    return {
+      ok: true,
+      json: async () => [
+        // Cidade DIFERENTE — tem que ser descartada mesmo vindo do ViaCEP.
+        { cep: '13400-000', logradouro: 'Rua das Flores', localidade: 'Piracicaba', uf: 'SP' },
+        { cep: '13990-100', logradouro: 'Rua das Flores', localidade: 'Pinhal', uf: 'SP' },
+      ],
+    };
+  }) as any;
+  try {
+    limparCacheCep();
+    limparCacheBuscaCep();
+    const service = new LogisticaConferenciaService(prisma as any, configMock, buildFakeOsrm() as any);
+    const resultado = await service.conferir(41, { date: '2026-07-27' });
+
+    const s1 = resultado.paradas.find((p) => p.id === 's1')!;
+    assert.ok(!s1.motivos.includes('sem_pino'), 'endereço perfeito sem CEP CURA — era o bug');
+    assert.equal(s1.lat, -22.415);
+
+    const s2 = resultado.paradas.find((p) => p.id === 's2')!;
+    assert.ok(s2.motivos.includes('sem_pino'), 'sem cidade não há busca de rua — pendência honesta fica');
+
+    const cepGravado = gravadas.find((g) => g.data.cep);
+    assert.ok(cepGravado, 'o CEP descoberto entra no cadastro (o furo some de vez)');
+    assert.equal(cepGravado!.data.cep, '13990100', 'grava o CEP da cidade CERTA, nunca o da outra');
+    assert.deepEqual(cepGravado!.where.OR, [{ cep: null }, { cep: '' }], 'só preenche buraco: nunca troca CEP digitado pelo dono');
+
+    const pinoGravado = gravadas.find((g) => g.data.geoFonte === 'cnefe');
+    assert.ok(pinoGravado, 'pino curado gravado no perfil');
+    assert.equal(pinoGravado!.where.id, 'cli-s1');
+    assert.equal(pinoGravado!.where.lat, null, 'nunca sobrescreve pino existente');
+
+    assert.equal(urlsChamadas.length, 1, 's2 nem consulta (fail-closed antes da rede)');
+    assert.ok(urlsChamadas[0].includes('/SP/'), `busca por rua, não por CEP: ${urlsChamadas[0]}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+    limparCacheCep();
+    limparCacheBuscaCep();
     __setCnefeQueryForTests(null);
   }
 });

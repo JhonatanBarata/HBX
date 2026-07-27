@@ -6,7 +6,9 @@ import { LogisticaOsrmService } from './logistica-osrm.service';
 import { fonteEscolhidaMultilocal, resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import {
   conferirCepsEmLote,
+  descobrirCepsPorEndereco,
   enderecoSemNumero,
+  logradouroDoCadastro,
   normalizarCep,
   type CepVeredito,
   type EnderecoCadastrado,
@@ -261,17 +263,12 @@ export class LogisticaConferenciaService implements OnModuleInit {
         proximo += 1;
         if (i >= donos.length || Date.now() >= fim) return;
         const dono = donos[i];
-        const pino = await resolverCnefe({
-          cep: dono.alvo.cep,
-          numero: dono.alvo.numero,
-          endereco: dono.alvo.endereco,
-          uf: dono.alvo.uf,
-        }, { queryTimeoutMs: 10000 });
-        if (!pino) continue;
-        const gravou = await this.gravarPinoCnefe(companyId, dono.alvo, dono.linhas[0], pino);
-        if (!gravou) continue;
+        const cura = await resolverCuraCnefe(dono.alvo, { queryTimeoutMs: 10000 });
+        if (!cura) continue;
+        const gravou = await this.gravarCuraCnefe(companyId, dono.alvo, dono.linhas[0], cura);
+        if (!gravou || !cura.pino) continue;
         curados += 1;
-        for (const linha of dono.linhas) aplicarPinoCnefeNaLinha(linha, dono.alvo.tipo, pino);
+        for (const linha of dono.linhas) aplicarPinoCnefeNaLinha(linha, dono.alvo.tipo, cura.pino);
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, donos.length) }, () => trabalhador()));
@@ -283,26 +280,32 @@ export class LogisticaConferenciaService implements OnModuleInit {
     );
   }
 
-  /** Grava o pino curado no DONO do endereço — só quando ele AINDA não tem lat (nunca
-   *  sobrescreve pino existente; corrida com outra escrita = quem chegou primeiro fica). */
-  private async gravarPinoCnefe(
+  /**
+   * Grava a cura no DONO do endereço. Duas escritas independentes, cada uma com o
+   * próprio guard de "só preenche buraco":
+   *  - CEP descoberto → só onde o campo está VAZIO (nunca troca CEP que o dono digitou);
+   *  - pino → só quando ainda não tem lat (nunca sobrescreve pino existente).
+   * Corrida com outra escrita = quem chegou primeiro fica. Devolve true só quando o
+   * PINO entrou (é ele que tira a parada do vermelho).
+   */
+  private async gravarCuraCnefe(
     companyId: number,
     alvo: AlvoCuraCnefe,
     row: ParadaConferenciaRow,
-    pino: CnefePino,
+    cura: CuraCnefeResultado,
   ): Promise<boolean> {
+    const noLocal = alvo.tipo === 'local' && !!row.localId;
     try {
-      if (alvo.tipo === 'local' && row.localId) {
-        const res = await this.prisma.localEntrega.updateMany({
-          where: { id: row.localId, companyId, lat: null },
-          data: { lat: pino.lat, lng: pino.lng, geoFonte: 'cnefe' },
-        });
-        return res.count > 0;
+      if (cura.cepDescoberto) {
+        const onde = { companyId, OR: [{ cep: null }, { cep: '' }] };
+        if (noLocal) await this.prisma.localEntrega.updateMany({ where: { id: row.localId as string, ...onde }, data: { cep: cura.cepDescoberto } });
+        else await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, ...onde }, data: { cep: cura.cepDescoberto } });
       }
-      const res = await this.prisma.customerProfile.updateMany({
-        where: { id: row.customerProfileId, companyId, lat: null },
-        data: { lat: pino.lat, lng: pino.lng, geoFonte: 'cnefe' },
-      });
+      if (!cura.pino) return false;
+      const dados = { lat: cura.pino.lat, lng: cura.pino.lng, geoFonte: 'cnefe' };
+      const res = noLocal
+        ? await this.prisma.localEntrega.updateMany({ where: { id: row.localId as string, companyId, lat: null }, data: dados })
+        : await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId, lat: null }, data: dados });
       return res.count > 0;
     } catch (e) {
       this.logger.warn(`[logistica] cura CNEFE não gravou (segue sem pino): ${String((e as any)?.message || e)}`);
@@ -324,10 +327,10 @@ export class LogisticaConferenciaService implements OnModuleInit {
     entregadorId?: number,
   ): Promise<{
     alvos: number;
-    curaveis: Array<{ id: string; nome: string }>;
-    semDados: Array<{ id: string; nome: string }>;
+    curaveis: ClienteSanitizador[];
+    semDados: ClienteSanitizador[];
     curados: number;
-    naoEncontrado: Array<{ id: string; nome: string }>;
+    naoEncontrado: ClienteSanitizador[];
     processados: number;
     restantes: number;
   }> {
@@ -338,23 +341,24 @@ export class LogisticaConferenciaService implements OnModuleInit {
     const nomeDe = (r: ParadaConferenciaRow): string =>
       r.local?.apelido ?? r.customerProfile?.name ?? 'Cliente';
     // O app lista Cliente → problema e o toque abre a FICHA: cada item vai com o
-    // customerProfileId, nunca só o nome.
-    const semDadosMap = new Map<string, string>();
+    // customerProfileId E a frase do problema. Quem escreve a frase é AQUI (o servidor
+    // é quem sabe o que faltou), nunca o app chutando um rótulo por lista.
+    const semDadosMap = new Map<string, ClienteSanitizador>();
     const porDono = new Map<string, { alvo: AlvoCuraCnefe; row: ParadaConferenciaRow }>();
     for (const r of rows) {
       const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
       if (coord.lat != null && coord.lng != null) continue; // tem pino — fora do sanitizador
       const alvo = alvoCuraCnefe(r);
       if (!alvo) {
-        semDadosMap.set(r.customerProfileId, nomeDe(r));
+        semDadosMap.set(r.customerProfileId, { id: r.customerProfileId, nome: nomeDe(r), problema: problemaDoCadastro(r) });
         continue;
       }
       const chave = alvo.tipo === 'local' ? `l:${r.localId}` : `p:${r.customerProfileId}`;
       if (!porDono.has(chave)) porDono.set(chave, { alvo, row: r });
     }
     const donos = [...porDono.values()];
-    const semDados = [...semDadosMap].map(([id, nome]) => ({ id, nome }));
-    const curaveis = donos.map((d) => ({ id: d.row.customerProfileId, nome: nomeDe(d.row) }));
+    const semDados = [...semDadosMap.values()];
+    const curaveis = donos.map((d) => ({ id: d.row.customerProfileId, nome: nomeDe(d.row), problema: 'Sem localização' }));
 
     if (input.executar !== true) {
       return { alvos: donos.length, curaveis, semDados, curados: 0, naoEncontrado: [], processados: 0, restantes: donos.length };
@@ -365,23 +369,23 @@ export class LogisticaConferenciaService implements OnModuleInit {
     const fim = Date.now() + 15000;
     let curados = 0;
     let processados = 0;
-    const naoEncontrado: Array<{ id: string; nome: string }> = [];
+    const naoEncontrado: ClienteSanitizador[] = [];
+    const recusa = (dono: { row: ParadaConferenciaRow }, problema: string): void => {
+      naoEncontrado.push({ id: dono.row.customerProfileId, nome: nomeDe(dono.row), problema });
+    };
     for (const dono of donos) {
       if (processados >= LOTE || Date.now() >= fim) break;
       processados += 1;
-      const pino = await resolverCnefe({
-        cep: dono.alvo.cep,
-        numero: dono.alvo.numero,
-        endereco: dono.alvo.endereco,
-        uf: dono.alvo.uf,
-      });
-      if (!pino) {
-        naoEncontrado.push({ id: dono.row.customerProfileId, nome: nomeDe(dono.row) });
+      const cura = await resolverCuraCnefe(dono.alvo);
+      if (!cura) {
+        recusa(dono, 'Endereço não achado na base');
         continue;
       }
-      const gravou = await this.gravarPinoCnefe(companyId, dono.alvo, dono.row, pino);
+      const gravou = await this.gravarCuraCnefe(companyId, dono.alvo, dono.row, cura);
       if (gravou) curados += 1;
-      else naoEncontrado.push({ id: dono.row.customerProfileId, nome: nomeDe(dono.row) });
+      // CEP descoberto mas porta não provada: o cadastro melhorou (o CEP entrou), a
+      // parada NÃO curou — e a lista diz exatamente isso, sem fingir sucesso.
+      else recusa(dono, cura.cepDescoberto ? 'CEP achado, número não' : 'Endereço não achado na base');
     }
     this.logger.log(
       `[logistica] sanitizador company=${companyId}: ${curados} curado(s) de ${processados} processado(s), ${donos.length - processados} na fila.`,
@@ -524,39 +528,114 @@ const CNEFE_CURA_TETO = 150;
 
 export interface AlvoCuraCnefe {
   tipo: 'local' | 'perfil';
-  cep: string;
+  /** null = cadastro SEM CEP, mas com rua+cidade+UF: o CEP se descobre pelo endereço
+   *  (ViaCEP busca por rua) antes de entrar no CNEFE — ver `resolverCuraCnefe`. */
+  cep: string | null;
   numero: number;
   endereco: string | null;
+  cidade: string | null;
   uf: string | null;
 }
 
 /**
- * A parada é elegível pra cura CNEFE? Só quando NENHUMA fonte tem coordenada válida
- * (é o `sem_pino` de logo adiante) E o dono do endereço tem CEP + número de porta.
- * Dono = LOCAL quando ele existe com endereço útil (a porta é do local — pós-multilocal
- * o endereço mora lá), senão o PERFIL. Nunca mistura campos das duas fontes (mesma lei
- * de logistica-geo-fonte.util.ts).
+ * A parada é elegível pra cura? Só quando NENHUMA fonte tem coordenada válida (é o
+ * `sem_pino` de logo adiante) E o dono do endereço dá pra localizar: número de porta
+ * MAIS (CEP) ou (rua + cidade + UF). Dono = LOCAL quando ele existe (a porta é dele —
+ * pós-multilocal o endereço mora lá), senão o PERFIL. Nunca mistura campos das duas
+ * fontes (mesma lei de logistica-geo-fonte.util.ts).
+ *
+ * 27/07 (ordem do dono, "sanitização funcional") — o 2º caminho é o que faltava:
+ * cliente com endereço PERFEITO e sem CEP caía em "Sem CEP e número" e ficava vermelho
+ * pra sempre. CEP não é o dado, é um atalho pro dado; faltando ele, procura-se a rua.
  */
 export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
   if (coord.lat != null && coord.lng != null) return null;
-  // 27/07 (incidente company 48) — o alvo é QUEM TEM CEP+número: local primeiro
+  // 27/07 (incidente company 48) — o alvo é QUEM DÁ PRA LOCALIZAR: local primeiro
   // (a porta é dele), senão o PERFIL. Antes, local com endereço mas SEM CEP
   // travava a cura mesmo com o perfil completinho do lado (28 sem_pino no dia e
-  // só 2 candidatos). Fonte segue INTEIRA: cep/número/endereço/UF sempre do
+  // só 2 candidatos). Fonte segue INTEIRA: cep/número/endereço/cidade/UF sempre do
   // mesmo dono, e o pino é gravado nesse mesmo dono — zero Frankenstein.
   const candidatos: Array<{ tipo: 'local' | 'perfil'; cad: ParadaConferenciaRow['local'] | ParadaConferenciaRow['customerProfile'] }> = [
     ...(r.local && r.localId ? [{ tipo: 'local' as const, cad: r.local }] : []),
     ...(r.customerProfile ? [{ tipo: 'perfil' as const, cad: r.customerProfile }] : []),
   ];
+  const monta = (tipo: 'local' | 'perfil', cad: NonNullable<typeof candidatos[number]['cad']>, cep: string | null, numero: number): AlvoCuraCnefe => ({
+    tipo, cep, numero, endereco: cad.endereco ?? null, cidade: cad.cidade ?? null, uf: cad.uf ?? null,
+  });
+  // 1ª passada: quem TEM CEP (caminho direto e mais barato — zero rede externa).
   for (const { tipo, cad } of candidatos) {
     if (!cad) continue;
     const cep = normalizarCep(cad.cep);
     const numero = extrairNumeroPorta(cad);
     if (!cep || !numero) continue;
-    return { tipo, cep, numero, endereco: cad.endereco ?? null, uf: cad.uf ?? null };
+    return monta(tipo, cad, cep, numero);
+  }
+  // 2ª passada: sem CEP em lugar nenhum, mas com endereço completo o bastante pra
+  // achar a rua (rua + cidade + UF de 2 letras + número da porta).
+  for (const { tipo, cad } of candidatos) {
+    if (!cad) continue;
+    const numero = extrairNumeroPorta(cad);
+    if (!numero) continue;
+    if (logradouroDoCadastro(cad.endereco).length < 3) continue;
+    if (String(cad.cidade ?? '').trim().length < 3) continue;
+    if (!/^[A-Za-z]{2}$/.test(String(cad.uf ?? '').trim())) continue;
+    return monta(tipo, cad, null, numero);
   }
   return null;
+}
+
+/** O que a cura conseguiu apurar sobre um alvo. `pino` null com `cepDescoberto`
+ *  preenchido = achou o CEP da rua mas o CNEFE não provou a porta: grava o CEP
+ *  (o furo do cadastro some) e a parada segue pendente, sem mentir que curou. */
+export interface CuraCnefeResultado {
+  pino: CnefePino | null;
+  cepDescoberto: string | null;
+}
+
+/**
+ * Resolve o pino do alvo. Com CEP é o caminho de sempre (CNEFE direto). SEM CEP,
+ * descobre o(s) CEP(s) da rua no ViaCEP (fail-closed: cidade e via provadas) e tenta
+ * cada um no CNEFE — quem casa o NÚMERO da casa vence. É o CNEFE, não o ViaCEP, que
+ * decide o pino; o ViaCEP só diz "esta rua tem estes CEPs".
+ */
+export async function resolverCuraCnefe(
+  alvo: AlvoCuraCnefe,
+  opts?: { queryTimeoutMs?: number },
+): Promise<CuraCnefeResultado | null> {
+  const base = { numero: alvo.numero, endereco: alvo.endereco, uf: alvo.uf };
+  if (alvo.cep) {
+    const pino = await resolverCnefe({ ...base, cep: alvo.cep }, opts);
+    return pino ? { pino, cepDescoberto: null } : null;
+  }
+  const ruas = await descobrirCepsPorEndereco({ endereco: alvo.endereco, cidade: alvo.cidade, uf: alvo.uf });
+  if (!ruas.length) return null;
+  for (const rua of ruas) {
+    const pino = await resolverCnefe({ ...base, cep: rua.cep }, opts);
+    if (pino) return { pino, cepDescoberto: rua.cep };
+  }
+  // Nenhum CEP achou a porta. Se a rua é ÚNICA (um CEP só, cidade e via provadas), o
+  // CEP dela é FATO — vale gravar: o cadastro para de nascer capenga e a checagem
+  // CEP × endereço passa a ter o que conferir. Rua com vários trechos, não: sem a
+  // porta não dá pra saber qual trecho é o dela, e CEP errado é pior que vazio.
+  return ruas.length === 1 ? { pino: null, cepDescoberto: ruas[0].cep } : null;
+}
+
+/**
+ * A frase do sanitizador pra quem NÃO dá pra localizar — o CAMPO que falta, na ordem
+ * em que se resolve. Antes o app carimbava "Sem CEP e número" na lista inteira, o que
+ * era mentira pra cliente com endereço perfeito e sem CEP (o caso que abriu esta
+ * mudança). Diagnóstico olha as DUAS fontes: aqui não se grava nada, só se diz ao dono
+ * o que digitar.
+ */
+export function problemaDoCadastro(r: ParadaConferenciaRow): string {
+  const cadastros = [r.localId ? r.local : null, r.customerProfile].filter(
+    (c): c is NonNullable<ParadaConferenciaRow['customerProfile']> => !!c,
+  );
+  if (!cadastros.some((c) => extrairNumeroPorta(c) != null)) return 'Falta o número da casa';
+  if (!cadastros.some((c) => logradouroDoCadastro(c.endereco).length >= 3)) return 'Falta a rua';
+  if (!cadastros.some((c) => String(c.cidade ?? '').trim().length >= 3)) return 'Falta a cidade';
+  return 'Falta o estado (UF)';
 }
 
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
@@ -666,6 +745,13 @@ interface ParadaConferenciaRow {
   customerProfile:
     | ({ name: string | null; lat: number | null; lng: number | null; geoFonte: string | null } & EnderecoCadastrado)
     | null;
+}
+
+/** Linha do sanitizador no app: cliente + o problema JÁ em português. */
+export interface ClienteSanitizador {
+  id: string;
+  nome: string;
+  problema: string;
 }
 
 interface UltimaEntregaConcluidaRow {
