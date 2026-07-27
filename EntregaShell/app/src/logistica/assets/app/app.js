@@ -2541,15 +2541,12 @@
       void beginManagedRoute();
       return;
     }
-    state.daySelection = state.daySelection.includes(day)
-      ? state.daySelection.filter(value => value !== day)
-      : [...state.daySelection, day].sort((a, b) => a - b);
-    // O toque precisa responder na hora. A lista pode carregar depois, mas o
-    // chip selecionado nao pode parecer travado enquanto aguarda a API.
-    state.dayPreviewLoading = true;
-    state.dayPreviewError = null;
+    // 27/07 (dono, 2ª cobrança) — SEM tela de prévia: o primeiro toque num dia
+    // JÁ monta a rota daquele dia nesta mesma tela (a conferência renderiza no
+    // lugar; dias seguintes caem no ramo de ADICIONAR acima).
+    state.daySelection = [...new Set([...state.daySelection, day])].sort((a, b) => a - b);
     render();
-    void refreshDayPreview();
+    void beginManagedRoute();
   }
   function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "", precoAcordado: "" }; }
   function resetClientProductEditor() {
@@ -4878,24 +4875,16 @@
           : `${custoPreviewBanner(rc)}<div class="list conferencia-lista">${rows || empty("Sem paradas", "")}</div>`;
       footer = `<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data || pendentes.length > 0 ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
     } else {
-      subtitle = "Toque nos dias para adicionar";
-      const preview = state.dayPreview || [];
-      const enteringIds = new Set(state.dayPreviewEnteringIds || []); const leavingIds = new Set(state.dayPreviewLeavingIds || []);
-      const previewList = preview.length ? `<div class="list day-preview-list">${preview.map(client => {
-        const key = dayPreviewKey(client);
-        const missingLocation = !dayPreviewCoordinates(client);
-        return `<div class="row-card rp2-client-card${missingLocation ? " day-preview-location-invalid" : ""}${enteringIds.has(key) ? " day-preview-entering" : ""}${leavingIds.has(key) ? " day-preview-leaving" : ""}" data-day-preview="${H.escape(String(client.nome || "").toLowerCase())}"><div class="avatar">${H.escape(initials(client.nome))}</div><div class="card-main"><strong>${H.escape(client.nome || "Cliente")}${client.localApelido ? ` · ${H.escape(client.localApelido)}` : ""}</strong><span>${H.escape((client.itens || []).map(item => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens")}</span>${routeConstraintChips(client)}</div>${missingLocation ? `<b class="day-preview-location-warning">GPS</b>` : ""}</div>`;
-      }).join("")}</div>` : "";
-      const previewStatus = state.dayPreviewError ? `<div class="empty"><strong>Não foi possível carregar</strong>${H.escape(state.dayPreviewError)}</div>` : state.daySelection.length === 0 ? `<div class="empty">Toque num dia lá em cima para começar.</div>` : previewList || (state.dayPreviewLoading ? `<div class="empty">Carregando clientes…</div>` : `<div class="empty">Nenhum cliente nos dias escolhidos.</div>`);
-      // Se a lista já está visível, ela é uma prévia válida mesmo que uma
-      // atualização visual ainda esteja encerrando em segundo plano.
-      const previewReady = !state.dayPreviewLoading || preview.length > 0 || !!state.dayPreviewError;
-      const summaryHtml = state.daySelection.length ? `<div class="rp2-summary"><b>${preview.length}</b><span>${preview.length === 1 ? "parada" : "paradas"} em ${state.daySelection.length} ${state.daySelection.length === 1 ? "dia" : "dias"}</span></div>` : "";
+      // 27/07 (dono, 2ª cobrança): NÃO existe tela de prévia — tocar no dia JÁ
+      // monta (toggleManagedRouteDay chama beginManagedRoute na hora) e esta
+      // mesma tela vira a rota montada. Antes de montar: só "Rotas salvas" e a
+      // dica de tocar no dia.
+      subtitle = "Toque num dia para montar";
       const modelos = state.routeModelos || [];
       const savedHint = state.routeModelosLoading ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
       const salvasRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-saved" ${state.routeModelosLoading ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>Rotas salvas</strong><span>${H.escape(savedHint)}</span></span><span class="rp2-mode-chev">›</span></button>`;
-      corpo = `${salvasRow}${summaryHtml}<label class="rp2-search"><span class="rp2-search-icon">${icon("search", 16)}</span><input id="day-preview-search" class="day-search" placeholder="Buscar cliente" aria-label="Buscar cliente na prévia"></label>${previewStatus}${previewList && state.dayPreviewLoading ? `<p class="day-preview-updating">Atualizando…</p>` : ""}`;
-      footer = `<div class="rp2-footer"><button class="btn btn-primary btn-block rp2-cta" data-action="montar-rota-agora" ${state.daySelection.length && previewReady && !state.dayStarting ? "" : "disabled"}>Montar rota ›</button></div>`;
+      corpo = `${salvasRow}${state.dayStarting ? loading() : empty("Toque num dia lá em cima", "O dia inteiro entra na rota na hora.")}`;
+      footer = "";
     }
     // R2 — o "+" da rota rápida só faz sentido com rota montada (a parada nasce
     // avulsa DENTRO da rota em conferência).
@@ -6846,9 +6835,8 @@
       await openLeituraAtiva();
       return;
     }
-    // 26/07 (dono, fusão final) — "Montar rota" gera DIRETO com a sequência
-    // automática; quem quer outra ordem mexe nas setas DENTRO da Conferência.
-    if (action === "montar-rota-agora") { state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; await beginManagedRoute(); return; }
+    // 27/07 (dono, 2ª cobrança) — "montar-rota-agora" morreu: o toque no CHIP do
+    // dia já monta (toggleManagedRouteDay → beginManagedRoute), sem CTA no meio.
     // R1 (27/07) — Voltar das Rotas salvas cai de novo na tela única.
     if (action === "back-route-order") { state.dayOrderStep = null; render(); return; }
     if (action === "apply-route-modelo") {
