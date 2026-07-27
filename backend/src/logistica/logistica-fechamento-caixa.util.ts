@@ -57,7 +57,12 @@ export async function encerrarDiasAnteriores(
   // Eventos do extrato SÓ depois do commit (contrato do evento.util): erro de
   // INSERT dentro da tx abortaria o fechamento inteiro no Postgres, e o
   // fechamento roda no caminho crítico de TODA montagem de rota.
-  const fechamento = await prisma.$transaction(async (tx: any) => {
+  //
+  // 27/07, lição do incidente cobrancaStatus:null — `tx` SEM anotação `any`:
+  // o tipo inferido do $transaction deixa o compilador validar cada WHERE
+  // contra o schema (null em campo não-nullable vira erro de BUILD, não 400
+  // em produção na cara do motorista).
+  const fechamento = await prisma.$transaction(async (tx) => {
     const rotasEncerradas = await tx.logisticaRoute.updateMany({
       where: {
         companyId,
