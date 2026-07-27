@@ -887,6 +887,13 @@ export class LogisticaRotaService {
         ...(entregadorId ? { entregadorId } : {}),
         ...(deliveryIds?.length ? { id: { in: deliveryIds } } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+        // 🔴 27/07 — CLIENTE QUE SAIU DO CADASTRO NÃO ENTRA NA ROTA. A Agenda já
+        // não MATERIALIZA visita de perfil deleted, mas a entrega que já existia
+        // continuava passando por aqui: no teste em campo a rota de SEGUNDA veio
+        // com "Francine / Edila (?)" e "Elaine" — nomes que o dono não acha em
+        // Clientes. Este é o funil por onde TODA rota passa (planejar/iniciar/
+        // conferir), então é aqui que a régua tem que valer.
+        customerProfile: { status: 'active', isCliente: true },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },
       orderBy: [{ rotaOrdem: 'asc' }, { scheduledAt: 'asc' }, { createdAt: 'asc' }],

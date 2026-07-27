@@ -309,6 +309,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "rota", "iniciar"),
             listOf("logistica", "rota", "encerrar"),
             listOf("logistica", "rota", "limpar-dia"),
+            // 27/07 — a saída de quem NÃO ACEITOU a montagem (fechar o
+            // Gerenciador, "Cancelar rota"): desfaz a ocorrência e devolve o dia
+            // pro cliente. Sem esta linha o app barra a chamada AQUI, antes de
+            // sair do aparelho, e a rota fica de pé como se nada tivesse sido
+            // cancelado — foi o que aconteceu no 1º teste em campo.
+            listOf("logistica", "rota", "descartar-montagem"),
             listOf("logistica", "rota-modelos"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "entregas"),

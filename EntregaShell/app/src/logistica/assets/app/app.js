@@ -5661,7 +5661,7 @@
   async function desfazerRotaMontada() {
     if (state.desfazendoRota) return;
     state.desfazendoRota = true;
-    try { await performEncerrarRota("Rota desfeita antes da confirmação.", { descartar: true, mensagemToast: "Rota desfeita. Os dias voltaram pra agenda." }); }
+    try { await performEncerrarRota("Rota desfeita antes da confirmação.", { descartar: true, mensagemToast: "Rota desfeita." }); }
     finally { state.desfazendoRota = false; }
   }
   // Ponto único chamado depois de TODO caminho que só PLANEJA (nunca inicia) —
@@ -6284,10 +6284,8 @@
       // Quando vai salvar a ordem, saveTodayRoute dá o toast final (silencioso,
       // pra não empilhar som em cima do route_stop). Senão, resumo do encerrar.
       if (opts.saveRoute && snapshot) await saveTodayRoute(snapshot);
-      // O descarte fala a língua dele: "o dia voltou pra quem é dele" é o que
-      // importa pra quem só olhou e fechou (o resumo de entregues/pendentes é
-      // do encerrar de verdade e aqui seria sempre zero).
-      else if (opts.descartar) toast(opts.mensagemToast || "Rota desfeita. Os dias voltaram pra agenda.");
+      // Resumo de entregues/pendentes é do encerrar de verdade — aqui seria zero.
+      else if (opts.descartar) toast(opts.mensagemToast || "Rota desfeita.");
       else toast(opts.mensagemToast || `Rota encerrada. ${Number(resumo.entregues || 0)} entregues preservadas, ${Number(resumo.pendentes || 0)} pendentes.`, false, { mudo: isRealRouteStop });
     } catch (error) {
       toast(humanApiError(error), true);
@@ -6794,8 +6792,7 @@
         await closeOverlay("modal");
         state.rotaConferencia = null;
       }
-      // "Cancelar rota" é a MESMA saída de quem não aceitou (só que pelo botão,
-      // não pelo ×): descarta a montagem e devolve os dias — ver descartar.
+      // Cancelar = a saída de quem não aceitou: descarta e devolve os dias.
       if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", { descartar: true });
       if (confirmation.type === "finish-route") await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true });
       if (confirmation.type === "limpar-dia") await performLimparDia();
@@ -6894,7 +6891,9 @@
     // terceiro botão. O Limpar o dia continua no satélite próprio da tela Rota.
     // R3 (27/07) — o que o dono pediu VISÍVEL: cancelar não queima os créditos do
     // dia (claim por dia — montar de novo não cobra de novo). Sem frase técnica.
-    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar?", message: "Tem certeza? Os créditos de hoje continuam valendo — montar de novo não cobra de novo.", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
+    // 27/07 (dono): o popup fica, a ESCRITA sai. A pergunta é o título; o resto
+    // era frase minha explicando crédito. Título + Sim/Não, nada mais.
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
     // 22/07 — popup enxuto: texto de 1 linha e o "salvar rota" virou botão DESTE
     // mesmo popup (extraAction, sem segundo popup). "Salvar" só aparece quando há
     // ≥2 paradas com cliente pra formar uma rota.
