@@ -6,11 +6,9 @@
 > Depois disso, na madrugada de 28/07, entraram e foram publicadas 3 coisas —
 > ver "O que entrou na madrugada de 28/07" logo abaixo.
 >
-> **🔴 PRÓXIMA FRENTE, NÃO INICIADA: a PÁGINA DE LOGÍSTICA NO WEBSITE.**
-> É o que você pediu em 28/07 e o que sobrou do roadmap desta frente. Material
-> pronto pra usar: os 3 slogans, a tabela de preço 99/199/299, a conta de venda
-> "1 galão ≈ R$ 13 → o Advanced se paga com ~13 fiados recuperados/mês" e o link
-> público de rastreamento como demo viva. Nada disso foi tocado.
+> **✅ PÁGINA DE LOGÍSTICA NO WEBSITE — FEITA (28/07, commit `6cb79ce7`), aguardando
+> `npm run publish`.** Era a última peça da frente. Detalhe na seção "A página do
+> site" no fim deste arquivo.
 >
 > Incidentes desta frente: [[tx-any-engole-erro-prisma]] e
 > [[guerra-de-sessoes-paralelas-add-a]].
@@ -261,6 +259,48 @@ publicado 27/07 17:46) + falta de empacotamento comercial.
 ## Decisões ainda abertas (dono)
 - Preço final dos 3 níveis e nome público (sugestão: Rota Basic / Rota Advanced / Rota Full).
 - Taxa de implantação com importação assistida: valor (referência R$ 99-299).
+
+## A página do site (28/07, commit `6cb79ce7` — LOCAL, publish não pedido)
+
+`/rota` — pública, sem login, na casca da landing (`.public-entry`). A rota
+`/logistica` é o app do tenant, por isso a vitrine é `/rota`, o mesmo nome
+comercial dos planos.
+
+**A escada é a página.** Clicar Basic/Advanced/Full troca ao mesmo tempo: preço,
+franquia, slogan, a conta de venda, a lista de recursos e a tela do celular. O
+que o nível não tem aparece TRAVADO com o selo "Disponível no Advanced/Full" —
+o mesmo ver-mas-não-usar que roda dentro do app (F1 item 3), agora como motor de
+upgrade também na venda.
+
+**Preço não é texto fixo** (foi a decisão de engenharia da entrega): a página lê
+`GET /public/logistica/planos`, que serve o MESMO catálogo que o Master edita
+(Créditos → guia **Rota**). Mudou lá, muda no site — sem isso a página passaria a
+mentir no dia em que o preço mudasse, e ninguém avisaria. Sem API no ar, cai no
+catálogo de fábrica (99/199/299) e a página nunca aparece sem preço.
+Mesma ideia na conta de venda: `1 galão ≈ R$ 13` → "recuperou N fiados esquecidos
+no mês? já se pagou", com N recalculado em cima do preço vivo (Advanced 199 → 16).
+
+**Portas de entrada:** botão "Rota" no cabeçalho da landing e "Ver planos e
+preços" no card do app Android.
+
+**Demo do rastreamento:** a tela do celular no nível Full é a réplica fiel da
+página `/acompanhar/<token>` (mesmos passos, ETA, "3 de 9 paradas"), com nomes
+fictícios. **Não é um link real** — link vivo exige uma entrega real de um cliente
+real e isso não vai numa página pública. Se você quiser um link vivo de demo,
+gere um numa empresa sandbox e eu ligo na página.
+
+**Conferido:** Chrome 1366×768 sem scroll vertical (regra do FRONTEND.md), 768 e
+375 sem overflow horizontal, claro e escuro, nos 3 níveis; `next build` verde com
+`/rota` estática; 16/16 testes do catálogo de níveis (3 novos pra vitrine).
+
+**Brinde:** o botão de tema abria o pop-up "Ops, algo deu errado" em TODA página
+pública (reproduzido no `/tutorialexterno`, intocado) — as promessas
+`ready`/`updateCallbackDone` da view transition rejeitam quando o navegador aborta
+o cross-fade e ninguém dava `catch`. Corrigido em `theme-attributes.tsx`.
+
+**O que a página NÃO faz (decisão sua):** não tem checkout. O botão principal é
+"Falar com a gente" (WhatsApp) + "Criar minha conta" — coerente com a pendência
+aberta de os 3 níveis virarem ou não família de plano no catálogo comercial.
 
 ## Regras que este plano obedece
 - Entregar LIGADO (26/07): cada frente sai funcionando, sem chavinha morta.
